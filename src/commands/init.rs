@@ -12,6 +12,7 @@ use crate::project::{
     ProjectState,
 };
 use crate::registry::{self, Registry};
+use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
 
 /// The model `--models default` enables.
@@ -71,6 +72,15 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // their host port against the allocator.
     let stale = remove_stale_overlays(&dir, &selection);
 
+    // `.env` is operator-owned state - the database password, the API token,
+    // the registration key, the image pins - so `init` decides its fate before
+    // it writes anything. Rewriting it under a postgres volume that still
+    // holds the old role password leaves chap-core looping on a failed
+    // authentication, which is why even `--force` keeps the file.
+    let env_path = dir.join(ENV_FILE);
+    let env_exists = env_path.is_file();
+    let env = env_action(env_exists, args.fresh_env, args.no_env);
+
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
     let mut written = Vec::new();
@@ -85,10 +95,16 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     .map_err(|e| anyhow::anyhow!("writing {}: {e}", base.display()))?;
     written.push(base);
 
-    if !args.no_env {
-        let env = dir.join(ENV_FILE);
+    if env == EnvAction::Written {
+        if env_exists {
+            crate::output::warn(
+                "--fresh-env rewrote .env with a new POSTGRES_PASSWORD; a database volume \
+                 from an earlier `chaps up` still holds the old one - drop it with \
+                 `chaps docker run -- down -v` or change the role with ALTER USER",
+            );
+        }
         std::fs::write(
-            &env,
+            &env_path,
             render_env(&EnvSpec {
                 postgres_user: POSTGRES_USER.to_string(),
                 postgres_password: random_password()?,
@@ -99,8 +115,8 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
                 cli_version: ctx.cli_version.to_string(),
             }),
         )
-        .map_err(|e| anyhow::anyhow!("writing {}: {e}", env.display()))?;
-        written.push(env);
+        .map_err(|e| anyhow::anyhow!("writing {}: {e}", env_path.display()))?;
+        written.push(env_path.clone());
     }
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
@@ -114,14 +130,45 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // wrote; the summary lists each file once.
     let mut seen = std::collections::BTreeSet::new();
     written.retain(|path| seen.insert(path.clone()));
+    // apply() may have appended a pin comment to a `.env` this run did not
+    // write; a kept file is reported as kept, not as one of init's writes.
+    if env != EnvAction::Written {
+        written.retain(|path| path != &env_path);
+    }
 
     let value = serde_json::json!({
         "dir": dir,
         "written": written,
+        "env": env,
         "report": report,
     });
     ctx.out
-        .emit(&value, || summary(&dir, &written, &report, &registry))
+        .emit(&value, || summary(&dir, &written, &report, &registry, env))
+}
+
+/// What `init` did with `DIR/.env`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum EnvAction {
+    /// A freshly rendered file, with a new database password.
+    Written,
+    /// The file that was already there, byte for byte.
+    Kept,
+    /// No `.env` at all (`--no-env`).
+    Skipped,
+}
+
+/// Decide what to do with `DIR/.env`.
+///
+/// `--force` is deliberately not an input: it re-renders the compose files and
+/// the state, but the credentials in `.env` outlive it. Only `--fresh-env`
+/// replaces a file that is already there.
+fn env_action(exists: bool, fresh_env: bool, no_env: bool) -> EnvAction {
+    match (no_env, exists, fresh_env) {
+        (true, _, _) => EnvAction::Skipped,
+        (false, true, false) => EnvAction::Kept,
+        (false, _, _) => EnvAction::Written,
+    }
 }
 
 /// Expand `--models` into a selection.
@@ -209,13 +256,22 @@ fn random_password() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn summary(dir: &Path, written: &[PathBuf], report: &ApplyReport, registry: &Registry) -> String {
+fn summary(
+    dir: &Path,
+    written: &[PathBuf],
+    report: &ApplyReport,
+    registry: &Registry,
+    env: EnvAction,
+) -> String {
     let mut out = format!(
         "Initialized a chaps project in {}\n\nWrote:\n",
         dir.display()
     );
     for path in written {
         out.push_str(&format!("  {}\n", file_label(dir, path)));
+    }
+    if env == EnvAction::Kept {
+        out.push_str("\nkept .env (already present)\n");
     }
 
     if report.enabled.is_empty() {
@@ -301,6 +357,34 @@ mod tests {
             resolve_dir(Path::new("/tmp/chapx")).unwrap(),
             PathBuf::from("/tmp/chapx")
         );
+    }
+
+    #[test]
+    fn an_existing_env_is_kept_whatever_force_says() {
+        // --force is not an input at all: the only thing that replaces a file
+        // that is already there is --fresh-env.
+        assert_eq!(env_action(true, false, false), EnvAction::Kept);
+        assert_eq!(env_action(true, true, false), EnvAction::Written);
+    }
+
+    #[test]
+    fn a_missing_env_is_written() {
+        assert_eq!(env_action(false, false, false), EnvAction::Written);
+        assert_eq!(env_action(false, true, false), EnvAction::Written);
+    }
+
+    #[test]
+    fn no_env_skips_the_file_either_way() {
+        assert_eq!(env_action(false, false, true), EnvAction::Skipped);
+        assert_eq!(env_action(true, false, true), EnvAction::Skipped);
+    }
+
+    #[test]
+    fn the_env_action_serializes_lowercase() {
+        let json = |a: EnvAction| serde_json::to_string(&a).unwrap();
+        assert_eq!(json(EnvAction::Written), "\"written\"");
+        assert_eq!(json(EnvAction::Kept), "\"kept\"");
+        assert_eq!(json(EnvAction::Skipped), "\"skipped\"");
     }
 
     #[test]

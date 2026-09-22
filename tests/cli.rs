@@ -56,6 +56,13 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
+/// The `POSTGRES_PASSWORD=` line of a generated `.env`.
+fn password_line(env: &str) -> &str {
+    env.lines()
+        .find(|l| l.starts_with("POSTGRES_PASSWORD="))
+        .expect("a password line")
+}
+
 fn yaml(path: &Path) -> Yaml {
     serde_yaml_ng::from_str(&read(path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
@@ -350,6 +357,7 @@ fn json_output_parses_for_init_and_enable() {
     }
     assert_eq!(value["report"]["enabled"][0][0], "chapkit_ewars_model");
     assert_eq!(value["report"]["enabled"][0][1]["host_port"], 5001);
+    assert_eq!(value["env"], "written");
 
     let out = sandbox
         .models(&["enable", "auto_arima_chapkit", "--json"])
@@ -413,6 +421,99 @@ fn a_second_init_needs_force() {
         state(&dir)["models"]["auto_arima_chapkit"]["host_port"],
         5001
     );
+}
+
+#[test]
+fn force_keeps_the_env_file_it_found() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let before = read(&dir.join(".env"));
+
+    // .env holds the database password the postgres volume was created with,
+    // the API token and the registration key: --force re-renders everything
+    // else, but rewriting this file locks the operator out of their own data.
+    sandbox
+        .init(&["--models", "none", "--force"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("kept .env (already present)"));
+
+    let after = read(&dir.join(".env"));
+    assert_eq!(
+        password_line(&after),
+        password_line(&before),
+        "--force rotated POSTGRES_PASSWORD"
+    );
+    assert_eq!(after, before, "--force rewrote .env");
+
+    // A kept file is reported as kept rather than as one of init's writes.
+    let out = sandbox
+        .init(&["--models", "none", "--force", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: Json = serde_json::from_slice(&out).expect("init --json is JSON");
+    assert_eq!(value["env"], "kept");
+    let written: Vec<&str> = value["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(
+        !written.iter().any(|p| p.ends_with("/.env")),
+        "the kept .env is listed as written: {written:?}"
+    );
+    assert_eq!(read(&dir.join(".env")), before);
+}
+
+#[test]
+fn fresh_env_rewrites_the_env_file_and_warns() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let before = read(&dir.join(".env"));
+
+    let out = sandbox
+        .init(&["--models", "chapkit_ewars_model", "--force", "--fresh-env"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("POSTGRES_PASSWORD"))
+        .stderr(predicates::str::contains("down -v"))
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).expect("utf-8 stdout");
+    assert!(!stdout.contains("kept .env"), "{stdout}");
+
+    let after = read(&dir.join(".env"));
+    assert_ne!(
+        password_line(&after),
+        password_line(&before),
+        "--fresh-env kept the old password"
+    );
+    // The file is a complete render again, pin comment included.
+    assert!(after.contains("# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1"));
+}
+
+#[test]
+fn fresh_env_and_no_env_are_mutually_exclusive() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--fresh-env", "--no-env"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot be used with"));
+    assert!(!sandbox.project().exists());
 }
 
 #[test]

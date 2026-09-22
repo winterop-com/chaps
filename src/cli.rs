@@ -110,6 +110,11 @@ pub struct InitArgs {
     #[arg(long)]
     pub no_env: bool,
 
+    /// Regenerate .env even when the directory already has one, rotating the
+    /// database password. An existing database volume keeps the old one.
+    #[arg(long, conflicts_with = "no_env")]
+    pub fresh_env: bool,
+
     /// Build chap-core from a local checkout instead of the published images.
     /// Not supported yet; passing it is an error.
     #[arg(long, value_name = "PATH")]
@@ -497,8 +502,15 @@ mod tests {
         assert_eq!(args.models, "default");
         assert_eq!(args.chap_tag, "latest");
         assert_eq!(args.port_base, 5001);
-        assert!(!args.force && !args.no_env && !args.interactive);
+        assert!(!args.force && !args.no_env && !args.fresh_env && !args.interactive);
         assert!(args.source.is_none());
+    }
+
+    #[test]
+    fn init_fresh_env_and_no_env_conflict() {
+        assert!(Cli::try_parse_from(["chap", "init", "--fresh-env"]).is_ok());
+        assert!(Cli::try_parse_from(["chap", "init", "--no-env"]).is_ok());
+        assert!(Cli::try_parse_from(["chap", "init", "--fresh-env", "--no-env"]).is_err());
     }
 
     #[test]

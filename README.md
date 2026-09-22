@@ -77,6 +77,7 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
       --port-base PORT              lowest host port for model overlays
       --force                       overwrite an existing project
       --no-env                      do not write .env
+      --fresh-env                   regenerate .env even if one exists
 
   models list             list marketplace models (--all, --templates, --enabled)
   models search QUERY     search id, name and summary
@@ -170,7 +171,7 @@ mychap/
   compose.yml                  base stack, written once by init
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
-  .env                         yours after init; chaps only appends pin comments
+  .env                         written once by init; only pins are appended
 ```
 
 `.chaps/` is the intent. It is what `models enable`, `models disable`, the
@@ -188,10 +189,22 @@ only ever removes overlays it wrote itself (`project.yaml` keeps the list), so
 a hand-written `compose.custom.yml` next to them is left alone; add it to the
 umbrella by hand if you want it included.
 
+`.env` is the one file that is written once and then left alone. `init` writes
+it when the directory has none, and never rewrites it afterwards: a second
+`init` keeps the file it finds, `--force` included, `sync` only appends missing
+pin comments and `update` only moves the pin comments of models it changed.
+That is deliberate - the file holds the database password the PostgreSQL volume
+was created with, plus the API token and the registration key, and a rotated
+password leaves chap-core unable to authenticate against its own data.
+`init --fresh-env` is the explicit override: it renders a new `.env` with a new
+password, so an existing volume has to be dropped with
+`chaps docker run -- down -v` (or the role changed with `ALTER USER`) before
+the stack will start again.
+
 | File | What it is |
 | --- | --- |
 | `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. A copy of chap-core's `compose.ghcr.yml`, so upstream stays the source of truth. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written by `init`; afterwards `sync` appends missing pin comments and `update` moves the pin comments of models it changed. |
+| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written once by `init` and never rewritten by `init`, `sync` or `update`; `sync` appends missing pin comments and `update` moves the pin comments of models it changed. `init --fresh-env` regenerates it on purpose. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
