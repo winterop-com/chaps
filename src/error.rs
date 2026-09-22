@@ -1,4 +1,4 @@
-//! Typed errors for the parts of `chap` where the caller needs to react to the
+//! Typed errors for the parts of `chaps` where the caller needs to react to the
 //! kind of failure, plus the crate-wide [`Result`] alias.
 //!
 //! Everything that is merely context is an [`anyhow::Error`]; only the cases
@@ -9,10 +9,10 @@ use std::path::PathBuf;
 /// Errors that callers are expected to match on.
 #[derive(thiserror::Error, Debug)]
 pub enum ChapError {
-    #[error("{0} is not a chap project (no chap.json); run `chap init` first")]
+    #[error("{0} is not a chaps project (no chaps.json); run `chaps init` first")]
     NotAProject(PathBuf),
 
-    #[error("{0} already contains a chap project; use --force to overwrite")]
+    #[error("{0} already contains a chaps project; use --force to overwrite")]
     AlreadyInitialized(PathBuf),
 
     #[error("unknown model `{0}`")]

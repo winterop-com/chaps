@@ -1,4 +1,4 @@
-//! The `chap` command tree.
+//! The `chaps` command tree.
 //!
 //! Doc comments on the types and fields are the `--help` text. This file and
 //! `main.rs` are complete: the command modules only read the arg structs.
@@ -10,13 +10,13 @@ use std::path::PathBuf;
 /// Generate and manage a docker compose deployment of chap-core plus
 /// marketplace model services.
 #[derive(Debug, Parser)]
-#[command(name = "chap", version, about, long_about = None)]
+#[command(name = "chaps", version, about, long_about = None)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of human output.
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Project directory holding chap.json and the compose files.
+    /// Project directory holding chaps.json and the compose files.
     #[arg(
         short = 'C',
         long,
@@ -44,13 +44,13 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Create a deployment directory: compose files, .env and chap.json.
+    /// Create a deployment directory: compose files, .env and chaps.json.
     Init(InitArgs),
 
     /// Browse and manage marketplace models.
     Models(ModelsArgs),
 
-    /// Open the model browser (alias of `chap models tui`).
+    /// Open the model browser (alias of `chaps models tui`).
     Tui(TuiArgs),
 
     /// Inspect and refresh the marketplace registry.
@@ -78,10 +78,10 @@ pub enum Command {
     Status(StatusArgs),
 }
 
-/// Create a deployment directory: compose files, .env and chap.json.
+/// Create a deployment directory: compose files, .env and chaps.json.
 #[derive(Debug, Clone, Args)]
 pub struct InitArgs {
-    /// Directory to create, resolved against --project-dir.
+    /// Directory to create, resolved against the current working directory.
     #[arg(value_name = "DIR", default_value = ".")]
     pub dir: PathBuf,
 
@@ -133,10 +133,10 @@ pub enum ModelsCmd {
     /// Show everything known about one model.
     Info(ModelsInfoArgs),
 
-    /// Enable a model: write its overlay and record it in chap.json.
+    /// Enable a model: write its overlay and record it in chaps.json.
     Enable(ModelsEnableArgs),
 
-    /// Disable a model: remove its overlay and its chap.json entry.
+    /// Disable a model: remove its overlay and its chaps.json entry.
     Disable(ModelsDisableArgs),
 
     /// Open the model browser.
@@ -175,7 +175,7 @@ pub struct ModelsInfoArgs {
     pub id: String,
 }
 
-/// Enable a model: write its overlay and record it in chap.json.
+/// Enable a model: write its overlay and record it in chaps.json.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsEnableArgs {
     /// Marketplace id or service id.
@@ -207,7 +207,7 @@ pub struct ModelsEnableArgs {
     pub allow_template: bool,
 }
 
-/// Disable a model: remove its overlay and its chap.json entry.
+/// Disable a model: remove its overlay and its chaps.json entry.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsDisableArgs {
     /// Marketplace id or service id.

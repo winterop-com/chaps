@@ -5,15 +5,11 @@ pub mod embedded;
 pub mod fetch;
 pub mod model;
 
-// Re-exports for the modules A, B and C fill in; remove the allow once they land.
-#[allow(unused_imports)]
 pub use model::{
-    AssessedStatus, Attribution, Channel, Channels, Compatibility, Configuration, Covariates, Kind,
-    Marketplace, Model, R_INLA_RUNTIME, RegistryIndex, ReviewPolicy, Source, Version,
-    VersionSelector, VersionStatus,
+    AssessedStatus, Channel, Kind, Model, RegistryIndex, Version, VersionSelector, VersionStatus,
 };
 
-use crate::error::Result;
+use crate::error::{ChapError, Result};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -50,6 +46,42 @@ impl Provenance {
             Provenance::Cache { .. } => "cache",
             Provenance::StaleCache { .. } => "stale cache",
             Provenance::Embedded => "embedded",
+        }
+    }
+
+    /// The label plus the age of the snapshot, where there is one.
+    pub fn describe(&self) -> String {
+        match self {
+            Provenance::Cache { age_secs } | Provenance::StaleCache { age_secs } => format!(
+                "{} ({} old)",
+                self.label(),
+                crate::output::human_age(Duration::from_secs(*age_secs))
+            ),
+            _ => self.label().to_string(),
+        }
+    }
+
+    /// Age of a cache-backed snapshot.
+    #[cfg(test)]
+    pub fn age(&self) -> Option<Duration> {
+        match self {
+            Provenance::Cache { age_secs } | Provenance::StaleCache { age_secs } => {
+                Some(Duration::from_secs(*age_secs))
+            }
+            _ => None,
+        }
+    }
+
+    /// Provenance for a cache entry of the given age.
+    fn for_age(age: Duration) -> Provenance {
+        if age < CACHE_TTL {
+            Provenance::Cache {
+                age_secs: age.as_secs(),
+            }
+        } else {
+            Provenance::StaleCache {
+                age_secs: age.as_secs(),
+            }
         }
     }
 }
@@ -126,6 +158,7 @@ impl Registry {
     }
 
     /// Entries that can actually be deployed, i.e. everything but templates.
+    #[cfg(test)]
     pub fn deployable(&self) -> impl Iterator<Item = &Model> {
         self.models.iter().filter(|m| m.kind == Kind::Model)
     }
@@ -147,20 +180,105 @@ impl Registry {
 
 /// Load the catalogue: fresh cache > network > stale cache > embedded.
 ///
-/// Owned by agent A. Until the fetch and cache layers land this always returns
-/// the embedded snapshot, which keeps the rest of the CLI usable.
+/// A fresh cache short-circuits the network so the common case costs one
+/// directory read. When the cache is cold or stale the network is tried,
+/// unless `opts.offline`, and a successful fetch refreshes the cache. If the
+/// fetch fails the ladder continues downwards — a stale cache, then the
+/// snapshot compiled into the binary — so `chaps` still works on a plane.
+///
+/// Falling back after a failed fetch warns on stderr, because a silently
+/// out-of-date catalogue is how a user ends up pinning a version the
+/// marketplace has already yanked. `--offline` does not warn: the user asked.
 pub fn load(opts: &RegistryOptions) -> Result<Registry> {
-    // TODO(agent A): honour `opts` — fresh cache, then network (unless
-    // `opts.offline`), then stale cache, then embedded.
-    let _ = opts;
-    load_embedded()
+    let cached = cache::read(opts)?;
+
+    if let Some((index, files, age)) = &cached
+        && age < &CACHE_TTL
+        && let Some(registry) = parse_cached(opts, *age, index, files)
+    {
+        return Ok(registry);
+    }
+
+    if opts.offline {
+        if let Some((index, files, age)) = &cached
+            && let Some(registry) = parse_cached(opts, *age, index, files)
+        {
+            return Ok(registry);
+        }
+        return load_embedded();
+    }
+
+    let fetched = match fetch::fetch_registry(opts) {
+        Ok(fetched) => fetched,
+        Err(err) => return fall_back(opts, cached, &err),
+    };
+
+    let (index_yaml, model_files) = fetched;
+    // A registry we cannot cache is still a registry: warn, do not fail.
+    if let Err(err) = cache::write(opts, &index_yaml, &model_files) {
+        crate::output::warn(&format!("could not write the registry cache: {err:#}"));
+    }
+    Registry::parse(&opts.url, Provenance::Network, &index_yaml, &model_files)
 }
 
 /// Force a network refresh and rewrite the cache.
 ///
-/// Owned by agent A.
-pub fn update(_opts: &RegistryOptions) -> Result<Registry> {
-    Err(anyhow::anyhow!("registry update is not implemented yet"))
+/// Unlike [`load`] this has no fallback: the point of `chaps registry update`
+/// is to know whether the refresh worked, so every failure surfaces as
+/// [`ChapError::RegistryUnavailable`].
+pub fn update(opts: &RegistryOptions) -> Result<Registry> {
+    if opts.offline {
+        return Err(ChapError::RegistryUnavailable(
+            "--offline was given, so the registry cannot be refreshed".to_string(),
+        )
+        .into());
+    }
+
+    let (index_yaml, model_files) = fetch::fetch_registry(opts)
+        .map_err(|e| ChapError::RegistryUnavailable(format!("{e:#}")))?;
+    cache::write(opts, &index_yaml, &model_files)?;
+    Registry::parse(&opts.url, Provenance::Network, &index_yaml, &model_files)
+}
+
+/// Parse a cache entry, reporting a corrupt one as "no cache" so the caller
+/// can continue down the ladder instead of failing outright.
+fn parse_cached(
+    opts: &RegistryOptions,
+    age: Duration,
+    index_yaml: &str,
+    model_files: &[(String, String)],
+) -> Option<Registry> {
+    match Registry::parse(&opts.url, Provenance::for_age(age), index_yaml, model_files) {
+        Ok(registry) => Some(registry),
+        Err(err) => {
+            crate::output::warn(&format!("ignoring the registry cache: {err:#}"));
+            None
+        }
+    }
+}
+
+/// The network failed: use the stale cache if there is one, else the embedded
+/// snapshot, and say which and why.
+fn fall_back(
+    opts: &RegistryOptions,
+    cached: Option<cache::CachedSnapshot>,
+    err: &anyhow::Error,
+) -> Result<Registry> {
+    if let Some((index, files, age)) = &cached
+        && let Some(registry) = parse_cached(opts, *age, index, files)
+    {
+        crate::output::warn(&format!(
+            "could not reach {} ({err}); using the cached snapshot from {} ago",
+            opts.url,
+            crate::output::human_age(*age)
+        ));
+        return Ok(registry);
+    }
+    crate::output::warn(&format!(
+        "could not reach {} ({err}); using the snapshot built into this binary",
+        opts.url
+    ));
+    load_embedded()
 }
 
 /// Parse the snapshot compiled into the binary.
@@ -250,6 +368,192 @@ mod tests {
         )
         .expect_err("missing model files are an error");
         assert!(err.to_string().contains("missing"));
+    }
+
+    /// Port 9 is the discard service and is not listening, so every test in
+    /// this module exercises the "network failed" branch without a network.
+    const UNREACHABLE: &str = "http://127.0.0.1:9/registry.yaml";
+
+    fn opts(cache_dir: &std::path::Path, offline: bool) -> RegistryOptions {
+        RegistryOptions {
+            url: UNREACHABLE.to_string(),
+            offline,
+            cache_dir: cache_dir.to_path_buf(),
+            timeout: Duration::from_secs(2),
+        }
+    }
+
+    /// Seed the cache with a one-model catalogue, backdated by `age`.
+    ///
+    /// One model is what makes a cache hit unmistakable: the embedded
+    /// snapshot has six, so a count of one cannot have come from the
+    /// fallback.
+    fn seed_cache(opts: &RegistryOptions, age: Duration) {
+        const INDEX: &str = "\
+schema_version: 2
+marketplace:
+  name: test marketplace
+  description: seeded by the registry tests
+  repository: https://example.test/marketplace
+review_policy:
+  required_approvals: 3
+models:
+  - models/chapkit_ewars_model.yaml
+";
+        let ewars = embedded::model_files()
+            .into_iter()
+            .find(|(name, _)| name == "models/chapkit_ewars_model.yaml")
+            .expect("the snapshot ships ewars");
+        cache::write(opts, INDEX, &[ewars]).unwrap();
+
+        // meta.json is the only record of when the entry was written, so
+        // rewriting it is how a test makes an entry old.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let meta = serde_json::json!({
+            "url": opts.url,
+            "fetched_at_unix": now - age.as_secs(),
+        });
+        std::fs::write(cache::dir_for(opts).join("meta.json"), meta.to_string()).unwrap();
+    }
+
+    #[test]
+    fn offline_without_a_cache_uses_the_embedded_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = load(&opts(tmp.path(), true)).unwrap();
+        assert!(
+            matches!(r.provenance, Provenance::Embedded),
+            "{:?}",
+            r.provenance
+        );
+        assert_eq!(r.models.len(), 6);
+    }
+
+    #[test]
+    fn an_unreachable_registry_without_a_cache_uses_the_embedded_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = load(&opts(tmp.path(), false)).unwrap();
+        assert!(
+            matches!(r.provenance, Provenance::Embedded),
+            "{:?}",
+            r.provenance
+        );
+        assert_eq!(r.models.len(), 6);
+    }
+
+    #[test]
+    fn an_unreachable_registry_falls_back_to_a_stale_cache() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = opts(tmp.path(), false);
+        seed_cache(&opts, CACHE_TTL + Duration::from_secs(3600));
+
+        let r = load(&opts).unwrap();
+        match r.provenance {
+            Provenance::StaleCache { age_secs } => {
+                assert!(age_secs >= CACHE_TTL.as_secs(), "{age_secs}")
+            }
+            other => panic!("expected a stale cache, got {other:?}"),
+        }
+        assert_eq!(r.models.len(), 1, "the seeded cache, not the snapshot");
+        assert_eq!(r.url, UNREACHABLE);
+    }
+
+    #[test]
+    fn a_fresh_cache_is_used_without_touching_the_network() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = opts(tmp.path(), false);
+        seed_cache(&opts, Duration::from_secs(60));
+
+        // The URL is unreachable, so a cache miss would yield six embedded
+        // models; one model proves the cache answered first.
+        let r = load(&opts).unwrap();
+        match r.provenance {
+            Provenance::Cache { age_secs } => assert!((60..600).contains(&age_secs), "{age_secs}"),
+            other => panic!("expected a fresh cache, got {other:?}"),
+        }
+        assert_eq!(r.models.len(), 1);
+        assert_eq!(r.models[0].id, "chapkit_ewars_model");
+    }
+
+    #[test]
+    fn offline_accepts_a_stale_cache() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = opts(tmp.path(), true);
+        seed_cache(&opts, CACHE_TTL + Duration::from_secs(60));
+
+        let r = load(&opts).unwrap();
+        assert!(
+            matches!(r.provenance, Provenance::StaleCache { .. }),
+            "{:?}",
+            r.provenance
+        );
+        assert_eq!(r.models.len(), 1);
+    }
+
+    #[test]
+    fn a_corrupt_cache_does_not_stop_the_ladder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = opts(tmp.path(), true);
+        seed_cache(&opts, Duration::from_secs(60));
+        std::fs::write(
+            cache::dir_for(&opts).join("models/chapkit_ewars_model.yaml"),
+            "schema_version: 2\nnot: a model\n",
+        )
+        .unwrap();
+
+        let r = load(&opts).unwrap();
+        assert!(
+            matches!(r.provenance, Provenance::Embedded),
+            "{:?}",
+            r.provenance
+        );
+    }
+
+    #[test]
+    fn update_fails_loudly_when_the_network_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = update(&opts(tmp.path(), false)).expect_err("nothing is listening");
+        assert!(
+            matches!(
+                err.downcast_ref::<ChapError>(),
+                Some(ChapError::RegistryUnavailable(_))
+            ),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn update_refuses_to_run_offline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = update(&opts(tmp.path(), true)).expect_err("--offline cannot refresh");
+        match err.downcast_ref::<ChapError>() {
+            Some(ChapError::RegistryUnavailable(why)) => {
+                assert!(why.contains("--offline"), "{why}")
+            }
+            other => panic!("wrong error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provenance_describes_its_age() {
+        assert_eq!(Provenance::Network.describe(), "network");
+        assert_eq!(Provenance::Embedded.describe(), "embedded");
+        assert_eq!(
+            Provenance::Cache { age_secs: 7200 }.describe(),
+            "cache (2 hours old)"
+        );
+        assert_eq!(
+            Provenance::StaleCache { age_secs: 172_800 }.describe(),
+            "stale cache (2 days old)"
+        );
+        assert_eq!(
+            Provenance::for_age(CACHE_TTL - Duration::from_secs(1)).label(),
+            "cache"
+        );
+        assert_eq!(Provenance::for_age(CACHE_TTL).label(), "stale cache");
+        assert_eq!(Provenance::Network.age(), None);
     }
 
     #[test]

@@ -5,22 +5,22 @@ use std::path::PathBuf;
 /// Directory holding the cached registry snapshot.
 ///
 /// Resolution order:
-/// 1. `$CHAP_CLI_CACHE_DIR`
-/// 2. `$XDG_CACHE_HOME/chap-cli`
-/// 3. `$HOME/.cache/chap-cli`
+/// 1. `$CHAPS_CACHE_DIR`
+/// 2. `$XDG_CACHE_HOME/chaps`
+/// 3. `$HOME/.cache/chaps`
 /// 4. `./.chap-cache` (last resort, so the CLI still works in a bare container)
 ///
 /// Empty environment variables are treated as unset. The directory is not
 /// created here; writers create it on demand.
 pub fn cache_dir() -> PathBuf {
-    if let Some(dir) = non_empty_env("CHAP_CLI_CACHE_DIR") {
+    if let Some(dir) = non_empty_env("CHAPS_CACHE_DIR") {
         return PathBuf::from(dir);
     }
     if let Some(dir) = non_empty_env("XDG_CACHE_HOME") {
-        return PathBuf::from(dir).join("chap-cli");
+        return PathBuf::from(dir).join("chaps");
     }
     if let Some(home) = non_empty_env("HOME") {
-        return PathBuf::from(home).join(".cache").join("chap-cli");
+        return PathBuf::from(home).join(".cache").join("chaps");
     }
     PathBuf::from(".chap-cache")
 }

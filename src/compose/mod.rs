@@ -6,20 +6,9 @@ pub mod ports;
 pub mod render;
 pub mod spec;
 
-// Re-exports for the modules A, B and C fill in; remove the allow once they land.
-#[allow(unused_imports)]
-pub use apply::{ApplyReport, EnableRequest, Selection, apply, write_umbrella};
-#[allow(unused_imports)]
-pub use overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, ImageOverride, known_override};
-#[allow(unused_imports)]
-pub use ports::PortAllocator;
-#[allow(unused_imports)]
-pub use render::{render_base, render_env, render_overlay, render_umbrella};
-#[allow(unused_imports)]
-pub use spec::{BaseSpec, EnvSpec, OverlaySpec};
+pub use apply::{ApplyReport, EnableRequest, Selection, apply};
+pub use render::{render_base, render_env};
 
-/// Container port every chapkit model service listens on.
-pub const MODEL_CONTAINER_PORT: u16 = 8000;
 /// Platform pinned for services built on the R-INLA runtime.
 pub const AMD64_PLATFORM: &str = "linux/amd64";
 

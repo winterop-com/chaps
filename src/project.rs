@@ -1,4 +1,4 @@
-//! `chap.json` — the state file that describes a generated deployment.
+//! `chaps.json` — the state file that describes a generated deployment.
 
 use crate::error::{ChapError, Result};
 use crate::registry::Channel;
@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// State file name, at the root of a project directory.
-pub const STATE_FILE: &str = "chap.json";
+pub const STATE_FILE: &str = "chaps.json";
 /// Base compose file: chap-core, worker, valkey, postgres.
 pub const BASE_COMPOSE: &str = "compose.yml";
 /// Umbrella file that `include:`s one overlay per enabled model.
@@ -15,16 +15,16 @@ pub const MARKETPLACE_COMPOSE: &str = "compose.marketplace.yml";
 /// Environment file docker compose picks up automatically.
 pub const ENV_FILE: &str = ".env";
 
-/// `chap.json` schema version written by this CLI.
+/// `chaps.json` schema version written by this CLI.
 pub const SCHEMA_VERSION: u32 = 1;
 /// Host port range model overlays are allocated from.
 pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
 
-/// The contents of `chap.json`.
+/// The contents of `chaps.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectState {
     pub schema_version: u32,
-    /// e.g. `chap-cli 0.1.0`.
+    /// e.g. `chaps-cli 0.1.0`.
     pub generated_by: String,
     pub chap_image_tag: String,
     pub registry_url: String,
@@ -39,7 +39,7 @@ impl Default for ProjectState {
     fn default() -> Self {
         ProjectState {
             schema_version: SCHEMA_VERSION,
-            generated_by: format!("chap-cli {}", env!("CARGO_PKG_VERSION")),
+            generated_by: format!("chaps-cli {}", env!("CARGO_PKG_VERSION")),
             chap_image_tag: "latest".to_string(),
             registry_url: crate::registry::DEFAULT_REGISTRY_URL.to_string(),
             compose_files: vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()],
@@ -49,7 +49,7 @@ impl Default for ProjectState {
     }
 }
 
-/// One enabled model, as recorded in `chap.json`.
+/// One enabled model, as recorded in `chaps.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnabledModel {
     /// Compose service name and DNS name.
@@ -79,12 +79,12 @@ pub struct Project {
 }
 
 impl Project {
-    /// Whether `dir` holds a `chap.json`.
+    /// Whether `dir` holds a `chaps.json`.
     pub fn exists(dir: &Path) -> bool {
         dir.join(STATE_FILE).is_file()
     }
 
-    /// Read `dir/chap.json`.
+    /// Read `dir/chaps.json`.
     ///
     /// Errors with [`ChapError::NotAProject`] when the state file is absent.
     pub fn load(dir: &Path) -> Result<Project> {
@@ -99,14 +99,14 @@ impl Project {
             }
         };
         let state: ProjectState = serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("{}: invalid chap.json: {e}", path.display()))?;
+            .map_err(|e| anyhow::anyhow!("{}: invalid chaps.json: {e}", path.display()))?;
         Ok(Project {
             dir: dir.to_path_buf(),
             state,
         })
     }
 
-    /// Write `chap.json` as pretty JSON with a trailing newline.
+    /// Write `chaps.json` as pretty JSON with a trailing newline.
     ///
     /// Written to a temporary file in the same directory and renamed, so a
     /// crash never leaves a half-written state file behind.

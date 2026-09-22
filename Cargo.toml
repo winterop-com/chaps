@@ -1,12 +1,12 @@
 [package]
-name = "chap-cli"
+name = "chaps-cli"
 version = "0.1.0"
 edition = "2024"
 description = "Generate and manage a docker compose deployment of chap-core plus marketplace model services"
 license = "MIT"
 
 [[bin]]
-name = "chap"
+name = "chaps"
 path = "src/main.rs"
 
 [dependencies]

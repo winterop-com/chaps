@@ -1,8 +1,7 @@
-//! `chap` — generate and manage a docker compose deployment of chap-core plus
+//! `chaps` — generate and manage a docker compose deployment of chap-core plus
 //! marketplace model services.
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
-#![allow(dead_code)]
 
 mod cli;
 mod commands;
@@ -76,7 +75,7 @@ fn run_tui(ctx: &Ctx, args: &cli::TuiArgs) -> error::Result<()> {
 }
 
 /// Mirror docker compose's exit code when it is the thing that failed, so
-/// `chap up` is a drop-in for `docker compose up` in scripts.
+/// `chaps up` is a drop-in for `docker compose up` in scripts.
 fn exit_code(err: &anyhow::Error) -> i32 {
     match err.downcast_ref::<ChapError>() {
         Some(ChapError::DockerFailed(code)) if *code != 0 => *code,
