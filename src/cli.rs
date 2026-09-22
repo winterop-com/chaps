@@ -69,17 +69,11 @@ pub enum Command {
     /// Stop the stack (docker compose down).
     Down(DownArgs),
 
-    /// List the stack's containers (docker compose ps).
-    Ps(PsArgs),
-
     /// Show container logs (docker compose logs).
     Logs(LogsArgs),
 
-    /// Pull every image the stack uses (docker compose pull).
-    Pull(PullArgs),
-
-    /// Run an arbitrary docker compose command against the project.
-    Compose(ComposeArgs),
+    /// Talk to Docker directly: containers, images, raw compose commands.
+    Docker(DockerArgs),
 
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
@@ -314,18 +308,6 @@ pub struct DownArgs {
     pub extra: Vec<String>,
 }
 
-/// List the stack's containers (docker compose ps).
-#[derive(Debug, Clone, Args)]
-pub struct PsArgs {
-    /// Extra arguments passed through to docker compose ps.
-    #[arg(
-        value_name = "EXTRA",
-        trailing_var_arg = true,
-        allow_hyphen_values = true
-    )]
-    pub extra: Vec<String>,
-}
-
 /// Show container logs (docker compose logs).
 #[derive(Debug, Clone, Args)]
 pub struct LogsArgs {
@@ -338,13 +320,80 @@ pub struct LogsArgs {
     pub services: Vec<String>,
 }
 
-/// Pull every image the stack uses (docker compose pull).
+/// Talk to Docker directly: containers, images, raw compose commands.
+///
+/// The everyday verbs (`up`, `down`, `logs`) are at the top level; this group
+/// holds the plumbing you only reach for when you already know what Docker is
+/// doing.
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct DockerArgs {
+    #[command(subcommand)]
+    pub command: DockerSub,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DockerSub {
+    /// List the containers this project is running (docker compose ps).
+    Ps(PsArgs),
+
+    /// Download the pinned images into the local Docker daemon (no files change).
+    Pull(PullArgs),
+
+    /// Run a command inside one of the running containers.
+    Exec(ExecArgs),
+
+    /// Run any docker compose command against this project's files.
+    Run(RunArgs),
+
+    /// Print the finished stack: every compose file merged into one document.
+    Config(ConfigArgs),
+}
+
+/// List the containers this project is running (docker compose ps).
+#[derive(Debug, Clone, Args)]
+pub struct PsArgs {
+    /// Extra arguments passed through to docker compose ps.
+    #[arg(
+        value_name = "EXTRA",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    pub extra: Vec<String>,
+}
+
+/// Download the pinned images into the local Docker daemon (no files change).
 #[derive(Debug, Clone, Args)]
 pub struct PullArgs {}
 
-/// Run an arbitrary docker compose command against the project.
+/// Run a command inside one of the running containers.
+///
+/// The container has to be up already; start the stack with `chaps up` first.
+/// Without a CMD you get a shell. When this command's own input is not a
+/// terminal - in a script, or behind a pipe - `-T` is passed to compose so it
+/// does not try to allocate one.
 #[derive(Debug, Clone, Args)]
-pub struct ComposeArgs {
+pub struct ExecArgs {
+    /// Service to run the command in, as named in the compose files.
+    #[arg(value_name = "SERVICE")]
+    pub service: String,
+
+    /// Command and arguments to run; a shell (`sh`) when omitted.
+    #[arg(
+        value_name = "CMD",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    pub cmd: Vec<String>,
+}
+
+/// Run any docker compose command against this project's files.
+///
+/// Everything after `run` is handed to `docker compose` unchanged, behind the
+/// project's `-f` list: `chaps docker run -- restart chap` becomes
+/// `docker compose -f ... -f ... restart chap`.
+#[derive(Debug, Clone, Args)]
+pub struct RunArgs {
     /// Arguments passed to docker compose after the project's -f list.
     #[arg(
         value_name = "ARGS",
@@ -352,6 +401,22 @@ pub struct ComposeArgs {
         allow_hyphen_values = true
     )]
     pub args: Vec<String>,
+}
+
+/// Print the finished stack: every compose file merged into one document.
+///
+/// This is what Docker actually reads after the `-f` list, the `include:` and
+/// the `.env` substitutions have been applied - useful when a setting is not
+/// taking effect. With `--json` the document is printed as JSON.
+#[derive(Debug, Clone, Args)]
+pub struct ConfigArgs {
+    /// Extra arguments passed through to docker compose config.
+    #[arg(
+        value_name = "EXTRA",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    pub extra: Vec<String>,
 }
 
 /// Check chap-core health and which model services have registered.
@@ -367,14 +432,32 @@ pub struct StatusArgs {
 }
 
 /// The docker compose wrappers, as one value for `commands::docker::run`.
+///
+/// Flat on purpose: `up`, `down` and `logs` are top-level commands while the
+/// rest live under `chaps docker`, but all of them build one argument list and
+/// run down the same path.
 #[derive(Debug, Clone)]
 pub enum DockerCmd {
     Up(UpArgs),
     Down(DownArgs),
-    Ps(PsArgs),
     Logs(LogsArgs),
+    Ps(PsArgs),
     Pull(PullArgs),
-    Compose(ComposeArgs),
+    Exec(ExecArgs),
+    Run(RunArgs),
+    Config(ConfigArgs),
+}
+
+impl From<&DockerSub> for DockerCmd {
+    fn from(sub: &DockerSub) -> DockerCmd {
+        match sub {
+            DockerSub::Ps(args) => DockerCmd::Ps(args.clone()),
+            DockerSub::Pull(args) => DockerCmd::Pull(args.clone()),
+            DockerSub::Exec(args) => DockerCmd::Exec(args.clone()),
+            DockerSub::Run(args) => DockerCmd::Run(args.clone()),
+            DockerSub::Config(args) => DockerCmd::Config(args.clone()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -466,14 +549,95 @@ mod tests {
         assert_eq!(args.channel, None);
     }
 
+    /// The `DockerSub` behind `chap docker <argv..>`.
+    fn docker_sub(argv: &[&str]) -> DockerSub {
+        let mut args = vec!["chap", "docker"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Docker(d) = cli.command else {
+            panic!("expected docker");
+        };
+        d.command
+    }
+
     #[test]
-    fn compose_passes_hyphenated_args_through() {
-        let cli =
-            Cli::try_parse_from(["chap", "compose", "config", "--services", "--quiet"]).unwrap();
-        let Command::Compose(args) = cli.command else {
-            panic!("expected compose");
+    fn docker_run_passes_hyphenated_args_through() {
+        let DockerSub::Run(args) = docker_sub(&["run", "config", "--services", "--quiet"]) else {
+            panic!("expected docker run");
         };
         assert_eq!(args.args, vec!["config", "--services", "--quiet"]);
+    }
+
+    #[test]
+    fn docker_needs_a_subcommand() {
+        let err = Cli::try_parse_from(["chap", "docker"]).expect_err("a subcommand is required");
+        // arg_required_else_help prints the whole help, not a one-line error.
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        assert!(err.to_string().contains("exec"));
+    }
+
+    #[test]
+    fn the_old_top_level_docker_commands_are_gone() {
+        for argv in [
+            ["chap", "ps"],
+            ["chap", "pull"],
+            ["chap", "compose"],
+            ["chap", "exec"],
+        ] {
+            assert!(
+                Cli::try_parse_from(argv).is_err(),
+                "{argv:?} must live under `chaps docker` now"
+            );
+        }
+    }
+
+    #[test]
+    fn docker_ps_and_pull_keep_their_shapes() {
+        let DockerSub::Ps(args) = docker_sub(&["ps", "-a"]) else {
+            panic!("expected docker ps");
+        };
+        assert_eq!(args.extra, vec!["-a"]);
+        assert!(matches!(docker_sub(&["pull"]), DockerSub::Pull(_)));
+    }
+
+    #[test]
+    fn docker_exec_takes_a_service_and_an_optional_command() {
+        let DockerSub::Exec(args) = docker_sub(&["exec", "chap"]) else {
+            panic!("expected docker exec");
+        };
+        assert_eq!(args.service, "chap");
+        assert!(
+            args.cmd.is_empty(),
+            "the default command is filled in later"
+        );
+
+        // A hyphenated command reaches the container rather than clap.
+        let DockerSub::Exec(args) = docker_sub(&["exec", "chap", "--", "ls", "-la", "/app"]) else {
+            panic!("expected docker exec");
+        };
+        assert_eq!(args.service, "chap");
+        assert_eq!(args.cmd, vec!["ls", "-la", "/app"]);
+
+        assert!(
+            Cli::try_parse_from(["chap", "docker", "exec"]).is_err(),
+            "the service name is required"
+        );
+    }
+
+    #[test]
+    fn docker_config_takes_extra_arguments() {
+        let DockerSub::Config(args) = docker_sub(&["config"]) else {
+            panic!("expected docker config");
+        };
+        assert!(args.extra.is_empty());
+
+        let DockerSub::Config(args) = docker_sub(&["config", "--", "--services"]) else {
+            panic!("expected docker config");
+        };
+        assert_eq!(args.extra, vec!["--services"]);
     }
 
     #[test]

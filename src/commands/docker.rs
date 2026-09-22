@@ -1,7 +1,10 @@
-//! `chaps up|down|ps|logs|pull|compose` — the docker compose wrappers.
+//! `chaps up|down|logs` and the `chaps docker` group — the docker compose
+//! wrappers.
 //!
-//! `up` syncs the compose files from `.chaps/` first; the others run against
-//! whatever is on disk.
+//! Every one of them builds an argument list and hands it to the same runner,
+//! so they all get the project's explicit `-f` list and the same exit-code
+//! behaviour. `up` syncs the compose files from `.chaps/` first; the others
+//! run against whatever is on disk.
 
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;
@@ -9,6 +12,33 @@ use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
 use crate::registry;
+use std::io::IsTerminal;
+
+/// The command run inside the container when `chaps docker exec` is given none.
+const DEFAULT_EXEC_CMD: &str = "sh";
+
+/// What the caller's terminal adds to the argument list.
+///
+/// Split out from the arguments themselves so [`args_for`] stays a pure
+/// function that tests can drive without a real terminal.
+#[derive(Debug, Clone, Copy)]
+pub struct Shell {
+    /// The global `--json` flag.
+    pub json: bool,
+    /// Whether this process's stdin is a terminal. Compose refuses to allocate
+    /// a TTY when it is not, so `exec` has to ask for `-T` instead.
+    pub tty: bool,
+}
+
+impl Shell {
+    /// The real environment: `--json` as given, stdin probed for a terminal.
+    pub fn detect(json: bool) -> Shell {
+        Shell {
+            json,
+            tty: std::io::stdin().is_terminal(),
+        }
+    }
+}
 
 /// Run one docker compose wrapper against the project's explicit `-f` list.
 ///
@@ -24,7 +54,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     }
     warn_about_old_compose();
 
-    let args = args_for(cmd, ctx.out.json);
+    let args = args_for(cmd, Shell::detect(ctx.out.json));
     let code = docker::run_compose(&project, &args)?;
     if code != 0 {
         return Err(ChapError::DockerFailed(code).into());
@@ -34,9 +64,9 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
 
 /// The arguments appended after `compose -f ... -f ...`.
 ///
-/// `json` is the global `--json` flag: it only changes `ps`, the one wrapper
-/// whose output docker itself can serialise.
-pub fn args_for(cmd: &DockerCmd, json: bool) -> Vec<String> {
+/// The global `--json` flag only reaches `ps` and `config`, the two wrappers
+/// whose output docker itself can serialise; `shell.tty` only reaches `exec`.
+pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
     match cmd {
         DockerCmd::Up(args) => {
             let mut out = vec!["up".to_string()];
@@ -55,15 +85,6 @@ pub fn args_for(cmd: &DockerCmd, json: bool) -> Vec<String> {
             out.extend(args.extra.iter().cloned());
             out
         }
-        DockerCmd::Ps(args) => {
-            let mut out = vec!["ps".to_string()];
-            if json {
-                out.push("--format".to_string());
-                out.push("json".to_string());
-            }
-            out.extend(args.extra.iter().cloned());
-            out
-        }
         DockerCmd::Logs(args) => {
             let mut out = vec!["logs".to_string()];
             if args.follow {
@@ -72,8 +93,41 @@ pub fn args_for(cmd: &DockerCmd, json: bool) -> Vec<String> {
             out.extend(args.services.iter().cloned());
             out
         }
+        DockerCmd::Ps(args) => {
+            let mut out = vec!["ps".to_string()];
+            if shell.json {
+                out.push("--format".to_string());
+                out.push("json".to_string());
+            }
+            out.extend(args.extra.iter().cloned());
+            out
+        }
         DockerCmd::Pull(_) => vec!["pull".to_string()],
-        DockerCmd::Compose(args) => args.args.clone(),
+        DockerCmd::Exec(args) => {
+            let mut out = vec!["exec".to_string()];
+            // Without a terminal compose cannot allocate one; -T says so up
+            // front rather than letting the command fail inside a script.
+            if !shell.tty {
+                out.push("-T".to_string());
+            }
+            out.push(args.service.clone());
+            if args.cmd.is_empty() {
+                out.push(DEFAULT_EXEC_CMD.to_string());
+            } else {
+                out.extend(args.cmd.iter().cloned());
+            }
+            out
+        }
+        DockerCmd::Run(args) => args.args.clone(),
+        DockerCmd::Config(args) => {
+            let mut out = vec!["config".to_string()];
+            if shell.json {
+                out.push("--format".to_string());
+                out.push("json".to_string());
+            }
+            out.extend(args.extra.iter().cloned());
+            out
+        }
     }
 }
 
@@ -96,7 +150,23 @@ fn warn_about_old_compose() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{ComposeArgs, DownArgs, LogsArgs, PsArgs, PullArgs, UpArgs};
+    use crate::cli::{ConfigArgs, DownArgs, ExecArgs, LogsArgs, PsArgs, PullArgs, RunArgs, UpArgs};
+
+    /// A plain terminal session: no `--json`, stdin is a TTY.
+    const TERM: Shell = Shell {
+        json: false,
+        tty: true,
+    };
+    /// A script or a pipe: no terminal on stdin.
+    const SCRIPT: Shell = Shell {
+        json: false,
+        tty: false,
+    };
+    /// `--json` asked for, from a terminal.
+    const JSON: Shell = Shell {
+        json: true,
+        tty: true,
+    };
 
     fn up(attach: bool, extra: &[&str]) -> DockerCmd {
         DockerCmd::Up(UpArgs {
@@ -106,10 +176,17 @@ mod tests {
         })
     }
 
+    fn exec(service: &str, cmd: &[&str]) -> DockerCmd {
+        DockerCmd::Exec(ExecArgs {
+            service: service.to_string(),
+            cmd: cmd.iter().map(|s| s.to_string()).collect(),
+        })
+    }
+
     #[test]
     fn up_detaches_unless_attach_is_asked_for() {
-        assert_eq!(args_for(&up(false, &[]), false), vec!["up", "-d"]);
-        assert_eq!(args_for(&up(true, &[]), false), vec!["up"]);
+        assert_eq!(args_for(&up(false, &[]), TERM), vec!["up", "-d"]);
+        assert_eq!(args_for(&up(true, &[]), TERM), vec!["up"]);
     }
 
     #[test]
@@ -120,7 +197,7 @@ mod tests {
             extra: vec!["chap".to_string()],
         });
         assert_eq!(
-            args_for(&cmd, false),
+            args_for(&cmd, TERM),
             vec!["up", "-d", "--pull", "always", "chap"]
         );
         let cmd = DockerCmd::Up(UpArgs {
@@ -128,17 +205,17 @@ mod tests {
             pull: true,
             extra: vec![],
         });
-        assert_eq!(args_for(&cmd, false), vec!["up", "--pull", "always"]);
+        assert_eq!(args_for(&cmd, TERM), vec!["up", "--pull", "always"]);
     }
 
     #[test]
     fn up_passes_extra_arguments_through_after_the_flags() {
         assert_eq!(
-            args_for(&up(false, &["--build", "chap"]), false),
+            args_for(&up(false, &["--build", "chap"]), TERM),
             vec!["up", "-d", "--build", "chap"]
         );
         assert_eq!(
-            args_for(&up(true, &["chap"]), false),
+            args_for(&up(true, &["chap"]), TERM),
             vec!["up", "chap"],
             "--attach must not inject -d before the service name"
         );
@@ -147,7 +224,7 @@ mod tests {
     #[test]
     fn down_and_pull_are_bare_commands() {
         assert_eq!(
-            args_for(&DockerCmd::Down(DownArgs { extra: vec![] }), false),
+            args_for(&DockerCmd::Down(DownArgs { extra: vec![] }), TERM),
             vec!["down"]
         );
         assert_eq!(
@@ -155,12 +232,12 @@ mod tests {
                 &DockerCmd::Down(DownArgs {
                     extra: vec!["-v".to_string()],
                 }),
-                false
+                TERM
             ),
             vec!["down", "-v"]
         );
         assert_eq!(
-            args_for(&DockerCmd::Pull(PullArgs {}), true),
+            args_for(&DockerCmd::Pull(PullArgs {}), JSON),
             vec!["pull"],
             "--json does not change pull"
         );
@@ -169,13 +246,13 @@ mod tests {
     #[test]
     fn ps_asks_docker_for_json_under_the_global_flag() {
         let cmd = DockerCmd::Ps(PsArgs { extra: vec![] });
-        assert_eq!(args_for(&cmd, false), vec!["ps"]);
-        assert_eq!(args_for(&cmd, true), vec!["ps", "--format", "json"]);
+        assert_eq!(args_for(&cmd, TERM), vec!["ps"]);
+        assert_eq!(args_for(&cmd, JSON), vec!["ps", "--format", "json"]);
 
         let cmd = DockerCmd::Ps(PsArgs {
             extra: vec!["-a".to_string()],
         });
-        assert_eq!(args_for(&cmd, true), vec!["ps", "--format", "json", "-a"]);
+        assert_eq!(args_for(&cmd, JSON), vec!["ps", "--format", "json", "-a"]);
     }
 
     #[test]
@@ -185,7 +262,7 @@ mod tests {
             services: vec!["chap".to_string(), "chapkit-ewars-model".to_string()],
         });
         assert_eq!(
-            args_for(&cmd, false),
+            args_for(&cmd, TERM),
             vec!["logs", "-f", "chap", "chapkit-ewars-model"]
         );
 
@@ -193,12 +270,45 @@ mod tests {
             follow: false,
             services: vec![],
         });
-        assert_eq!(args_for(&cmd, false), vec!["logs"]);
+        assert_eq!(args_for(&cmd, TERM), vec!["logs"]);
     }
 
     #[test]
-    fn compose_is_passed_through_verbatim() {
-        let cmd = DockerCmd::Compose(ComposeArgs {
+    fn exec_falls_back_to_a_shell() {
+        assert_eq!(
+            args_for(&exec("chap", &[]), TERM),
+            vec!["exec", "chap", "sh"]
+        );
+        assert_eq!(
+            args_for(&exec("chap", &["env"]), TERM),
+            vec!["exec", "chap", "env"]
+        );
+    }
+
+    #[test]
+    fn exec_asks_for_no_tty_when_there_is_none() {
+        assert_eq!(
+            args_for(&exec("chap", &["echo", "hello"]), SCRIPT),
+            vec!["exec", "-T", "chap", "echo", "hello"],
+            "-T goes before the service name, where compose expects its flags"
+        );
+        assert_eq!(
+            args_for(&exec("chap", &[]), SCRIPT),
+            vec!["exec", "-T", "chap", "sh"]
+        );
+    }
+
+    #[test]
+    fn exec_hands_the_container_its_own_flags() {
+        assert_eq!(
+            args_for(&exec("chap", &["ls", "-la", "/app"]), TERM),
+            vec!["exec", "chap", "ls", "-la", "/app"]
+        );
+    }
+
+    #[test]
+    fn run_is_passed_through_verbatim() {
+        let cmd = DockerCmd::Run(RunArgs {
             args: vec![
                 "config".to_string(),
                 "--services".to_string(),
@@ -206,11 +316,43 @@ mod tests {
             ],
         });
         assert_eq!(
-            args_for(&cmd, true),
+            args_for(&cmd, JSON),
             vec!["config", "--services", "--quiet"]
         );
+        assert_eq!(
+            args_for(&cmd, SCRIPT),
+            vec!["config", "--services", "--quiet"],
+            "neither --json nor the terminal touches a raw passthrough"
+        );
 
-        let cmd = DockerCmd::Compose(ComposeArgs { args: vec![] });
-        assert!(args_for(&cmd, false).is_empty());
+        let cmd = DockerCmd::Run(RunArgs {
+            args: vec!["restart".to_string(), "chap".to_string()],
+        });
+        assert_eq!(args_for(&cmd, TERM), vec!["restart", "chap"]);
+
+        let cmd = DockerCmd::Run(RunArgs { args: vec![] });
+        assert!(args_for(&cmd, TERM).is_empty());
+    }
+
+    #[test]
+    fn config_serialises_under_the_global_flag() {
+        let cmd = DockerCmd::Config(ConfigArgs { extra: vec![] });
+        assert_eq!(args_for(&cmd, TERM), vec!["config"]);
+        assert_eq!(args_for(&cmd, JSON), vec!["config", "--format", "json"]);
+
+        let cmd = DockerCmd::Config(ConfigArgs {
+            extra: vec!["--services".to_string()],
+        });
+        assert_eq!(args_for(&cmd, TERM), vec!["config", "--services"]);
+        assert_eq!(
+            args_for(&cmd, JSON),
+            vec!["config", "--format", "json", "--services"]
+        );
+    }
+
+    #[test]
+    fn detect_keeps_the_json_flag_it_is_given() {
+        assert!(Shell::detect(true).json);
+        assert!(!Shell::detect(false).json);
     }
 }

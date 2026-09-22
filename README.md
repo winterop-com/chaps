@@ -101,15 +101,33 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
                           sync, then docker compose up -d (or up, attached);
                           --pull passes --pull always
   down [EXTRA..]          docker compose down
-  ps [EXTRA..]            docker compose ps
   logs [-f] [SERVICE..]   docker compose logs
-  pull                    docker compose pull
-  compose -- ARGS..       any other docker compose command
+
+  docker ps [EXTRA..]     list this project's containers (docker compose ps)
+  docker pull             download the pinned images into the local Docker
+                          daemon; no files change
+  docker exec SERVICE [CMD..]
+                          run a command in a running container; CMD defaults to
+                          a shell, and -T is passed for you when there is no
+                          terminal, so it works in scripts
+  docker run -- ARGS..    any docker compose command, behind the project's -f list
+  docker config [-- EXTRA..]
+                          the finished stack: every compose file merged into one
+                          document (--json prints it as JSON)
 
   status [--url URL] [--timeout SECONDS]
                           GET /health and /v2/services, and diff the registered
                           services against the ones this project enabled
 ```
+
+The everyday verbs are at the top level; the Docker plumbing you only reach for
+when you already know what Docker is doing lives under `chaps docker`, so the
+top-level list stays readable if you have never used Compose.
+
+`chaps --help` adapts to where you are: outside a deployment directory it lists
+only the commands that can work there (`init`, `models`, `registry`) and says
+that the rest appear inside one. The hidden commands still run if you type
+them; they just tell you there is no project.
 
 The wrappers always run `docker compose -f <dir>/compose.yml -f
 <dir>/compose.marketplace.yml ...` from the project directory, so they behave
@@ -199,7 +217,7 @@ the pull). `--dry-run` prints the plan and writes nothing.
 
 chap-core itself follows `CHAP_IMAGE_TAG` (`latest` unless `init --chap-tag`
 said otherwise), and Compose never re-pulls a tag it already has. The image is
-refreshed only by `chaps pull`, `chaps update`, or `chaps up --pull`.
+refreshed only by `chaps docker pull`, `chaps update`, or `chaps up --pull`.
 
 ## How model overlays work
 

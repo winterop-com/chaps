@@ -715,6 +715,69 @@ fn update_needs_the_network_even_for_a_dry_run() {
 }
 
 #[test]
+fn the_help_lists_only_the_commands_that_can_work_here() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+
+    // Nothing has been created yet, so the whole home directory is outside a
+    // project: only the commands that need no deployment are offered.
+    let outside = chap_in(&sandbox, sandbox.home.path(), &["--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let outside = String::from_utf8(outside).expect("help is text");
+    assert!(outside.contains("init"), "init has to be reachable");
+    assert!(outside.contains("models"));
+    assert!(outside.contains("registry"));
+    assert!(
+        !outside.contains("\n  up "),
+        "up needs a project:\n{outside}"
+    );
+    assert!(
+        !outside.contains("\n  docker "),
+        "docker needs a project:\n{outside}"
+    );
+    assert!(outside.contains("Inside a directory created by `chaps init`"));
+
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let inside = chap_in(&sandbox, &dir, &["--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let inside = String::from_utf8(inside).expect("help is text");
+    for name in [
+        "up", "down", "logs", "docker", "status", "sync", "update", "tui",
+    ] {
+        assert!(
+            inside.contains(&format!("\n  {name} ")),
+            "{name} should be listed inside a project:\n{inside}"
+        );
+    }
+    assert!(!inside.contains("Inside a directory created by `chaps init`"));
+
+    // Hiding is cosmetic: a hidden command still runs, and `docker` reaches
+    // its own help from a subdirectory of the project.
+    let sub = dir.join("ops");
+    std::fs::create_dir_all(&sub).unwrap();
+    chap_in(&sandbox, &sub, &["docker", "--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("exec"))
+        .stdout(predicates::str::contains("pull"));
+
+    // And outside a project it is hidden, not removed.
+    chap_in(&sandbox, sandbox.home.path(), &["docker", "ps"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
+}
+
+#[test]
 fn init_inside_a_project_warns_about_the_parent() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
