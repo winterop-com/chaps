@@ -20,7 +20,7 @@ pub const DOCKER_NOT_FOUND: i32 = 127;
 /// The leading `docker` arguments for a project: `compose -f ... -f ...`.
 ///
 /// The paths are absolute so the child process does not depend on its working
-/// directory, and they are in the order recorded in `chaps.json`: later files
+/// directory, and they are in the order recorded in `.chaps/project.yaml`: later files
 /// override earlier ones.
 pub fn compose_args(project: &Project) -> Vec<String> {
     let mut args = Vec::with_capacity(1 + project.state.compose_files.len() * 2);

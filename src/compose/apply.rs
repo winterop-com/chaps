@@ -1,14 +1,14 @@
-//! The single write path shared by `init`, `enable`, `disable` and the TUI.
-//!
-//! Owned by agent B.
+//! The single state-edit path shared by `init`, `enable`, `disable` and the
+//! TUI. It updates `.chaps/models.yaml` in memory and then hands over to
+//! [`crate::compose::sync`], which renders the compose files and saves.
 
+use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
 use crate::compose::ports::PortAllocator;
-use crate::compose::render::{NO_TAG_PINS, render_overlay, render_umbrella};
 use crate::compose::spec::OverlaySpec;
-use crate::compose::{overlay_filename, tag_env_var};
+use crate::compose::sync::sync;
 use crate::error::{ChapError, Result};
-use crate::project::{BASE_COMPOSE, ENV_FILE, EnabledModel, MARKETPLACE_COMPOSE, Project};
+use crate::project::{EnabledModel, Project};
 use crate::registry::{Registry, VersionSelector};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -80,10 +80,11 @@ impl ApplyReport {
     }
 }
 
-/// Apply a selection: disable first, then enable, then rewrite the umbrella
-/// file and `chaps.json`.
+/// Apply a selection: disable first, then enable, then sync the compose
+/// files and `.chaps/` from the new state.
 ///
-/// Owned by agent B.
+/// Nothing is written until the whole selection has resolved, so an unknown
+/// model or a port clash leaves the directory as it was.
 pub fn apply(
     project: &mut Project,
     registry: &Registry,
@@ -92,11 +93,10 @@ pub fn apply(
 ) -> Result<ApplyReport> {
     let mut report = ApplyReport::default();
     let dir = project.dir.clone();
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
 
     // Disable first: a model can be removed and another put on its port in
-    // the same call, and re-enabling one must see its own slot as free.
+    // the same call, and re-enabling one must see its own slot as free. The
+    // overlay itself is removed by sync, which knows the file was ours.
     let mut freed: BTreeSet<u16> = BTreeSet::new();
     for wanted in &sel.disable {
         let id =
@@ -107,12 +107,6 @@ pub fn apply(
             .remove(&id)
             .expect("enabled_id only returns keys that are present");
         freed.insert(entry.host_port);
-        let path = dir.join(&entry.compose_file);
-        if path.is_file() {
-            std::fs::remove_file(&path)
-                .map_err(|e| anyhow::anyhow!("removing {}: {e}", path.display()))?;
-            report.removed.push(path);
-        }
         report.disabled.push(id);
     }
 
@@ -188,12 +182,6 @@ pub fn apply(
             Some(&user),
             cli_version,
         );
-        let file = overlay_filename(&model.service_id);
-        let path = dir.join(&file);
-        std::fs::write(&path, render_overlay(&spec))
-            .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
-        report.written.push(path);
-
         let entry = EnabledModel {
             service_id: model.service_id.clone(),
             image: model.source.image.clone(),
@@ -207,7 +195,7 @@ pub fn apply(
             data_dir,
             user,
             platform: spec.platform.clone(),
-            compose_file: file,
+            compose_file: overlay_filename(&model.service_id),
         };
         if existing.is_some() {
             report.updated.push((model.id.clone(), entry.clone()));
@@ -217,71 +205,13 @@ pub fn apply(
         project.state.models.insert(model.id.clone(), entry);
     }
 
-    // The -f list never varies: the base file plus the umbrella.
-    project.state.compose_files = vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()];
-    report.written.push(write_umbrella(project)?);
-    report.written.extend(append_env_pins(project)?);
-    project.save()?;
+    // One rendering path: sync writes the overlays, the umbrella and the .env
+    // pins, removes the overlays of disabled models, and saves .chaps/.
+    let synced = sync(project, registry, cli_version, false)?;
+    report.written = synced.written;
+    report.removed = synced.removed;
+    report.warnings.extend(synced.warnings);
     Ok(report)
-}
-
-/// Regenerate `compose.marketplace.yml` from the project state.
-///
-/// Owned by agent B.
-pub fn write_umbrella(project: &Project) -> Result<PathBuf> {
-    // `models` is keyed by marketplace id, so iteration is already the stable
-    // by-id order the umbrella should list overlays in.
-    let files: Vec<String> = project
-        .state
-        .models
-        .values()
-        .map(|m| m.compose_file.clone())
-        .collect();
-    let path = project.dir.join(MARKETPLACE_COMPOSE);
-    std::fs::write(&path, render_umbrella(&files))
-        .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
-    Ok(path)
-}
-
-/// Add a commented image pin to `.env` for every enabled model that has none.
-///
-/// Only ever appends: the file belongs to the operator once `init` wrote it,
-/// and it may hold passwords and tokens we must not rewrite. Returns the path
-/// when something was appended.
-fn append_env_pins(project: &Project) -> Result<Option<PathBuf>> {
-    let path = project.dir.join(ENV_FILE);
-    let Ok(body) = std::fs::read_to_string(&path) else {
-        return Ok(None);
-    };
-    let mut missing = Vec::new();
-    for (id, model) in &project.state.models {
-        let var = tag_env_var(id);
-        let mentioned = body.lines().any(|line| {
-            let line = line.trim_start().trim_start_matches('#').trim_start();
-            line.starts_with(&format!("{var}="))
-        });
-        if !mentioned {
-            missing.push(format!("# {var}={}", model.image_tag));
-        }
-    }
-    if missing.is_empty() {
-        return Ok(None);
-    }
-
-    // The generated .env carries a placeholder under the pin heading so the
-    // section is never a dangling title; the first real pin replaces it.
-    let mut out: String = body
-        .lines()
-        .filter(|line| line.trim_end() != NO_TAG_PINS)
-        .map(|line| format!("{line}\n"))
-        .collect();
-    if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push_str(&missing.join("\n"));
-    out.push('\n');
-    std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
-    Ok(Some(path))
 }
 
 /// The state key for a marketplace id or a compose service id, when that
@@ -301,7 +231,10 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{DEFAULT_PORT_RANGE, ProjectState};
+    use crate::compose::render::NO_TAG_PINS;
+    use crate::project::{
+        BASE_COMPOSE, DEFAULT_PORT_RANGE, ENV_FILE, MARKETPLACE_COMPOSE, ProjectState,
+    };
     use crate::registry::{Channel, load_embedded};
     use serde_yaml_ng::Value;
     use tempfile::TempDir;
@@ -367,7 +300,7 @@ mod tests {
             vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()]
         );
 
-        // chaps.json is written, not just held in memory.
+        // .chaps/ is written, not just held in memory.
         let reloaded = Project::load(dir.path()).unwrap();
         assert_eq!(reloaded.state.models["chapkit_ewars_model"], *entry);
     }
@@ -521,7 +454,8 @@ mod tests {
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownModel(id)) if id == "nope"
         ));
-        assert!(!dir.path().join("chaps.json").exists());
+        assert!(!dir.path().join(".chaps").exists());
+        assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
     }
 
     #[test]

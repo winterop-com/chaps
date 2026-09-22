@@ -60,8 +60,26 @@ fn yaml(path: &Path) -> Yaml {
     serde_yaml_ng::from_str(&read(path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// `.chaps/project.yaml` with `.chaps/models.yaml` folded in under `models`,
+/// as one JSON value so assertions can index into it.
 fn state(dir: &Path) -> Json {
-    serde_json::from_str(&read(&dir.join("chaps.json"))).expect("chaps.json is JSON")
+    let chaps = dir.join(".chaps");
+    let mut project: Json =
+        serde_json::to_value(yaml(&chaps.join("project.yaml"))).expect("project.yaml maps to JSON");
+    let models: Json =
+        serde_json::to_value(yaml(&chaps.join("models.yaml"))).expect("models.yaml maps to JSON");
+    project["models"] = models;
+    project
+}
+
+/// `chaps <args>` run from `cwd`, without `-C`.
+fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
+    cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .current_dir(cwd)
+        .arg("--offline")
+        .args(args);
+    cmd
 }
 
 fn includes(dir: &Path) -> Vec<String> {
@@ -88,10 +106,24 @@ fn init_writes_every_file_of_a_deployment() {
         ".env",
         "compose.marketplace.yml",
         "compose.chapkit-ewars-model.yml",
-        "chaps.json",
+        ".chaps/project.yaml",
+        ".chaps/models.yaml",
     ] {
         assert!(dir.join(name).is_file(), "{name} was not written");
     }
+    assert!(
+        !dir.join("chaps.json").exists(),
+        "the JSON state file is gone"
+    );
+    // Both state files open with a comment saying who manages them.
+    assert!(
+        read(&dir.join(".chaps/project.yaml"))
+            .starts_with("# .chaps/project.yaml - managed by chaps")
+    );
+    assert!(
+        read(&dir.join(".chaps/models.yaml"))
+            .starts_with("# .chaps/models.yaml - managed by chaps")
+    );
 
     let state = state(&dir);
     assert_eq!(state["schema_version"], 1);
@@ -99,6 +131,10 @@ fn init_writes_every_file_of_a_deployment() {
     assert_eq!(
         state["compose_files"],
         serde_json::json!(["compose.yml", "compose.marketplace.yml"])
+    );
+    assert_eq!(
+        state["rendered_files"],
+        serde_json::json!(["compose.chapkit-ewars-model.yml", "compose.marketplace.yml"])
     );
     assert_eq!(state["port_range"], serde_json::json!([5001, 5999]));
     let model = &state["models"]["chapkit_ewars_model"];
@@ -296,7 +332,7 @@ fn json_output_parses_for_init_and_enable() {
         .iter()
         .map(|v| {
             Path::new(v.as_str().unwrap())
-                .file_name()
+                .strip_prefix(&dir)
                 .unwrap()
                 .to_string_lossy()
                 .to_string()
@@ -307,7 +343,8 @@ fn json_output_parses_for_init_and_enable() {
         ".env",
         "compose.chapkit-ewars-model.yml",
         "compose.marketplace.yml",
-        "chaps.json",
+        ".chaps/project.yaml",
+        ".chaps/models.yaml",
     ] {
         assert!(written.contains(&name.to_string()), "{name} not reported");
     }
@@ -515,4 +552,182 @@ fn re_enabling_keeps_the_port_and_applies_the_overrides() {
     let svc = &overlay["services"]["chapkit-ewars-model"];
     assert_eq!(svc["user"].as_str(), Some("1000:1000"));
     assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/srv/data"));
+}
+
+#[test]
+fn commands_find_the_project_from_a_subdirectory() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let sub = dir.join("ops").join("notes");
+    std::fs::create_dir_all(&sub).unwrap();
+
+    chap_in(&sandbox, &sub, &["models", "list", "--enabled"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chapkit_ewars_model"));
+    chap_in(&sandbox, &sub, &["sync", "--check"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("in sync"));
+
+    // Above the project there is nothing to find, and the error names where
+    // the search started.
+    chap_in(&sandbox, sandbox.home.path(), &["sync", "--check"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"))
+        .stderr(predicates::str::contains(".chaps/project.yaml"));
+}
+
+#[test]
+fn sync_check_is_clean_after_init_and_reports_drift_after_a_deletion() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    let mut check = sandbox.chap();
+    check
+        .arg("-C")
+        .arg(&dir)
+        .args(["sync", "--check", "--json"]);
+    let out = check.assert().success().get_output().stdout.clone();
+    let value: Json = serde_json::from_slice(&out).expect("sync --json is JSON");
+    assert_eq!(value["drift"], false);
+    assert_eq!(value["check"], true);
+    assert!(value["written"].as_array().unwrap().is_empty());
+    assert_eq!(value["unchanged"].as_array().unwrap().len(), 2);
+
+    let overlay = dir.join("compose.chapkit-ewars-model.yml");
+    std::fs::remove_file(&overlay).unwrap();
+    let mut check = sandbox.chap();
+    check.arg("-C").arg(&dir).args(["sync", "--check"]);
+    check
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains(
+            "would write   compose.chapkit-ewars-model.yml",
+        ))
+        .stderr(predicates::str::contains("chaps sync"));
+    assert!(!overlay.exists(), "--check writes nothing");
+
+    // --json exits non-zero too, with the report as the only stdout document.
+    let mut check = sandbox.chap();
+    check
+        .arg("-C")
+        .arg(&dir)
+        .args(["sync", "--check", "--json"]);
+    let out = check.assert().failure().get_output().stdout.clone();
+    let value: Json = serde_json::from_slice(&out).expect("one JSON document");
+    assert_eq!(value["drift"], true);
+}
+
+#[test]
+fn sync_recreates_a_deleted_overlay() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let overlay = dir.join("compose.chapkit-ewars-model.yml");
+    let original = read(&overlay);
+    std::fs::remove_file(&overlay).unwrap();
+
+    let mut sync = sandbox.chap();
+    sync.arg("-C").arg(&dir).arg("sync");
+    sync.assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "written       compose.chapkit-ewars-model.yml",
+        ))
+        .stdout(predicates::str::contains(
+            "1 written, 1 unchanged, 0 removed",
+        ));
+    assert_eq!(read(&overlay), original, "rendering is deterministic");
+
+    let mut again = sandbox.chap();
+    again.arg("-C").arg(&dir).arg("sync");
+    again.assert().success().stdout(predicates::str::contains(
+        "in sync: 0 written, 2 unchanged, 0 removed",
+    ));
+}
+
+#[test]
+fn sync_never_removes_a_hand_written_overlay() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model,auto_arima_chapkit"])
+        .assert()
+        .success();
+    let custom = dir.join("compose.custom.yml");
+    std::fs::write(&custom, "services:\n  mine:\n    image: busybox\n").unwrap();
+
+    sandbox
+        .models(&["disable", "auto_arima_chapkit"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "removed compose.auto-arima-chapkit.yml",
+        ));
+    assert!(!dir.join("compose.auto-arima-chapkit.yml").exists());
+    assert!(custom.is_file());
+
+    // A hand edit of models.yaml is picked up by sync the same way.
+    let models = dir.join(".chaps/models.yaml");
+    std::fs::write(&models, "# emptied by hand\n").unwrap();
+    let mut sync = sandbox.chap();
+    sync.arg("-C").arg(&dir).arg("sync");
+    sync.assert().success().stdout(predicates::str::contains(
+        "removed       compose.chapkit-ewars-model.yml",
+    ));
+    assert!(!dir.join("compose.chapkit-ewars-model.yml").exists());
+    assert!(custom.is_file(), "compose.custom.yml is not ours to delete");
+    assert!(includes(&dir).is_empty());
+    assert_eq!(state(&dir)["models"], serde_json::json!({}));
+}
+
+#[test]
+fn update_needs_the_network_even_for_a_dry_run() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let before = read(&dir.join(".chaps/models.yaml"));
+
+    let mut update = sandbox.chap();
+    update.arg("-C").arg(&dir).args(["update", "--dry-run"]);
+    update
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--offline"))
+        .stderr(predicates::str::contains("registry"));
+    assert_eq!(read(&dir.join(".chaps/models.yaml")), before);
+}
+
+#[test]
+fn init_inside_a_project_warns_about_the_parent() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let mut nested = sandbox.chap();
+    nested
+        .arg("init")
+        .arg(dir.join("inner"))
+        .args(["--models", "none"]);
+    nested
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("is inside the chaps project at"));
+    assert!(dir.join("inner/.chaps/project.yaml").is_file());
 }

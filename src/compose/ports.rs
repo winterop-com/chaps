@@ -78,7 +78,7 @@ impl PortAllocator {
             }
         }
         Err(anyhow::anyhow!(
-            "no free host port left in {}-{}; free one or widen port_range in chaps.json",
+            "no free host port left in {}-{}; free one or widen port_range in .chaps/project.yaml",
             self.lo,
             self.hi
         ))

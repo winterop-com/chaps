@@ -16,7 +16,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Project directory holding chaps.json and the compose files.
+    /// Project directory (or any directory inside one); found like git finds .git.
     #[arg(
         short = 'C',
         long,
@@ -44,7 +44,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Create a deployment directory: compose files, .env and chaps.json.
+    /// Create a deployment directory: compose files, .env and .chaps/.
     Init(InitArgs),
 
     /// Browse and manage marketplace models.
@@ -56,7 +56,14 @@ pub enum Command {
     /// Inspect and refresh the marketplace registry.
     Registry(RegistryArgs),
 
-    /// Start the stack (docker compose up).
+    /// Render the compose files from .chaps/ (what `up` does first).
+    Sync(SyncArgs),
+
+    /// Move channel-following models to the versions the marketplace now
+    /// publishes, then pull and restart.
+    Update(UpdateArgs),
+
+    /// Sync, then start the stack (docker compose up).
     Up(UpArgs),
 
     /// Stop the stack (docker compose down).
@@ -78,7 +85,7 @@ pub enum Command {
     Status(StatusArgs),
 }
 
-/// Create a deployment directory: compose files, .env and chaps.json.
+/// Create a deployment directory: compose files, .env and .chaps/.
 #[derive(Debug, Clone, Args)]
 pub struct InitArgs {
     /// Directory to create, resolved against the current working directory.
@@ -133,10 +140,10 @@ pub enum ModelsCmd {
     /// Show everything known about one model.
     Info(ModelsInfoArgs),
 
-    /// Enable a model: write its overlay and record it in chaps.json.
+    /// Enable a model: record it in .chaps/models.yaml and write its overlay.
     Enable(ModelsEnableArgs),
 
-    /// Disable a model: remove its overlay and its chaps.json entry.
+    /// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
     Disable(ModelsDisableArgs),
 
     /// Open the model browser.
@@ -175,7 +182,7 @@ pub struct ModelsInfoArgs {
     pub id: String,
 }
 
-/// Enable a model: write its overlay and record it in chaps.json.
+/// Enable a model: record it in .chaps/models.yaml and write its overlay.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsEnableArgs {
     /// Marketplace id or service id.
@@ -207,7 +214,7 @@ pub struct ModelsEnableArgs {
     pub allow_template: bool,
 }
 
-/// Disable a model: remove its overlay and its chaps.json entry.
+/// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsDisableArgs {
     /// Marketplace id or service id.
@@ -243,12 +250,48 @@ pub struct RegistryUpdateArgs {}
 #[derive(Debug, Clone, Args)]
 pub struct RegistryShowArgs {}
 
-/// Start the stack (docker compose up).
+/// Render the compose files from .chaps/ (what `up` does first).
+///
+/// Writes every enabled model's overlay and compose.marketplace.yml, removes
+/// overlays of models that are no longer enabled, and appends missing image
+/// pin comments to .env. Files that already match are left alone.
+#[derive(Debug, Clone, Args)]
+pub struct SyncArgs {
+    /// Write nothing; exit non-zero if anything would change.
+    #[arg(long)]
+    pub check: bool,
+}
+
+/// Move channel-following models to the versions the marketplace now
+/// publishes, then pull and restart.
+///
+/// Always fetches the registry from the network (no cache, no fallback). Models
+/// pinned to an exact version are listed but not moved. After updating
+/// .chaps/models.yaml and the .env pin comments it runs `chaps sync`,
+/// `docker compose pull` and `docker compose up -d`. chap-core itself follows
+/// its tag (`latest` by default), so the pull refreshes it too.
+#[derive(Debug, Clone, Args)]
+pub struct UpdateArgs {
+    /// Show what would change and write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Update the files and pull the images but do not run `up -d`.
+    #[arg(long)]
+    pub no_restart: bool,
+}
+
+/// Sync, then start the stack (docker compose up).
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
     /// Stay attached to the container output instead of detaching.
     #[arg(long)]
     pub attach: bool,
+
+    /// Pull every image first, including a moving chap-core tag such as
+    /// `latest` (docker compose up --pull always).
+    #[arg(long)]
+    pub pull: bool,
 
     /// Extra arguments passed through to docker compose up.
     #[arg(
@@ -440,7 +483,40 @@ mod tests {
             panic!("expected up");
         };
         assert!(args.attach);
+        assert!(!args.pull);
         assert_eq!(args.extra, vec!["chap"]);
+
+        let cli = Cli::try_parse_from(["chap", "up", "--pull"]).unwrap();
+        let Command::Up(args) = cli.command else {
+            panic!("expected up");
+        };
+        assert!(args.pull && !args.attach);
+        assert!(args.extra.is_empty());
+    }
+
+    #[test]
+    fn sync_and_update_take_their_flags() {
+        let cli = Cli::try_parse_from(["chap", "sync"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncArgs { check: false })
+        ));
+        let cli = Cli::try_parse_from(["chap", "sync", "--check"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncArgs { check: true })
+        ));
+
+        let cli = Cli::try_parse_from(["chap", "update"]).unwrap();
+        let Command::Update(args) = cli.command else {
+            panic!("expected update");
+        };
+        assert!(!args.dry_run && !args.no_restart);
+        let cli = Cli::try_parse_from(["chap", "update", "--dry-run", "--no-restart"]).unwrap();
+        let Command::Update(args) = cli.command else {
+            panic!("expected update");
+        };
+        assert!(args.dry_run && args.no_restart);
     }
 
     #[test]

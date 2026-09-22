@@ -1,11 +1,14 @@
 //! `chaps up|down|ps|logs|pull|compose` — the docker compose wrappers.
 //!
-//! Owned by agent C.
+//! `up` syncs the compose files from `.chaps/` first; the others run against
+//! whatever is on disk.
 
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;
+use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
+use crate::registry;
 
 /// Run one docker compose wrapper against the project's explicit `-f` list.
 ///
@@ -13,7 +16,12 @@ use crate::error::{ChapError, Result};
 /// `main` can mirror the code: `chaps up` is then a drop-in for
 /// `docker compose up` in scripts.
 pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
-    let project = ctx.project()?;
+    let mut project = ctx.project()?;
+    if matches!(cmd, DockerCmd::Up(_)) {
+        let registry = registry::load(&ctx.registry)?;
+        let report = sync(&mut project, &registry, ctx.cli_version, false)?;
+        super::sync::announce(ctx, &report, &project);
+    }
     warn_about_old_compose();
 
     let args = args_for(cmd, ctx.out.json);
@@ -34,6 +42,10 @@ pub fn args_for(cmd: &DockerCmd, json: bool) -> Vec<String> {
             let mut out = vec!["up".to_string()];
             if !args.attach {
                 out.push("-d".to_string());
+            }
+            if args.pull {
+                out.push("--pull".to_string());
+                out.push("always".to_string());
             }
             out.extend(args.extra.iter().cloned());
             out
@@ -89,6 +101,7 @@ mod tests {
     fn up(attach: bool, extra: &[&str]) -> DockerCmd {
         DockerCmd::Up(UpArgs {
             attach,
+            pull: false,
             extra: extra.iter().map(|s| s.to_string()).collect(),
         })
     }
@@ -97,6 +110,25 @@ mod tests {
     fn up_detaches_unless_attach_is_asked_for() {
         assert_eq!(args_for(&up(false, &[]), false), vec!["up", "-d"]);
         assert_eq!(args_for(&up(true, &[]), false), vec!["up"]);
+    }
+
+    #[test]
+    fn up_pull_asks_compose_to_pull_always() {
+        let cmd = DockerCmd::Up(UpArgs {
+            attach: false,
+            pull: true,
+            extra: vec!["chap".to_string()],
+        });
+        assert_eq!(
+            args_for(&cmd, false),
+            vec!["up", "-d", "--pull", "always", "chap"]
+        );
+        let cmd = DockerCmd::Up(UpArgs {
+            attach: true,
+            pull: true,
+            extra: vec![],
+        });
+        assert_eq!(args_for(&cmd, false), vec!["up", "--pull", "always"]);
     }
 
     #[test]

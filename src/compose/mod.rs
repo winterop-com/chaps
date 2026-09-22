@@ -5,9 +5,11 @@ pub mod overrides;
 pub mod ports;
 pub mod render;
 pub mod spec;
+pub mod sync;
 
 pub use apply::{ApplyReport, EnableRequest, Selection, apply};
 pub use render::{render_base, render_env};
+pub use sync::{SyncReport, sync};
 
 /// Platform pinned for services built on the R-INLA runtime.
 pub const AMD64_PLATFORM: &str = "linux/amd64";

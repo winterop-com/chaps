@@ -7,10 +7,10 @@ forecasting model services published in the
 
 One command writes a self-contained deployment directory: the base stack
 (chap-core, its worker, Valkey and PostgreSQL), one Compose overlay per enabled
-model, an `.env` file, and a `chaps.json` state file that records exactly what
-was generated. After that, `chaps` is a thin wrapper around `docker compose`
-that always passes the explicit `-f` list, plus a model manager that can add or
-remove models without you hand-editing YAML.
+model, an `.env` file, and a `.chaps/` directory that records exactly what the
+deployment is meant to be. After that, `chaps` is a thin wrapper around
+`docker compose` that always passes the explicit `-f` list, plus a model manager
+that can add or remove models without you hand-editing YAML.
 
 Every command takes `--json` for machine-readable output.
 
@@ -48,11 +48,16 @@ already installs a console script called `chap`. The two never collide.
 ```sh
 chaps init mychap --models default   # writes the deployment directory
 cd mychap
-chaps up                             # docker compose up -d
+chaps up                             # sync the compose files, docker compose up -d
 chaps status                         # chap-core health and registered models
 chaps models tui                     # browse the marketplace, toggle models
 chaps up                             # apply what the browser changed
+chaps update                         # move channel pins to what the marketplace publishes now
 ```
+
+Every command that operates on a project finds it the way git finds `.git`:
+from the current directory (or `-C DIR`) upwards to the nearest `.chaps/`, so
+`chaps up` works from any subdirectory of the deployment.
 
 `--models default` enables `chapkit_ewars_model` on its `stable` channel.
 `--models none` writes the base stack only, and `--models a,b` takes an
@@ -76,16 +81,25 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
   models list             list marketplace models (--all, --templates, --enabled)
   models search QUERY     search id, name and summary
   models info ID          everything known about one model
-  models enable ID        write the overlay and record it in chaps.json
+  models enable ID        record the model in .chaps/models.yaml and write its overlay
       --channel stable|latest | --version X
       --port N  --data-dir PATH  --user USER:GROUP  --allow-template
-  models disable ID       remove the overlay and the chaps.json entry
+  models disable ID       drop the model from .chaps/models.yaml and remove its overlay
   models tui              the model browser (also `chaps tui`)
 
   registry update         fetch the catalogue now and refresh the cache
   registry show           where the catalogue came from and what it holds
 
-  up [--attach] [EXTRA..] docker compose up -d (or up, attached)
+  sync [--check]          render the compose files from .chaps/; --check writes
+                          nothing and exits non-zero if anything would change
+  update [--dry-run] [--no-restart]
+                          fetch the registry, move channel-following models to
+                          the version their channel now points at, sync, pull,
+                          up -d
+
+  up [--attach] [--pull] [EXTRA..]
+                          sync, then docker compose up -d (or up, attached);
+                          --pull passes --pull always
   down [EXTRA..]          docker compose down
   ps [EXTRA..]            docker compose ps
   logs [-f] [SERVICE..]   docker compose logs
@@ -128,17 +142,64 @@ save, and quitting with unsaved changes asks first.
 
 `chaps init` writes a directory you own; nothing outside it is touched.
 
+```
+mychap/
+  .chaps/
+    project.yaml               intent: schema version, chap-core tag, registry URL,
+                               port range, the -f list, and which root files sync wrote
+    models.yaml                intent: the enabled models (image, pinned version,
+                               channel, host port, data dir, user, platform, overlay name)
+  compose.yml                  base stack, written once by init
+  compose.marketplace.yml      artifact: include: list, one line per enabled model
+  compose.<service_id>.yml     artifact: one overlay per enabled model
+  .env                         yours after init; chaps only appends pin comments
+```
+
+`.chaps/` is the intent. It is what `models enable`, `models disable`, the
+browser and `update` edit, and it is small enough to read and to diff. The
+compose files at the root are artifacts rendered from it by `chaps sync`, but
+they are plain Compose files with nothing `chaps`-specific in them:
+`docker compose -f compose.yml -f compose.marketplace.yml up -d` works without
+`chaps` installed, which is the point of generating them.
+
+`chaps up` runs `sync` before `docker compose up`, so the intent and the
+artifacts never drift in normal use. `chaps sync --check` reports drift
+without writing (for CI or a pre-commit hook), and a plain `chaps sync`
+re-creates a deleted overlay or picks up a hand edit of `models.yaml`. Sync
+only ever removes overlays it wrote itself (`project.yaml` keeps the list), so
+a hand-written `compose.custom.yml` next to them is left alone; add it to the
+umbrella by hand if you want it included.
+
 | File | What it is |
 | --- | --- |
 | `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. A copy of chap-core's `compose.ghcr.yml`, so upstream stays the source of truth. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written by `init` only. |
+| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written by `init`; afterwards `sync` appends missing pin comments and `update` moves the pin comments of models it changed. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
-| `compose.<service_id>.yml` | One model service. Regenerated by `models enable` and removed by `models disable`. |
-| `chaps.json` | The state file: schema version, the ordered `-f` list, the port range, and every enabled model with its image, pinned version, channel, host port, data directory and user. |
+| `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
+| `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
 
 Compose reads `.env` automatically, so `${CHAP_IMAGE_TAG:-latest}` and the
 per-model `${<ID>_IMAGE_TAG:-sha-xxxxxxx}` pins can be overridden there without
 regenerating anything.
+
+### Updating
+
+Model pins only move in two ways: `chaps models enable ID` (with `--channel`
+or `--version`) and `chaps update`. Nothing else, `up` included, changes the
+version a model runs.
+
+`chaps update` fetches the registry from the network (no cache, no fallback;
+it fails under `--offline`, `--dry-run` included, because a plan made from a
+stale catalogue is not a plan). For every model that follows a channel it
+re-resolves the channel; a pin that moved is recorded in `models.yaml` and its
+`# <ID>_IMAGE_TAG=` comment in `.env` is updated. Models enabled with
+`--version` are listed as pinned and skipped. Then it syncs, runs
+`docker compose pull` and `docker compose up -d` (`--no-restart` stops after
+the pull). `--dry-run` prints the plan and writes nothing.
+
+chap-core itself follows `CHAP_IMAGE_TAG` (`latest` unless `init --chap-tag`
+said otherwise), and Compose never re-pulls a tag it already has. The image is
+refreshed only by `chaps pull`, `chaps update`, or `chaps up --pull`.
 
 ## How model overlays work
 
@@ -156,7 +217,7 @@ container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
   registration resolvable. Set `SERVICEKIT_REGISTRATION_KEY` in `.env` to
   require a shared secret.
 - **Publishes a unique host port** in the range 5001-5999, mapped to container
-  port 8000. Ports are allocated from `chaps.json` plus a scan of every
+  port 8000. Ports are allocated from `.chaps/models.yaml` plus a scan of every
   `compose*.yml` in the directory, so two models never collide; `--port` claims
   one explicitly.
 - **Hardening**, matching the posture of the base stack: `init: true`,
@@ -201,9 +262,10 @@ order for every command that needs the catalogue:
 4. the snapshot compiled into the binary.
 
 `chaps registry show` prints which of those was used; `chaps registry update`
-forces a fetch and refreshes the cache. `--offline` never touches the network,
-so a laptop on a plane still resolves the catalogue from the cache or the
-embedded snapshot.
+forces a fetch and refreshes the cache, as does `chaps update`. `--offline`
+never touches the network, so a laptop on a plane still resolves the catalogue
+from the cache or the embedded snapshot (`update` is the one command that
+refuses to run that way).
 
 The cache lives in `$CHAPS_CACHE_DIR`, else `$XDG_CACHE_HOME/chaps`, else
 `~/.cache/chaps`; `--cache-dir` overrides it for one invocation.
@@ -211,11 +273,16 @@ The cache lives in `$CHAPS_CACHE_DIR`, else `$XDG_CACHE_HOME/chaps`, else
 ## Development
 
 ```sh
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all --check
-scripts/vendor-marketplace.sh   # refresh the embedded marketplace snapshot
+make test      # run the test suite
+make check     # formatting and clippy, fixing nothing
+make release   # universal (arm64+x86_64) macOS binary at bin/chaps
+make install   # copy bin/chaps to $PREFIX/bin (PREFIX defaults to ~/.local)
+make vendor    # refresh the embedded marketplace snapshot
 ```
+
+`make help` lists every target. The underlying commands are `cargo test`,
+`cargo clippy --all-targets -- -D warnings`, `cargo fmt --all --check` and
+`scripts/vendor-marketplace.sh`.
 
 CI runs the same three checks on Linux, macOS and Windows. Tagging `vX.Y.Z`
 builds release binaries for six targets (Linux, macOS and Windows, on x86_64

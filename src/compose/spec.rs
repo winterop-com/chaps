@@ -3,7 +3,6 @@
 //! The types are frozen here; the constructors are owned by agent B.
 
 use crate::compose::{AMD64_PLATFORM, overrides, tag_env_var, volume_name};
-#[cfg(test)]
 use crate::project::EnabledModel;
 use crate::registry::{Model, Version};
 
@@ -100,17 +99,32 @@ impl OverlaySpec {
         }
     }
 
-    /// Rebuild a spec from recorded state, e.g. when regenerating overlays.
+    /// Rebuild a spec from recorded state, as `chaps sync` does.
     ///
-    /// Owned by agent B.
-    #[cfg(test)]
+    /// Everything that affects the running service comes from the recorded
+    /// entry; the marketplace only supplies the labels in the header.
     pub fn from_enabled(id: &str, e: &EnabledModel, m: &Model, cli_version: &str) -> OverlaySpec {
+        OverlaySpec {
+            display_name: m.display_name.clone(),
+            repository: m.source.repository.clone(),
+            ..OverlaySpec::from_enabled_without_registry(id, e, cli_version)
+        }
+    }
+
+    /// [`OverlaySpec::from_enabled`] for a model the registry no longer lists:
+    /// the header names the id in place of the display name and the image in
+    /// place of the repository.
+    pub fn from_enabled_without_registry(
+        id: &str,
+        e: &EnabledModel,
+        cli_version: &str,
+    ) -> OverlaySpec {
         OverlaySpec {
             id: id.to_string(),
             service_id: e.service_id.clone(),
-            display_name: m.display_name.clone(),
+            display_name: id.to_string(),
             version: e.version.clone(),
-            repository: m.source.repository.clone(),
+            repository: e.image.clone(),
             image: e.image.clone(),
             image_tag: e.image_tag.clone(),
             tag_env_var: tag_env_var(id),

@@ -11,7 +11,7 @@ use crate::project::Project;
 use crate::registry::{self, Channel, VersionSelector};
 
 /// Enable one model: resolve its version, allocate a port, write the overlay,
-/// regenerate the umbrella file and update chaps.json.
+/// sync the compose files and update .chaps/models.yaml.
 pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = registry::load(&ctx.registry)?;
@@ -39,7 +39,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 }
 
 /// Disable one model: remove its overlay, regenerate the umbrella file and
-/// update chaps.json.
+/// update .chaps/models.yaml.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = registry::load(&ctx.registry)?;

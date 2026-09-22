@@ -9,8 +9,14 @@ use std::path::PathBuf;
 /// Errors that callers are expected to match on.
 #[derive(thiserror::Error, Debug)]
 pub enum ChapError {
-    #[error("{0} is not a chaps project (no chaps.json); run `chaps init` first")]
+    #[error(
+        "{0} is not a chaps project (no .chaps/project.yaml here or in a parent directory); \
+         run `chaps init` first"
+    )]
     NotAProject(PathBuf),
+
+    #[error("compose files are out of date with .chaps/; run `chaps sync`")]
+    OutOfSync,
 
     #[error("{0} already contains a chaps project; use --force to overwrite")]
     AlreadyInitialized(PathBuf),

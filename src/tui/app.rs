@@ -74,7 +74,7 @@ pub struct Row {
     pub enabled: bool,
     /// Channel the row would be pinned to when enabled.
     pub channel: Channel,
-    /// Host port from `chaps.json`, for rows that are already enabled.
+    /// Host port from `.chaps/models.yaml`, for rows that are already enabled.
     pub port: Option<u16>,
 }
 
@@ -97,7 +97,7 @@ pub struct App<'a> {
     pub filter: String,
     pub mode: Mode,
     pub show_templates: bool,
-    /// `chaps.json` as it was when the browser opened; the selection is the
+    /// `.chaps/models.yaml` as it was when the browser opened; the selection is the
     /// diff against this.
     pub initial: BTreeMap<String, EnabledModel>,
     pub dirty: bool,
@@ -586,7 +586,7 @@ mod tests {
     #[test]
     fn an_exact_pin_survives_a_save_that_does_not_touch_it() {
         let registry = registry();
-        // channel: None means chaps.json holds an exact version pin.
+        // channel: None means .chaps/models.yaml holds an exact version pin.
         let state = state_with(&registry, EWARS, None);
         let app = App::new(&registry, &state);
         assert!(

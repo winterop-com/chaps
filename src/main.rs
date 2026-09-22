@@ -52,6 +52,9 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
 
         Command::Registry(r) => commands::registry::run(ctx, &r.command),
 
+        Command::Sync(args) => commands::sync::run(ctx, args),
+        Command::Update(args) => commands::update::run(ctx, args),
+
         Command::Up(args) => commands::docker::run(ctx, &DockerCmd::Up(args.clone())),
         Command::Down(args) => commands::docker::run(ctx, &DockerCmd::Down(args.clone())),
         Command::Ps(args) => commands::docker::run(ctx, &DockerCmd::Ps(args.clone())),

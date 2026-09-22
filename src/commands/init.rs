@@ -8,7 +8,8 @@ use crate::compose::spec::{BaseSpec, EnvSpec};
 use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_base, render_env};
 use crate::error::{ChapError, Result};
 use crate::project::{
-    BASE_COMPOSE, DEFAULT_PORT_RANGE, ENV_FILE, Project, ProjectState, STATE_FILE,
+    BASE_COMPOSE, CHAPS_DIR, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE, PROJECT_FILE, Project,
+    ProjectState,
 };
 use crate::registry::{self, Registry};
 use std::path::{Component, Path, PathBuf};
@@ -20,7 +21,7 @@ const POSTGRES_USER: &str = "chap";
 const POSTGRES_DB: &str = "chap_core";
 
 /// Create compose.yml, compose.marketplace.yml, the model overlays, .env and
-/// chaps.json in the target directory.
+/// the `.chaps/` directory in the target directory.
 ///
 /// `args.source` is parsed but must be rejected with "local chap-core build
 /// not yet supported"; the flag only reserves the seam.
@@ -33,6 +34,15 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     let dir = resolve_dir(&args.dir)?;
     if Project::exists(&dir) && !args.force {
         return Err(ChapError::AlreadyInitialized(dir).into());
+    }
+    // Nesting is allowed (it is the user's directory), but commands run from
+    // in here will find this project, not the outer one, so say so.
+    if let Some(parent) = dir.parent().and_then(Project::find_root) {
+        crate::output::warn(&format!(
+            "{} is inside the chaps project at {}; commands run below it will use the new project",
+            dir.display(),
+            parent.display()
+        ));
     }
 
     let registry = registry::load(&ctx.registry)?;
@@ -94,11 +104,12 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     }
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
-    // models) and chaps.json.
+    // models) and .chaps/.
     let mut report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
     report.removed.extend(stale);
     written.extend(report.written.iter().cloned());
-    written.push(dir.join(STATE_FILE));
+    written.push(dir.join(CHAPS_DIR).join(PROJECT_FILE));
+    written.push(dir.join(CHAPS_DIR).join(MODELS_FILE));
     // apply() reports .env again when it appends a pin to the file init just
     // wrote; the summary lists each file once.
     let mut seen = std::collections::BTreeSet::new();
@@ -145,7 +156,7 @@ fn parse_models(spec: &str, registry: &Registry) -> Result<Selection> {
 /// All of them go: `init` starts the state over, so a model the new selection
 /// keeps is rewritten by [`apply`] a moment later, and one it drops would
 /// otherwise linger unreferenced while still holding its host port against the
-/// allocator. Only files the old `chaps.json` lists are touched; a hand-written
+/// allocator. Only files the old `.chaps/models.yaml` lists are touched; a hand-written
 /// overlay is none of `init`'s business, and a directory without a readable
 /// state file has nothing to clean up.
 ///

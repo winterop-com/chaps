@@ -127,13 +127,13 @@ pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
 /// `required` is for `--enabled`, which is meaningless outside a project and
 /// says so rather than silently listing nothing.
 fn open_project(ctx: &Ctx, required: bool) -> Result<Option<Project>> {
-    if Project::exists(&ctx.project_dir) {
-        return Ok(Some(ctx.project()?));
+    match ctx.project() {
+        Ok(project) => Ok(Some(project)),
+        Err(err) if !required && matches!(err.downcast_ref(), Some(ChapError::NotAProject(_))) => {
+            Ok(None)
+        }
+        Err(err) => Err(err),
     }
-    if required {
-        return Err(ChapError::NotAProject(ctx.project_dir.clone()).into());
-    }
-    Ok(None)
 }
 
 fn enabled_entry<'a>(project: Option<&'a Project>, model: &Model) -> Option<&'a EnabledModel> {

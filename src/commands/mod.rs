@@ -6,7 +6,9 @@ pub mod init;
 pub mod models;
 pub mod registry;
 pub mod status;
+pub mod sync;
 pub mod tui;
+pub mod update;
 
 use crate::cli::Cli;
 use crate::output::Out;
@@ -41,9 +43,10 @@ impl Ctx {
         }
     }
 
-    /// Load the project in [`Ctx::project_dir`].
+    /// Load the project that contains [`Ctx::project_dir`], walking up parent
+    /// directories the way git finds `.git`.
     pub fn project(&self) -> crate::error::Result<crate::project::Project> {
-        crate::project::Project::load(&self.project_dir)
+        crate::project::Project::find(&self.project_dir)
     }
 }
 

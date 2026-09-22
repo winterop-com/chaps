@@ -155,7 +155,7 @@ mod tests {
         let (id, model) = &report.enabled[0];
         assert_eq!(id, &selection.enable[0].id);
         assert!(dir.path().join(&model.compose_file).is_file());
-        assert!(dir.path().join("chaps.json").is_file());
+        assert!(dir.path().join(".chaps/models.yaml").is_file());
         assert!(dir.path().join("compose.marketplace.yml").is_file());
         assert!(human(&report).contains("run `chaps up`"));
     }
