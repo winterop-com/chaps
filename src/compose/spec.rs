@@ -77,9 +77,13 @@ impl OverlaySpec {
             image_tag: v.image_tag.clone(),
             tag_env_var: tag_env_var(&m.id),
             host_port,
-            // Only the R-INLA runtime is amd64-only; everything else is
-            // multi-arch and must not be forced under emulation.
-            platform: m.needs_amd64().then(|| AMD64_PLATFORM.to_string()),
+            // Every model image the marketplace publishes today is amd64-only
+            // (checked with `docker manifest inspect`; only the simple multistep
+            // model also ships arm64), and chap-core itself is amd64-only, so
+            // the whole stack already runs as linux/amd64. Pinning every
+            // overlay makes an arm64 host pull the right variant instead of
+            // failing with "no matching manifest".
+            platform: Some(AMD64_PLATFORM.to_string()),
             data_dir: data_dir
                 .map(str::to_string)
                 .or_else(|| known.map(|k| k.data_dir.to_string()))
@@ -156,18 +160,15 @@ mod tests {
     }
 
     #[test]
-    fn from_model_pins_the_platform_for_r_inla_only() {
+    fn from_model_pins_every_overlay_to_amd64() {
         let r = registry();
-        assert_eq!(
-            spec_for(&r, "chapkit_ewars_model", None, None)
-                .platform
-                .as_deref(),
-            Some("linux/amd64")
-        );
-        assert_eq!(
-            spec_for(&r, "chapkit_simple_multistep_model", None, None).platform,
-            None
-        );
+        for id in ["chapkit_ewars_model", "chapkit_simple_multistep_model"] {
+            assert_eq!(
+                spec_for(&r, id, None, None).platform.as_deref(),
+                Some("linux/amd64"),
+                "{id}"
+            );
+        }
     }
 
     #[test]

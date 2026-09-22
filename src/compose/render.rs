@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_pins_the_platform_only_for_r_inla_images() {
+    fn overlay_pins_the_platform_and_drops_the_line_cleanly_without_one() {
         let inla = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
         let doc = parse(&inla);
         assert_eq!(
@@ -240,10 +240,12 @@ mod tests {
             Some("linux/amd64")
         );
 
-        let portable = render_overlay(&overlay_spec("chapkit_simple_multistep_model", 5003));
+        let mut spec = overlay_spec("chapkit_simple_multistep_model", 5003);
+        spec.platform = None;
+        let portable = render_overlay(&spec);
         let doc = parse(&portable);
         let svc = service(&doc, "chapkit-simple-multistep-model");
-        assert!(svc.get("platform").is_none(), "multistep is multi-arch");
+        assert!(svc.get("platform").is_none(), "no platform when unset");
         // Dropping the platform line must not leave a blank line behind.
         assert!(
             portable.contains("    image: ghcr.io/chap-models/chapkit_simple_multistep_model:")

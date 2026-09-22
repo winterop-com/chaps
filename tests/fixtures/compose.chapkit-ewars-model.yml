@@ -6,6 +6,8 @@ services:
   chapkit-ewars-model:
     restart: unless-stopped
     image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-fa880a1}
+    # Marketplace images are published for linux/amd64 (like chap-core itself);
+    # the pin makes an arm64 host pull that variant instead of failing.
     platform: linux/amd64
     init: true
     ports:

@@ -168,8 +168,10 @@ container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
   `healthcheck` (chapkit images ship their own) and no `networks:` key (the
   default network reaches chap-core but not PostgreSQL or Valkey).
 
-Models built on the R-INLA runtime also get `platform: linux/amd64`; they have
-no arm64 build and would otherwise fail to start on Apple silicon.
+Every overlay also pins `platform: linux/amd64`. The marketplace images are
+published for amd64 (as is chap-core itself), so an arm64 host such as Apple
+silicon pulls that variant and runs it under emulation instead of failing with
+"no matching manifest".
 
 The data directory and the user differ per image (`/app/data` with
 `chapkit:chapkit` for EWARS, `/app/data` with `chap:chap` for the simple
