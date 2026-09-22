@@ -25,6 +25,59 @@ pub const DEFAULT_DATA_DIR: &str = "/work/data";
 /// `chapkit-r`, `chapkit-r-tidyverse` and `chapkit-r-inla`.
 pub const DEFAULT_USER: &str = "chapkit:chapkit";
 
+/// uid:gid the volume init container falls back to for a user it cannot
+/// resolve, matching [`DEFAULT_USER`].
+pub const FALLBACK_UID_GID: &str = "1000:1000";
+
+/// Numeric ids of the account names the marketplace images create.
+///
+/// The overlay's init container chowns the data volume from busybox, which
+/// knows none of these names, so `chown chapkit:chapkit` there fails with
+/// "unknown user"; only numbers travel between images. Verified with
+/// `id <name>` inside each published image.
+const KNOWN_IDS: &[(&str, u32)] = &[
+    // chapkit-py.Dockerfile creates chapkit as uid/gid 1000; every image built
+    // on chapkit-py (and the chapkit-r* family) inherits it.
+    ("chapkit", 1000),
+    // chapkit_simple_multistep_model/Dockerfile:10 adds `chap` with a plain
+    // `useradd` on top of chapkit-py, where 1000 is already taken, so the
+    // account lands on 1001 - not 1000. Checked against the published
+    // sha-57eeb78 image: `uid=1001(chap) gid=1001(chap)`.
+    ("chap", 1001),
+    ("root", 0),
+];
+
+/// Translate a compose `user:` value into the numeric `uid:gid` form.
+///
+/// Returns `None` for a name with no known id, so the caller can warn rather
+/// than render a `chown` that would fail inside busybox. An already-numeric
+/// value passes through unchanged, and a bare uid stays a bare uid (compose
+/// and `chown` treat a missing group the same way: leave it alone).
+pub fn numeric_user(user: &str) -> Option<String> {
+    let mut parts = user.split(':');
+    let uid = numeric_id(parts.next()?)?;
+    let out = match parts.next() {
+        Some(group) => format!("{uid}:{}", numeric_id(group)?),
+        None => uid.to_string(),
+    };
+    // `a:b:c` is not a user spec.
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(out)
+}
+
+/// One side of a `user:group` pair, as a number or a known account name.
+fn numeric_id(part: &str) -> Option<u32> {
+    if let Ok(n) = part.parse::<u32>() {
+        return Some(n);
+    }
+    KNOWN_IDS
+        .iter()
+        .find(|(name, _)| *name == part)
+        .map(|(_, id)| *id)
+}
+
 /// Data dir and user per marketplace id, read off each model's own Dockerfile.
 ///
 /// Every marketplace entry is listed, including the ones that match the
@@ -154,5 +207,48 @@ mod tests {
         assert_eq!(known_override("something_else"), None);
         assert_eq!(DEFAULT_DATA_DIR, "/work/data");
         assert_eq!(DEFAULT_USER, "chapkit:chapkit");
+    }
+
+    #[test]
+    fn numeric_user_resolves_the_names_the_images_create() {
+        // busybox has no chapkit account, so the init container needs numbers.
+        assert_eq!(
+            numeric_user("chapkit:chapkit").as_deref(),
+            Some("1000:1000")
+        );
+        // `chap` is 1001, not 1000: useradd skipped the uid chapkit holds.
+        assert_eq!(numeric_user("chap:chap").as_deref(), Some("1001:1001"));
+        assert_eq!(numeric_user("root:root").as_deref(), Some("0:0"));
+        assert_eq!(numeric_user("chapkit").as_deref(), Some("1000"));
+        assert_eq!(numeric_user("chapkit:chap").as_deref(), Some("1000:1001"));
+    }
+
+    #[test]
+    fn numeric_user_passes_numbers_through() {
+        assert_eq!(numeric_user("1000:1000").as_deref(), Some("1000:1000"));
+        assert_eq!(numeric_user("1001:2002").as_deref(), Some("1001:2002"));
+        assert_eq!(numeric_user("0:0").as_deref(), Some("0:0"));
+        assert_eq!(numeric_user("1000").as_deref(), Some("1000"));
+        // A mixed pair resolves either side.
+        assert_eq!(numeric_user("1000:chapkit").as_deref(), Some("1000:1000"));
+    }
+
+    #[test]
+    fn numeric_user_gives_up_on_a_name_it_does_not_know() {
+        for user in ["nobody", "chapkit:nobody", "nobody:1000", "", "a:b:c", "-1"] {
+            assert_eq!(numeric_user(user), None, "{user:?}");
+        }
+        assert_eq!(FALLBACK_UID_GID, "1000:1000");
+    }
+
+    #[test]
+    fn every_user_in_the_table_is_resolvable() {
+        for (id, o) in KNOWN {
+            assert!(
+                numeric_user(o.user).is_some(),
+                "{id} runs as {} which the init container cannot chown to",
+                o.user
+            );
+        }
     }
 }

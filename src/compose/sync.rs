@@ -8,6 +8,7 @@
 //! Rendering is deterministic and every file is compared before it is
 //! written, so a second sync reports everything as unchanged.
 
+use crate::compose::overrides;
 use crate::compose::render::{NO_TAG_PINS, render_overlay, render_umbrella};
 use crate::compose::spec::OverlaySpec;
 use crate::compose::tag_env_var;
@@ -87,6 +88,20 @@ pub fn sync(
                 OverlaySpec::from_enabled_without_registry(id, model, cli_version)
             }
         };
+        // The overlay's init container chowns the data volume from busybox,
+        // which resolves no account name of its own, so the user has to be
+        // expressible as numbers. An unknown one still renders, with the
+        // chapkit ids, but the operator should know the guess was taken.
+        if overrides::numeric_user(&spec.user).is_none() {
+            report.warnings.push(format!(
+                "{id} runs as `{}`, which has no known uid:gid; the volume init \
+                 container will chown {} to {} instead - pass `--user <uid>:<gid>` \
+                 if that is wrong",
+                spec.user,
+                spec.data_dir,
+                overrides::FALLBACK_UID_GID
+            ));
+        }
         desired.push((model.compose_file.clone(), render_overlay(&spec)));
     }
     let overlays: Vec<String> = desired.iter().map(|(f, _)| f.clone()).collect();
@@ -347,6 +362,40 @@ mod tests {
         assert!(body.contains("  gone-model:\n"));
         assert!(body.contains("(gone_model)"));
         assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn a_user_with_no_known_ids_renders_with_a_warning() {
+        let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
+
+        project
+            .state
+            .models
+            .get_mut("chapkit_ewars_model")
+            .unwrap()
+            .user = "nobody".into();
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].contains("chapkit_ewars_model runs as `nobody`"));
+        assert!(report.warnings[0].contains("1000:1000"));
+
+        // The overlay still renders, with the fallback ids in the chown.
+        let body =
+            std::fs::read_to_string(dir.path().join("compose.chapkit-ewars-model.yml")).unwrap();
+        assert!(body.contains("chown 1000:1000 /app/data"), "{body}");
+        assert!(body.contains("    user: nobody\n"));
+
+        // A numeric user is understood and warns about nothing.
+        project
+            .state
+            .models
+            .get_mut("chapkit_ewars_model")
+            .unwrap()
+            .user = "1000:1000".into();
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
     }
 
     #[test]

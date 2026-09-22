@@ -6,6 +6,7 @@
 //!
 //! Owned by agent B.
 
+use crate::compose::overrides;
 use crate::compose::spec::{BaseSpec, EnvSpec, OverlaySpec};
 
 /// chap-core's `compose.ghcr.yml`, verbatim but for the header comment.
@@ -73,6 +74,11 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         .to_string()
     };
     let host_port = spec.host_port.to_string();
+    // The init container chowns the data volume from busybox, which knows none
+    // of the images' account names; an unresolvable one falls back to the
+    // chapkit ids (`chaps sync` warns about it).
+    let uid_gid = overrides::numeric_user(&spec.user)
+        .unwrap_or_else(|| overrides::FALLBACK_UID_GID.to_string());
     fill(
         OVERLAY_TEMPLATE,
         &[
@@ -90,6 +96,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("REGISTRATION_KEY_LINES", &registration_key_lines),
             ("DATA_DIR", &spec.data_dir),
             ("USER", &spec.user),
+            ("UID_GID", &uid_gid),
             ("VOLUME", &spec.volume_name),
         ],
     )
@@ -229,6 +236,75 @@ mod tests {
         assert_eq!(svc["volumes"][1]["source"].as_str(), Some(volume.as_str()));
         assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/app/data"));
         assert!(doc["volumes"].get(volume.as_str()).is_some());
+
+        // Two services, and only the model carries the restart policy: the
+        // init container is a one-shot by design.
+        let services = doc["services"].as_mapping().unwrap();
+        assert_eq!(services.len(), 2);
+    }
+
+    #[test]
+    fn overlay_hands_the_data_volume_to_the_model_user_before_it_starts() {
+        let text = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let doc = parse(&text);
+        let init = service(&doc, "chapkit-ewars-model-init");
+
+        // Docker seeds a fresh named volume from the image, ownership
+        // included, and root-owns it when the image has no such directory;
+        // the model would then fail to open its SQLite file.
+        assert_eq!(init["image"].as_str(), Some("busybox:1.37"));
+        assert_eq!(init["user"].as_str(), Some("0:0"));
+        // Numeric: busybox knows no `chapkit` account.
+        assert_eq!(
+            init["command"],
+            Value::Sequence(vec![
+                "sh".into(),
+                "-c".into(),
+                "chown 1000:1000 /app/data".into()
+            ])
+        );
+        assert!(!text.contains("chown chapkit"));
+        // Quoted, or YAML would read it as the boolean false.
+        assert!(text.contains("    restart: \"no\"\n"));
+        assert_eq!(init["restart"].as_str(), Some("no"));
+        // Multi-arch, so no platform pin is needed.
+        assert!(init.get("platform").is_none());
+        assert!(init.get("ports").is_none());
+
+        // Same volume at the same path as the model service.
+        let volume = volume_name("chapkit_ewars_model");
+        assert_eq!(init["volumes"][0]["source"].as_str(), Some(volume.as_str()));
+        assert_eq!(init["volumes"][0]["target"].as_str(), Some("/app/data"));
+
+        // And the model waits for it to finish.
+        let svc = service(&doc, "chapkit-ewars-model");
+        assert_eq!(
+            svc["depends_on"]["chapkit-ewars-model-init"]["condition"].as_str(),
+            Some("service_completed_successfully")
+        );
+    }
+
+    #[test]
+    fn overlay_chowns_to_the_ids_of_the_user_the_model_runs_as() {
+        // The simple multistep image runs as `chap`, which is uid/gid 1001.
+        let text = render_overlay(&overlay_spec("chapkit_simple_multistep_model", 5003));
+        assert!(text.contains("chown 1001:1001 /app/data"), "{text}");
+
+        // A numeric --user is passed through, and the data dir follows it.
+        let mut spec = overlay_spec("auto_arima_chapkit", 5004);
+        spec.user = "1500:1600".into();
+        spec.data_dir = "/srv/data".into();
+        assert!(render_overlay(&spec).contains("chown 1500:1600 /srv/data"));
+
+        // An account no image of ours creates falls back to the chapkit ids
+        // rather than rendering a chown busybox would reject.
+        spec.user = "nobody".into();
+        let text = render_overlay(&spec);
+        assert!(text.contains("chown 1000:1000 /srv/data"), "{text}");
+        assert_eq!(
+            service(&parse(&text), "auto-arima-chapkit")["user"].as_str(),
+            Some("nobody")
+        );
     }
 
     #[test]

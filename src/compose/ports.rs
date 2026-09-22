@@ -315,6 +315,20 @@ mod tests {
     }
 
     #[test]
+    fn scan_compose_dir_sees_only_the_model_port_of_a_rendered_overlay() {
+        // The overlay's volume init service publishes nothing, so it must not
+        // change what the allocator considers taken.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("compose.chapkit-ewars-model.yml"),
+            include_str!("../../tests/fixtures/compose.chapkit-ewars-model.yml"),
+        )
+        .unwrap();
+        let ports = PortAllocator::scan_compose_dir(dir.path()).unwrap();
+        assert_eq!(ports, BTreeSet::from([5002]));
+    }
+
+    #[test]
     fn scan_compose_dir_on_a_missing_directory_is_empty() {
         let dir = tempfile::tempdir().unwrap();
         let ports = PortAllocator::scan_compose_dir(&dir.path().join("nope")).unwrap();

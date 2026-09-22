@@ -223,7 +223,7 @@ refreshed only by `chaps docker pull`, `chaps update`, or `chaps up --pull`.
 
 Each marketplace model is a [chapkit](https://github.com/dhis2-chap/chapkit)
 container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
-`chaps` writes does five things:
+`chaps` writes does six things:
 
 - **Pins the image.** `image: <repo>:${<ID>_IMAGE_TAG:-sha-<commit>}`, where the
   default is the `image_tag` of the version the channel resolves to. The
@@ -242,8 +242,21 @@ container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
   `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, an unprivileged
   `user`, a 2 GB tmpfs at `/tmp`, and a named volume for the model's data
   directory (the only writable path besides `/tmp`).
-- **Ordering.** `depends_on: chap: condition: service_healthy`, so a model only
-  starts once chap-core can accept its registration. The overlay adds no
+- **Hands the data volume to the model user.** Docker seeds a fresh named
+  volume from whatever the image has at the mount point, ownership included, so
+  an image that never creates its data directory yields a root-owned volume the
+  unprivileged model cannot write to - and chapkit dies on
+  `sqlite3.OperationalError: unable to open database file`. Compose cannot
+  `chown` a volume, so each overlay ships a one-shot `<service_id>-init`
+  container (busybox, as root, `restart: "no"`) that chowns the mount point to
+  the model's *numeric* uid:gid (busybox resolves no `chapkit` account) before
+  the model starts. Every overlay gets it, not only the images known to need
+  it, and it is the one service in a deployment that is deliberately not
+  `restart: unless-stopped`.
+- **Ordering.** `depends_on`: the init container with
+  `condition: service_completed_successfully` and `chap` with
+  `condition: service_healthy`, so a model only starts once its volume is
+  writable and chap-core can accept its registration. The overlay adds no
   `healthcheck` (chapkit images ship their own) and no `networks:` key (the
   default network reaches chap-core but not PostgreSQL or Valkey).
 
@@ -257,7 +270,10 @@ The data directory and the user differ per image (`/app/data` with
 multistep model, `/work/data` with `chapkit:chapkit` elsewhere). `chaps` knows
 the published ones; `--data-dir` and `--user` cover anything it does not. A
 model that crash-loops right after starting is almost always writing outside
-its data directory on the read-only filesystem.
+its data directory on the read-only filesystem. The init container needs those
+names as numbers (`chapkit` is uid/gid 1000, `chap` is 1001); a `--user` that
+is already numeric is passed through, and a name `chaps` does not know falls
+back to `1000:1000` with a warning from `chaps sync`.
 
 Templates (`kind: template`) are scaffolding for writing your own model, not
 forecasting models. They are hidden from `models list` and the browser by
