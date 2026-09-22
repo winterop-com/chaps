@@ -1,0 +1,120 @@
+schema_version: 2
+
+id: chapkit_ewars_model
+service_id: chapkit-ewars-model
+display_name: CHAP-EWARS
+kind: model
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. orange = shows promise on limited data, needs careful
+# evaluation. See models/README.md for the full scale.
+assessed_status: orange
+
+summary: >-
+  Bayesian hierarchical early-warning model fitted with INLA — the chapkit
+  port of the modified WHO EWARS model. Lagged climate covariates sit on top
+  of the population covariate chap supplies automatically, with optional
+  region-specific seasonal effects.
+
+source:
+  repository: https://github.com/chap-models/chapkit_ewars_model
+  image: ghcr.io/chap-models/chapkit_ewars_model
+  # R + INLA. Built on the chapkit R-INLA base, which ships the EWARS R stack
+  # (INLA, dlnm, sf, spdep, jsonlite). amd64 only.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
+
+attribution:
+  author: CHAP team
+  organization: HISP Centre, University of Oslo
+  contact: knut.rand@dhis2.org
+  citation: >-
+    Climate Health Analytics Platform. 2025. "CHAP-EWARS model". HISP Centre,
+    University of Oslo.
+
+# GitHub handles responsible for this listing — backfilled from the source
+# repository's contributors; corrections welcome by PR.
+maintainers:
+  - knutdrand
+  - Halvardgithub
+  - mortenoh
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 0
+  max_prediction_periods: 100
+  requires_geo: false
+
+covariates:
+  # Supplied automatically by chap; never repeated in a configuration.
+  required:
+    - population
+  # The service's own default additional_continuous_covariates.
+  defaults:
+    - rainfall
+    - mean_temperature
+  allow_free_additional: true
+
+# Channel pointers into `versions`. `stable` is the newest verified pin —
+# what production chap instances should run. `latest` is the newest pin of
+# any status; it diverges from `stable` while a new version is under review.
+channels:
+  stable: 1.0.0
+  latest: 1.0.0
+
+versions:
+  - version: 1.0.0
+    commit: fa880a1d8621c6c5bf60c472c299c40b5568ecd0
+    image_tag: sha-fa880a1
+    chapkit: ">=2.0.0,<3"
+    status: verified
+    # Verified by the merge gate. This pin is part of the chapkit 2.0.0 seed
+    # import; pins added by PR from here on list their three approvers.
+    verified_by: []
+    changelog: >-
+      Upgrade to chapkit 2.0.0 and run the service as an unprivileged user.
+    notes: >-
+      First chapkit 2.0.0 listing. Supersedes the MLproject-based
+      dhis2-chap/ewars_template listing, which chapkit ran through its
+      MLproject runner rather than as a service image.
+
+# Verified configurations. Each `config` block is the flat object chapkit
+# accepts as `data` on POST /api/v1/configs.
+configurations:
+  monthly_climate:
+    description: >-
+      Reference climate-driven configuration, matching the service defaults.
+      n_lags is positional — one entry per additional_continuous_covariates
+      entry, in the same order. population is required and auto-supplied, so
+      it is not repeated here.
+    config:
+      prediction_periods: 3
+      n_lags: [3, 3]
+      precision: 0.01
+      region_seasonal: false
+      additional_continuous_covariates:
+        - rainfall
+        - mean_temperature
+  monthly_region_seasonal:
+    description: >-
+      Region-specific seasonal effects. Needs enough complete seasons per
+      location to identify the effects, at the cost of a noticeably slower
+      INLA fit.
+    config:
+      prediction_periods: 3
+      n_lags: [3, 3]
+      precision: 0.01
+      region_seasonal: true
+      additional_continuous_covariates:
+        - rainfall
+        - mean_temperature
+  monthly_population_only:
+    description: >-
+      Population-only variant for deployments without climate data. Clearing
+      additional_continuous_covariates leaves the seasonal and hierarchical
+      structure fitted against population alone.
+    config:
+      prediction_periods: 3
+      n_lags: [3]
+      precision: 0.01
+      region_seasonal: false
+      additional_continuous_covariates: []

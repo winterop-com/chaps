@@ -1,0 +1,13 @@
+CHAP model marketplace snapshot
+===============================
+
+upstream:       https://github.com/dhis2-chap/model-marketplace
+ref:            main
+commit:         f5b6e0e279a9cff793449c283e0fd0ad48cae21a
+fetched:        2026-09-22
+
+Files in this directory are verbatim copies of the upstream YAML. They are
+compiled into the binary by src/registry/embedded.rs and used as the last
+resort fallback when the registry cannot be fetched or read from cache.
+
+Refresh with scripts/vendor-marketplace.sh and commit the result.

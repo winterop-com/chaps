@@ -1,0 +1,74 @@
+schema_version: 2
+
+id: chapkit_minimalist_example_py
+service_id: chapkit-minimalist-example-py
+display_name: Minimalist Example (Python)
+kind: template
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. red = highly experimental prototype, not validated.
+# For a template that is the honest reading: it is scaffolding, and its
+# LinearRegression is a placeholder for a real model.
+assessed_status: red
+
+summary: >-
+  Scaffolding, not a forecasting model. The canonical Python starting point
+  for chapkit model authors: a scikit-learn LinearRegression served as a
+  chapkit ML service. Copy the repository and replace the regressor in
+  scripts/train_model.py with the real model.
+
+source:
+  repository: https://github.com/chap-models/chapkit_minimalist_example_py
+  image: ghcr.io/chap-models/chapkit_minimalist_example_py
+  # Pure Python (scikit-learn) on the chapkit Python base. The base image is
+  # multi-arch, but this service's publish workflow builds linux/amd64 only.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-py
+
+attribution:
+  author: DHIS2 CHAP
+  organization: HISP Centre, University of Oslo
+  contact: chap@dhis2.org
+
+# GitHub handles responsible for this listing — backfilled from the source
+# repository's contributors; corrections welcome by PR.
+maintainers:
+  - mortenoh
+  - edvinstava
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 0
+  max_prediction_periods: 100
+  requires_geo: false
+
+covariates:
+  # The service declares no required covariates and refuses free-form extras.
+  # Its scripts do read rainfall and mean_temperature when the columns are
+  # present — a template under-declaring its inputs is exactly the kind of
+  # thing to fix when you copy it.
+  required: []
+  defaults: []
+  allow_free_additional: false
+
+channels:
+  stable: 1.0.0
+  latest: 1.0.0
+
+versions:
+  - version: 1.0.0
+    commit: 5689ab54ab9625083c6471206fa4249b3579e074
+    image_tag: sha-5689ab5
+    chapkit: ">=2.0.0,<3"
+    status: verified
+    # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
+    verified_by: []
+    changelog: >-
+      Upgrade to chapkit 2.0.0.
+
+configurations:
+  monthly:
+    description: >-
+      The only configuration the template exposes. Add your own options to
+      the config class in main.py as you replace the model.
+    config:
+      prediction_periods: 3

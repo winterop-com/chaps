@@ -1,0 +1,77 @@
+schema_version: 2
+
+id: chapkit_minimalist_example_r
+service_id: chapkit-minimalist-example-r
+display_name: Minimalist Example (R)
+kind: template
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. red = highly experimental prototype, not validated.
+# For a template that is the honest reading: it is scaffolding, and its lm()
+# is a placeholder for a real model.
+assessed_status: red
+
+summary: >-
+  Scaffolding, not a forecasting model. The canonical R starting point for
+  chapkit model authors: a base-R lm() served as a chapkit ML service. Copy
+  the repository and replace the lm() in scripts/train.R with the real model.
+
+source:
+  repository: https://github.com/chap-models/chapkit_minimalist_example_r
+  image: ghcr.io/chap-models/chapkit_minimalist_example_r
+  # R on the chapkit R-INLA base, so a copied template can reach for INLA
+  # without swapping the base image first. amd64 only.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
+
+attribution:
+  author: DHIS2 CHAP
+  organization: HISP Centre, University of Oslo
+  contact: chap@dhis2.org
+
+# GitHub handles responsible for this listing — backfilled from the source
+# repository's contributors; corrections welcome by PR.
+maintainers:
+  - mortenoh
+  - ivargr
+  - edvinstava
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 0
+  max_prediction_periods: 100
+  requires_geo: false
+
+covariates:
+  # The service declares no required covariates and refuses free-form extras.
+  # Its scripts do read rainfall and mean_temperature when the columns are
+  # present — a template under-declaring its inputs is exactly the kind of
+  # thing to fix when you copy it.
+  required: []
+  defaults: []
+  allow_free_additional: false
+
+channels:
+  stable: 1.0.0
+  latest: 1.0.0
+
+versions:
+  - version: 1.0.0
+    commit: 75c26ab4e4acbca23c2f9f534167cba44f763673
+    image_tag: sha-75c26ab
+    chapkit: ">=2.0.0,<3"
+    status: verified
+    # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
+    verified_by: []
+    changelog: >-
+      Upgrade to chapkit 2.0.0.
+    notes: >-
+      Supersedes the MLproject-based minimalist_example_r entry in chap's
+      model-repositories whitelist.
+
+configurations:
+  monthly:
+    description: >-
+      The only configuration the template exposes. Add your own options to
+      the config class in main.py as you replace the model.
+    config:
+      prediction_periods: 3

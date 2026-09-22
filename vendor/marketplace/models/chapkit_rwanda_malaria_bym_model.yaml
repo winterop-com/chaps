@@ -1,0 +1,86 @@
+schema_version: 2
+
+id: chapkit_rwanda_malaria_bym_model
+service_id: chapkit-rwanda-malaria-bym-model
+display_name: Rwanda Malaria BYM
+kind: model
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. gray = not intended for use — deprecated, or kept only
+# for backwards compatibility.
+assessed_status: gray
+
+summary: >-
+  Spatio-temporal Bayesian model for malaria incidence in Rwanda at sector
+  (ADM3) level: BYM spatial effects, RW1 temporal effects and an IID
+  space-time interaction with lagged climate covariates, fitted with R-INLA.
+  Built for one country's data — it needs geometry and the full climate
+  covariate set.
+
+source:
+  repository: https://github.com/chap-models/chapkit_rwanda_malaria_bym_model
+  image: ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model
+  # R + INLA, packaged as a chapkit shell-r service. The R-INLA model is
+  # unchanged from knutdrand/Kigali-Malaria-modelling-23-27-Feb. amd64 only.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
+
+attribution:
+  author: Similien NDAGIJIMANA
+  organization: HISP Centre, University of Oslo
+  contact: knut.rand@dhis2.org
+  citation: >-
+    Climate Health Analytics Platform. 2025. "Kigali Malaria BYM Model". HISP
+    Centre, University of Oslo.
+
+# GitHub handles responsible for this listing — backfilled from the source
+# repository's contributors; corrections welcome by PR.
+maintainers:
+  - mortenoh
+  - edvinstava
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 1
+  max_prediction_periods: 24
+  # The BYM spatial effect is built from an adjacency graph, so a GeoJSON
+  # input is mandatory rather than optional.
+  requires_geo: true
+
+covariates:
+  # All four are declared required, so chap supplies them automatically and
+  # the model cannot run on a dataset that lacks any of them.
+  required:
+    - population
+    - rainfall
+    - mean_temperature
+    - relative_humidity
+  defaults: []
+  allow_free_additional: true
+
+channels:
+  stable: 0.1.0
+  latest: 0.1.0
+
+versions:
+  - version: 0.1.0
+    commit: 028bb5aeef88f874116ac2dcb5863975fecc3201
+    image_tag: sha-028bb5a
+    chapkit: ">=2.0.0,<3"
+    status: verified
+    # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
+    verified_by: []
+    changelog: >-
+      Upgrade to chapkit 2.0.0.
+    notes: >-
+      The runner uses chapkit's chap_core config format, which writes
+      additional_continuous_covariates at the top level of config.yml —
+      that is what scripts/predict.R reads.
+
+configurations:
+  monthly:
+    description: >-
+      The only configuration the service exposes: every covariate it uses is
+      required and auto-supplied, so prediction_periods is the single option.
+      Supply Rwanda sector geometry alongside the data.
+    config:
+      prediction_periods: 3

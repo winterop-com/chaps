@@ -1,0 +1,72 @@
+schema_version: 2
+
+id: auto_arima_chapkit
+service_id: auto-arima-chapkit
+display_name: Auto-ARIMA
+kind: model
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. red = highly experimental prototype, not validated.
+assessed_status: red
+
+summary: >-
+  Univariate ARIMA with automatic order selection, via the ARIMA() function
+  in R's fable package. Reads nothing but the case series — no covariates, no
+  geometry — which makes it the natural weak baseline to compare a
+  covariate-driven model against.
+
+source:
+  repository: https://github.com/chap-models/auto_arima_chapkit
+  image: ghcr.io/chap-models/auto_arima_chapkit
+  # R + fable on the chapkit tidyverse base (fable, tsibble, feasts,
+  # forecast). No INLA, no spatial stack.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-tidyverse
+
+attribution:
+  author: Harsha (adapted to chapkit by Halvard)
+  organization: Cardiff University
+  contact: halvares@uio.no
+
+# GitHub handles responsible for this listing — backfilled from the source
+# repository's contributors; corrections welcome by PR.
+maintainers:
+  - Halvardgithub
+  - mortenoh
+  - edvinstava
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 0
+  max_prediction_periods: 12
+  requires_geo: false
+
+covariates:
+  required: []
+  defaults: []
+  # The service declares allow_free_additional_continuous_covariates=False:
+  # it is univariate and ignores anything but the case series.
+  allow_free_additional: false
+
+channels:
+  stable: 1.0.0
+  latest: 1.0.0
+
+versions:
+  - version: 1.0.0
+    commit: 70c07a91a2164385e6d96477b7b786320ec32b32
+    image_tag: sha-70c07a9
+    chapkit: ">=2.0.0,<3"
+    status: verified
+    # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
+    verified_by: []
+    changelog: >-
+      Upgrade to chapkit 2.0.0 and register with CHAP Core.
+
+configurations:
+  monthly:
+    description: >-
+      The only configuration the service exposes. ARIMA() selects the orders
+      itself, so prediction_periods is the single option — and the reason
+      this model is a useful reference point rather than a tunable one.
+    config:
+      prediction_periods: 3

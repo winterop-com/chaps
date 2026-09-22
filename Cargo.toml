@@ -1,0 +1,28 @@
+[package]
+name = "chap-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Generate and manage a docker compose deployment of chap-core plus marketplace model services"
+license = "MIT"
+
+[[bin]]
+name = "chap"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+ureq = { version = "3.4", features = ["json"] }
+anyhow = "1"
+thiserror = "2"
+ratatui = "0.30"
+crossterm = "0.29"
+getrandom = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+regex = "1"
+assert_cmd = "2"
+predicates = "3"
