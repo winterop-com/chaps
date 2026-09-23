@@ -22,11 +22,31 @@ pub const BASE_COMPOSE: &str = "compose.yml";
 pub const MARKETPLACE_COMPOSE: &str = "compose.marketplace.yml";
 /// Environment file docker compose picks up automatically.
 pub const ENV_FILE: &str = ".env";
+/// The `.env` variable the chap-core images read their tag from.
+pub const CHAP_TAG_ENV_VAR: &str = "CHAP_IMAGE_TAG";
 
 /// `project.yaml` schema version written by this CLI.
 pub const SCHEMA_VERSION: u32 = 1;
 /// Host port range model overlays are allocated from.
 pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
+
+/// File name of the cached copy of chap-core's `compose.ghcr.yml` at `tag`,
+/// inside [`CHAPS_DIR`].
+///
+/// The tag is part of the name, so switching tags never overwrites the copy
+/// the running deployment was rendered from. Anything a tag may contain that a
+/// file name should not (a slash, most of all) is folded to `_`.
+pub fn cached_compose_file(tag: &str) -> String {
+    let mut safe = String::with_capacity(tag.len());
+    for ch in tag.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
+            safe.push(ch);
+        } else {
+            safe.push('_');
+        }
+    }
+    format!("compose.chap-core.{safe}.yml")
+}
 
 const PROJECT_HEADER: &str = "\
 # .chaps/project.yaml - managed by chaps. Written by `chaps init`; `rendered_files` is
@@ -36,9 +56,51 @@ const PROJECT_HEADER: &str = "\
 
 const MODELS_HEADER: &str = "\
 # .chaps/models.yaml - managed by chaps. The enabled model set, edited by
-# `chaps models enable|disable`, `chaps tui` and `chaps update`.
+# `chaps models enable|disable`, `chaps ui` and `chaps update`.
 # `chaps sync` renders one compose.<service_id>.yml per entry plus compose.marketplace.yml.
 ";
+
+/// Where the base `compose.yml` is rendered from.
+///
+/// `compose.yml` is an artifact like the overlays: [`crate::compose::sync`]
+/// re-renders it, and this says from what. Old `project.yaml` files that
+/// predate the field load as [`ComposeSource::Embedded`], which is what they
+/// were written from.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ComposeSource {
+    /// The copy of chap-core's `compose.ghcr.yml` compiled into this binary.
+    #[default]
+    Embedded,
+    /// chap-core's own `compose.ghcr.yml` at a tag, downloaded by `chaps init`
+    /// or `chaps update` and kept in `.chaps/` so `sync` can replay it
+    /// offline.
+    Fetched {
+        url: String,
+        tag: String,
+        /// SHA-256 of the cached copy as it was downloaded, so a later edit of
+        /// it is noticed rather than silently rendered.
+        sha256: String,
+    },
+}
+
+impl ComposeSource {
+    /// The cached copy's file name inside [`CHAPS_DIR`], for a fetched source.
+    pub fn cached_file(&self) -> Option<String> {
+        match self {
+            ComposeSource::Embedded => None,
+            ComposeSource::Fetched { tag, .. } => Some(cached_compose_file(tag)),
+        }
+    }
+
+    /// One-line description for human output.
+    pub fn describe(&self) -> String {
+        match self {
+            ComposeSource::Embedded => "the compose.ghcr.yml built into this binary".to_string(),
+            ComposeSource::Fetched { tag, .. } => format!("chap-core compose.ghcr.yml at {tag}"),
+        }
+    }
+}
 
 /// The in-memory project state: `project.yaml` plus `models.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +109,9 @@ pub struct ProjectState {
     /// e.g. `chaps-cli 0.1.0`.
     pub generated_by: String,
     pub chap_image_tag: String,
+    /// Where `compose.yml` is rendered from.
+    #[serde(default)]
+    pub chap_compose_source: ComposeSource,
     pub registry_url: String,
     /// Ordered `-f` list, relative to the project directory.
     pub compose_files: Vec<String>,
@@ -66,6 +131,7 @@ impl Default for ProjectState {
             schema_version: SCHEMA_VERSION,
             generated_by: format!("chaps-cli {}", env!("CARGO_PKG_VERSION")),
             chap_image_tag: "latest".to_string(),
+            chap_compose_source: ComposeSource::Embedded,
             registry_url: crate::registry::DEFAULT_REGISTRY_URL.to_string(),
             compose_files: vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()],
             port_range: DEFAULT_PORT_RANGE,
@@ -198,6 +264,20 @@ impl Project {
         write_atomically(&chaps.join(MODELS_FILE), &models_body)
     }
 
+    /// The `.chaps/` directory of this project.
+    pub fn chaps_dir(&self) -> PathBuf {
+        self.dir.join(CHAPS_DIR)
+    }
+
+    /// Absolute path of the cached `compose.ghcr.yml` this project's
+    /// `compose.yml` is rendered from, when it is not the embedded copy.
+    pub fn cached_compose_path(&self) -> Option<PathBuf> {
+        self.state
+            .chap_compose_source
+            .cached_file()
+            .map(|name| self.chaps_dir().join(name))
+    }
+
     /// Absolute paths of the ordered `-f` list.
     pub fn compose_file_paths(&self) -> Vec<PathBuf> {
         self.state
@@ -294,6 +374,93 @@ mod tests {
         assert_eq!(loaded.state.port_range, DEFAULT_PORT_RANGE);
         assert_eq!(loaded.state.rendered_files, vec!["compose.marketplace.yml"]);
         assert_eq!(loaded.state.models["chapkit_ewars_model"], enabled(5001));
+    }
+
+    #[test]
+    fn the_compose_source_round_trips_both_ways() {
+        let dir = tempfile::tempdir().unwrap();
+        let fetched = ComposeSource::Fetched {
+            url: "https://raw.githubusercontent.com/dhis2-chap/chap-core/v2.3.1/compose.ghcr.yml"
+                .into(),
+            tag: "v2.3.1".into(),
+            sha256: "a".repeat(64),
+        };
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                chap_image_tag: "v2.3.1".into(),
+                chap_compose_source: fetched.clone(),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+        assert!(body.contains("chap_compose_source:"));
+        assert!(body.contains("kind: fetched"));
+        assert!(body.contains("tag: v2.3.1"));
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.chap_compose_source, fetched);
+        assert_eq!(
+            loaded.cached_compose_path(),
+            Some(
+                dir.path()
+                    .join(CHAPS_DIR)
+                    .join("compose.chap-core.v2.3.1.yml")
+            )
+        );
+
+        // The embedded default writes its own tag and has no cached copy.
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState::default(),
+        };
+        project.save().unwrap();
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+        assert!(body.contains("kind: embedded"));
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.chap_compose_source, ComposeSource::Embedded);
+        assert_eq!(loaded.cached_compose_path(), None);
+    }
+
+    #[test]
+    fn a_project_file_written_before_the_compose_source_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let chaps = dir.path().join(CHAPS_DIR);
+        std::fs::create_dir_all(&chaps).unwrap();
+        std::fs::write(
+            chaps.join(PROJECT_FILE),
+            "schema_version: 1\n\
+             generated_by: chaps-cli 0.1.0\n\
+             chap_image_tag: latest\n\
+             registry_url: https://example.test/registry.yaml\n\
+             compose_files:\n\
+             - compose.yml\n\
+             - compose.marketplace.yml\n\
+             port_range:\n\
+             - 5001\n\
+             - 5999\n",
+        )
+        .unwrap();
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.chap_compose_source, ComposeSource::Embedded);
+    }
+
+    #[test]
+    fn the_cached_file_name_is_tagged_and_safe() {
+        assert_eq!(
+            cached_compose_file("v2.3.1"),
+            "compose.chap-core.v2.3.1.yml"
+        );
+        assert_eq!(
+            cached_compose_file("master"),
+            "compose.chap-core.master.yml"
+        );
+        assert_eq!(
+            cached_compose_file("feature/x y"),
+            "compose.chap-core.feature_x_y.yml"
+        );
     }
 
     #[test]

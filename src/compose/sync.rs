@@ -1,19 +1,23 @@
 //! Rendering `.chaps/` into the compose files at the project root.
 //!
-//! `.chaps/models.yaml` is intent; `compose.<service_id>.yml` and
+//! `.chaps/` is intent; `compose.yml`, `compose.<service_id>.yml` and
 //! `compose.marketplace.yml` are artifacts. [`sync`] is the one place that
 //! turns the former into the latter: `apply` ends in it, `chaps sync` calls it
 //! directly and `chaps up` runs it before `docker compose up`.
 //!
 //! Rendering is deterministic and every file is compared before it is
-//! written, so a second sync reports everything as unchanged.
+//! written, so a second sync reports everything as unchanged. `compose.yml`
+//! is deterministic too because the copy of chap-core's `compose.ghcr.yml` it
+//! is rendered from is kept in `.chaps/`; nothing here touches the network.
 
 use crate::compose::overrides;
-use crate::compose::render::{NO_TAG_PINS, render_overlay, render_umbrella};
-use crate::compose::spec::OverlaySpec;
+use crate::compose::render::{NO_TAG_PINS, render_base, render_overlay, render_umbrella};
+use crate::compose::spec::{BaseSpec, OverlaySpec, UpstreamCompose};
 use crate::compose::tag_env_var;
 use crate::error::Result;
-use crate::project::{BASE_COMPOSE, ENV_FILE, MARKETPLACE_COMPOSE, Project};
+use crate::project::{
+    BASE_COMPOSE, CHAP_TAG_ENV_VAR, ComposeSource, ENV_FILE, MARKETPLACE_COMPOSE, Project,
+};
 use crate::registry::Registry;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -75,8 +79,17 @@ pub fn sync(
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
     }
 
-    // Desired artifacts, overlays in marketplace-id order, then the umbrella.
+    // Desired artifacts: the base stack, the overlays in marketplace-id order,
+    // then the umbrella that includes them.
     let mut desired: Vec<(String, String)> = Vec::new();
+    // The umbrella includes the overlays and only the overlays; the base file
+    // is one of the `-f` list, not something to include.
+    let mut overlays: Vec<String> = Vec::new();
+    let (base, base_warnings) = base_compose(project, cli_version);
+    report.warnings.extend(base_warnings);
+    if let Some(base) = base {
+        desired.push((BASE_COMPOSE.to_string(), base));
+    }
     for (id, model) in &project.state.models {
         let spec = match registry.get(id) {
             Some(m) => OverlaySpec::from_enabled(id, model, m, cli_version),
@@ -102,9 +115,9 @@ pub fn sync(
                 overrides::FALLBACK_UID_GID
             ));
         }
+        overlays.push(model.compose_file.clone());
         desired.push((model.compose_file.clone(), render_overlay(&spec)));
     }
-    let overlays: Vec<String> = desired.iter().map(|(f, _)| f.clone()).collect();
     desired.push((MARKETPLACE_COMPOSE.to_string(), render_umbrella(&overlays)));
 
     for (name, content) in &desired {
@@ -152,6 +165,58 @@ pub fn sync(
     project.state.rendered_files = desired.into_iter().map(|(f, _)| f).collect();
     project.save()?;
     Ok(report)
+}
+
+/// The `compose.yml` this project's state describes, plus any warning about
+/// the source it is rendered from.
+///
+/// `None` means the recorded source cannot be replayed - the cached copy of
+/// chap-core's `compose.ghcr.yml` is gone - in which case the file on disk is
+/// left exactly as it is: a base stack we cannot reproduce is not one to
+/// overwrite with a guess.
+fn base_compose(project: &Project, cli_version: &str) -> (Option<String>, Vec<String>) {
+    let embedded = || {
+        render_base(&BaseSpec {
+            cli_version: cli_version.to_string(),
+            upstream: None,
+        })
+    };
+    let ComposeSource::Fetched { tag, sha256, .. } = &project.state.chap_compose_source else {
+        return (Some(embedded()), Vec::new());
+    };
+
+    let Some(path) = project.cached_compose_path() else {
+        return (Some(embedded()), Vec::new());
+    };
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return (
+            None,
+            vec![format!(
+                ".chaps/{name} is missing, so {BASE_COMPOSE} is left as it is; \
+                 re-run `chaps init --force --chap-tag {tag}` to fetch it again"
+            )],
+        );
+    };
+
+    let mut warnings = Vec::new();
+    if crate::chapcore::sha256_hex(body.as_bytes()) != *sha256 {
+        warnings.push(format!(
+            ".chaps/{name} no longer matches the checksum recorded in .chaps/project.yaml; \
+             {BASE_COMPOSE} follows the file as it is now"
+        ));
+    }
+    let text = render_base(&BaseSpec {
+        cli_version: cli_version.to_string(),
+        upstream: Some(UpstreamCompose {
+            tag: tag.clone(),
+            body,
+        }),
+    });
+    (Some(text), warnings)
 }
 
 /// `compose.<something>.yml`, the shape of a model overlay.
@@ -232,6 +297,67 @@ pub fn refresh_env_pin(dir: &Path, var: &str, tag: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// What [`set_env_chap_tag`] found in `.env`, and therefore what the running
+/// deployment will do with the new tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvTag {
+    /// There is no `.env` (a project created with `init --no-env`).
+    NoFile,
+    /// The active `CHAP_IMAGE_TAG=` line now names the new tag.
+    Updated,
+    /// The only mention is a commented placeholder, so the deployment follows
+    /// the compose default. Left alone: uncommenting it is the operator's call.
+    Commented,
+    /// An active line holds a value this project did not put there.
+    Foreign(String),
+    /// The file never mentions the variable.
+    Absent,
+}
+
+/// Move the active `CHAP_IMAGE_TAG=` line of `.env` from `old` to `new`.
+///
+/// Exactly one line may change, and only when it still says what this project
+/// recorded: an operator who pinned something else, or who left the generated
+/// placeholder commented out, has made a decision that `chaps update` does not
+/// get to undo. The outcome says which of those it was so the caller can warn.
+pub fn set_env_chap_tag(dir: &Path, old: &str, new: &str) -> Result<EnvTag> {
+    let path = dir.join(ENV_FILE);
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Ok(EnvTag::NoFile);
+    };
+    let assignment = format!("{CHAP_TAG_ENV_VAR}=");
+
+    let mut out = String::with_capacity(body.len());
+    let mut outcome = None;
+    for line in body.lines() {
+        let trimmed = line.trim();
+        let value = trimmed.strip_prefix(&assignment).map(str::trim);
+        match value {
+            Some(value) if outcome.is_none() && (value == old || value == new) => {
+                out.push_str(&format!("{CHAP_TAG_ENV_VAR}={new}"));
+                outcome = Some(EnvTag::Updated);
+            }
+            Some(value) if outcome.is_none() => {
+                out.push_str(line);
+                outcome = Some(EnvTag::Foreign(value.to_string()));
+            }
+            _ => out.push_str(line),
+        }
+        out.push('\n');
+    }
+
+    let outcome = outcome.unwrap_or(if mentions_var(&body, CHAP_TAG_ENV_VAR) {
+        EnvTag::Commented
+    } else {
+        EnvTag::Absent
+    });
+    if outcome == EnvTag::Updated && out != body {
+        std::fs::write(&path, out)
+            .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    }
+    Ok(outcome)
+}
+
 /// Whether any line, commented or not, assigns `var`.
 fn mentions_var(body: &str, var: &str) -> bool {
     body.lines().any(|line| {
@@ -274,6 +400,23 @@ mod tests {
         (dir, project, registry)
     }
 
+    fn read(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    }
+
+    /// Write a cached `compose.ghcr.yml` into `.chaps/` and record it as the
+    /// project's compose source, the way `init` does after a fetch.
+    fn cache(project: &mut Project, tag: &str, body: &str) {
+        let chaps = project.chaps_dir();
+        std::fs::create_dir_all(&chaps).unwrap();
+        std::fs::write(chaps.join(crate::project::cached_compose_file(tag)), body).unwrap();
+        project.state.chap_compose_source = ComposeSource::Fetched {
+            url: crate::chapcore::compose_url(tag),
+            tag: tag.to_string(),
+            sha256: crate::chapcore::sha256_hex(body.as_bytes()),
+        };
+    }
+
     fn names(paths: &[PathBuf]) -> Vec<String> {
         paths
             .iter()
@@ -289,13 +432,21 @@ mod tests {
         assert!(report.written.is_empty() && report.removed.is_empty());
         assert_eq!(
             names(&report.unchanged),
-            vec!["compose.chapkit-ewars-model.yml", "compose.marketplace.yml"]
+            vec![
+                "compose.yml",
+                "compose.chapkit-ewars-model.yml",
+                "compose.marketplace.yml"
+            ]
         );
         assert_eq!(
             project.state.rendered_files,
-            vec!["compose.chapkit-ewars-model.yml", "compose.marketplace.yml"]
+            vec![
+                "compose.yml",
+                "compose.chapkit-ewars-model.yml",
+                "compose.marketplace.yml"
+            ]
         );
-        assert_eq!(report.summary(), "0 written, 2 unchanged, 0 removed");
+        assert_eq!(report.summary(), "0 written, 3 unchanged, 0 removed");
     }
 
     #[test]
@@ -312,7 +463,7 @@ mod tests {
             vec!["compose.chapkit-ewars-model.yml"]
         );
         assert!(!overlay.exists(), "--check writes nothing");
-        assert_eq!(report.summary(), "1 to write, 1 unchanged, 0 to remove");
+        assert_eq!(report.summary(), "1 to write, 2 unchanged, 0 to remove");
 
         let report = sync(&mut project, &registry, VERSION, false).unwrap();
         assert!(report.drift);
@@ -453,6 +604,156 @@ mod tests {
                 .contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n")
         );
         assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn the_base_file_is_rendered_from_the_embedded_copy_by_default() {
+        let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+        let base = dir.path().join(BASE_COMPOSE);
+        let original = read(&base);
+        assert!(
+            original
+                .starts_with("# Generated by chaps init (0.1.0) from chap-core compose.ghcr.yml.")
+        );
+
+        // A hand edit of compose.yml is drift, and a real sync restores it.
+        std::fs::write(&base, "services: {}\n").unwrap();
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift);
+        assert_eq!(names(&report.written), vec!["compose.yml"]);
+        assert_eq!(read(&base), "services: {}\n", "--check writes nothing");
+
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(names(&report.written), vec!["compose.yml"]);
+        assert_eq!(read(&base), original);
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn a_fetched_source_renders_from_the_cached_copy() {
+        let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+        let body = "services:\n  chap:\n    image: ghcr.io/x:${CHAP_IMAGE_TAG:-latest}\n";
+        cache(&mut project, "v2.3.1", body);
+
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(names(&report.written), vec!["compose.yml"]);
+        let base = read(&dir.path().join(BASE_COMPOSE));
+        assert_eq!(
+            base,
+            format!(
+                "# Generated by chaps init (0.1.0) from chap-core compose.ghcr.yml at v2.3.1.\n\
+                 # Model services live in compose.<service>.yml overlays included by compose.marketplace.yml.\n\
+                 {body}"
+            )
+        );
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn an_edited_cached_copy_is_followed_but_reported() {
+        let (dir, mut project, registry) = project_with(&[]);
+        cache(
+            &mut project,
+            "v2.3.1",
+            "services:\n  chap:\n    image: x:${CHAP_IMAGE_TAG:-latest}\n",
+        );
+        sync(&mut project, &registry, VERSION, false).unwrap();
+
+        // The recorded checksum no longer matches, but the file on disk is
+        // what the operator has: follow it, and say so.
+        let cached = project.cached_compose_path().unwrap();
+        std::fs::write(
+            &cached,
+            "services:\n  chap:\n    image: y:${CHAP_IMAGE_TAG:-latest}\n",
+        )
+        .unwrap();
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].contains("compose.chap-core.v2.3.1.yml"));
+        assert!(report.warnings[0].contains("checksum"));
+        assert!(read(&dir.path().join(BASE_COMPOSE)).contains("image: y:"));
+
+        // And a cached copy that is gone leaves compose.yml alone.
+        let before = read(&dir.path().join(BASE_COMPOSE));
+        std::fs::remove_file(&cached).unwrap();
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].contains("is missing"));
+        assert!(!names(&report.written).contains(&"compose.yml".to_string()));
+        assert!(!names(&report.unchanged).contains(&"compose.yml".to_string()));
+        assert_eq!(read(&dir.path().join(BASE_COMPOSE)), before);
+        assert!(
+            !project
+                .state
+                .rendered_files
+                .contains(&BASE_COMPOSE.to_string())
+        );
+    }
+
+    #[test]
+    fn set_env_chap_tag_moves_the_active_line_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(
+            &env,
+            "POSTGRES_PASSWORD=secret\n\
+             CHAP_IMAGE_TAG=v2.3.0\n\
+             # CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-1111111\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Updated
+        );
+        assert_eq!(
+            read(&env),
+            "POSTGRES_PASSWORD=secret\n\
+             CHAP_IMAGE_TAG=v2.3.1\n\
+             # CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-1111111\n"
+        );
+        // Running it again is a no-op, not a second rewrite.
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Updated
+        );
+        assert!(read(&env).contains("CHAP_IMAGE_TAG=v2.3.1\n"));
+    }
+
+    #[test]
+    fn set_env_chap_tag_keeps_its_hands_off_the_operators_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = dir.path().join(ENV_FILE);
+
+        // The generated placeholder: commented, so the deployment follows the
+        // compose default and uncommenting it is the operator's call.
+        std::fs::write(&env, "# CHAP_IMAGE_TAG=latest\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "latest", "v2.3.1").unwrap(),
+            EnvTag::Commented
+        );
+        assert_eq!(read(&env), "# CHAP_IMAGE_TAG=latest\n");
+
+        // An active line with someone else's value.
+        std::fs::write(&env, "CHAP_IMAGE_TAG=v1.0.0\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Foreign("v1.0.0".to_string())
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=v1.0.0\n");
+
+        // Never mentioned, and no file at all.
+        std::fs::write(&env, "POSTGRES_DB=chap_core\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Absent
+        );
+        assert_eq!(read(&env), "POSTGRES_DB=chap_core\n");
+        assert_eq!(
+            set_env_chap_tag(&dir.path().join("elsewhere"), "a", "b").unwrap(),
+            EnvTag::NoFile
+        );
     }
 
     #[test]

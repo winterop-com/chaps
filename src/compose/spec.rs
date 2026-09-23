@@ -6,10 +6,24 @@ use crate::compose::{AMD64_PLATFORM, overrides, tag_env_var, volume_name};
 use crate::project::EnabledModel;
 use crate::registry::{Model, Version};
 
-/// Values for the base `compose.yml` header.
+/// Values for the base `compose.yml`.
 #[derive(Debug, Clone)]
 pub struct BaseSpec {
     pub cli_version: String,
+    /// chap-core's own `compose.ghcr.yml`, when the project records a tag it
+    /// was downloaded from; `None` renders the copy compiled into the binary.
+    pub upstream: Option<UpstreamCompose>,
+}
+
+/// chap-core's `compose.ghcr.yml` at one tag, as fetched.
+///
+/// The body is used verbatim - upstream is the source of truth for the base
+/// stack, and the recorded SHA-256 only means something if nothing rewrites
+/// it. `chaps` adds its own two header lines in front and nothing else.
+#[derive(Debug, Clone)]
+pub struct UpstreamCompose {
+    pub tag: String,
+    pub body: String,
 }
 
 /// Values for the generated `.env`.

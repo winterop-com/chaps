@@ -50,9 +50,9 @@ chaps init mychap --models default   # writes the deployment directory
 cd mychap
 chaps up                             # sync the compose files, docker compose up -d
 chaps status                         # chap-core health and registered models
-chaps models tui                     # browse the marketplace, toggle models
+chaps ui                             # browse the marketplace, toggle models
 chaps up                             # apply what the browser changed
-chaps update                         # move channel pins to what the marketplace publishes now
+chaps update                         # move the pins to what upstream publishes now
 ```
 
 Every command that operates on a project finds it the way git finds `.git`:
@@ -61,7 +61,9 @@ from the current directory (or `-C DIR`) upwards to the nearest `.chaps/`, so
 
 `--models default` enables `chapkit_ewars_model` on its `stable` channel.
 `--models none` writes the base stack only, and `--models a,b` takes an
-explicit list of marketplace ids.
+explicit list of marketplace ids. chap-core itself is pinned to the newest
+release (`--chap-tag` picks another), and `init` takes the `compose.ghcr.yml`
+that release publishes as the base stack.
 
 chap-core's API is on <http://localhost:8000>; each model service gets its own
 host port from 5001 upwards.
@@ -73,7 +75,9 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
 
   init [DIR]              create a deployment directory
       --models none|default|id,id   which models to enable (default: default)
-      --chap-tag TAG                image tag for the chap-core services
+      --chap-tag latest|master|dev|vX.Y.Z
+                                    tag for the chap-core services (default:
+                                    latest, resolved to the newest release)
       --port-base PORT              lowest host port for model overlays
       --force                       overwrite an existing project
       --no-env                      do not write .env
@@ -86,17 +90,20 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
       --channel stable|latest | --version X
       --port N  --data-dir PATH  --user USER:GROUP  --allow-template
   models disable ID       drop the model from .chaps/models.yaml and remove its overlay
-  models tui              the model browser (also `chaps tui`)
+
+  ui                      the model browser
 
   registry update         fetch the catalogue now and refresh the cache
   registry show           where the catalogue came from and what it holds
 
   sync [--check]          render the compose files from .chaps/; --check writes
                           nothing and exits non-zero if anything would change
-  update [--dry-run] [--no-restart]
+  update [--dry-run] [--no-restart] [--pin-chap-core]
                           fetch the registry, move channel-following models to
-                          the version their channel now points at, sync, pull,
-                          up -d
+                          the version their channel now points at, move a
+                          chap-core release pin to the newest release, sync,
+                          pull, up -d; --pin-chap-core turns a moving chap-core
+                          tag into a release pin
 
   up [--attach] [--pull] [EXTRA..]
                           sync, then docker compose up -d (or up, attached);
@@ -137,10 +144,15 @@ Compose's own exit code.
 
 `chaps status` exits non-zero when the API is down or a model this project
 enabled has not registered, which makes it usable as a health gate in a script.
+When a model is missing it says where to look: the logs, or - if that service's
+container is running after all - `chaps docker run restart <service>`, because
+chapkit stops trying to register five attempts into its startup and a model
+that came up before chap-core was healthy stays invisible until it is
+restarted.
 
-### The model browser
+### The model browser (`chaps ui`)
 
-`chaps models tui` opens a two-pane browser: the catalogue on the left, the
+`chaps ui` opens a two-pane browser: the catalogue on the left, the
 details of the selected entry on the right. Keys (none of them need Alt on a
 Norwegian keyboard):
 
@@ -164,11 +176,15 @@ save, and quitting with unsaved changes asks first.
 ```
 mychap/
   .chaps/
-    project.yaml               intent: schema version, chap-core tag, registry URL,
-                               port range, the -f list, and which root files sync wrote
+    project.yaml               intent: schema version, chap-core tag and compose
+                               source, registry URL, port range, the -f list, and
+                               which root files sync wrote
     models.yaml                intent: the enabled models (image, pinned version,
                                channel, host port, data dir, user, platform, overlay name)
-  compose.yml                  base stack, written once by init
+    compose.chap-core.<tag>.yml
+                               chap-core's own compose.ghcr.yml at the pinned tag,
+                               exactly as downloaded; compose.yml is rendered from it
+  compose.yml                  artifact: the base stack, from the file above
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
   .env                         written once by init; only pins are appended
@@ -180,6 +196,16 @@ compose files at the root are artifacts rendered from it by `chaps sync`, but
 they are plain Compose files with nothing `chaps`-specific in them:
 `docker compose -f compose.yml -f compose.marketplace.yml up -d` works without
 `chaps` installed, which is the point of generating them.
+
+`compose.yml` is an artifact too. `init` downloads chap-core's own
+`compose.ghcr.yml` at the tag it pinned, keeps the raw copy as
+`.chaps/compose.chap-core.<tag>.yml` and records its URL and SHA-256 in
+`project.yaml`; `sync` renders `compose.yml` as two header lines plus that copy,
+byte for byte. Rendering from the copy rather than the network keeps `sync`
+offline and deterministic, and it is why a hand edit of `compose.yml` is drift
+that `chaps sync` undoes - edit the copy in `.chaps/` instead, and `sync` will
+follow it (and say the checksum no longer matches). When the copy is missing
+`sync` leaves `compose.yml` alone rather than guessing.
 
 `chaps up` runs `sync` before `docker compose up`, so the intent and the
 artifacts never drift in normal use. `chaps sync --check` reports drift
@@ -203,7 +229,8 @@ the stack will start again.
 
 | File | What it is |
 | --- | --- |
-| `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. A copy of chap-core's `compose.ghcr.yml`, so upstream stays the source of truth. |
+| `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
+| `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break the stack; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written once by `init` and never rewritten by `init`, `sync` or `update`; `sync` appends missing pin comments and `update` moves the pin comments of models it changed. `init --fresh-env` regenerates it on purpose. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
@@ -228,9 +255,30 @@ re-resolves the channel; a pin that moved is recorded in `models.yaml` and its
 `docker compose pull` and `docker compose up -d` (`--no-restart` stops after
 the pull). `--dry-run` prints the plan and writes nothing.
 
-chap-core itself follows `CHAP_IMAGE_TAG` (`latest` unless `init --chap-tag`
-said otherwise), and Compose never re-pulls a tag it already has. The image is
-refreshed only by `chaps docker pull`, `chaps update`, or `chaps up --pull`.
+chap-core's own pin moves in the same run. `init` resolves the default
+`--chap-tag latest` to the release it points at today (`v2.3.1`, say) and writes
+that into `.env` and `.chaps/project.yaml`, so a deployment is reproducible
+rather than following a tag that changes under it. `chaps update` then looks up
+the newest release, and when there is a newer one it downloads the
+`compose.ghcr.yml` that release publishes, moves `chap_image_tag`, and rewrites
+the single active `CHAP_IMAGE_TAG=` line in `.env` - only that line, and only
+when it still says what the project recorded. A value you pinned yourself, or
+the commented placeholder, is left alone with a warning saying what the stack
+will actually run.
+
+`--chap-tag latest|master|dev` keeps a moving tag instead: nothing to move, so
+`update` only re-pulls it (Compose never re-pulls a tag it already has, so the
+image is refreshed by `chaps docker pull`, `chaps update` or `chaps up --pull`).
+`chaps update --pin-chap-core` converts such a tag into a release pin, the way
+`init` does by default. A tag that is neither a release nor a moving one - a
+`sha-` build - is never moved.
+
+Without the network `init` keeps the tag exactly as given and renders
+`compose.yml` from the copy of `compose.ghcr.yml` compiled into the binary,
+warning on stderr both times; with `--chap-tag latest` that means the deployment
+does follow the moving tag. An already cached
+`.chaps/compose.chap-core.<tag>.yml` is reused rather than re-downloaded, so a
+second `init --force` at the same tag works offline.
 
 ## How model overlays work
 

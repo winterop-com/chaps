@@ -8,6 +8,7 @@
 
 use crate::error::{ChapError, Result};
 use crate::project::Project;
+use std::collections::BTreeSet;
 use std::process::{Command, ExitStatus, Stdio};
 
 /// Minimum compose version that understands `include:`.
@@ -52,6 +53,70 @@ pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
         .map_err(|e| spawn_error(&e))?;
 
     Ok(exit_code(status))
+}
+
+/// Compose services of this project that have a running container.
+///
+/// Best-effort by design: this only sharpens a hint in `chaps status`, so no
+/// docker, no daemon, or an output shape we do not recognise all yield an
+/// empty set rather than an error. Nothing is printed either - `status` has
+/// already said what it knows about the API.
+pub fn running_services(project: &Project) -> BTreeSet<String> {
+    let mut args = compose_args(project);
+    args.extend(["ps".to_string(), "--format".to_string(), "json".to_string()]);
+    let Ok(out) = Command::new("docker")
+        .args(&args)
+        .current_dir(&project.dir)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return BTreeSet::new();
+    };
+    if !out.status.success() {
+        return BTreeSet::new();
+    }
+    parse_ps_json(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The services named by `docker compose ps --format json`.
+///
+/// Compose 2.21 and newer print one JSON object per line; older versions print
+/// a single array. Both are accepted, and an entry whose `State` is something
+/// other than `running` is left out (`ps` without `-a` mostly does that
+/// already, but a restarting container shows up there).
+pub fn parse_ps_json(text: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut add = |value: &serde_json::Value| {
+        let Some(service) = value.get("Service").and_then(|s| s.as_str()) else {
+            return;
+        };
+        let state = value.get("State").and_then(|s| s.as_str()).unwrap_or("");
+        if state.is_empty() || state.eq_ignore_ascii_case("running") {
+            out.insert(service.to_string());
+        }
+    };
+
+    let trimmed = text.trim();
+    if trimmed.starts_with('[')
+        && let Ok(serde_json::Value::Array(items)) =
+            serde_json::from_str::<serde_json::Value>(trimmed)
+    {
+        for item in &items {
+            add(item);
+        }
+        return out;
+    }
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+            add(&value);
+        }
+    }
+    out
 }
 
 /// The installed `docker compose` version, from `docker compose version --short`.
@@ -208,6 +273,52 @@ mod tests {
         let mut p = project("/tmp/chapx");
         p.state.compose_files.clear();
         assert_eq!(compose_args(&p), vec!["compose".to_string()]);
+    }
+
+    #[test]
+    fn ps_json_is_read_in_both_shapes_compose_prints() {
+        // Compose 2.21+: one object per line.
+        let lines = concat!(
+            r#"{"Name":"x-chap-1","Service":"chap","State":"running","Health":"healthy"}"#,
+            "\n",
+            r#"{"Name":"x-ewars-1","Service":"chapkit-ewars-model","State":"running"}"#,
+            "\n",
+            r#"{"Name":"x-init-1","Service":"chapkit-ewars-model-init","State":"exited"}"#,
+            "\n"
+        );
+        let running = parse_ps_json(lines);
+        assert_eq!(
+            running,
+            BTreeSet::from(["chap".to_string(), "chapkit-ewars-model".to_string()]),
+            "an exited container is not running"
+        );
+
+        // Older compose: a single array.
+        let array =
+            r#"[{"Service":"chap","State":"running"},{"Service":"worker","State":"restarting"}]"#;
+        assert_eq!(parse_ps_json(array), BTreeSet::from(["chap".to_string()]));
+
+        // A state compose did not report still counts: `ps` without -a lists
+        // what is up.
+        assert_eq!(
+            parse_ps_json(r#"{"Service":"chap"}"#),
+            BTreeSet::from(["chap".to_string()])
+        );
+    }
+
+    #[test]
+    fn unreadable_ps_output_is_an_empty_set_not_a_panic() {
+        for text in [
+            "",
+            "   \n\n",
+            "no containers",
+            "<html>",
+            r#"{"Name":"x-chap-1"}"#,
+            "[]",
+            "{}",
+        ] {
+            assert!(parse_ps_json(text).is_empty(), "{text:?}");
+        }
     }
 
     #[test]

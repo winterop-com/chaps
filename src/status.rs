@@ -8,6 +8,7 @@
 
 use crate::project::Project;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 /// Path of the chap-core health endpoint.
@@ -99,6 +100,29 @@ pub fn status(project: &Project, api_url: &str, timeout: Duration) -> StatusRepo
         registered,
         expected,
         missing,
+    }
+}
+
+/// The hint to print under `missing:`, given the running containers.
+///
+/// A model whose container is up but which chap-core does not know about is
+/// not a crash to read the logs for: chapkit tries to register five times
+/// while it starts and then gives up for good, so a model that came up before
+/// chap-core was healthy stays invisible until it is restarted. When no
+/// missing service is running, the logs are still the right place to look.
+///
+/// `running` is best-effort (see [`crate::docker::running_services`]); an
+/// empty set yields the logs hint, which is what this said before.
+pub fn missing_hint(missing: &[String], running: &BTreeSet<String>) -> Option<String> {
+    let first = missing.first()?;
+    match missing.iter().find(|id| running.contains(id.as_str())) {
+        Some(svc) => Some(format!(
+            "{svc} is running but not registered (chapkit gives up registering after 5 attempts \
+             at startup); restart it with `chaps docker run restart {svc}`"
+        )),
+        None => Some(format!(
+            "run `chaps logs {first}` to see why it has not registered"
+        )),
     }
 }
 
@@ -329,6 +353,55 @@ mod tests {
         );
         assert!(missing_ids(&[], &registered).is_empty());
         assert_eq!(missing_ids(&expected, &[]), expected);
+    }
+
+    /// A set of running compose services, as `docker compose ps` would give.
+    fn running(ids: &[&str]) -> BTreeSet<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn the_hint_sends_you_to_the_logs_when_nothing_is_running() {
+        let missing = vec![
+            "chapkit-ewars-model".to_string(),
+            "auto-arima-chapkit".to_string(),
+        ];
+        let hint = missing_hint(&missing, &BTreeSet::new()).expect("a hint for a missing service");
+        assert_eq!(
+            hint,
+            "run `chaps logs chapkit-ewars-model` to see why it has not registered"
+        );
+        // A container of some other service being up changes nothing.
+        let hint = missing_hint(&missing, &running(&["chap", "worker"])).unwrap();
+        assert!(hint.starts_with("run `chaps logs"), "{hint}");
+        // Nothing missing, nothing to hint at.
+        assert_eq!(missing_hint(&[], &running(&["chap"])), None);
+    }
+
+    #[test]
+    fn a_running_but_unregistered_service_is_told_to_restart() {
+        let missing = vec![
+            "chapkit-ewars-model".to_string(),
+            "auto-arima-chapkit".to_string(),
+        ];
+        // The running one is named, even when it is not the first missing.
+        let hint = missing_hint(&missing, &running(&["chap", "auto-arima-chapkit"])).unwrap();
+        assert_eq!(
+            hint,
+            "auto-arima-chapkit is running but not registered (chapkit gives up registering \
+             after 5 attempts at startup); restart it with `chaps docker run restart \
+             auto-arima-chapkit`"
+        );
+        // With both up, the first missing one is the one to restart first.
+        let hint = missing_hint(
+            &missing,
+            &running(&["chapkit-ewars-model", "auto-arima-chapkit"]),
+        )
+        .unwrap();
+        assert!(
+            hint.starts_with("chapkit-ewars-model is running but not registered"),
+            "{hint}"
+        );
     }
 
     #[test]

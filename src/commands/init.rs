@@ -2,14 +2,15 @@
 //!
 //! Owned by agent B.
 
+use crate::chapcore;
 use crate::cli::InitArgs;
 use crate::commands::Ctx;
-use crate::compose::spec::{BaseSpec, EnvSpec};
-use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_base, render_env};
+use crate::compose::spec::EnvSpec;
+use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::project::{
-    BASE_COMPOSE, CHAPS_DIR, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE, PROJECT_FILE, Project,
-    ProjectState,
+    CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE, PROJECT_FILE, Project,
+    ProjectState, cached_compose_file,
 };
 use crate::registry::{self, Registry};
 use serde::Serialize;
@@ -17,6 +18,8 @@ use std::path::{Component, Path, PathBuf};
 
 /// The model `--models default` enables.
 pub const DEFAULT_MODEL: &str = "chapkit_ewars_model";
+/// The `--chap-tag` value that means "whatever the newest release is".
+pub const MOVING_DEFAULT_TAG: &str = "latest";
 /// Database user and database name of the generated `.env`.
 const POSTGRES_USER: &str = "chap";
 const POSTGRES_DB: &str = "chap_core";
@@ -47,8 +50,13 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     }
 
     let registry = registry::load(&ctx.registry)?;
+    // Settle the chap-core tag and the compose file that goes with it before
+    // anything is written: both need the network, and a failure of either is a
+    // warning plus a fallback, never a half-written directory.
+    let chap_core = resolve_chap_core(ctx, &dir, &args.chap_tag);
     let state = ProjectState {
-        chap_image_tag: args.chap_tag.clone(),
+        chap_image_tag: chap_core.tag.clone(),
+        chap_compose_source: chap_core.source.clone(),
         registry_url: ctx.registry.url.clone(),
         port_range: (args.port_base, DEFAULT_PORT_RANGE.1.max(args.port_base)),
         ..ProjectState::default()
@@ -85,15 +93,22 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
     let mut written = Vec::new();
 
-    let base = dir.join(BASE_COMPOSE);
-    std::fs::write(
-        &base,
-        render_base(&BaseSpec {
-            cli_version: ctx.cli_version.to_string(),
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("writing {}: {e}", base.display()))?;
-    written.push(base);
+    // The raw copy of chap-core's compose.ghcr.yml goes in first: `sync`
+    // renders compose.yml from it a moment later, and every later sync
+    // re-renders from this copy rather than from the network.
+    if let Some(body) = &chap_core.cached {
+        let chaps = dir.join(CHAPS_DIR);
+        std::fs::create_dir_all(&chaps)
+            .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
+        let name = chap_core
+            .source
+            .cached_file()
+            .expect("a downloaded copy has a file name");
+        let path = chaps.join(name);
+        std::fs::write(&path, body)
+            .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+        written.push(path);
+    }
 
     if env == EnvAction::Written {
         if env_exists {
@@ -109,7 +124,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
                 postgres_user: POSTGRES_USER.to_string(),
                 postgres_password: random_password()?,
                 postgres_db: POSTGRES_DB.to_string(),
-                chap_image_tag: Some(args.chap_tag.clone()),
+                chap_image_tag: Some(chap_core.tag.clone()),
                 // apply() appends one commented pin per enabled model.
                 model_tag_pins: Vec::new(),
                 cli_version: ctx.cli_version.to_string(),
@@ -140,10 +155,121 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "dir": dir,
         "written": written,
         "env": env,
+        "chap_image_tag": chap_core.tag,
+        "chap_compose_source": chap_core.source,
         "report": report,
     });
-    ctx.out
-        .emit(&value, || summary(&dir, &written, &report, &registry, env))
+    ctx.out.emit(&value, || {
+        summary(&dir, &written, &report, &registry, env, &chap_core)
+    })
+}
+
+/// The chap-core tag `init` settled on, and where `compose.yml` comes from.
+#[derive(Debug, Clone)]
+struct ChapCore {
+    /// The tag written to `.env` and `.chaps/project.yaml`.
+    tag: String,
+    source: ComposeSource,
+    /// The downloaded `compose.ghcr.yml`, when one has to be written into
+    /// `.chaps/`; `None` when the copy is already there or is the embedded one.
+    cached: Option<String>,
+}
+
+/// Decide the chap-core tag and the compose file that goes with it.
+///
+/// `latest` is a moving tag: two `init` runs a month apart would deploy
+/// different code from the same state file, and `chaps update` would have
+/// nothing to compare. So the default is resolved to the release it points at
+/// right now, and the compose file that release publishes is downloaded with
+/// it. Every step degrades to a warning: `--offline`, an unreachable GitHub, a
+/// rate-limited API or a compose file that does not parse all end with the
+/// literal tag and the copy compiled into this binary, which still deploys.
+fn resolve_chap_core(ctx: &Ctx, dir: &Path, requested: &str) -> ChapCore {
+    let offline = ctx.registry.offline;
+    let timeout = ctx.registry.timeout;
+    let embedded = |tag: String| ChapCore {
+        tag,
+        source: ComposeSource::Embedded,
+        cached: None,
+    };
+
+    let mut tag = requested.trim().to_string();
+    if tag == MOVING_DEFAULT_TAG {
+        match resolve_latest(offline, timeout) {
+            Ok(release) => tag = release,
+            Err(reason) => {
+                crate::output::warn(&format!(
+                    "{reason}; the chap-core tag stays `{MOVING_DEFAULT_TAG}`, so this deployment \
+                     follows that moving tag - pass `--chap-tag vX.Y.Z` to pin a release"
+                ));
+                return embedded(tag);
+            }
+        }
+    }
+
+    // An unresolved `latest` names no fixed document, so there is no copy of
+    // compose.ghcr.yml to pin either.
+    if tag == MOVING_DEFAULT_TAG {
+        return embedded(tag);
+    }
+
+    // A copy of this exact tag already in `.chaps/` (an earlier `init`, or an
+    // `init --force` over a working deployment) is reused rather than
+    // re-downloaded, which is also what makes `--offline` reproducible here.
+    let path = dir.join(CHAPS_DIR).join(cached_compose_file(&tag));
+    if let Ok(body) = std::fs::read_to_string(&path)
+        && chapcore::validate_compose(&body).is_ok()
+    {
+        return ChapCore {
+            source: fetched(&tag, &body),
+            tag,
+            cached: None,
+        };
+    }
+
+    if offline {
+        crate::output::warn(&format!(
+            "--offline: compose.yml is rendered from the copy of chap-core's compose.ghcr.yml \
+             built into this binary, not from the one {tag} publishes"
+        ));
+        return embedded(tag);
+    }
+    match chapcore::fetch_compose(&tag, timeout) {
+        Ok(body) => ChapCore {
+            source: fetched(&tag, &body),
+            tag,
+            cached: Some(body),
+        },
+        Err(err) => {
+            crate::output::warn(&format!(
+                "could not fetch chap-core's compose.ghcr.yml at {tag} ({err:#}); compose.yml is \
+                 rendered from the copy built into this binary"
+            ));
+            embedded(tag)
+        }
+    }
+}
+
+/// The newest chap-core release, or why we are not asking.
+fn resolve_latest(
+    offline: bool,
+    timeout: std::time::Duration,
+) -> std::result::Result<String, String> {
+    if offline {
+        return Err("--offline: the newest chap-core release cannot be looked up".to_string());
+    }
+    chapcore::latest_release(timeout)
+        .map_err(|err| format!("could not resolve the newest chap-core release ({err:#})"))
+}
+
+/// A [`ComposeSource::Fetched`] for a body that is about to be (or already is)
+/// cached under `.chaps/`.
+fn fetched(tag: &str, body: &str) -> ComposeSource {
+    ComposeSource::Fetched {
+        url: chapcore::compose_url(tag),
+        tag: tag.to_string(),
+        sha256: chapcore::sha256_hex(body.as_bytes()),
+    }
 }
 
 /// What `init` did with `DIR/.env`.
@@ -262,6 +388,7 @@ fn summary(
     report: &ApplyReport,
     registry: &Registry,
     env: EnvAction,
+    chap_core: &ChapCore,
 ) -> String {
     let mut out = format!(
         "Initialized a chaps project in {}\n\nWrote:\n",
@@ -273,6 +400,11 @@ fn summary(
     if env == EnvAction::Kept {
         out.push_str("\nkept .env (already present)\n");
     }
+    out.push_str(&format!(
+        "\nchap-core: {} ({})\n",
+        chap_core.tag,
+        chap_core.source.describe()
+    ));
 
     if report.enabled.is_empty() {
         out.push_str("\nNo models enabled; run `chaps models enable ID` to add one.\n");
@@ -385,6 +517,67 @@ mod tests {
         assert_eq!(json(EnvAction::Written), "\"written\"");
         assert_eq!(json(EnvAction::Kept), "\"kept\"");
         assert_eq!(json(EnvAction::Skipped), "\"skipped\"");
+    }
+
+    /// A [`Ctx`] that never touches the network.
+    fn offline_ctx() -> Ctx {
+        Ctx {
+            out: crate::output::Out::default(),
+            project_dir: PathBuf::from("."),
+            registry: crate::registry::RegistryOptions {
+                offline: true,
+                ..crate::registry::RegistryOptions::default()
+            },
+            cli_version: "0.1.0",
+        }
+    }
+
+    #[test]
+    fn offline_keeps_the_tag_as_given_and_the_embedded_compose_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = offline_ctx();
+
+        let latest = resolve_chap_core(&ctx, dir.path(), "latest");
+        assert_eq!(latest.tag, "latest");
+        assert_eq!(latest.source, ComposeSource::Embedded);
+        assert!(latest.cached.is_none());
+
+        // An explicit release tag is used verbatim; only the compose file
+        // falls back, because downloading it needs the network.
+        let pinned = resolve_chap_core(&ctx, dir.path(), "v2.3.1");
+        assert_eq!(pinned.tag, "v2.3.1");
+        assert_eq!(pinned.source, ComposeSource::Embedded);
+        assert!(pinned.cached.is_none());
+    }
+
+    #[test]
+    fn a_cached_compose_file_is_reused_instead_of_downloaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let chaps = dir.path().join(CHAPS_DIR);
+        std::fs::create_dir_all(&chaps).unwrap();
+        let body = "services:\n  chap:\n    image: ghcr.io/x:${CHAP_IMAGE_TAG:-latest}\n";
+        std::fs::write(chaps.join(cached_compose_file("v2.3.1")), body).unwrap();
+
+        // Offline, and still a fetched source: the copy is right there.
+        let found = resolve_chap_core(&offline_ctx(), dir.path(), "v2.3.1");
+        assert_eq!(found.tag, "v2.3.1");
+        assert!(
+            found.cached.is_none(),
+            "nothing to write, it is already there"
+        );
+        assert_eq!(
+            found.source,
+            ComposeSource::Fetched {
+                url: chapcore::compose_url("v2.3.1"),
+                tag: "v2.3.1".to_string(),
+                sha256: chapcore::sha256_hex(body.as_bytes()),
+            }
+        );
+
+        // A cached file that is not a usable compose document is ignored.
+        std::fs::write(chaps.join(cached_compose_file("v2.2.0")), "nonsense: [").unwrap();
+        let ignored = resolve_chap_core(&offline_ctx(), dir.path(), "v2.2.0");
+        assert_eq!(ignored.source, ComposeSource::Embedded);
     }
 
     #[test]

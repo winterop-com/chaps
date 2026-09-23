@@ -1,11 +1,11 @@
-//! `chaps tui` / `chaps models tui` — the model browser.
+//! `chaps ui` — the model browser.
 //!
 //! Owned by agent C. The browser returns a
 //! [`Selection`](crate::compose::Selection); applying it goes through
 //! [`crate::compose::apply`] outside the terminal, and the resulting
 //! [`ApplyReport`](crate::compose::ApplyReport) is printed afterwards.
 
-use crate::cli::TuiArgs;
+use crate::cli::UiArgs;
 use crate::commands::Ctx;
 use crate::compose::{ApplyReport, apply};
 use crate::error::Result;
@@ -15,7 +15,7 @@ use crate::tui::run_tui;
 /// Open the browser against the current project and catalogue.
 ///
 /// `--json` is rejected before this is reached.
-pub fn run(ctx: &Ctx, _args: &TuiArgs) -> Result<()> {
+pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     // The browser edits a deployment, so there has to be one; the error already
     // tells the user to run `chaps init`.
     let mut project = ctx.project()?;

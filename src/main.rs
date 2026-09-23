@@ -3,6 +3,7 @@
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
+mod chapcore;
 mod cli;
 mod commands;
 mod compose;
@@ -25,7 +26,7 @@ use std::path::PathBuf;
 /// Commands that need a deployment directory, hidden from `--help` when there
 /// is none. They still run when typed, and say what is missing.
 const PROJECT_ONLY: &[&str] = &[
-    "up", "down", "logs", "docker", "status", "sync", "update", "tui",
+    "up", "down", "logs", "docker", "status", "sync", "update", "ui",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -35,7 +36,7 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable"];
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
-     more commands appear: up, down, logs, status, sync, update, tui, docker.";
+     more commands appear: up, down, logs, status, sync, update, ui, docker.";
 
 fn main() {
     let cli = parse();
@@ -63,9 +64,8 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),
             ModelsCmd::Disable(args) => commands::enable::disable(ctx, args),
-            ModelsCmd::Tui(args) => run_tui(ctx, args),
         },
-        Command::Tui(args) => run_tui(ctx, args),
+        Command::Ui(args) => run_ui(ctx, args),
 
         Command::Registry(r) => commands::registry::run(ctx, &r.command),
 
@@ -140,7 +140,7 @@ fn project_dir_of(args: &[String]) -> PathBuf {
 
 /// The browser owns the terminal, so there is nothing to serialise: reject
 /// `--json` rather than print something a caller cannot parse.
-fn run_tui(ctx: &Ctx, args: &cli::TuiArgs) -> error::Result<()> {
+fn run_ui(ctx: &Ctx, args: &cli::UiArgs) -> error::Result<()> {
     if ctx.out.json {
         return Err(anyhow::anyhow!(
             "--json cannot be combined with the model browser"
@@ -255,12 +255,12 @@ mod tests {
 
     #[test]
     fn json_rejects_the_browser() {
-        let cli = Cli::try_parse_from(["chap", "--json", "tui"]).unwrap();
+        let cli = Cli::try_parse_from(["chap", "--json", "ui"]).unwrap();
         let ctx = Ctx::from_cli(&cli);
-        let Command::Tui(args) = &cli.command else {
-            panic!("expected tui");
+        let Command::Ui(args) = &cli.command else {
+            panic!("expected ui");
         };
-        let err = run_tui(&ctx, args).expect_err("--json with tui is rejected");
+        let err = run_ui(&ctx, args).expect_err("--json with the browser is rejected");
         assert!(err.to_string().contains("--json"));
     }
 }

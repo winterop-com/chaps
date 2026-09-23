@@ -4,9 +4,11 @@
 
 use crate::cli::StatusArgs;
 use crate::commands::Ctx;
+use crate::docker;
 use crate::error::Result;
 use crate::output::Out;
-use crate::status::{ApiHealth, StatusReport, status};
+use crate::status::{ApiHealth, StatusReport, missing_hint, status};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 /// Probe the API and print a [`StatusReport`].
@@ -18,7 +20,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     let project = ctx.project()?;
     let report = status(&project, &args.url, Duration::from_secs(args.timeout));
 
-    ctx.out.emit(&report, || human(&report, &ctx.out))?;
+    // Which containers are up only sharpens the hint under `missing:`, so
+    // docker is asked exactly when there is a hint to print.
+    let running = if report.missing.is_empty() || ctx.out.json {
+        BTreeSet::new()
+    } else {
+        docker::running_services(&project)
+    };
+    ctx.out
+        .emit(&report, || human(&report, &ctx.out, &running))?;
 
     let failure = match &report.api {
         ApiHealth::Down { error } => Some(format!(
@@ -45,7 +55,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
 }
 
 /// The human rendering: an API line, the service table, then what is missing.
-fn human(report: &StatusReport, out: &Out) -> String {
+fn human(report: &StatusReport, out: &Out, running: &BTreeSet<String>) -> String {
     let mut text = String::new();
 
     match &report.api {
@@ -84,10 +94,9 @@ fn human(report: &StatusReport, out: &Out) -> String {
     if !report.missing.is_empty() {
         text.push('\n');
         text.push_str(&format!("missing: {}\n", report.missing.join(", ")));
-        let first = &report.missing[0];
-        text.push_str(&format!(
-            "  hint: run `chaps logs {first}` to see why it has not registered\n"
-        ));
+        if let Some(hint) = missing_hint(&report.missing, running) {
+            text.push_str(&format!("  hint: {hint}\n"));
+        }
     }
     text
 }
@@ -138,7 +147,7 @@ mod tests {
             vec![service("chapkit-ewars-model", "1.0.0")],
             vec!["chapkit-ewars-model"],
         );
-        let text = human(&report, &Out::default());
+        let text = human(&report, &Out::default(), &BTreeSet::new());
         assert!(text.starts_with("api: up    http://localhost:8000 (ok)\n"));
         assert!(text.contains("CHAP is running"));
         assert!(text.contains("ID"));
@@ -150,7 +159,7 @@ mod tests {
     #[test]
     fn missing_services_get_a_hint() {
         let report = up(vec![], vec!["chapkit-ewars-model", "auto-arima-chapkit"]);
-        let text = human(&report, &Out::default());
+        let text = human(&report, &Out::default(), &BTreeSet::new());
         assert!(text.contains("no services registered"));
         assert!(text.contains("missing: chapkit-ewars-model, auto-arima-chapkit"));
         assert!(text.contains("hint: run `chaps logs chapkit-ewars-model`"));
@@ -167,7 +176,7 @@ mod tests {
             expected: vec!["chapkit-ewars-model".to_string()],
             missing: vec!["chapkit-ewars-model".to_string()],
         };
-        let text = human(&report, &Out::default());
+        let text = human(&report, &Out::default(), &BTreeSet::new());
         assert!(text.contains("api: down  http://localhost:8000"));
         assert!(text.contains("connection refused"));
         assert!(text.contains("missing: chapkit-ewars-model"));
@@ -178,7 +187,7 @@ mod tests {
         let mut svc = service("x", "");
         svc.url = String::new();
         let report = up(vec![svc], vec!["x"]);
-        let text = human(&report, &Out::default());
+        let text = human(&report, &Out::default(), &BTreeSet::new());
         let row = text
             .lines()
             .find(|l| l.starts_with("x "))

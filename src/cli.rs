@@ -50,8 +50,8 @@ pub enum Command {
     /// Browse and manage marketplace models.
     Models(ModelsArgs),
 
-    /// Open the model browser (alias of `chaps models tui`).
-    Tui(TuiArgs),
+    /// Open the model browser.
+    Ui(UiArgs),
 
     /// Inspect and refresh the marketplace registry.
     Registry(RegistryArgs),
@@ -59,8 +59,8 @@ pub enum Command {
     /// Render the compose files from .chaps/ (what `up` does first).
     Sync(SyncArgs),
 
-    /// Move channel-following models to the versions the marketplace now
-    /// publishes, then pull and restart.
+    /// Move the model and chap-core pins to what upstream publishes now, then
+    /// pull and restart.
     Update(UpdateArgs),
 
     /// Sync, then start the stack (docker compose up).
@@ -94,7 +94,11 @@ pub struct InitArgs {
     #[arg(long)]
     pub interactive: bool,
 
-    /// Image tag for the chap-core services.
+    /// Image tag for the chap-core services: `latest` (the default, resolved
+    /// to the newest release's `vX.Y.Z` so the deployment is reproducible),
+    /// `master`, `dev`, or an exact `vX.Y.Z`. `chaps` also writes the
+    /// `compose.ghcr.yml` that tag publishes; `--offline` keeps the tag as
+    /// given and uses the compose file built into this binary.
     #[arg(long, value_name = "TAG", default_value = "latest")]
     pub chap_tag: String,
 
@@ -144,9 +148,6 @@ pub enum ModelsCmd {
 
     /// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
     Disable(ModelsDisableArgs),
-
-    /// Open the model browser.
-    Tui(TuiArgs),
 }
 
 /// List marketplace models.
@@ -223,7 +224,7 @@ pub struct ModelsDisableArgs {
 
 /// Open the model browser.
 #[derive(Debug, Clone, Args)]
-pub struct TuiArgs {}
+pub struct UiArgs {}
 
 /// Inspect and refresh the marketplace registry.
 #[derive(Debug, Args)]
@@ -261,14 +262,15 @@ pub struct SyncArgs {
     pub check: bool,
 }
 
-/// Move channel-following models to the versions the marketplace now
-/// publishes, then pull and restart.
+/// Move the model and chap-core pins to what upstream publishes now, then pull
+/// and restart.
 ///
 /// Always fetches the registry from the network (no cache, no fallback). Models
 /// pinned to an exact version are listed but not moved. After updating
 /// .chaps/models.yaml and the .env pin comments it runs `chaps sync`,
-/// `docker compose pull` and `docker compose up -d`. chap-core itself follows
-/// its tag (`latest` by default), so the pull refreshes it too.
+/// `docker compose pull` and `docker compose up -d`. A chap-core pin on a
+/// release tag moves to the newest release, compose file included; a moving
+/// tag (`latest`, `master`, `dev`) is only refreshed by the pull.
 #[derive(Debug, Clone, Args)]
 pub struct UpdateArgs {
     /// Show what would change and write nothing.
@@ -278,6 +280,11 @@ pub struct UpdateArgs {
     /// Update the files and pull the images but do not run `up -d`.
     #[arg(long)]
     pub no_restart: bool,
+
+    /// Turn a moving chap-core tag (`latest`, `master`, `dev`) into a pin on
+    /// the newest release, the way `chaps init` does by default.
+    #[arg(long)]
+    pub pin_chap_core: bool,
 }
 
 /// Sync, then start the stack (docker compose up).
@@ -717,16 +724,20 @@ mod tests {
     }
 
     #[test]
-    fn tui_exists_both_at_the_top_level_and_under_models() {
+    fn the_browser_is_the_top_level_ui_command() {
         assert!(matches!(
-            Cli::try_parse_from(["chap", "tui"]).unwrap().command,
-            Command::Tui(_)
+            Cli::try_parse_from(["chap", "ui"]).unwrap().command,
+            Command::Ui(_)
         ));
-        let cli = Cli::try_parse_from(["chap", "models", "tui"]).unwrap();
-        let Command::Models(m) = cli.command else {
-            panic!("expected models");
-        };
-        assert!(matches!(m.command, ModelsCmd::Tui(_)));
+        // It used to be `tui`, with a `models tui` alias; neither is a command
+        // any more, and no alias keeps them alive.
+        for argv in [
+            ["chap", "tui"].as_slice(),
+            ["chap", "models", "tui"].as_slice(),
+            ["chap", "models", "ui"].as_slice(),
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?}");
+        }
     }
 
     #[test]
