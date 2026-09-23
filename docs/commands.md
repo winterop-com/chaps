@@ -19,9 +19,15 @@ lists every command, every flag and every default.
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
 | `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
 | `chaps update [--dry-run] [--no-restart] [--pin-chap-core]` | Move the pins to what upstream publishes now, then pull and restart. |
+| `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts CHAP pulls from, and - inside a project - the files, the ports, the pins, the images and the running stack. Works anywhere. |
 
 `chaps up` starts what is on disk; `chaps update` fetches newer versions. That
 is the whole distinction, and it is why `up` is safe to run at any time.
+
+`chaps doctor` is the one to run first on a machine you have not deployed on
+before, and first again when something is wrong: it asks in one pass what the
+other commands assume. It exits non-zero only when a check failed. See
+[Doctor](./doctor.md).
 
 ## Models
 

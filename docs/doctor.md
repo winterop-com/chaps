@@ -1,0 +1,153 @@
+# Doctor
+
+`chaps doctor` is the first command to run on a machine you have not deployed
+on before, and the first one to run when something is wrong. It asks, in one
+pass, every question the other commands assume the answer to: is Docker there,
+is its daemon up, is Compose new enough, is there disk, can this machine reach
+the hosts CHAP pulls from, and is this the newest `chaps`. Inside a deployment
+directory it goes on to the project: the files, the compose files, `.env`, the
+host ports, the pins, the images and the running stack.
+
+```sh
+chaps doctor
+```
+
+```text
+ok    docker cli                 docker 29.8.1
+ok    docker daemon              Docker Engine 29.8.0
+ok    docker compose             v2.24.6
+warn  os and arch                macos/aarch64; CHAP images are linux/amd64 only, so they run under emulation
+      nothing to do: Rosetta runs the amd64 images, they are only slower
+ok    disk space                 633.1 GB free on /Users/you/mychap
+ok    network ghcr.io            reachable (HTTP 401)
+ok    network marketplace        reachable (HTTP 200)
+ok    network releases           reachable, newest chap-core is v2.3.1
+ok    chaps                      v0.2.0, aarch64-apple-darwin, release archive
+ok    project files              all 6 present
+ok    compose files              in sync (0 to write, 7 unchanged, 0 to remove)
+ok    .env                       auth off, POSTGRES_PASSWORD set, CHAP_IMAGE_TAG present
+fail  api port                   8000 is in use by something else
+      port 8000 is already in use on this machine (needed by chap); free it, or run
+      `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
+ok    chap-core pin              v2.3.1 is the newest release
+ok    image chapkit-ewars-model  ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1 (linux/amd64)
+skip  stack                      no container of this project is running
+      run `chaps up` to start CHAP
+
+16 checks: 13 ok, 1 warn, 1 fail, 1 skipped
+```
+
+Four words carry the verdict, and only one of them is a problem:
+
+| Word | Colour | What it means |
+| --- | --- | --- |
+| `ok` | green | Nothing to do. |
+| `warn` | yellow | It works, but something will bite later. |
+| `fail` | red | CHAP will not work until this is dealt with. |
+| `skip` | dim | Not evaluated: there was nothing to ask, or asking was ruled out. |
+
+A line that is not `ok` carries an indented line under it saying what to do
+about it, and that line is the same sentence the command it belongs to would
+have failed with. The exit code is non-zero **only when something failed**, so
+`chaps doctor` in a CI step goes red on the checks that would have stopped the
+deployment and stays green on the ones that are merely worth knowing.
+
+Every check is bounded. Each external command is killed if it overruns, each
+network probe has a three-second timeout, and the probes run in parallel, so
+`chaps doctor` always finishes and normally does so in a few seconds.
+`-v` prints every command and request it made.
+
+## Machine checks
+
+These run everywhere, inside a deployment directory or not.
+
+| Check | What it asks | What a bad answer means |
+| --- | --- | --- |
+| `docker cli` | `docker version` answers | `docker` is not on `PATH`. Install Docker Desktop or the docker CLI from <https://docs.docker.com/get-docker/>. |
+| `docker daemon` | `docker info` reaches a daemon | Either nothing is listening, which is `open Docker Desktop` or `sudo systemctl start docker`, or the socket refuses this user, which is `sudo usermod -aG docker $USER` and a fresh login. The two are told apart by what Docker printed, because the fixes have nothing in common. |
+| `docker compose` | `docker compose version` and how old it is | Below 2.20 the model overlays will not load: `compose.marketplace.yml` uses `include:`, which arrived in 2.20, and `compose.chaps.yml` uses `!override`, which arrived in 2.24. A warning rather than a failure, because the base services still run. |
+| `os and arch` | what this host is | On an arm64 host it warns: chap-core and every marketplace image are published for amd64 only. On macOS that is nothing to do, Rosetta runs them. On arm64 Linux it needs qemu/binfmt: `docker run --privileged --rm tonistiigi/binfmt --install amd64`. Nothing is probed, because probing means running an amd64 container, which is far too slow for a checklist. |
+| `disk space` | free space where the images land | Warns below 10 GB and fails below 3 GB. The measured filesystem is Docker's own data root when this host can see it, and the working directory otherwise: Docker Desktop reports a path inside its Linux VM, which says nothing about the disk out here. |
+| `network ghcr.io` | can this machine reach the image registry | Without it no image can be pulled. A warning, not a failure: `--offline` keeps `chaps` itself working from the cache or the catalogue built into the binary. |
+| `network marketplace` | can it reach `registry.yaml` | The catalogue falls back to the cache and then to the embedded snapshot, so this is a warning too. `chaps registry show` says which one is in use. |
+| `network releases` | can it reach the chap-core release list | `chaps update` needs it; everything else works without it. The answer doubles as the newest release, which `chap-core pin` below compares against. |
+| `chaps` | version, target, install method, newer release | Warns when a newer release exists: `chaps self update`. |
+
+An anonymous request to `ghcr.io/v2/` answers `401`, which is the registry
+answering; any HTTP status counts as reachable, because a host that refuses us
+is still a host this machine can reach.
+
+## Project checks
+
+These only run when the command found a deployment, which it does the way git
+finds `.git`: from the current directory (or `-C DIR`) upwards. Outside one,
+`doctor` prints the machine half and a single line saying so:
+
+```text
+project: none here (run chaps doctor inside a deployment directory for more)
+```
+
+| Check | What it asks | What a bad answer means |
+| --- | --- | --- |
+| `project files` | are `.chaps/project.yaml`, `.chaps/models.yaml`, `.env`, `compose.yml`, `compose.chaps.yml` and `compose.marketplace.yml` all there | It names the missing ones. `chaps sync` renders the compose files again; `chaps init --force` writes the whole deployment. |
+| `compose files` | `chaps sync --check`, without its exit code | The rendered files no longer match `.chaps/`, which is drift the next `chaps up` would undo anyway. Run `chaps sync`. |
+| `.env` | is it readable, and does it still say what it should | Warns when `POSTGRES_PASSWORD` is the default `chap` or unset, and when the `CHAP_IMAGE_TAG` pin comment is gone. Whether authentication is on is reported either way: `auth: off` is a fact to be able to see, not a fault. |
+| `api port`, `port <model>` | is every host port the stack publishes free | Fails when something else holds one, with the same three ways out `chaps up`'s preflight offers. A port held by this project's own running container is not a conflict, exactly as `up` treats it. See [Ports](./ports.md). |
+| `chap-core pin` | is the pinned tag still the newest release | Warns when a newer chap-core has been released: `chaps update --dry-run` says what would move. A moving tag (`latest`, `master`, `dev`) is not behind anything, so it passes with a note. Skipped when the release list was not reachable. |
+| `image <model>` | does each enabled model's exact tag exist on ghcr, with a linux/amd64 image | `docker manifest inspect` per model, in parallel, ten seconds each. A tag that is gone fails and names the model to re-resolve with `chaps models enable <id>`. |
+| `stack` | chap-core's health and whether every model registered | Skipped when no container of this project is running, which is `chaps up`. Otherwise it is the verdict of [`chaps status`](./status.md) as one line. |
+
+## `--json`
+
+The same checklist as one document: an array of checks and the counts they add
+up to.
+
+```sh
+chaps doctor --json
+```
+
+```json
+{
+  "checks": [
+    {
+      "id": "docker-cli",
+      "name": "docker cli",
+      "status": "ok",
+      "detail": "docker 29.8.1",
+      "fix": null
+    },
+    {
+      "id": "api-port",
+      "name": "api port",
+      "status": "fail",
+      "detail": "8000 is in use by something else",
+      "fix": "port 8000 is already in use on this machine (needed by chap); free it, or run `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env"
+    }
+  ],
+  "summary": { "ok": 1, "warn": 0, "fail": 1, "skip": 0 }
+}
+```
+
+`id` is stable, so a script can pick one line out of the report:
+
+```sh
+chaps doctor --json | jq -r '.checks[] | select(.status == "fail") | "\(.id): \(.detail)"'
+```
+
+Outside a deployment directory the project checks are simply absent from
+`checks`, which is how a consumer tells the two cases apart.
+
+## `--offline`
+
+`--offline` skips every probe that would touch the network, and the image
+check with them, reporting each as `skip` with the reason:
+
+```text
+skip  network ghcr.io            --offline: the image registry was not probed
+skip  network marketplace        --offline: the model catalogue was not probed
+skip  network releases           --offline: the chap-core release list was not probed
+skip  image chapkit-ewars-model  --offline: the registry was not asked
+```
+
+Everything else still runs, so `chaps doctor --offline` is the whole local
+half of the checklist on a machine with no way out.

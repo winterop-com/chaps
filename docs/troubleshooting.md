@@ -1,5 +1,12 @@
 # Troubleshooting
 
+Start with `chaps doctor`. It runs the whole checklist in one pass - Docker,
+Compose, the architecture, free disk, the hosts CHAP pulls from, and, inside a
+deployment, the files, the ports, the pins, the images and the running stack -
+and prints what to do about every line that is not `ok`. Most of the sections
+below are one of its lines with the reasoning spelled out. See
+[Doctor](./doctor.md).
+
 When a command does something you did not expect, run it again with `-v`. It
 prints every external command, every HTTP request with its status and timing,
 which catalogue it loaded and which files `sync` compared, all on stderr and

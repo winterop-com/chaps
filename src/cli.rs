@@ -136,6 +136,9 @@ pub enum Command {
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
 
+    /// Run a checklist over this machine and this deployment.
+    Doctor(DoctorArgs),
+
     /// Turn API authentication on or off, and show the token to paste into
     /// DHIS2.
     Auth(AuthArgs),
@@ -655,6 +658,21 @@ pub struct StatusArgs {
     #[arg(long, value_name = "SECONDS", default_value_t = 5)]
     pub timeout: u64,
 }
+
+/// Run a checklist over this machine and this deployment.
+///
+/// One line per check: Docker and Compose, the CPU architecture, free disk,
+/// whether the hosts CHAP pulls from answer, and which release of `chaps`
+/// this is. Inside a deployment directory it also checks the project files,
+/// whether the compose files are in sync, `.env`, the host ports, the
+/// chap-core pin, each enabled model's image and the running stack.
+///
+/// Every check is bounded, so this always finishes; it exits non-zero only
+/// when a check failed, never on a warning. `--json` prints the same
+/// checklist as a document, and `--offline` skips everything that would need
+/// the network.
+#[derive(Debug, Clone, Args)]
+pub struct DoctorArgs {}
 
 /// Turn API authentication on or off, and show the token to paste into DHIS2.
 ///

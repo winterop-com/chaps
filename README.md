@@ -76,6 +76,7 @@ Docker with Compose v2.20 or newer. See
 ## Quickstart
 
 ```sh
+chaps doctor                         # is this machine ready: docker, compose, disk, network
 chaps init mychap --models default   # writes the deployment directory
 cd mychap
 chaps up                             # sync the compose files, docker compose up -d

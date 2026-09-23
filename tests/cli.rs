@@ -2737,3 +2737,146 @@ fn a_captured_run_never_checks_for_an_update() {
         check.display()
     );
 }
+
+/// The one check of a `doctor --json` report with this id.
+fn doctor_check<'a>(report: &'a Json, id: &str) -> &'a Json {
+    report["checks"]
+        .as_array()
+        .unwrap_or_else(|| panic!("`checks` is not an array in {report}"))
+        .iter()
+        .find(|check| check["id"] == id)
+        .unwrap_or_else(|| panic!("no check `{id}` in {report}"))
+}
+
+/// The status word of that check.
+fn doctor_status<'a>(report: &'a Json, id: &str) -> &'a str {
+    doctor_check(report, id)["status"]
+        .as_str()
+        .unwrap_or_else(|| panic!("`{id}` has no status"))
+}
+
+/// `doctor` is one of the commands that works anywhere, so outside a project
+/// it runs the machine half and says where the rest would be.
+///
+/// The exit code depends on whether this machine has Docker, which a test
+/// cannot assume either way: only the structure is asserted, and that the
+/// command stayed inside the two codes it is allowed to use.
+#[test]
+fn doctor_outside_a_project_checks_the_machine_and_says_so() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .args(["--offline", "doctor"])
+        .output()
+        .expect("doctor runs");
+    assert!(
+        matches!(out.status.code(), Some(0) | Some(1)),
+        "doctor exited with {:?}",
+        out.status.code()
+    );
+    let text = String::from_utf8(out.stdout).expect("utf-8");
+
+    for name in [
+        "docker cli",
+        "docker daemon",
+        "docker compose",
+        "os and arch",
+        "disk space",
+        "network ghcr.io",
+        "chaps",
+    ] {
+        assert!(text.contains(name), "`{name}` is missing from:\n{text}");
+    }
+    assert!(
+        text.contains("project: none here (run chaps doctor inside a deployment directory"),
+        "{text}"
+    );
+    // Nothing that needs a deployment ran.
+    for name in ["project files", "api port", "chap-core pin"] {
+        assert!(!text.contains(name), "`{name}` needs a project:\n{text}");
+    }
+    let summary = regex::Regex::new(r"(?m)^\d+ checks: \d+ ok, \d+ warn, \d+ fail").unwrap();
+    assert!(summary.is_match(&text), "no summary line in:\n{text}");
+}
+
+/// `doctor --json` is the same checklist as one document.
+#[test]
+fn doctor_json_is_a_list_of_checks_and_a_summary() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .args(["--offline", "--json", "doctor"])
+        .output()
+        .expect("doctor runs");
+    let report: Json = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("doctor --json did not parse: {e}"));
+
+    let checks = report["checks"].as_array().expect("an array of checks");
+    assert!(!checks.is_empty());
+    for check in checks {
+        for field in ["id", "name", "status", "detail", "fix"] {
+            assert!(check.get(field).is_some(), "{check} has no `{field}`");
+        }
+        assert!(
+            ["ok", "warn", "fail", "skip"].contains(&check["status"].as_str().unwrap()),
+            "{check} has an unknown status"
+        );
+    }
+    let summary = &report["summary"];
+    let count = |key: &str| summary[key].as_u64().unwrap_or_else(|| panic!("no {key}"));
+    assert_eq!(
+        (count("ok") + count("warn") + count("fail") + count("skip")) as usize,
+        checks.len(),
+        "the summary has to add up to the checks: {report}"
+    );
+}
+
+/// Inside a freshly written deployment the two checks that are about the
+/// files alone must both pass, and `--offline` must keep every probe that
+/// would touch the network out of the run.
+#[test]
+fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "default"]).assert().success();
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["--json", "doctor"])
+        .output()
+        .expect("doctor runs");
+    let report: Json = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("doctor --json did not parse: {e}"));
+
+    assert_eq!(doctor_status(&report, "project-files"), "ok", "{report}");
+    assert_eq!(doctor_status(&report, "sync"), "ok", "{report}");
+    // `init` generates a password, writes the pin comments and leaves
+    // authentication off, which is a complete `.env` and not a warning.
+    assert_eq!(doctor_status(&report, "env"), "ok", "{report}");
+    // Nothing has ever been started here.
+    assert_eq!(doctor_status(&report, "stack"), "skip", "{report}");
+    assert!(
+        doctor_check(&report, "stack")["fix"]
+            .as_str()
+            .unwrap()
+            .contains("chaps up"),
+        "{report}"
+    );
+
+    // Every network probe, and the image check that would follow one.
+    for id in ["net-ghcr", "net-marketplace", "net-releases"] {
+        assert_eq!(doctor_status(&report, id), "skip", "{report}");
+        assert!(
+            doctor_check(&report, id)["detail"]
+                .as_str()
+                .unwrap()
+                .contains("offline"),
+            "{id} does not say why it was skipped: {report}"
+        );
+    }
+    let image = doctor_check(&report, "image-chapkit-ewars-model");
+    assert_eq!(image["status"], "skip", "{report}");
+    assert!(image["detail"].as_str().unwrap().contains("offline"));
+
+    // A moving chap-core tag is nothing to compare against a release list.
+    assert_eq!(doctor_status(&report, "chap-core-pin"), "ok", "{report}");
+}

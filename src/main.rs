@@ -137,6 +137,8 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
 
         Command::Status(args) => commands::status::run(ctx, args),
 
+        Command::Doctor(args) => commands::doctor::run(ctx, args),
+
         Command::Auth(a) => match &a.command {
             AuthSub::Show(args) => commands::auth::show(ctx, args),
             AuthSub::Enable(args) => commands::auth::enable(ctx, args),
@@ -345,7 +347,7 @@ mod tests {
                 "`{hidden}` should not be listed outside a project"
             );
         }
-        for shown in ["init", "models", "registry"] {
+        for shown in ["init", "models", "registry", "doctor"] {
             assert!(help.contains(shown), "`{shown}` works anywhere");
         }
         assert!(help.contains("Inside a directory created by `chaps init`"));

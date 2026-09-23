@@ -5,6 +5,7 @@ pub mod backup;
 pub mod completions;
 pub mod docker;
 pub mod docs;
+pub mod doctor;
 pub mod enable;
 pub mod init;
 pub mod models;

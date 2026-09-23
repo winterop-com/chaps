@@ -1,5 +1,18 @@
 # Quickstart
 
+## 0. Check the machine
+
+After installing, run:
+
+```sh
+chaps doctor
+```
+
+One line per check: Docker, Compose, the CPU architecture, free disk, and
+whether this machine can reach the hosts CHAP pulls from. Anything that is not
+`ok` comes with the line that fixes it. It works anywhere, and inside a
+deployment directory it checks the deployment too. See [Doctor](./doctor.md).
+
 ## 1. Write the deployment directory
 
 ```sh

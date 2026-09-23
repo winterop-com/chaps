@@ -8,6 +8,11 @@ On macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
 ```
 
+Then run `chaps doctor`: it checks in one pass that this machine has everything
+a deployment needs - Docker, Compose 2.20 or newer, disk, and a route to the
+hosts CHAP pulls from - and says what to do about anything it did not find. See
+[Doctor](./doctor.md).
+
 The script works out the platform from `uname`, downloads the release archive
 for it, checks the download against the release's `SHA256SUMS` and installs the
 binary. It refuses to install anything it could not verify.

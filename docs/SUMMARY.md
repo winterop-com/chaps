@@ -13,5 +13,6 @@
 - [Updating](./updating.md)
 - [Backup and restore](./backup.md)
 - [Status and output](./status.md)
+- [Doctor](./doctor.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Development](./development.md)
