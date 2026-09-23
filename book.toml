@@ -1,6 +1,6 @@
 [book]
 title = "chaps"
-description = "Deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform, with Docker Compose"
+description = "Deploy and manage CHAP, the Climate Health Analytics Platform, with Docker Compose"
 authors = ["Morten Hansen"]
 language = "en"
 src = "docs"

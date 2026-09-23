@@ -83,3 +83,6 @@ generating them rather than keeping the deployment inside the tool.
   artifacts, and the pins.
 - [Commands](./commands.md) is the tour; [Command reference](./reference.md) is
   the generated, complete list.
+
+`chaps` is licensed under the AGPL-3.0, like chap-core. The full text is in
+`LICENSE` at the repository root.

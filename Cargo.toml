@@ -3,7 +3,7 @@ name = "chaps-cli"
 version = "0.1.0"
 edition = "2024"
 description = "Deploy and manage CHAP, the Climate Health Analytics Platform, with Docker Compose"
-license = "MIT"
+license = "AGPL-3.0-only"
 repository = "https://github.com/winterop-com/chaps"
 
 [[bin]]

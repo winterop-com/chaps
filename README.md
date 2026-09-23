@@ -14,6 +14,8 @@ Python, no uv, no checkout of chap-core.
 
 **Documentation: <https://winterop-com.github.io/chaps/>**
 
+Licensed under the AGPL-3.0, like chap-core.
+
 ## Install
 
 Download an archive for your platform from the
@@ -85,7 +87,8 @@ make docs-serve  # serve it locally at http://localhost:3000
 
 CI runs the same three checks on Linux, macOS and Windows. Tagging `vX.Y.Z`
 builds release binaries for six targets (Linux, macOS and Windows, on x86_64
-and aarch64) and attaches them to a GitHub release with their SHA-256 sums.
+and aarch64), fuses the two macOS builds into a seventh universal archive, and
+attaches all seven to a GitHub release with their SHA-256 sums.
 
 The documentation lives in `docs/` and is built with
 [mdbook](https://rust-lang.github.io/mdBook/); `docs/reference.md` is generated
