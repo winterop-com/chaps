@@ -1,4 +1,5 @@
 name: release
+run-name: release ${{ github.ref_name }}
 
 # Builds `chaps` for six targets natively, plus a universal macOS binary, and
 # attaches the archives to the GitHub release for the tag.
@@ -362,6 +363,8 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           body_path: notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
