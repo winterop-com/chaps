@@ -9,6 +9,7 @@ use predicates::prelude::PredicateBooleanExt;
 use serde_json::Value as Json;
 use serde_yaml_ng::Value as Yaml;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tempfile::TempDir;
 
 /// A cache directory plus the project directory the tests write into.
@@ -247,22 +248,73 @@ fn init_writes_every_file_of_a_deployment() {
     assert!(env.contains("\nCHAP_API_PORT=8000\n"), "{env}");
 }
 
-/// Whether `docker compose` can be run at all, for the tests that ask it to
-/// validate a rendered stack. Missing Docker skips them rather than failing.
-fn docker_available() -> bool {
-    std::process::Command::new("docker")
-        .args(["compose", "version", "--short"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+/// The smallest stack the probe below can ask about: one service that is
+/// never started. `ps` only reads, so the image is never pulled.
+const PROBE_STACK: &str = "services:\n  probe:\n    image: alpine:3\n";
+
+/// Whether the docker-backed tests can run here, saying why when they cannot.
+///
+/// `docker compose version` is not the question these tests need answered. A
+/// runner can have the CLI while its daemon is unusable - not running, or in
+/// Windows-containers mode - and then the call every wrapper makes,
+/// `docker compose ps -a --format json`, exits 1 while `version` still
+/// answers happily. That is a flaky failure, not a finding, so the probe is
+/// that exact call against a stack of its own, and the tests that depend on
+/// docker answering skip when it does not.
+///
+/// The probe runs once per test binary: the cached verdict is what every
+/// caller after the first reads.
+fn docker_ready() -> bool {
+    static PROBE: OnceLock<Result<(), String>> = OnceLock::new();
+    match PROBE.get_or_init(probe_docker) {
+        Ok(()) => true,
+        Err(reason) => {
+            eprintln!("skipping: {reason}");
+            false
+        }
+    }
+}
+
+/// Ask docker the question the tests depend on, in a directory of its own.
+fn probe_docker() -> Result<(), String> {
+    let temp = tempfile::tempdir().map_err(|e| format!("no directory to probe docker in: {e}"))?;
+    let dir = temp.path().join("chaps-docker-probe");
+    let write = std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(dir.join("compose.yml"), PROBE_STACK));
+    write.map_err(|e| format!("the docker probe stack could not be written: {e}"))?;
+
+    let out = std::process::Command::new("docker")
+        .args([
+            "compose",
+            "-f",
+            "compose.yml",
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ])
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("docker could not be run: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let first = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("it said nothing about why");
+    Err(format!(
+        "`docker compose ps -a --format json` exited with status {}: {first}",
+        out.status.code().unwrap_or(-1)
+    ))
 }
 
 #[test]
 fn docker_accepts_the_stack_with_the_chaps_override() {
-    if !docker_available() {
-        eprintln!("skipping: docker compose is not available");
+    if !docker_ready() {
         return;
     }
     let sandbox = Sandbox::new();
@@ -1917,8 +1969,7 @@ fn status_does_not_call_something_that_is_not_chap_core_up() {
 
 #[test]
 fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
-    if !docker_available() {
-        eprintln!("skipping: docker compose is not available");
+    if !docker_ready() {
         return;
     }
     let sandbox = Sandbox::new();

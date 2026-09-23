@@ -35,7 +35,19 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     // says and whether there is a deployment here to report on at all. It is
     // best-effort, as everywhere - `None` means docker could not be asked,
     // which is not the same as a project with no containers.
-    let containers = docker::all_containers(&project);
+    let containers = match docker::all_containers_or_why(&project) {
+        Ok(containers) => Some(containers),
+        // A docker that is not installed is nothing to say a word about here:
+        // `status --url` is a question about an API. A docker that answered
+        // and refused is, because the report is about to be silent about the
+        // containers and this is the only place that can say why.
+        Err(why) => {
+            if why.ran() {
+                crate::output::warn(&format!("could not ask docker about this project: {why}"));
+            }
+            None
+        }
+    };
     let running: BTreeSet<String> = containers
         .as_deref()
         .map(docker::running_of)

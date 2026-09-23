@@ -72,8 +72,8 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     }
     warn_about_old_compose();
 
-    let before = match prepare(ctx, &project, cmd)? {
-        Pre::Run(before) => before,
+    let (before, unasked) = match prepare(ctx, &project, cmd)? {
+        Pre::Run { before, unasked } => (before, unasked),
         // Everything there was to say has been said; the exit code is all
         // that is left, and an `error:` line on top of it would repeat it.
         Pre::Skip(0) => return Ok(()),
@@ -83,7 +83,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     let args = args_for(cmd, Shell::detect(ctx.out.json));
     let code = docker::run_compose(&project, &args)?;
     if code != 0 {
-        return Err(ChapError::DockerFailed(code).into());
+        return Err(docker_failed(code, unasked));
     }
     report_what_changed(ctx, &project, cmd, &before);
     Ok(())
@@ -92,11 +92,52 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
 /// What the wrapper decided before letting docker run.
 enum Pre {
     /// Run docker. Carries the containers as they were, for the wrappers that
-    /// report the difference they made.
-    Run(Vec<docker::Container>),
+    /// report the difference they made, and the query docker refused, for the
+    /// error its exit code alone would not explain.
+    Run {
+        before: Vec<docker::Container>,
+        unasked: Option<docker::QueryFailure>,
+    },
     /// Do not run docker at all, and exit with this code: the caller has
     /// already been told what there was to know.
     Skip(i32),
+}
+
+impl Pre {
+    /// Run docker, with the containers as docker said they were.
+    fn run(before: Vec<docker::Container>) -> Pre {
+        Pre::Run {
+            before,
+            unasked: None,
+        }
+    }
+
+    /// Run docker without having been able to ask what was there first,
+    /// remembering why for the error that follows if docker fails too.
+    fn run_blind(why: docker::QueryFailure) -> Pre {
+        Pre::Run {
+            before: Vec::new(),
+            unasked: Some(why),
+        }
+    }
+}
+
+/// The error a wrapper ends on when docker exited non-zero.
+///
+/// `docker compose exited with status 1` is the whole message on its own, and
+/// it sends the reader looking at their stack when the answer is that docker
+/// would not talk about this project at all. The `ps` that was refused first
+/// is the missing half, in docker's own words, so it goes in front of the
+/// status - which stays in the chain, because the exit code is mirrored from
+/// it.
+fn docker_failed(code: i32, unasked: Option<docker::QueryFailure>) -> anyhow::Error {
+    let err = anyhow::Error::new(ChapError::DockerFailed(code));
+    match unasked {
+        Some(why) => err.context(format!(
+            "docker could not be asked about this project: {why}"
+        )),
+        None => err,
+    }
 }
 
 /// Ask docker what there is before running the wrapper, and answer for it
@@ -107,10 +148,13 @@ enum Pre {
 fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
     match cmd {
         DockerCmd::Logs(args) => {
-            // `None` is "docker could not be asked", which is not the same as
-            // "this project has no containers"; docker itself says that best.
-            let Some(containers) = docker::all_containers(project) else {
-                return Ok(Pre::Run(Vec::new()));
+            // An `Err` is "docker could not be asked", which is not the same
+            // as "this project has no containers"; docker itself says that
+            // best, so the wrapper runs anyway - and keeps what docker said
+            // about `ps` for the error that follows if it fails too.
+            let containers = match docker::all_containers_or_why(project) {
+                Ok(containers) => containers,
+                Err(why) => return Ok(Pre::run_blind(why)),
             };
             if containers.is_empty() {
                 note(ctx, &nothing_running(&ctx.out));
@@ -131,12 +175,10 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
                     )));
                 }
             }
-            Ok(Pre::Run(Vec::new()))
+            Ok(Pre::run(Vec::new()))
         }
-        DockerCmd::Ps(_) => {
-            if let Some(containers) = docker::all_containers(project)
-                && containers.is_empty()
-            {
+        DockerCmd::Ps(_) => match docker::all_containers_or_why(project) {
+            Ok(containers) if containers.is_empty() => {
                 note(ctx, &nothing_running(&ctx.out));
                 // A parser asked for a list of containers; there are none.
                 if ctx.out.json {
@@ -144,15 +186,17 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
                 }
                 // Nothing is wrong with a stack that is not running: `ps` on
                 // an empty project is a question answered, not a failure.
-                return Ok(Pre::Skip(0));
+                Ok(Pre::Skip(0))
             }
-            Ok(Pre::Run(Vec::new()))
-        }
+            Ok(_) => Ok(Pre::run(Vec::new())),
+            Err(why) => Ok(Pre::run_blind(why)),
+        },
         // The snapshot `up` and `down` compare against afterwards.
-        DockerCmd::Up(_) | DockerCmd::Down(_) => Ok(Pre::Run(
-            docker::running_containers(project).unwrap_or_default(),
-        )),
-        _ => Ok(Pre::Run(Vec::new())),
+        DockerCmd::Up(_) | DockerCmd::Down(_) => match docker::running_containers_or_why(project) {
+            Ok(before) => Ok(Pre::run(before)),
+            Err(why) => Ok(Pre::run_blind(why)),
+        },
+        _ => Ok(Pre::run(Vec::new())),
     }
 }
 
@@ -398,6 +442,41 @@ fn warn_about_old_compose() {
 mod tests {
     use super::*;
     use crate::cli::{ConfigArgs, DownArgs, ExecArgs, LogsArgs, PsArgs, PullArgs, RunArgs, UpArgs};
+
+    /// A `docker compose ps` that ran and was refused.
+    fn refused_ps() -> docker::QueryFailure {
+        docker::QueryFailure {
+            query: "ps -a --format json".to_string(),
+            code: Some(1),
+            detail: "error during connect: the daemon is not running".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_wrapper_that_could_not_ask_docker_first_says_what_docker_said() {
+        let err = docker_failed(1, Some(refused_ps()));
+        assert_eq!(
+            err.to_string(),
+            "docker could not be asked about this project: `docker compose ps -a --format json` \
+             exited with status 1: error during connect: the daemon is not running"
+        );
+        // The status stays in the chain: `main` reads the code off it.
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::DockerFailed(1))
+        ));
+        assert_eq!(
+            err.chain().nth(1).map(|c| c.to_string()),
+            Some("docker compose exited with status 1".to_string())
+        );
+    }
+
+    #[test]
+    fn a_wrapper_docker_answered_for_ends_on_the_status_alone() {
+        let err = docker_failed(137, None);
+        assert_eq!(err.to_string(), "docker compose exited with status 137");
+        assert_eq!(err.chain().count(), 1);
+    }
 
     /// A plain terminal session: no `--json`, stdin is a TTY.
     const TERM: Shell = Shell {

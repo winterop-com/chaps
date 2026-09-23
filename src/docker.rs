@@ -204,22 +204,34 @@ pub fn diff_containers(before: &[Container], after: &[Container]) -> (Vec<String
 }
 
 /// Every container of this project, stopped ones included
-/// (`docker compose ps -a`).
+/// (`docker compose ps -a`), or why docker did not say.
 ///
-/// `None` means docker could not be asked at all - no binary, no daemon, or
-/// output in a shape we do not recognise - which callers have to tell apart
-/// from `Some(vec![])`, "this project has no containers".
-pub fn all_containers(project: &Project) -> Option<Vec<Container>> {
-    let text = compose_capture(project, &["ps", "-a", "--format", "json"])?;
-    Some(containers(&text))
+/// An `Err` means docker could not be asked at all - no binary, no daemon, a
+/// daemon in a mode that cannot serve this stack - which callers have to tell
+/// apart from `Ok(vec![])`, "this project has no containers". It carries
+/// docker's own words, because an exit code on its own explains none of that.
+pub fn all_containers_or_why(
+    project: &Project,
+) -> std::result::Result<Vec<Container>, QueryFailure> {
+    compose_query(project, &["ps", "-a", "--format", "json"]).map(|text| containers(&text))
 }
 
-/// The containers of this project that are up (`docker compose ps`).
-///
-/// `None` when docker could not be asked, as in [`all_containers`].
+/// [`all_containers_or_why`] for the callers that only act on an answer.
+pub fn all_containers(project: &Project) -> Option<Vec<Container>> {
+    all_containers_or_why(project).ok()
+}
+
+/// The containers of this project that are up (`docker compose ps`), or why
+/// docker did not say, as in [`all_containers_or_why`].
+pub fn running_containers_or_why(
+    project: &Project,
+) -> std::result::Result<Vec<Container>, QueryFailure> {
+    compose_query(project, &["ps", "--format", "json"]).map(|text| containers(&text))
+}
+
+/// [`running_containers_or_why`] for the callers that only act on an answer.
 pub fn running_containers(project: &Project) -> Option<Vec<Container>> {
-    let text = compose_capture(project, &["ps", "--format", "json"])?;
-    Some(containers(&text))
+    running_containers_or_why(project).ok()
 }
 
 /// The services this project's compose files define
@@ -251,32 +263,119 @@ pub fn image_count(project: &Project) -> Option<usize> {
     Some(images.len())
 }
 
-/// Run a short `docker compose` query and return its stdout, or `None` when
-/// docker could not be run or answered non-zero.
+/// Why a short `docker compose` query went unanswered.
+///
+/// "exited with status 1" is no use on its own: a daemon that is not running,
+/// a daemon in Windows-containers mode and a stack file compose will not read
+/// all look the same from the exit code. Docker says which it is on stderr,
+/// and its first line is what this carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryFailure {
+    /// The query as it was typed after `docker compose`, such as `ps -a`.
+    pub query: String,
+    /// The status docker exited with, or `None` when it could not be run.
+    pub code: Option<i32>,
+    /// Docker's own first words: the first line of its stderr with anything
+    /// on it, or the reason it could not be started.
+    pub detail: String,
+}
+
+impl QueryFailure {
+    /// Docker ran and refused to answer.
+    fn refused(query: &str, code: i32, stderr: &str) -> QueryFailure {
+        QueryFailure {
+            query: query.to_string(),
+            code: Some(code),
+            detail: first_stderr_line(stderr).unwrap_or_default(),
+        }
+    }
+
+    /// Docker could not be started at all.
+    fn unusable(query: &str, err: &std::io::Error) -> QueryFailure {
+        QueryFailure {
+            query: query.to_string(),
+            code: None,
+            detail: err.to_string(),
+        }
+    }
+
+    /// Whether docker ran at all, as opposed to not being there to run.
+    ///
+    /// A missing `docker` is not worth a word from a command that only asked
+    /// it in passing; a docker that answered and refused is.
+    pub fn ran(&self) -> bool {
+        self.code.is_some()
+    }
+}
+
+impl std::fmt::Display for QueryFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let detail = if self.detail.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", self.detail)
+        };
+        match self.code {
+            Some(code) => write!(
+                f,
+                "`docker compose {}` exited with status {code}{detail}",
+                self.query
+            ),
+            None => write!(f, "`docker` could not be run{detail}"),
+        }
+    }
+}
+
+/// The first line of docker's stderr with anything on it.
+///
+/// Compose pads its diagnostics with blank lines and with progress it has
+/// already erased; the first line with words on it names the problem.
+fn first_stderr_line(stderr: &str) -> Option<String> {
+    stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+/// Run a short `docker compose` query and return its stdout, or why it went
+/// unanswered.
 ///
 /// Nothing is printed on failure: every caller has a better thing to say than
-/// docker's own noise, and stderr is discarded for that reason.
-fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
+/// docker's own noise, and the [`QueryFailure`] is how the callers that want
+/// a word of it get one.
+fn compose_query(project: &Project, extra: &[&str]) -> std::result::Result<String, QueryFailure> {
     let mut args = compose_args(project);
     args.extend(extra.iter().map(|a| a.to_string()));
     trace_command(&args);
+    let query = extra.join(" ");
     let out = Command::new("docker")
         .args(&args)
         .current_dir(&project.dir)
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()
-        .ok()?;
+        .map_err(|e| QueryFailure::unusable(&query, &e))?;
     if !out.status.success() {
-        crate::output::verbose("  docker answered non-zero; ignoring its output");
-        return None;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let failure = QueryFailure::refused(&query, exit_code(out.status), &stderr);
+        crate::output::verbose(&format!("  {failure}"));
+        return Err(failure);
     }
     let body = String::from_utf8_lossy(&out.stdout).into_owned();
     crate::output::debug(&format!(
         "  docker said:\n{}",
         crate::output::trace_body(body.trim_end())
     ));
-    Some(body)
+    Ok(body)
+}
+
+/// Run a short `docker compose` query and return its stdout, or `None` when
+/// docker could not be run or answered non-zero.
+///
+/// The best-effort half of [`compose_query`], for the callers that have
+/// nothing to say about a failure beyond not having an answer.
+fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
+    compose_query(project, extra).ok()
 }
 
 /// The container objects in `docker compose ps --format json` output.
@@ -805,6 +904,46 @@ mod tests {
             Some(ChapError::DockerFailed(code)) => assert_eq!(*code, DOCKER_NOT_FOUND),
             other => panic!("wrong error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_refused_query_keeps_dockers_first_words() {
+        let failure = QueryFailure::refused(
+            "ps -a --format json",
+            1,
+            "\n  error during connect: open //./pipe/dockerDesktopLinuxEngine: \
+             the system cannot find the file specified.\nrun `docker context ls`\n",
+        );
+        assert!(failure.ran());
+        assert_eq!(
+            failure.to_string(),
+            "`docker compose ps -a --format json` exited with status 1: error during connect: \
+             open //./pipe/dockerDesktopLinuxEngine: the system cannot find the file specified."
+        );
+    }
+
+    #[test]
+    fn a_query_refused_without_a_word_is_still_the_status() {
+        let failure = QueryFailure::refused("ps", 1, "  \n\n");
+        assert_eq!(
+            failure.to_string(),
+            "`docker compose ps` exited with status 1"
+        );
+    }
+
+    #[test]
+    fn a_docker_that_is_not_there_never_answered() {
+        let failure = QueryFailure::unusable(
+            "ps",
+            &std::io::Error::new(std::io::ErrorKind::NotFound, "no such file"),
+        );
+        assert!(!failure.ran());
+        assert!(
+            failure
+                .to_string()
+                .starts_with("`docker` could not be run: "),
+            "{failure}"
+        );
     }
 
     #[test]
