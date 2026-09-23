@@ -6,7 +6,7 @@ One line for chap-core, one row per model, and one line saying what it adds up
 to:
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1
+chap-core   up   http://localhost:8000   v2.3.1   auth: on
 
 MODEL                             STATE                    REACH                  LAST PING
 chapkit-ewars-model               registered               http://localhost:5001  12s ago
@@ -24,6 +24,10 @@ internal models are reachable through chap-core at http://localhost:8000/v2/serv
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
 build.
+
+`auth: on` means `.env` sets `CHAP_API_TOKEN`, and that `status` sent it as
+`Authorization: Bearer` on every request; `auth: off` means the API is open to
+anyone who can reach the port. See [Authentication](./auth.md).
 
 Every model the project enables gets a row, registered or not, with its state
 taken from the registry and `docker compose ps` together.
@@ -52,7 +56,7 @@ what its hint says.
 deployment, is reported as down, naming what answered instead:
 
 ```text
-chap-core   down   http://localhost:8000   v2.3.1 (pinned)
+chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off
 ...
 error: chap-core at http://localhost:8000 is not responding: port 8000 answers
 but it is not chap-core (got text/html)

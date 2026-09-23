@@ -3,6 +3,7 @@
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
+mod auth;
 mod backup;
 mod chapcore;
 mod cli;
@@ -19,7 +20,7 @@ mod status;
 mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
-use cli::{BackupSub, Cli, Command, DockerCmd, ModelsCmd};
+use cli::{AuthSub, BackupSub, Cli, Command, DockerCmd, ModelsCmd};
 use commands::Ctx;
 use error::ChapError;
 use project::Project;
@@ -28,7 +29,7 @@ use std::path::PathBuf;
 /// Commands that need a deployment directory, hidden from `--help` when there
 /// is none. They still run when typed, and say what is missing.
 const PROJECT_ONLY: &[&str] = &[
-    "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui",
+    "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui", "auth",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -38,7 +39,7 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable", "expose", "unexpose"
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
-     more commands appear: up, down, logs, status, sync, update, ui, docker, backup.";
+     more commands appear: up, down, logs, status, sync, update, ui, docker, backup, auth.";
 
 fn main() {
     let cli = parse();
@@ -87,6 +88,13 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         },
 
         Command::Status(args) => commands::status::run(ctx, args),
+
+        Command::Auth(a) => match &a.command {
+            AuthSub::Show(args) => commands::auth::show(ctx, args),
+            AuthSub::Enable(args) => commands::auth::enable(ctx, args),
+            AuthSub::Disable(args) => commands::auth::disable(ctx, args),
+            AuthSub::Rotate(args) => commands::auth::rotate(ctx, args),
+        },
 
         Command::DocsMarkdown(args) => commands::docs::run(ctx, args),
     }

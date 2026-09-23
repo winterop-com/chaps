@@ -128,6 +128,33 @@ impl ComposeSource {
     }
 }
 
+/// Which of chap-core's two shared secrets this deployment uses.
+///
+/// Booleans only, and deliberately so: the values themselves live in `.env`,
+/// which is the file compose reads and the one nobody should copy around.
+/// `.chaps/` records the intent, so `project.yaml` can be committed, backed up
+/// and pasted into a bug report without leaking a credential. A `project.yaml`
+/// written before this field existed loads as both `false`, which is what it
+/// was.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthState {
+    /// `CHAP_API_TOKEN` is set, so every request needs
+    /// `Authorization: Bearer <token>` outside [`crate::auth::OPEN_PATHS`].
+    #[serde(default)]
+    pub api_token: bool,
+    /// `SERVICEKIT_REGISTRATION_KEY` is set, so each model overlay carries the
+    /// line that hands the key to its service.
+    #[serde(default)]
+    pub registration_key: bool,
+}
+
+impl AuthState {
+    /// Whether anything at all is protected.
+    pub fn is_on(&self) -> bool {
+        self.api_token || self.registration_key
+    }
+}
+
 /// The in-memory project state: `project.yaml` plus `models.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectState {
@@ -144,6 +171,9 @@ pub struct ProjectState {
     /// before this field loads as [`DEFAULT_API_PORT`], which is what it was.
     #[serde(default = "default_api_port")]
     pub api_port: u16,
+    /// Which shared secrets `.env` sets. See [`AuthState`].
+    #[serde(default)]
+    pub auth: AuthState,
     /// Ordered `-f` list, relative to the project directory.
     pub compose_files: Vec<String>,
     pub port_range: (u16, u16),
@@ -165,6 +195,7 @@ impl Default for ProjectState {
             chap_compose_source: ComposeSource::Embedded,
             registry_url: crate::registry::DEFAULT_REGISTRY_URL.to_string(),
             api_port: DEFAULT_API_PORT,
+            auth: AuthState::default(),
             compose_files: default_compose_files(),
             port_range: DEFAULT_PORT_RANGE,
             rendered_files: Vec::new(),
@@ -590,6 +621,43 @@ mod tests {
         .unwrap();
         let loaded = Project::load(dir.path()).unwrap();
         assert_eq!(loaded.state.chap_compose_source, ComposeSource::Embedded);
+        // The same file predates the auth block, which loads as "off".
+        assert_eq!(loaded.state.auth, AuthState::default());
+        assert!(!loaded.state.auth.is_on());
+    }
+
+    #[test]
+    fn the_auth_block_round_trips_as_two_booleans_and_no_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                auth: AuthState {
+                    api_token: true,
+                    registration_key: true,
+                },
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+        assert!(body.contains("auth:\n"), "{body}");
+        assert!(body.contains("  api_token: true\n"), "{body}");
+        assert!(body.contains("  registration_key: true\n"), "{body}");
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert!(loaded.state.auth.api_token && loaded.state.auth.registration_key);
+        assert!(loaded.state.auth.is_on());
+
+        // One half on is still on.
+        assert!(
+            AuthState {
+                api_token: false,
+                registration_key: true,
+            }
+            .is_on()
+        );
     }
 
     #[test]

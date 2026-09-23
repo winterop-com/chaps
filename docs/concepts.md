@@ -8,8 +8,9 @@
 mychap/
   .chaps/
     project.yaml               intent: schema version, chap-core tag and compose
-                               source, registry URL, API port, model port range,
-                               the -f list, and which root files sync wrote
+                               source, registry URL, API port, whether the two
+                               auth secrets are in use, the -f list, the model
+                               port range, and which root files sync wrote
     models.yaml                intent: the enabled models (image, pinned version,
                                channel, host port or none, data dir, user,
                                platform, overlay name)
@@ -21,7 +22,8 @@ mychap/
                                API's host port
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
-  .env                         written once by init; only pins are appended
+  .env                         written once by init; only pins and the two auth
+                               secrets are ever rewritten
 ```
 
 | File | What it is |
@@ -29,7 +31,7 @@ mychap/
 | `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
 | `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break the stack; it only means `sync` can no longer re-render `compose.yml`. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. |
+| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
@@ -116,6 +118,22 @@ That is deliberate. The file holds the database password the PostgreSQL volume
 was created with, plus the API token and the registration key, and a rotated
 password leaves chap-core unable to authenticate against its own data.
 
+Those two secrets are the one exception to "written once", and a narrow one.
+`chaps init --api-token` fills them in as it renders the file;
+`chaps auth enable`, `disable` and `rotate` rewrite exactly those two lines
+afterwards, leaving every other line, every comment and every blank line byte
+for byte as it found them:
+
+```text
+CHAP_API_TOKEN=d1f0...                 the whole API, as `Authorization: Bearer`
+SERVICEKIT_REGISTRATION_KEY=9a3c...    what each model sends when it registers
+```
+
+Commented out, as the generated file ships them, means no authentication at all.
+The values live only here: `.chaps/project.yaml` records two booleans under
+`auth` and never a secret, so the state directory stays safe to commit and to
+paste into a bug report. See [Authentication](./auth.md).
+
 `init --fresh-env` is the explicit override: it renders a new `.env` with a new
 password, so an existing volume has to be dropped with
 
@@ -147,7 +165,7 @@ Commands:
 
 ...
 
-Inside a directory created by `chaps init`, more commands appear: up, down, logs, status, sync, update, ui, docker, backup.
+Inside a directory created by `chaps init`, more commands appear: up, down, logs, status, sync, update, ui, docker, backup, auth.
 ```
 
 The hidden commands still run if you type them; they just tell you there is no

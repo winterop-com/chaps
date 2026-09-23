@@ -43,6 +43,11 @@ chap-core itself is pinned to the newest release, `v2.3.1` in the run above,
 and `init` takes the `compose.ghcr.yml` that release publishes as the base
 stack. `--chap-tag` picks another tag; see [Updating](./updating.md).
 
+The deployment above has no authentication: anything that can reach the port can
+use the API. `chaps init mychap --models default --api-token` generates a token
+instead and protects it, and `chaps auth enable` does the same to a project that
+already exists. See [Authentication](./auth.md).
+
 ## 2. Start it
 
 ```sh
@@ -66,7 +71,7 @@ chaps status
 ```
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1
+chap-core   up   http://localhost:8000   v2.3.1   auth: off
 
 MODEL                             STATE                    REACH                  LAST PING
 chapkit-ewars-model               registered               http://localhost:5001  12s ago

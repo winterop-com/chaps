@@ -6,6 +6,7 @@
 //!
 //! Owned by agent B.
 
+use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::compose::overrides;
 use crate::compose::spec::{BaseSpec, EnvSpec, OverlaySpec};
 use crate::project::{API_PORT_ENV_VAR, BASE_COMPOSE, CHAPS_COMPOSE};
@@ -98,9 +99,31 @@ pub fn render_env(spec: &EnvSpec) -> String {
             ("POSTGRES_DB", &spec.postgres_db),
             ("CHAP_IMAGE_TAG_LINE", &chap_image_tag_line),
             ("API_PORT", &spec.api_port.to_string()),
+            (
+                "CHAP_API_TOKEN_LINE",
+                &secret_line(API_TOKEN_ENV_VAR, spec.api_token.as_deref()),
+            ),
+            (
+                "REGISTRATION_KEY_LINE",
+                &secret_line(REGISTRATION_KEY_ENV_VAR, spec.registration_key.as_deref()),
+            ),
             ("MODEL_TAG_PINS", &pins),
         ],
     )
+}
+
+/// One secret's `.env` line: an active assignment when there is a value, and
+/// otherwise the commented placeholder.
+///
+/// The placeholder is written even when the deployment has no authentication,
+/// so the variable is discoverable where an operator would look for it, and so
+/// `chaps auth enable` has a line to uncomment in place rather than appending
+/// one at the bottom of the file.
+fn secret_line(var: &str, value: Option<&str>) -> String {
+    match value {
+        Some(value) => format!("{var}={value}"),
+        None => format!("# {var}="),
+    }
 }
 
 /// Render one `compose.<service_id>.yml` overlay.
@@ -112,9 +135,17 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         None => String::new(),
     };
     // chap-core only checks the key when it is configured, so the default is
-    // the commented pair from chap-core's own compose.ewars.yml.
+    // the commented pair from chap-core's own compose.ewars.yml. With
+    // authentication on, the value is left for compose to substitute: it reads
+    // the `.env` next to these files, so the key never has to be copied into
+    // `.chaps/` or into an overlay.
     let registration_key_lines = if spec.registration_key {
-        "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}".to_string()
+        concat!(
+            "      # chap-core requires this shared secret from every service that registers;\n",
+            "      # compose substitutes it from the .env beside this file.\n",
+            "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}"
+        )
+        .to_string()
     } else {
         concat!(
             "      # Uncomment if chap has SERVICEKIT_REGISTRATION_KEY set:\n",
@@ -498,7 +529,14 @@ mod tests {
 
         spec.registration_key = true;
         let active = render_overlay(&spec);
+        assert_no_tokens(&active);
         assert!(!active.contains("# Uncomment"));
+        // The comment says where the value comes from, because the overlay
+        // itself never holds it.
+        assert!(
+            active.contains("# compose substitutes it from the .env beside this file."),
+            "{active}"
+        );
         let doc = parse(&active);
         assert_eq!(
             service(&doc, "auto-arima-chapkit")["environment"]["SERVICEKIT_REGISTRATION_KEY"]
@@ -662,6 +700,8 @@ mod tests {
             postgres_db: "chap_core".into(),
             chap_image_tag: None,
             api_port: crate::project::DEFAULT_API_PORT,
+            api_token: None,
+            registration_key: None,
             model_tag_pins: Vec::new(),
             cli_version: "0.1.0".into(),
         }
@@ -734,5 +774,64 @@ mod tests {
         let empty = render_env(&env_spec());
         assert!(empty.contains(NO_TAG_PINS));
         assert!(!empty.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn env_leaves_both_secrets_commented_without_authentication() {
+        let text = render_env(&env_spec());
+        assert!(text.contains("\n# CHAP_API_TOKEN=\n"), "{text}");
+        assert!(
+            text.contains("\n# SERVICEKIT_REGISTRATION_KEY=\n"),
+            "{text}"
+        );
+        assert_eq!(
+            crate::auth::state_of(&text),
+            crate::project::AuthState::default()
+        );
+    }
+
+    #[test]
+    fn env_writes_both_secrets_as_active_lines_when_authentication_is_on() {
+        let token = "a".repeat(64);
+        let key = "b".repeat(64);
+        let text = render_env(&EnvSpec {
+            api_token: Some(token.clone()),
+            registration_key: Some(key.clone()),
+            ..env_spec()
+        });
+        assert_no_tokens(&text);
+        assert!(
+            text.contains(&format!("\nCHAP_API_TOKEN={token}\n")),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("\nSERVICEKIT_REGISTRATION_KEY={key}\n")),
+            "{text}"
+        );
+        // No placeholder left behind for either one.
+        assert!(!text.contains("# CHAP_API_TOKEN="));
+        assert!(!text.contains("# SERVICEKIT_REGISTRATION_KEY="));
+        // And the rendered file reads back as "both on".
+        assert_eq!(
+            crate::auth::state_of(&text),
+            crate::project::AuthState {
+                api_token: true,
+                registration_key: true
+            }
+        );
+
+        // The comment above the pair says what turns it on and how to read it
+        // back out, since the value itself is never printed again.
+        assert!(text.contains("chaps auth show --reveal"), "{text}");
+        assert!(text.contains("Modeling"), "{text}");
+    }
+
+    #[test]
+    fn a_secret_line_is_an_assignment_or_a_placeholder() {
+        assert_eq!(
+            secret_line("CHAP_API_TOKEN", Some("abc")),
+            "CHAP_API_TOKEN=abc"
+        );
+        assert_eq!(secret_line("CHAP_API_TOKEN", None), "# CHAP_API_TOKEN=");
     }
 }

@@ -13,6 +13,9 @@ join.
 So a model service only gets `expose: ["8000"]`, which declares the container
 port without asking the host for anything.
 
+That one port is open to whatever can reach it, unless the deployment has an API
+token: see [Authentication](./auth.md).
+
 ## Reaching a model
 
 Two ways:

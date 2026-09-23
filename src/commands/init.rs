@@ -2,6 +2,7 @@
 //!
 //! Owned by agent B.
 
+use crate::auth;
 use crate::chapcore;
 use crate::cli::InitArgs;
 use crate::commands::Ctx;
@@ -9,8 +10,8 @@ use crate::compose::spec::EnvSpec;
 use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::project::{
-    API_PORT_ENV_VAR, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE,
-    PROJECT_FILE, Project, ProjectState, cached_compose_file,
+    API_PORT_ENV_VAR, AuthState, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE,
+    MODELS_FILE, PROJECT_FILE, Project, ProjectState, cached_compose_file,
 };
 use crate::registry::{self, Registry};
 use serde::Serialize;
@@ -130,6 +131,26 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         written.push(path);
     }
 
+    // `--api-token` only means something for a `.env` this run writes: the
+    // secrets have to be in the file compose reads, and a kept file is the
+    // operator's.
+    let secrets = match env {
+        EnvAction::Written => resolve_secrets(args.api_token.as_ref())?,
+        _ => {
+            if args.api_token.is_some() {
+                crate::output::warn(&format!(
+                    "--api-token needs a .env to write to, and this run {}; \
+                     run `chaps auth enable` in the project instead",
+                    match env {
+                        EnvAction::Kept => "is keeping the one already there",
+                        _ => "writes none (--no-env)",
+                    }
+                ));
+            }
+            None
+        }
+    };
+
     if env == EnvAction::Written {
         if env_exists {
             crate::output::warn(
@@ -146,6 +167,8 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
                 postgres_db: POSTGRES_DB.to_string(),
                 chap_image_tag: Some(chap_core.tag.clone()),
                 api_port: args.api_port,
+                api_token: secrets.as_ref().map(|s| s.api_token.clone()),
+                registration_key: secrets.as_ref().map(|s| s.registration_key.clone()),
                 // apply() appends one commented pin per enabled model.
                 model_tag_pins: Vec::new(),
                 cli_version: ctx.cli_version.to_string(),
@@ -154,6 +177,13 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("writing {}: {e}", env_path.display()))?;
         written.push(env_path.clone());
     }
+
+    // `.env` decides: a kept file that already carries the secrets keeps the
+    // deployment authenticated, and a rendered one says so itself. The state
+    // file only records which of the two are in use, never their values, and
+    // `sync` reads it to decide whether each overlay carries the registration
+    // key - so it has to be settled before apply().
+    project.state.auth = env_auth(env, &env_path);
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
     // models) and .chaps/.
@@ -181,11 +211,21 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "api_port": args.api_port,
         "api_url": project.api_url(),
         "api_port_busy": api_port_busy,
+        // Whether the deployment is protected, never the secrets themselves:
+        // `--json` output is the kind of thing that ends up in a log.
+        "auth": project.state.auth,
         "report": report,
     });
     ctx.out.emit(&value, || {
         summary(
-            &dir, &written, &report, &registry, env, &chap_core, &project,
+            &dir,
+            &written,
+            &report,
+            &registry,
+            env,
+            &chap_core,
+            &project,
+            secrets.as_ref(),
         )
     })
 }
@@ -435,12 +475,64 @@ fn resolve_dir(arg: &Path) -> Result<PathBuf> {
 /// 32 lowercase hex characters, so the generated password is URL-safe inside
 /// the postgres URL chap-core composes from POSTGRES_*.
 fn random_password() -> Result<String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)
-        .map_err(|e| anyhow::anyhow!("generating a database password: {e}"))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    auth::random_hex(16)
 }
 
+/// The pair of secrets `--api-token` writes into `.env`.
+#[derive(Debug, Clone)]
+struct Secrets {
+    api_token: String,
+    registration_key: String,
+}
+
+/// The secrets `--api-token` asks for: both of them, or neither.
+///
+/// A bare flag generates a token; an explicit value is used verbatim, with a
+/// warning when chap-core would call it weak. The registration key is always
+/// generated and can never be given on the command line: chap-core rejects an
+/// unauthenticated registration once the API is protected, so a deployment with
+/// a token needs a key as well, and there is no reason to make anyone type a
+/// second secret.
+fn resolve_secrets(requested: Option<&Option<String>>) -> Result<Option<Secrets>> {
+    let Some(value) = requested else {
+        return Ok(None);
+    };
+    let api_token = match value.as_deref().map(str::trim) {
+        Some(given) if !given.is_empty() => {
+            let length = given.chars().count();
+            if length < auth::MIN_TOKEN_LENGTH {
+                crate::output::warn(&auth::weak_token_warning(length));
+            }
+            given.to_string()
+        }
+        Some(_) => {
+            crate::output::warn("--api-token was given an empty value; generated one instead");
+            auth::random_secret()?
+        }
+        None => auth::random_secret()?,
+    };
+    Ok(Some(Secrets {
+        api_token,
+        registration_key: auth::random_secret()?,
+    }))
+}
+
+/// The auth state `DIR/.env` describes, once `init` has settled its fate.
+///
+/// The file is the single source of truth, so reading it back covers all three
+/// cases at once: a file this run rendered with `--api-token`, one that was
+/// kept and already carries secrets from an earlier run or `chaps auth enable`,
+/// and `--no-env`, which has no file and therefore no secrets.
+fn env_auth(env: EnvAction, path: &Path) -> AuthState {
+    if env == EnvAction::Skipped {
+        return AuthState::default();
+    }
+    std::fs::read_to_string(path)
+        .map(|body| auth::state_of(&body))
+        .unwrap_or_default()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn summary(
     dir: &Path,
     written: &[PathBuf],
@@ -449,6 +541,7 @@ fn summary(
     env: EnvAction,
     chap_core: &ChapCore,
     project: &Project,
+    secrets: Option<&Secrets>,
 ) -> String {
     let mut out = format!(
         "Initialized a chaps project in {}\n\nWrote:\n",
@@ -466,6 +559,16 @@ fn summary(
         chap_core.source.describe()
     ));
     out.push_str(&format!("API:       {}\n", project.api_url()));
+    // The token is printed once and only in its masked form: the full value
+    // stays in `.env`, and `chaps auth show --reveal` is the way back to it.
+    if let Some(secrets) = secrets {
+        out.push_str(&format!(
+            "API token: {} (chaps auth show --reveal prints it)\n",
+            auth::mask(&secrets.api_token)
+        ));
+    } else if project.state.auth.api_token {
+        out.push_str("API token: set in .env (chaps auth show --reveal prints it)\n");
+    }
 
     if report.enabled.is_empty() {
         out.push_str("\nNo models enabled; run `chaps models enable ID` to add one.\n");
@@ -677,6 +780,85 @@ mod tests {
         assert!(warn_if_api_port_is_busy(8000, &|port| (8000..=8001).contains(&port)));
         // Even with nothing free above it, the warning goes out.
         assert!(warn_if_api_port_is_busy(8000, &|_| true));
+    }
+
+    #[test]
+    fn without_the_flag_there_are_no_secrets_at_all() {
+        assert!(resolve_secrets(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_bare_api_token_flag_generates_both_secrets() {
+        let secrets = resolve_secrets(Some(&None)).unwrap().expect("both secrets");
+        assert_eq!(secrets.api_token.len(), 64);
+        assert_eq!(secrets.registration_key.len(), 64);
+        assert_ne!(
+            secrets.api_token, secrets.registration_key,
+            "two independent secrets"
+        );
+        for secret in [&secrets.api_token, &secrets.registration_key] {
+            assert!(
+                secret
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+                "{secret}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_explicit_api_token_is_used_verbatim_and_still_gets_a_key() {
+        let given = "mysecrettoken-that-is-long-enough-32ch";
+        let secrets = resolve_secrets(Some(&Some(given.to_string())))
+            .unwrap()
+            .expect("both secrets");
+        assert_eq!(secrets.api_token, given);
+        assert_eq!(secrets.registration_key.len(), 64);
+
+        // Surrounding whitespace is the shell's, not part of the secret.
+        let secrets = resolve_secrets(Some(&Some(format!("  {given}  "))))
+            .unwrap()
+            .unwrap();
+        assert_eq!(secrets.api_token, given);
+
+        // A short token is accepted (chap-core does too) and warned about.
+        let secrets = resolve_secrets(Some(&Some("short".to_string())))
+            .unwrap()
+            .unwrap();
+        assert_eq!(secrets.api_token, "short");
+
+        // An empty value cannot be a token, so one is generated instead of
+        // silently leaving the API open.
+        let secrets = resolve_secrets(Some(&Some("   ".to_string())))
+            .unwrap()
+            .unwrap();
+        assert_eq!(secrets.api_token.len(), 64);
+    }
+
+    #[test]
+    fn the_recorded_auth_state_follows_the_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(ENV_FILE);
+
+        // --no-env: no file, and nothing is protected.
+        assert_eq!(env_auth(EnvAction::Skipped, &path), AuthState::default());
+        // A file that is not there yet reads the same way.
+        assert_eq!(env_auth(EnvAction::Written, &path), AuthState::default());
+
+        std::fs::write(&path, "# CHAP_API_TOKEN=\nPOSTGRES_DB=chap_core\n").unwrap();
+        assert_eq!(env_auth(EnvAction::Written, &path), AuthState::default());
+
+        std::fs::write(&path, "CHAP_API_TOKEN=t\nSERVICEKIT_REGISTRATION_KEY=k\n").unwrap();
+        assert_eq!(
+            env_auth(EnvAction::Kept, &path),
+            AuthState {
+                api_token: true,
+                registration_key: true
+            },
+            "a kept .env keeps the deployment authenticated"
+        );
+        // ...but --no-env never looks at a file it was told not to write.
+        assert_eq!(env_auth(EnvAction::Skipped, &path), AuthState::default());
     }
 
     #[test]

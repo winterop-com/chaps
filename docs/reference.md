@@ -27,7 +27,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps auth`](#chaps-auth)
 
 ## chaps init
 
@@ -46,6 +46,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--force` | Overwrite an existing project in the target directory. |
 | `--api-port <PORT>` | Host port to publish chap-core's API on. It is the only port the deployment publishes: model services are reached through it. Default: `8000`. |
 | `--port-base <PORT>` | Lowest host port `chaps models expose` may publish a model on. Default: `5001`. |
+| `--api-token <TOKEN>` | Protect the API with a token. Without a value one is generated; with one it is used verbatim. chap-core then rejects every request that carries no `Authorization: Bearer <token>`, apart from its health and `/system/info` endpoints, and `chaps` writes a second secret so the model services can still register. Both land in `.env`, which is the only place they are kept. Unset means no authentication at all: anyone who can reach the port can use the API. |
 | `--no-env` | Do not write a .env file. |
 | `--fresh-env` | Regenerate .env even when the directory already has one, rotating the database password. An existing database volume keeps the old one. |
 | `--source <PATH>` | Build chap-core from a local checkout instead of the published images. Not supported yet; passing it is an error. |
@@ -373,3 +374,53 @@ Usage: chaps status [OPTIONS]
 | --- | --- |
 | `--url <URL>` | Base URL of the chap-core API. Default: `http://localhost:<api_port>`, the port `.chaps/project.yaml` records. |
 | `--timeout <SECONDS>` | Request timeout in seconds. Default: `5`. |
+
+## chaps auth
+
+Turn API authentication on or off, and show the token to paste into DHIS2.
+
+```text
+Usage: chaps auth [OPTIONS] <COMMAND>
+```
+
+Subcommands: [`chaps auth show`](#chaps-auth-show), [`chaps auth enable`](#chaps-auth-enable), [`chaps auth disable`](#chaps-auth-disable), [`chaps auth rotate`](#chaps-auth-rotate)
+
+## chaps auth show
+
+Say whether the API is protected, and by which token.
+
+```text
+Usage: chaps auth show [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--reveal` | Print the API token in full, to paste into the DHIS2 Modeling App. |
+
+## chaps auth enable
+
+Turn authentication on: generate the secrets, write them to .env and sync.
+
+```text
+Usage: chaps auth enable [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--token <TOKEN>` | Use this API token instead of generating one. |
+
+## chaps auth disable
+
+Turn authentication off again, keeping both values as comments.
+
+```text
+Usage: chaps auth disable [OPTIONS]
+```
+
+## chaps auth rotate
+
+Replace both secrets with freshly generated ones.
+
+```text
+Usage: chaps auth rotate [OPTIONS]
+```

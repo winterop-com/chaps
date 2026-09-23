@@ -1,5 +1,6 @@
 //! One module per command, plus the [`Ctx`] every command receives.
 
+pub mod auth;
 pub mod backup;
 pub mod docker;
 pub mod docs;

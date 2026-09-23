@@ -9,6 +9,7 @@
   - [Command reference](./reference.md)
 - [Models and the marketplace](./models.md)
 - [Ports](./ports.md)
+- [Authentication](./auth.md)
 - [Updating](./updating.md)
 - [Backup and restore](./backup.md)
 - [Status and output](./status.md)

@@ -38,6 +38,13 @@ pub struct EnvSpec {
     /// even at the default, so the one port the stack publishes is visible
     /// where an operator would look for it.
     pub api_port: u16,
+    /// API token to write as an active `CHAP_API_TOKEN` line; `None` leaves
+    /// the commented placeholder, which is chap-core's "no authentication".
+    pub api_token: Option<String>,
+    /// The same for `SERVICEKIT_REGISTRATION_KEY`. It travels with the API
+    /// token: a protected API rejects an unauthenticated registration, so a
+    /// deployment that has one needs the other.
+    pub registration_key: Option<String>,
     /// `(<ID>_IMAGE_TAG, tag)` pairs written as commented-out pins.
     pub model_tag_pins: Vec<(String, String)>,
     pub cli_version: String,

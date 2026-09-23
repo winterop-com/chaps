@@ -46,6 +46,9 @@ pub struct StatusReport {
     pub models: Vec<ModelStatus>,
     /// Registered service ids the project does not enable.
     pub unmanaged: Vec<String>,
+    /// Whether `.env` sets an API token, which is also whether these requests
+    /// carried one.
+    pub auth: bool,
 }
 
 impl StatusReport {
@@ -158,11 +161,17 @@ pub struct RegisteredService {
 /// set of compose services with a container that is up, which is what tells a
 /// model that never started from one that started and did not register; an
 /// empty set is a safe answer when docker cannot be asked.
+///
+/// `token` is the API token this deployment's `.env` sets, sent as
+/// `Authorization: Bearer` on every request. It is needed for `/v2/services`
+/// on a protected deployment; the health and info paths are open either way,
+/// and a token they do not need does them no harm.
 pub fn status(
     project: &Project,
     api_url: &str,
     timeout: Duration,
     running: &BTreeSet<String>,
+    token: Option<&str>,
 ) -> StatusReport {
     let base = api_url.trim_end_matches('/').to_string();
     let mut expected: Vec<String> = project
@@ -175,9 +184,15 @@ pub fn status(
     expected.dedup();
 
     let agent = agent(timeout);
-    let mut api = match get(&agent, &base, HEALTH_PATH) {
+    let mut api = match get(&agent, &base, HEALTH_PATH, token) {
         Ok(answer) => parse_health(&base, &answer.content_type, &answer.body),
-        Err(error) => ApiHealth::Down { error },
+        // A 401 is about the token, not about who answered: saying "not
+        // chap-core" here would send an operator hunting for a dev server
+        // that is not there.
+        Err(Failure::Unauthorized) => ApiHealth::Down {
+            error: token_rejected(&base, HEALTH_PATH, token.is_some()),
+        },
+        Err(Failure::Other(error)) => ApiHealth::Down { error },
     };
 
     // Only ask for the service list when health already looked like
@@ -187,24 +202,31 @@ pub fn status(
     // chap-core, whatever `/health` said.
     let mut registered = Vec::new();
     if matches!(api, ApiHealth::Up { .. }) {
-        let wrong = match get(&agent, &base, SERVICES_PATH) {
+        let wrong = match get(&agent, &base, SERVICES_PATH, token) {
             Ok(answer) => match parse_services(&answer.body) {
                 Ok(services) => {
                     registered = services;
                     None
                 }
-                Err(_) => Some(body_description(&answer.content_type, &answer.body)),
+                Err(_) => Some(services_are_not_chap_core(
+                    &base,
+                    &body_description(&answer.content_type, &answer.body),
+                )),
             },
-            Err(error) => Some(error),
+            // The registry is not an open path, so a 401 here is the one place
+            // a wrong token usually shows up: `/health` answered happily a
+            // moment ago.
+            Err(Failure::Unauthorized) => {
+                Some(token_rejected(&base, SERVICES_PATH, token.is_some()))
+            }
+            Err(Failure::Other(error)) => Some(services_are_not_chap_core(&base, &error)),
         };
-        if let Some(what) = wrong {
-            api = ApiHealth::Down {
-                error: services_are_not_chap_core(&base, &what),
-            };
+        if let Some(error) = wrong {
+            api = ApiHealth::Down { error };
         }
     }
 
-    let version = version_of(&agent, &base, &api, &project.state.chap_image_tag);
+    let version = version_of(&agent, &base, &api, &project.state.chap_image_tag, token);
     let missing = missing_ids(&expected, &registered);
     let reach = project
         .state
@@ -233,6 +255,7 @@ pub fn status(
         reach,
         models,
         unmanaged,
+        auth: token.is_some(),
     }
 }
 
@@ -399,6 +422,38 @@ pub fn is_not_chap_core(api_url: &str, what: &str) -> String {
     )
 }
 
+/// What an HTTP 401 means: the token, never the identity of the server.
+///
+/// `sent` says whether `.env` had a token to send. Both halves matter: a
+/// deployment whose `.env` is out of step with its running chap-core, and a
+/// chap-core that was given a token while `.env` was not. The path is named
+/// because the two ends of it differ - [`crate::auth::OPEN_PATHS`] answer
+/// without a token at all, so a 401 from one of those means something in front
+/// of chap-core is asking as well.
+pub fn token_rejected(api_url: &str, path: &str, sent: bool) -> String {
+    let endpoint = endpoint_phrase(api_url);
+    let mut text = if sent {
+        format!(
+            "{endpoint} answers {path} with HTTP 401: the API token in .env is not accepted; \
+             `chaps auth show --reveal` prints it, and `chaps up` hands a rotated one to \
+             chap-core"
+        )
+    } else {
+        format!(
+            "{endpoint} answers {path} with HTTP 401: it requires an API token and .env sets \
+             none; `chaps auth enable` writes one, or add CHAP_API_TOKEN to .env to match the \
+             chap-core that is running"
+        )
+    };
+    if crate::auth::OPEN_PATHS.contains(&path) {
+        text.push_str(&format!(
+            " ({path} is open even when CHAP_API_TOKEN is set, so something in front of \
+             chap-core may be asking for credentials too)"
+        ));
+    }
+    text
+}
+
 /// The same verdict, reached through the service registry instead.
 pub fn services_are_not_chap_core(api_url: &str, what: &str) -> String {
     format!(
@@ -469,10 +524,16 @@ pub fn parse_services(body: &str) -> Result<Vec<RegisteredService>, serde_json::
 /// Best-effort: neither path is required, and a chap-core that publishes
 /// neither still gets a version in the report - the tag the project pins,
 /// marked as such so nobody reads it as the running build.
-fn version_of(agent: &ureq::Agent, base: &str, api: &ApiHealth, pinned: &str) -> ApiVersion {
+fn version_of(
+    agent: &ureq::Agent,
+    base: &str,
+    api: &ApiHealth,
+    pinned: &str,
+    token: Option<&str>,
+) -> ApiVersion {
     if matches!(api, ApiHealth::Up { .. }) {
         for path in INFO_PATHS {
-            if let Ok(answer) = get(agent, base, path)
+            if let Ok(answer) = get(agent, base, path, token)
                 && let Some(version) = parse_version(&answer.body)
             {
                 return ApiVersion {
@@ -637,15 +698,37 @@ struct Answer {
     body: String,
 }
 
-/// `GET base+path`, returning the answer or a short human-readable failure.
-fn get(agent: &ureq::Agent, base: &str, path: &str) -> Result<Answer, String> {
-    let mut response = agent
-        .get(format!("{base}{path}"))
-        .call()
-        .map_err(|e| e.to_string())?;
+/// Why a request yielded no usable answer.
+enum Failure {
+    /// HTTP 401. Reported separately because it is the one status code that
+    /// says something about the deployment's own configuration rather than
+    /// about whatever is on the port.
+    Unauthorized,
+    /// Anything else, already described for a human.
+    Other(String),
+}
+
+/// `GET base+path`, with the API token when there is one.
+fn get(
+    agent: &ureq::Agent,
+    base: &str,
+    path: &str,
+    token: Option<&str>,
+) -> Result<Answer, Failure> {
+    let mut request = agent.get(format!("{base}{path}"));
+    if let Some(token) = token {
+        // The header chap-core documents in its OpenAPI spec and enforces in
+        // its middleware. It also accepts the token in `X-Service-Key`, but
+        // that spelling exists for servicekit, which can send no other.
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let mut response = request.call().map_err(|e| Failure::Other(e.to_string()))?;
     let status = response.status();
+    if status.as_u16() == 401 {
+        return Err(Failure::Unauthorized);
+    }
     if !status.is_success() {
-        return Err(format!("HTTP {}", status.as_u16()));
+        return Err(Failure::Other(format!("HTTP {}", status.as_u16())));
     }
     let content_type = response
         .headers()
@@ -656,7 +739,7 @@ fn get(agent: &ureq::Agent, base: &str, path: &str) -> Result<Answer, String> {
     let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Failure::Other(e.to_string()))?;
     Ok(Answer { content_type, body })
 }
 
@@ -886,6 +969,49 @@ mod tests {
         );
         assert_eq!(port_of("http://localhost:8000/health"), Some(8000));
         assert_eq!(port_of("http://localhost"), None);
+    }
+
+    #[test]
+    fn a_401_is_about_the_token_and_not_about_who_answered() {
+        // A token we sent and chap-core refused.
+        let error = token_rejected(URL, SERVICES_PATH, true);
+        assert!(
+            error.starts_with("port 8000 answers /v2/services with HTTP 401:"),
+            "{error}"
+        );
+        assert!(
+            error.contains("the API token in .env is not accepted"),
+            "{error}"
+        );
+        assert!(error.contains("chaps auth show --reveal"), "{error}");
+        // Never the other verdict: the port is chap-core's, the token is wrong.
+        assert!(!error.contains("not chap-core"), "{error}");
+
+        // A path chap-core leaves open says so as well: the 401 cannot have
+        // come from its own middleware.
+        assert!(
+            !error.contains("is open even when"),
+            "/v2/services is not open: {error}"
+        );
+
+        // A protected chap-core and a `.env` that has no token for it.
+        let error = token_rejected(URL, HEALTH_PATH, false);
+        assert!(
+            error.contains("it requires an API token and .env sets none"),
+            "{error}"
+        );
+        assert!(error.contains("chaps auth enable"), "{error}");
+        assert!(!error.contains("not chap-core"), "{error}");
+        assert!(
+            error.contains("/health is open even when CHAP_API_TOKEN is set"),
+            "{error}"
+        );
+
+        // The endpoint is named the same way the other verdicts name it.
+        assert!(
+            token_rejected("https://chap.example.test", HEALTH_PATH, true)
+                .starts_with("https://chap.example.test answers /health")
+        );
     }
 
     #[test]
@@ -1224,6 +1350,7 @@ mod tests {
             reach: BTreeMap::new(),
             models: Vec::new(),
             unmanaged: Vec::new(),
+            auth: false,
         };
         assert!(!report.is_up());
         assert!(!report.is_complete());

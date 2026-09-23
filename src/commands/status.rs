@@ -40,7 +40,18 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         .as_deref()
         .map(docker::running_of)
         .unwrap_or_default();
-    let report = status(&project, &url, Duration::from_secs(args.timeout), &running);
+    // A protected deployment needs the token for `/v2/services`; `.env` is
+    // where it lives, and a deployment without one reads as `None`. `--url`
+    // does not change that: the token belongs to this project either way, and
+    // an API that does not want it ignores it.
+    let token = crate::auth::token_in(&project.dir);
+    let report = status(
+        &project,
+        &url,
+        Duration::from_secs(args.timeout),
+        &running,
+        token.as_deref(),
+    );
     let up = matches!(report.api, ApiHealth::Up { .. });
 
     let never_started = args.url.is_none()
@@ -84,6 +95,12 @@ fn human(report: &StatusReport, out: &Out) -> String {
     if !version.is_empty() {
         text.push_str(&format!("   {version}"));
     }
+    // Last on the line, always present: "off" is the answer an operator has to
+    // be able to see, and a blank space would not say it.
+    text.push_str(&format!(
+        "   auth: {}",
+        if report.auth { "on" } else { "off" }
+    ));
     text.push('\n');
 
     if !report.models.is_empty() {
@@ -194,6 +211,7 @@ mod tests {
             reach: Default::default(),
             models,
             unmanaged,
+            auth: false,
         }
     }
 
@@ -207,12 +225,42 @@ mod tests {
         let text = human(&report, &Out::default());
         assert_eq!(
             text,
-            "chap-core   up   http://localhost:8000   2.3.1\n\
+            "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              \n\
              MODEL                STATE       REACH                  LAST PING\n\
              chapkit-ewars-model  registered  http://localhost:5001  12s ago\n\
              \n\
              all 1 model registered\n"
+        );
+    }
+
+    #[test]
+    fn the_chap_core_line_ends_in_whether_the_api_is_protected() {
+        let mut report = up(
+            vec![service("chapkit-ewars-model", "1.0.0")],
+            &[("chapkit-ewars-model", Some(5001))],
+            &["chap", "chapkit-ewars-model"],
+        );
+        assert!(
+            human(&report, &Out::default())
+                .starts_with("chap-core   up   http://localhost:8000   2.3.1   auth: off\n")
+        );
+
+        report.auth = true;
+        assert!(
+            human(&report, &Out::default())
+                .starts_with("chap-core   up   http://localhost:8000   2.3.1   auth: on\n")
+        );
+
+        // A chap-core that publishes no version of its own still gets the
+        // cell, and it stays last on the line.
+        report.version = ApiVersion {
+            value: String::new(),
+            pinned: true,
+        };
+        assert!(
+            human(&report, &Out::default())
+                .starts_with("chap-core   up   http://localhost:8000   auth: on\n")
         );
     }
 
@@ -237,7 +285,7 @@ mod tests {
         let text = human(&report, &Out::default());
         assert_eq!(
             text,
-            "chap-core   up   http://localhost:8000   2.3.1\n\
+            "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              \n\
              MODEL                             STATE                    REACH                           LAST PING\n\
              chapkit-ewars-model               registered               http://localhost:5001           12s ago\n\
@@ -300,7 +348,7 @@ mod tests {
         let text = human(&report, &Out::default());
         assert_eq!(
             text,
-            "chap-core   down   http://localhost:8000   v2.3.1 (pinned)\n\
+            "chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off\n\
              \n\
              MODEL                STATE        REACH     LAST PING\n\
              chapkit-ewars-model  not running  internal  -\n"

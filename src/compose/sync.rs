@@ -101,8 +101,13 @@ pub fn sync(
         CHAPS_COMPOSE.to_string(),
         render_chaps_overlay(project.state.api_port),
     ));
+    // Every overlay carries the registration key line when the deployment has
+    // a key, because chap-core then requires it from each service that
+    // registers. The value stays in `.env`, which compose reads from the
+    // project directory, so nothing has to be threaded into the overlays.
+    let registration_key = project.state.auth.registration_key;
     for (id, model) in &project.state.models {
-        let spec = match registry.get(id) {
+        let mut spec = match registry.get(id) {
             Some(m) => OverlaySpec::from_enabled(id, model, m, cli_version),
             None => {
                 report.warnings.push(format!(
@@ -112,6 +117,7 @@ pub fn sync(
                 OverlaySpec::from_enabled_without_registry(id, model, cli_version)
             }
         };
+        spec.registration_key = registration_key;
         // The overlay's init container chowns the data volume from busybox,
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the
@@ -596,6 +602,57 @@ mod tests {
         assert!(body.contains("  gone-model:\n"));
         assert!(body.contains("(gone_model)"));
         assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn every_overlay_gets_the_registration_line_when_the_project_has_a_key() {
+        let (dir, mut project, registry) =
+            project_with(&["chapkit_ewars_model", "auto_arima_chapkit"]);
+        let overlays = [
+            dir.path().join("compose.chapkit-ewars-model.yml"),
+            dir.path().join("compose.auto-arima-chapkit.yml"),
+        ];
+        // Off by default: the line is there, commented, as chap-core's own
+        // example overlay ships it.
+        for path in &overlays {
+            let body = read(path);
+            assert!(
+                body.contains("      # SERVICEKIT_REGISTRATION_KEY:"),
+                "{body}"
+            );
+        }
+
+        // Turning it on in `.chaps/project.yaml` is drift in every overlay.
+        project.state.auth.registration_key = true;
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift);
+        assert_eq!(
+            names(&report.written),
+            vec![
+                "compose.auto-arima-chapkit.yml",
+                "compose.chapkit-ewars-model.yml"
+            ]
+        );
+
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        for path in &overlays {
+            let body = read(path);
+            assert!(
+                body.contains(
+                    "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}"
+                ),
+                "{body}"
+            );
+            assert!(!body.contains("# SERVICEKIT_REGISTRATION_KEY:"), "{body}");
+        }
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+
+        // And off again returns every overlay to the commented form.
+        project.state.auth.registration_key = false;
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        for path in &overlays {
+            assert!(read(path).contains("      # SERVICEKIT_REGISTRATION_KEY:"));
+        }
     }
 
     #[test]

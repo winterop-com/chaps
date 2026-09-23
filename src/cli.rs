@@ -118,6 +118,10 @@ pub enum Command {
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
 
+    /// Turn API authentication on or off, and show the token to paste into
+    /// DHIS2.
+    Auth(AuthArgs),
+
     /// Print the whole command tree as Markdown (writes docs/reference.md).
     #[command(hide = true)]
     DocsMarkdown(DocsMarkdownArgs),
@@ -158,6 +162,16 @@ pub struct InitArgs {
     /// Lowest host port `chaps models expose` may publish a model on.
     #[arg(long, value_name = "PORT", default_value_t = 5001)]
     pub port_base: u16,
+
+    /// Protect the API with a token. Without a value one is generated; with
+    /// one it is used verbatim. chap-core then rejects every request that
+    /// carries no `Authorization: Bearer <token>`, apart from its health and
+    /// `/system/info` endpoints, and `chaps` writes a second secret so the
+    /// model services can still register. Both land in `.env`, which is the
+    /// only place they are kept. Unset means no authentication at all: anyone
+    /// who can reach the port can use the API.
+    #[arg(long, value_name = "TOKEN", num_args = 0..=1, conflicts_with = "no_env")]
+    pub api_token: Option<Option<String>>,
 
     /// Do not write a .env file.
     #[arg(long)]
@@ -617,6 +631,79 @@ pub struct StatusArgs {
     pub timeout: u64,
 }
 
+/// Turn API authentication on or off, and show the token to paste into DHIS2.
+///
+/// Two secrets, both living in `.env` and nowhere else: `CHAP_API_TOKEN`, which
+/// every client has to send as `Authorization: Bearer <token>`, and
+/// `SERVICEKIT_REGISTRATION_KEY`, which each model service sends when it
+/// registers with chap-core. `.chaps/project.yaml` records only whether they
+/// are in use.
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct AuthArgs {
+    #[command(subcommand)]
+    pub command: AuthSub,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum AuthSub {
+    /// Say whether the API is protected, and by which token.
+    Show(AuthShowArgs),
+
+    /// Turn authentication on: generate the secrets, write them to .env and
+    /// sync.
+    Enable(AuthEnableArgs),
+
+    /// Turn authentication off again, keeping both values as comments.
+    Disable(AuthDisableArgs),
+
+    /// Replace both secrets with freshly generated ones.
+    Rotate(AuthRotateArgs),
+}
+
+/// Say whether the API is protected, and by which token.
+///
+/// Reads `.chaps/project.yaml` for the intent and `.env` for what is actually
+/// set, and says so when the two disagree. The token is abbreviated unless
+/// `--reveal` asks for it in full.
+#[derive(Debug, Clone, Args)]
+pub struct AuthShowArgs {
+    /// Print the API token in full, to paste into the DHIS2 Modeling App.
+    #[arg(long)]
+    pub reveal: bool,
+}
+
+/// Turn authentication on: generate the secrets, write them to .env and sync.
+///
+/// Writes an active `CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY` into
+/// `.env` - only those two lines change - records both in
+/// `.chaps/project.yaml` and re-renders the model overlays so each service
+/// sends the registration key. Run `chaps up` afterwards: chap-core and the
+/// models only read `.env` when their containers are created.
+#[derive(Debug, Clone, Args)]
+pub struct AuthEnableArgs {
+    /// Use this API token instead of generating one.
+    #[arg(long, value_name = "TOKEN")]
+    pub token: Option<String>,
+}
+
+/// Turn authentication off again, keeping both values as comments.
+///
+/// Comments the two `.env` lines out rather than deleting them, so the token
+/// your clients are configured with can be recovered, and re-renders the
+/// overlays without the registration key. Run `chaps up` afterwards.
+#[derive(Debug, Clone, Args)]
+pub struct AuthDisableArgs {}
+
+/// Replace both secrets with freshly generated ones.
+///
+/// Rewrites only those two `.env` lines and leaves the rest of the file alone.
+/// Every client keeps sending the old token until it is updated, so rotating
+/// is two steps: `chaps auth rotate`, then `chaps up` and the new token
+/// wherever the old one was configured.
+#[derive(Debug, Clone, Args)]
+pub struct AuthRotateArgs {}
+
 /// Print the whole command tree as Markdown.
 ///
 /// Hidden: it documents `chaps` rather than doing anything to a deployment,
@@ -694,12 +781,100 @@ mod tests {
         assert_eq!(args.port_base, 5001);
         assert!(!args.force && !args.no_env && !args.fresh_env && !args.interactive);
         assert!(args.source.is_none());
+        assert_eq!(args.api_token, None, "no flag, no authentication");
 
         let cli = Cli::try_parse_from(["chap", "init", "--api-port", "8123"]).unwrap();
         let Command::Init(args) = cli.command else {
             panic!("expected init");
         };
         assert_eq!(args.api_port, 8123);
+    }
+
+    /// The `InitArgs` behind `chap init <argv..>`.
+    fn init_args(argv: &[&str]) -> InitArgs {
+        let mut args = vec!["chap", "init"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Init(args) = cli.command else {
+            panic!("expected init");
+        };
+        args
+    }
+
+    #[test]
+    fn the_api_token_flag_takes_an_optional_value() {
+        // Bare: the command generates one.
+        assert_eq!(init_args(&["--api-token"]).api_token, Some(None));
+        // With a value: used verbatim.
+        assert_eq!(
+            init_args(&["--api-token", "sekret"]).api_token,
+            Some(Some("sekret".to_string()))
+        );
+        assert_eq!(
+            init_args(&["--api-token=sekret"]).api_token,
+            Some(Some("sekret".to_string()))
+        );
+        // And it still parses next to the positional directory.
+        assert_eq!(
+            init_args(&["mychap", "--api-token"]).dir,
+            PathBuf::from("mychap")
+        );
+
+        // A file that is not written cannot hold a secret.
+        assert!(Cli::try_parse_from(["chap", "init", "--api-token", "--no-env"]).is_err());
+        assert!(Cli::try_parse_from(["chap", "init", "--no-env"]).is_ok());
+    }
+
+    /// The `AuthSub` behind `chap auth <argv..>`.
+    fn auth_sub(argv: &[&str]) -> AuthSub {
+        let mut args = vec!["chap", "auth"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Auth(a) = cli.command else {
+            panic!("expected auth");
+        };
+        a.command
+    }
+
+    #[test]
+    fn auth_has_show_enable_disable_and_rotate() {
+        let AuthSub::Show(args) = auth_sub(&["show"]) else {
+            panic!("expected auth show");
+        };
+        assert!(!args.reveal);
+        let AuthSub::Show(args) = auth_sub(&["show", "--reveal"]) else {
+            panic!("expected auth show");
+        };
+        assert!(args.reveal);
+
+        let AuthSub::Enable(args) = auth_sub(&["enable"]) else {
+            panic!("expected auth enable");
+        };
+        assert_eq!(args.token, None, "one is generated");
+        let AuthSub::Enable(args) = auth_sub(&["enable", "--token", "sekret"]) else {
+            panic!("expected auth enable");
+        };
+        assert_eq!(args.token.as_deref(), Some("sekret"));
+
+        assert!(matches!(auth_sub(&["disable"]), AuthSub::Disable(_)));
+        assert!(matches!(auth_sub(&["rotate"]), AuthSub::Rotate(_)));
+
+        // `--token` on `enable` needs a value; rotating takes none at all.
+        assert!(Cli::try_parse_from(["chap", "auth", "enable", "--token"]).is_err());
+        assert!(Cli::try_parse_from(["chap", "auth", "rotate", "--token", "x"]).is_err());
+    }
+
+    #[test]
+    fn auth_needs_a_subcommand() {
+        let err = Cli::try_parse_from(["chap", "auth"]).expect_err("a subcommand is required");
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let help = err.to_string();
+        for name in ["show", "enable", "disable", "rotate"] {
+            assert!(help.contains(name), "{name} is missing from:\n{help}");
+        }
     }
 
     #[test]

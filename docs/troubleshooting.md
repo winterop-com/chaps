@@ -21,7 +21,7 @@ a no-op. `chaps up --no-preflight` hands the question back to Docker.
 ## The port answers, but it is not chap-core
 
 ```text
-chap-core   down   http://localhost:8000   v2.3.1 (pinned)
+chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off
 ...
 error: chap-core at http://localhost:8000 is not responding: port 8000 answers
 but it is not chap-core (got text/html)
@@ -51,9 +51,71 @@ The overlay's `depends_on: chap: {condition: service_healthy}` is there to stop
 this happening in the first place, so a model in this state usually means
 chap-core became unhealthy and came back after the model had given up.
 
-If registration is failing rather than racing, check
-`SERVICEKIT_REGISTRATION_KEY`: when chap-core requires the shared secret, each
-model has to send it, and the overlay ships that line commented out.
+If registration is failing rather than racing, and the deployment has
+authentication on, see
+[the models stopped registering](#the-models-stopped-registering-after-i-turned-authentication-on)
+below.
+
+## 401 from the Modeling App
+
+```text
+{"detail": "Missing or invalid API token"}
+```
+
+The token DHIS2 is sending is not the one chap-core is enforcing. Print the one
+this deployment holds and paste it into the Modeling App's CHAP settings:
+
+```sh
+chaps auth show --reveal
+```
+
+Two ways to get here. Either `chaps auth rotate` was run and the clients were
+never updated, which is the second half of rotating; or `chaps auth enable` was
+run and `chaps up` was not, so chap-core is still running without the token
+while `.env` already has one. `chaps status` tells the two apart:
+
+```text
+error: chap-core at http://localhost:8000 is not responding: port 8000 answers
+/v2/services with HTTP 401: the API token in .env is not accepted
+```
+
+means the running chap-core has a different token, and
+
+```text
+chap-core   up   http://localhost:8000   v2.3.1   auth: on
+```
+
+means `.env` and the running container agree, so the mismatch is in the client.
+Either way `chaps up` is what hands a changed `.env` to the containers. See
+[Authentication](./auth.md).
+
+## The models stopped registering after I turned authentication on
+
+```text
+chapkit-ewars-model  running, not registered  internal  -
+```
+
+A protected chap-core rejects an unauthenticated registration like any other
+request, so a model that came up without the shared secret never appears in
+`GET /v2/services`. `chaps auth enable` writes `SERVICEKIT_REGISTRATION_KEY`
+alongside the API token for exactly this reason, and re-renders every overlay
+to pass it on, but the containers only read `.env` when Compose creates them:
+
+```sh
+chaps up
+chaps status
+```
+
+If it persists, check that the overlay carries the line:
+
+```sh
+grep SERVICEKIT_REGISTRATION_KEY compose.chapkit-ewars-model.yml
+```
+
+An active `SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}` is
+what a protected deployment needs; a commented one means `.chaps/project.yaml`
+does not know the project has a key, which `chaps auth show` will report as a
+mismatch and `chaps auth enable` puts right.
 
 ## `unable to open database file`
 

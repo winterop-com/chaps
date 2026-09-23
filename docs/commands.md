@@ -12,12 +12,12 @@ lists every command, every flag and every default.
 
 | Command | What it does |
 | --- | --- |
-| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. |
+| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start. |
 | `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d`, and end with what started or was recreated. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
 | `chaps down [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there. |
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
-| `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. |
+| `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
 | `chaps update [--dry-run] [--no-restart] [--pin-chap-core]` | Move the pins to what upstream publishes now, then pull and restart. |
 
 `chaps up` starts what is on disk; `chaps update` fetches newer versions. That
@@ -38,6 +38,20 @@ is the whole distinction, and it is why `up` is safe to run at any time.
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
 rest write to a project. See [Models and the marketplace](./models.md).
+
+## Authentication
+
+| Command | What it does |
+| --- | --- |
+| `chaps auth show [--reveal]` | Whether the API token and the registration key are set, and the token itself, abbreviated unless `--reveal`. |
+| `chaps auth enable [--token VALUE]` | Write both secrets to `.env`, record them in `.chaps/project.yaml` and re-render the overlays. |
+| `chaps auth disable` | Comment both `.env` lines out, keeping their values, and re-render. |
+| `chaps auth rotate` | Replace both secrets with freshly generated ones. |
+
+All four touch only those two `.env` lines, and none of them restarts anything:
+chap-core and the models read `.env` when Compose creates them, so `chaps up`
+has to follow. `chaps init --api-token` does the same thing at creation time.
+See [Authentication](./auth.md).
 
 ## Registry
 
