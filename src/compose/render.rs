@@ -8,6 +8,7 @@
 
 use crate::compose::overrides;
 use crate::compose::spec::{BaseSpec, EnvSpec, OverlaySpec};
+use crate::project::{API_PORT_ENV_VAR, BASE_COMPOSE, CHAPS_COMPOSE};
 
 /// chap-core's `compose.ghcr.yml`, verbatim but for the header comment.
 const BASE_TEMPLATE: &str = include_str!("templates/compose.base.yml");
@@ -49,6 +50,29 @@ pub fn render_base(spec: &BaseSpec) -> String {
     out
 }
 
+/// Render `compose.chaps.yml`: the chaps-owned settings that sit on top of
+/// the fetched `compose.yml`.
+///
+/// It exists because the base file is upstream's, byte for byte, and because
+/// `include:` cannot override a service the main file defines - only a
+/// separate `-f` entry can. The `!override` tag (Compose 2.24+) replaces
+/// chap's own `ports:` list rather than adding to it, which is what keeps the
+/// API on exactly one host port.
+///
+/// `api_port` is rendered as the `${CHAP_API_PORT:-...}` default, so the file
+/// stands on its own while `.env` stays the way to change the port without
+/// touching `.chaps/`.
+pub fn render_chaps_overlay(api_port: u16) -> String {
+    format!(
+        "# {CHAPS_COMPOSE} - rendered by chaps sync from .chaps/project.yaml. \
+         Local settings that sit on top of {BASE_COMPOSE}.\n\
+         services:\n\
+         \x20 chap:\n\
+         \x20   ports: !override\n\
+         \x20     - \"${{{API_PORT_ENV_VAR}:-{api_port}}}:8000\"\n"
+    )
+}
+
 /// Render the generated `.env`.
 pub fn render_env(spec: &EnvSpec) -> String {
     // An active line only when the tag says something `latest` does not.
@@ -73,6 +97,7 @@ pub fn render_env(spec: &EnvSpec) -> String {
             ("POSTGRES_PASSWORD", &spec.postgres_password),
             ("POSTGRES_DB", &spec.postgres_db),
             ("CHAP_IMAGE_TAG_LINE", &chap_image_tag_line),
+            ("API_PORT", &spec.api_port.to_string()),
             ("MODEL_TAG_PINS", &pins),
         ],
     )
@@ -97,7 +122,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         )
         .to_string()
     };
-    let host_port = spec.host_port.to_string();
+    let port_lines = port_lines(spec);
     // The init container chowns the data volume from busybox, which knows none
     // of the images' account names; an unresolvable one falls back to the
     // chapkit ids (`chaps sync` warns about it).
@@ -116,7 +141,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("IMAGE_TAG", &spec.image_tag),
             ("IMAGE", &spec.image),
             ("PLATFORM_LINE", &platform_line),
-            ("HOST_PORT", &host_port),
+            ("PORT_LINES", &port_lines),
             ("REGISTRATION_KEY_LINES", &registration_key_lines),
             ("DATA_DIR", &spec.data_dir),
             ("USER", &spec.user),
@@ -124,6 +149,43 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("VOLUME", &spec.volume_name),
         ],
     )
+}
+
+/// The `expose:` (and, when one was asked for, `ports:`) block of one model
+/// overlay, indented for the service and ending in its own newline.
+///
+/// A model needs no host port to work: chap-core reaches it at
+/// `http://<service_id>:8000` on the compose default network, which is the URL
+/// the service registers, and a human reaches it through chap-core's read-only
+/// proxy. `expose` documents the container port without asking the host for
+/// anything. A published port is for people - `curl`, the model's own `/docs` -
+/// and is opt-in per model.
+fn port_lines(spec: &OverlaySpec) -> String {
+    let mut out = String::new();
+    match spec.host_port {
+        None => {
+            out.push_str(&format!(
+                "    # No host port: chap-core reaches this service at http://{}:8000 on the\n",
+                spec.service_id
+            ));
+            out.push_str(&format!(
+                "    # compose default network. `chaps models expose {}` publishes one for\n",
+                spec.service_id
+            ));
+            out.push_str("    # curl and the model's own /docs page.\n");
+            out.push_str("    expose:\n      - \"8000\"\n");
+        }
+        Some(port) => {
+            out.push_str(&format!(
+                "    # Published for people (curl, /docs); chap-core itself reaches this service\n\
+                 \x20   # at http://{}:8000 on the compose default network.\n",
+                spec.service_id
+            ));
+            out.push_str("    expose:\n      - \"8000\"\n");
+            out.push_str(&format!("    ports:\n      - \"{port}:8000\"\n"));
+        }
+    }
+    out
 }
 
 /// Render `compose.marketplace.yml` from the ordered overlay file names.
@@ -179,13 +241,22 @@ mod tests {
         );
     }
 
-    fn overlay_spec(id: &str, host_port: u16) -> OverlaySpec {
+    /// A spec for a model that publishes no host port: the default.
+    fn overlay_spec(id: &str) -> OverlaySpec {
         let registry = load_embedded().unwrap();
         let m = registry.get(id).unwrap();
         let v = m
             .resolve(&VersionSelector::Channel(Channel::Stable))
             .unwrap();
-        OverlaySpec::from_model(m, v, host_port, None, None, "0.1.0")
+        OverlaySpec::from_model(m, v, None, None, None, "0.1.0")
+    }
+
+    /// The same, published on `host_port`.
+    fn published_spec(id: &str, host_port: u16) -> OverlaySpec {
+        OverlaySpec {
+            host_port: Some(host_port),
+            ..overlay_spec(id)
+        }
     }
 
     fn parse(text: &str) -> Value {
@@ -210,14 +281,67 @@ mod tests {
 
     #[test]
     fn overlay_matches_the_golden_fixture() {
-        let text = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let text = render_overlay(&overlay_spec("chapkit_ewars_model"));
         let golden = include_str!("../../tests/fixtures/compose.chapkit-ewars-model.yml");
         assert_eq!(text, golden);
     }
 
     #[test]
+    fn an_overlay_publishes_a_port_only_when_one_was_asked_for() {
+        // The default: exposed on the compose network, invisible to the host.
+        let internal = render_overlay(&overlay_spec("chapkit_ewars_model"));
+        assert_no_tokens(&internal);
+        assert!(internal.contains("\n    expose:\n      - \"8000\"\n"));
+        assert!(!internal.contains("    ports:"));
+        assert!(internal.contains("# No host port: chap-core reaches this service at"));
+        assert!(internal.contains("chaps models expose chapkit-ewars-model"));
+        // Dropping the ports block must not leave a blank line behind.
+        assert!(internal.contains("\n    environment:\n"));
+        assert!(!internal.contains("\n\n    environment:"));
+
+        // With a port, both keys: `expose` still documents the container port,
+        // and `ports` is the mapping Docker publishes.
+        let published = render_overlay(&published_spec("chapkit_ewars_model", 5002));
+        assert_no_tokens(&published);
+        let svc = &parse(&published)["services"]["chapkit-ewars-model"];
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("8000".into())])
+        );
+        assert_eq!(
+            svc["ports"],
+            Value::Sequence(vec![Value::String("5002:8000".into())])
+        );
+        assert!(published.contains("# Published for people (curl, /docs)"));
+    }
+
+    #[test]
+    fn the_chaps_overlay_replaces_the_api_port_rather_than_adding_to_it() {
+        let text = render_chaps_overlay(8000);
+        assert_no_tokens(&text);
+        assert!(text.starts_with(
+            "# compose.chaps.yml - rendered by chaps sync from .chaps/project.yaml. \
+             Local settings that sit on top of compose.yml.\n"
+        ));
+        // `!override` is what makes this a replacement: a plain `ports:` list
+        // would merge with the one compose.yml already has.
+        assert!(text.contains("    ports: !override\n      - \"${CHAP_API_PORT:-8000}:8000\"\n"));
+        assert!(text.ends_with('\n'));
+
+        // The recorded port is the variable's default, so the file works
+        // without .env and moves when `.chaps/project.yaml` does.
+        assert!(render_chaps_overlay(8123).contains("${CHAP_API_PORT:-8123}:8000"));
+
+        // It parses, tag and all, and names one service.
+        let doc = parse(&text);
+        let services = doc["services"].as_mapping().unwrap();
+        assert_eq!(services.len(), 1);
+        assert!(services.contains_key("chap"));
+    }
+
+    #[test]
     fn overlay_keeps_the_chap_core_deployment_invariants() {
-        let text = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let text = render_overlay(&overlay_spec("chapkit_ewars_model"));
         assert_no_tokens(&text);
         // `$$register` must survive verbatim: `$register` would expand away.
         assert!(text.contains("http://chap:8000/v2/services/$$register"));
@@ -247,10 +371,12 @@ mod tests {
         // chapkit images ship their own HEALTHCHECK.
         assert!(svc.get("healthcheck").is_none());
 
+        // No host port by default: only the container port is declared.
         assert_eq!(
-            svc["ports"],
-            Value::Sequence(vec![Value::String("5002:8000".into())])
+            svc["expose"],
+            Value::Sequence(vec![Value::String("8000".into())])
         );
+        assert!(svc.get("ports").is_none(), "a model publishes nothing");
         assert_eq!(
             svc["depends_on"]["chap"]["condition"].as_str(),
             Some("service_healthy")
@@ -270,7 +396,7 @@ mod tests {
 
     #[test]
     fn overlay_hands_the_data_volume_to_the_model_user_before_it_starts() {
-        let text = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let text = render_overlay(&overlay_spec("chapkit_ewars_model"));
         let doc = parse(&text);
         let init = service(&doc, "chapkit-ewars-model-init");
 
@@ -312,11 +438,11 @@ mod tests {
     #[test]
     fn overlay_chowns_to_the_ids_of_the_user_the_model_runs_as() {
         // The simple multistep image runs as `chap`, which is uid/gid 1001.
-        let text = render_overlay(&overlay_spec("chapkit_simple_multistep_model", 5003));
+        let text = render_overlay(&overlay_spec("chapkit_simple_multistep_model"));
         assert!(text.contains("chown 1001:1001 /app/data"), "{text}");
 
         // A numeric --user is passed through, and the data dir follows it.
-        let mut spec = overlay_spec("auto_arima_chapkit", 5004);
+        let mut spec = overlay_spec("auto_arima_chapkit");
         spec.user = "1500:1600".into();
         spec.data_dir = "/srv/data".into();
         assert!(render_overlay(&spec).contains("chown 1500:1600 /srv/data"));
@@ -334,14 +460,14 @@ mod tests {
 
     #[test]
     fn overlay_pins_the_platform_and_drops_the_line_cleanly_without_one() {
-        let inla = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let inla = render_overlay(&overlay_spec("chapkit_ewars_model"));
         let doc = parse(&inla);
         assert_eq!(
             service(&doc, "chapkit-ewars-model")["platform"].as_str(),
             Some("linux/amd64")
         );
 
-        let mut spec = overlay_spec("chapkit_simple_multistep_model", 5003);
+        let mut spec = overlay_spec("chapkit_simple_multistep_model");
         spec.platform = None;
         let portable = render_overlay(&spec);
         let doc = parse(&portable);
@@ -358,7 +484,7 @@ mod tests {
 
     #[test]
     fn overlay_registration_key_is_commented_until_asked_for() {
-        let mut spec = overlay_spec("auto_arima_chapkit", 5004);
+        let mut spec = overlay_spec("auto_arima_chapkit");
         let commented = render_overlay(&spec);
         assert!(
             commented.contains("      # Uncomment if chap has SERVICEKIT_REGISTRATION_KEY set:")
@@ -384,7 +510,7 @@ mod tests {
 
     #[test]
     fn overlay_header_names_the_model_and_its_tag_variable() {
-        let text = render_overlay(&overlay_spec("chapkit_ewars_model", 5002));
+        let text = render_overlay(&overlay_spec("chapkit_ewars_model"));
         let header: Vec<&str> = text.lines().take(4).collect();
         assert!(
             header[0].starts_with("# compose.chapkit-ewars-model.yml - generated by chaps (0.1.0)")
@@ -535,6 +661,7 @@ mod tests {
             postgres_password: "0123456789abcdef0123456789abcdef".into(),
             postgres_db: "chap_core".into(),
             chap_image_tag: None,
+            api_port: crate::project::DEFAULT_API_PORT,
             model_tag_pins: Vec::new(),
             cli_version: "0.1.0".into(),
         }
@@ -552,6 +679,25 @@ mod tests {
         assert!(text.contains("\n# SERVICEKIT_REGISTRATION_KEY=\n"));
         assert!(text.contains("\n# CHAP_DATABASE_URL=\n"));
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn env_carries_an_active_api_port_line_at_every_port() {
+        // Active even at the default: the one port the stack publishes has to
+        // be discoverable where an operator would change it.
+        let text = render_env(&env_spec());
+        assert!(text.contains("\nCHAP_API_PORT=8000\n"), "{text}");
+        assert!(!text.contains("# CHAP_API_PORT"));
+
+        let text = render_env(&EnvSpec {
+            api_port: 8123,
+            ..env_spec()
+        });
+        assert!(text.contains("\nCHAP_API_PORT=8123\n"));
+        assert!(
+            text.contains("/v2/services/<id>/run/"),
+            "the proxy is named"
+        );
     }
 
     #[test]

@@ -10,8 +10,11 @@ services:
     # the pin makes an arm64 host pull that variant instead of failing.
     platform: linux/amd64
     init: true
-    ports:
-      - "5002:8000"
+    # No host port: chap-core reaches this service at http://chapkit-ewars-model:8000 on the
+    # compose default network. `chaps models expose chapkit-ewars-model` publishes one for
+    # curl and the model's own /docs page.
+    expose:
+      - "8000"
     environment:
       # $$ is a literal $ for compose; the service self-registers with chap-core on startup.
       SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register

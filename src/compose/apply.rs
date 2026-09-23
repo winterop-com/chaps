@@ -4,7 +4,7 @@
 
 use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
-use crate::compose::ports::PortAllocator;
+use crate::compose::ports::allocator_for;
 use crate::compose::spec::OverlaySpec;
 use crate::compose::sync::sync;
 use crate::error::{ChapError, Result};
@@ -14,12 +14,33 @@ use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+/// What a caller wants done with one model's host port.
+///
+/// A model needs none to work, so the whole type is opt-in: it only appears
+/// when someone typed `--port`, `expose` or pressed `p` in the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PortRequest {
+    /// Publish nothing: the overlay only `expose`s port 8000, chap-core
+    /// reaches the model over the compose network, and a human goes through
+    /// chap-core's proxy. This is what a fresh `models enable` does.
+    #[default]
+    None,
+    /// Publish on the lowest port in the project's range that no compose file
+    /// claims and nothing is listening on.
+    Auto,
+    /// Publish on exactly this port, or fail saying who has it.
+    Fixed(u16),
+}
+
 /// One model the caller wants enabled, with any explicit overrides.
 #[derive(Debug, Clone)]
 pub struct EnableRequest {
     pub id: String,
     pub selector: VersionSelector,
-    pub port: Option<u16>,
+    /// `None` leaves the model's host port exactly as it is - which for a
+    /// model being enabled for the first time means none at all. `Some` is an
+    /// explicit decision, [`PortRequest::None`] included.
+    pub port: Option<PortRequest>,
     pub data_dir: Option<String>,
     pub user: Option<String>,
     pub allow_template: bool,
@@ -91,8 +112,19 @@ pub fn apply(
     sel: &Selection,
     cli_version: &str,
 ) -> Result<ApplyReport> {
+    apply_with(project, registry, sel, cli_version, &crate::ports::is_busy)
+}
+
+/// [`apply`] with the host port probe injected, so tests can decide what the
+/// machine is listening on without binding anything.
+pub fn apply_with(
+    project: &mut Project,
+    registry: &Registry,
+    sel: &Selection,
+    cli_version: &str,
+    busy: &dyn Fn(u16) -> bool,
+) -> Result<ApplyReport> {
     let mut report = ApplyReport::default();
-    let dir = project.dir.clone();
 
     // Disable first: a model can be removed and another put on its port in
     // the same call, and re-enabling one must see its own slot as free. The
@@ -106,27 +138,20 @@ pub fn apply(
             .models
             .remove(&id)
             .expect("enabled_id only returns keys that are present");
-        freed.insert(entry.host_port);
+        freed.extend(entry.host_port);
         report.disabled.push(id);
     }
 
-    // Seed the allocator with what the project records plus what any compose
-    // file in the directory already publishes, minus the ports just freed.
-    let mut used: BTreeSet<u16> = project.used_ports();
-    used.extend(PortAllocator::scan_compose_dir(&dir)?);
-    for port in &freed {
-        used.remove(port);
-    }
-    let mut allocator = PortAllocator::new(project.state.port_range, used);
     // A model being re-enabled keeps its own port: its overlay is about to be
     // rewritten, so the port it publishes today is not a conflict.
     for req in &sel.enable {
         if let Some(id) = enabled_id(project, &req.id)
             && let Some(existing) = project.state.models.get(&id)
         {
-            allocator.release(existing.host_port);
+            freed.extend(existing.host_port);
         }
     }
+    let mut allocator = allocator_for(project, &freed)?;
 
     for req in &sel.enable {
         let model = registry
@@ -145,19 +170,22 @@ pub fn apply(
         let existing = project.state.models.get(&model.id).cloned();
 
         let host_port = match req.port {
-            Some(port) => {
-                allocator.claim(port)?;
-                port
-            }
-            None => match &existing {
-                // Keep the port the model already had, even if a later
-                // --port-base narrowed the range around it.
-                Some(entry) => {
-                    allocator.reserve(entry.host_port);
-                    entry.host_port
+            // No decision made: keep whatever the model has, which for a new
+            // one is no host port at all. A port it already had is kept even
+            // if a later --port-base narrowed the range around it.
+            None => {
+                let kept = existing.as_ref().and_then(|e| e.host_port);
+                if let Some(port) = kept {
+                    allocator.reserve(port);
                 }
-                None => allocator.allocate()?,
-            },
+                kept
+            }
+            Some(PortRequest::None) => None,
+            Some(PortRequest::Auto) => Some(allocator.allocate(busy)?),
+            Some(PortRequest::Fixed(port)) => {
+                allocator.claim(port, busy)?;
+                Some(port)
+            }
         };
 
         let known = known_override(&model.id);
@@ -232,14 +260,31 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::compose::render::NO_TAG_PINS;
+    use crate::error::PortHolder;
     use crate::project::{
-        BASE_COMPOSE, DEFAULT_PORT_RANGE, ENV_FILE, MARKETPLACE_COMPOSE, ProjectState,
+        DEFAULT_PORT_RANGE, ENV_FILE, MARKETPLACE_COMPOSE, ProjectState, default_compose_files,
     };
     use crate::registry::{Channel, load_embedded};
     use serde_yaml_ng::Value;
     use tempfile::TempDir;
 
     const VERSION: &str = "0.1.0";
+
+    /// Nothing is listening on this machine, as far as these tests care.
+    fn all_free(_: u16) -> bool {
+        false
+    }
+
+    /// [`apply`] with the host probe stubbed out, which is how every test here
+    /// runs: a real probe would make the result depend on the machine.
+    fn apply(
+        project: &mut Project,
+        registry: &Registry,
+        sel: &Selection,
+        cli_version: &str,
+    ) -> Result<ApplyReport> {
+        apply_with(project, registry, sel, cli_version, &all_free)
+    }
 
     fn project() -> (TempDir, Project) {
         let dir = tempfile::tempdir().unwrap();
@@ -255,6 +300,15 @@ mod tests {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
             disable: Vec::new(),
         }
+    }
+
+    /// The same, asking for an automatically allocated host port.
+    fn publish(ids: &[&str]) -> Selection {
+        let mut sel = enable(ids);
+        for req in &mut sel.enable {
+            req.port = Some(PortRequest::Auto);
+        }
+        sel
     }
 
     fn umbrella_includes(project: &Project) -> Vec<String> {
@@ -282,7 +336,10 @@ mod tests {
         assert!(report.updated.is_empty() && report.disabled.is_empty());
         let (id, entry) = &report.enabled[0];
         assert_eq!(id, "chapkit_ewars_model");
-        assert_eq!(entry.host_port, 5001);
+        assert_eq!(
+            entry.host_port, None,
+            "a model publishes no host port unless one was asked for"
+        );
         assert_eq!(entry.channel, Some(Channel::Stable));
         assert_eq!(entry.image_tag, "sha-fa880a1");
         assert_eq!(entry.data_dir, "/app/data");
@@ -295,10 +352,7 @@ mod tests {
             umbrella_includes(&project),
             vec!["compose.chapkit-ewars-model.yml"]
         );
-        assert_eq!(
-            project.state.compose_files,
-            vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()]
-        );
+        assert_eq!(project.state.compose_files, default_compose_files());
 
         // .chaps/ is written, not just held in memory.
         let reloaded = Project::load(dir.path()).unwrap();
@@ -306,54 +360,106 @@ mod tests {
     }
 
     #[test]
-    fn a_second_model_takes_the_next_free_port() {
+    fn auto_hands_out_the_lowest_free_port_and_none_publishes_nothing() {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
         let report = apply(
             &mut project,
             &registry,
-            &enable(&["auto_arima_chapkit"]),
+            &publish(&["chapkit_ewars_model"]),
             VERSION,
         )
         .unwrap();
-        assert_eq!(report.enabled[0].1.host_port, 5002);
+        assert_eq!(report.enabled[0].1.host_port, Some(5001));
 
-        // The umbrella lists both overlays, sorted by marketplace id.
+        let report = apply(
+            &mut project,
+            &registry,
+            &publish(&["auto_arima_chapkit"]),
+            VERSION,
+        )
+        .unwrap();
+        assert_eq!(report.enabled[0].1.host_port, Some(5002));
+
+        // A third one, left internal, takes no port at all.
+        let report = apply(
+            &mut project,
+            &registry,
+            &enable(&["chapkit_simple_multistep_model"]),
+            VERSION,
+        )
+        .unwrap();
+        assert_eq!(report.enabled[0].1.host_port, None);
+        assert_eq!(project.used_ports(), BTreeSet::from([5001, 5002]));
+
+        // The umbrella lists every overlay, sorted by marketplace id.
         assert_eq!(
             umbrella_includes(&project),
             vec![
                 "compose.auto-arima-chapkit.yml",
                 "compose.chapkit-ewars-model.yml",
+                "compose.chapkit-simple-multistep-model.yml",
             ]
         );
     }
 
     #[test]
-    fn an_explicit_port_is_claimed_and_conflicts_are_rejected() {
+    fn auto_skips_a_port_something_on_this_machine_is_listening_on() {
+        let registry = load_embedded().unwrap();
+        let (_dir, mut project) = project();
+        let busy = |port: u16| (5001..=5003).contains(&port);
+        let report = apply_with(
+            &mut project,
+            &registry,
+            &publish(&["chapkit_ewars_model"]),
+            VERSION,
+            &busy,
+        )
+        .unwrap();
+        assert_eq!(report.enabled[0].1.host_port, Some(5004));
+    }
+
+    #[test]
+    fn an_explicit_port_is_claimed_and_conflicts_say_who_holds_it() {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
         let mut sel = enable(&["chapkit_ewars_model"]);
-        sel.enable[0].port = Some(5100);
+        sel.enable[0].port = Some(PortRequest::Fixed(5100));
         apply(&mut project, &registry, &sel, VERSION).unwrap();
-        assert_eq!(project.state.models["chapkit_ewars_model"].host_port, 5100);
+        assert_eq!(
+            project.state.models["chapkit_ewars_model"].host_port,
+            Some(5100)
+        );
 
         let mut clash = enable(&["auto_arima_chapkit"]);
-        clash.enable[0].port = Some(5100);
+        clash.enable[0].port = Some(PortRequest::Fixed(5100));
         let err = apply(&mut project, &registry, &clash, VERSION).expect_err("5100 is taken");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
-            Some(ChapError::PortInUse(5100))
+            Some(ChapError::PortInUse {
+                port: 5100,
+                holder: PortHolder::ComposeFile
+            })
         ));
 
+        // A port nothing in the project claims, but that the machine does.
+        let mut listening = enable(&["auto_arima_chapkit"]);
+        listening.enable[0].port = Some(PortRequest::Fixed(5200));
+        let err = apply_with(&mut project, &registry, &listening, VERSION, &|port| {
+            port == 5200
+        })
+        .expect_err("something is listening on 5200");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::PortInUse {
+                port: 5200,
+                holder: PortHolder::Host
+            })
+        ));
+        assert!(!project.state.models.contains_key("auto_arima_chapkit"));
+
         let mut out_of_range = enable(&["auto_arima_chapkit"]);
-        out_of_range.enable[0].port = Some(80);
+        out_of_range.enable[0].port = Some(PortRequest::Fixed(80));
         let err = apply(&mut project, &registry, &out_of_range, VERSION).expect_err("out of range");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
@@ -368,14 +474,14 @@ mod tests {
         apply(
             &mut project,
             &registry,
-            &enable(&["chapkit_ewars_model"]),
+            &publish(&["chapkit_ewars_model"]),
             VERSION,
         )
         .unwrap();
         apply(
             &mut project,
             &registry,
-            &enable(&["auto_arima_chapkit"]),
+            &publish(&["auto_arima_chapkit"]),
             VERSION,
         )
         .unwrap();
@@ -387,10 +493,31 @@ mod tests {
         assert!(report.enabled.is_empty());
         assert_eq!(report.updated.len(), 1);
         let entry = &report.updated[0].1;
-        assert_eq!(entry.host_port, 5001, "the port is kept across a rewrite");
+        assert_eq!(
+            entry.host_port,
+            Some(5001),
+            "the port is kept across a rewrite"
+        );
         assert_eq!(entry.user, "1000:1000");
         // An exact pin follows no channel.
         assert_eq!(entry.channel, None);
+
+        // An explicit request is what takes the port away again, and frees it.
+        let mut sel = enable(&["chapkit_ewars_model"]);
+        sel.enable[0].port = Some(PortRequest::None);
+        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        assert_eq!(report.updated[0].1.host_port, None);
+        assert_eq!(project.used_ports(), BTreeSet::from([5002]));
+
+        // And asking for it back lands on 5001 once more.
+        let report = apply(
+            &mut project,
+            &registry,
+            &publish(&["chapkit_ewars_model"]),
+            VERSION,
+        )
+        .unwrap();
+        assert_eq!(report.updated[0].1.host_port, Some(5001));
     }
 
     #[test]
@@ -400,7 +527,7 @@ mod tests {
         apply(
             &mut project,
             &registry,
-            &enable(&["chapkit_ewars_model", "auto_arima_chapkit"]),
+            &publish(&["chapkit_ewars_model", "auto_arima_chapkit"]),
             VERSION,
         )
         .unwrap();
@@ -423,11 +550,11 @@ mod tests {
         let report = apply(
             &mut project,
             &registry,
-            &enable(&["chapkit_simple_multistep_model"]),
+            &publish(&["chapkit_simple_multistep_model"]),
             VERSION,
         )
         .unwrap();
-        assert_eq!(report.enabled[0].1.host_port, 5001);
+        assert_eq!(report.enabled[0].1.host_port, Some(5001));
     }
 
     #[test]
@@ -505,11 +632,11 @@ mod tests {
         let report = apply(
             &mut project,
             &registry,
-            &enable(&["chapkit_ewars_model"]),
+            &publish(&["chapkit_ewars_model"]),
             VERSION,
         )
         .unwrap();
-        assert_eq!(report.enabled[0].1.host_port, 5002);
+        assert_eq!(report.enabled[0].1.host_port, Some(5002));
     }
 
     #[test]
@@ -573,10 +700,10 @@ mod tests {
         let report = apply(
             &mut project,
             &registry,
-            &enable(&["chapkit_ewars_model"]),
+            &publish(&["chapkit_ewars_model"]),
             VERSION,
         )
         .unwrap();
-        assert_eq!(report.enabled[0].1.host_port, 5500);
+        assert_eq!(report.enabled[0].1.host_port, Some(5500));
     }
 }

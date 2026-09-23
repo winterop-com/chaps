@@ -37,6 +37,7 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
             KeyCode::Char('d') => Action::PageDown,
             KeyCode::Char('u') => Action::PageUp,
             KeyCode::Char('n') => Action::Down,
+            // ctrl-p is "previous line"; plain p publishes a port.
             KeyCode::Char('p') => Action::Up,
             _ => Action::None,
         };
@@ -54,6 +55,7 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         KeyCode::PageDown => Action::PageDown,
         KeyCode::PageUp => Action::PageUp,
         KeyCode::Char(' ') => Action::Toggle,
+        KeyCode::Char('p') => Action::TogglePublish,
         KeyCode::Char('v') => Action::CycleChannel,
         KeyCode::Char('t') => Action::ToggleTemplates,
         KeyCode::Char('/') => Action::StartFilter,
@@ -113,6 +115,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("PageUp / PageDown", "jump a page"),
         ("ctrl-u / ctrl-d", "jump a page"),
         ("space", "enable or disable the model"),
+        ("p", "publish a host port for it, or take it away"),
         ("v", "switch channel: stable or latest"),
         ("t", "show or hide templates"),
         ("/", "filter; Enter keeps it, Esc clears it"),
@@ -126,7 +129,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
 pub fn keybar(mode: Mode) -> &'static str {
     match mode {
         Mode::Browse => {
-            "j/k move   space toggle   v channel   t templates   / filter   s save   ? help   q quit"
+            "j/k move   space toggle   p port   v channel   t templates   / filter   s save   ? help   q quit"
         }
         Mode::Filter => "type to filter   Enter keep   Esc clear",
         Mode::ConfirmQuit => "y discard the changes and quit   n keep editing",
@@ -173,6 +176,7 @@ mod tests {
     #[test]
     fn browse_editing_keys() {
         assert_eq!(browse_action(KeyCode::Char(' ')), Action::Toggle);
+        assert_eq!(browse_action(KeyCode::Char('p')), Action::TogglePublish);
         assert_eq!(browse_action(KeyCode::Char('v')), Action::CycleChannel);
         assert_eq!(browse_action(KeyCode::Char('t')), Action::ToggleTemplates);
         assert_eq!(browse_action(KeyCode::Char('/')), Action::StartFilter);
@@ -192,6 +196,11 @@ mod tests {
             action_for(Mode::Browse, &ctrl('v')),
             Action::None,
             "a modifier must not fall through to the plain binding"
+        );
+        assert_eq!(
+            action_for(Mode::Browse, &ctrl('p')),
+            Action::Up,
+            "ctrl-p stays `previous line`; only plain p publishes a port"
         );
         assert_eq!(
             action_for(

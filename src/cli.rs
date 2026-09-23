@@ -3,9 +3,34 @@
 //! Doc comments on the types and fields are the `--help` text. This file and
 //! `main.rs` are complete: the command modules only read the arg structs.
 
+use crate::compose::PortRequest;
+use crate::project::DEFAULT_API_PORT;
 use crate::registry::{Channel, DEFAULT_REGISTRY_URL};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
+
+/// The value of `--port`: a number, or `auto` for the lowest free one.
+///
+/// Parsed here rather than in the command so a typo is a clap error next to
+/// the flag, not a failure halfway through a write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortArg(pub PortRequest);
+
+impl std::str::FromStr for PortArg {
+    type Err = String;
+
+    fn from_str(text: &str) -> std::result::Result<PortArg, String> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("auto") {
+            return Ok(PortArg(PortRequest::Auto));
+        }
+        match text.parse::<u16>() {
+            Ok(0) => Err("0 is not a host port; pass a number or `auto`".to_string()),
+            Ok(port) => Ok(PortArg(PortRequest::Fixed(port))),
+            Err(_) => Err(format!("`{text}` is neither a port number nor `auto`")),
+        }
+    }
+}
 
 /// The one-liner `chaps -h` opens with.
 const ABOUT: &str = "deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform";
@@ -121,7 +146,12 @@ pub struct InitArgs {
     #[arg(long)]
     pub force: bool,
 
-    /// Lowest host port model overlays may be published on.
+    /// Host port to publish chap-core's API on. It is the only port the
+    /// deployment publishes: model services are reached through it.
+    #[arg(long, value_name = "PORT", default_value_t = DEFAULT_API_PORT)]
+    pub api_port: u16,
+
+    /// Lowest host port `chaps models expose` may publish a model on.
     #[arg(long, value_name = "PORT", default_value_t = 5001)]
     pub port_base: u16,
 
@@ -163,6 +193,12 @@ pub enum ModelsCmd {
 
     /// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
     Disable(ModelsDisableArgs),
+
+    /// Publish a host port for an enabled model.
+    Expose(ModelsExposeArgs),
+
+    /// Take an enabled model's host port away again.
+    Unexpose(ModelsUnexposeArgs),
 }
 
 /// List marketplace models.
@@ -198,6 +234,9 @@ pub struct ModelsInfoArgs {
 }
 
 /// Enable a model: record it in .chaps/models.yaml and write its overlay.
+///
+/// The model gets no host port: chap-core reaches it over the compose network
+/// and a human through `/v2/services/<id>/run/`. `--port` opts in to one.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsEnableArgs {
     /// Marketplace id or service id.
@@ -212,9 +251,10 @@ pub struct ModelsEnableArgs {
     #[arg(long, value_name = "VERSION")]
     pub version: Option<String>,
 
-    /// Host port to publish the service on; allocated automatically otherwise.
-    #[arg(long, value_name = "PORT")]
-    pub port: Option<u16>,
+    /// Publish the service on this host port, or on the lowest free one with
+    /// `auto`. Without it the model publishes nothing.
+    #[arg(long, value_name = "PORT|auto")]
+    pub port: Option<PortArg>,
 
     /// Data directory inside the container, for images that differ from the default.
     #[arg(long, value_name = "PATH")]
@@ -232,6 +272,34 @@ pub struct ModelsEnableArgs {
 /// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsDisableArgs {
+    /// Marketplace id or service id.
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
+
+/// Publish a host port for a model this project already enabled.
+///
+/// The model keeps the version it is pinned to: this only rewrites its
+/// overlay's `ports:`, so it is safe on a deployment that is running a build
+/// you do not want moved. Run `chaps up` afterwards to apply it.
+#[derive(Debug, Clone, Args)]
+pub struct ModelsExposeArgs {
+    /// Marketplace id or service id.
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Host port to publish on; `auto` (the default) takes the lowest free one.
+    #[arg(long, value_name = "PORT|auto")]
+    pub port: Option<PortArg>,
+}
+
+/// Take a model's host port away again.
+///
+/// It stays registered with chap-core and reachable at
+/// `/v2/services/<id>/run/`; only the host mapping goes. Run `chaps up`
+/// afterwards to apply it.
+#[derive(Debug, Clone, Args)]
+pub struct ModelsUnexposeArgs {
     /// Marketplace id or service id.
     #[arg(value_name = "ID")]
     pub id: String,
@@ -303,6 +371,10 @@ pub struct UpdateArgs {
 }
 
 /// Sync, then start the stack (docker compose up).
+///
+/// Before invoking Docker it checks that the host ports the stack publishes
+/// are free, and says what to do about any that are not; `--no-preflight`
+/// skips that.
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
     /// Stay attached to the container output instead of detaching.
@@ -313,6 +385,10 @@ pub struct UpArgs {
     /// `latest` (docker compose up --pull always).
     #[arg(long)]
     pub pull: bool,
+
+    /// Do not check the host ports first; let Docker report a conflict.
+    #[arg(long)]
+    pub no_preflight: bool,
 
     /// Extra arguments passed through to docker compose up.
     #[arg(
@@ -527,9 +603,10 @@ pub struct RestoreArgs {
 /// Check chap-core health and which model services have registered.
 #[derive(Debug, Clone, Args)]
 pub struct StatusArgs {
-    /// Base URL of the chap-core API.
-    #[arg(long, value_name = "URL", default_value = "http://localhost:8000")]
-    pub url: String,
+    /// Base URL of the chap-core API. Default:
+    /// `http://localhost:<api_port>`, the port `.chaps/project.yaml` records.
+    #[arg(long, value_name = "URL")]
+    pub url: Option<String>,
 
     /// Request timeout in seconds.
     #[arg(long, value_name = "SECONDS", default_value_t = 5)]
@@ -601,9 +678,16 @@ mod tests {
         assert_eq!(args.dir, PathBuf::from("."));
         assert_eq!(args.models, "default");
         assert_eq!(args.chap_tag, "latest");
+        assert_eq!(args.api_port, 8000);
         assert_eq!(args.port_base, 5001);
         assert!(!args.force && !args.no_env && !args.fresh_env && !args.interactive);
         assert!(args.source.is_none());
+
+        let cli = Cli::try_parse_from(["chap", "init", "--api-port", "8123"]).unwrap();
+        let Command::Init(args) = cli.command else {
+            panic!("expected init");
+        };
+        assert_eq!(args.api_port, 8123);
     }
 
     #[test]
@@ -654,11 +738,83 @@ mod tests {
         let ModelsCmd::Enable(args) = m.command else {
             panic!("expected enable");
         };
-        assert_eq!(args.port, Some(5010));
+        assert_eq!(args.port, Some(PortArg(PortRequest::Fixed(5010))));
         assert_eq!(args.data_dir.as_deref(), Some("/app/data"));
         assert_eq!(args.user.as_deref(), Some("chap:chap"));
         assert!(args.allow_template);
         assert_eq!(args.channel, None);
+    }
+
+    /// The `ModelsCmd` behind `chap models <argv..>`.
+    fn models_cmd(argv: &[&str]) -> ModelsCmd {
+        let mut args = vec!["chap", "models"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Models(m) = cli.command else {
+            panic!("expected models");
+        };
+        m.command
+    }
+
+    #[test]
+    fn a_port_is_a_number_or_auto_and_nothing_else() {
+        use std::str::FromStr;
+
+        assert_eq!(
+            PortArg::from_str("5010").unwrap(),
+            PortArg(PortRequest::Fixed(5010))
+        );
+        assert_eq!(
+            PortArg::from_str("auto").unwrap(),
+            PortArg(PortRequest::Auto)
+        );
+        assert_eq!(
+            PortArg::from_str("AUTO").unwrap(),
+            PortArg(PortRequest::Auto)
+        );
+        assert_eq!(
+            PortArg::from_str(" auto ").unwrap(),
+            PortArg(PortRequest::Auto)
+        );
+        for bad in ["", "none", "0", "-1", "70000", "50a0"] {
+            assert!(PortArg::from_str(bad).is_err(), "{bad} should not parse");
+        }
+
+        // And clap rejects it next to the flag rather than later.
+        assert!(Cli::try_parse_from(["chap", "models", "enable", "x", "--port", "nope"]).is_err());
+    }
+
+    #[test]
+    fn expose_defaults_to_an_automatic_port_and_unexpose_takes_none() {
+        let ModelsCmd::Expose(args) = models_cmd(&["expose", "chapkit_ewars_model"]) else {
+            panic!("expected expose");
+        };
+        assert_eq!(args.id, "chapkit_ewars_model");
+        assert_eq!(args.port, None, "the command fills in `auto`");
+
+        let ModelsCmd::Expose(args) =
+            models_cmd(&["expose", "chapkit-ewars-model", "--port", "5010"])
+        else {
+            panic!("expected expose");
+        };
+        assert_eq!(args.port, Some(PortArg(PortRequest::Fixed(5010))));
+
+        let ModelsCmd::Expose(args) = models_cmd(&["expose", "x", "--port", "auto"]) else {
+            panic!("expected expose");
+        };
+        assert_eq!(args.port, Some(PortArg(PortRequest::Auto)));
+
+        let ModelsCmd::Unexpose(args) = models_cmd(&["unexpose", "chapkit-ewars-model"]) else {
+            panic!("expected unexpose");
+        };
+        assert_eq!(args.id, "chapkit-ewars-model");
+
+        for argv in [
+            ["chap", "models", "expose"].as_slice(),
+            ["chap", "models", "unexpose"].as_slice(),
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "the id is required");
+        }
     }
 
     /// The `DockerSub` behind `chap docker <argv..>`.
@@ -759,7 +915,7 @@ mod tests {
             panic!("expected up");
         };
         assert!(args.attach);
-        assert!(!args.pull);
+        assert!(!args.pull && !args.no_preflight);
         assert_eq!(args.extra, vec!["chap"]);
 
         let cli = Cli::try_parse_from(["chap", "up", "--pull"]).unwrap();
@@ -768,6 +924,12 @@ mod tests {
         };
         assert!(args.pull && !args.attach);
         assert!(args.extra.is_empty());
+
+        let cli = Cli::try_parse_from(["chap", "up", "--no-preflight"]).unwrap();
+        let Command::Up(args) = cli.command else {
+            panic!("expected up");
+        };
+        assert!(args.no_preflight);
     }
 
     #[test]
@@ -892,8 +1054,17 @@ mod tests {
         let Command::Status(args) = cli.command else {
             panic!("expected status");
         };
-        assert_eq!(args.url, "http://localhost:8000");
+        assert_eq!(
+            args.url, None,
+            "the default follows the project's api_port, so the command fills it in"
+        );
         assert_eq!(args.timeout, 5);
+
+        let cli = Cli::try_parse_from(["chap", "status", "--url", "http://host:9000"]).unwrap();
+        let Command::Status(args) = cli.command else {
+            panic!("expected status");
+        };
+        assert_eq!(args.url.as_deref(), Some("http://host:9000"));
     }
 
     #[test]

@@ -9,8 +9,8 @@ use crate::compose::spec::EnvSpec;
 use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::project::{
-    CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE, PROJECT_FILE, Project,
-    ProjectState, cached_compose_file,
+    API_PORT_ENV_VAR, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE,
+    PROJECT_FILE, Project, ProjectState, cached_compose_file,
 };
 use crate::registry::{self, Registry};
 use serde::Serialize;
@@ -58,9 +58,15 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         chap_image_tag: chap_core.tag.clone(),
         chap_compose_source: chap_core.source.clone(),
         registry_url: ctx.registry.url.clone(),
+        api_port: args.api_port,
         port_range: (args.port_base, DEFAULT_PORT_RANGE.1.max(args.port_base)),
         ..ProjectState::default()
     };
+    // The API's port is the one port the deployment publishes, and a busy one
+    // is only a problem at `chaps up`: the process holding it may well be a
+    // previous stack this deployment is meant to replace. So: a warning with
+    // a way out, not a refusal to write the directory.
+    let api_port_busy = warn_if_api_port_is_busy(args.api_port, &crate::ports::is_busy);
     let mut project = Project {
         dir: dir.clone(),
         state,
@@ -88,6 +94,20 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     let env_path = dir.join(ENV_FILE);
     let env_exists = env_path.is_file();
     let env = env_action(env_exists, args.fresh_env, args.no_env);
+    // Compose reads `.env` after the compose files, so a CHAP_API_PORT line in
+    // a file this run is keeping wins over `--api-port`. Say so rather than
+    // leaving the API on a port nothing in `.chaps/` mentions.
+    if env == EnvAction::Kept
+        && let Ok(body) = std::fs::read_to_string(&env_path)
+        && let Some(pinned) = env_api_port(&body).filter(|p| *p != args.api_port)
+    {
+        crate::output::warn(&format!(
+            ".env already sets {API_PORT_ENV_VAR}={pinned}, and compose reads that after the \
+             compose files, so the API stays on {pinned} rather than {}; edit that line to \
+             move it",
+            args.api_port
+        ));
+    }
 
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
@@ -125,6 +145,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
                 postgres_password: random_password()?,
                 postgres_db: POSTGRES_DB.to_string(),
                 chap_image_tag: Some(chap_core.tag.clone()),
+                api_port: args.api_port,
                 // apply() appends one commented pin per enabled model.
                 model_tag_pins: Vec::new(),
                 cli_version: ctx.cli_version.to_string(),
@@ -157,11 +178,49 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "env": env,
         "chap_image_tag": chap_core.tag,
         "chap_compose_source": chap_core.source,
+        "api_port": args.api_port,
+        "api_url": project.api_url(),
+        "api_port_busy": api_port_busy,
         "report": report,
     });
     ctx.out.emit(&value, || {
-        summary(&dir, &written, &report, &registry, env, &chap_core)
+        summary(
+            &dir, &written, &report, &registry, env, &chap_core, &project,
+        )
     })
+}
+
+/// The port an active (uncommented) `CHAP_API_PORT=` line of a `.env` sets.
+///
+/// A commented placeholder is not a setting, and a value that is not a port
+/// number is the operator's problem to see for themselves - neither yields a
+/// warning here.
+fn env_api_port(body: &str) -> Option<u16> {
+    body.lines()
+        .map(str::trim)
+        .filter_map(|line| line.strip_prefix(&format!("{API_PORT_ENV_VAR}=")))
+        .find_map(|value| value.trim().parse::<u16>().ok())
+}
+
+/// Warn when something is already listening on the API's host port, and say
+/// which free port to use instead.
+///
+/// Returns whether it was busy. Not an error: the process holding the port may
+/// be a stack this deployment is meant to replace, and the directory is worth
+/// writing either way.
+fn warn_if_api_port_is_busy(api_port: u16, busy: &dyn Fn(u16) -> bool) -> bool {
+    if !busy(api_port) {
+        return false;
+    }
+    // Upwards from the requested port: the next free number is the one least
+    // likely to collide with something else the operator has in mind.
+    let suggestion = crate::ports::first_free(api_port.saturating_add(1), u16::MAX, busy);
+    let claim = crate::ports::PortClaim {
+        service: crate::compose::API_SERVICE.to_string(),
+        port: api_port,
+    };
+    crate::output::warn(&crate::ports::busy_line(&claim, suggestion));
+    true
 }
 
 /// The chap-core tag `init` settled on, and where `compose.yml` comes from.
@@ -389,6 +448,7 @@ fn summary(
     registry: &Registry,
     env: EnvAction,
     chap_core: &ChapCore,
+    project: &Project,
 ) -> String {
     let mut out = format!(
         "Initialized a chaps project in {}\n\nWrote:\n",
@@ -405,6 +465,7 @@ fn summary(
         chap_core.tag,
         chap_core.source.describe()
     ));
+    out.push_str(&format!("API:       {}\n", project.api_url()));
 
     if report.enabled.is_empty() {
         out.push_str("\nNo models enabled; run `chaps models enable ID` to add one.\n");
@@ -415,9 +476,18 @@ fn summary(
                 .get(id)
                 .map(|m| m.display_name.clone())
                 .unwrap_or_else(|| id.clone());
+            let reach = match model.host_port {
+                Some(port) => format!("http://localhost:{port}"),
+                None => "internal".to_string(),
+            };
+            out.push_str(&format!("  {id}  {name} v{}  {reach}\n", model.version));
+        }
+        if report.enabled.iter().any(|(_, m)| m.host_port.is_none()) {
             out.push_str(&format!(
-                "  {id}  {name} v{}  http://localhost:{}\n",
-                model.version, model.host_port
+                "\nModel services publish no host port: chap-core reaches them over the\n\
+                 compose network, and you reach them through it at\n\
+                 {}/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.\n",
+                project.api_url()
             ));
         }
     }
@@ -578,6 +648,35 @@ mod tests {
         std::fs::write(chaps.join(cached_compose_file("v2.2.0")), "nonsense: [").unwrap();
         let ignored = resolve_chap_core(&offline_ctx(), dir.path(), "v2.2.0");
         assert_eq!(ignored.source, ComposeSource::Embedded);
+    }
+
+    #[test]
+    fn an_active_api_port_line_is_read_out_of_an_env_file() {
+        let body = "POSTGRES_DB=chap_core\nCHAP_API_PORT=8123\n# CHAP_IMAGE_TAG=latest\n";
+        assert_eq!(env_api_port(body), Some(8123));
+        // A commented placeholder is not a setting, and neither is nonsense.
+        assert_eq!(env_api_port("# CHAP_API_PORT=8123\n"), None);
+        assert_eq!(env_api_port("CHAP_API_PORT=\nCHAP_API_PORT=nope\n"), None);
+        assert_eq!(env_api_port("POSTGRES_DB=chap_core\n"), None);
+        // The first usable value wins, the way compose reads the file.
+        assert_eq!(
+            env_api_port("CHAP_API_PORT=8010\nCHAP_API_PORT=8020\n"),
+            Some(8010)
+        );
+    }
+
+    #[test]
+    fn a_free_api_port_warns_about_nothing() {
+        assert!(!warn_if_api_port_is_busy(8000, &|_| false));
+    }
+
+    #[test]
+    fn a_busy_api_port_is_a_warning_not_a_refusal() {
+        // 8000 and 8001 are taken, 8002 is not: init still writes the
+        // directory and says which port to use instead.
+        assert!(warn_if_api_port_is_busy(8000, &|port| (8000..=8001).contains(&port)));
+        // Even with nothing free above it, the warning goes out.
+        assert!(warn_if_api_port_is_busy(8000, &|_| true));
     }
 
     #[test]

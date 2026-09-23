@@ -12,6 +12,7 @@ mod docker;
 mod error;
 mod output;
 mod paths;
+mod ports;
 mod project;
 mod registry;
 mod status;
@@ -32,7 +33,7 @@ const PROJECT_ONLY: &[&str] = &[
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
 /// anywhere, changing a project's model set does not.
-const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable"];
+const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable", "expose", "unexpose"];
 
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
@@ -65,6 +66,8 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),
             ModelsCmd::Disable(args) => commands::enable::disable(ctx, args),
+            ModelsCmd::Expose(args) => commands::enable::expose(ctx, args),
+            ModelsCmd::Unexpose(args) => commands::enable::unexpose(ctx, args),
         },
         Command::Ui(args) => run_ui(ctx, args),
 

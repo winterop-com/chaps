@@ -18,7 +18,10 @@ use std::time::Duration;
 /// the report is the only thing printed; the exit code alone signals failure.
 pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     let project = ctx.project()?;
-    let report = status(&project, &args.url, Duration::from_secs(args.timeout));
+    // Without --url the API is wherever this project publishes it, which is
+    // not 8000 for a deployment created with `init --api-port`.
+    let url = args.url.clone().unwrap_or_else(|| project.api_url());
+    let report = status(&project, &url, Duration::from_secs(args.timeout));
 
     // Which containers are up only sharpens the hint under `missing:`, so
     // docker is asked exactly when there is a hint to print.
@@ -89,6 +92,21 @@ fn human(report: &StatusReport, out: &Out, running: &BTreeSet<String>) -> String
             })
             .collect();
         text.push_str(&out.table(&["ID", "VERSION", "URL", "LAST PING", "EXPIRES"], &rows));
+
+        // The URL above is the one the service registered: it resolves on the
+        // compose network, not on this machine. This is where a human goes.
+        let reachable: Vec<(&str, &String)> = report
+            .registered
+            .iter()
+            .filter_map(|s| report.reach.get(&s.id).map(|url| (s.id.as_str(), url)))
+            .collect();
+        if !reachable.is_empty() {
+            text.push_str("\nreachable at\n");
+            let width = reachable.iter().map(|(id, _)| id.len()).max().unwrap_or(0);
+            for (id, url) in reachable {
+                text.push_str(&format!("  {id:width$}  {url}\n"));
+            }
+        }
     }
 
     if !report.missing.is_empty() {
@@ -129,6 +147,16 @@ mod tests {
     fn up(registered: Vec<RegisteredService>, expected: Vec<&str>) -> StatusReport {
         let expected: Vec<String> = expected.into_iter().map(str::to_string).collect();
         let missing = crate::status::missing_ids(&expected, &registered);
+        // Every expected service is internal unless a test says otherwise.
+        let reach = expected
+            .iter()
+            .map(|id| {
+                (
+                    id.clone(),
+                    format!("internal (proxy: http://localhost:8000/v2/services/{id}/run/)"),
+                )
+            })
+            .collect();
         StatusReport {
             api_url: "http://localhost:8000".to_string(),
             api: ApiHealth::Up {
@@ -138,6 +166,7 @@ mod tests {
             registered,
             expected,
             missing,
+            reach,
         }
     }
 
@@ -154,6 +183,40 @@ mod tests {
         assert!(text.contains("LAST PING"));
         assert!(text.contains("chapkit-ewars-model"));
         assert!(!text.contains("missing"));
+        // A model with no host port is reached through chap-core's proxy.
+        assert!(text.contains("reachable at\n"));
+        assert!(text.contains(
+            "chapkit-ewars-model  internal \
+             (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)"
+        ));
+    }
+
+    #[test]
+    fn a_published_model_is_reported_on_its_own_host_port() {
+        let mut report = up(
+            vec![
+                service("chapkit-ewars-model", "1.0.0"),
+                service("auto-arima-chapkit", "1.2.0"),
+            ],
+            vec!["chapkit-ewars-model", "auto-arima-chapkit"],
+        );
+        report.reach.insert(
+            "chapkit-ewars-model".to_string(),
+            "http://localhost:5001".to_string(),
+        );
+        let text = human(&report, &Out::default(), &BTreeSet::new());
+        assert!(text.contains("chapkit-ewars-model  http://localhost:5001\n"));
+        assert!(text.contains("auto-arima-chapkit   internal (proxy:"));
+    }
+
+    #[test]
+    fn a_service_the_project_does_not_know_is_left_out_of_the_reach_block() {
+        // chap-core may hold a registration from a deployment that is gone; we
+        // have nothing to say about how to reach it.
+        let report = up(vec![service("stranger", "1.0.0")], vec![]);
+        let text = human(&report, &Out::default(), &BTreeSet::new());
+        assert!(text.contains("stranger"));
+        assert!(!text.contains("reachable at"), "{text}");
     }
 
     #[test]
@@ -175,6 +238,7 @@ mod tests {
             registered: vec![],
             expected: vec!["chapkit-ewars-model".to_string()],
             missing: vec!["chapkit-ewars-model".to_string()],
+            reach: Default::default(),
         };
         let text = human(&report, &Out::default(), &BTreeSet::new());
         assert!(text.contains("api: down  http://localhost:8000"));

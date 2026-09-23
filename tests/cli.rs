@@ -110,6 +110,7 @@ fn init_writes_every_file_of_a_deployment() {
 
     for name in [
         "compose.yml",
+        "compose.chaps.yml",
         ".env",
         "compose.marketplace.yml",
         "compose.chapkit-ewars-model.yml",
@@ -137,17 +138,24 @@ fn init_writes_every_file_of_a_deployment() {
     assert_eq!(state["chap_image_tag"], "latest");
     assert_eq!(
         state["compose_files"],
-        serde_json::json!(["compose.yml", "compose.marketplace.yml"])
+        serde_json::json!([
+            "compose.yml",
+            "compose.chaps.yml",
+            "compose.marketplace.yml"
+        ]),
+        "the chaps overrides need their own -f entry, after the base file"
     );
     assert_eq!(
         state["rendered_files"],
         serde_json::json!([
             "compose.yml",
+            "compose.chaps.yml",
             "compose.chapkit-ewars-model.yml",
             "compose.marketplace.yml"
         ]),
         "compose.yml is rendered by sync like the overlays"
     );
+    assert_eq!(state["api_port"], 8000);
     assert_eq!(
         state["chap_compose_source"],
         serde_json::json!({"kind": "embedded"}),
@@ -155,8 +163,8 @@ fn init_writes_every_file_of_a_deployment() {
     );
     assert_eq!(state["port_range"], serde_json::json!([5001, 5999]));
     let model = &state["models"]["chapkit_ewars_model"];
-    // --port-base defaults to 5001, so the first model lands there.
-    assert_eq!(model["host_port"], 5001);
+    // A model publishes no host port until someone asks for one.
+    assert_eq!(model["host_port"], Json::Null);
     assert_eq!(model["service_id"], "chapkit-ewars-model");
     assert_eq!(model["image_tag"], "sha-fa880a1");
     assert_eq!(model["data_dir"], "/app/data");
@@ -165,12 +173,18 @@ fn init_writes_every_file_of_a_deployment() {
 
     assert_eq!(includes(&dir), vec!["compose.chapkit-ewars-model.yml"]);
     let overlay = yaml(&dir.join("compose.chapkit-ewars-model.yml"));
-    assert_eq!(
-        overlay["services"]["chapkit-ewars-model"]["ports"][0]
-            .as_str()
-            .unwrap(),
-        "5001:8000"
+    let svc = &overlay["services"]["chapkit-ewars-model"];
+    assert_eq!(svc["expose"][0].as_str().unwrap(), "8000");
+    assert!(
+        svc.get("ports").is_none(),
+        "a model service publishes nothing by default"
     );
+
+    // chap's port is the only published one, and it comes from a chaps-owned
+    // override rather than an edit of the upstream base file.
+    let chaps_overlay = read(&dir.join("compose.chaps.yml"));
+    assert!(chaps_overlay.contains("ports: !override"));
+    assert!(chaps_overlay.contains("\"${CHAP_API_PORT:-8000}:8000\""));
 
     // The generated .env carries a fresh password and the model's pin.
     let env = read(&dir.join(".env"));
@@ -181,6 +195,63 @@ fn init_writes_every_file_of_a_deployment() {
     assert_eq!(password.len(), 32);
     assert!(env.contains("# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1"));
     assert!(env.contains("# CHAP_IMAGE_TAG=latest"));
+    // Active even at the default, so the port is where you would look for it.
+    assert!(env.contains("\nCHAP_API_PORT=8000\n"), "{env}");
+}
+
+/// Whether `docker compose` can be run at all, for the tests that ask it to
+/// validate a rendered stack. Missing Docker skips them rather than failing.
+fn docker_available() -> bool {
+    std::process::Command::new("docker")
+        .args(["compose", "version", "--short"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn docker_accepts_the_stack_with_the_chaps_override() {
+    if !docker_available() {
+        eprintln!("skipping: docker compose is not available");
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    // `!override` needs Compose 2.24+; this is what says the rendered stack is
+    // a document the installed Docker actually accepts.
+    let out = std::process::Command::new("docker")
+        .args(["compose", "-f", "compose.yml", "-f", "compose.chaps.yml"])
+        .args(["-f", "compose.marketplace.yml", "config"])
+        .current_dir(&dir)
+        .output()
+        .expect("docker compose config runs");
+    assert!(
+        out.status.success(),
+        "docker compose config failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // chap is published exactly once, on the API port; the model not at all.
+    let merged: Yaml = serde_yaml_ng::from_slice(&out.stdout).expect("config is YAML");
+    let ports = merged["services"]["chap"]["ports"]
+        .as_sequence()
+        .expect("chap publishes a port");
+    assert_eq!(ports.len(), 1, "!override replaced the mapping: {ports:?}");
+    assert_eq!(ports[0]["published"].as_str(), Some("8000"));
+    assert_eq!(ports[0]["target"].as_u64(), Some(8000));
+    assert!(
+        merged["services"]["chapkit-ewars-model"]
+            .get("ports")
+            .is_none(),
+        "the model is internal"
+    );
 }
 
 #[test]
@@ -210,7 +281,7 @@ fn init_can_skip_the_env_file() {
 }
 
 #[test]
-fn enabling_a_second_model_takes_the_next_port_and_sorts_the_umbrella() {
+fn enabling_a_second_model_publishes_nothing_and_sorts_the_umbrella() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
     sandbox
@@ -222,11 +293,15 @@ fn enabling_a_second_model_takes_the_next_port_and_sorts_the_umbrella() {
         .models(&["enable", "auto_arima_chapkit"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("chaps up"));
+        .stdout(predicates::str::contains("chaps up"))
+        // The proxy URL is how a model with no host port is reached.
+        .stdout(predicates::str::contains(
+            "http://localhost:8000/v2/services/auto-arima-chapkit/run/",
+        ));
 
     assert_eq!(
         state(&dir)["models"]["auto_arima_chapkit"]["host_port"],
-        5002
+        Json::Null
     );
     assert_eq!(
         includes(&dir),
@@ -317,17 +392,150 @@ fn enable_takes_an_explicit_port_and_rejects_a_taken_one() {
     sandbox
         .models(&["enable", "auto_arima_chapkit", "--port", "5100"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("http://localhost:5100"));
     assert_eq!(
         state(&dir)["models"]["auto_arima_chapkit"]["host_port"],
         5100
+    );
+    let svc = &yaml(&dir.join("compose.auto-arima-chapkit.yml"))["services"]["auto-arima-chapkit"];
+    assert_eq!(svc["ports"][0].as_str(), Some("5100:8000"));
+    assert_eq!(
+        svc["expose"][0].as_str(),
+        Some("8000"),
+        "expose documents the container port either way"
     );
 
     sandbox
         .models(&["enable", "chapkit_simple_multistep_model", "--port", "5100"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("already in use"));
+        .stderr(predicates::str::contains(
+            "already in use by another compose file",
+        ));
+
+    // `--port auto` takes the lowest free one instead.
+    sandbox
+        .models(&["enable", "chapkit_simple_multistep_model", "--port", "auto"])
+        .assert()
+        .success();
+    assert_eq!(
+        state(&dir)["models"]["chapkit_simple_multistep_model"]["host_port"],
+        5001
+    );
+
+    // Anything that is neither a number nor `auto` is a parse error.
+    sandbox
+        .models(&["enable", "auto_arima_chapkit", "--port", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("`auto`"));
+}
+
+#[test]
+fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let pinned = read(&dir.join(".chaps/models.yaml"));
+
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "exposed chapkit-ewars-model on http://localhost:5001",
+        ))
+        .stdout(predicates::str::contains(
+            "written  compose.chapkit-ewars-model.yml",
+        ));
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
+        5001
+    );
+    let svc =
+        &yaml(&dir.join("compose.chapkit-ewars-model.yml"))["services"]["chapkit-ewars-model"];
+    assert_eq!(svc["ports"][0].as_str(), Some("5001:8000"));
+
+    // Only the port moved: the version and the image pin are untouched.
+    let after = read(&dir.join(".chaps/models.yaml"));
+    assert_eq!(
+        after.replace("host_port: 5001", "host_port: null"),
+        pinned,
+        "expose re-resolved the version"
+    );
+
+    // The service id works too, and unexpose names the way back in.
+    sandbox
+        .models(&["unexpose", "chapkit-ewars-model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "unexposed chapkit-ewars-model; it stays registered with chap-core and reachable \
+             at http://localhost:8000/v2/services/chapkit-ewars-model/run/",
+        ));
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
+        Json::Null
+    );
+    let svc =
+        &yaml(&dir.join("compose.chapkit-ewars-model.yml"))["services"]["chapkit-ewars-model"];
+    assert!(svc.get("ports").is_none());
+    assert_eq!(read(&dir.join(".chaps/models.yaml")), pinned);
+
+    // A model this project never enabled cannot be exposed.
+    sandbox
+        .models(&["expose", "auto_arima_chapkit"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("unknown model"));
+}
+
+#[test]
+fn models_list_and_info_say_internal_until_a_port_is_published() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    sandbox
+        .models(&["list", "--enabled"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("internal"));
+    sandbox
+        .models(&["info", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "reach    internal (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)",
+        ));
+
+    sandbox
+        .models(&["expose", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let listed = String::from_utf8(
+        sandbox
+            .models(&["list", "--enabled"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .expect("the table is text");
+    assert!(listed.contains("5001"), "{listed}");
+    assert!(!listed.contains("internal"), "{listed}");
+    sandbox
+        .models(&["info", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("reach    http://localhost:5001"));
 }
 
 #[test]
@@ -366,19 +574,39 @@ fn json_output_parses_for_init_and_enable() {
         assert!(written.contains(&name.to_string()), "{name} not reported");
     }
     assert_eq!(value["report"]["enabled"][0][0], "chapkit_ewars_model");
-    assert_eq!(value["report"]["enabled"][0][1]["host_port"], 5001);
+    assert_eq!(value["report"]["enabled"][0][1]["host_port"], Json::Null);
     assert_eq!(value["env"], "written");
+    assert_eq!(value["api_port"], 8000);
+    assert_eq!(value["api_url"], "http://localhost:8000");
 
     let out = sandbox
-        .models(&["enable", "auto_arima_chapkit", "--json"])
+        .models(&["enable", "auto_arima_chapkit", "--port", "auto", "--json"])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
     let value: Json = serde_json::from_slice(&out).expect("enable --json is JSON");
-    assert_eq!(value["enabled"][0][1]["host_port"], 5002);
+    assert_eq!(value["enabled"][0][1]["host_port"], 5001);
     assert!(value["disabled"].as_array().unwrap().is_empty());
+
+    // expose/unexpose have a JSON shape of their own.
+    let out = sandbox
+        .models(&["unexpose", "auto_arima_chapkit", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: Json = serde_json::from_slice(&out).expect("unexpose --json is JSON");
+    assert_eq!(value["id"], "auto_arima_chapkit");
+    assert_eq!(value["service_id"], "auto-arima-chapkit");
+    assert_eq!(value["host_port"], Json::Null);
+    assert_eq!(value["previous"], 5001);
+    assert_eq!(
+        value["url"],
+        "http://localhost:8000/v2/services/auto-arima-chapkit/run/"
+    );
 }
 
 #[test]
@@ -422,9 +650,9 @@ fn a_second_init_needs_force() {
     assert!(includes(&dir).is_empty());
     assert!(!dir.join("compose.chapkit-ewars-model.yml").exists());
 
-    // Its host port is free again for the next model.
+    // A host port the old overlay held is free again for the next model.
     sandbox
-        .models(&["enable", "auto_arima_chapkit"])
+        .models(&["enable", "auto_arima_chapkit", "--port", "auto"])
         .assert()
         .success();
     assert_eq!(
@@ -527,29 +755,36 @@ fn fresh_env_and_no_env_are_mutually_exclusive() {
 }
 
 #[test]
-fn forcing_the_same_model_keeps_its_port() {
+fn forcing_the_same_model_starts_its_state_over() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
     sandbox
         .init(&["--models", "chapkit_ewars_model,auto_arima_chapkit"])
         .assert()
         .success();
-    assert_eq!(
-        state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
-        5001
-    );
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "5001"])
+        .assert()
+        .success();
 
     sandbox
         .init(&["--models", "chapkit_ewars_model", "--force"])
         .assert()
         .success();
-    // The old overlay is rewritten in place rather than blocking its own port.
+    // `--force` re-renders the whole state, and `init` publishes no model
+    // ports, so a port someone exposed by hand goes with it. Re-expose it.
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
-        5001
+        Json::Null
     );
     assert!(!dir.join("compose.auto-arima-chapkit.yml").exists());
     assert_eq!(includes(&dir), vec!["compose.chapkit-ewars-model.yml"]);
+
+    // And the port it used to hold is free, not orphaned in a stale overlay.
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "5001"])
+        .assert()
+        .success();
 }
 
 #[test]
@@ -677,7 +912,7 @@ fn init_reuses_a_cached_compose_file_and_sync_renders_from_it() {
     let mut sync = sandbox.chap();
     sync.arg("-C").arg(&dir).args(["sync", "--check"]);
     sync.assert().success().stdout(predicates::str::contains(
-        "in sync: 0 to write, 2 unchanged, 0 to remove",
+        "in sync: 0 to write, 3 unchanged, 0 to remove",
     ));
 }
 
@@ -762,10 +997,122 @@ fn the_port_base_moves_the_whole_range() {
         .assert()
         .success();
     assert_eq!(state(&dir)["port_range"], serde_json::json!([5500, 5999]));
+
+    // The range only matters once a port is asked for.
+    sandbox
+        .models(&["expose", "chapkit_ewars_model"])
+        .assert()
+        .success();
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
         5500
     );
+}
+
+#[test]
+fn the_api_port_reaches_the_env_file_the_state_and_status() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", "8123"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "API:       http://localhost:8123",
+        ));
+
+    assert_eq!(state(&dir)["api_port"], 8123);
+    let env = read(&dir.join(".env"));
+    assert!(env.contains("\nCHAP_API_PORT=8123\n"), "{env}");
+    assert!(read(&dir.join("compose.chaps.yml")).contains("${CHAP_API_PORT:-8123}:8000"));
+
+    // `status --url` defaults to the port the project records. The API is not
+    // running, so the report is a down one - at the right URL.
+    let mut status = sandbox.chap();
+    status.arg("-C").arg(&dir).args(["status", "--json"]);
+    let out = status.assert().failure().get_output().stdout.clone();
+    let value: Json = serde_json::from_slice(&out).expect("status --json is JSON");
+    assert_eq!(value["api_url"], "http://localhost:8123");
+    assert_eq!(value["api"]["state"], "down");
+}
+
+#[test]
+fn a_kept_env_file_that_pins_another_api_port_is_reported() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", "8010"])
+        .assert()
+        .success();
+
+    // `--force` keeps .env, and compose reads .env after the compose files, so
+    // the line in it wins over the new --api-port. Say so.
+    sandbox
+        .init(&["--models", "none", "--force", "--api-port", "8020"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("kept .env (already present)"))
+        .stderr(predicates::str::contains(
+            "warning: .env already sets CHAP_API_PORT=8010",
+        ))
+        .stderr(predicates::str::contains("the API stays on 8010"));
+    // The recorded intent did move, and so did the rendered override.
+    assert_eq!(state(&dir)["api_port"], 8020);
+    assert!(read(&dir.join("compose.chaps.yml")).contains("${CHAP_API_PORT:-8020}"));
+    assert!(read(&dir.join(".env")).contains("\nCHAP_API_PORT=8010\n"));
+
+    // Re-initialising at the port .env already holds says nothing.
+    let out = sandbox
+        .init(&["--models", "none", "--force", "--api-port", "8010"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(out).expect("utf-8 stderr");
+    assert!(!stderr.contains("CHAP_API_PORT"), "{stderr}");
+}
+
+#[test]
+fn init_warns_when_something_is_already_listening_on_the_api_port() {
+    // A listener on a port the kernel picked, so the test never fights another
+    // process over a fixed number.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+    let port = listener.local_addr().unwrap().port();
+
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &port.to_string()])
+        .assert()
+        // A warning, not a refusal: the process holding the port may be a
+        // stack this deployment is meant to replace.
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "port {port} is already in use on this machine (needed by chap)"
+        )))
+        .stderr(predicates::str::contains("--api-port"))
+        .stderr(predicates::str::contains("set CHAP_API_PORT="));
+
+    // The directory is written all the same, at the port that was asked for.
+    assert_eq!(state(&dir)["api_port"], port);
+    let out = sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--force",
+            "--api-port",
+            &port.to_string(),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: Json = serde_json::from_slice(&out).expect("init --json is JSON");
+    assert_eq!(value["api_port_busy"], true);
+    drop(listener);
 }
 
 #[test]
@@ -805,6 +1152,10 @@ fn re_enabling_keeps_the_port_and_applies_the_overrides() {
     let dir = sandbox.project();
     sandbox
         .init(&["--models", "chapkit_ewars_model,auto_arima_chapkit"])
+        .assert()
+        .success();
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
         .assert()
         .success();
     assert_eq!(
@@ -884,7 +1235,7 @@ fn sync_check_is_clean_after_init_and_reports_drift_after_a_deletion() {
     assert_eq!(value["drift"], false);
     assert_eq!(value["check"], true);
     assert!(value["written"].as_array().unwrap().is_empty());
-    assert_eq!(value["unchanged"].as_array().unwrap().len(), 3);
+    assert_eq!(value["unchanged"].as_array().unwrap().len(), 4);
 
     let overlay = dir.join("compose.chapkit-ewars-model.yml");
     std::fs::remove_file(&overlay).unwrap();
@@ -930,14 +1281,14 @@ fn sync_recreates_a_deleted_overlay() {
             "written       compose.chapkit-ewars-model.yml",
         ))
         .stdout(predicates::str::contains(
-            "1 written, 2 unchanged, 0 removed",
+            "1 written, 3 unchanged, 0 removed",
         ));
     assert_eq!(read(&overlay), original, "rendering is deterministic");
 
     let mut again = sandbox.chap();
     again.arg("-C").arg(&dir).arg("sync");
     again.assert().success().stdout(predicates::str::contains(
-        "in sync: 0 written, 3 unchanged, 0 removed",
+        "in sync: 0 written, 4 unchanged, 0 removed",
     ));
 }
 

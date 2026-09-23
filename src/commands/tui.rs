@@ -48,8 +48,12 @@ fn human(report: &ApplyReport) -> String {
         text.push_str(&format!("{label}:\n"));
         for (id, model) in models {
             text.push_str(&format!(
-                "  {id}  {}  port {}\n",
-                model.version, model.host_port
+                "  {id}  {}  {}\n",
+                model.version,
+                match model.host_port {
+                    Some(port) => format!("port {port}"),
+                    None => "internal".to_string(),
+                }
             ));
         }
     }
@@ -75,7 +79,7 @@ mod tests {
     use crate::project::EnabledModel;
     use crate::registry::Channel;
 
-    fn model(port: u16) -> EnabledModel {
+    fn model(port: Option<u16>) -> EnabledModel {
         EnabledModel {
             service_id: "chapkit-ewars-model".into(),
             image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
@@ -93,8 +97,8 @@ mod tests {
     #[test]
     fn a_report_lists_what_changed_and_what_to_do_next() {
         let report = ApplyReport {
-            enabled: vec![("chapkit_ewars_model".to_string(), model(5001))],
-            updated: vec![("auto_arima_chapkit".to_string(), model(5002))],
+            enabled: vec![("chapkit_ewars_model".to_string(), model(Some(5001)))],
+            updated: vec![("auto_arima_chapkit".to_string(), model(Some(5002)))],
             disabled: vec!["chapkit_simple_multistep_model".to_string()],
             warnings: vec!["templates are not for real forecasts".to_string()],
             ..ApplyReport::default()

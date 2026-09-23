@@ -8,7 +8,7 @@
 
 use crate::project::Project;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 /// Path of the chap-core health endpoint.
@@ -27,6 +27,11 @@ pub struct StatusReport {
     pub expected: Vec<String>,
     /// Expected ids that are not registered.
     pub missing: Vec<String>,
+    /// How a human reaches each service this project enabled, by service id:
+    /// its own host port, or chap-core's proxy for a service that publishes
+    /// none. The URL chap-core reports in `registered` is the internal one and
+    /// only resolves inside the compose network.
+    pub reach: BTreeMap<String, String>,
 }
 
 impl StatusReport {
@@ -94,12 +99,36 @@ pub fn status(project: &Project, api_url: &str, timeout: Duration) -> StatusRepo
     };
 
     let missing = missing_ids(&expected, &registered);
+    let reach = project
+        .state
+        .models
+        .values()
+        .map(|m| {
+            (
+                m.service_id.clone(),
+                reach(project, m.host_port, &m.service_id),
+            )
+        })
+        .collect();
     StatusReport {
         api_url: base,
         api,
         registered,
         expected,
         missing,
+        reach,
+    }
+}
+
+/// Where a human reaches one model service from this machine.
+///
+/// A published host port is the direct answer; without one the way in is
+/// chap-core's read-only proxy, which reaches a registered service over the
+/// compose network without any port of its own.
+pub fn reach(project: &Project, host_port: Option<u16>, service_id: &str) -> String {
+    match host_port {
+        Some(port) => format!("http://localhost:{port}"),
+        None => format!("internal (proxy: {})", project.proxy_url(service_id)),
     }
 }
 
@@ -405,6 +434,25 @@ mod tests {
     }
 
     #[test]
+    fn reach_is_the_host_port_or_the_proxy() {
+        let project = Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state: crate::project::ProjectState {
+                api_port: 8123,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            reach(&project, Some(5001), "chapkit-ewars-model"),
+            "http://localhost:5001"
+        );
+        assert_eq!(
+            reach(&project, None, "chapkit-ewars-model"),
+            "internal (proxy: http://localhost:8123/v2/services/chapkit-ewars-model/run/)"
+        );
+    }
+
+    #[test]
     fn report_helpers_describe_the_state() {
         let report = StatusReport {
             api_url: "http://localhost:8000".into(),
@@ -414,6 +462,7 @@ mod tests {
             registered: Vec::new(),
             expected: vec!["a".into()],
             missing: vec!["a".into()],
+            reach: BTreeMap::new(),
         };
         assert!(!report.is_up());
         assert!(!report.is_complete());

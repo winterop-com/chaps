@@ -8,7 +8,7 @@
 //! [`crate::compose::apply`]. That is what makes the browser testable without
 //! a tty.
 
-use crate::compose::{EnableRequest, Selection};
+use crate::compose::{EnableRequest, PortRequest, Selection};
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Channel, Model, Registry, Version, VersionSelector};
 use std::collections::BTreeMap;
@@ -21,6 +21,9 @@ pub const TEMPLATE_WARNING: &str = "templates are not for real forecasts";
 
 /// Footer note shown when a template row is toggled while templates are hidden.
 pub const TEMPLATE_HIDDEN_HINT: &str = "press t to show templates first";
+
+/// Footer note shown when `p` is pressed on a row that is not enabled.
+pub const PUBLISH_NEEDS_ENABLED_HINT: &str = "enable the model first (space), then press p";
 
 /// Which sub-state the browser is in; it decides both key mapping and what is
 /// drawn on top of the list.
@@ -42,6 +45,7 @@ pub enum Action {
     PageUp,
     PageDown,
     Toggle,
+    TogglePublish,
     CycleChannel,
     ToggleTemplates,
     StartFilter,
@@ -74,8 +78,13 @@ pub struct Row {
     pub enabled: bool,
     /// Channel the row would be pinned to when enabled.
     pub channel: Channel,
-    /// Host port from `.chaps/models.yaml`, for rows that are already enabled.
+    /// Host port from `.chaps/models.yaml`, for rows that are already enabled
+    /// and publish one.
     pub port: Option<u16>,
+    /// Whether the row should publish a host port at all. Starts out matching
+    /// [`Row::port`]; `p` toggles it, and saving turns the difference into a
+    /// [`PortRequest`].
+    pub publish: bool,
 }
 
 /// Header counters.
@@ -114,11 +123,13 @@ impl<'a> App<'a> {
             .enumerate()
             .map(|(model_idx, model)| {
                 let enabled = state.models.get(&model.id);
+                let port = enabled.and_then(|e| e.host_port);
                 Row {
                     model_idx,
                     enabled: enabled.is_some(),
                     channel: enabled.and_then(|e| e.channel).unwrap_or(Channel::Stable),
-                    port: enabled.map(|e| e.host_port),
+                    port,
+                    publish: port.is_some(),
                 }
             })
             .collect();
@@ -215,6 +226,7 @@ impl<'a> App<'a> {
             Action::PageUp => self.move_by(-(PAGE_JUMP as isize)),
             Action::PageDown => self.move_by(PAGE_JUMP as isize),
             Action::Toggle => self.toggle(),
+            Action::TogglePublish => self.toggle_publish(),
             Action::CycleChannel => self.cycle_channel(),
             Action::ToggleTemplates => {
                 self.show_templates = !self.show_templates;
@@ -276,9 +288,9 @@ impl<'a> App<'a> {
     /// The diff against the project state the browser opened with.
     ///
     /// A row is enabled when it was not before, or when the user changed its
-    /// channel; a row that was enabled and is not any more is disabled. Rows
-    /// nobody touched produce nothing, so saving an untouched browser is a
-    /// no-op.
+    /// channel or whether it publishes a host port; a row that was enabled and
+    /// is not any more is disabled. Rows nobody touched produce nothing, so
+    /// saving an untouched browser is a no-op.
     pub fn selection(&self) -> Selection {
         let mut selection = Selection::default();
         for row in &self.rows {
@@ -286,14 +298,21 @@ impl<'a> App<'a> {
             match self.initial.get(&model.id) {
                 None => {
                     if row.enabled {
-                        selection.enable.push(request(model, row));
+                        // A row enabled in this session publishes a port only
+                        // if `p` was pressed on it too.
+                        let port = row.publish.then_some(PortRequest::Auto);
+                        selection.enable.push(request(model, row, port));
                     }
                 }
                 Some(previous) => {
                     if !row.enabled {
                         selection.disable.push(model.id.clone());
-                    } else if row.channel != previous.channel.unwrap_or(Channel::Stable) {
-                        selection.enable.push(request(model, row));
+                        continue;
+                    }
+                    let channel_moved = row.channel != previous.channel.unwrap_or(Channel::Stable);
+                    let port = port_change(row.publish, previous.host_port);
+                    if channel_moved || port.is_some() {
+                        selection.enable.push(request(model, row, port));
                     }
                 }
             }
@@ -320,9 +339,32 @@ impl<'a> App<'a> {
         let row = &mut self.rows[row_idx];
         row.enabled = !row.enabled;
         let now_enabled = row.enabled;
+        if !now_enabled {
+            // Turning a model off drops its port with it, so turning it back
+            // on in the same session does not silently re-publish.
+            row.publish = false;
+        }
         if is_template && now_enabled {
             self.message = Some(TEMPLATE_WARNING.to_string());
         }
+        self.dirty = self.has_changes();
+    }
+
+    /// Toggle whether the row under the cursor publishes a host port.
+    ///
+    /// The port itself is not chosen here: saving asks for
+    /// [`PortRequest::Auto`], and the allocator picks the lowest one that is
+    /// free both in the compose files and on this machine.
+    fn toggle_publish(&mut self) {
+        let Some(&row_idx) = self.visible.get(self.cursor) else {
+            return;
+        };
+        if !self.rows[row_idx].enabled {
+            self.message = Some(PUBLISH_NEEDS_ENABLED_HINT.to_string());
+            return;
+        }
+        let row = &mut self.rows[row_idx];
+        row.publish = !row.publish;
         self.dirty = self.has_changes();
     }
 
@@ -379,16 +421,26 @@ impl<'a> App<'a> {
     }
 }
 
-fn request(model: &Model, row: &Row) -> EnableRequest {
+fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest {
     EnableRequest {
         id: model.id.clone(),
         selector: VersionSelector::Channel(row.channel),
-        // Ports, data dirs and users keep whatever the project already has;
-        // the browser does not edit them.
-        port: None,
+        port,
+        // Data dirs and users keep whatever the project already has; the
+        // browser does not edit them.
         data_dir: None,
         user: None,
         allow_template: model.is_template(),
+    }
+}
+
+/// The port request for a row whose publish flag may have moved, or `None`
+/// when it still says what the project recorded.
+fn port_change(publish: bool, recorded: Option<u16>) -> Option<PortRequest> {
+    match (publish, recorded) {
+        (true, None) => Some(PortRequest::Auto),
+        (false, Some(_)) => Some(PortRequest::None),
+        _ => None,
     }
 }
 
@@ -421,6 +473,16 @@ mod tests {
     }
 
     fn state_with(registry: &Registry, id: &str, channel: Option<Channel>) -> ProjectState {
+        state_with_port(registry, id, channel, None)
+    }
+
+    /// The same, with an explicit host port for the enabled model.
+    fn state_with_port(
+        registry: &Registry,
+        id: &str,
+        channel: Option<Channel>,
+        host_port: Option<u16>,
+    ) -> ProjectState {
         let model = registry.get(id).expect("vendored model");
         let version = model
             .resolve(&VersionSelector::Channel(
@@ -436,7 +498,7 @@ mod tests {
                 image_tag: version.image_tag.clone(),
                 version: version.version.clone(),
                 channel,
-                host_port: 5001,
+                host_port,
                 data_dir: "/work/data".to_string(),
                 user: "chapkit:chapkit".to_string(),
                 platform: None,
@@ -506,9 +568,101 @@ mod tests {
             VersionSelector::Channel(Channel::Stable),
             "a fresh row follows stable"
         );
-        assert!(request.port.is_none());
+        assert!(
+            request.port.is_none(),
+            "a fresh row publishes nothing, which is apply's default"
+        );
+        assert!(!app.selected().unwrap().publish);
         assert!(!request.allow_template);
         assert_eq!(app.counts().pending, 1);
+    }
+
+    #[test]
+    fn p_asks_for_an_automatic_port_and_takes_one_away_again() {
+        let registry = registry();
+
+        // A model that publishes nothing: `p` asks for a port.
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), None);
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+        assert!(!app.selected().unwrap().publish);
+
+        assert!(app.reduce(Action::TogglePublish).is_none());
+        assert!(app.selected().unwrap().publish);
+        assert!(app.dirty);
+        let selection = app.selection();
+        assert!(selection.disable.is_empty());
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(selection.enable[0].id, EWARS);
+        assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
+        assert_eq!(
+            selection.enable[0].selector,
+            VersionSelector::Channel(Channel::Stable),
+            "the pin does not move because a port did"
+        );
+
+        // Pressing it again is back where we started, so nothing to apply.
+        app.reduce(Action::TogglePublish);
+        assert!(!app.has_changes());
+
+        // A model that does publish one: `p` takes it away.
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), Some(5001));
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+        assert!(app.selected().unwrap().publish);
+        assert_eq!(app.selected().unwrap().port, Some(5001));
+
+        app.reduce(Action::TogglePublish);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(selection.enable[0].port, Some(PortRequest::None));
+        assert!(selection.disable.is_empty());
+    }
+
+    #[test]
+    fn p_on_a_row_that_is_not_enabled_only_hints() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, ARIMA);
+
+        app.reduce(Action::TogglePublish);
+        assert_eq!(app.message.as_deref(), Some(PUBLISH_NEEDS_ENABLED_HINT));
+        assert!(!app.selected().unwrap().publish);
+        assert!(!app.has_changes());
+
+        // Enabled first, then published: one request carrying both.
+        app.reduce(Action::Toggle);
+        app.reduce(Action::TogglePublish);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
+    }
+
+    #[test]
+    fn disabling_a_published_row_forgets_the_port_too() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), Some(5001));
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+
+        // Off, then on again: the model comes back internal rather than
+        // silently re-publishing a port.
+        app.reduce(Action::Toggle);
+        assert!(!app.selected().unwrap().publish);
+        app.reduce(Action::Toggle);
+        assert!(app.selected().unwrap().enabled);
+        assert!(!app.selected().unwrap().publish);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(selection.enable[0].port, Some(PortRequest::None));
+    }
+
+    #[test]
+    fn a_port_change_is_only_a_change_when_it_differs_from_the_record() {
+        assert_eq!(port_change(true, None), Some(PortRequest::Auto));
+        assert_eq!(port_change(false, Some(5001)), Some(PortRequest::None));
+        assert_eq!(port_change(true, Some(5001)), None, "already published");
+        assert_eq!(port_change(false, None), None, "already internal");
     }
 
     #[test]
@@ -532,7 +686,7 @@ mod tests {
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
         assert!(app.selected().unwrap().enabled);
-        assert_eq!(app.selected().unwrap().port, Some(5001));
+        assert_eq!(app.selected().unwrap().port, None);
 
         app.reduce(Action::Toggle);
         let selection = app.selection();

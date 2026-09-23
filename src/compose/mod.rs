@@ -7,12 +7,16 @@ pub mod render;
 pub mod spec;
 pub mod sync;
 
-pub use apply::{ApplyReport, EnableRequest, Selection, apply};
+pub use apply::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 pub use render::render_env;
 pub use sync::{SyncReport, sync};
 
 /// Platform pinned for services built on the R-INLA runtime.
 pub const AMD64_PLATFORM: &str = "linux/amd64";
+
+/// Compose service name of chap-core itself, in upstream's `compose.ghcr.yml`
+/// and therefore in every rendered `compose.yml`.
+pub const API_SERVICE: &str = "chap";
 
 /// Overlay file name for a model service: `compose.<service_id>.yml`.
 pub fn overlay_filename(service_id: &str) -> String {

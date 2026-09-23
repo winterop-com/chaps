@@ -11,6 +11,8 @@ use crate::commands::Ctx;
 use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
+use crate::ports;
+use crate::project::Project;
 use crate::registry;
 use std::io::IsTerminal;
 
@@ -47,10 +49,15 @@ impl Shell {
 /// `docker compose up` in scripts.
 pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     let mut project = ctx.project()?;
-    if matches!(cmd, DockerCmd::Up(_)) {
+    if let DockerCmd::Up(args) = cmd {
         let registry = registry::load(&ctx.registry)?;
         let report = sync(&mut project, &registry, ctx.cli_version, false)?;
         super::sync::announce(ctx, &report, &project);
+        // After the sync, because the files it just wrote are the ones whose
+        // ports we are about to probe.
+        if !args.no_preflight {
+            preflight(&project)?;
+        }
     }
     warn_about_old_compose();
 
@@ -131,6 +138,33 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
     }
 }
 
+/// Refuse to start when a host port the stack publishes is already taken.
+///
+/// Docker would find the same conflict, several seconds in, and name a
+/// container rather than a port; this says which port, who wanted it and how
+/// to move it, before anything has started. Ports held by this project's own
+/// running containers are ours, so they are skipped: `chaps up` on a running
+/// stack has to stay a no-op.
+fn preflight(project: &Project) -> Result<()> {
+    let claims = ports::claims(project);
+    if claims.is_empty() {
+        return Ok(());
+    }
+    let running = docker::running_services(project);
+    let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
+    if busy.is_empty() {
+        return Ok(());
+    }
+    // A free port to point at, found the way `init` finds one.
+    let suggestion = busy
+        .iter()
+        .find(|claim| claim.service == crate::compose::API_SERVICE)
+        .and_then(|claim| {
+            ports::first_free(claim.port.saturating_add(1), u16::MAX, &ports::is_busy)
+        });
+    Err(anyhow::anyhow!(ports::preflight_message(&busy, suggestion)))
+}
+
 /// Print the "compose is too old for `include:`" warning at most once.
 ///
 /// Failing to probe the version is not reported here: the wrapper itself is
@@ -172,6 +206,7 @@ mod tests {
         DockerCmd::Up(UpArgs {
             attach,
             pull: false,
+            no_preflight: false,
             extra: extra.iter().map(|s| s.to_string()).collect(),
         })
     }
@@ -194,6 +229,7 @@ mod tests {
         let cmd = DockerCmd::Up(UpArgs {
             attach: false,
             pull: true,
+            no_preflight: false,
             extra: vec!["chap".to_string()],
         });
         assert_eq!(
@@ -203,6 +239,7 @@ mod tests {
         let cmd = DockerCmd::Up(UpArgs {
             attach: true,
             pull: true,
+            no_preflight: true,
             extra: vec![],
         });
         assert_eq!(args_for(&cmd, TERM), vec!["up", "--pull", "always"]);

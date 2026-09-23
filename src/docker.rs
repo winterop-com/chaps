@@ -389,6 +389,12 @@ mod tests {
                 PathBuf::from("/tmp/chapx/compose.yml")
                     .to_string_lossy()
                     .into_owned(),
+                // The chaps-owned overrides sit between the base file and the
+                // umbrella: later files win, and this one overrides chap.
+                "-f".to_string(),
+                PathBuf::from("/tmp/chapx/compose.chaps.yml")
+                    .to_string_lossy()
+                    .into_owned(),
                 "-f".to_string(),
                 PathBuf::from("/tmp/chapx/compose.marketplace.yml")
                     .to_string_lossy()

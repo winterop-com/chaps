@@ -9,9 +9,7 @@ services:
     # Marketplace images are published for linux/amd64 (like chap-core itself);
     # the pin makes an arm64 host pull that variant instead of failing.
 @PLATFORM_LINE@    init: true
-    ports:
-      - "@HOST_PORT@:8000"
-    environment:
+@PORT_LINES@    environment:
       # $$ is a literal $ for compose; the service self-registers with chap-core on startup.
       SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register
 @REGISTRATION_KEY_LINES@

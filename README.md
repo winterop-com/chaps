@@ -66,8 +66,10 @@ explicit list of marketplace ids. chap-core itself is pinned to the newest
 release (`--chap-tag` picks another), and `init` takes the `compose.ghcr.yml`
 that release publishes as the base stack.
 
-chap-core's API is on <http://localhost:8000>; each model service gets its own
-host port from 5001 upwards.
+chap-core's API is on <http://localhost:8000> (`init --api-port N` puts it
+somewhere else). That is the only host port a deployment publishes: model
+services are reached through the API, or given a port of their own with
+`chaps models expose ID`. See [Ports](#ports).
 
 ## Commands
 
@@ -79,7 +81,8 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
       --chap-tag latest|master|dev|vX.Y.Z
                                     tag for the chap-core services (default:
                                     latest, resolved to the newest release)
-      --port-base PORT              lowest host port for model overlays
+      --api-port PORT               host port for chap-core's API (default 8000)
+      --port-base PORT              lowest host port `models expose` may use
       --force                       overwrite an existing project
       --no-env                      do not write .env
       --fresh-env                   regenerate .env even if one exists
@@ -89,8 +92,12 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
   models info ID          everything known about one model
   models enable ID        record the model in .chaps/models.yaml and write its overlay
       --channel stable|latest | --version X
-      --port N  --data-dir PATH  --user USER:GROUP  --allow-template
+      --port N|auto  --data-dir PATH  --user USER:GROUP  --allow-template
   models disable ID       drop the model from .chaps/models.yaml and remove its overlay
+  models expose ID [--port N|auto]
+                          publish a host port for an enabled model, without
+                          touching the version it is pinned to
+  models unexpose ID      take that host port away again
 
   ui                      the model browser
 
@@ -106,9 +113,10 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
                           pull, up -d; --pin-chap-core turns a moving chap-core
                           tag into a release pin
 
-  up [--attach] [--pull] [EXTRA..]
-                          sync, then docker compose up -d (or up, attached);
-                          --pull passes --pull always
+  up [--attach] [--pull] [--no-preflight] [EXTRA..]
+                          sync, check that the host ports are free, then
+                          docker compose up -d (or up, attached); --pull passes
+                          --pull always, --no-preflight skips the port check
   down [EXTRA..]          docker compose down
   logs [-f] [SERVICE..]   docker compose logs
 
@@ -134,7 +142,8 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
 
   status [--url URL] [--timeout SECONDS]
                           GET /health and /v2/services, and diff the registered
-                          services against the ones this project enabled
+                          services against the ones this project enabled;
+                          --url defaults to http://localhost:<api_port>
 ```
 
 The everyday verbs are at the top level; the Docker plumbing you only reach for
@@ -147,9 +156,9 @@ that the rest appear inside one. The hidden commands still run if you type
 them; they just tell you there is no project.
 
 The wrappers always run `docker compose -f <dir>/compose.yml -f
-<dir>/compose.marketplace.yml ...` from the project directory, so they behave
-the same whatever your shell's working directory is, and they exit with
-Compose's own exit code.
+<dir>/compose.chaps.yml -f <dir>/compose.marketplace.yml ...` from the project
+directory, so they behave the same whatever your shell's working directory is,
+and they exit with Compose's own exit code.
 
 `chaps status` exits non-zero when the API is down or a model this project
 enabled has not registered, which makes it usable as a health gate in a script.
@@ -159,6 +168,83 @@ chapkit stops trying to register five attempts into its startup and a model
 that came up before chap-core was healthy stays invisible until it is
 restarted.
 
+## Ports
+
+A deployment publishes **one** host port: chap-core's API, 8000 by default and
+`init --api-port N` otherwise. Nothing else needs one. chap-core reaches each
+model over the compose default network at `http://<service_id>:8000` - that
+internal URL is what a model registers with - and PostgreSQL and Valkey sit on
+a second network that model services never join.
+
+So a model service only gets `expose: ["8000"]`, which declares the container
+port without asking the host for anything. To reach one from your own machine
+there are two ways:
+
+```sh
+# through chap-core's read-only proxy, no host port needed
+curl http://localhost:8000/v2/services/chapkit-ewars-model/run/api/v1/info
+open http://localhost:8000/v2/services/chapkit-ewars-model/run/docs
+
+# or give that model a port of its own
+chaps models expose chapkit-ewars-model            # lowest free port, 5001 up
+chaps models expose chapkit-ewars-model --port 5010
+chaps models unexpose chapkit-ewars-model          # and take it away again
+chaps up                                           # apply either change
+```
+
+`expose` and `unexpose` only rewrite the overlay's `ports:`; they never
+re-resolve the version, so they are safe on a deployment running a build you do
+not want moved. `chaps models enable ID --port N|auto` does the same thing
+while enabling. `chaps models list` and `chaps status` show either the port or
+`internal`, and `chaps models info ID` prints the proxy URL for an
+internal-only model. In `chaps ui`, `p` toggles publishing for the row under
+the cursor.
+
+The API's port is not an edit of `compose.yml` - that file is upstream's, byte
+for byte. `chaps sync` renders a small `compose.chaps.yml` next to it and puts
+it in the `-f` list:
+
+```yaml
+services:
+  chap:
+    ports: !override
+      - "${CHAP_API_PORT:-8000}:8000"
+```
+
+`!override` (Compose 2.24+) replaces chap's own mapping rather than adding to
+it, which is why the API ends up on exactly one port; a file listed in
+`include:` could not do that at all. The port comes from `api_port` in
+`.chaps/project.yaml`, and `CHAP_API_PORT` in `.env` overrides it without
+touching `.chaps/`.
+
+Because Compose reads `.env` last, that line wins. `init` never rewrites a
+`.env` it finds - the database password in it outlives the rest - so
+`chaps init --api-port N --force` over an existing deployment moves
+`.chaps/project.yaml` and `compose.chaps.yml` and then warns that the older
+`CHAP_API_PORT=` line is still what the stack will use. Edit that line, or pass
+`--fresh-env` (which rotates the database password too).
+
+### The preflight
+
+`chaps up` checks that every host port the stack is about to publish is free
+before it calls Docker, and refuses with one line per conflict:
+
+```
+2 host ports the stack needs are already in use; nothing was started
+  port 8000 is already in use on this machine (needed by chap); free it, or run
+  `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
+  port 5001 is already in use on this machine (needed by chapkit-ewars-model);
+  free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
+  reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
+```
+
+Docker finds the same conflict eventually, several seconds in and named after a
+container rather than a port. Ports held by this project's own running
+containers are skipped, so `chaps up` on a running stack stays a no-op;
+`chaps up --no-preflight` hands the question back to Docker. `chaps init`
+probes the API port too, but only warns: the process holding it is often a
+previous stack you are about to replace.
+
 ### The model browser (`chaps ui`)
 
 `chaps ui` opens a two-pane browser: the catalogue on the left, the
@@ -167,12 +253,17 @@ Norwegian keyboard):
 
 ```
 j / k / arrows     move            space   enable or disable
-g / G              first / last    v       switch channel (stable, latest)
-PageUp / PageDown  jump a page     t       show or hide templates
-ctrl-u / ctrl-d    jump a page     /       filter (Enter keeps, Esc clears)
-Enter / s          save            ?       help
-q / Esc            quit            y / n   answer the quit confirmation
+g / G              first / last    p       publish a host port, or stop
+PageUp / PageDown  jump a page     v       switch channel (stable, latest)
+ctrl-u / ctrl-d    jump a page     t       show or hide templates
+Enter / s          save            /       filter (Enter keeps, Esc clears)
+q / Esc            quit            ?       help
+y / n              answer the quit confirmation
 ```
+
+The port column reads `internal` for an enabled model with no host port,
+`:5001` for one that has had a port allocated, and `:auto` for a row where `p`
+has asked for one that is not picked until you save.
 
 Saving applies the accumulated changes through the same write path as
 `chaps models enable`, then prints what changed. Nothing is written until you
@@ -186,14 +277,17 @@ save, and quitting with unsaved changes asks first.
 mychap/
   .chaps/
     project.yaml               intent: schema version, chap-core tag and compose
-                               source, registry URL, port range, the -f list, and
-                               which root files sync wrote
+                               source, registry URL, API port, model port range,
+                               the -f list, and which root files sync wrote
     models.yaml                intent: the enabled models (image, pinned version,
-                               channel, host port, data dir, user, platform, overlay name)
+                               channel, host port or none, data dir, user,
+                               platform, overlay name)
     compose.chap-core.<tag>.yml
                                chap-core's own compose.ghcr.yml at the pinned tag,
                                exactly as downloaded; compose.yml is rendered from it
   compose.yml                  artifact: the base stack, from the file above
+  compose.chaps.yml            artifact: chaps-owned overrides on top of it - the
+                               API's host port
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
   .env                         written once by init; only pins are appended
@@ -203,8 +297,8 @@ mychap/
 browser and `update` edit, and it is small enough to read and to diff. The
 compose files at the root are artifacts rendered from it by `chaps sync`, but
 they are plain Compose files with nothing `chaps`-specific in them:
-`docker compose -f compose.yml -f compose.marketplace.yml up -d` works without
-`chaps` installed, which is the point of generating them.
+`docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml
+up -d` works without `chaps` installed, which is the point of generating them.
 
 `compose.yml` is an artifact too. `init` downloads chap-core's own
 `compose.ghcr.yml` at the tag it pinned, keeps the raw copy as
@@ -239,8 +333,9 @@ the stack will start again.
 | File | What it is |
 | --- | --- |
 | `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
+| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break the stack; it only means `sync` can no longer re-render `compose.yml`. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written once by `init` and never rewritten by `init`, `sync` or `update`; `sync` appends missing pin comments and `update` moves the pin comments of models it changed. `init --fresh-env` regenerates it on purpose. |
+| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written once by `init` and never rewritten by `init`, `sync` or `update`; `sync` appends missing pin comments and `update` moves the pin comments of models it changed. `init --fresh-env` regenerates it on purpose. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
@@ -252,8 +347,8 @@ regenerating anything.
 ### Updating
 
 Model pins only move in two ways: `chaps models enable ID` (with `--channel`
-or `--version`) and `chaps update`. Nothing else, `up` included, changes the
-version a model runs.
+or `--version`) and `chaps update`. Nothing else, `up`, `expose` and `unexpose`
+included, changes the version a model runs.
 
 `chaps update` fetches the registry from the network (no cache, no fallback;
 it fails under `--offline`, `--dry-run` included, because a plan made from a
@@ -304,10 +399,15 @@ container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
   and the marketplace `service_id` are the same string, which is what makes the
   registration resolvable. Set `SERVICEKIT_REGISTRATION_KEY` in `.env` to
   require a shared secret.
-- **Publishes a unique host port** in the range 5001-5999, mapped to container
-  port 8000. Ports are allocated from `.chaps/models.yaml` plus a scan of every
-  `compose*.yml` in the directory, so two models never collide; `--port` claims
-  one explicitly.
+- **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
+  else: chap-core reaches it over the compose default network, which is the URL
+  it registers, so a host port would only be there for people. `chaps models
+  expose ID` adds one (`ports: ["5001:8000"]`, alongside the `expose`), from
+  the range 5001-5999; ports are allocated from `.chaps/models.yaml` plus a
+  scan of every `compose*.yml` in the directory *and* a check that nothing on
+  the machine is listening, so two models never collide and neither does a
+  model and something else you are running. `--port N` claims one explicitly.
+  See [Ports](#ports).
 - **Hardening**, matching the posture of the base stack: `init: true`,
   `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, an unprivileged
   `user`, a 2 GB tmpfs at `/tmp`, and a named volume for the model's data
@@ -388,8 +488,9 @@ chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
                              it, the UTC timestamp, the project directory name,
                              the chap-core image tag, the PostgreSQL server
                              version, every enabled model with its service id,
-                             version, image tag, host port, data dir and volume,
-                             and what was included (or why it was not)
+                             version, image tag, host port (null when it
+                             publishes none), data dir and volume, and what was
+                             included (or why it was not)
   files/                     .env, .chaps/** and every compose*.yml at the
                              project root
   db/chap_core.dump          pg_dump in the custom format (-Fc)
@@ -457,7 +558,8 @@ are.
 
 Every step is an ordinary Docker command. They all need the project's `-f` list,
 which `chaps docker run -- ...` supplies (or write out
-`docker compose -f compose.yml -f compose.marketplace.yml ...` yourself). `$PGU`
+`docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml
+...` yourself). `$PGU`
 and `$PGDB` are `POSTGRES_USER` and `POSTGRES_DB` from `.env`, defaulting to
 `chap` and `chap_core`.
 

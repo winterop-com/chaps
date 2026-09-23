@@ -34,6 +34,10 @@ pub struct EnvSpec {
     pub postgres_db: String,
     /// `Some` when the chap image is pinned to something other than `latest`.
     pub chap_image_tag: Option<String>,
+    /// Host port chap-core's API is published on. Written as an active line
+    /// even at the default, so the one port the stack publishes is visible
+    /// where an operator would look for it.
+    pub api_port: u16,
     /// `(<ID>_IMAGE_TAG, tag)` pairs written as commented-out pins.
     pub model_tag_pins: Vec<(String, String)>,
     pub cli_version: String,
@@ -52,7 +56,9 @@ pub struct OverlaySpec {
     pub image_tag: String,
     /// See [`crate::compose::tag_env_var`].
     pub tag_env_var: String,
-    pub host_port: u16,
+    /// Host port to publish 8000 on, or `None` for a service that is only
+    /// `expose`d on the compose network - the default.
+    pub host_port: Option<u16>,
     /// `Some("linux/amd64")` for R-INLA services.
     pub platform: Option<String>,
     pub data_dir: String,
@@ -74,7 +80,7 @@ impl OverlaySpec {
     pub fn from_model(
         m: &Model,
         v: &Version,
-        host_port: u16,
+        host_port: Option<u16>,
         data_dir: Option<&str>,
         user: Option<&str>,
         cli_version: &str,
@@ -167,7 +173,7 @@ mod tests {
         let v = m
             .resolve(&VersionSelector::Channel(Channel::Stable))
             .unwrap();
-        OverlaySpec::from_model(m, v, 5001, data_dir, user, "0.1.0")
+        OverlaySpec::from_model(m, v, Some(5001), data_dir, user, "0.1.0")
     }
 
     #[test]
@@ -182,7 +188,7 @@ mod tests {
         assert_eq!(spec.image_tag, "sha-fa880a1");
         assert_eq!(spec.tag_env_var, "CHAPKIT_EWARS_MODEL_IMAGE_TAG");
         assert_eq!(spec.volume_name, "ck_chapkit_ewars_model_data");
-        assert_eq!(spec.host_port, 5001);
+        assert_eq!(spec.host_port, Some(5001));
         assert!(!spec.registration_key);
         assert_eq!(spec.cli_version, "0.1.0");
     }
@@ -233,17 +239,29 @@ mod tests {
             image_tag: "sha-0000000".into(),
             version: "0.9.0".into(),
             channel: None,
-            host_port: 5007,
+            host_port: Some(5007),
             data_dir: "/srv/data".into(),
             user: "1000:1000".into(),
             platform: None,
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         };
         let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m, "0.1.0");
+        assert_eq!(spec.host_port, Some(5007));
+
+        // A model that publishes nothing replays as such.
+        let internal = EnabledModel {
+            host_port: None,
+            ..enabled.clone()
+        };
+        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &internal, m, "0.1.0");
+        assert_eq!(spec.host_port, None);
+        let spec = OverlaySpec::from_enabled_without_registry("gone", &internal, "0.1.0");
+        assert_eq!(spec.host_port, None);
+        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m, "0.1.0");
         // Recorded values win; the marketplace only supplies the labels.
         assert_eq!(spec.image_tag, "sha-0000000");
         assert_eq!(spec.version, "0.9.0");
-        assert_eq!(spec.host_port, 5007);
+        assert_eq!(spec.host_port, Some(5007));
         assert_eq!(spec.data_dir, "/srv/data");
         assert_eq!(spec.user, "1000:1000");
         assert_eq!(spec.platform, None);

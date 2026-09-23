@@ -23,7 +23,10 @@ struct ModelRow {
     stable: String,
     /// Version the `latest` channel points at.
     latest: String,
-    /// Host port in this project, or `null` when the model is not enabled.
+    /// Whether this project has the model enabled at all.
+    enabled: bool,
+    /// Host port in this project; `null` both for a model that is not enabled
+    /// and for one that publishes none (`enabled` tells the two apart).
     enabled_port: Option<u16>,
     /// Deployable image reference for the stable channel.
     image: String,
@@ -38,6 +41,9 @@ struct ModelDetail<'a> {
     model: &'a Model,
     /// This project's entry for the model, when it is enabled.
     enabled: Option<&'a EnabledModel>,
+    /// How to reach it from this machine, when it is enabled: its own host
+    /// port, or chap-core's proxy for a service that publishes none.
+    reach: Option<String>,
     image_stable: Option<String>,
     image_latest: Option<String>,
     needs_amd64: bool,
@@ -111,9 +117,13 @@ pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
     let model = registry
         .get(&args.id)
         .ok_or_else(|| ChapError::UnknownModel(args.id.clone()))?;
+    let enabled = enabled_entry(project.as_ref(), model);
     let detail = ModelDetail {
         model,
-        enabled: enabled_entry(project.as_ref(), model),
+        enabled,
+        reach: enabled
+            .zip(project.as_ref())
+            .map(|(e, p)| crate::status::reach(p, e.host_port, &e.service_id)),
         image_stable: channel_image(model, Channel::Stable),
         image_latest: channel_image(model, Channel::Latest),
         needs_amd64: model.needs_amd64(),
@@ -149,7 +159,8 @@ fn row(model: &Model, enabled: Option<&EnabledModel>) -> ModelRow {
         assessed_status: model.assessed_status,
         stable: model.channels.stable.clone(),
         latest: model.channels.latest.clone(),
-        enabled_port: enabled.map(|e| e.host_port),
+        enabled: enabled.is_some(),
+        enabled_port: enabled.and_then(|e| e.host_port),
         // Falling back to the tagless reference keeps the column useful even
         // if a channel points at a version the file no longer lists.
         image: channel_image(model, Channel::Stable).unwrap_or_else(|| model.source.image.clone()),
@@ -174,9 +185,7 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
                 status_label(r.assessed_status).to_string(),
                 r.stable.clone(),
                 r.latest.clone(),
-                r.enabled_port
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
+                enabled_cell(r),
             ];
             if with_kind {
                 cells.push(kind_label(r.kind).to_string());
@@ -185,6 +194,16 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
         })
         .collect();
     out.table(&headers, &body)
+}
+
+/// The ENABLED cell: the host port when the model publishes one, `internal`
+/// when it is enabled without one, and a dash when it is not enabled at all.
+fn enabled_cell(row: &ModelRow) -> String {
+    match (row.enabled, row.enabled_port) {
+        (_, Some(port)) => port.to_string(),
+        (true, None) => "internal".to_string(),
+        (false, None) => "-".to_string(),
+    }
 }
 
 fn render_info(out: &Out, detail: &ModelDetail) -> String {
@@ -304,7 +323,16 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         text.push_str(&output::fields(
             2,
             &[
-                ("port", enabled.host_port.to_string()),
+                (
+                    "reach",
+                    detail
+                        .reach
+                        .clone()
+                        .unwrap_or_else(|| match enabled.host_port {
+                            Some(port) => port.to_string(),
+                            None => "internal".to_string(),
+                        }),
+                ),
                 (
                     "version",
                     match enabled.channel {
@@ -409,13 +437,17 @@ mod tests {
     }
 
     fn enabled() -> EnabledModel {
+        enabled_on(Some(5001))
+    }
+
+    fn enabled_on(host_port: Option<u16>) -> EnabledModel {
         EnabledModel {
             service_id: "chapkit-ewars-model".into(),
             image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
             image_tag: "sha-fa880a1".into(),
             version: "1.0.0".into(),
             channel: Some(Channel::Stable),
-            host_port: 5001,
+            host_port,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
             platform: Some("linux/amd64".into()),
@@ -433,6 +465,8 @@ mod tests {
         assert_eq!(r.stable, m.channels.stable);
         assert_eq!(r.latest, m.channels.latest);
         assert_eq!(r.enabled_port, None);
+        assert!(!r.enabled);
+        assert_eq!(enabled_cell(&r), "-");
         assert!(
             r.image.starts_with(&format!("{}:", m.source.image)),
             "{} should be a tagged reference",
@@ -443,7 +477,15 @@ mod tests {
     #[test]
     fn a_row_reports_the_port_of_an_enabled_model() {
         let r = row(&model("chapkit_ewars_model"), Some(&enabled()));
+        assert!(r.enabled);
         assert_eq!(r.enabled_port, Some(5001));
+        assert_eq!(enabled_cell(&r), "5001");
+
+        // Enabled without a port: `internal`, not a dash.
+        let r = row(&model("chapkit_ewars_model"), Some(&enabled_on(None)));
+        assert!(r.enabled);
+        assert_eq!(r.enabled_port, None);
+        assert_eq!(enabled_cell(&r), "internal");
     }
 
     #[test]
@@ -476,9 +518,14 @@ mod tests {
     }
 
     fn detail_of(m: &Model, enabled: Option<&EnabledModel>) -> String {
+        let project = Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state: Default::default(),
+        };
         let detail = ModelDetail {
             model: m,
             enabled,
+            reach: enabled.map(|e| crate::status::reach(&project, e.host_port, &e.service_id)),
             image_stable: channel_image(m, Channel::Stable),
             image_latest: channel_image(m, Channel::Latest),
             needs_amd64: m.needs_amd64(),
@@ -547,9 +594,21 @@ mod tests {
     fn info_shows_the_project_entry_when_the_model_is_enabled() {
         let text = detail_of(&model("chapkit_ewars_model"), Some(&enabled()));
         assert!(text.contains("enabled in this project"));
-        assert!(text.contains("port     5001"));
+        assert!(text.contains("reach    http://localhost:5001"));
         assert!(text.contains("1.0.0 (stable)"));
         assert!(text.contains("compose.chapkit-ewars-model.yml"));
+    }
+
+    #[test]
+    fn info_names_the_proxy_for_a_model_with_no_host_port() {
+        let text = detail_of(&model("chapkit_ewars_model"), Some(&enabled_on(None)));
+        assert!(
+            text.contains(
+                "reach    internal \
+                 (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)"
+            ),
+            "{text}"
+        );
     }
 
     #[test]
@@ -558,6 +617,7 @@ mod tests {
         let detail = ModelDetail {
             model: &m,
             enabled: None,
+            reach: None,
             image_stable: channel_image(&m, Channel::Stable),
             image_latest: channel_image(&m, Channel::Latest),
             needs_amd64: m.needs_amd64(),
@@ -591,6 +651,7 @@ mod tests {
             "assessed_status",
             "stable",
             "latest",
+            "enabled",
             "enabled_port",
             "image",
             "requires_geo",
@@ -598,6 +659,15 @@ mod tests {
             assert!(!first[key].is_null(), "{key} is missing or null");
         }
         assert_eq!(first["enabled_port"], 5001);
+        assert_eq!(first["enabled"], true);
+
+        // An enabled model with no host port is `enabled` with a null port,
+        // which is what tells it apart from one that is not enabled at all.
+        let rows = vec![row(&model("chapkit_ewars_model"), Some(&enabled_on(None)))];
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&rows).unwrap()).unwrap();
+        assert_eq!(value[0]["enabled"], true);
+        assert!(value[0]["enabled_port"].is_null());
     }
 
     #[test]

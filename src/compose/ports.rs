@@ -1,8 +1,15 @@
 //! Host port allocation for model overlays.
 //!
 //! Owned by agent B.
+//!
+//! Model services publish no host port by default, so the allocator is only
+//! asked for one when someone said `--port`: `chaps models enable X --port N`,
+//! `chaps models expose X`, or `--port auto`. A port has to be free twice
+//! over - unclaimed by any compose file in the directory, and with nothing
+//! listening on it - which is why every hand-out takes a probe.
 
-use crate::error::{ChapError, Result};
+use crate::error::{ChapError, PortHolder, Result};
+use crate::project::Project;
 use serde_yaml_ng::Value;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -67,18 +74,21 @@ impl PortAllocator {
         Ok(ports)
     }
 
-    /// Take the lowest free port in the range.
+    /// Take the lowest port in the range that no compose file claims and that
+    /// `busy` says nothing is listening on.
     ///
     /// Owned by agent B.
-    pub fn allocate(&mut self) -> Result<u16> {
+    pub fn allocate(&mut self, busy: &dyn Fn(u16) -> bool) -> Result<u16> {
         for port in self.lo..=self.hi {
-            if !self.used.contains(&port) {
-                self.used.insert(port);
-                return Ok(port);
+            if self.used.contains(&port) || busy(port) {
+                continue;
             }
+            self.used.insert(port);
+            return Ok(port);
         }
         Err(anyhow::anyhow!(
-            "no free host port left in {}-{}; free one or widen port_range in .chaps/project.yaml",
+            "no free host port left in {}-{} (checked the compose files and this machine); \
+             free one or widen port_range in .chaps/project.yaml",
             self.lo,
             self.hi
         ))
@@ -87,16 +97,30 @@ impl PortAllocator {
     /// Reserve a specific port.
     ///
     /// Errors with [`crate::error::ChapError::PortOutOfRange`] outside the
-    /// range and [`crate::error::ChapError::PortInUse`] when already taken.
+    /// range and [`crate::error::ChapError::PortInUse`] when a compose file
+    /// already publishes it or `busy` finds a listener on it - the message
+    /// says which, because the two are fixed in different places.
     ///
     /// Owned by agent B.
-    pub fn claim(&mut self, p: u16) -> Result<()> {
+    pub fn claim(&mut self, p: u16, busy: &dyn Fn(u16) -> bool) -> Result<()> {
         if p < self.lo || p > self.hi {
             return Err(ChapError::PortOutOfRange(p).into());
         }
-        if !self.used.insert(p) {
-            return Err(ChapError::PortInUse(p).into());
+        if self.used.contains(&p) {
+            return Err(ChapError::PortInUse {
+                port: p,
+                holder: PortHolder::ComposeFile,
+            }
+            .into());
         }
+        if busy(p) {
+            return Err(ChapError::PortInUse {
+                port: p,
+                holder: PortHolder::Host,
+            }
+            .into());
+        }
+        self.used.insert(p);
         Ok(())
     }
 
@@ -115,11 +139,6 @@ impl PortAllocator {
         self.used.contains(&p)
     }
 
-    /// Release a port, e.g. because the service holding it is being removed.
-    pub fn release(&mut self, p: u16) {
-        self.used.remove(&p);
-    }
-
     /// The ports currently considered taken.
     #[cfg(test)]
     pub fn used(&self) -> &BTreeSet<u16> {
@@ -133,6 +152,42 @@ impl PortAllocator {
     }
 }
 
+/// A [`PortAllocator`] seeded with every host port this project records and
+/// every one a `compose*.yml` in its directory publishes, minus `freed`.
+///
+/// `freed` is for the ports of services the caller is about to rewrite or
+/// remove: a model keeping or re-claiming its own port is not a conflict.
+pub fn allocator_for(project: &Project, freed: &BTreeSet<u16>) -> Result<PortAllocator> {
+    let mut used: BTreeSet<u16> = project.used_ports();
+    used.extend(PortAllocator::scan_compose_dir(&project.dir)?);
+    for port in freed {
+        used.remove(port);
+    }
+    Ok(PortAllocator::new(project.state.port_range, used))
+}
+
+/// Every `(service, host port)` pair the named compose files publish, in file
+/// then service order.
+///
+/// Unlike [`PortAllocator::scan_compose_dir`] this reads only the files it is
+/// given - the ones this project actually hands to `docker compose -f` - and
+/// keeps the service names, which is what the `chaps up` preflight needs to
+/// say who wanted a port. A file that is missing or does not parse contributes
+/// nothing; `sync` and the allocator already report on those.
+pub fn published_ports(dir: &Path, files: &[String]) -> Vec<(String, u16)> {
+    let mut out = Vec::new();
+    for name in files {
+        let Ok(body) = std::fs::read_to_string(dir.join(name)) else {
+            continue;
+        };
+        let Ok(doc) = serde_yaml_ng::from_str::<Value>(&body) else {
+            continue;
+        };
+        out.extend(service_host_ports(&doc));
+    }
+    out
+}
+
 /// `compose.yml`, `compose.marketplace.yml`, `compose.<service>.yml`, ...
 fn is_compose_file(path: &Path) -> bool {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -141,30 +196,59 @@ fn is_compose_file(path: &Path) -> bool {
     }
 }
 
+/// The value behind a YAML tag, so compose's own `!override` and `!reset`
+/// merge directives do not hide the list they carry.
+fn untagged(value: &Value) -> &Value {
+    match value {
+        Value::Tagged(tagged) => &tagged.value,
+        other => other,
+    }
+}
+
 /// Host ports from every `services.*.ports[]` entry of one compose document.
 fn host_ports(doc: &Value) -> BTreeSet<u16> {
-    let mut ports = BTreeSet::new();
-    let Some(services) = doc.get("services").and_then(Value::as_mapping) else {
-        return ports;
+    service_host_ports(doc)
+        .into_iter()
+        .map(|(_, port)| port)
+        .collect()
+}
+
+/// The same, keeping the service each port belongs to.
+fn service_host_ports(doc: &Value) -> Vec<(String, u16)> {
+    let mut out = Vec::new();
+    let Some(services) = untagged(doc).get("services").map(untagged) else {
+        return out;
     };
-    for (_, service) in services {
-        let Some(entries) = service.get("ports").and_then(Value::as_sequence) else {
+    let Some(services) = services.as_mapping() else {
+        return out;
+    };
+    for (name, service) in services {
+        let Some(entries) = untagged(service).get("ports").map(untagged) else {
             continue;
         };
+        let Some(entries) = entries.as_sequence() else {
+            continue;
+        };
+        let name = name.as_str().unwrap_or_default().to_string();
         for entry in entries {
-            if let Some(text) = entry.as_str() {
-                ports.extend(host_port_of_short_form(text));
+            let entry = untagged(entry);
+            let port = if let Some(text) = entry.as_str() {
+                host_port_of_short_form(text)
             } else if let Some(published) = entry.get("published") {
                 // Long form: published may be a number or a string.
-                if let Some(n) = published.as_u64() {
-                    ports.extend(u16::try_from(n).ok());
-                } else if let Some(text) = published.as_str() {
-                    ports.extend(text.parse::<u16>().ok());
+                match published.as_u64() {
+                    Some(n) => u16::try_from(n).ok(),
+                    None => published.as_str().and_then(|t| t.parse::<u16>().ok()),
                 }
+            } else {
+                None
+            };
+            if let Some(port) = port {
+                out.push((name.clone(), port));
             }
         }
     }
-    ports
+    out
 }
 
 /// The host side of `"8000"`, `"5002:8000"`, `"5002:8000/tcp"` or
@@ -193,44 +277,76 @@ mod tests {
     use super::*;
     use crate::project::DEFAULT_PORT_RANGE;
 
+    /// Nothing is listening on anything.
+    fn all_free(_: u16) -> bool {
+        false
+    }
+
     #[test]
     fn allocate_hands_out_the_lowest_free_port() {
         let mut alloc = PortAllocator::new((5001, 5999), [5001, 5002, 5004]);
-        assert_eq!(alloc.allocate().unwrap(), 5003);
-        assert_eq!(alloc.allocate().unwrap(), 5005);
-        assert_eq!(alloc.allocate().unwrap(), 5006);
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5003);
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5005);
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5006);
         assert!(alloc.used().contains(&5003));
         assert_eq!(alloc.range(), (5001, 5999));
     }
 
     #[test]
+    fn allocate_skips_a_port_something_is_listening_on() {
+        // 5001 is free in every compose file and still unusable.
+        let busy = |port: u16| (5001..=5002).contains(&port);
+        let mut alloc = PortAllocator::new((5001, 5999), []);
+        assert_eq!(alloc.allocate(&busy).unwrap(), 5003);
+        assert!(
+            !alloc.is_used(5001),
+            "a port the host holds is not ours to record"
+        );
+    }
+
+    #[test]
     fn allocate_runs_out_at_the_top_of_the_range() {
         let mut alloc = PortAllocator::new((5001, 5002), []);
-        assert_eq!(alloc.allocate().unwrap(), 5001);
-        assert_eq!(alloc.allocate().unwrap(), 5002);
-        let err = alloc.allocate().expect_err("the range is exhausted");
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5001);
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5002);
+        let err = alloc
+            .allocate(&all_free)
+            .expect_err("the range is exhausted");
         assert!(err.to_string().contains("5001-5002"));
+
+        // A range that is entirely busy on the host runs out the same way.
+        let mut alloc = PortAllocator::new((5001, 5002), []);
+        let err = alloc
+            .allocate(&|_| true)
+            .expect_err("the whole range is listening");
+        assert!(err.to_string().contains("this machine"));
     }
 
     #[test]
     fn claim_rejects_a_taken_port_and_one_outside_the_range() {
         let mut alloc = PortAllocator::new(DEFAULT_PORT_RANGE, [5002]);
-        alloc.claim(5005).unwrap();
+        alloc.claim(5005, &all_free).unwrap();
         assert!(alloc.is_used(5005));
 
-        let err = alloc.claim(5002).expect_err("5002 is taken");
+        let err = alloc.claim(5002, &all_free).expect_err("5002 is taken");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
-            Some(ChapError::PortInUse(5002))
+            Some(ChapError::PortInUse {
+                port: 5002,
+                holder: PortHolder::ComposeFile
+            })
         ));
-        let err = alloc.claim(5005).expect_err("just claimed");
+        let err = alloc.claim(5005, &all_free).expect_err("just claimed");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
-            Some(ChapError::PortInUse(5005))
+            Some(ChapError::PortInUse {
+                port: 5005,
+                holder: PortHolder::ComposeFile
+            })
         ));
 
         for out in [80, 5000, 6000] {
-            let err = alloc.claim(out).expect_err("outside the range");
+            let err = alloc.claim(out, &all_free).expect_err("outside the range");
             assert!(
                 matches!(err.downcast_ref::<ChapError>(), Some(ChapError::PortOutOfRange(p)) if *p == out),
                 "port {out}"
@@ -239,14 +355,34 @@ mod tests {
     }
 
     #[test]
-    fn reserve_and_release_ignore_the_range() {
+    fn claim_says_when_the_host_is_the_one_holding_the_port() {
+        let mut alloc = PortAllocator::new(DEFAULT_PORT_RANGE, []);
+        let err = alloc
+            .claim(5010, &|port| port == 5010)
+            .expect_err("something is listening on 5010");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::PortInUse {
+                port: 5010,
+                holder: PortHolder::Host
+            })
+        ));
+        assert!(
+            err.to_string().contains("something is listening"),
+            "{err:#}"
+        );
+        assert!(!alloc.is_used(5010), "a rejected claim records nothing");
+    }
+
+    #[test]
+    fn reserve_ignores_the_range() {
+        // A port a project recorded before its range was narrowed is still
+        // taken, and re-recording it must not fail over the range.
         let mut alloc = PortAllocator::new((5001, 5999), []);
         alloc.reserve(9090);
         assert!(alloc.is_used(9090));
         alloc.reserve(5001);
-        assert_eq!(alloc.allocate().unwrap(), 5002);
-        alloc.release(5001);
-        assert_eq!(alloc.allocate().unwrap(), 5001);
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5002);
     }
 
     #[test]
@@ -315,17 +451,21 @@ mod tests {
     }
 
     #[test]
-    fn scan_compose_dir_sees_only_the_model_port_of_a_rendered_overlay() {
-        // The overlay's volume init service publishes nothing, so it must not
-        // change what the allocator considers taken.
+    fn scan_compose_dir_sees_nothing_in_an_internal_only_overlay() {
+        // The golden overlay publishes no host port at all: it only exposes
+        // 8000 on the compose network, and its volume init service publishes
+        // nothing either.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("compose.chapkit-ewars-model.yml"),
             include_str!("../../tests/fixtures/compose.chapkit-ewars-model.yml"),
         )
         .unwrap();
-        let ports = PortAllocator::scan_compose_dir(dir.path()).unwrap();
-        assert_eq!(ports, BTreeSet::from([5002]));
+        assert!(
+            PortAllocator::scan_compose_dir(dir.path())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -333,5 +473,104 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ports = PortAllocator::scan_compose_dir(&dir.path().join("nope")).unwrap();
         assert!(ports.is_empty());
+    }
+
+    #[test]
+    fn a_compose_override_tag_does_not_hide_its_port_list() {
+        // `ports: !override` is the only way to replace a mapping across -f
+        // files, and compose.chaps.yml uses it; the scanner has to see through
+        // the tag rather than skip the file.
+        let doc: Value = serde_yaml_ng::from_str(
+            "services:\n  chap:\n    ports: !override\n      - \"8010:8000\"\n",
+        )
+        .unwrap();
+        assert_eq!(service_host_ports(&doc), vec![("chap".to_string(), 8010)]);
+
+        // A published port that is a compose variable is no number, so it is
+        // left out rather than guessed at.
+        let doc: Value = serde_yaml_ng::from_str(
+            "services:\n  chap:\n    ports: !override\n      - \"${CHAP_API_PORT:-8000}:8000\"\n",
+        )
+        .unwrap();
+        assert!(service_host_ports(&doc).is_empty());
+    }
+
+    #[test]
+    fn published_ports_reads_only_the_files_it_is_given() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("compose.yml"),
+            "services:\n  chap:\n    ports:\n      - \"8000:8000\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("compose.model.yml"),
+            concat!(
+                "services:\n",
+                "  model:\n",
+                "    expose:\n      - \"8000\"\n",
+                "    ports:\n      - \"5001:8000\"\n",
+                "  model-init:\n",
+                "    image: busybox\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("compose.stranger.yml"),
+            "services:\n  stranger:\n    ports:\n      - \"5999:8000\"\n",
+        )
+        .unwrap();
+
+        let files = vec![
+            "compose.yml".to_string(),
+            "compose.model.yml".to_string(),
+            "compose.gone.yml".to_string(),
+        ];
+        assert_eq!(
+            published_ports(dir.path(), &files),
+            vec![("chap".to_string(), 8000), ("model".to_string(), 5001)],
+            "a missing file is skipped and an unlisted one is never read"
+        );
+        assert!(published_ports(dir.path(), &[]).is_empty());
+    }
+
+    #[test]
+    fn allocator_for_seeds_from_the_state_and_the_directory() {
+        use crate::project::{EnabledModel, ProjectState};
+        use std::collections::BTreeMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("compose.mine.yml"),
+            "services:\n  mine:\n    ports:\n      - \"5002:8000\"\n",
+        )
+        .unwrap();
+        let model = EnabledModel {
+            service_id: "m".into(),
+            image: "ghcr.io/x".into(),
+            image_tag: "sha-1111111".into(),
+            version: "1.0.0".into(),
+            channel: None,
+            host_port: Some(5001),
+            data_dir: "/app/data".into(),
+            user: "chapkit:chapkit".into(),
+            platform: None,
+            compose_file: "compose.m.yml".into(),
+        };
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                models: BTreeMap::from([("m".to_string(), model)]),
+                ..ProjectState::default()
+            },
+        };
+
+        let mut alloc = allocator_for(&project, &BTreeSet::new()).unwrap();
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5003);
+
+        // Freeing the model's own port makes it available again, which is how
+        // a model keeps its port across a rewrite.
+        let mut alloc = allocator_for(&project, &BTreeSet::from([5001])).unwrap();
+        assert_eq!(alloc.allocate(&all_free).unwrap(), 5001);
     }
 }

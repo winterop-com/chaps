@@ -349,7 +349,7 @@ mod tests {
             service_id: service_id.to_string(),
             version: "1.0.0".into(),
             image_tag: "sha-fa880a1".into(),
-            host_port: 5001,
+            host_port: Some(5001),
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
             volume: format!("ck_{}_data", service_id.replace('-', "_")),

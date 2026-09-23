@@ -18,17 +18,43 @@ pub const PROJECT_FILE: &str = "project.yaml";
 pub const MODELS_FILE: &str = "models.yaml";
 /// Base compose file: chap-core, worker, valkey, postgres.
 pub const BASE_COMPOSE: &str = "compose.yml";
+/// chaps-owned overrides that sit on top of [`BASE_COMPOSE`]: the API's host
+/// port, and anything else this CLI decides about the base stack.
+///
+/// It is a separate `-f` entry rather than an `include:` because a file listed
+/// in `include:` cannot override a service the main file defines.
+pub const CHAPS_COMPOSE: &str = "compose.chaps.yml";
 /// Umbrella file that `include:`s one overlay per enabled model.
 pub const MARKETPLACE_COMPOSE: &str = "compose.marketplace.yml";
 /// Environment file docker compose picks up automatically.
 pub const ENV_FILE: &str = ".env";
 /// The `.env` variable the chap-core images read their tag from.
 pub const CHAP_TAG_ENV_VAR: &str = "CHAP_IMAGE_TAG";
+/// The `.env` variable [`CHAPS_COMPOSE`] reads the API's host port from.
+pub const API_PORT_ENV_VAR: &str = "CHAP_API_PORT";
 
 /// `project.yaml` schema version written by this CLI.
 pub const SCHEMA_VERSION: u32 = 1;
 /// Host port range model overlays are allocated from.
 pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
+/// Host port chap-core's API is published on unless `--api-port` says
+/// otherwise.
+pub const DEFAULT_API_PORT: u16 = 8000;
+
+/// The `-f` list a project written by this CLI has.
+pub fn default_compose_files() -> Vec<String> {
+    vec![
+        BASE_COMPOSE.to_string(),
+        CHAPS_COMPOSE.to_string(),
+        MARKETPLACE_COMPOSE.to_string(),
+    ]
+}
+
+/// [`DEFAULT_API_PORT`], for `serde(default)` on a `project.yaml` written
+/// before the field existed.
+fn default_api_port() -> u16 {
+    DEFAULT_API_PORT
+}
 
 /// File name of the cached copy of chap-core's `compose.ghcr.yml` at `tag`,
 /// inside [`CHAPS_DIR`].
@@ -113,6 +139,11 @@ pub struct ProjectState {
     #[serde(default)]
     pub chap_compose_source: ComposeSource,
     pub registry_url: String,
+    /// Host port chap-core's API is published on. Written into `.env` as
+    /// `CHAP_API_PORT` and into [`CHAPS_COMPOSE`]; a `project.yaml` from
+    /// before this field loads as [`DEFAULT_API_PORT`], which is what it was.
+    #[serde(default = "default_api_port")]
+    pub api_port: u16,
     /// Ordered `-f` list, relative to the project directory.
     pub compose_files: Vec<String>,
     pub port_range: (u16, u16),
@@ -133,7 +164,8 @@ impl Default for ProjectState {
             chap_image_tag: "latest".to_string(),
             chap_compose_source: ComposeSource::Embedded,
             registry_url: crate::registry::DEFAULT_REGISTRY_URL.to_string(),
-            compose_files: vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()],
+            api_port: DEFAULT_API_PORT,
+            compose_files: default_compose_files(),
             port_range: DEFAULT_PORT_RANGE,
             rendered_files: Vec::new(),
             models: BTreeMap::new(),
@@ -153,7 +185,14 @@ pub struct EnabledModel {
     pub version: String,
     /// `Some` when the pin follows a channel, `None` when it is exact.
     pub channel: Option<Channel>,
-    pub host_port: u16,
+    /// Host port the service is published on, when someone asked for one.
+    ///
+    /// `None` - the default - means the overlay only `expose`s port 8000:
+    /// chap-core reaches the model over the compose network and a human goes
+    /// through chap-core's proxy. A `models.yaml` written before this was
+    /// optional holds a number, which still loads as `Some`.
+    #[serde(default)]
+    pub host_port: Option<u16>,
     pub data_dir: String,
     /// `user:group` the container runs as.
     pub user: String,
@@ -287,9 +326,25 @@ impl Project {
             .collect()
     }
 
-    /// Host ports already claimed by enabled models.
+    /// Host ports already claimed by enabled models. Models with no published
+    /// port claim nothing.
     pub fn used_ports(&self) -> BTreeSet<u16> {
-        self.state.models.values().map(|m| m.host_port).collect()
+        self.state
+            .models
+            .values()
+            .filter_map(|m| m.host_port)
+            .collect()
+    }
+
+    /// Base URL of chap-core's API on this machine.
+    pub fn api_url(&self) -> String {
+        format!("http://localhost:{}", self.state.api_port)
+    }
+
+    /// chap-core's read-only proxy to one model service, the way to reach a
+    /// model that publishes no host port of its own.
+    pub fn proxy_url(&self, service_id: &str) -> String {
+        format!("{}/v2/services/{service_id}/run/", self.api_url())
     }
 }
 
@@ -315,7 +370,7 @@ fn write_atomically(path: &Path, body: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn enabled(port: u16) -> EnabledModel {
+    fn enabled(port: Option<u16>) -> EnabledModel {
         EnabledModel {
             service_id: "chapkit-ewars-model".into(),
             image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
@@ -336,7 +391,7 @@ mod tests {
         let state = ProjectState {
             chap_image_tag: "v1.2.3".into(),
             rendered_files: vec!["compose.marketplace.yml".into()],
-            models: BTreeMap::from([("chapkit_ewars_model".to_string(), enabled(5001))]),
+            models: BTreeMap::from([("chapkit_ewars_model".to_string(), enabled(Some(5001)))]),
             ..ProjectState::default()
         };
         let project = Project {
@@ -350,6 +405,7 @@ mod tests {
         assert!(project_body.starts_with("# .chaps/project.yaml - managed by chaps"));
         assert!(project_body.contains("\nschema_version: 1\n"));
         assert!(project_body.contains("chap_image_tag: v1.2.3"));
+        assert!(project_body.contains("\napi_port: 8000\n"));
         assert!(
             !project_body.contains("models:"),
             "models live in their own file"
@@ -372,8 +428,97 @@ mod tests {
         assert_eq!(loaded.dir, dir.path());
         assert_eq!(loaded.state.chap_image_tag, "v1.2.3");
         assert_eq!(loaded.state.port_range, DEFAULT_PORT_RANGE);
+        assert_eq!(loaded.state.api_port, DEFAULT_API_PORT);
         assert_eq!(loaded.state.rendered_files, vec!["compose.marketplace.yml"]);
-        assert_eq!(loaded.state.models["chapkit_ewars_model"], enabled(5001));
+        assert_eq!(
+            loaded.state.models["chapkit_ewars_model"],
+            enabled(Some(5001))
+        );
+    }
+
+    #[test]
+    fn a_model_with_no_published_port_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                models: BTreeMap::from([("chapkit_ewars_model".to_string(), enabled(None))]),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(MODELS_FILE)).unwrap();
+        assert!(body.contains("host_port: null"), "{body}");
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.models["chapkit_ewars_model"].host_port, None);
+        assert!(loaded.used_ports().is_empty(), "nothing is published");
+    }
+
+    #[test]
+    fn a_models_file_written_before_the_port_was_optional_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let chaps = dir.path().join(CHAPS_DIR);
+        std::fs::create_dir_all(&chaps).unwrap();
+        std::fs::write(
+            chaps.join(PROJECT_FILE),
+            "schema_version: 1\n\
+             generated_by: chaps-cli 0.1.0\n\
+             chap_image_tag: latest\n\
+             registry_url: https://example.test/registry.yaml\n\
+             compose_files:\n\
+             - compose.yml\n\
+             - compose.marketplace.yml\n\
+             port_range:\n\
+             - 5001\n\
+             - 5999\n",
+        )
+        .unwrap();
+        std::fs::write(
+            chaps.join(MODELS_FILE),
+            "chapkit_ewars_model:\n\
+             \x20 service_id: chapkit-ewars-model\n\
+             \x20 image: ghcr.io/chap-models/chapkit_ewars_model\n\
+             \x20 image_tag: sha-fa880a1\n\
+             \x20 version: 1.0.0\n\
+             \x20 channel: stable\n\
+             \x20 host_port: 5001\n\
+             \x20 data_dir: /app/data\n\
+             \x20 user: chapkit:chapkit\n\
+             \x20 platform: linux/amd64\n\
+             \x20 compose_file: compose.chapkit-ewars-model.yml\n",
+        )
+        .unwrap();
+
+        let loaded = Project::load(dir.path()).unwrap();
+        // The old two-entry -f list and the missing api_port both default.
+        assert_eq!(loaded.state.api_port, DEFAULT_API_PORT);
+        assert_eq!(
+            loaded.state.compose_files,
+            vec!["compose.yml", "compose.marketplace.yml"]
+        );
+        assert_eq!(
+            loaded.state.models["chapkit_ewars_model"].host_port,
+            Some(5001),
+            "a recorded number is still a published port"
+        );
+        assert_eq!(loaded.used_ports(), BTreeSet::from([5001]));
+    }
+
+    #[test]
+    fn the_api_and_proxy_urls_follow_the_api_port() {
+        let project = Project {
+            dir: PathBuf::from("/tmp/chapx"),
+            state: ProjectState {
+                api_port: 8123,
+                ..ProjectState::default()
+            },
+        };
+        assert_eq!(project.api_url(), "http://localhost:8123");
+        assert_eq!(
+            project.proxy_url("chapkit-ewars-model"),
+            "http://localhost:8123/v2/services/chapkit-ewars-model/run/"
+        );
     }
 
     #[test]
@@ -545,8 +690,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = ProjectState {
             models: BTreeMap::from([
-                ("a".to_string(), enabled(5001)),
-                ("b".to_string(), enabled(5004)),
+                ("a".to_string(), enabled(Some(5001))),
+                ("b".to_string(), enabled(Some(5004))),
+                ("c".to_string(), enabled(None)),
             ]),
             ..ProjectState::default()
         };
@@ -562,6 +708,7 @@ mod tests {
             project.compose_file_paths(),
             vec![
                 dir.path().join(BASE_COMPOSE),
+                dir.path().join(CHAPS_COMPOSE),
                 dir.path().join(MARKETPLACE_COMPOSE),
             ]
         );

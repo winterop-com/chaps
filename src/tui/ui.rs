@@ -159,11 +159,17 @@ fn row_line<'a>(app: &App, row: &Row, width: u16) -> Line<'a> {
             .unwrap_or_else(|| "-".to_string());
         spans.push(Span::raw(format!(" {}", fit(&version, 8))));
     }
-    if let Some(port) = row.port {
-        spans.push(Span::styled(
-            format!(" :{port}"),
-            Style::default().fg(Color::Blue),
-        ));
+    // Enabled rows say how they are reached: their own host port, or that they
+    // are only on the compose network. It follows the pending publish flag, so
+    // pressing `p` is visible before saving - the port itself is only picked
+    // when the selection is applied, hence `:auto`.
+    if row.enabled {
+        let (text, colour) = match (row.publish, row.port) {
+            (true, Some(port)) => (format!(" :{port}"), Color::Blue),
+            (true, None) => (" :auto".to_string(), Color::Yellow),
+            (false, _) => (" internal".to_string(), Color::DarkGray),
+        };
+        spans.push(Span::styled(text, Style::default().fg(colour)));
     }
     Line::from(spans)
 }
@@ -198,7 +204,13 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
             "enabled in this project",
             Style::default().fg(Color::Green),
         )));
-        lines.push(field("port", &recorded.host_port.to_string()));
+        lines.push(field(
+            "reach",
+            &match recorded.host_port {
+                Some(port) => format!("http://localhost:{port}"),
+                None => "internal (through chap-core's /run/ proxy)".to_string(),
+            },
+        ));
         lines.push(field(
             "pinned",
             &format!("{} ({})", recorded.version, recorded.image_tag),
@@ -543,9 +555,8 @@ mod tests {
         assert!(screen.contains("amd64"));
     }
 
-    #[test]
-    fn enabled_rows_are_checked_and_show_their_port() {
-        let registry = registry();
+    /// A project state with `chapkit_ewars_model` enabled on `host_port`.
+    fn state_with_ewars(registry: &Registry, host_port: Option<u16>) -> ProjectState {
         let mut state = ProjectState::default();
         let model = registry.get("chapkit_ewars_model").unwrap();
         state.models.insert(
@@ -556,18 +567,53 @@ mod tests {
                 image_tag: "sha-fa880a1".into(),
                 version: model.channels.stable.clone(),
                 channel: Some(Channel::Stable),
-                host_port: 5001,
+                host_port,
                 data_dir: "/app/data".into(),
                 user: "chapkit:chapkit".into(),
                 platform: Some("linux/amd64".into()),
                 compose_file: "compose.chapkit-ewars-model.yml".into(),
             },
         );
+        state
+    }
+
+    #[test]
+    fn enabled_rows_are_checked_and_show_their_port() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
         let app = App::new(&registry, &state);
         let screen = render(&app, 100, 30);
         assert!(screen.contains("[x]"));
         assert!(screen.contains(":5001"));
         assert!(screen.contains("enabled in this project"));
+        assert!(screen.contains("http://localhost:5001"));
+    }
+
+    #[test]
+    fn an_enabled_model_with_no_host_port_reads_as_internal() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        let screen = render(&app, 100, 30);
+        assert!(screen.contains("[x]"));
+        assert!(screen.contains("internal"), "{screen}");
+        assert!(!screen.contains(":500"), "no host port is published");
+        assert!(screen.contains("proxy"), "the details name the way in");
+
+        // Pressing p is visible before saving, with the port left to apply.
+        app.reduce(Action::TogglePublish);
+        let screen = render(&app, 100, 30);
+        assert!(screen.contains(":auto"), "{screen}");
+    }
+
+    #[test]
+    fn a_row_nobody_enabled_says_nothing_about_ports() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let row = app.selected().expect("a row is selected");
+        let text = line_text(&row_line(&app, row, 120));
+        assert!(!text.contains("internal"), "{text}");
+        assert!(!text.contains(':'), "{text}");
     }
 
     #[test]

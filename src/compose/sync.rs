@@ -1,7 +1,8 @@
 //! Rendering `.chaps/` into the compose files at the project root.
 //!
-//! `.chaps/` is intent; `compose.yml`, `compose.<service_id>.yml` and
-//! `compose.marketplace.yml` are artifacts. [`sync`] is the one place that
+//! `.chaps/` is intent; `compose.yml`, `compose.chaps.yml`,
+//! `compose.<service_id>.yml` and `compose.marketplace.yml` are artifacts.
+//! [`sync`] is the one place that
 //! turns the former into the latter: `apply` ends in it, `chaps sync` calls it
 //! directly and `chaps up` runs it before `docker compose up`.
 //!
@@ -11,12 +12,15 @@
 //! is rendered from is kept in `.chaps/`; nothing here touches the network.
 
 use crate::compose::overrides;
-use crate::compose::render::{NO_TAG_PINS, render_base, render_overlay, render_umbrella};
+use crate::compose::render::{
+    NO_TAG_PINS, render_base, render_chaps_overlay, render_overlay, render_umbrella,
+};
 use crate::compose::spec::{BaseSpec, OverlaySpec, UpstreamCompose};
 use crate::compose::tag_env_var;
 use crate::error::Result;
 use crate::project::{
-    BASE_COMPOSE, CHAP_TAG_ENV_VAR, ComposeSource, ENV_FILE, MARKETPLACE_COMPOSE, Project,
+    BASE_COMPOSE, CHAP_TAG_ENV_VAR, CHAPS_COMPOSE, ComposeSource, ENV_FILE, MARKETPLACE_COMPOSE,
+    Project, default_compose_files,
 };
 use crate::registry::Registry;
 use serde::Serialize;
@@ -90,6 +94,13 @@ pub fn sync(
     if let Some(base) = base {
         desired.push((BASE_COMPOSE.to_string(), base));
     }
+    // Always rendered, base file or not: it is the only place the API's host
+    // port is decided, and it has to be a `-f` entry of its own because a
+    // file in `include:` cannot override a service compose.yml defines.
+    desired.push((
+        CHAPS_COMPOSE.to_string(),
+        render_chaps_overlay(project.state.api_port),
+    ));
     for (id, model) in &project.state.models {
         let spec = match registry.get(id) {
             Some(m) => OverlaySpec::from_enabled(id, model, m, cli_version),
@@ -161,7 +172,9 @@ pub fn sync(
         return Ok(report);
     }
 
-    project.state.compose_files = vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()];
+    // A project written before compose.chaps.yml existed records a two-entry
+    // `-f` list; the first sync after an upgrade puts the new file in it.
+    project.state.compose_files = default_compose_files();
     project.state.rendered_files = desired.into_iter().map(|(f, _)| f).collect();
     project.save()?;
     Ok(report)
@@ -225,6 +238,7 @@ fn is_overlay_name(name: &str) -> bool {
         && name.ends_with(".yml")
         && name != MARKETPLACE_COMPOSE
         && name != BASE_COMPOSE
+        && name != CHAPS_COMPOSE
 }
 
 /// Add a commented image pin to `.env` for every enabled model that has none.
@@ -434,6 +448,7 @@ mod tests {
             names(&report.unchanged),
             vec![
                 "compose.yml",
+                "compose.chaps.yml",
                 "compose.chapkit-ewars-model.yml",
                 "compose.marketplace.yml"
             ]
@@ -442,11 +457,79 @@ mod tests {
             project.state.rendered_files,
             vec![
                 "compose.yml",
+                "compose.chaps.yml",
                 "compose.chapkit-ewars-model.yml",
                 "compose.marketplace.yml"
             ]
         );
-        assert_eq!(report.summary(), "0 written, 3 unchanged, 0 removed");
+        assert_eq!(report.summary(), "0 written, 4 unchanged, 0 removed");
+    }
+
+    #[test]
+    fn sync_renders_the_chaps_overlay_and_puts_it_in_the_f_list() {
+        let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+        let overlay = dir.path().join(CHAPS_COMPOSE);
+        assert!(overlay.is_file());
+        assert!(read(&overlay).contains("${CHAP_API_PORT:-8000}:8000"));
+        assert_eq!(
+            project.state.compose_files,
+            vec![
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.marketplace.yml"
+            ],
+            "the override needs its own -f entry, between the base and the umbrella"
+        );
+
+        // The API port lives in .chaps/project.yaml, so moving it is drift.
+        project.state.api_port = 8123;
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift);
+        assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+        assert!(
+            read(&overlay).contains("8000}:8000"),
+            "--check writes nothing"
+        );
+
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+        assert!(read(&overlay).contains("${CHAP_API_PORT:-8123}:8000"));
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+
+        // It is never removed as if it were a model overlay.
+        project.state.models.clear();
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(overlay.is_file());
+    }
+
+    #[test]
+    fn a_project_from_before_the_chaps_overlay_is_migrated_by_one_sync() {
+        let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+        // What an older chaps wrote: no compose.chaps.yml anywhere.
+        std::fs::remove_file(dir.path().join(CHAPS_COMPOSE)).unwrap();
+        project.state.compose_files =
+            vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()];
+        project.state.rendered_files.retain(|f| f != CHAPS_COMPOSE);
+
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift, "the new file is missing");
+        assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+        assert!(
+            !dir.path().join(CHAPS_COMPOSE).exists(),
+            "--check writes nothing"
+        );
+
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+        assert!(dir.path().join(CHAPS_COMPOSE).is_file());
+        assert_eq!(project.state.compose_files, default_compose_files());
+        assert!(
+            project
+                .state
+                .rendered_files
+                .contains(&CHAPS_COMPOSE.to_string())
+        );
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
     }
 
     #[test]
@@ -463,7 +546,7 @@ mod tests {
             vec!["compose.chapkit-ewars-model.yml"]
         );
         assert!(!overlay.exists(), "--check writes nothing");
-        assert_eq!(report.summary(), "1 to write, 2 unchanged, 0 to remove");
+        assert_eq!(report.summary(), "1 to write, 3 unchanged, 0 to remove");
 
         let report = sync(&mut project, &registry, VERSION, false).unwrap();
         assert!(report.drift);

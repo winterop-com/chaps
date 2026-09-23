@@ -102,7 +102,11 @@ pub struct ManifestModel {
     pub service_id: String,
     pub version: String,
     pub image_tag: String,
-    pub host_port: u16,
+    /// Host port the service published, or `None` for one that was only
+    /// reachable inside the compose network. An older manifest, written when
+    /// every model had a port, holds a number.
+    #[serde(default)]
+    pub host_port: Option<u16>,
     pub data_dir: String,
     /// `user:group` the service runs as, as recorded in `.chaps/models.yaml`.
     pub user: String,
@@ -732,7 +736,7 @@ mod tests {
                 service_id: "chapkit-ewars-model".into(),
                 version: "1.0.0".into(),
                 image_tag: "sha-fa880a1".into(),
-                host_port: 5001,
+                host_port: Some(5001),
                 data_dir: "/app/data".into(),
                 user: "chapkit:chapkit".into(),
                 volume: "ck_chapkit_ewars_model_data".into(),
