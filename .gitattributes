@@ -1,0 +1,27 @@
+# Line endings are part of what this repository compares.
+#
+# The compose templates are compiled into the binary with `include_str!`, the
+# golden fixture and `docs/reference.md` are compared to generated text byte
+# for byte, and every file `chaps` writes is compared to what the next `chaps
+# sync` renders. A checkout with git's default `core.autocrlf` on Windows
+# would hand all of those back with CRLF, so text is normalised to LF in the
+# index and checked out as LF on every platform.
+
+* text=auto eol=lf
+
+*.example text eol=lf
+*.lock text eol=lf
+*.md text eol=lf
+*.rs text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+LICENSE text eol=lf
+Makefile text eol=lf
+vendor/marketplace/SNAPSHOT text eol=lf
+
+# Anything that is not text is left alone.
+*.gz binary
+*.ico binary
+*.png binary

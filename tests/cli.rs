@@ -69,6 +69,13 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
+/// Rewrite CRLF line endings as LF, for text that came out of the checkout
+/// rather than out of the CLI: the CLI writes `\n` on every platform, and
+/// git may not have.
+fn normalize_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 /// The `POSTGRES_PASSWORD=` line of a generated `.env`.
 fn password_line(env: &str) -> &str {
     env.lines()
@@ -592,7 +599,7 @@ fn json_output_parses_for_init_and_enable() {
         .clone();
     let value: Json = serde_json::from_slice(&out).expect("init --json is JSON");
     assert_eq!(value["dir"], dir.to_string_lossy().as_ref());
-    let written: Vec<String> = value["written"]
+    let written: Vec<PathBuf> = value["written"]
         .as_array()
         .unwrap()
         .iter()
@@ -600,8 +607,7 @@ fn json_output_parses_for_init_and_enable() {
             Path::new(v.as_str().unwrap())
                 .strip_prefix(&dir)
                 .unwrap()
-                .to_string_lossy()
-                .to_string()
+                .to_path_buf()
         })
         .collect();
     for name in [
@@ -612,7 +618,11 @@ fn json_output_parses_for_init_and_enable() {
         ".chaps/project.yaml",
         ".chaps/models.yaml",
     ] {
-        assert!(written.contains(&name.to_string()), "{name} not reported");
+        // Compared as paths: the separator the CLI prints is the platform's.
+        assert!(
+            written.contains(&PathBuf::from(name)),
+            "{name} not reported"
+        );
     }
     assert_eq!(value["report"]["enabled"][0][0], "chapkit_ewars_model");
     assert_eq!(value["report"]["enabled"][0][1]["host_port"], Json::Null);
@@ -746,7 +756,9 @@ fn force_keeps_the_env_file_it_found() {
         .map(|v| v.as_str().unwrap())
         .collect();
     assert!(
-        !written.iter().any(|p| p.ends_with("/.env")),
+        !written
+            .iter()
+            .any(|p| Path::new(p).file_name() == Some(".env".as_ref())),
         "the kept .env is listed as written: {written:?}"
     );
     assert_eq!(read(&dir.join(".env")), before);
@@ -1992,7 +2004,12 @@ fn the_command_reference_chapter_matches_the_help_texts() {
         .clone();
     let generated = String::from_utf8(out).expect("the reference is UTF-8");
 
-    let committed = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference.md"));
+    // Read through whatever the checkout did to it: a Windows clone with
+    // git's default `core.autocrlf` has CRLF on disk, and `--help` is
+    // rendered with `\n` everywhere.
+    let committed = normalize_newlines(&read(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference.md"),
+    ));
 
     assert_eq!(
         generated, committed,
@@ -2540,7 +2557,11 @@ fn debug_implies_verbose_and_adds_the_resolved_project() {
     assert!(stderr.contains("compared"), "{stderr}");
     // -d's own half: where the state it read actually lives.
     assert!(stderr.contains("project:"), "{stderr}");
-    assert!(stderr.contains(".chaps/project.yaml"), "{stderr}");
+    let state_file = Path::new(".chaps").join("project.yaml");
+    assert!(
+        stderr.contains(&state_file.display().to_string()),
+        "{stderr}"
+    );
 
     // The long spellings do the same.
     sandbox

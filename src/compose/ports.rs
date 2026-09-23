@@ -458,7 +458,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("compose.chapkit-ewars-model.yml"),
-            include_str!("../../tests/fixtures/compose.chapkit-ewars-model.yml"),
+            crate::compose::render::normalize_newlines(include_str!(
+                "../../tests/fixtures/compose.chapkit-ewars-model.yml"
+            )),
         )
         .unwrap();
         assert!(

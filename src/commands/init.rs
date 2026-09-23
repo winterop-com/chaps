@@ -689,9 +689,16 @@ mod tests {
             cwd.join("chapx")
         );
         assert_eq!(
-            resolve_dir(Path::new("/tmp/chapx")).unwrap(),
-            PathBuf::from("/tmp/chapx")
+            resolve_dir(Path::new("./a/./b")).unwrap(),
+            cwd.join("a").join("b")
         );
+        // An absolute path is taken as it stands. It is spelled with the
+        // platform's own separators and prefix, which is what `current_dir`
+        // hands back, so the test says nothing about `/tmp` on a machine
+        // where that is not a path at all.
+        let absolute = cwd.join("chapx");
+        assert!(absolute.is_absolute());
+        assert_eq!(resolve_dir(&absolute).unwrap(), absolute);
     }
 
     #[test]

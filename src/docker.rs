@@ -572,25 +572,23 @@ mod tests {
 
     #[test]
     fn compose_args_lists_every_file_absolutely_and_in_order() {
-        let p = project("/tmp/chapx");
+        let dir = "/tmp/chapx";
+        let p = project(dir);
+        // Each `-f` is the project directory joined with the file name, in
+        // the separator of whatever platform the CLI runs on.
+        let file = |name: &str| PathBuf::from(dir).join(name).to_string_lossy().into_owned();
         assert_eq!(
             compose_args(&p),
             vec![
                 "compose".to_string(),
                 "-f".to_string(),
-                PathBuf::from("/tmp/chapx/compose.yml")
-                    .to_string_lossy()
-                    .into_owned(),
+                file("compose.yml"),
                 // The chaps-owned overrides sit between the base file and the
                 // umbrella: later files win, and this one overrides chap.
                 "-f".to_string(),
-                PathBuf::from("/tmp/chapx/compose.chaps.yml")
-                    .to_string_lossy()
-                    .into_owned(),
+                file("compose.chaps.yml"),
                 "-f".to_string(),
-                PathBuf::from("/tmp/chapx/compose.marketplace.yml")
-                    .to_string_lossy()
-                    .into_owned(),
+                file("compose.marketplace.yml"),
             ]
         );
     }
