@@ -369,7 +369,9 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
 
         let probed = probes.map(Probes::join);
         checks.extend(network_checks(probed.as_ref()));
-        checks.push(chaps_check(probed.as_ref().map(|p| &p.chaps)));
+        checks.push(chaps_check(ReleaseList::of(
+            probed.as_ref().map(|p| &p.chaps),
+        )));
 
         if let Some(project) = project {
             checks.extend(project_checks(ctx, project, probed.as_ref(), have_cli));
@@ -418,7 +420,7 @@ fn project_checks(
 
     checks.push(pin_check(
         &project.state.chap_image_tag,
-        probed.and_then(|p| p.chap_core.as_deref().ok()),
+        ReleaseList::of(probed.map(|p| &p.chap_core)),
     ));
     checks.extend(image_checks(project, probed, have_cli));
     checks.push(stack_check(project, &running));
@@ -746,7 +748,12 @@ pub fn disk_path(root: Option<&str>) -> PathBuf {
 }
 
 /// What this build of `chaps` is, and whether there is a newer one.
-pub fn chaps_check(latest: Option<&std::result::Result<String, String>>) -> Check {
+///
+/// Under `--offline` the lookup never happened, so the line is a skip that
+/// says so and still names the build: "there is no update" is not something
+/// this run is in a position to claim.
+pub fn chaps_check(latest: ReleaseList<'_>) -> Check {
+    const ID: &str = "chaps";
     let path = std::env::current_exe().ok();
     let method = path
         .as_deref()
@@ -754,13 +761,16 @@ pub fn chaps_check(latest: Option<&std::result::Result<String, String>>) -> Chec
         .unwrap_or("release archive");
     let detail = format!("v{VERSION}, {TARGET}, {method}");
     match latest {
-        Some(Ok(tag)) if selfupdate::is_newer_than_current(tag) => Check::warn(
-            "chaps",
-            "chaps",
+        ReleaseList::Newest(tag) if selfupdate::is_newer_than_current(tag) => Check::warn(
+            ID,
+            ID,
             format!("{detail}; {tag} is available"),
             "run `chaps self update`",
         ),
-        _ => Check::ok("chaps", "chaps", detail),
+        ReleaseList::Offline => {
+            Check::skip(ID, ID, format!("{detail}; {}", ReleaseList::OFFLINE_WHY))
+        }
+        _ => Check::ok(ID, ID, detail),
     }
 }
 
@@ -821,6 +831,38 @@ impl<'s> Probes<'s> {
             marketplace: joined(self.marketplace),
             chap_core: joined(self.chap_core),
             chaps: joined(self.chaps),
+        }
+    }
+}
+
+/// What one release lookup came back with, or why it came back with nothing.
+///
+/// The two empty cases are kept apart because they read differently on the
+/// checklist: `--offline` is a flag the user set, and a check it held back
+/// says so whatever else is installed on the machine; a lookup that was made
+/// and did not arrive is a fact about the network instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseList<'a> {
+    /// The newest tag the host named.
+    Newest(&'a str),
+    /// `--offline`: the list was never asked for.
+    Offline,
+    /// It was asked for and did not arrive.
+    Unreachable,
+}
+
+impl<'a> ReleaseList<'a> {
+    /// The reason every `--offline` line gives, worded the same way in all of
+    /// them so a reader can tell the flag from a broken network at a glance.
+    pub const OFFLINE_WHY: &'static str = "--offline: the release list was not asked";
+
+    /// One joined probe, where `None` is `--offline`: that is the only reason
+    /// a probe was never started.
+    pub fn of(probe: Option<&'a std::result::Result<String, String>>) -> ReleaseList<'a> {
+        match probe {
+            None => ReleaseList::Offline,
+            Some(Ok(tag)) => ReleaseList::Newest(tag),
+            Some(Err(_)) => ReleaseList::Unreachable,
         }
     }
 }
@@ -1109,7 +1151,10 @@ pub fn port_check(
 }
 
 /// Whether the chap-core tag this deployment pins is still the newest one.
-pub fn pin_verdict(tag: &str, latest: Option<&str>) -> (Status, String, Option<String>) {
+///
+/// A moving tag is answered before the release list is looked at: there is no
+/// comparison to make, so that verdict is the same online and offline.
+pub fn pin_verdict(tag: &str, latest: ReleaseList<'_>) -> (Status, String, Option<String>) {
     if chapcore::is_moving_tag(tag) {
         return (
             Status::Ok,
@@ -1117,12 +1162,22 @@ pub fn pin_verdict(tag: &str, latest: Option<&str>) -> (Status, String, Option<S
             None,
         );
     }
-    let Some(latest) = latest else {
-        return (
-            Status::Skip,
-            format!("{tag} pinned; the release list was not reachable"),
-            None,
-        );
+    let latest = match latest {
+        ReleaseList::Newest(latest) => latest,
+        ReleaseList::Offline => {
+            return (
+                Status::Skip,
+                format!("{tag} pinned; {}", ReleaseList::OFFLINE_WHY),
+                None,
+            );
+        }
+        ReleaseList::Unreachable => {
+            return (
+                Status::Skip,
+                format!("{tag} pinned; the release list was not reachable"),
+                None,
+            );
+        }
     };
     if chapcore::is_newer(latest, tag) {
         return (
@@ -1135,7 +1190,7 @@ pub fn pin_verdict(tag: &str, latest: Option<&str>) -> (Status, String, Option<S
 }
 
 /// The `chap-core-pin` line.
-pub fn pin_check(tag: &str, latest: Option<&str>) -> Check {
+pub fn pin_check(tag: &str, latest: ReleaseList<'_>) -> Check {
     Check::from_verdict("chap-core-pin", "chap-core pin", pin_verdict(tag, latest))
 }
 
@@ -1210,6 +1265,28 @@ pub fn image_verdict(
     }
 }
 
+/// Why the image manifests were not looked up, or `None` when they were.
+///
+/// `--offline` is answered first and on its own: it is the reason the user
+/// gave, it holds whether or not this machine has a docker CLI, and a
+/// checklist that said "no docker CLI to ask" on a runner without Docker but
+/// "--offline" on a laptop with it would report the same run two ways. A
+/// missing CLI is the reason only for a run that did go looking, where it is
+/// what stopped the lookup; `docker-cli` has failed on its own line by then.
+pub fn image_skip_reason(probed: Option<&Probed>, have_cli: bool) -> Option<String> {
+    let Some(probed) = probed else {
+        return Some("--offline: the registry was not asked".to_string());
+    };
+    if !have_cli {
+        return Some("no docker CLI to ask".to_string());
+    }
+    probed
+        .ghcr
+        .as_ref()
+        .err()
+        .map(|why| format!("ghcr.io is unreachable: {why}"))
+}
+
 /// One line per enabled model, asked in parallel.
 fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> Vec<Check> {
     // Marketplace id, service id and the exact reference the overlay pins.
@@ -1226,16 +1303,7 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
         })
         .collect();
 
-    let reason = match (probed, have_cli) {
-        (_, false) => Some("no docker CLI to ask".to_string()),
-        (None, _) => Some("--offline: the registry was not asked".to_string()),
-        (Some(probed), _) => probed
-            .ghcr
-            .as_ref()
-            .err()
-            .map(|why| format!("ghcr.io is unreachable: {why}")),
-    };
-    if let Some(reason) = reason {
+    if let Some(reason) = image_skip_reason(probed, have_cli) {
         return models
             .iter()
             .map(|(_, service_id, _)| {
@@ -1808,22 +1876,26 @@ mod tests {
 
     #[test]
     fn the_chaps_line_offers_an_update_only_when_there_is_one() {
-        let check = chaps_check(None);
+        // Offline the lookup never ran, so the line is a skip that says why
+        // and still describes the build.
+        let check = chaps_check(ReleaseList::Offline);
+        assert_eq!(check.status, Status::Skip);
+        assert!(check.detail.contains(VERSION) && check.detail.contains(TARGET));
+        assert!(check.detail.contains("offline"), "{}", check.detail);
+
+        // The release feed was asked and said nothing useful: still just a
+        // description, and `net-releases` is where the network is reported.
+        let check = chaps_check(ReleaseList::Unreachable);
         assert_eq!(check.status, Status::Ok);
         assert!(check.detail.contains(VERSION) && check.detail.contains(TARGET));
-
-        // The release feed said nothing useful: still just a description.
+        let current = format!("v{VERSION}");
         assert_eq!(
-            chaps_check(Some(&Err("timed out".to_string()))).status,
-            Status::Ok
-        );
-        assert_eq!(
-            chaps_check(Some(&Ok(format!("v{VERSION}")))).status,
+            chaps_check(ReleaseList::Newest(&current)).status,
             Status::Ok,
             "the running version is not an update"
         );
 
-        let check = chaps_check(Some(&Ok("v999.0.0".to_string())));
+        let check = chaps_check(ReleaseList::Newest("v999.0.0"));
         assert_eq!(check.status, Status::Warn);
         assert!(check.detail.contains("v999.0.0"));
         assert_eq!(check.fix.unwrap(), "run `chaps self update`");
@@ -1944,23 +2016,74 @@ mod tests {
 
     #[test]
     fn the_pin_check_only_speaks_up_for_a_release_that_moved() {
-        let (status, detail, fix) = pin_verdict("latest", Some("v2.3.1"));
+        let (status, detail, fix) = pin_verdict("latest", ReleaseList::Newest("v2.3.1"));
         assert_eq!(status, Status::Ok, "a moving tag is not behind anything");
         assert!(detail.contains("moving tag"), "{detail}");
         assert_eq!(fix, None);
 
-        let (status, detail, fix) = pin_verdict("v2.3.0", Some("v2.3.1"));
+        let (status, detail, fix) = pin_verdict("v2.3.0", ReleaseList::Newest("v2.3.1"));
         assert_eq!(status, Status::Warn);
         assert_eq!(detail, "v2.3.0 pinned, v2.3.1 released");
         assert!(fix.unwrap().contains("chaps update --dry-run"));
 
-        assert_eq!(pin_verdict("v2.3.1", Some("v2.3.1")).0, Status::Ok);
-        assert_eq!(pin_verdict("v2.4.0", Some("v2.3.1")).0, Status::Ok);
+        assert_eq!(
+            pin_verdict("v2.3.1", ReleaseList::Newest("v2.3.1")).0,
+            Status::Ok
+        );
+        assert_eq!(
+            pin_verdict("v2.4.0", ReleaseList::Newest("v2.3.1")).0,
+            Status::Ok
+        );
 
-        // Without the release list there is nothing to compare against.
-        let (status, detail, _) = pin_verdict("v2.3.0", None);
+        // Without the release list there is nothing to compare against, and
+        // the two silent cases each say which one they are.
+        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Unreachable);
         assert_eq!(status, Status::Skip);
         assert!(detail.contains("v2.3.0"), "{detail}");
+        assert!(detail.contains("not reachable"), "{detail}");
+
+        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Offline);
+        assert_eq!(status, Status::Skip);
+        assert!(
+            detail.contains("v2.3.0") && detail.contains("offline"),
+            "{detail}"
+        );
+
+        // A moving tag needs no list at all, offline included.
+        assert_eq!(pin_verdict("latest", ReleaseList::Offline).0, Status::Ok);
+    }
+
+    /// The reason the image lines give, in the order the reasons rank.
+    #[test]
+    fn offline_is_why_the_image_lines_were_skipped_even_without_docker() {
+        let reachable = Probed {
+            ghcr: Ok(401),
+            marketplace: Ok(200),
+            chap_core: Ok("v2.3.1".to_string()),
+            chaps: Ok("v0.2.0".to_string()),
+        };
+
+        // `--offline` outranks a missing docker CLI: the flag is the reason
+        // the user gave, and the line reads the same on either machine.
+        for have_cli in [true, false] {
+            let reason = image_skip_reason(None, have_cli).expect("offline skips the lookup");
+            assert!(reason.contains("offline"), "{reason}");
+        }
+
+        // Online, a machine without docker has nothing to ask through.
+        assert_eq!(
+            image_skip_reason(Some(&reachable), false).as_deref(),
+            Some("no docker CLI to ask")
+        );
+
+        // Online with docker: only an unreachable registry holds it back.
+        assert_eq!(image_skip_reason(Some(&reachable), true), None);
+        let unreachable = Probed {
+            ghcr: Err("dns error".to_string()),
+            ..reachable
+        };
+        let reason = image_skip_reason(Some(&unreachable), true).expect("ghcr is down");
+        assert!(reason.contains("dns error"), "{reason}");
     }
 
     #[test]

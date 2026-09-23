@@ -71,7 +71,7 @@ These run everywhere, inside a deployment directory or not.
 | `network ghcr.io` | can this machine reach the image registry | Without it no image can be pulled. A warning, not a failure: `--offline` keeps `chaps` itself working from the cache or the catalogue built into the binary. |
 | `network marketplace` | can it reach `registry.yaml` | The catalogue falls back to the cache and then to the embedded snapshot, so this is a warning too. `chaps registry show` says which one is in use. |
 | `network releases` | can it reach the chap-core release list | `chaps update` needs it; everything else works without it. The answer doubles as the newest release, which `chap-core pin` below compares against. |
-| `chaps` | version, target, install method, newer release | Warns when a newer release exists: `chaps self update`. |
+| `chaps` | version, target, install method, newer release | Warns when a newer release exists: `chaps self update`. Under `--offline` the line still names the build, as a `skip`: whether there is an update is the one thing this run did not ask. |
 
 An anonymous request to `ghcr.io/v2/` answers `401`, which is the registry
 answering; any HTTP status counts as reachable, because a host that refuses us
@@ -93,8 +93,8 @@ project: none here (run chaps doctor inside a deployment directory for more)
 | `compose files` | `chaps sync --check`, without its exit code | The rendered files no longer match `.chaps/`, which is drift the next `chaps up` would undo anyway. Run `chaps sync`. |
 | `.env` | is it readable, and does it still say what it should | Warns when `POSTGRES_PASSWORD` is the default `chap` or unset, and when the `CHAP_IMAGE_TAG` pin comment is gone. Whether authentication is on is reported either way: `auth: off` is a fact to be able to see, not a fault. |
 | `api port`, `port <model>` | is every host port the stack publishes free | Fails when something else holds one, with the same three ways out `chaps up`'s preflight offers. A port held by this project's own running container is not a conflict, exactly as `up` treats it. See [Ports](./ports.md). |
-| `chap-core pin` | is the pinned tag still the newest release | Warns when a newer chap-core has been released: `chaps update --dry-run` says what would move. A moving tag (`latest`, `master`, `dev`) is not behind anything, so it passes with a note. Skipped when the release list was not reachable. |
-| `image <model>` | does each enabled model's exact tag exist on ghcr, with a linux/amd64 image | `docker manifest inspect` per model, in parallel, ten seconds each. A tag that is gone fails and names the model to re-resolve with `chaps models enable <id>`. |
+| `chap-core pin` | is the pinned tag still the newest release | Warns when a newer chap-core has been released: `chaps update --dry-run` says what would move. A moving tag (`latest`, `master`, `dev`) is not behind anything, so it passes with a note whether or not the list was read. Skipped when the release list was not reachable, and under `--offline`, where it was never asked for. |
+| `image <model>` | does each enabled model's exact tag exist on ghcr, with a linux/amd64 image | `docker manifest inspect` per model, in parallel, ten seconds each. A tag that is gone fails and names the model to re-resolve with `chaps models enable <id>`. Skipped, with the reason on the line, under `--offline`, when there is no docker CLI to ask through, and when `ghcr.io` was unreachable. `--offline` is the reason given first, so the line reads the same on a machine with Docker and one without. |
 | `stack` | chap-core's health and whether every model registered | Skipped when no container of this project is running, which is `chaps up`. Otherwise it is the verdict of [`chaps status`](./status.md) as one line. |
 
 ## `--json`
@@ -139,15 +139,24 @@ Outside a deployment directory the project checks are simply absent from
 
 ## `--offline`
 
-`--offline` skips every probe that would touch the network, and the image
-check with them, reporting each as `skip` with the reason:
+`--offline` skips every check that would touch the network, reporting each as
+`skip` with the reason, and the reason always names the flag:
 
 ```text
 skip  network ghcr.io            --offline: the image registry was not probed
 skip  network marketplace        --offline: the model catalogue was not probed
 skip  network releases           --offline: the chap-core release list was not probed
+skip  chaps                      v0.2.0, aarch64-apple-darwin, release archive; --offline: the release list was not asked
+skip  chap-core pin              v2.3.1 pinned; --offline: the release list was not asked
 skip  image chapkit-ewars-model  --offline: the registry was not asked
 ```
+
+`--offline` is the reason on every one of those lines whatever else the
+machine has: a host without a docker CLI has no image manifest to ask for
+either, but the flag is the reason the user gave, so it is the reason
+reported, and the missing CLI is already a failure on the `docker cli` line.
+That makes the offline report the same everywhere, which is what a test or a
+CI step can rely on.
 
 Everything else still runs, so `chaps doctor --offline` is the whole local
 half of the checklist on a machine with no way out.
