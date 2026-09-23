@@ -3,6 +3,7 @@
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
+mod backup;
 mod chapcore;
 mod cli;
 mod commands;
@@ -17,7 +18,7 @@ mod status;
 mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
-use cli::{Cli, Command, DockerCmd, ModelsCmd};
+use cli::{BackupSub, Cli, Command, DockerCmd, ModelsCmd};
 use commands::Ctx;
 use error::ChapError;
 use project::Project;
@@ -26,7 +27,7 @@ use std::path::PathBuf;
 /// Commands that need a deployment directory, hidden from `--help` when there
 /// is none. They still run when typed, and say what is missing.
 const PROJECT_ONLY: &[&str] = &[
-    "up", "down", "logs", "docker", "status", "sync", "update", "ui",
+    "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -36,7 +37,7 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable"];
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
-     more commands appear: up, down, logs, status, sync, update, ui, docker.";
+     more commands appear: up, down, logs, status, sync, update, ui, docker, backup.";
 
 fn main() {
     let cli = parse();
@@ -76,6 +77,11 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         Command::Down(args) => commands::docker::run(ctx, &DockerCmd::Down(args.clone())),
         Command::Logs(args) => commands::docker::run(ctx, &DockerCmd::Logs(args.clone())),
         Command::Docker(d) => commands::docker::run(ctx, &DockerCmd::from(&d.command)),
+
+        Command::Backup(b) => match &b.command {
+            BackupSub::Create(args) => commands::backup::run(ctx, args),
+            BackupSub::Restore(args) => commands::restore::run(ctx, args),
+        },
 
         Command::Status(args) => commands::status::run(ctx, args),
     }

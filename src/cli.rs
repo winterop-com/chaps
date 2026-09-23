@@ -75,6 +75,9 @@ pub enum Command {
     /// Talk to Docker directly: containers, images, raw compose commands.
     Docker(DockerArgs),
 
+    /// Create or restore a backup of the database, model data and project files.
+    Backup(BackupArgs),
+
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
 }
@@ -431,6 +434,84 @@ pub struct ConfigArgs {
     pub extra: Vec<String>,
 }
 
+/// Create or restore a backup of the database, model data and project files.
+///
+/// One archive holds everything a deployment is: `.env`, `.chaps/`, the compose
+/// files, a `pg_dump` of the chap-core database and one tar per model data
+/// volume. It is a plain `tar.gz` - `tar -tzf` lists it, and the README says
+/// which raw `pg_restore` and `tar` commands put it back without `chaps`.
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct BackupArgs {
+    #[command(subcommand)]
+    pub command: BackupSub,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum BackupSub {
+    /// Write a tar.gz of the database, the model data and the project files.
+    Create(BackupCreateArgs),
+
+    /// Put a deployment back from an archive.
+    Restore(RestoreArgs),
+}
+
+/// Write a tar.gz of the database, the model data and the project files.
+///
+/// The database part needs a running postgres (`chaps up`); each model's data
+/// is read straight from its volume by the overlay's one-shot init container,
+/// so it works whether or not the model itself is running. A model that has
+/// never started has no volume yet and is skipped with a warning.
+#[derive(Debug, Clone, Args)]
+pub struct BackupCreateArgs {
+    /// Where to write the archive: a file, or a directory to name it in.
+    /// Default: `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` in the
+    /// current directory.
+    #[arg(long, value_name = "PATH")]
+    pub out: Option<PathBuf>,
+
+    /// Leave the chap-core database out of the archive.
+    #[arg(long)]
+    pub no_db: bool,
+
+    /// Leave the model data volumes out of the archive.
+    #[arg(long)]
+    pub no_models: bool,
+}
+
+/// Put a deployment back from an archive `chaps backup create` wrote.
+///
+/// Prints what it is about to overwrite and asks before touching anything.
+/// Then: stop `chap`, `worker` and the model services, write the files back and
+/// sync, `pg_restore --clean` the database, refill each model's data volume,
+/// and start the stack again.
+#[derive(Debug, Clone, Args)]
+pub struct RestoreArgs {
+    /// The `tar.gz` written by `chaps backup create`.
+    #[arg(value_name = "ARCHIVE")]
+    pub archive: PathBuf,
+
+    /// Skip the confirmation. Required when there is no terminal to ask at.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Restore only `.env`, `.chaps/` and the compose files. Needs no Docker.
+    #[arg(long, conflicts_with_all = ["db_only", "no_models", "no_start"])]
+    pub files_only: bool,
+
+    /// Restore only the chap-core database.
+    #[arg(long, conflicts_with = "no_models")]
+    pub db_only: bool,
+
+    /// Leave the model data volumes as they are.
+    #[arg(long)]
+    pub no_models: bool,
+
+    /// Do not run `docker compose up -d` at the end.
+    #[arg(long)]
+    pub no_start: bool,
+}
+
 /// Check chap-core health and which model services have registered.
 #[derive(Debug, Clone, Args)]
 pub struct StatusArgs {
@@ -711,6 +792,86 @@ mod tests {
         };
         assert!(args.follow);
         assert_eq!(args.services.len(), 2);
+    }
+
+    /// The `BackupSub` behind `chap backup <argv..>`.
+    fn backup_sub(argv: &[&str]) -> BackupSub {
+        let mut args = vec!["chap", "backup"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Backup(b) = cli.command else {
+            panic!("expected backup");
+        };
+        b.command
+    }
+
+    #[test]
+    fn backup_needs_a_subcommand() {
+        let err = Cli::try_parse_from(["chap", "backup"]).expect_err("a subcommand is required");
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let help = err.to_string();
+        assert!(help.contains("create") && help.contains("restore"));
+    }
+
+    #[test]
+    fn backup_create_defaults_and_flags() {
+        let BackupSub::Create(args) = backup_sub(&["create"]) else {
+            panic!("expected backup create");
+        };
+        assert!(args.out.is_none() && !args.no_db && !args.no_models);
+
+        let BackupSub::Create(args) =
+            backup_sub(&["create", "--out", "/backups", "--no-db", "--no-models"])
+        else {
+            panic!("expected backup create");
+        };
+        assert_eq!(args.out, Some(PathBuf::from("/backups")));
+        assert!(args.no_db && args.no_models);
+    }
+
+    #[test]
+    fn backup_restore_takes_an_archive_and_its_flags() {
+        let BackupSub::Restore(args) = backup_sub(&["restore", "x.tar.gz"]) else {
+            panic!("expected backup restore");
+        };
+        assert_eq!(args.archive, PathBuf::from("x.tar.gz"));
+        assert!(!args.yes && !args.files_only && !args.db_only);
+        assert!(!args.no_models && !args.no_start);
+
+        let BackupSub::Restore(args) =
+            backup_sub(&["restore", "x.tar.gz", "--yes", "--db-only", "--no-start"])
+        else {
+            panic!("expected backup restore");
+        };
+        assert!(args.yes && args.db_only && args.no_start);
+
+        assert!(
+            Cli::try_parse_from(["chap", "backup", "restore"]).is_err(),
+            "the archive is required"
+        );
+    }
+
+    #[test]
+    fn restore_scopes_that_contradict_each_other_are_rejected() {
+        for argv in [
+            vec!["--files-only", "--db-only"],
+            vec!["--files-only", "--no-models"],
+            vec!["--files-only", "--no-start"],
+            vec!["--db-only", "--no-models"],
+        ] {
+            let mut args = vec!["chap", "backup", "restore", "x.tar.gz"];
+            args.extend_from_slice(&argv);
+            assert!(Cli::try_parse_from(&args).is_err(), "{argv:?}");
+        }
+        assert!(
+            Cli::try_parse_from(["chap", "backup", "restore", "x.tar.gz", "--files-only"]).is_ok()
+        );
+        assert!(
+            Cli::try_parse_from(["chap", "backup", "restore", "x.tar.gz", "--db-only"]).is_ok()
+        );
     }
 
     #[test]

@@ -1021,6 +1021,10 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
         !outside.contains("\n  docker "),
         "docker needs a project:\n{outside}"
     );
+    assert!(
+        !outside.contains("\n  backup "),
+        "backup needs a project:\n{outside}"
+    );
     assert!(outside.contains("Inside a directory created by `chaps init`"));
 
     sandbox.init(&["--models", "none"]).assert().success();
@@ -1033,7 +1037,7 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
         .clone();
     let inside = String::from_utf8(inside).expect("help is text");
     for name in [
-        "up", "down", "logs", "docker", "status", "sync", "update", "ui",
+        "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui",
     ] {
         assert!(
             inside.contains(&format!("\n  {name} ")),
@@ -1075,4 +1079,327 @@ fn init_inside_a_project_warns_about_the_parent() {
         .success()
         .stderr(predicates::str::contains("is inside the chaps project at"));
     assert!(dir.join("inner/.chaps/project.yaml").is_file());
+}
+
+/// The member names inside a `tar.gz`, via the same `tar` the CLI uses.
+fn members(archive: &Path) -> Vec<String> {
+    let out = std::process::Command::new("tar")
+        .arg("-tzf")
+        .arg(archive)
+        .output()
+        .expect("tar lists an archive");
+    assert!(
+        out.status.success(),
+        "tar -tzf failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim_end_matches('/').to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// The one file in `dir` whose name looks like a backup archive.
+fn only_archive(dir: &Path) -> PathBuf {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".tar.gz"))
+        .collect();
+    found.sort();
+    assert_eq!(found.len(), 1, "expected one archive in {}", dir.display());
+    found.pop().unwrap()
+}
+
+#[test]
+fn backup_create_packs_the_files_without_touching_docker() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    let text = String::from_utf8(
+        chap_in(
+            &sandbox,
+            &dir,
+            &[
+                "backup",
+                "create",
+                "--no-db",
+                "--no-models",
+                "--out",
+                out.to_str().unwrap(),
+            ],
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone(),
+    )
+    .expect("the report is text");
+
+    let archive = only_archive(&out);
+    let name = archive.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.starts_with("chapx-") || name.starts_with("chaps-backup-chapx-"),
+        "the archive is named after the project: {name}"
+    );
+    assert!(text.contains(&archive.display().to_string()));
+    assert!(text.contains("database  not included (--no-db)"));
+
+    let members = members(&archive);
+    assert!(members.contains(&"manifest.yaml".to_string()));
+    for rel in [
+        "files/.env",
+        "files/.chaps/project.yaml",
+        "files/.chaps/models.yaml",
+        "files/compose.yml",
+        "files/compose.marketplace.yml",
+        "files/compose.chapkit-ewars-model.yml",
+    ] {
+        assert!(members.contains(&rel.to_string()), "{rel} is missing");
+    }
+    assert!(
+        !members.iter().any(|m| m.starts_with("db/")),
+        "--no-db leaves the dump out"
+    );
+    assert!(
+        !members.iter().any(|m| m.starts_with("models/")),
+        "--no-models leaves the volumes out"
+    );
+    // The staging directory is scratch space and is cleaned up after itself.
+    assert!(!dir.join(".chaps/tmp").exists());
+
+    // The manifest says what the archive is, without unpacking it.
+    let manifest = std::process::Command::new("tar")
+        .args(["-xzf", archive.to_str().unwrap(), "-O", "manifest.yaml"])
+        .output()
+        .unwrap();
+    let manifest: Json =
+        serde_json::to_value(serde_yaml_ng::from_slice::<Yaml>(&manifest.stdout).unwrap()).unwrap();
+    assert_eq!(manifest["schema_version"], 1);
+    assert_eq!(manifest["project"], "chapx");
+    assert!(manifest["created_at"].as_str().unwrap().ends_with('Z'));
+    assert!(manifest["database"].is_null());
+    assert_eq!(manifest["models"][0]["service_id"], "chapkit-ewars-model");
+    assert_eq!(manifest["models"][0]["skipped"], "--no-models");
+}
+
+#[test]
+fn backup_create_json_reports_the_path_the_size_and_the_manifest() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let out = chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "backup", "create", "--no-db", "--no-models"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let report: Json = serde_json::from_slice(&out).expect("--json is one JSON document");
+
+    let path = PathBuf::from(report["path"].as_str().unwrap());
+    assert!(path.is_file(), "the archive lands where the report says");
+    assert_eq!(
+        std::fs::canonicalize(path.parent().unwrap()).unwrap(),
+        std::fs::canonicalize(&dir).unwrap(),
+        "no --out means the working directory"
+    );
+    assert!(report["size_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(report["manifest"]["project"], "chapx");
+    assert!(
+        report["manifest"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == ".env")
+    );
+}
+
+#[test]
+fn backup_restore_files_only_rebuilds_a_second_deployment() {
+    let sandbox = Sandbox::new();
+    let source = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    chap_in(
+        &sandbox,
+        &source,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--no-models",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .assert()
+    .success();
+    let archive = only_archive(&out);
+
+    // A second, empty deployment with its own generated password.
+    let target = sandbox.home.path().join("chapy");
+    let mut init = sandbox.chap();
+    init.arg("init").arg(&target).args(["--models", "none"]);
+    init.assert().success();
+    let before = read(&target.join(".env"));
+    assert_ne!(
+        password_line(&before),
+        password_line(&read(&source.join(".env"))),
+        "the two deployments start with different secrets"
+    );
+
+    let text = String::from_utf8(
+        chap_in(
+            &sandbox,
+            &target,
+            &[
+                "backup",
+                "restore",
+                archive.to_str().unwrap(),
+                "--files-only",
+                "--yes",
+            ],
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone(),
+    )
+    .expect("the report is text");
+
+    // The plan is printed before anything happens, then what was done.
+    assert!(text.contains("this overwrites"));
+    // The directory is printed as the CLI resolved it, which on macOS means
+    // the symlink-free form of the temporary directory.
+    assert!(text.contains("into   "));
+    assert!(text.contains("chapy"), "the plan names the target:\n{text}");
+    assert!(text.contains("from   project chapx"));
+    assert!(text.contains("files     "));
+    assert!(text.contains(".env.before-restore"));
+    assert!(text.contains("the stack was left as it is"));
+
+    assert_eq!(read(&target.join(".env")), read(&source.join(".env")));
+    assert_eq!(read(&target.join(".env.before-restore")), before);
+    let models = read(&target.join(".chaps/models.yaml"));
+    assert!(models.contains("chapkit_ewars_model"));
+    assert_eq!(
+        state(&target)["models"]["chapkit_ewars_model"]["service_id"],
+        "chapkit-ewars-model"
+    );
+    // The restore ends in a sync, so the overlay is on disk and included.
+    assert!(target.join("compose.chapkit-ewars-model.yml").is_file());
+    assert_eq!(
+        includes(&target),
+        vec!["compose.chapkit-ewars-model.yml".to_string()]
+    );
+    assert!(!target.join(".chaps/tmp").exists());
+}
+
+#[test]
+fn restore_without_yes_refuses_when_there_is_no_terminal_to_ask_at() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--no-models",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .assert()
+    .success();
+    let archive = only_archive(&out);
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "backup",
+            "restore",
+            archive.to_str().unwrap(),
+            "--files-only",
+        ],
+    )
+    .assert()
+    .failure()
+    .stdout(predicates::str::contains("this overwrites"))
+    .stderr(predicates::str::contains("pass --yes"));
+}
+
+#[test]
+fn restore_rejects_something_that_is_not_a_backup() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let bogus = sandbox.home.path().join("notes.tar.gz");
+    std::fs::write(&bogus, b"this is not a tar.gz at all").unwrap();
+    chap_in(
+        &sandbox,
+        &dir,
+        &["backup", "restore", bogus.to_str().unwrap(), "--yes"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("is it a chaps backup?"));
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &["backup", "restore", "/nowhere/missing.tar.gz", "--yes"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("is not a file"));
+}
+
+#[test]
+fn backup_outside_a_project_says_so() {
+    let sandbox = Sandbox::new();
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &["backup", "create", "--no-db", "--no-models"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("not a chaps project"));
+
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &["backup", "restore", "x.tar.gz", "--yes"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("not a chaps project"));
 }

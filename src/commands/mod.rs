@@ -1,10 +1,12 @@
 //! One module per command, plus the [`Ctx`] every command receives.
 
+pub mod backup;
 pub mod docker;
 pub mod enable;
 pub mod init;
 pub mod models;
 pub mod registry;
+pub mod restore;
 pub mod status;
 pub mod sync;
 pub mod tui;

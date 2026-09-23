@@ -87,36 +87,178 @@ pub fn running_services(project: &Project) -> BTreeSet<String> {
 /// already, but a restarting container shows up there).
 pub fn parse_ps_json(text: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    let mut add = |value: &serde_json::Value| {
+    for value in ps_entries(text) {
         let Some(service) = value.get("Service").and_then(|s| s.as_str()) else {
-            return;
+            continue;
         };
         let state = value.get("State").and_then(|s| s.as_str()).unwrap_or("");
         if state.is_empty() || state.eq_ignore_ascii_case("running") {
             out.insert(service.to_string());
         }
-    };
+    }
+    out
+}
 
+/// The container objects in `docker compose ps --format json` output.
+///
+/// Compose 2.21 and newer print one JSON object per line; older versions print
+/// a single array. Both are accepted, and anything that is not JSON at all
+/// yields nothing rather than an error.
+pub fn ps_entries(text: &str) -> Vec<serde_json::Value> {
     let trimmed = text.trim();
     if trimmed.starts_with('[')
         && let Ok(serde_json::Value::Array(items)) =
             serde_json::from_str::<serde_json::Value>(trimmed)
     {
-        for item in &items {
-            add(item);
-        }
-        return out;
+        return items;
     }
-    for line in trimmed.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    trimmed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
+}
+
+/// Whether `docker compose ps --format json` shows `service` ready to be used:
+/// running, and healthy when it declares a healthcheck at all.
+///
+/// This is what the wait before `pg_restore` polls; a container that is up but
+/// still in `starting` would refuse the connection.
+pub fn service_is_healthy(text: &str, service: &str) -> bool {
+    ps_entries(text).iter().any(|value| {
+        if value.get("Service").and_then(|s| s.as_str()) != Some(service) {
+            return false;
         }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
-            add(&value);
+        let state = value.get("State").and_then(|s| s.as_str()).unwrap_or("");
+        if !(state.is_empty() || state.eq_ignore_ascii_case("running")) {
+            return false;
+        }
+        let health = value.get("Health").and_then(|s| s.as_str()).unwrap_or("");
+        health.is_empty() || health.eq_ignore_ascii_case("healthy")
+    })
+}
+
+/// Run `docker compose <args>` and capture everything it prints.
+///
+/// For the short, machine-read commands (`ps --format json`, a `psql -tAc`
+/// one-liner): both streams are pipes, so this must stay away from anything
+/// that produces real volume. Returns the exit code, stdout and stderr; a
+/// non-zero exit is the caller's to interpret.
+pub fn compose_output(project: &Project, extra: &[String]) -> Result<(i32, String, String)> {
+    let mut args = compose_args(project);
+    args.extend(extra.iter().cloned());
+    let out = Command::new("docker")
+        .args(&args)
+        .current_dir(&project.dir)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| spawn_error(&e))?;
+    Ok((
+        exit_code(out.status),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
+}
+
+/// What a redirected compose command did.
+#[derive(Debug, Clone)]
+pub struct Piped {
+    pub code: i32,
+    /// Everything the command wrote to stderr.
+    pub stderr: String,
+}
+
+/// Run `docker compose <args>` with its payload streams wired to files.
+///
+/// This is how the dumps travel: `pg_dump` writes gigabytes to `stdout`, and a
+/// model tar arrives on `stdin`, so neither may be a pipe this process has to
+/// drain - a full pipe buffer with nobody reading it is a deadlock. Only
+/// stderr is a pipe, and it is read while the child runs.
+pub fn run_compose_piped(
+    project: &Project,
+    extra: &[String],
+    stdin: Option<&std::path::Path>,
+    stdout: Option<&std::path::Path>,
+) -> Result<Piped> {
+    use std::io::Read;
+
+    let mut args = compose_args(project);
+    args.extend(extra.iter().cloned());
+
+    let mut cmd = Command::new("docker");
+    cmd.args(&args).current_dir(&project.dir);
+    match stdin {
+        Some(path) => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
+            cmd.stdin(Stdio::from(file));
+        }
+        None => {
+            cmd.stdin(Stdio::null());
         }
     }
-    out
+    match stdout {
+        Some(path) => {
+            let file = std::fs::File::create(path)
+                .map_err(|e| anyhow::anyhow!("creating {}: {e}", path.display()))?;
+            cmd.stdout(Stdio::from(file));
+        }
+        None => {
+            cmd.stdout(Stdio::null());
+        }
+    }
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| spawn_error(&e))?;
+    let mut stderr = String::new();
+    if let Some(mut stream) = child.stderr.take() {
+        let _ = stream.read_to_string(&mut stderr);
+    }
+    let status = child
+        .wait()
+        .map_err(|e| anyhow::anyhow!("waiting for docker: {e}"))?;
+    Ok(Piped {
+        code: exit_code(status),
+        stderr,
+    })
+}
+
+/// The compose project name, the prefix every container and named volume of
+/// this deployment carries.
+///
+/// Read from `docker compose config`, which applies the same rules compose
+/// itself does (the directory name, normalised, unless a `name:` key or
+/// `COMPOSE_PROJECT_NAME` says otherwise). Best-effort: `None` when docker
+/// cannot be reached, so callers degrade rather than fail.
+pub fn compose_project_name(project: &Project) -> Option<String> {
+    let args = [
+        "config".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ];
+    let (code, stdout, _) = compose_output(project, &args).ok()?;
+    if code != 0 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+    value
+        .get("name")
+        .and_then(|n| n.as_str())
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+}
+
+/// Whether a named docker volume exists.
+pub fn volume_exists(name: &str) -> bool {
+    Command::new("docker")
+        .args(["volume", "inspect", name])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// The installed `docker compose` version, from `docker compose version --short`.
@@ -318,6 +460,38 @@ mod tests {
             "{}",
         ] {
             assert!(parse_ps_json(text).is_empty(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn health_is_read_from_the_same_ps_output() {
+        let lines = concat!(
+            r#"{"Service":"postgres","State":"running","Health":"starting"}"#,
+            "\n",
+            r#"{"Service":"chap","State":"running","Health":"healthy"}"#,
+            "\n",
+            r#"{"Service":"redis","State":"exited","Health":"healthy"}"#,
+            "\n"
+        );
+        assert_eq!(ps_entries(lines).len(), 3);
+        assert!(service_is_healthy(lines, "chap"));
+        assert!(!service_is_healthy(lines, "postgres"), "still starting");
+        assert!(!service_is_healthy(lines, "redis"), "not running");
+        assert!(!service_is_healthy(lines, "worker"), "not there at all");
+
+        // No healthcheck at all: running is as good as it gets.
+        assert!(service_is_healthy(
+            r#"{"Service":"postgres","State":"running"}"#,
+            "postgres"
+        ));
+        // The array shape older compose prints.
+        assert!(service_is_healthy(
+            r#"[{"Service":"postgres","State":"running","Health":"healthy"}]"#,
+            "postgres"
+        ));
+        for text in ["", "not json", "[]"] {
+            assert!(!service_is_healthy(text, "postgres"), "{text:?}");
+            assert!(ps_entries(text).is_empty(), "{text:?}");
         }
     }
 
