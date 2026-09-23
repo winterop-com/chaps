@@ -19,6 +19,14 @@ use std::io::IsTerminal;
 /// The command run inside the container when `chaps docker exec` is given none.
 const DEFAULT_EXEC_CMD: &str = "sh";
 
+/// What `logs` and `docker ps` say for a project that has no containers at
+/// all. Both would otherwise print nothing whatsoever.
+const NOTHING_RUNNING: &str =
+    "nothing is running for this project; start the stack with `chaps up`";
+
+/// The hint that closes a detached `up`.
+const AFTER_UP: &str = "run `chaps status` to check chap-core and the models";
+
 /// What the caller's terminal adds to the argument list.
 ///
 /// Split out from the arguments themselves so [`args_for`] stays a pure
@@ -47,6 +55,9 @@ impl Shell {
 /// A non-zero child exit status surfaces as [`ChapError::DockerFailed`] so
 /// `main` can mirror the code: `chaps up` is then a drop-in for
 /// `docker compose up` in scripts.
+///
+/// Around the child run sit the two things docker will not say: what there was
+/// to work with before it ran, and what changed by the time it finished.
 pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     let mut project = ctx.project()?;
     if let DockerCmd::Up(args) = cmd {
@@ -61,12 +72,187 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     }
     warn_about_old_compose();
 
+    let before = match prepare(ctx, &project, cmd)? {
+        Pre::Run(before) => before,
+        // Everything there was to say has been said; the exit code is all
+        // that is left, and an `error:` line on top of it would repeat it.
+        Pre::Skip(0) => return Ok(()),
+        Pre::Skip(code) => std::process::exit(code),
+    };
+
     let args = args_for(cmd, Shell::detect(ctx.out.json));
     let code = docker::run_compose(&project, &args)?;
     if code != 0 {
         return Err(ChapError::DockerFailed(code).into());
     }
+    report_what_changed(ctx, &project, cmd, &before);
     Ok(())
+}
+
+/// What the wrapper decided before letting docker run.
+enum Pre {
+    /// Run docker. Carries the containers as they were, for the wrappers that
+    /// report the difference they made.
+    Run(Vec<docker::Container>),
+    /// Do not run docker at all, and exit with this code: the caller has
+    /// already been told what there was to know.
+    Skip(i32),
+}
+
+/// Ask docker what there is before running the wrapper, and answer for it
+/// when the command it would run has nothing to print.
+///
+/// `docker compose logs` and `ps` on a deployment that was never started both
+/// exit 0 having said nothing, which is the one thing a wrapper must not do.
+fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
+    match cmd {
+        DockerCmd::Logs(args) => {
+            // `None` is "docker could not be asked", which is not the same as
+            // "this project has no containers"; docker itself says that best.
+            let Some(containers) = docker::all_containers(project) else {
+                return Ok(Pre::Run(Vec::new()));
+            };
+            if containers.is_empty() {
+                note(ctx, NOTHING_RUNNING);
+                return Ok(Pre::Skip(1));
+            }
+            if !args.services.is_empty()
+                && let Some(services) = docker::config_services(project)
+            {
+                let unknown: Vec<String> = args
+                    .services
+                    .iter()
+                    .filter(|name| !services.contains(name))
+                    .cloned()
+                    .collect();
+                if !unknown.is_empty() {
+                    return Err(anyhow::anyhow!(unknown_service_message(
+                        &unknown, &services
+                    )));
+                }
+            }
+            Ok(Pre::Run(Vec::new()))
+        }
+        DockerCmd::Ps(_) => {
+            if let Some(containers) = docker::all_containers(project)
+                && containers.is_empty()
+            {
+                note(ctx, NOTHING_RUNNING);
+                // A parser asked for a list of containers; there are none.
+                if ctx.out.json {
+                    println!("[]");
+                }
+                // Nothing is wrong with a stack that is not running: `ps` on
+                // an empty project is a question answered, not a failure.
+                return Ok(Pre::Skip(0));
+            }
+            Ok(Pre::Run(Vec::new()))
+        }
+        // The snapshot `up` and `down` compare against afterwards.
+        DockerCmd::Up(_) | DockerCmd::Down(_) => Ok(Pre::Run(
+            docker::running_containers(project).unwrap_or_default(),
+        )),
+        _ => Ok(Pre::Run(Vec::new())),
+    }
+}
+
+/// Say what the wrapper did, now that docker has finished.
+fn report_what_changed(
+    ctx: &Ctx,
+    project: &Project,
+    cmd: &DockerCmd,
+    before: &[docker::Container],
+) {
+    match cmd {
+        // An attached `up` has just streamed the logs and been interrupted;
+        // there is nothing left running to summarise.
+        DockerCmd::Up(args) if !args.attach => {
+            let after = docker::running_containers(project).unwrap_or_default();
+            note(ctx, &up_summary(before, &after));
+        }
+        DockerCmd::Down(args) => note(
+            ctx,
+            &down_summary(&docker::service_names(before), &args.extra),
+        ),
+        DockerCmd::Pull(_) => note(ctx, &pull_summary(docker::image_count(project))),
+        _ => {}
+    }
+}
+
+/// Print a line of the wrapper's own, as opposed to docker's output.
+///
+/// Under `--json` it goes to stderr: stdout is whatever docker printed, and a
+/// parser reading it must not find a sentence in the middle.
+fn note(ctx: &Ctx, line: &str) {
+    if ctx.out.json {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
+
+/// What a detached `up` changed, from the containers before and after.
+///
+/// Compose prints one line per service as it goes, in no particular order and
+/// in the language of its own steps ("Created", "Running"); this is the one
+/// line that says which services are new to this run.
+pub fn up_summary(before: &[docker::Container], after: &[docker::Container]) -> String {
+    let (started, unchanged) = docker::diff_containers(before, after);
+    let summary = match (started.is_empty(), unchanged.is_empty()) {
+        (true, true) => {
+            return "nothing is running after `up`; run `chaps logs` to see why".to_string();
+        }
+        (false, true) => format!("started/recreated: {}", started.join(", ")),
+        (true, false) => format!("unchanged: {}", unchanged.join(", ")),
+        (false, false) => format!(
+            "started/recreated: {}; unchanged: {}",
+            started.join(", "),
+            unchanged.join(", ")
+        ),
+    };
+    format!("{summary}\n{AFTER_UP}")
+}
+
+/// What `down` stopped, and what it left behind.
+///
+/// The volumes are the point of the second half: `down` is the command people
+/// reach for to "reset" a deployment, and it keeps the database.
+pub fn down_summary(stopped: &[String], extra: &[String]) -> String {
+    if stopped.is_empty() {
+        return "nothing was running".to_string();
+    }
+    let volumes = if extra.iter().any(|a| a == "-v" || a == "--volumes") {
+        "volumes removed too (-v)"
+    } else {
+        "volumes kept (`chaps docker run down -v` removes them)"
+    };
+    format!(
+        "stopped {} container{} ({}); {volumes}",
+        stopped.len(),
+        if stopped.len() == 1 { "" } else { "s" },
+        stopped.join(", ")
+    )
+}
+
+/// What `docker pull` fetched. Compose's own output is progress, not a result.
+pub fn pull_summary(images: Option<usize>) -> String {
+    match images {
+        Some(1) => "pulled 1 image".to_string(),
+        Some(count) => format!("pulled {count} images"),
+        // `config --images` is the only thing that could have failed here, and
+        // the pull itself succeeded, so the count is all that is missing.
+        None => "pulled the images this project pins".to_string(),
+    }
+}
+
+/// What `logs SERVICE` says about a name the project does not have.
+pub fn unknown_service_message(unknown: &[String], services: &[String]) -> String {
+    let named: Vec<String> = unknown.iter().map(|s| format!("`{s}`")).collect();
+    format!(
+        "no service {} in this project; the services are {}",
+        named.join(", "),
+        services.join(", ")
+    )
 }
 
 /// The arguments appended after `compose -f ... -f ...`.
@@ -391,5 +577,102 @@ mod tests {
     fn detect_keeps_the_json_flag_it_is_given() {
         assert!(Shell::detect(true).json);
         assert!(!Shell::detect(false).json);
+    }
+
+    /// One running container of `service`, created at `created`.
+    fn container(service: &str, id: &str, created: &str) -> docker::Container {
+        docker::Container {
+            service: service.to_string(),
+            name: format!("chapx-{service}-1"),
+            id: id.to_string(),
+            created_at: created.to_string(),
+            state: "running".to_string(),
+        }
+    }
+
+    #[test]
+    fn up_summarises_what_it_started_and_what_it_left_alone() {
+        let before = vec![
+            container("chap", "aaa", "t1"),
+            container("postgres", "bbb", "t1"),
+        ];
+        let after = vec![
+            container("chap", "ccc", "t2"),
+            container("postgres", "bbb", "t1"),
+            container("chapkit-ewars-model", "ddd", "t2"),
+        ];
+        assert_eq!(
+            up_summary(&before, &after),
+            "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
+             run `chaps status` to check chap-core and the models"
+        );
+
+        // A first start has nothing to leave alone.
+        assert!(up_summary(&[], &after).starts_with(
+            "started/recreated: chap, postgres, chapkit-ewars-model\nrun `chaps status`"
+        ));
+        // A no-op `up` says so rather than printing an empty list.
+        assert!(up_summary(&after, &after).starts_with("unchanged: chap, postgres, chapkit"));
+        // And an `up` that left nothing running is a problem, not a summary.
+        assert_eq!(
+            up_summary(&[], &[]),
+            "nothing is running after `up`; run `chaps logs` to see why"
+        );
+    }
+
+    #[test]
+    fn down_reports_what_it_stopped_and_what_it_kept() {
+        let stopped = vec!["chap".to_string(), "worker".to_string()];
+        assert_eq!(
+            down_summary(&stopped, &[]),
+            "stopped 2 containers (chap, worker); volumes kept \
+             (`chaps docker run down -v` removes them)"
+        );
+        assert!(down_summary(&stopped[..1], &[]).starts_with("stopped 1 container (chap);"));
+        // `down -v` did take the volumes, so it must not claim otherwise.
+        assert!(
+            down_summary(&stopped, &["-v".to_string()]).ends_with("volumes removed too (-v)"),
+            "{}",
+            down_summary(&stopped, &["-v".to_string()])
+        );
+        assert_eq!(down_summary(&[], &[]), "nothing was running");
+    }
+
+    #[test]
+    fn pull_counts_the_images_it_fetched() {
+        assert_eq!(pull_summary(Some(4)), "pulled 4 images");
+        assert_eq!(pull_summary(Some(1)), "pulled 1 image");
+        assert_eq!(pull_summary(Some(0)), "pulled 0 images");
+        assert_eq!(
+            pull_summary(None),
+            "pulled the images this project pins",
+            "the pull worked even when the count could not be read"
+        );
+    }
+
+    #[test]
+    fn logs_names_the_services_there_are() {
+        let services = vec![
+            "chap".to_string(),
+            "chapkit-ewars-model".to_string(),
+            "postgres".to_string(),
+        ];
+        assert_eq!(
+            unknown_service_message(&["chap-worker".to_string()], &services),
+            "no service `chap-worker` in this project; the services are \
+             chap, chapkit-ewars-model, postgres"
+        );
+        assert!(
+            unknown_service_message(&["a".to_string(), "b".to_string()], &services)
+                .starts_with("no service `a`, `b` in this project;")
+        );
+    }
+
+    #[test]
+    fn the_empty_state_line_says_what_to_do_about_it() {
+        assert_eq!(
+            NOTHING_RUNNING,
+            "nothing is running for this project; start the stack with `chaps up`"
+        );
     }
 }

@@ -62,21 +62,10 @@ pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
 /// empty set rather than an error. Nothing is printed either - `status` has
 /// already said what it knows about the API.
 pub fn running_services(project: &Project) -> BTreeSet<String> {
-    let mut args = compose_args(project);
-    args.extend(["ps".to_string(), "--format".to_string(), "json".to_string()]);
-    let Ok(out) = Command::new("docker")
-        .args(&args)
-        .current_dir(&project.dir)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    else {
-        return BTreeSet::new();
-    };
-    if !out.status.success() {
-        return BTreeSet::new();
+    match compose_capture(project, &["ps", "--format", "json"]) {
+        Some(text) => parse_ps_json(&text),
+        None => BTreeSet::new(),
     }
-    parse_ps_json(&String::from_utf8_lossy(&out.stdout))
 }
 
 /// The services named by `docker compose ps --format json`.
@@ -97,6 +86,181 @@ pub fn parse_ps_json(text: &str) -> BTreeSet<String> {
         }
     }
     out
+}
+
+/// One container of this project, as `docker compose ps` reports it.
+///
+/// Only the fields the wrappers reason about: which service it belongs to,
+/// whether it is up, and the pair that says whether it is the same container
+/// as before (`id` plus `created_at`, because a recreated service keeps its
+/// name but gets both anew).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Container {
+    pub service: String,
+    pub name: String,
+    pub id: String,
+    pub created_at: String,
+    pub state: String,
+}
+
+impl Container {
+    /// Whether this container is up. A `ps` that reported no state at all is
+    /// treated as running: plain `ps` lists what is up.
+    pub fn is_running(&self) -> bool {
+        self.state.is_empty() || self.state.eq_ignore_ascii_case("running")
+    }
+
+    /// The identity `up` compares before and after: a restarted service keeps
+    /// its service name but gets a new container id and creation time.
+    fn identity(&self) -> (&str, &str, &str) {
+        (
+            self.service.as_str(),
+            self.id.as_str(),
+            self.created_at.as_str(),
+        )
+    }
+}
+
+/// Parse `docker compose ps [--all] --format json` into containers.
+///
+/// Both shapes compose prints are accepted (see [`ps_entries`]); an entry
+/// without a `Service` is skipped, because nothing can be said about it.
+pub fn containers(text: &str) -> Vec<Container> {
+    ps_entries(text)
+        .iter()
+        .filter_map(|value| {
+            let string = |key: &str| {
+                value
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let service = string("Service");
+            if service.is_empty() {
+                return None;
+            }
+            Some(Container {
+                service,
+                name: string("Name"),
+                id: string("ID"),
+                created_at: string("CreatedAt"),
+                state: string("State"),
+            })
+        })
+        .collect()
+}
+
+/// The services with a running container, out of a [`containers`] list.
+pub fn running_of(containers: &[Container]) -> BTreeSet<String> {
+    containers
+        .iter()
+        .filter(|c| c.is_running())
+        .map(|c| c.service.clone())
+        .collect()
+}
+
+/// Service names of `containers`, deduplicated, in the order compose listed
+/// them.
+pub fn service_names(containers: &[Container]) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    containers
+        .iter()
+        .filter(|c| seen.insert(c.service.clone()))
+        .map(|c| c.service.clone())
+        .collect()
+}
+
+/// Which services of `after` are new or were recreated, and which are the
+/// containers that were already there, as two lists of service names.
+///
+/// The comparison is by container id and creation time, which is what tells a
+/// service compose left alone from one it replaced: the container name is the
+/// same either way.
+pub fn diff_containers(before: &[Container], after: &[Container]) -> (Vec<String>, Vec<String>) {
+    let kept: BTreeSet<(&str, &str, &str)> = before.iter().map(Container::identity).collect();
+    let mut started = Vec::new();
+    let mut unchanged = Vec::new();
+    for container in after {
+        let list = if kept.contains(&container.identity()) {
+            &mut unchanged
+        } else {
+            &mut started
+        };
+        if !list.contains(&container.service) {
+            list.push(container.service.clone());
+        }
+    }
+    (started, unchanged)
+}
+
+/// Every container of this project, stopped ones included
+/// (`docker compose ps -a`).
+///
+/// `None` means docker could not be asked at all - no binary, no daemon, or
+/// output in a shape we do not recognise - which callers have to tell apart
+/// from `Some(vec![])`, "this project has no containers".
+pub fn all_containers(project: &Project) -> Option<Vec<Container>> {
+    let text = compose_capture(project, &["ps", "-a", "--format", "json"])?;
+    Some(containers(&text))
+}
+
+/// The containers of this project that are up (`docker compose ps`).
+///
+/// `None` when docker could not be asked, as in [`all_containers`].
+pub fn running_containers(project: &Project) -> Option<Vec<Container>> {
+    let text = compose_capture(project, &["ps", "--format", "json"])?;
+    Some(containers(&text))
+}
+
+/// The services this project's compose files define
+/// (`docker compose config --services`), or `None` when docker could not be
+/// asked.
+pub fn config_services(project: &Project) -> Option<Vec<String>> {
+    let text = compose_capture(project, &["config", "--services"])?;
+    let mut names: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    names.dedup();
+    Some(names)
+}
+
+/// How many distinct images this project's stack pins
+/// (`docker compose config --images`), or `None` when docker could not be
+/// asked. chap and its worker share one image, so the list is deduplicated.
+pub fn image_count(project: &Project) -> Option<usize> {
+    let text = compose_capture(project, &["config", "--images"])?;
+    let images: BTreeSet<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    Some(images.len())
+}
+
+/// Run a short `docker compose` query and return its stdout, or `None` when
+/// docker could not be run or answered non-zero.
+///
+/// Nothing is printed on failure: every caller has a better thing to say than
+/// docker's own noise, and stderr is discarded for that reason.
+fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
+    let mut args = compose_args(project);
+    args.extend(extra.iter().map(|a| a.to_string()));
+    let out = Command::new("docker")
+        .args(&args)
+        .current_dir(&project.dir)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The container objects in `docker compose ps --format json` output.
@@ -467,6 +631,85 @@ mod tests {
         ] {
             assert!(parse_ps_json(text).is_empty(), "{text:?}");
         }
+    }
+
+    /// Two containers, as `ps -a --format json` prints them.
+    const PS_A: &str = concat!(
+        r#"{"ID":"aaa","Name":"x-chap-1","Service":"chap","State":"running","#,
+        r#""CreatedAt":"2026-09-23 12:58:52 +0200 CEST"}"#,
+        "\n",
+        r#"{"ID":"bbb","Name":"x-init-1","Service":"ewars-init","State":"exited","#,
+        r#""CreatedAt":"2026-09-23 12:58:52 +0200 CEST"}"#,
+        "\n"
+    );
+
+    #[test]
+    fn containers_are_read_with_the_fields_the_wrappers_use() {
+        let found = containers(PS_A);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].service, "chap");
+        assert_eq!(found[0].name, "x-chap-1");
+        assert_eq!(found[0].id, "aaa");
+        assert_eq!(found[0].created_at, "2026-09-23 12:58:52 +0200 CEST");
+        assert!(found[0].is_running());
+        assert!(!found[1].is_running(), "an exited container is not running");
+
+        assert_eq!(running_of(&found), BTreeSet::from(["chap".to_string()]));
+        assert_eq!(service_names(&found), vec!["chap", "ewars-init"]);
+
+        // Nothing usable in, nothing out.
+        for text in ["", "   ", "no containers", "<html>", "[]", r#"{"ID":"a"}"#] {
+            assert!(containers(text).is_empty(), "{text:?}");
+            assert!(service_names(&containers(text)).is_empty(), "{text:?}");
+        }
+    }
+
+    /// One container, spelled out so a test can vary a single field.
+    fn container(service: &str, id: &str, created: &str) -> Container {
+        Container {
+            service: service.to_string(),
+            name: format!("x-{service}-1"),
+            id: id.to_string(),
+            created_at: created.to_string(),
+            state: "running".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_diff_splits_recreated_services_from_untouched_ones() {
+        let before = vec![
+            container("chap", "aaa", "t1"),
+            container("postgres", "ccc", "t1"),
+        ];
+        let after = vec![
+            // Same container: compose left it alone.
+            container("postgres", "ccc", "t1"),
+            // Same service, new container: recreated.
+            container("chap", "ddd", "t2"),
+            // Not there before at all: started.
+            container("worker", "eee", "t2"),
+        ];
+        let (started, unchanged) = diff_containers(&before, &after);
+        assert_eq!(started, vec!["chap", "worker"]);
+        assert_eq!(unchanged, vec!["postgres"]);
+
+        // A first start: everything is new.
+        let (started, unchanged) = diff_containers(&[], &after);
+        assert_eq!(started, vec!["postgres", "chap", "worker"]);
+        assert!(unchanged.is_empty());
+
+        // A no-op `up`: nothing moved.
+        let (started, unchanged) = diff_containers(&after, &after);
+        assert!(started.is_empty());
+        assert_eq!(unchanged, vec!["postgres", "chap", "worker"]);
+
+        // A container recreated with the same id (never seen in practice, but
+        // the creation time still says it is a different one).
+        let (started, _) = diff_containers(
+            &[container("chap", "aaa", "t1")],
+            &[container("chap", "aaa", "t2")],
+        );
+        assert_eq!(started, vec!["chap"]);
     }
 
     #[test]

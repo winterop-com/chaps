@@ -113,12 +113,18 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
                           pull, up -d; --pin-chap-core turns a moving chap-core
                           tag into a release pin
 
-  up [--attach] [--pull] [--no-preflight] [EXTRA..]
+  up [-a] [--pull] [--no-preflight] [EXTRA..]
                           sync, check that the host ports are free, then
-                          docker compose up -d (or up, attached); --pull passes
-                          --pull always, --no-preflight skips the port check
-  down [EXTRA..]          docker compose down
-  logs [-f] [SERVICE..]   docker compose logs
+                          docker compose up -d, and end with what started or
+                          was recreated; -a (also --attach, --foreground) runs
+                          in the foreground and streams the logs instead,
+                          --pull passes --pull always, --no-preflight skips the
+                          port check
+  down [EXTRA..]          docker compose down, then say what it stopped and
+                          that the volumes are still there
+  logs [-f] [SERVICE..]   docker compose logs; says so instead of printing
+                          nothing when the project has no containers, and lists
+                          the services when SERVICE is not one of them
 
   docker ps [EXTRA..]     list this project's containers (docker compose ps)
   docker pull             download the pinned images into the local Docker
@@ -141,9 +147,10 @@ chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <comm
                           printing what it overwrites
 
   status [--url URL] [--timeout SECONDS]
-                          GET /health and /v2/services, and diff the registered
-                          services against the ones this project enabled;
-                          --url defaults to http://localhost:<api_port>
+                          GET /health and /v2/services, check that the answers
+                          are chap-core's, and diff the registered services
+                          against the ones this project enabled; --url defaults
+                          to http://localhost:<api_port>
 ```
 
 The everyday verbs are at the top level; the Docker plumbing you only reach for
@@ -160,13 +167,72 @@ The wrappers always run `docker compose -f <dir>/compose.yml -f
 directory, so they behave the same whatever your shell's working directory is,
 and they exit with Compose's own exit code.
 
-`chaps status` exits non-zero when the API is down or a model this project
-enabled has not registered, which makes it usable as a health gate in a script.
-When a model is missing it says where to look: the logs, or - if that service's
-container is running after all - `chaps docker run restart <service>`, because
-chapkit stops trying to register five attempts into its startup and a model
-that came up before chap-core was healthy stays invisible until it is
-restarted.
+## Output
+
+Every command ends with a line saying what it did or found, plus the next step
+when there is one; empty output is a bug. `chaps logs` on a deployment that was
+never started says so instead of printing nothing, `chaps down` reports how
+many containers it stopped and that the volumes are still there, `chaps up`
+ends with which services it started or recreated and which it left alone, and
+`chaps docker pull` says how many images it pulled. Output that reads as status
+verifies what it claims rather than assuming it. Where something is wrong there
+is one summary line and one hint per problem, instead of the same fact three
+times over. `--json` still works everywhere and prints exactly one document on
+stdout; a line the wrapper has to say for itself goes to stderr there, so a
+parser's stdin stays that one document.
+
+## What `chaps status` reports
+
+One line for chap-core, one row per model, and one line saying what it adds up
+to:
+
+```
+chap-core   up   http://localhost:8000   v2.3.1
+
+MODEL                             STATE                    REACH                  LAST PING
+chapkit-ewars-model               registered               http://localhost:5001  12s ago
+chapkit-rwanda-malaria-bym-model  running, not registered  internal               -
+auto-arima-chapkit                not running              internal               -
+some-other-service                unmanaged                http://c0ffee:8000     3s ago
+
+internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
+
+2 of 3 models are not registered.
+  chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
+  auto-arima-chapkit: start the stack with `chaps up`, then `chaps logs auto-arima-chapkit`
+```
+
+The version is chap-core's own when it publishes one, and otherwise the tag
+`.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
+build. Every model the project enables gets a row, registered or not, with its
+state from the registry and `docker compose ps` together; a service registered
+with chap-core that this project does not enable is listed as `unmanaged`, and
+`internal` in REACH means the model publishes no host port of its own (the way
+in is printed once, under the table). A model whose container is up but which
+never registered is the interesting case: chapkit stops trying five attempts
+into its startup, so one that came up before chap-core was healthy stays
+invisible until it is restarted, which is what its hint says.
+
+`up` means chap-core answered *as* chap-core: `/health` has to be JSON with a
+`status` field, and `/v2/services` has to parse as `{count, services}`. A bare
+200 from something else holding the port - a dev server, a proxy, an older
+deployment - is reported as down, naming what answered instead:
+
+```
+chap-core   down   http://localhost:8000   v2.3.1 (pinned)
+...
+error: chap-core at http://localhost:8000 is not responding: port 8000 answers
+but it is not chap-core (got text/html)
+```
+
+`chaps status` exits non-zero when the API is down or a model has not
+registered, which makes it a health gate for a script. The table has already
+named every model that is missing and what to do about each one, so that exit
+adds nothing further; only an API that is not answering prints its one error
+line. A project whose containers do not exist at all skips the table and says
+`stack is not running; start it with chaps up`, and `--url` turns that
+short-circuit off, because then the question is about that API and not about
+this machine.
 
 ## Ports
 
@@ -355,9 +421,17 @@ it fails under `--offline`, `--dry-run` included, because a plan made from a
 stale catalogue is not a plan). For every model that follows a channel it
 re-resolves the channel; a pin that moved is recorded in `models.yaml` and its
 `# <ID>_IMAGE_TAG=` comment in `.env` is updated. Models enabled with
-`--version` are listed as pinned and skipped. Then it syncs, runs
-`docker compose pull` and `docker compose up -d` (`--no-restart` stops after
-the pull). `--dry-run` prints the plan and writes nothing.
+`--version` are listed as pinned and skipped. Then it syncs and runs
+`docker compose pull`.
+
+Whether anything restarts depends on the stack. With containers running,
+`docker compose up -d` recreates the services whose pins moved. With nothing
+running, `update` stops after the pull and says ``stack is not running; run
+`chaps up` to start with the new versions``: starting a deployment somebody
+stopped is not an update's business, and an `up -d` that did it would be a
+deployment nobody asked for. `--no-restart` stops after the
+pull either way, and `--dry-run` prints the plan - including which of those two
+it would do - and writes nothing.
 
 chap-core's own pin moves in the same run. `init` resolves the default
 `--chap-tag latest` to the release it points at today (`v2.3.1`, say) and writes

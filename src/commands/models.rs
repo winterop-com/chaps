@@ -41,6 +41,9 @@ struct ModelDetail<'a> {
     model: &'a Model,
     /// This project's entry for the model, when it is enabled.
     enabled: Option<&'a EnabledModel>,
+    /// Whether this ran inside a deployment directory at all, which is what
+    /// tells "not enabled here" from "there is no here yet".
+    in_project: bool,
     /// How to reach it from this machine, when it is enabled: its own host
     /// port, or chap-core's proxy for a service that publishes none.
     reach: Option<String>,
@@ -81,10 +84,19 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
 
     ctx.out.emit(&rows, || {
         if rows.is_empty() {
-            "no models match".to_string()
-        } else {
-            table(&ctx.out, &rows, with_kind)
+            // `--enabled` with nothing to show is a different fact from a
+            // filter that matched nothing, and has an obvious next step.
+            return if args.enabled {
+                "no models enabled; run `chaps models enable ID` to add one".to_string()
+            } else {
+                "no models match".to_string()
+            };
         }
+        format!(
+            "{}\n{}\n",
+            table(&ctx.out, &rows, with_kind),
+            counted(&rows, project.is_some())
+        )
     })
 }
 
@@ -101,12 +113,42 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
 
     ctx.out.emit(&rows, || {
         if rows.is_empty() {
-            format!("no model matches `{}`", args.query)
-        } else {
-            // A search can turn up templates, so their kind is always shown.
-            table(&ctx.out, &rows, true)
+            return format!("no model matches `{}`", args.query);
         }
+        format!(
+            // A search can turn up templates, so their kind is always shown.
+            "{}\n{} {} `{}`{}\n",
+            table(&ctx.out, &rows, true),
+            rows.len(),
+            if rows.len() == 1 {
+                "model matches"
+            } else {
+                "models match"
+            },
+            args.query,
+            enabled_clause(&rows, project.is_some())
+        )
     })
+}
+
+/// The line under a `models list` table: how many rows, and how many of them
+/// this project runs.
+fn counted(rows: &[ModelRow], in_project: bool) -> String {
+    format!("{} listed{}", rows.len(), enabled_clause(rows, in_project))
+}
+
+/// `, 2 enabled in this project`, plus the way to enable one when none are.
+///
+/// Outside a deployment there is nothing to be enabled in, so the clause is
+/// left off entirely rather than reported as zero.
+fn enabled_clause(rows: &[ModelRow], in_project: bool) -> String {
+    if !in_project {
+        return String::new();
+    }
+    match rows.iter().filter(|r| r.enabled).count() {
+        0 => ", none enabled in this project; enable one with `chaps models enable ID`".to_string(),
+        count => format!(", {count} enabled in this project"),
+    }
 }
 
 /// Show one model in full.
@@ -121,6 +163,7 @@ pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
     let detail = ModelDetail {
         model,
         enabled,
+        in_project: project.is_some(),
         reach: enabled
             .zip(project.as_ref())
             .map(|(e, p)| crate::status::reach(p, e.host_port, &e.service_id)),
@@ -346,6 +389,19 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
                 ("overlay", enabled.compose_file.clone()),
             ],
         ));
+    } else if detail.in_project {
+        // The absence of the block above is easy to miss, and the next step
+        // is the whole reason anyone reads this page.
+        text.push_str(&format!(
+            "\nnot enabled in this project; enable it with `chaps models enable {}`\n",
+            m.id
+        ));
+    } else {
+        text.push_str(&format!(
+            "\nnot in a deployment directory; `chaps init` creates one, \
+             then `chaps models enable {}`\n",
+            m.id
+        ));
     }
 
     text
@@ -525,6 +581,8 @@ mod tests {
         let detail = ModelDetail {
             model: m,
             enabled,
+            // Every `info` test below runs as if inside a deployment.
+            in_project: true,
             reach: enabled.map(|e| crate::status::reach(&project, e.host_port, &e.service_id)),
             image_stable: channel_image(m, Channel::Stable),
             image_latest: channel_image(m, Channel::Latest),
@@ -561,7 +619,11 @@ mod tests {
         }
         assert!(text.contains("(amd64 only)"), "ewars is an R-INLA model");
         assert!(text.contains(&m.channels.stable));
-        assert!(!text.contains("enabled in this project"));
+        // Not enabled here, and the page says so on its last line rather than
+        // leaving the missing block to be noticed.
+        assert!(text.ends_with(
+            "not enabled in this project; enable it with `chaps models enable chapkit_ewars_model`\n"
+        ));
         assert!(text.lines().all(|l| !l.ends_with(' ')), "{text}");
     }
 
@@ -617,6 +679,7 @@ mod tests {
         let detail = ModelDetail {
             model: &m,
             enabled: None,
+            in_project: true,
             reach: None,
             image_stable: channel_image(&m, Channel::Stable),
             image_latest: channel_image(&m, Channel::Latest),

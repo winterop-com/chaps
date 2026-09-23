@@ -28,7 +28,41 @@ pub struct UpdateReport {
     pub chap_core: ChapCoreUpdate,
     pub pulled: bool,
     pub restarted: bool,
+    /// What the run does about the stack, and why.
+    pub restart: Restart,
+    /// Whether any of this project's containers was up, `null` when docker
+    /// could not be asked.
+    pub stack_running: Option<bool>,
     pub dry_run: bool,
+}
+
+/// What `update` does with the stack once the pins have moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Restart {
+    /// The stack is running: `up -d` recreates whatever changed under it.
+    Recreate,
+    /// Nothing is running. Starting a stopped deployment is `chaps up`'s job:
+    /// an update that started it would turn a version bump into a deployment
+    /// nobody asked for.
+    LeaveStopped,
+    /// `--no-restart` said to stop after the pull.
+    NotAsked,
+}
+
+/// Which of the three, given what docker reported and the flag.
+///
+/// `running` is `None` when docker could not be asked at all; the run then
+/// goes ahead with `up -d`, because docker reports its own trouble far better
+/// than a guess from here would.
+pub fn restart_decision(running: Option<bool>, no_restart: bool) -> Restart {
+    if no_restart {
+        return Restart::NotAsked;
+    }
+    match running {
+        Some(false) => Restart::LeaveStopped,
+        Some(true) | None => Restart::Recreate,
+    }
 }
 
 /// chap-core's own before and after.
@@ -84,6 +118,9 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         args.pin_chap_core,
         ctx.registry.timeout,
     );
+    // Asked before the pull, which can neither start nor stop a container, so
+    // the dry run and the real run answer the same question.
+    let running = stack_running(&project);
     let mut report = UpdateReport {
         registry: RegistryInfo {
             url: registry.url.clone(),
@@ -93,6 +130,8 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         chap_core: plan_chap_core(&project, latest, args.pin_chap_core),
         pulled: false,
         restarted: false,
+        restart: restart_decision(running, args.no_restart),
+        stack_running: running,
         dry_run: args.dry_run,
     };
     if args.dry_run {
@@ -119,11 +158,17 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
 
     run_compose(&project, &["pull".to_string()])?;
     report.pulled = true;
-    if !args.no_restart {
+    if report.restart == Restart::Recreate {
         run_compose(&project, &["up".to_string(), "-d".to_string()])?;
         report.restarted = true;
     }
     ctx.out.emit(&report, || human(&report))
+}
+
+/// Whether any container of this project is up, or `None` when docker could
+/// not be asked.
+fn stack_running(project: &Project) -> Option<bool> {
+    Some(!docker::running_containers(project)?.is_empty())
 }
 
 /// Resolve every enabled model against the fresh registry without changing
@@ -350,24 +395,49 @@ fn human(report: &UpdateReport) -> String {
             "dry run: {changed} model pin(s) would move; {}\n",
             chap_core_phrase(&report.chap_core, true)
         ));
+        text.push_str(&format!("{}\n", stack_line(report)));
         text.push_str("nothing written\n");
     } else {
         text.push_str(&format!(
-            "{changed} model pin(s) moved; {}; images {}; stack {}\n",
+            "{changed} model pin(s) moved; {}; images {}\n",
             chap_core_phrase(&report.chap_core, false),
             if report.pulled {
                 "pulled"
             } else {
                 "not pulled"
             },
-            if report.restarted {
-                "restarted"
-            } else {
-                "not restarted (run `chaps up`)"
-            }
         ));
+        text.push_str(&format!("{}\n", stack_line(report)));
     }
     text
+}
+
+/// The closing line: what happened, or would happen, to the stack itself.
+fn stack_line(report: &UpdateReport) -> String {
+    match (report.dry_run, report.restart) {
+        (true, Restart::Recreate) => {
+            "the stack is running, so the update would recreate the services whose pins moved"
+                .to_string()
+        }
+        (true, Restart::LeaveStopped) => {
+            "the stack is not running, so the update would leave it stopped; \
+             `chaps up` starts it with the new versions"
+                .to_string()
+        }
+        (true, Restart::NotAsked) => {
+            "--no-restart: the images would be pulled and the stack left as it is".to_string()
+        }
+        (false, Restart::Recreate) => {
+            "recreated the services whose pins moved; run `chaps status` to check them".to_string()
+        }
+        (false, Restart::LeaveStopped) => {
+            "stack is not running; run `chaps up` to start with the new versions".to_string()
+        }
+        (false, Restart::NotAsked) => {
+            "stack not restarted (--no-restart); run `chaps up` to apply the new versions"
+                .to_string()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -477,6 +547,8 @@ mod tests {
             chap_core: chap_core("latest", "latest", None),
             pulled: false,
             restarted: false,
+            restart: Restart::Recreate,
+            stack_running: Some(true),
             dry_run: true,
         };
         let text = human(&report);
@@ -489,16 +561,89 @@ mod tests {
         assert!(text.contains(
             "dry run: 1 model pin(s) would move; chap-core `latest` would be re-pulled\n"
         ));
+        assert!(text.contains(
+            "the stack is running, so the update would recreate the services whose pins moved\n"
+        ));
         assert!(text.ends_with("nothing written\n"));
 
         let value = serde_json::to_value(&report).unwrap();
         assert_eq!(value["dry_run"], true);
+        assert_eq!(value["restart"], "recreate");
+        assert_eq!(value["stack_running"], true);
         assert_eq!(value["models"][0]["changed"], true);
         assert_eq!(value["registry"]["provenance"]["kind"], "network");
         assert_eq!(value["chap_core"]["old_tag"], "latest");
         assert_eq!(value["chap_core"]["changed"], false);
         assert_eq!(value["chap_core"]["moving"], true);
         assert_eq!(value["chap_core"]["compose_source"]["kind"], "embedded");
+    }
+
+    #[test]
+    fn a_stopped_stack_is_not_started_by_an_update() {
+        // Running: the update recreates whatever its pins changed.
+        assert_eq!(restart_decision(Some(true), false), Restart::Recreate);
+        // Stopped: starting it is `chaps up`'s job.
+        assert_eq!(restart_decision(Some(false), false), Restart::LeaveStopped);
+        // Docker could not be asked; `up -d` reports that better than we can.
+        assert_eq!(restart_decision(None, false), Restart::Recreate);
+        // --no-restart wins over all of it.
+        for running in [Some(true), Some(false), None] {
+            assert_eq!(restart_decision(running, true), Restart::NotAsked);
+        }
+    }
+
+    /// The same report with another stack decision, for the closing line.
+    fn with_restart(restart: Restart, dry_run: bool) -> UpdateReport {
+        UpdateReport {
+            registry: RegistryInfo {
+                url: "https://example.test/registry.yaml".into(),
+                provenance: Provenance::Network,
+            },
+            models: Vec::new(),
+            chap_core: chap_core("v2.3.1", "v2.3.1", Some("v2.3.1")),
+            pulled: !dry_run,
+            restarted: !dry_run && restart == Restart::Recreate,
+            restart,
+            stack_running: Some(restart == Restart::Recreate),
+            dry_run,
+        }
+    }
+
+    #[test]
+    fn the_closing_line_says_what_happened_to_the_stack() {
+        let text = human(&with_restart(Restart::LeaveStopped, false));
+        assert!(text.contains("0 model pin(s) moved;"), "{text}");
+        assert!(
+            text.ends_with("stack is not running; run `chaps up` to start with the new versions\n"),
+            "{text}"
+        );
+        // The old "stack not restarted" clause is gone from the totals line.
+        assert!(!text.contains("; stack "), "{text}");
+
+        let text = human(&with_restart(Restart::Recreate, false));
+        assert!(text.ends_with(
+            "recreated the services whose pins moved; run `chaps status` to check them\n"
+        ));
+
+        let text = human(&with_restart(Restart::NotAsked, false));
+        assert!(text.ends_with(
+            "stack not restarted (--no-restart); run `chaps up` to apply the new versions\n"
+        ));
+
+        // A dry run states which of the two it would be.
+        let text = human(&with_restart(Restart::LeaveStopped, true));
+        assert!(text.contains(
+            "the stack is not running, so the update would leave it stopped; \
+             `chaps up` starts it with the new versions\n"
+        ));
+        assert!(text.ends_with("nothing written\n"));
+        assert!(
+            human(&with_restart(Restart::NotAsked, true))
+                .contains("--no-restart: the images would be pulled and the stack left as it is\n")
+        );
+
+        // No models enabled still says so, before any of this.
+        assert!(human(&with_restart(Restart::Recreate, false)).contains("no models enabled\n"));
     }
 
     /// A [`ChapCoreUpdate`] as `plan_chap_core` would have built it.

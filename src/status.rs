@@ -2,10 +2,13 @@
 //!
 //! Owned by agent C.
 //!
-//! Everything here is deliberately lenient: chap-core may add fields, rename
-//! optional ones or answer with an empty body, and none of that should turn
-//! `chaps status` into a crash. An unreachable API is data, not an error.
+//! Lenient about the fields chap-core sends - it may add fields, rename
+//! optional ones or leave one empty, and none of that should turn
+//! `chaps status` into a crash - and strict about who is answering. A 200
+//! from something that is not chap-core is reported as down: `up` has to mean
+//! that the deployment works, not that the port is taken.
 
+use crate::output;
 use crate::project::Project;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,12 +18,18 @@ use std::time::Duration;
 pub const HEALTH_PATH: &str = "/health";
 /// Path of the service registry chapkit models register themselves with.
 pub const SERVICES_PATH: &str = "/v2/services";
+/// Paths that may carry chap-core's own version, in the order they are tried.
+/// Neither is required: a chap-core that answers neither is still up, and the
+/// version falls back to the tag the project pins.
+pub const INFO_PATHS: &[&str] = &["/system/info", "/v2/info"];
 
 /// What `chaps status` reports.
 #[derive(Debug, Serialize)]
 pub struct StatusReport {
     pub api_url: String,
     pub api: ApiHealth,
+    /// Which chap-core this is, and whether the API said so itself.
+    pub version: ApiVersion,
     /// Services chap-core currently knows about, from `/v2/services`.
     pub registered: Vec<RegisteredService>,
     /// Service ids the project expects to be registered.
@@ -32,10 +41,15 @@ pub struct StatusReport {
     /// none. The URL chap-core reports in `registered` is the internal one and
     /// only resolves inside the compose network.
     pub reach: BTreeMap<String, String>,
+    /// One row per model: everything this project enables, plus every
+    /// registered service it does not know about.
+    pub models: Vec<ModelStatus>,
+    /// Registered service ids the project does not enable.
+    pub unmanaged: Vec<String>,
 }
 
 impl StatusReport {
-    /// Whether the API answered its health check.
+    /// Whether the API answered its health check as chap-core.
     #[cfg(test)]
     pub fn is_up(&self) -> bool {
         matches!(self.api, ApiHealth::Up { .. })
@@ -56,6 +70,76 @@ pub enum ApiHealth {
     Down { error: String },
 }
 
+/// The version `chaps status` puts next to the API URL.
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiVersion {
+    /// What the API reported, or the tag `.chaps/project.yaml` pins when it
+    /// reported nothing.
+    pub value: String,
+    /// True when `value` is that pin rather than the API's own answer.
+    pub pinned: bool,
+}
+
+impl ApiVersion {
+    /// The cell for the chap-core line, empty when nothing is known at all.
+    pub fn label(&self) -> String {
+        match (self.value.is_empty(), self.pinned) {
+            (true, _) => String::new(),
+            (false, true) => format!("{} (pinned)", self.value),
+            (false, false) => self.value.clone(),
+        }
+    }
+}
+
+/// Where one model row stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelState {
+    /// chap-core knows it: the model works.
+    Registered,
+    /// Its container is up but chap-core never heard from it. chapkit gives
+    /// up registering five attempts into its startup, so a model that came up
+    /// before chap-core was healthy stays invisible until it is restarted.
+    RunningNotRegistered,
+    /// No container, so nothing could have registered.
+    NotRunning,
+    /// Registered with chap-core, but not a model this project enables.
+    Unmanaged,
+}
+
+impl ModelState {
+    /// The STATE cell.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModelState::Registered => "registered",
+            ModelState::RunningNotRegistered => "running, not registered",
+            ModelState::NotRunning => "not running",
+            ModelState::Unmanaged => "unmanaged",
+        }
+    }
+
+    /// Whether this row is something to do about.
+    pub fn is_problem(self) -> bool {
+        matches!(
+            self,
+            ModelState::RunningNotRegistered | ModelState::NotRunning
+        )
+    }
+}
+
+/// One row of the model table.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelStatus {
+    /// Compose service name, which is also the id the model registers with.
+    pub id: String,
+    pub state: ModelState,
+    /// Where a human reaches it: a host port, `internal`, or - for an
+    /// unmanaged service - the URL chap-core has for it.
+    pub reach: String,
+    /// How long ago chap-core last heard from it, `None` when never.
+    pub last_ping: Option<String>,
+}
+
 /// One entry of `GET /v2/services`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RegisteredService {
@@ -69,8 +153,17 @@ pub struct RegisteredService {
 
 /// Probe chap-core and diff the registered services against the project.
 ///
-/// Never fails: an unreachable API is reported as [`ApiHealth::Down`].
-pub fn status(project: &Project, api_url: &str, timeout: Duration) -> StatusReport {
+/// Never fails: an unreachable API - or one that answers with something that
+/// is not chap-core - is reported as [`ApiHealth::Down`]. `running` is the
+/// set of compose services with a container that is up, which is what tells a
+/// model that never started from one that started and did not register; an
+/// empty set is a safe answer when docker cannot be asked.
+pub fn status(
+    project: &Project,
+    api_url: &str,
+    timeout: Duration,
+    running: &BTreeSet<String>,
+) -> StatusReport {
     let base = api_url.trim_end_matches('/').to_string();
     let mut expected: Vec<String> = project
         .state
@@ -82,22 +175,36 @@ pub fn status(project: &Project, api_url: &str, timeout: Duration) -> StatusRepo
     expected.dedup();
 
     let agent = agent(timeout);
-    let api = match get_text(&agent, &format!("{base}{HEALTH_PATH}")) {
-        Ok(body) => parse_health(&body),
+    let mut api = match get(&agent, &base, HEALTH_PATH) {
+        Ok(answer) => parse_health(&base, &answer.content_type, &answer.body),
         Err(error) => ApiHealth::Down { error },
     };
 
-    // Only ask for the service list when the API answered at all: otherwise we
-    // would wait out a second connection timeout to learn the same thing.
-    let registered = if matches!(api, ApiHealth::Up { .. }) {
-        match get_text(&agent, &format!("{base}{SERVICES_PATH}")) {
-            Ok(body) => parse_services(&body).unwrap_or_default(),
-            Err(_) => Vec::new(),
+    // Only ask for the service list when health already looked like
+    // chap-core: otherwise we would wait out a second timeout to learn the
+    // same thing. The list is the second half of the identity check - a
+    // service registry that does not parse means whatever answered is not
+    // chap-core, whatever `/health` said.
+    let mut registered = Vec::new();
+    if matches!(api, ApiHealth::Up { .. }) {
+        let wrong = match get(&agent, &base, SERVICES_PATH) {
+            Ok(answer) => match parse_services(&answer.body) {
+                Ok(services) => {
+                    registered = services;
+                    None
+                }
+                Err(_) => Some(body_description(&answer.content_type, &answer.body)),
+            },
+            Err(error) => Some(error),
+        };
+        if let Some(what) = wrong {
+            api = ApiHealth::Down {
+                error: services_are_not_chap_core(&base, &what),
+            };
         }
-    } else {
-        Vec::new()
-    };
+    }
 
+    let version = version_of(&agent, &base, &api, &project.state.chap_image_tag);
     let missing = missing_ids(&expected, &registered);
     let reach = project
         .state
@@ -110,14 +217,125 @@ pub fn status(project: &Project, api_url: &str, timeout: Duration) -> StatusRepo
             )
         })
         .collect();
+    let models = model_rows(&enabled_models(project), &registered, running, now());
+    let unmanaged = models
+        .iter()
+        .filter(|m| m.state == ModelState::Unmanaged)
+        .map(|m| m.id.clone())
+        .collect();
     StatusReport {
         api_url: base,
         api,
+        version,
         registered,
         expected,
         missing,
         reach,
+        models,
+        unmanaged,
     }
+}
+
+/// Every model this project enables, as `(service id, host port)`, in the
+/// order `models.yaml` records them.
+pub fn enabled_models(project: &Project) -> Vec<(String, Option<u16>)> {
+    project
+        .state
+        .models
+        .values()
+        .map(|m| (m.service_id.clone(), m.host_port))
+        .collect()
+}
+
+/// Build the table: one row per enabled model, then every registered service
+/// the project does not know as `unmanaged`.
+///
+/// `now` is Unix seconds, passed in so the relative times are testable.
+pub fn model_rows(
+    enabled: &[(String, Option<u16>)],
+    registered: &[RegisteredService],
+    running: &BTreeSet<String>,
+    now: u64,
+) -> Vec<ModelStatus> {
+    let mut rows: Vec<ModelStatus> = enabled
+        .iter()
+        .map(|(id, host_port)| {
+            let found = registered.iter().find(|s| &s.id == id);
+            let state = match (found.is_some(), running.contains(id)) {
+                (true, _) => ModelState::Registered,
+                (false, true) => ModelState::RunningNotRegistered,
+                (false, false) => ModelState::NotRunning,
+            };
+            ModelStatus {
+                id: id.clone(),
+                state,
+                reach: match host_port {
+                    Some(port) => format!("http://localhost:{port}"),
+                    None => "internal".to_string(),
+                },
+                last_ping: found.and_then(|s| ago(now, &s.last_ping_at)),
+            }
+        })
+        .collect();
+
+    let mut strangers: Vec<&RegisteredService> = registered
+        .iter()
+        .filter(|s| !enabled.iter().any(|(id, _)| id == &s.id))
+        .collect();
+    strangers.sort_by(|a, b| a.id.cmp(&b.id));
+    rows.extend(strangers.into_iter().map(|s| ModelStatus {
+        id: s.id.clone(),
+        state: ModelState::Unmanaged,
+        // Whatever chap-core has for it: an unmanaged service is not ours to
+        // describe, and its URL is the only handle anyone has on it.
+        reach: s.url.clone(),
+        last_ping: ago(now, &s.last_ping_at),
+    }));
+    rows
+}
+
+/// The one line the table adds up to.
+///
+/// Rows the project does not manage are left out of the count: an unmanaged
+/// registration is not a model this deployment has to get running.
+pub fn closing_line(rows: &[ModelStatus]) -> String {
+    let mine: Vec<&ModelStatus> = rows
+        .iter()
+        .filter(|r| r.state != ModelState::Unmanaged)
+        .collect();
+    let total = mine.len();
+    if total == 0 {
+        return "no models enabled; run `chaps models enable ID` to add one".to_string();
+    }
+    let problems = mine.iter().filter(|r| r.state.is_problem()).count();
+    let noun = if total == 1 { "model" } else { "models" };
+    if problems == 0 {
+        return format!("all {total} {noun} registered");
+    }
+    let verb = if problems == 1 { "is" } else { "are" };
+    format!("{problems} of {total} {noun} {verb} not registered.")
+}
+
+/// One hint per row that needs doing something about, in table order.
+///
+/// A model whose container is up but which chap-core does not know about is
+/// not a crash to read the logs for: chapkit tries to register five times
+/// while it starts and then gives up for good, so a model that came up before
+/// chap-core was healthy stays invisible until it is restarted.
+pub fn hints(rows: &[ModelStatus]) -> Vec<String> {
+    rows.iter()
+        .filter_map(|row| match row.state {
+            ModelState::RunningNotRegistered => Some(format!(
+                "{}: restart it with `chaps docker run restart {}`",
+                row.id, row.id
+            )),
+            ModelState::NotRunning => Some(format!(
+                "{}: start the stack with `chaps up`, then `chaps logs {}`",
+                row.id, row.id
+            )),
+            ModelState::Registered | ModelState::Unmanaged => None,
+        })
+        .collect()
 }
 
 /// Where a human reaches one model service from this machine.
@@ -132,29 +350,6 @@ pub fn reach(project: &Project, host_port: Option<u16>, service_id: &str) -> Str
     }
 }
 
-/// The hint to print under `missing:`, given the running containers.
-///
-/// A model whose container is up but which chap-core does not know about is
-/// not a crash to read the logs for: chapkit tries to register five times
-/// while it starts and then gives up for good, so a model that came up before
-/// chap-core was healthy stays invisible until it is restarted. When no
-/// missing service is running, the logs are still the right place to look.
-///
-/// `running` is best-effort (see [`crate::docker::running_services`]); an
-/// empty set yields the logs hint, which is what this said before.
-pub fn missing_hint(missing: &[String], running: &BTreeSet<String>) -> Option<String> {
-    let first = missing.first()?;
-    match missing.iter().find(|id| running.contains(id.as_str())) {
-        Some(svc) => Some(format!(
-            "{svc} is running but not registered (chapkit gives up registering after 5 attempts \
-             at startup); restart it with `chaps docker run restart {svc}`"
-        )),
-        None => Some(format!(
-            "run `chaps logs {first}` to see why it has not registered"
-        )),
-    }
-}
-
 /// Expected service ids that nothing has registered.
 pub fn missing_ids(expected: &[String], registered: &[RegisteredService]) -> Vec<String> {
     expected
@@ -164,24 +359,254 @@ pub fn missing_ids(expected: &[String], registered: &[RegisteredService]) -> Vec
         .collect()
 }
 
-/// Parse a `/health` body. An unparseable body still counts as up: the service
-/// answered, which is what the caller asked about.
-pub fn parse_health(body: &str) -> ApiHealth {
-    let wire: HealthBody = serde_json::from_str(body).unwrap_or_default();
+/// Parse a `/health` body, strictly.
+///
+/// chap-core answers `{"status":"success","message":"healthy"}`. Anything
+/// that is not JSON with a `status` field is somebody else holding the port -
+/// a dev server, a proxy, an old deployment - and reporting that as `up`
+/// would be worse than reporting nothing at all.
+pub fn parse_health(api_url: &str, content_type: &str, body: &str) -> ApiHealth {
+    let value: serde_json::Value = match serde_json::from_str(body) {
+        Ok(value) => value,
+        Err(_) => {
+            return ApiHealth::Down {
+                error: is_not_chap_core(api_url, &body_description(content_type, body)),
+            };
+        }
+    };
+    let Some(status) = value.get("status").map(json_text) else {
+        return ApiHealth::Down {
+            error: is_not_chap_core(
+                api_url,
+                &format!(
+                    "{} without a `status` field",
+                    body_description(content_type, body)
+                ),
+            ),
+        };
+    };
     ApiHealth::Up {
-        status: if wire.status.is_empty() {
-            "ok".to_string()
-        } else {
-            wire.status
-        },
-        message: wire.message,
+        status,
+        message: value.get("message").map(json_text).unwrap_or_default(),
     }
 }
 
+/// `port 8000 answers but it is not chap-core (got text/html)`.
+pub fn is_not_chap_core(api_url: &str, what: &str) -> String {
+    format!(
+        "{} answers but it is not chap-core (got {what})",
+        endpoint_phrase(api_url)
+    )
+}
+
+/// The same verdict, reached through the service registry instead.
+pub fn services_are_not_chap_core(api_url: &str, what: &str) -> String {
+    format!(
+        "{} answers but it is not chap-core: {SERVICES_PATH} returned {what}, not {{count, services}}",
+        endpoint_phrase(api_url)
+    )
+}
+
+/// How to name the thing that answered: its port, which is what the operator
+/// has to free, or the whole URL when there is no port in it.
+fn endpoint_phrase(api_url: &str) -> String {
+    match port_of(api_url) {
+        Some(port) => format!("port {port}"),
+        None => api_url.to_string(),
+    }
+}
+
+/// The port of `http://host:PORT/path`, when it has one.
+fn port_of(url: &str) -> Option<u16> {
+    let authority = url.rsplit("://").next()?.split('/').next()?;
+    authority.rsplit_once(':')?.1.parse().ok()
+}
+
+/// What to call a body that is not chap-core's JSON: the content type the
+/// server sent, or the first bytes when it sent none.
+pub fn body_description(content_type: &str, body: &str) -> String {
+    // `text/html; charset=utf-8` says nothing more than `text/html` here.
+    let kind = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    if !kind.is_empty() {
+        return kind;
+    }
+    let head: String = body
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(FIRST_BYTES)
+        .collect();
+    if head.is_empty() {
+        return "an empty body".to_string();
+    }
+    let ellipsis = if body.trim().chars().count() > FIRST_BYTES {
+        "..."
+    } else {
+        ""
+    };
+    format!("`{head}{ellipsis}`")
+}
+
+/// How much of an unrecognised body to quote back.
+const FIRST_BYTES: usize = 40;
+
 /// Parse a `/v2/services` body into the flattened report entries.
+///
+/// Strict about the envelope: chap-core's registry is `{count, services}`, so
+/// a body without both is not chap-core's, however well-formed it is.
 pub fn parse_services(body: &str) -> Result<Vec<RegisteredService>, serde_json::Error> {
     let wire: ServicesBody = serde_json::from_str(body)?;
     Ok(wire.services.into_iter().map(flatten).collect())
+}
+
+/// chap-core's own version, from whichever info endpoint answers.
+///
+/// Best-effort: neither path is required, and a chap-core that publishes
+/// neither still gets a version in the report - the tag the project pins,
+/// marked as such so nobody reads it as the running build.
+fn version_of(agent: &ureq::Agent, base: &str, api: &ApiHealth, pinned: &str) -> ApiVersion {
+    if matches!(api, ApiHealth::Up { .. }) {
+        for path in INFO_PATHS {
+            if let Ok(answer) = get(agent, base, path)
+                && let Some(version) = parse_version(&answer.body)
+            {
+                return ApiVersion {
+                    value: version,
+                    pinned: false,
+                };
+            }
+        }
+    }
+    ApiVersion {
+        value: pinned.to_string(),
+        pinned: true,
+    }
+}
+
+/// A version out of an info body, wherever it keeps it.
+///
+/// chap-core has moved this field around between releases, so the obvious
+/// spellings are all accepted and an unknown shape is simply no answer.
+pub fn parse_version(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    const KEYS: &[&str] = &["version", "chap_core_version", "app_version"];
+    const NESTED: &[&str] = &["info", "system", "chap_core"];
+    for key in KEYS {
+        if let Some(found) = string_at(&value, key) {
+            return Some(found);
+        }
+    }
+    for outer in NESTED {
+        let inner = value.get(outer)?;
+        for key in KEYS {
+            if let Some(found) = string_at(inner, key) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn string_at(value: &serde_json::Value, key: &str) -> Option<String> {
+    let text = value.get(key)?.as_str()?.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// A JSON value as the text to print: a string as itself, anything else as
+/// its JSON spelling, so a numeric `status` is still reported rather than
+/// dropped.
+fn json_text(value: &serde_json::Value) -> String {
+    match value.as_str() {
+        Some(text) => text.to_string(),
+        None => value.to_string(),
+    }
+}
+
+/// How long ago a wire timestamp was, as a table cell.
+fn ago(now: u64, at: &str) -> Option<String> {
+    let then = parse_rfc3339(at)?;
+    Some(output::ago(Duration::from_secs(now.saturating_sub(then))))
+}
+
+/// Seconds since the Unix epoch for an RFC 3339 timestamp, as chap-core
+/// writes `last_ping_at`.
+///
+/// Accepts `2026-09-22T09:04:30Z`, a fractional second, a numeric offset and
+/// a space in place of the `T`. Anything else is `None`, which the table
+/// shows as `-` rather than inventing an age.
+pub fn parse_rfc3339(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let (date, rest) = text.split_once(['T', 't', ' '])?;
+    let mut fields = date.split('-');
+    let year: i64 = fields.next()?.parse().ok()?;
+    let month: u32 = fields.next()?.parse().ok()?;
+    let day: u32 = fields.next()?.parse().ok()?;
+    if fields.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    let (clock, offset) = split_offset(rest);
+    let mut fields = clock.split(':');
+    let hour: i64 = fields.next()?.trim().parse().ok()?;
+    let minute: i64 = fields.next()?.parse().ok()?;
+    // The fractional part is below the resolution of anything this prints.
+    let second: i64 = match fields.next() {
+        Some(text) => text.split('.').next()?.parse().ok()?,
+        None => 0,
+    };
+    if fields.next().is_some() {
+        return None;
+    }
+
+    let seconds =
+        days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset;
+    u64::try_from(seconds).ok()
+}
+
+/// Split a time off its UTC offset, in seconds. A time with no offset at all
+/// is read as UTC, which is what every chap-core timestamp is.
+fn split_offset(rest: &str) -> (&str, i64) {
+    if let Some(clock) = rest.strip_suffix(['Z', 'z']) {
+        return (clock, 0);
+    }
+    // A clock holds no sign, so the last one can only start the offset.
+    let Some(at) = rest.rfind(['+', '-']) else {
+        return (rest, 0);
+    };
+    let (clock, offset) = rest.split_at(at);
+    let sign = if offset.starts_with('-') { -1 } else { 1 };
+    let digits: String = offset.chars().filter(char::is_ascii_digit).collect();
+    let (hours, minutes) = match digits.len() {
+        4 => (digits[..2].parse().unwrap_or(0), digits[2..].parse().ok()),
+        2 => (digits.parse().unwrap_or(0), Some(0)),
+        _ => (0, Some(0)),
+    };
+    (clock, sign * (hours * 3600 + minutes.unwrap_or(0) * 60))
+}
+
+/// Days since the Unix epoch for a civil date.
+///
+/// Howard Hinnant's `days_from_civil`, the inverse of the conversion
+/// [`crate::backup::utc_parts`] uses, and exact for every date a deployment
+/// will ever report.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m as i64 + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Seconds since the Unix epoch, now.
+fn now() -> u64 {
+    crate::backup::now()
 }
 
 fn flatten(w: WireService) -> RegisteredService {
@@ -205,17 +630,34 @@ fn flatten(w: WireService) -> RegisteredService {
     }
 }
 
-/// `GET url`, returning the body text or a human-readable failure.
-fn get_text(agent: &ureq::Agent, url: &str) -> Result<String, String> {
-    let mut response = agent.get(url).call().map_err(|e| e.to_string())?;
+/// One answer from the API: the body plus the content type, which is how an
+/// unrecognised body is named in the report.
+struct Answer {
+    content_type: String,
+    body: String,
+}
+
+/// `GET base+path`, returning the answer or a short human-readable failure.
+fn get(agent: &ureq::Agent, base: &str, path: &str) -> Result<Answer, String> {
+    let mut response = agent
+        .get(format!("{base}{path}"))
+        .call()
+        .map_err(|e| e.to_string())?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("HTTP {} from {url}", status.as_u16()));
+        return Err(format!("HTTP {}", status.as_u16()));
     }
-    response
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(Answer { content_type, body })
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -228,19 +670,13 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .new_agent()
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct HealthBody {
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    message: String,
-}
-
-/// `GET /v2/services`. Fields the report does not use (`count`,
-/// `registered_at`, everything chap-core adds later) are ignored.
-#[derive(Debug, Default, Deserialize)]
+/// `GET /v2/services`. The envelope is required (see [`parse_services`]);
+/// fields the report does not use - `registered_at`, everything chap-core
+/// adds later - are ignored.
+#[derive(Debug, Deserialize)]
 struct ServicesBody {
-    #[serde(default)]
+    #[allow(dead_code)]
+    count: u64,
     services: Vec<WireService>,
 }
 
@@ -271,6 +707,8 @@ struct WireInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const URL: &str = "http://localhost:8000";
 
     const SERVICES: &str = r#"{
       "count": 2,
@@ -315,7 +753,7 @@ mod tests {
 
     #[test]
     fn services_payload_tolerates_missing_fields() {
-        let services = parse_services(r#"{"services":[{"id":"x"}]}"#).unwrap();
+        let services = parse_services(r#"{"count":1,"services":[{"id":"x"}]}"#).unwrap();
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].id, "x");
         // Without an info block the id doubles as the display name.
@@ -338,34 +776,180 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert!(parse_services("{}").unwrap().is_empty());
     }
 
     #[test]
-    fn a_non_json_services_body_is_an_error_not_a_panic() {
-        assert!(parse_services("<html>nope</html>").is_err());
+    fn a_services_body_without_the_envelope_is_not_chap_cores() {
+        // Well-formed JSON is not enough: the registry is `{count, services}`,
+        // and anything else means something else is on the port.
+        for body in [
+            "<html>nope</html>",
+            "{}",
+            r#"{"services":[]}"#,
+            r#"{"count":0}"#,
+            r#"[{"id":"x"}]"#,
+            r#"{"detail":"Not Found"}"#,
+        ] {
+            assert!(parse_services(body).is_err(), "{body}");
+        }
     }
 
     #[test]
-    fn health_payload_is_read_leniently() {
+    fn health_is_up_only_for_chap_cores_own_json() {
+        let ApiHealth::Up { status, message } = parse_health(
+            URL,
+            "application/json",
+            r#"{"status":"success","message":"healthy"}"#,
+        ) else {
+            panic!("chap-core's own body is up");
+        };
+        assert_eq!(status, "success");
+        assert_eq!(message, "healthy");
+
+        // A message chap-core did not send is not a reason to call it down.
         let ApiHealth::Up { status, message } =
-            parse_health(r#"{"status":"ok","message":"CHAP is running"}"#)
+            parse_health(URL, "application/json", r#"{"status":"ok"}"#)
         else {
             panic!("expected up");
         };
         assert_eq!(status, "ok");
-        assert_eq!(message, "CHAP is running");
-
-        let ApiHealth::Up { status, message } = parse_health("{}") else {
-            panic!("expected up");
-        };
-        assert_eq!(status, "ok", "an empty body still means the API answered");
         assert!(message.is_empty());
+    }
 
-        let ApiHealth::Up { status, .. } = parse_health("not json at all") else {
-            panic!("expected up");
+    #[test]
+    fn an_html_200_is_down_and_names_the_content_type() {
+        let ApiHealth::Down { error } = parse_health(
+            URL,
+            "text/html; charset=utf-8",
+            "<!doctype html><html><body>hello</body></html>",
+        ) else {
+            panic!("HTML is not chap-core");
         };
-        assert_eq!(status, "ok");
+        assert_eq!(
+            error,
+            "port 8000 answers but it is not chap-core (got text/html)"
+        );
+    }
+
+    #[test]
+    fn a_non_json_200_without_a_content_type_is_quoted_back() {
+        let ApiHealth::Down { error } = parse_health(URL, "", "not json at all") else {
+            panic!("plain text is not chap-core");
+        };
+        assert_eq!(
+            error,
+            "port 8000 answers but it is not chap-core (got `not json at all`)"
+        );
+
+        // A long body is cut, so the line stays one line.
+        let ApiHealth::Down { error } = parse_health(URL, "", &"x".repeat(200)) else {
+            panic!("expected down");
+        };
+        assert!(error.ends_with("...`)"), "{error}");
+        assert!(error.len() < 120, "{error}");
+
+        // An empty 200 says so rather than quoting nothing.
+        let ApiHealth::Down { error } = parse_health(URL, "", "   ") else {
+            panic!("expected down");
+        };
+        assert!(error.contains("an empty body"), "{error}");
+    }
+
+    #[test]
+    fn json_without_a_status_field_is_down() {
+        // The shape a reverse proxy or another API answers with.
+        let ApiHealth::Down { error } =
+            parse_health(URL, "application/json", r#"{"detail":"Not Found"}"#)
+        else {
+            panic!("JSON without a status is not chap-core");
+        };
+        assert!(error.contains("not chap-core"), "{error}");
+        assert!(error.contains("without a `status` field"), "{error}");
+
+        // An empty JSON object used to count as up; it no longer does.
+        assert!(matches!(
+            parse_health(URL, "application/json", "{}"),
+            ApiHealth::Down { .. }
+        ));
+    }
+
+    #[test]
+    fn the_endpoint_is_named_by_its_port_when_it_has_one() {
+        assert_eq!(
+            is_not_chap_core("http://127.0.0.1:54321", "text/html"),
+            "port 54321 answers but it is not chap-core (got text/html)"
+        );
+        // No port to name: the URL itself is the next best thing.
+        assert_eq!(
+            is_not_chap_core("https://chap.example.test", "text/html"),
+            "https://chap.example.test answers but it is not chap-core (got text/html)"
+        );
+        assert_eq!(port_of("http://localhost:8000/health"), Some(8000));
+        assert_eq!(port_of("http://localhost"), None);
+    }
+
+    #[test]
+    fn a_registry_that_is_not_chap_cores_says_what_it_expected() {
+        let error = services_are_not_chap_core(URL, "HTTP 404");
+        assert_eq!(
+            error,
+            "port 8000 answers but it is not chap-core: /v2/services returned HTTP 404, \
+             not {count, services}"
+        );
+        assert!(services_are_not_chap_core(URL, "text/html").contains("not chap-core"));
+    }
+
+    #[test]
+    fn the_version_is_read_wherever_the_info_body_keeps_it() {
+        assert_eq!(
+            parse_version(r#"{"version":"2.3.1","name":"chap-core"}"#).as_deref(),
+            Some("2.3.1")
+        );
+        assert_eq!(
+            parse_version(r#"{"chap_core_version":"v2.3.1"}"#).as_deref(),
+            Some("v2.3.1")
+        );
+        assert_eq!(
+            parse_version(r#"{"info":{"version":"2.4.0"}}"#).as_deref(),
+            Some("2.4.0")
+        );
+        for body in [
+            "{}",
+            "<html>",
+            r#"{"version":""}"#,
+            r#"{"version":2}"#,
+            r#"{"other":{"version":"1"}}"#,
+        ] {
+            assert_eq!(parse_version(body), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn the_version_label_marks_the_pin() {
+        assert_eq!(
+            ApiVersion {
+                value: "2.3.1".into(),
+                pinned: false
+            }
+            .label(),
+            "2.3.1"
+        );
+        assert_eq!(
+            ApiVersion {
+                value: "v2.3.1".into(),
+                pinned: true
+            }
+            .label(),
+            "v2.3.1 (pinned)"
+        );
+        assert!(
+            ApiVersion {
+                value: String::new(),
+                pinned: true
+            }
+            .label()
+            .is_empty()
+        );
     }
 
     #[test]
@@ -389,48 +973,219 @@ mod tests {
         ids.iter().map(|id| id.to_string()).collect()
     }
 
-    #[test]
-    fn the_hint_sends_you_to_the_logs_when_nothing_is_running() {
-        let missing = vec![
-            "chapkit-ewars-model".to_string(),
-            "auto-arima-chapkit".to_string(),
-        ];
-        let hint = missing_hint(&missing, &BTreeSet::new()).expect("a hint for a missing service");
-        assert_eq!(
-            hint,
-            "run `chaps logs chapkit-ewars-model` to see why it has not registered"
-        );
-        // A container of some other service being up changes nothing.
-        let hint = missing_hint(&missing, &running(&["chap", "worker"])).unwrap();
-        assert!(hint.starts_with("run `chaps logs"), "{hint}");
-        // Nothing missing, nothing to hint at.
-        assert_eq!(missing_hint(&[], &running(&["chap"])), None);
+    /// One registered service, pinged `age` seconds before [`NOW`].
+    fn registered(id: &str, age: u64) -> RegisteredService {
+        RegisteredService {
+            id: id.to_string(),
+            url: format!("http://{id}:8000"),
+            display_name: id.to_string(),
+            version: "1.0.0".to_string(),
+            last_ping_at: crate::backup::timestamp(NOW - age),
+            expires_at: crate::backup::timestamp(NOW + 300 - age),
+        }
+    }
+
+    /// A fixed "now", so the relative times in these tests do not move.
+    const NOW: u64 = 1_790_147_400;
+
+    /// The models of the sample deployment: one published, two internal.
+    fn enabled() -> Vec<(String, Option<u16>)> {
+        vec![
+            ("chapkit-ewars-model".to_string(), Some(5001)),
+            ("chapkit-rwanda-malaria-bym-model".to_string(), None),
+            ("auto-arima-chapkit".to_string(), None),
+        ]
     }
 
     #[test]
-    fn a_running_but_unregistered_service_is_told_to_restart() {
-        let missing = vec![
-            "chapkit-ewars-model".to_string(),
-            "auto-arima-chapkit".to_string(),
-        ];
-        // The running one is named, even when it is not the first missing.
-        let hint = missing_hint(&missing, &running(&["chap", "auto-arima-chapkit"])).unwrap();
+    fn a_row_state_comes_from_registration_and_the_running_set() {
+        let rows = model_rows(
+            &enabled(),
+            &[registered("chapkit-ewars-model", 12)],
+            &running(&[
+                "chap",
+                "chapkit-ewars-model",
+                "chapkit-rwanda-malaria-bym-model",
+            ]),
+            NOW,
+        );
+        assert_eq!(rows.len(), 3, "one row per enabled model");
+
+        assert_eq!(rows[0].id, "chapkit-ewars-model");
+        assert_eq!(rows[0].state, ModelState::Registered);
+        assert_eq!(rows[0].reach, "http://localhost:5001");
+        assert_eq!(rows[0].last_ping.as_deref(), Some("12s ago"));
+
+        // Its container is up, so the registration is what failed.
+        assert_eq!(rows[1].state, ModelState::RunningNotRegistered);
+        assert_eq!(rows[1].state.label(), "running, not registered");
+        assert_eq!(rows[1].reach, "internal");
+        assert_eq!(rows[1].last_ping, None);
+
+        // Nothing is running it at all.
+        assert_eq!(rows[2].state, ModelState::NotRunning);
+        assert_eq!(rows[2].reach, "internal");
+    }
+
+    #[test]
+    fn a_service_the_project_does_not_enable_is_unmanaged() {
+        let rows = model_rows(
+            &enabled(),
+            &[
+                registered("chapkit-ewars-model", 12),
+                registered("some-other-service", 3),
+            ],
+            &running(&["chapkit-ewars-model"]),
+            NOW,
+        );
+        assert_eq!(rows.len(), 4, "the stranger gets a row of its own");
+        let stranger = rows.last().unwrap();
+        assert_eq!(stranger.id, "some-other-service");
+        assert_eq!(stranger.state, ModelState::Unmanaged);
+        assert_eq!(stranger.state.label(), "unmanaged");
+        // chap-core's own URL is the only handle there is on it.
+        assert_eq!(stranger.reach, "http://some-other-service:8000");
+        assert_eq!(stranger.last_ping.as_deref(), Some("3s ago"));
+
+        // And it is not counted as one of this deployment's models.
+        assert_eq!(closing_line(&rows), "2 of 3 models are not registered.");
+    }
+
+    #[test]
+    fn the_closing_line_counts_what_the_project_enables() {
+        let all_good = model_rows(
+            &enabled(),
+            &[
+                registered("chapkit-ewars-model", 12),
+                registered("chapkit-rwanda-malaria-bym-model", 12),
+                registered("auto-arima-chapkit", 12),
+            ],
+            &BTreeSet::new(),
+            NOW,
+        );
+        assert_eq!(closing_line(&all_good), "all 3 models registered");
+
+        let one_missing = model_rows(
+            &enabled(),
+            &[
+                registered("chapkit-ewars-model", 12),
+                registered("auto-arima-chapkit", 12),
+            ],
+            &running(&["chapkit-rwanda-malaria-bym-model"]),
+            NOW,
+        );
         assert_eq!(
-            hint,
-            "auto-arima-chapkit is running but not registered (chapkit gives up registering \
-             after 5 attempts at startup); restart it with `chaps docker run restart \
-             auto-arima-chapkit`"
+            closing_line(&one_missing),
+            "1 of 3 models is not registered."
         );
-        // With both up, the first missing one is the one to restart first.
-        let hint = missing_hint(
-            &missing,
-            &running(&["chapkit-ewars-model", "auto-arima-chapkit"]),
-        )
-        .unwrap();
-        assert!(
-            hint.starts_with("chapkit-ewars-model is running but not registered"),
-            "{hint}"
+
+        // One model, and nothing at all, both read as English.
+        let one = model_rows(&enabled()[..1], &[], &BTreeSet::new(), NOW);
+        assert_eq!(closing_line(&one), "1 of 1 model is not registered.");
+        let one = model_rows(
+            &enabled()[..1],
+            &[registered("chapkit-ewars-model", 1)],
+            &BTreeSet::new(),
+            NOW,
         );
+        assert_eq!(closing_line(&one), "all 1 model registered");
+        assert_eq!(
+            closing_line(&[]),
+            "no models enabled; run `chaps models enable ID` to add one"
+        );
+    }
+
+    #[test]
+    fn every_problem_row_gets_its_own_hint() {
+        let rows = model_rows(
+            &enabled(),
+            &[registered("chapkit-ewars-model", 12)],
+            &running(&["chapkit-rwanda-malaria-bym-model"]),
+            NOW,
+        );
+        assert_eq!(
+            hints(&rows),
+            vec![
+                "chapkit-rwanda-malaria-bym-model: restart it with \
+                 `chaps docker run restart chapkit-rwanda-malaria-bym-model`"
+                    .to_string(),
+                "auto-arima-chapkit: start the stack with `chaps up`, \
+                 then `chaps logs auto-arima-chapkit`"
+                    .to_string(),
+            ]
+        );
+
+        // Nothing wrong, nothing to say.
+        let rows = model_rows(
+            &enabled()[..1],
+            &[registered("chapkit-ewars-model", 12)],
+            &BTreeSet::new(),
+            NOW,
+        );
+        assert!(hints(&rows).is_empty());
+    }
+
+    #[test]
+    fn relative_times_come_from_the_wire_timestamp() {
+        assert_eq!(
+            ago(NOW, &crate::backup::timestamp(NOW)).as_deref(),
+            Some("0s ago")
+        );
+        assert_eq!(
+            ago(NOW, &crate::backup::timestamp(NOW - 12)).as_deref(),
+            Some("12s ago")
+        );
+        assert_eq!(
+            ago(NOW, &crate::backup::timestamp(NOW - 180)).as_deref(),
+            Some("3m ago")
+        );
+        assert_eq!(
+            ago(NOW, &crate::backup::timestamp(NOW - 7200)).as_deref(),
+            Some("2h ago")
+        );
+        // A clock that is ahead of ours is not a negative age.
+        assert_eq!(
+            ago(NOW, &crate::backup::timestamp(NOW + 60)).as_deref(),
+            Some("0s ago")
+        );
+        // Nothing to go on: the table prints a dash instead.
+        for text in ["", "-", "soon", "2026-09-22"] {
+            assert_eq!(ago(NOW, text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn rfc3339_parsing_round_trips_through_the_formatter() {
+        for unix in [0, 1_709_164_800, 1_735_689_599, NOW] {
+            let text = crate::backup::timestamp(unix);
+            assert_eq!(parse_rfc3339(&text), Some(unix), "{text}");
+        }
+        // The spellings a JSON API may use.
+        assert_eq!(
+            parse_rfc3339("2026-09-22T09:04:30.123456Z"),
+            parse_rfc3339("2026-09-22T09:04:30Z")
+        );
+        assert_eq!(
+            parse_rfc3339("2026-09-22 09:04:30"),
+            parse_rfc3339("2026-09-22T09:04:30Z")
+        );
+        assert_eq!(
+            parse_rfc3339("2026-09-22T11:04:30+02:00"),
+            parse_rfc3339("2026-09-22T09:04:30Z")
+        );
+        assert_eq!(
+            parse_rfc3339("2026-09-22T07:04:30-0200"),
+            parse_rfc3339("2026-09-22T09:04:30Z")
+        );
+        for bad in [
+            "",
+            "not a time",
+            "2026-09-22",
+            "2026-13-01T00:00:00Z",
+            "1969-12-31T23:59:59Z",
+        ] {
+            assert_eq!(parse_rfc3339(bad), None, "{bad}");
+        }
     }
 
     #[test]
@@ -455,21 +1210,27 @@ mod tests {
     #[test]
     fn report_helpers_describe_the_state() {
         let report = StatusReport {
-            api_url: "http://localhost:8000".into(),
+            api_url: URL.into(),
             api: ApiHealth::Down {
                 error: "connection refused".into(),
+            },
+            version: ApiVersion {
+                value: "v2.3.1".into(),
+                pinned: true,
             },
             registered: Vec::new(),
             expected: vec!["a".into()],
             missing: vec!["a".into()],
             reach: BTreeMap::new(),
+            models: Vec::new(),
+            unmanaged: Vec::new(),
         };
         assert!(!report.is_up());
         assert!(!report.is_complete());
 
         let report = StatusReport {
             api: ApiHealth::Up {
-                status: "ok".into(),
+                status: "success".into(),
                 message: String::new(),
             },
             missing: Vec::new(),
@@ -487,5 +1248,26 @@ mod tests {
         .unwrap();
         assert_eq!(value["state"], "down");
         assert_eq!(value["error"], "connection refused");
+    }
+
+    #[test]
+    fn a_row_serialises_with_its_state_as_a_string() {
+        let rows = model_rows(
+            &enabled()[..1],
+            &[registered("chapkit-ewars-model", 12)],
+            &BTreeSet::new(),
+            NOW,
+        );
+        let value = serde_json::to_value(&rows).unwrap();
+        assert_eq!(value[0]["id"], "chapkit-ewars-model");
+        assert_eq!(value[0]["state"], "registered");
+        assert_eq!(value[0]["reach"], "http://localhost:5001");
+        assert_eq!(value[0]["last_ping"], "12s ago");
+
+        let rows = model_rows(&enabled()[1..2], &[], &running(&["x"]), NOW);
+        assert_eq!(
+            serde_json::to_value(&rows).unwrap()[0]["state"],
+            "not-running"
+        );
     }
 }

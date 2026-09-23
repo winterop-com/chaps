@@ -174,17 +174,34 @@ pub fn wrapped(text: &str, width: usize) -> String {
 /// Only the largest unit is shown; this labels a cache entry, so minutes of
 /// precision on a two-day-old snapshot would be noise.
 pub fn human_age(age: Duration) -> String {
-    let secs = age.as_secs();
-    let (value, unit) = match secs {
-        0..=59 => (secs, "second"),
-        60..=3599 => (secs / 60, "minute"),
-        3600..=86_399 => (secs / 3600, "hour"),
-        _ => (secs / 86_400, "day"),
-    };
+    let (value, unit) = age_parts(age);
     if value == 1 {
         format!("1 {unit}")
     } else {
         format!("{value} {unit}s")
+    }
+}
+
+/// The same age as a table cell: "42s ago", "3h ago", "2d ago".
+///
+/// [`human_age`]'s units, abbreviated: a column of ages has to stay narrow
+/// enough that the columns after it are still readable.
+pub fn ago(age: Duration) -> String {
+    let (value, unit) = age_parts(age);
+    format!("{value}{} ago", &unit[..1])
+}
+
+/// The largest whole unit of an age, as `(value, singular unit name)`.
+///
+/// One place decides where a duration stops being seconds, so [`human_age`]
+/// and [`ago`] can never disagree about it.
+fn age_parts(age: Duration) -> (u64, &'static str) {
+    let secs = age.as_secs();
+    match secs {
+        0..=59 => (secs, "second"),
+        60..=3599 => (secs / 60, "minute"),
+        3600..=86_399 => (secs / 3600, "hour"),
+        _ => (secs / 86_400, "day"),
     }
 }
 
@@ -315,5 +332,18 @@ mod tests {
         assert_eq!(human_age(Duration::from_secs(90)), "1 minute");
         assert_eq!(human_age(Duration::from_secs(3 * 3600)), "3 hours");
         assert_eq!(human_age(Duration::from_secs(50 * 3600)), "2 days");
+    }
+
+    #[test]
+    fn ago_abbreviates_the_same_units() {
+        assert_eq!(ago(Duration::from_secs(0)), "0s ago");
+        assert_eq!(ago(Duration::from_secs(12)), "12s ago");
+        assert_eq!(ago(Duration::from_secs(59)), "59s ago");
+        assert_eq!(ago(Duration::from_secs(180)), "3m ago");
+        assert_eq!(ago(Duration::from_secs(3 * 3600)), "3h ago");
+        assert_eq!(ago(Duration::from_secs(50 * 3600)), "2d ago");
+        // The same boundary human_age uses, so the two never disagree.
+        assert_eq!(ago(Duration::from_secs(60)), "1m ago");
+        assert_eq!(human_age(Duration::from_secs(60)), "1 minute");
     }
 }

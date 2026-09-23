@@ -7,117 +7,128 @@ use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
 use crate::output::Out;
-use crate::status::{ApiHealth, StatusReport, missing_hint, status};
+use crate::status::{ApiHealth, StatusReport, closing_line, hints, status};
 use std::collections::BTreeSet;
 use std::time::Duration;
+
+/// What a project with no containers at all is told, instead of a table of
+/// rows that all say the same thing.
+const NOT_RUNNING: &str = "stack is not running; start it with `chaps up`";
 
 /// Probe the API and print a [`StatusReport`].
 ///
 /// Exits non-zero when the API is down or a model the project enabled has not
-/// registered, so `chaps status` can gate a script or a CI step. Under `--json`
-/// the report is the only thing printed; the exit code alone signals failure.
+/// registered, so `chaps status` can gate a script or a CI step. The table
+/// already names every model that has not registered, so that exit is silent;
+/// an API that is not answering gets the one error line it needs.
+///
+/// A deployment that has never been started is reported as exactly that -
+/// unless `--url` names an API explicitly, which means the caller is asking
+/// about that API and not about the containers on this machine.
 pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     let project = ctx.project()?;
     // Without --url the API is wherever this project publishes it, which is
     // not 8000 for a deployment created with `init --api-port`.
     let url = args.url.clone().unwrap_or_else(|| project.api_url());
-    let report = status(&project, &url, Duration::from_secs(args.timeout));
 
-    // Which containers are up only sharpens the hint under `missing:`, so
-    // docker is asked exactly when there is a hint to print.
-    let running = if report.missing.is_empty() || ctx.out.json {
-        BTreeSet::new()
-    } else {
-        docker::running_services(&project)
-    };
-    ctx.out
-        .emit(&report, || human(&report, &ctx.out, &running))?;
+    // Docker is asked first: the containers decide both what the STATE column
+    // says and whether there is a deployment here to report on at all. It is
+    // best-effort, as everywhere - `None` means docker could not be asked,
+    // which is not the same as a project with no containers.
+    let containers = docker::all_containers(&project);
+    let running: BTreeSet<String> = containers
+        .as_deref()
+        .map(docker::running_of)
+        .unwrap_or_default();
+    let report = status(&project, &url, Duration::from_secs(args.timeout), &running);
+    let up = matches!(report.api, ApiHealth::Up { .. });
 
-    let failure = match &report.api {
-        ApiHealth::Down { error } => Some(format!(
+    let never_started = args.url.is_none()
+        && !up
+        && matches!(containers.as_deref(), Some(containers) if containers.is_empty());
+    if never_started {
+        // The JSON report is the same document either way; only the human
+        // rendering collapses to the one line that matters.
+        ctx.out.emit(&report, || NOT_RUNNING.to_string())?;
+        std::process::exit(1);
+    }
+
+    ctx.out.emit(&report, || human(&report, &ctx.out))?;
+
+    match &report.api {
+        // The single error line for an API that is not answering as
+        // chap-core. Under --json the report already carries it, and a second
+        // document on stdout would break single-document parsers.
+        ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
+        ApiHealth::Down { error } => Err(anyhow::anyhow!(
             "chap-core at {} is not responding: {error}",
             report.api_url
         )),
-        ApiHealth::Up { .. } if !report.missing.is_empty() => Some(format!(
-            "{} of {} model service(s) have not registered: {}",
-            report.missing.len(),
-            report.expected.len(),
-            report.missing.join(", ")
-        )),
-        ApiHealth::Up { .. } => None,
-    };
-
-    match failure {
-        None => Ok(()),
-        // The JSON report already carries `api` and `missing`; a second JSON
-        // document on stdout would break single-document parsers, so exit
-        // non-zero without printing anything more.
-        Some(_) if ctx.out.json => std::process::exit(1),
-        Some(msg) => Err(anyhow::anyhow!(msg)),
+        // The table said which models are missing and what to do about each
+        // one; repeating that as an error would be the third telling.
+        ApiHealth::Up { .. } if !report.missing.is_empty() => std::process::exit(1),
+        ApiHealth::Up { .. } => Ok(()),
     }
 }
 
-/// The human rendering: an API line, the service table, then what is missing.
-fn human(report: &StatusReport, out: &Out, running: &BTreeSet<String>) -> String {
-    let mut text = String::new();
-
-    match &report.api {
-        ApiHealth::Up { status, message } => {
-            text.push_str(&format!("api: up    {} ({status})\n", report.api_url));
-            if !message.is_empty() {
-                text.push_str(&format!("     {message}\n"));
-            }
-        }
-        ApiHealth::Down { error } => {
-            text.push_str(&format!("api: down  {}\n", report.api_url));
-            text.push_str(&format!("     {error}\n"));
-        }
+/// The human rendering: the chap-core line, the model table, then the one
+/// line it adds up to and a hint per model that needs something done.
+fn human(report: &StatusReport, out: &Out) -> String {
+    let up = matches!(report.api, ApiHealth::Up { .. });
+    let mut text = format!(
+        "chap-core   {}   {}",
+        if up { "up" } else { "down" },
+        report.api_url
+    );
+    let version = report.version.label();
+    if !version.is_empty() {
+        text.push_str(&format!("   {version}"));
     }
-
     text.push('\n');
-    if report.registered.is_empty() {
-        text.push_str("no services registered\n");
-    } else {
+
+    if !report.models.is_empty() {
         let rows: Vec<Vec<String>> = report
-            .registered
+            .models
             .iter()
-            .map(|s| {
+            .map(|m| {
                 vec![
-                    dash(&s.id),
-                    dash(&s.version),
-                    dash(&s.url),
-                    dash(&s.last_ping_at),
-                    dash(&s.expires_at),
+                    m.id.clone(),
+                    m.state.label().to_string(),
+                    dash(&m.reach),
+                    m.last_ping.clone().unwrap_or_else(|| "-".to_string()),
                 ]
             })
             .collect();
-        text.push_str(&out.table(&["ID", "VERSION", "URL", "LAST PING", "EXPIRES"], &rows));
-
-        // The URL above is the one the service registered: it resolves on the
-        // compose network, not on this machine. This is where a human goes.
-        let reachable: Vec<(&str, &String)> = report
-            .registered
-            .iter()
-            .filter_map(|s| report.reach.get(&s.id).map(|url| (s.id.as_str(), url)))
-            .collect();
-        if !reachable.is_empty() {
-            text.push_str("\nreachable at\n");
-            let width = reachable.iter().map(|(id, _)| id.len()).max().unwrap_or(0);
-            for (id, url) in reachable {
-                text.push_str(&format!("  {id:width$}  {url}\n"));
-            }
-        }
+        text.push('\n');
+        text.push_str(&out.table(&["MODEL", "STATE", "REACH", "LAST PING"], &rows));
     }
 
-    if !report.missing.is_empty() {
-        text.push('\n');
-        text.push_str(&format!("missing: {}\n", report.missing.join(", ")));
-        if let Some(hint) = missing_hint(&report.missing, running) {
-            text.push_str(&format!("  hint: {hint}\n"));
-        }
+    // Everything the API cannot be asked about is left out while it is down:
+    // one error line beats a table's worth of consequences.
+    if !up {
+        return text;
+    }
+
+    // The REACH column says `internal` for a model with no host port of its
+    // own; the way in is printed once, here, rather than in every row.
+    if report.models.iter().any(|m| m.reach == INTERNAL) {
+        text.push_str(&format!(
+            "\ninternal models are reachable through chap-core at {}/v2/services/<id>/run/\n",
+            report.api_url
+        ));
+    }
+
+    text.push('\n');
+    text.push_str(&closing_line(&report.models));
+    text.push('\n');
+    for hint in hints(&report.models) {
+        text.push_str(&format!("  {hint}\n"));
     }
     text
 }
+
+/// The REACH cell of a model that publishes no host port.
+const INTERNAL: &str = "internal";
 
 /// Empty cells read badly in a table; a dash says "the API did not tell us".
 fn dash(value: &str) -> String {
@@ -131,7 +142,10 @@ fn dash(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::status::RegisteredService;
+    use crate::status::{ApiVersion, ModelState, ModelStatus, RegisteredService, model_rows};
+
+    /// A fixed "now", so the ages in these tests do not move.
+    const NOW: u64 = 1_790_147_400;
 
     fn service(id: &str, version: &str) -> RegisteredService {
         RegisteredService {
@@ -139,123 +153,190 @@ mod tests {
             url: format!("http://{id}:8000"),
             display_name: id.to_string(),
             version: version.to_string(),
-            last_ping_at: "2026-09-22T09:04:30Z".to_string(),
-            expires_at: "2026-09-22T09:09:30Z".to_string(),
+            last_ping_at: crate::backup::timestamp(NOW - 12),
+            expires_at: crate::backup::timestamp(NOW + 288),
         }
     }
 
-    fn up(registered: Vec<RegisteredService>, expected: Vec<&str>) -> StatusReport {
-        let expected: Vec<String> = expected.into_iter().map(str::to_string).collect();
-        let missing = crate::status::missing_ids(&expected, &registered);
-        // Every expected service is internal unless a test says otherwise.
-        let reach = expected
+    /// A report of a healthy API, with `enabled` as the project's models
+    /// (service id and host port) and `running` as the containers that are up.
+    fn up(
+        registered: Vec<RegisteredService>,
+        enabled: &[(&str, Option<u16>)],
+        running: &[&str],
+    ) -> StatusReport {
+        let enabled: Vec<(String, Option<u16>)> = enabled
             .iter()
-            .map(|id| {
-                (
-                    id.clone(),
-                    format!("internal (proxy: http://localhost:8000/v2/services/{id}/run/)"),
-                )
-            })
+            .map(|(id, port)| (id.to_string(), *port))
+            .collect();
+        let expected: Vec<String> = enabled.iter().map(|(id, _)| id.clone()).collect();
+        let missing = crate::status::missing_ids(&expected, &registered);
+        let running: BTreeSet<String> = running.iter().map(|id| id.to_string()).collect();
+        let models = model_rows(&enabled, &registered, &running, NOW);
+        let unmanaged = models
+            .iter()
+            .filter(|m| m.state == ModelState::Unmanaged)
+            .map(|m| m.id.clone())
             .collect();
         StatusReport {
             api_url: "http://localhost:8000".to_string(),
             api: ApiHealth::Up {
-                status: "ok".to_string(),
-                message: "CHAP is running".to_string(),
+                status: "success".to_string(),
+                message: "healthy".to_string(),
+            },
+            version: ApiVersion {
+                value: "2.3.1".to_string(),
+                pinned: false,
             },
             registered,
             expected,
             missing,
-            reach,
+            reach: Default::default(),
+            models,
+            unmanaged,
         }
     }
 
     #[test]
-    fn a_healthy_report_lists_every_service() {
+    fn a_healthy_report_is_a_line_a_table_and_a_verdict() {
         let report = up(
             vec![service("chapkit-ewars-model", "1.0.0")],
-            vec!["chapkit-ewars-model"],
+            &[("chapkit-ewars-model", Some(5001))],
+            &["chap", "chapkit-ewars-model"],
         );
-        let text = human(&report, &Out::default(), &BTreeSet::new());
-        assert!(text.starts_with("api: up    http://localhost:8000 (ok)\n"));
-        assert!(text.contains("CHAP is running"));
-        assert!(text.contains("ID"));
-        assert!(text.contains("LAST PING"));
-        assert!(text.contains("chapkit-ewars-model"));
-        assert!(!text.contains("missing"));
-        // A model with no host port is reached through chap-core's proxy.
-        assert!(text.contains("reachable at\n"));
-        assert!(text.contains(
-            "chapkit-ewars-model  internal \
-             (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)"
-        ));
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "chap-core   up   http://localhost:8000   2.3.1\n\
+             \n\
+             MODEL                STATE       REACH                  LAST PING\n\
+             chapkit-ewars-model  registered  http://localhost:5001  12s ago\n\
+             \n\
+             all 1 model registered\n"
+        );
     }
 
     #[test]
-    fn a_published_model_is_reported_on_its_own_host_port() {
-        let mut report = up(
+    fn the_layout_names_every_state_once_and_hints_once_per_problem() {
+        let report = up(
             vec![
                 service("chapkit-ewars-model", "1.0.0"),
-                service("auto-arima-chapkit", "1.2.0"),
+                service("some-other-service", "0.1.0"),
             ],
-            vec!["chapkit-ewars-model", "auto-arima-chapkit"],
+            &[
+                ("chapkit-ewars-model", Some(5001)),
+                ("chapkit-rwanda-malaria-bym-model", None),
+                ("auto-arima-chapkit", None),
+            ],
+            &[
+                "chap",
+                "chapkit-ewars-model",
+                "chapkit-rwanda-malaria-bym-model",
+            ],
         );
-        report.reach.insert(
-            "chapkit-ewars-model".to_string(),
-            "http://localhost:5001".to_string(),
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "chap-core   up   http://localhost:8000   2.3.1\n\
+             \n\
+             MODEL                             STATE                    REACH                           LAST PING\n\
+             chapkit-ewars-model               registered               http://localhost:5001           12s ago\n\
+             chapkit-rwanda-malaria-bym-model  running, not registered  internal                        -\n\
+             auto-arima-chapkit                not running              internal                        -\n\
+             some-other-service                unmanaged                http://some-other-service:8000  12s ago\n\
+             \n\
+             internal models are reachable through chap-core at \
+             http://localhost:8000/v2/services/<id>/run/\n\
+             \n\
+             2 of 3 models are not registered.\n\
+             \x20 chapkit-rwanda-malaria-bym-model: restart it with \
+             `chaps docker run restart chapkit-rwanda-malaria-bym-model`\n\
+             \x20 auto-arima-chapkit: start the stack with `chaps up`, \
+             then `chaps logs auto-arima-chapkit`\n"
         );
-        let text = human(&report, &Out::default(), &BTreeSet::new());
-        assert!(text.contains("chapkit-ewars-model  http://localhost:5001\n"));
-        assert!(text.contains("auto-arima-chapkit   internal (proxy:"));
+        // The proxy URL appears once, not once per internal row, and the
+        // verdict carries no `error:` line of its own.
+        assert_eq!(text.matches("/v2/services/<id>/run/").count(), 1);
+        assert!(!text.contains("error"), "{text}");
+        assert!(!text.contains("missing:"), "{text}");
     }
 
     #[test]
-    fn a_service_the_project_does_not_know_is_left_out_of_the_reach_block() {
-        // chap-core may hold a registration from a deployment that is gone; we
-        // have nothing to say about how to reach it.
-        let report = up(vec![service("stranger", "1.0.0")], vec![]);
-        let text = human(&report, &Out::default(), &BTreeSet::new());
-        assert!(text.contains("stranger"));
-        assert!(!text.contains("reachable at"), "{text}");
+    fn a_published_model_shows_its_host_port_and_no_proxy_line() {
+        let report = up(
+            vec![service("chapkit-ewars-model", "1.0.0")],
+            &[("chapkit-ewars-model", Some(5001))],
+            &[],
+        );
+        let text = human(&report, &Out::default());
+        assert!(text.contains("http://localhost:5001"));
+        assert!(
+            !text.contains("internal models are reachable"),
+            "nothing is internal here:\n{text}"
+        );
     }
 
     #[test]
-    fn missing_services_get_a_hint() {
-        let report = up(vec![], vec!["chapkit-ewars-model", "auto-arima-chapkit"]);
-        let text = human(&report, &Out::default(), &BTreeSet::new());
-        assert!(text.contains("no services registered"));
-        assert!(text.contains("missing: chapkit-ewars-model, auto-arima-chapkit"));
-        assert!(text.contains("hint: run `chaps logs chapkit-ewars-model`"));
+    fn a_project_with_no_models_still_says_something() {
+        let report = up(vec![], &[], &[]);
+        let text = human(&report, &Out::default());
+        assert!(text.starts_with("chap-core   up   http://localhost:8000"));
+        assert!(!text.contains("MODEL"), "no table for no rows:\n{text}");
+        assert!(text.ends_with("no models enabled; run `chaps models enable ID` to add one\n"));
     }
 
     #[test]
-    fn a_down_api_reports_the_reason() {
+    fn a_down_api_prints_the_state_and_leaves_the_verdict_to_the_error_line() {
         let report = StatusReport {
-            api_url: "http://localhost:8000".to_string(),
             api: ApiHealth::Down {
-                error: "connection refused".to_string(),
+                error: "port 8000 answers but it is not chap-core (got text/html)".to_string(),
             },
-            registered: vec![],
-            expected: vec!["chapkit-ewars-model".to_string()],
-            missing: vec!["chapkit-ewars-model".to_string()],
-            reach: Default::default(),
+            version: ApiVersion {
+                value: "v2.3.1".to_string(),
+                pinned: true,
+            },
+            ..up(vec![], &[("chapkit-ewars-model", None)], &[])
         };
-        let text = human(&report, &Out::default(), &BTreeSet::new());
-        assert!(text.contains("api: down  http://localhost:8000"));
-        assert!(text.contains("connection refused"));
-        assert!(text.contains("missing: chapkit-ewars-model"));
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "chap-core   down   http://localhost:8000   v2.3.1 (pinned)\n\
+             \n\
+             MODEL                STATE        REACH     LAST PING\n\
+             chapkit-ewars-model  not running  internal  -\n"
+        );
+        // The reason is the error line `run` returns, printed once.
+        assert!(!text.contains("not chap-core"));
+        assert!(!text.contains("registered"));
     }
 
     #[test]
-    fn unknown_fields_render_as_dashes() {
-        let mut svc = service("x", "");
-        svc.url = String::new();
-        let report = up(vec![svc], vec!["x"]);
-        let text = human(&report, &Out::default(), &BTreeSet::new());
+    fn the_never_started_line_replaces_the_whole_report() {
+        assert_eq!(
+            NOT_RUNNING,
+            "stack is not running; start it with `chaps up`"
+        );
+    }
+
+    #[test]
+    fn a_row_with_nothing_in_a_cell_prints_a_dash() {
+        let mut report = up(
+            vec![service("x", "")],
+            &[("chapkit-ewars-model", None)],
+            &[],
+        );
+        // An unmanaged service chap-core has no URL for.
+        report.models.push(ModelStatus {
+            id: "y".to_string(),
+            state: ModelState::Unmanaged,
+            reach: String::new(),
+            last_ping: None,
+        });
+        let text = human(&report, &Out::default());
         let row = text
             .lines()
-            .find(|l| l.starts_with("x "))
-            .expect("service row");
+            .find(|l| l.starts_with("y "))
+            .expect("the row is there");
         assert!(row.contains('-'), "empty cells become dashes: {row}");
     }
 }

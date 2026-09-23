@@ -73,8 +73,29 @@ fn show(ctx: &Ctx) -> Result<()> {
             }
             text.push_str(&format!("  {id}\n"));
         }
+        // A list of ids is not a statement about the catalogue, and an empty
+        // one says nothing at all.
+        text.push_str(&format!("\n{}\n", catalogue_line(&report)));
         text
     })
+}
+
+/// The line `registry show` ends on: what the catalogue holds, where it came
+/// from, and how to move it on.
+fn catalogue_line(report: &RegistryReport) -> String {
+    let source = report.provenance.describe();
+    match report.models {
+        0 => format!(
+            "the catalogue ({source}) holds no models; \
+             run `chaps registry update` to fetch it again"
+        ),
+        1 => format!("1 model in the catalogue ({source}); `chaps models info ID` describes one"),
+        count => {
+            format!(
+                "{count} models in the catalogue ({source}); `chaps models info ID` describes one"
+            )
+        }
+    }
 }
 
 fn report(ctx: &Ctx, registry: &Registry, with_ids: bool) -> RegistryReport {

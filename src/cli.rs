@@ -377,8 +377,8 @@ pub struct UpdateArgs {
 /// skips that.
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
-    /// Stay attached to the container output instead of detaching.
-    #[arg(long)]
+    /// Run in the foreground and stream all logs (Ctrl-C stops the stack).
+    #[arg(short = 'a', long, visible_alias = "foreground")]
     pub attach: bool,
 
     /// Pull every image first, including a moving chap-core tag such as
@@ -930,6 +930,31 @@ mod tests {
             panic!("expected up");
         };
         assert!(args.no_preflight);
+    }
+
+    #[test]
+    fn up_attach_answers_to_a_and_to_foreground() {
+        for spelling in ["--attach", "-a", "--foreground"] {
+            let cli = Cli::try_parse_from(["chap", "up", spelling]).unwrap();
+            let Command::Up(args) = cli.command else {
+                panic!("expected up");
+            };
+            assert!(args.attach, "`up {spelling}` runs in the foreground");
+            assert!(args.extra.is_empty(), "{spelling} is a flag, not an extra");
+        }
+
+        // The alias is in the help, next to the flag it stands for.
+        let help = Cli::command()
+            .find_subcommand_mut("up")
+            .expect("up is a subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("--foreground"), "{help}");
+        assert!(help.contains("-a"), "{help}");
+        assert!(
+            help.contains("Run in the foreground and stream all logs (Ctrl-C stops the stack)"),
+            "{help}"
+        );
     }
 
     #[test]
