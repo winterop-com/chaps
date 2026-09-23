@@ -317,7 +317,10 @@ pub fn is_replaceable(path: &Path) -> bool {
     };
     let probe = dir.join(format!(".chaps-write-probe-{}", std::process::id()));
     match std::fs::File::create(&probe) {
-        Ok(_) => {
+        Ok(file) => {
+            // Windows will not delete a file whose handle is still open, so
+            // the probe is closed before it is removed.
+            drop(file);
             let _ = std::fs::remove_file(&probe);
             true
         }
@@ -822,15 +825,37 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         let tmp = tempfile::tempdir().unwrap();
         let binary = tmp.path().join("chaps");
         std::fs::write(&binary, b"the old binary").unwrap();
+        #[cfg(unix)]
         set_mode(&binary, 0o755);
 
         replace_executable(&binary, b"the new binary").expect("the swap succeeds");
 
         assert_eq!(std::fs::read(&binary).unwrap(), b"the new binary");
         assert!(!staged_path(&binary).exists(), "the staged file is gone");
-        assert_eq!(mode_of(&binary), Some(0o755));
+
+        // Unix renames straight over the old binary, so nothing is parked
+        // beside it and the mode it had is carried across.
+        #[cfg(unix)]
+        {
+            assert!(!backup_path(&binary).exists(), "nothing is parked");
+            assert_eq!(mode_of(&binary), 0o755);
+        }
+
+        // Windows cannot rename over a running image, so the old binary is
+        // moved aside and the next run is the first that can delete it.
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                std::fs::read(backup_path(&binary)).unwrap(),
+                b"the old binary"
+            );
+            clean_backup(&binary);
+            assert!(!backup_path(&binary).exists(), "the next run clears it");
+        }
     }
 
+    /// Modes are a Unix thing: Windows has no 0o750 to preserve.
+    #[cfg(unix)]
     #[test]
     fn replacing_preserves_a_mode_that_is_not_the_default() {
         let tmp = tempfile::tempdir().unwrap();
@@ -841,7 +866,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         replace_executable(&binary, b"new").unwrap();
 
         assert_eq!(std::fs::read(&binary).unwrap(), b"new");
-        assert_eq!(mode_of(&binary), Some(0o750));
+        assert_eq!(mode_of(&binary), 0o750);
     }
 
     #[test]
@@ -864,6 +889,16 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         std::fs::write(&binary, b"x").unwrap();
         assert!(is_replaceable(&binary));
         assert!(!is_replaceable(&tmp.path().join("nowhere").join("chaps")));
+
+        // The probe it writes is cleaned up, whatever the platform thinks of
+        // deleting a file that is still open.
+        let left: Vec<String> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".chaps-write-probe"))
+            .collect();
+        assert!(left.is_empty(), "the probe is gone, found {left:?}");
     }
 
     #[test]
@@ -1151,10 +1186,12 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         let installed = tmp.path().join("bin").join(binary_name(TARGET));
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
         std::fs::write(&installed, b"the old binary").unwrap();
+        #[cfg(unix)]
         set_mode(&installed, 0o755);
         replace_executable(&installed, &std::fs::read(&found).unwrap()).expect("the swap");
         assert_eq!(std::fs::read(&installed).unwrap(), b"the new binary");
-        assert_eq!(mode_of(&installed), Some(0o755));
+        #[cfg(unix)]
+        assert_eq!(mode_of(&installed), 0o755);
 
         // A manifest that does not agree with the bytes stops the update
         // before anything is written.
@@ -1169,17 +1206,9 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    #[cfg(not(unix))]
-    fn set_mode(_path: &Path, _mode: u32) {}
-
     #[cfg(unix)]
-    fn mode_of(path: &Path) -> Option<u32> {
+    fn mode_of(path: &Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
-        Some(std::fs::metadata(path).ok()?.permissions().mode() & 0o7777)
-    }
-
-    #[cfg(not(unix))]
-    fn mode_of(_path: &Path) -> Option<u32> {
-        None
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
     }
 }
