@@ -38,21 +38,28 @@ directories a shell reads already exist.
 Or download an archive and put `chaps` on your `PATH` yourself. These links
 always point at the newest release:
 
-| Platform | Download |
-| --- | --- |
-| macOS, any Mac (universal) | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) |
-| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) |
-| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) |
-| Linux, x86_64 (static musl) | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) |
-| Linux, arm64 (static musl) | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) |
-| Windows, x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) |
-| Windows, arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) |
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
 
-Every release attaches each archive twice: once under
-`chaps-<version>-<target>` and once under the version-less name above, so a
-link written down today still resolves after the next release. Both copies are
-the same bytes and both are covered by `SHA256SUMS`; the per-archive `.sha256`
-file sits next to the versioned copy.
+<details>
+<summary>Other platforms</summary>
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
+| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
+| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
+
+</details>
+
+An archive holds one directory, `chaps-<version>-<target>/`, with the binary,
+`README.md`, `LICENSE` and shell completions. The name of the archive carries
+no version, so the links above keep working after the next release, and
+`SHA256SUMS` in the release covers every one of them.
 
 The macOS binaries are signed with an Apple Developer ID certificate and
 notarized, so Gatekeeper does not block them. The Windows binaries are
@@ -109,10 +116,9 @@ CI runs the same three checks on Linux, macOS and Windows, and shellcheck over
 `install.sh` and `scripts/`. Tagging `vX.Y.Z` builds release binaries for six
 targets (Linux, macOS and Windows, on x86_64 and aarch64), fuses the two macOS
 builds into a seventh universal archive, and attaches all seven to a GitHub
-release with their SHA-256 sums, each one carrying the shell completion
-scripts and a version-less copy for the stable download links. A weekly
-workflow refreshes the embedded marketplace snapshot and opens a pull request
-when upstream moved.
+release together with one `SHA256SUMS`, each archive carrying the shell
+completion scripts. A weekly workflow refreshes the embedded marketplace
+snapshot and opens a pull request when upstream moved.
 
 The documentation lives in `docs/` and is built with
 [mdbook](https://rust-lang.github.io/mdBook/); `docs/reference.md` is generated

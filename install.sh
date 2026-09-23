@@ -138,7 +138,7 @@ case "$os" in
     target="universal-apple-darwin"
     ;;
   MINGW* | MSYS* | CYGWIN* | Windows_NT)
-    die "this script does not install on Windows; download chaps-<version>-x86_64-pc-windows-msvc.zip (or the aarch64 one) from ${RELEASES_URL}, unzip it and put chaps.exe on your PATH. A PowerShell installer is planned."
+    die "this script does not install on Windows; download chaps-x86_64-pc-windows-msvc.zip (or the aarch64 one) from ${RELEASES_URL}, unzip it and put chaps.exe on your PATH. A PowerShell installer is planned."
     ;;
   *)
     die "no chaps build for ${os} ${arch}; see ${RELEASES_URL}"
@@ -175,7 +175,9 @@ if [ -z "$VERSION" ]; then
 fi
 [ -n "$VERSION" ] || die "could not work out the newest release; pass --version, or see ${RELEASES_URL}"
 
-archive="chaps-${VERSION}-${target}.tar.gz"
+# The archive is named after the target alone; the release it comes from is
+# the ${VERSION} in the URL. The directory inside it does carry the version.
+archive="chaps-${target}.tar.gz"
 base="${DOWNLOAD_BASE:-${RELEASES_URL}/download/${VERSION}}"
 
 # ---------------------------------------------------------------------------

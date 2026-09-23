@@ -42,22 +42,28 @@ below, unpack it and put `chaps.exe` on your `PATH`.
 Each release attaches an archive per platform. These links always point at the
 newest release:
 
-| Platform | Download |
-| --- | --- |
-| macOS, any Mac (universal) | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) |
-| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) |
-| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) |
-| Linux, x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) |
-| Linux, arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) |
-| Windows, x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) |
-| Windows, arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) |
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
 
-Every archive is attached twice: once as `chaps-<version>-<target>` and once
-under the version-less name in the table. GitHub's `releases/latest/download/`
-path needs a file name that does not change between releases, so the
-version-less copy is what makes the links above work; it is byte for byte the
-same file as the versioned one, and both are listed in `SHA256SUMS`. The
-per-archive `.sha256` file sits next to the versioned copy.
+<details>
+<summary>Other platforms</summary>
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
+| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
+| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
+
+</details>
+
+An archive is named after the platform alone, with no version in it: the
+release it belongs to is the one in the URL, so a link written down today
+still resolves after the next release. A release attaches these seven archives
+and one `SHA256SUMS` covering all of them, and nothing else.
 
 An archive holds one directory, `chaps-<version>-<target>/`, containing the
 `chaps` binary, `README.md`, `LICENSE` and a `completions/` directory.
@@ -88,11 +94,10 @@ sudo install -m 0755 chaps-*-x86_64-unknown-linux-musl/chaps /usr/local/bin/chap
 
 ## Verifying a download
 
-Every release carries a `SHA256SUMS` file covering every archive, next to the
-per-archive `.sha256` files:
+Every release carries a `SHA256SUMS` file covering every archive:
 
 ```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/download/v0.1.0/SHA256SUMS
+curl -fsSLO https://github.com/winterop-com/chaps/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
@@ -111,7 +116,7 @@ is cached.
 
 The Windows binaries are not signed, which would need an Authenticode
 certificate. SmartScreen may warn the first time `chaps.exe` runs; "More info"
-then "Run anyway" gets past it. There the `.sha256` file is the check that
+then "Run anyway" gets past it. There `SHA256SUMS` is the check that
 matters.
 
 ## Keeping it up to date

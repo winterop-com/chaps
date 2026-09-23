@@ -115,27 +115,24 @@ jobs:
             refs/tags/*) version="$GITHUB_REF_NAME" ;;
             *) version="dev-${GITHUB_SHA:0:7}" ;;
           esac
-          name="chaps-${version}-${{ matrix.target }}"
+          # The archive is named after the target alone: the tag is already
+          # in the download URL, and one name per target is also what
+          # releases/latest/download/<name> needs. The directory inside the
+          # archive keeps the version, because that is what someone sees
+          # after unpacking it.
+          dir="chaps-${version}-${{ matrix.target }}"
+          asset="chaps-${{ matrix.target }}.tar.gz"
           binary="target/${{ matrix.target }}/release/chaps"
-          mkdir -p "dist/$name/completions"
-          cp "$binary" "dist/$name/"
-          cp README.md "dist/$name/"
-          if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
-          "$binary" completions bash       > "dist/$name/completions/chaps.bash"
-          "$binary" completions zsh        > "dist/$name/completions/_chaps"
-          "$binary" completions fish       > "dist/$name/completions/chaps.fish"
-          "$binary" completions powershell > "dist/$name/completions/_chaps.ps1"
-          tar -czf "dist/$name.tar.gz" -C dist "$name"
-          rm -rf "dist/$name"
-          # A second copy without the version in the name, so
-          # releases/latest/download/<name> is a link that keeps working.
-          cp "dist/$name.tar.gz" "dist/chaps-${{ matrix.target }}.tar.gz"
-          cd dist
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
-          else
-            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-          fi
+          mkdir -p "dist/$dir/completions"
+          cp "$binary" "dist/$dir/"
+          cp README.md "dist/$dir/"
+          if [ -f LICENSE ]; then cp LICENSE "dist/$dir/"; fi
+          "$binary" completions bash       > "dist/$dir/completions/chaps.bash"
+          "$binary" completions zsh        > "dist/$dir/completions/_chaps"
+          "$binary" completions fish       > "dist/$dir/completions/chaps.fish"
+          "$binary" completions powershell > "dist/$dir/completions/_chaps.ps1"
+          tar -czf "dist/$asset" -C dist "$dir"
+          rm -rf "dist/$dir"
 
       - name: Package (zip)
         if: runner.os == 'Windows'
@@ -147,14 +144,17 @@ jobs:
           } else {
             "dev-" + $env:GITHUB_SHA.Substring(0, 7)
           }
-          $name = "chaps-$version-${{ matrix.target }}"
+          # The zip is named after the target alone; the directory inside
+          # it keeps the version. See the tar.gz step.
+          $dir = "chaps-$version-${{ matrix.target }}"
+          $asset = "chaps-${{ matrix.target }}.zip"
           # Absolute, so the call operator below cannot mistake it for a
           # command name.
           $binary = Join-Path $PWD "target/${{ matrix.target }}/release/chaps.exe"
-          New-Item -ItemType Directory -Force -Path "dist/$name/completions" | Out-Null
-          Copy-Item $binary "dist/$name/"
-          Copy-Item "README.md" "dist/$name/"
-          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$name/" }
+          New-Item -ItemType Directory -Force -Path "dist/$dir/completions" | Out-Null
+          Copy-Item $binary "dist/$dir/"
+          Copy-Item "README.md" "dist/$dir/"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$dir/" }
           # Written byte for byte: a redirection would give UTF-16 and CRLF,
           # and a bash or fish completion script with CRLF does not load.
           $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -163,22 +163,17 @@ jobs:
             @("fish", "chaps.fish"), @("powershell", "_chaps.ps1")
           )) {
             $text = ((& $binary completions $pair[0]) -join "`n") + "`n"
-            $out = Join-Path $PWD "dist/$name/completions/$($pair[1])"
+            $out = Join-Path $PWD "dist/$dir/completions/$($pair[1])"
             [System.IO.File]::WriteAllText($out, $text, $utf8)
           }
           # The directory, not its contents, so the zip has the same
           # chaps-<version>-<target>/ top level the tar.gz archives have.
-          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
-          Remove-Item -Recurse -Force "dist/$name"
-          # A second copy without the version in the name, so
-          # releases/latest/download/<name> is a link that keeps working.
-          Copy-Item "dist/$name.zip" "dist/chaps-${{ matrix.target }}.zip"
-          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
+          Compress-Archive -Path "dist/$dir" -DestinationPath "dist/$asset"
+          Remove-Item -Recurse -Force "dist/$dir"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: chaps-${{ matrix.target }}
+          name: archive-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
@@ -203,7 +198,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          pattern: chaps-*-apple-darwin
+          pattern: archive-*-apple-darwin
           path: macos
           merge-multiple: true
 
@@ -218,7 +213,7 @@ jobs:
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
-            tar -xzf "macos/chaps-${version}-${target}.tar.gz" -C macos
+            tar -xzf "macos/chaps-${target}.tar.gz" -C macos
           done
           mkdir -p universal
           lipo -create -output universal/chaps \
@@ -248,24 +243,22 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.lipo.outputs.version }}"
-          name="chaps-${version}-universal-apple-darwin"
-          mkdir -p "dist/$name/completions"
-          cp universal/chaps "dist/$name/"
-          cp README.md "dist/$name/"
-          if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
-          universal/chaps completions bash       > "dist/$name/completions/chaps.bash"
-          universal/chaps completions zsh        > "dist/$name/completions/_chaps"
-          universal/chaps completions fish       > "dist/$name/completions/chaps.fish"
-          universal/chaps completions powershell > "dist/$name/completions/_chaps.ps1"
-          tar -czf "dist/$name.tar.gz" -C dist "$name"
-          rm -rf "dist/$name"
-          cp "dist/$name.tar.gz" "dist/chaps-universal-apple-darwin.tar.gz"
-          cd dist
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          dir="chaps-${version}-universal-apple-darwin"
+          asset="chaps-universal-apple-darwin.tar.gz"
+          mkdir -p "dist/$dir/completions"
+          cp universal/chaps "dist/$dir/"
+          cp README.md "dist/$dir/"
+          if [ -f LICENSE ]; then cp LICENSE "dist/$dir/"; fi
+          universal/chaps completions bash       > "dist/$dir/completions/chaps.bash"
+          universal/chaps completions zsh        > "dist/$dir/completions/_chaps"
+          universal/chaps completions fish       > "dist/$dir/completions/chaps.fish"
+          universal/chaps completions powershell > "dist/$dir/completions/_chaps.ps1"
+          tar -czf "dist/$asset" -C dist "$dir"
+          rm -rf "dist/$dir"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: chaps-universal-apple-darwin
+          name: archive-universal-apple-darwin
           path: dist/*
           if-no-files-found: error
 
@@ -301,12 +294,36 @@ jobs:
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
 
-      - name: Write the release notes header
+      - name: Write the release notes
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           repo="$GITHUB_REPOSITORY"
+          base="https://github.com/${repo}/releases/download/${tag}"
           cat > notes.md <<NOTES
+          ### Downloads
+
+          | Platform | File | Notes |
+          | --- | --- | --- |
+          | Linux x86_64 | [\`chaps-x86_64-unknown-linux-musl.tar.gz\`](${base}/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+          | macOS | [\`chaps-universal-apple-darwin.tar.gz\`](${base}/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+          | Windows x86_64 | [\`chaps-x86_64-pc-windows-msvc.zip\`](${base}/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
+
+          <details>
+          <summary>Other platforms</summary>
+
+          | Platform | File | Notes |
+          | --- | --- | --- |
+          | Linux arm64 | [\`chaps-aarch64-unknown-linux-musl.tar.gz\`](${base}/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
+          | macOS, Apple silicon | [\`chaps-aarch64-apple-darwin.tar.gz\`](${base}/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
+          | macOS, Intel | [\`chaps-x86_64-apple-darwin.tar.gz\`](${base}/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
+          | Windows arm64 | [\`chaps-aarch64-pc-windows-msvc.zip\`](${base}/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
+
+          </details>
+
+          Every archive holds the binary, \`README.md\`, \`LICENSE\` and shell
+          completions under \`completions/\`.
+
           ### Install
 
           \`\`\`sh
@@ -315,40 +332,10 @@ jobs:
 
           An installed \`chaps\` updates itself with \`chaps self update\`.
 
-          ### Downloads
-
-          | Platform | Archive |
-          | --- | --- |
-          | macOS, universal (Apple silicon and Intel) | \`chaps-${tag}-universal-apple-darwin.tar.gz\` |
-          | macOS, Apple silicon | \`chaps-${tag}-aarch64-apple-darwin.tar.gz\` |
-          | macOS, Intel | \`chaps-${tag}-x86_64-apple-darwin.tar.gz\` |
-          | Linux, x86_64 (static musl) | \`chaps-${tag}-x86_64-unknown-linux-musl.tar.gz\` |
-          | Linux, arm64 (static musl) | \`chaps-${tag}-aarch64-unknown-linux-musl.tar.gz\` |
-          | Windows, x86_64 | \`chaps-${tag}-x86_64-pc-windows-msvc.zip\` |
-          | Windows, arm64 | \`chaps-${tag}-aarch64-pc-windows-msvc.zip\` |
-
-          Each archive is also attached under a version-less name, e.g.
-          \`chaps-universal-apple-darwin.tar.gz\`, so
-          \`https://github.com/${repo}/releases/latest/download/<name>\` is a
-          link that goes on working after the next release. Both copies are
-          byte for byte the same file and both are covered by \`SHA256SUMS\`.
-
-          Every archive carries the binary, \`README.md\`, \`LICENSE\` and
-          shell completion scripts under \`completions/\`.
-
-          The macOS binaries are signed with a Developer ID certificate and
-          notarized by Apple, so Gatekeeper does not block them. The Windows
-          binaries are unsigned and SmartScreen may warn the first time one
-          runs. The Linux binaries are static, so they need no shared library
-          from the distribution.
-
-          ### Verify a download
-
-          Every archive has a \`.sha256\` file beside it, and \`SHA256SUMS\`
-          covers all of them at once:
+          ### Verify
 
           \`\`\`sh
-          curl -fsSLO https://github.com/${repo}/releases/download/${tag}/SHA256SUMS
+          curl -fsSLO ${base}/SHA256SUMS
           shasum -a 256 -c SHA256SUMS --ignore-missing
           \`\`\`
 

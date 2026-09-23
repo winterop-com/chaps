@@ -80,18 +80,24 @@ pub fn archive_extension(target: &str) -> &str {
     }
 }
 
-/// The release asset `target` wants at `tag`, e.g.
-/// `chaps-v0.2.0-universal-apple-darwin.tar.gz`.
-pub fn asset_name(tag: &str, target: &str) -> String {
-    let target = asset_target(target);
-    format!("chaps-{tag}-{target}.{}", archive_extension(target))
-}
-
-/// The version-less copy of the same archive, which every release also
-/// carries so a download link can be written once and keep working.
-pub fn stable_asset_name(target: &str) -> String {
+/// The release asset `target` wants, e.g.
+/// `chaps-universal-apple-darwin.tar.gz`.
+///
+/// No version in the name: the tag is already in the download URL, and one
+/// name per target is what `releases/latest/download/<name>` needs to keep a
+/// link working across releases. The directory inside the archive does carry
+/// the version, because that is what someone sees after unpacking it.
+pub fn asset_name(target: &str) -> String {
     let target = asset_target(target);
     format!("chaps-{target}.{}", archive_extension(target))
+}
+
+/// What the same archive was called up to v0.2.0, when every asset name
+/// carried the tag. [`pick_asset`] falls back to it so `self update --version`
+/// still reaches a release published before the rename.
+pub fn legacy_asset_name(tag: &str, target: &str) -> String {
+    let target = asset_target(target);
+    format!("chaps-{tag}-{target}.{}", archive_extension(target))
 }
 
 /// The name of the executable inside the archive.
@@ -161,19 +167,18 @@ pub fn parse_release(body: &str) -> Result<Release> {
 
 /// The asset `target` should download from `release`.
 ///
-/// The name carrying the tag is what a release is expected to hold; the
-/// version-less copy, which every release also publishes so the download links
-/// in the README can be written once and keep working, is the fallback. A
-/// payload that lists no assets at all is taken at its word rather than
-/// refused, because the name is derivable without it.
+/// The version-less name is what a release carries; a release from v0.2.0 or
+/// earlier, where every asset name held the tag, falls back to the name it
+/// does have. A payload that lists no assets at all is taken at its word
+/// rather than refused, because the name is derivable without it.
 pub fn pick_asset(release: &Release, target: &str) -> Result<String> {
-    let versioned = asset_name(&release.tag, target);
-    if release.assets.is_empty() || release.has_asset(&versioned) {
-        return Ok(versioned);
+    let name = asset_name(target);
+    if release.assets.is_empty() || release.has_asset(&name) {
+        return Ok(name);
     }
-    let stable = stable_asset_name(target);
-    if release.has_asset(&stable) {
-        return Ok(stable);
+    let legacy = legacy_asset_name(&release.tag, target);
+    if release.has_asset(&legacy) {
+        return Ok(legacy);
     }
     Err(anyhow::anyhow!(
         "{} has no archive for {target}; it carries {}",
@@ -586,22 +591,20 @@ mod tests {
 
     #[test]
     fn every_target_names_its_archive() {
+        assert_eq!(asset_name(LINUX), "chaps-x86_64-unknown-linux-musl.tar.gz");
         assert_eq!(
-            asset_name("v0.2.0", LINUX),
-            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
+            asset_name("aarch64-unknown-linux-musl"),
+            "chaps-aarch64-unknown-linux-musl.tar.gz"
         );
+        assert_eq!(asset_name(WINDOWS), "chaps-x86_64-pc-windows-msvc.zip");
         assert_eq!(
-            asset_name("v0.2.0", "aarch64-unknown-linux-musl"),
-            "chaps-v0.2.0-aarch64-unknown-linux-musl.tar.gz"
+            asset_name("aarch64-pc-windows-msvc"),
+            "chaps-aarch64-pc-windows-msvc.zip"
         );
-        assert_eq!(
-            asset_name("v0.2.0", WINDOWS),
-            "chaps-v0.2.0-x86_64-pc-windows-msvc.zip"
-        );
-        assert_eq!(
-            asset_name("v0.2.0", "aarch64-pc-windows-msvc"),
-            "chaps-v0.2.0-aarch64-pc-windows-msvc.zip"
-        );
+        // Nothing in the name says which release it came from.
+        for target in [LINUX, MAC, WINDOWS] {
+            assert!(!asset_name(target).contains("v0."), "{target}");
+        }
     }
 
     #[test]
@@ -609,8 +612,8 @@ mod tests {
         for target in [MAC, "x86_64-apple-darwin", "universal-apple-darwin"] {
             assert_eq!(asset_target(target), "universal-apple-darwin", "{target}");
             assert_eq!(
-                asset_name("v0.2.0", target),
-                "chaps-v0.2.0-universal-apple-darwin.tar.gz",
+                asset_name(target),
+                "chaps-universal-apple-darwin.tar.gz",
                 "{target}"
             );
         }
@@ -620,18 +623,18 @@ mod tests {
     }
 
     #[test]
-    fn the_stable_name_is_the_same_archive_without_the_tag() {
+    fn the_legacy_name_is_the_same_archive_with_the_tag_in_it() {
         assert_eq!(
-            stable_asset_name(LINUX),
-            "chaps-x86_64-unknown-linux-musl.tar.gz"
+            legacy_asset_name("v0.2.0", LINUX),
+            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
         );
         assert_eq!(
-            stable_asset_name(MAC),
-            "chaps-universal-apple-darwin.tar.gz"
+            legacy_asset_name("v0.2.0", MAC),
+            "chaps-v0.2.0-universal-apple-darwin.tar.gz"
         );
         assert_eq!(
-            stable_asset_name(WINDOWS),
-            "chaps-x86_64-pc-windows-msvc.zip"
+            legacy_asset_name("v0.2.0", WINDOWS),
+            "chaps-v0.2.0-x86_64-pc-windows-msvc.zip"
         );
     }
 
@@ -649,7 +652,8 @@ mod tests {
         assert_ne!(TARGET, "unknown");
         // Whatever the host is, the asset it wants exists in the release
         // matrix, which is the property that matters.
-        assert!(asset_name("v0.1.0", TARGET).starts_with("chaps-v0.1.0-"));
+        assert!(asset_name(TARGET).starts_with("chaps-"));
+        assert!(asset_name(TARGET).contains(asset_target(TARGET)));
     }
 
     #[test]
@@ -658,7 +662,7 @@ mod tests {
             r#"{
               "tag_name": "v0.2.0",
               "assets": [
-                {"name": "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"},
+                {"name": "chaps-x86_64-unknown-linux-musl.tar.gz"},
                 {"name": "SHA256SUMS"}
               ]
             }"#,
@@ -666,8 +670,8 @@ mod tests {
         .unwrap();
         assert_eq!(release.tag, "v0.2.0");
         assert!(release.has_asset("SHA256SUMS"));
-        assert!(release.has_asset("chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"));
-        assert!(!release.has_asset("chaps-v0.2.0-x86_64-pc-windows-msvc.zip"));
+        assert!(release.has_asset("chaps-x86_64-unknown-linux-musl.tar.gz"));
+        assert!(!release.has_asset("chaps-x86_64-pc-windows-msvc.zip"));
     }
 
     #[test]
@@ -684,28 +688,28 @@ mod tests {
     }
 
     #[test]
-    fn the_asset_is_the_versioned_name_with_the_stable_copy_as_a_fallback() {
+    fn the_asset_is_the_version_less_name_with_the_tagged_one_as_a_fallback() {
         let full = Release {
             tag: "v0.2.0".to_string(),
             assets: vec![
-                "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string(),
                 "chaps-x86_64-unknown-linux-musl.tar.gz".to_string(),
+                "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string(),
                 SUMS_FILE.to_string(),
             ],
         };
         assert_eq!(
             pick_asset(&full, LINUX).unwrap(),
-            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
+            "chaps-x86_64-unknown-linux-musl.tar.gz"
         );
 
-        // Only the version-less copy is there.
-        let stable_only = Release {
-            assets: vec!["chaps-x86_64-unknown-linux-musl.tar.gz".to_string()],
+        // A release from before the rename carries the tagged name alone.
+        let legacy_only = Release {
+            assets: vec!["chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string()],
             ..full.clone()
         };
         assert_eq!(
-            pick_asset(&stable_only, LINUX).unwrap(),
-            "chaps-x86_64-unknown-linux-musl.tar.gz"
+            pick_asset(&legacy_only, LINUX).unwrap(),
+            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
         );
 
         // A payload with no asset list is taken at its word.
@@ -715,7 +719,7 @@ mod tests {
         };
         assert_eq!(
             pick_asset(&bare, LINUX).unwrap(),
-            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
+            "chaps-x86_64-unknown-linux-musl.tar.gz"
         );
 
         // A release that really has nothing for this target says what it has.
@@ -757,29 +761,26 @@ mod tests {
 
     /// A `SHA256SUMS` in both spellings sha256sum and shasum write.
     const SUMS: &str = "\
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-universal-apple-darwin.tar.gz
-248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1  ./chaps-v0.2.0-x86_64-pc-windows-msvc.zip
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  chaps-x86_64-unknown-linux-musl.tar.gz
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universal-apple-darwin.tar.gz
+248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1  ./chaps-x86_64-pc-windows-msvc.zip
 ";
 
     #[test]
     fn the_sums_file_is_read_in_every_spelling() {
         assert_eq!(
-            sha256_for(SUMS, "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz").unwrap(),
+            sha256_for(SUMS, "chaps-x86_64-unknown-linux-musl.tar.gz").unwrap(),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
         assert_eq!(
-            sha256_for(SUMS, "chaps-v0.2.0-universal-apple-darwin.tar.gz").unwrap(),
+            sha256_for(SUMS, "chaps-universal-apple-darwin.tar.gz").unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(
-            sha256_for(SUMS, "chaps-v0.2.0-x86_64-pc-windows-msvc.zip").unwrap(),
+            sha256_for(SUMS, "chaps-x86_64-pc-windows-msvc.zip").unwrap(),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
-        assert_eq!(
-            sha256_for(SUMS, "chaps-v0.2.0-aarch64-apple-darwin.tar.gz"),
-            None
-        );
+        assert_eq!(sha256_for(SUMS, "chaps-aarch64-apple-darwin.tar.gz"), None);
         assert_eq!(sha256_for("", "anything"), None);
         // A line that is not a digest is not a match.
         assert_eq!(sha256_for("nothex  chaps.tar.gz", "chaps.tar.gz"), None);
@@ -787,16 +788,16 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
 
     #[test]
     fn verification_passes_for_the_listed_bytes_and_fails_otherwise() {
-        verify(SUMS, "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz", b"")
+        verify(SUMS, "chaps-x86_64-unknown-linux-musl.tar.gz", b"")
             .expect("the empty digest is the one listed");
-        verify(SUMS, "chaps-v0.2.0-universal-apple-darwin.tar.gz", b"abc")
+        verify(SUMS, "chaps-universal-apple-darwin.tar.gz", b"abc")
             .expect("the abc digest is the one listed");
 
-        let err = verify(SUMS, "chaps-v0.2.0-universal-apple-darwin.tar.gz", b"abd")
+        let err = verify(SUMS, "chaps-universal-apple-darwin.tar.gz", b"abd")
             .expect_err("a changed byte is a different digest");
         assert!(err.to_string().contains("does not match"), "{err}");
 
-        let err = verify(SUMS, "chaps-v9.9.9-nowhere.tar.gz", b"")
+        let err = verify(SUMS, "chaps-nowhere.tar.gz", b"")
             .expect_err("an asset the manifest never listed");
         assert!(err.to_string().contains("does not list"), "{err}");
     }
@@ -1087,7 +1088,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
     const FEED: &str = r#"{
       "tag_name": "v9.9.9",
       "assets": [
-        {"name": "chaps-v9.9.9-x86_64-unknown-linux-musl.tar.gz"},
+        {"name": "chaps-x86_64-unknown-linux-musl.tar.gz"},
         {"name": "SHA256SUMS"}
       ]
     }"#;
@@ -1107,7 +1108,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         assert_eq!(release.tag, "v9.9.9");
         assert_eq!(
             pick_asset(&release, LINUX).unwrap(),
-            "chaps-v9.9.9-x86_64-unknown-linux-musl.tar.gz"
+            "chaps-x86_64-unknown-linux-musl.tar.gz"
         );
         assert!(is_newer_than_current(&release.tag));
 
@@ -1128,8 +1129,8 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
     fn an_archive_is_downloaded_verified_unpacked_and_swapped_in() {
         let tmp = tempfile::tempdir().unwrap();
 
-        // Build an archive shaped like a release: one top-level directory
-        // holding the binary, the README and the completion scripts.
+        // Build an archive shaped like a release: the asset is named after
+        // the target alone, and the one directory inside it carries the tag.
         let tag = "v9.9.9";
         let name = format!("chaps-{tag}-{}", asset_target(TARGET));
         let staging = tmp.path().join("staging");
@@ -1146,7 +1147,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-v0.2.0-u
         )
         .unwrap();
 
-        let asset = asset_name(tag, TARGET);
+        let asset = asset_name(TARGET);
         let archive = tmp.path().join(&asset);
         let packed = std::process::Command::new("tar")
             .arg("-czf")
