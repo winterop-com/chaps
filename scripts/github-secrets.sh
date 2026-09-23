@@ -27,6 +27,12 @@
 # Prerequisites: `gh auth login` with repo access (and admin:org for
 # --scope org), and `op signin` for the 1Password account holding the item.
 #
+# The .p12 behind APPLE_CERTIFICATE must be exported with `openssl pkcs12
+# -export -legacy ...` (or from Keychain Access): an OpenSSL 3 default export
+# fails on the macOS runner with "MAC verification failed during PKCS12 import"
+# even with the right password. See docs/development.md, "Preparing the Apple
+# certificate".
+#
 # Adjust OP_VAULT and OP_ITEM below, or pass them in the environment, to match
 # where the Developer ID material actually lives:
 #

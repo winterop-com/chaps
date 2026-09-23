@@ -171,6 +171,56 @@ alone; `--dry-run` shows what would be set.
 Without the secrets the workflow still succeeds and publishes unsigned macOS
 binaries, so a fork or a first tag is never blocked on them.
 
+### Preparing the Apple certificate
+
+`APPLE_CERTIFICATE` is the base64 of a `.p12` archive holding the Developer ID
+private key, the certificate downloaded from the developer portal and Apple's
+intermediate, so the chain in the archive is complete:
+
+```sh
+# the Developer ID certificate from the portal, DER, next to its private key
+openssl x509 -inform DER -in developer_id.cer -out developer_id.pem
+
+# Apple's Developer ID G2 intermediate, which the portal does not include
+curl -fsSL -o DeveloperIDG2CA.cer https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+openssl x509 -inform DER -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
+
+openssl pkcs12 -export -legacy -inkey developer_id.key -in developer_id.pem -certfile DeveloperIDG2CA.pem -name "Developer ID Application: <name> (<TEAMID>)" -out developer_id.p12
+```
+
+`-legacy` is not optional. OpenSSL 3 exports with AES-256-CBC, PBKDF2 and an
+SHA-256 MAC by default, and the `security` tool on the GitHub macOS runner
+cannot read that: the import fails with
+
+```text
+security: SecKeychainItemImport: MAC verification failed during PKCS12 import (wrong password?)
+```
+
+with a password that is perfectly correct. `-legacy` writes the older encoding
+`security` accepts. Exporting from Keychain Access instead of OpenSSL is also
+fine; it already writes the compatible encoding.
+
+Verify the archive locally before uploading it, in a throwaway keychain rather
+than the login one:
+
+```sh
+security create-keychain -p "" /tmp/verify.keychain
+security import developer_id.p12 -k /tmp/verify.keychain -P '<password>' -T /usr/bin/codesign
+security find-identity -v -p codesigning /tmp/verify.keychain
+security delete-keychain /tmp/verify.keychain
+```
+
+`find-identity` has to print exactly one valid identity; that line is what
+`APPLE_SIGNING_IDENTITY` has to match. If it prints none, the runner will fail
+in the same way, whatever the password is.
+
+The base64 of that file is `APPLE_CERTIFICATE` and the password chosen on
+export is `APPLE_CERTIFICATE_PASSWORD`:
+
+```sh
+base64 -i developer_id.p12 | pbcopy
+```
+
 ### Cutting a release
 
 ```sh
