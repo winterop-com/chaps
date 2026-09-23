@@ -1,0 +1,87 @@
+# Commands
+
+```text
+chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <command>
+```
+
+The five groups below are the shape of the tool. The
+[Command reference](./reference.md) is generated from the `--help` texts and
+lists every command, every flag and every default.
+
+## The everyday verbs
+
+| Command | What it does |
+| --- | --- |
+| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. |
+| `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
+| `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d`, and end with what started or was recreated. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
+| `chaps down [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there. |
+| `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
+| `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. |
+| `chaps update [--dry-run] [--no-restart] [--pin-chap-core]` | Move the pins to what upstream publishes now, then pull and restart. |
+
+`chaps up` starts what is on disk; `chaps update` fetches newer versions. That
+is the whole distinction, and it is why `up` is safe to run at any time.
+
+## Models
+
+| Command | What it does |
+| --- | --- |
+| `chaps models list` | List marketplace models (`--all`, `--templates`, `--enabled`). |
+| `chaps models search QUERY` | Search id, name and summary. |
+| `chaps models info ID` | Everything known about one model. |
+| `chaps models enable ID` | Record the model in `.chaps/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--data-dir`, `--user`, `--allow-template`). |
+| `chaps models disable ID` | Drop the model from `.chaps/models.yaml` and remove its overlay. |
+| `chaps models expose ID [--port N\|auto]` | Publish a host port for an enabled model, without touching the version it is pinned to. |
+| `chaps models unexpose ID` | Take that host port away again. |
+| `chaps ui` | The model browser. |
+
+`list`, `search` and `info` read the catalogue and work outside a project. The
+rest write to a project. See [Models and the marketplace](./models.md).
+
+## Registry
+
+| Command | What it does |
+| --- | --- |
+| `chaps registry update` | Fetch the catalogue now and refresh the cache. |
+| `chaps registry show` | Where the catalogue came from and what it holds. |
+
+## Docker
+
+The Docker plumbing you only reach for when you already know what Docker is
+doing lives under `chaps docker`, so the top-level list stays readable if you
+have never used Compose.
+
+| Command | What it does |
+| --- | --- |
+| `chaps docker ps [EXTRA..]` | List this project's containers (`docker compose ps`). |
+| `chaps docker pull` | Download the pinned images into the local Docker daemon; no files change. |
+| `chaps docker exec SERVICE [CMD..]` | Run a command in a running container. `CMD` defaults to a shell, and `-T` is passed for you when there is no terminal, so it works in scripts. |
+| `chaps docker run -- ARGS..` | Any `docker compose` command, behind the project's `-f` list. |
+| `chaps docker config [-- EXTRA..]` | The finished stack: every compose file merged into one document (`--json` prints it as JSON). |
+
+`chaps docker config` is what Docker actually reads after the `-f` list, the
+`include:` and the `.env` substitutions have been applied, which is the fastest
+way to find out why a setting is not taking effect.
+
+## Backup
+
+| Command | What it does |
+| --- | --- |
+| `chaps backup create [--out PATH] [--no-db] [--no-models]` | Write the database, the model data and the project files to one `tar.gz`. |
+| `chaps backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-start]` | Put a deployment back from such an archive, after printing what it overwrites. |
+
+See [Backup and restore](./backup.md).
+
+## Global options
+
+They are accepted before or after the subcommand, and the
+[reference](./reference.md#chaps) lists them with their defaults.
+
+| Option | What it does |
+| --- | --- |
+| `--json` | Machine-readable output: exactly one JSON document on stdout. |
+| `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
+| `--registry-url URL` | A different marketplace index, for a fork or a mirror. |
+| `--offline` | Never touch the network; use the cache or the embedded snapshot. |
+| `--cache-dir DIR` | Override the registry cache directory for one invocation. |

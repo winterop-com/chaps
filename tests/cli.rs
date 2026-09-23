@@ -1932,3 +1932,26 @@ fn up_offers_both_names_for_running_in_the_foreground() {
             "Run in the foreground and stream all logs (Ctrl-C stops the stack)",
         ));
 }
+
+#[test]
+fn the_command_reference_chapter_matches_the_help_texts() {
+    // `docs-markdown` needs neither a project nor the network, so it runs
+    // straight out of the repository.
+    let out = Command::cargo_bin("chaps")
+        .expect("the chaps binary is built")
+        .arg("docs-markdown")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let generated = String::from_utf8(out).expect("the reference is UTF-8");
+
+    let committed = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference.md"));
+
+    assert_eq!(
+        generated, committed,
+        "docs/reference.md no longer matches the `--help` texts; \
+         run `make docs-reference` and commit the result"
+    );
+}

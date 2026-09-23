@@ -1,0 +1,151 @@
+# Troubleshooting
+
+## A host port is already in use
+
+`chaps up` refuses before it calls Docker, with one line per conflict:
+
+```text
+2 host ports the stack needs are already in use; nothing was started
+  port 8000 is already in use on this machine (needed by chap); free it, or run
+  `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
+  port 5001 is already in use on this machine (needed by chapkit-ewars-model);
+  free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
+  reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
+```
+
+Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
+`.env`, or move (or drop) the model's port. Ports held by this project's own
+running containers are not conflicts, so `chaps up` on a running stack is still
+a no-op. `chaps up --no-preflight` hands the question back to Docker.
+
+## The port answers, but it is not chap-core
+
+```text
+chap-core   down   http://localhost:8000   v2.3.1 (pinned)
+...
+error: chap-core at http://localhost:8000 is not responding: port 8000 answers
+but it is not chap-core (got text/html)
+```
+
+Something else holds the port: a dev server, a proxy, an older deployment.
+`chaps status` reports it as down on purpose, because `up` has to mean that the
+deployment works and not that the port is taken. Find the listener, or point
+the deployment somewhere else with `CHAP_API_PORT` in `.env`.
+
+## A model is running but not registered
+
+```text
+chapkit-rwanda-malaria-bym-model  running, not registered  internal  -
+```
+
+chapkit tries to register with chap-core five times during its startup and then
+stops. A model that came up before chap-core was healthy therefore stays
+invisible until it is restarted:
+
+```sh
+chaps docker run restart chapkit-rwanda-malaria-bym-model
+chaps status
+```
+
+The overlay's `depends_on: chap: {condition: service_healthy}` is there to stop
+this happening in the first place, so a model in this state usually means
+chap-core became unhealthy and came back after the model had given up.
+
+If registration is failing rather than racing, check
+`SERVICEKIT_REGISTRATION_KEY`: when chap-core requires the shared secret, each
+model has to send it, and the overlay ships that line commented out.
+
+## `unable to open database file`
+
+```text
+sqlite3.OperationalError: unable to open database file
+```
+
+Docker seeds a fresh named volume from whatever the image has at the mount
+point, ownership included, so an image that never creates its data directory
+yields a root-owned volume the unprivileged model cannot write to.
+
+Every overlay `chaps` writes ships a one-shot `<service_id>-init` container
+that chowns the volume to the model's numeric uid:gid before the model starts,
+so this is fixed by construction. If you see it anyway:
+
+- the overlay was hand-edited, or the init container was removed. Run
+  `chaps sync` to render it again.
+- `--user` names an account `chaps` does not know, so it fell back to
+  `1000:1000`. `chaps sync` warns when it does. Pass the numbers instead:
+  `chaps models enable ID --user 1001:1001`.
+- the model writes somewhere other than its data directory, on the read-only
+  root filesystem. `--data-dir` points the volume at the right path; see
+  [Data directories and users](./models.md#data-directories-and-users).
+
+A model that crash-loops right after starting is almost always one of the last
+two.
+
+## `password authentication failed` after `--fresh-env`
+
+`init --fresh-env` rotates the PostgreSQL password, but the existing data
+volume was created with the old one, so chap-core can no longer authenticate
+against its own data.
+
+Either drop the volume and start over:
+
+```sh
+chaps docker run -- down -v
+chaps up
+```
+
+or change the role to match the new password with `ALTER USER` inside the
+running postgres container:
+
+```sh
+chaps docker exec postgres psql -U chap -d chap_core
+```
+
+This is why `init` never rewrites a `.env` it finds, `--force` included. See
+the [`.env` contract](./concepts.md#the-env-contract).
+
+## `no matching manifest for linux/arm64`
+
+The marketplace images and chap-core are published for amd64 only. Every
+overlay `chaps` writes pins `platform: linux/amd64`, so an arm64 host such as
+Apple silicon pulls that variant and runs it under emulation instead of
+failing.
+
+Seeing this error means the pin is missing: a hand-edited overlay, or a compose
+file not written by `chaps`. Run `chaps sync` to render the overlays again, and
+check `chaps docker config` for the service that has no `platform`.
+
+## Compose is older than 2.20
+
+```text
+warning: docker compose 2.18.1 is older than 2.20.0; compose.marketplace.yml uses `include:`, which needs 2.20.0 or newer
+```
+
+`compose.marketplace.yml` uses `include:`, which arrived in Compose 2.20, and
+`compose.chaps.yml` uses `!override`, which arrived in 2.24. `chaps` warns
+rather than failing, because the base stack still runs, but the model overlays
+are the part that will not load. Upgrade Docker Compose.
+
+## A hand edit disappeared
+
+`chaps sync` re-renders the artifacts from `.chaps/`, so an edit to
+`compose.yml`, `compose.chaps.yml`, `compose.marketplace.yml` or a
+`compose.<service_id>.yml` is drift that the next `sync` (and therefore the next
+`chaps up`) undoes.
+
+- To change the base stack, edit `.chaps/compose.chap-core.<tag>.yml`. `sync`
+  follows it, and says that the recorded checksum no longer matches.
+- To change a model, edit `.chaps/models.yaml` and run `chaps sync`.
+- To add something of your own, write a `compose.custom.yml`. `sync` only ever
+  removes overlays it wrote itself, so yours is left alone; add it to the `-f`
+  list or to the umbrella by hand if you want it included.
+
+`chaps sync --check` reports drift without writing, and exits non-zero, which
+makes it a usable pre-commit or CI check.
+
+## `chaps update` fails offline
+
+By design. `chaps update` fetches the registry from the network with no cache
+and no fallback, `--dry-run` included, because a plan made from a stale
+catalogue is not a plan. Every other command falls back to the cache and then
+to the snapshot compiled into the binary.

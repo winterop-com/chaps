@@ -87,6 +87,8 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         },
 
         Command::Status(args) => commands::status::run(ctx, args),
+
+        Command::DocsMarkdown(args) => commands::docs::run(ctx, args),
     }
 }
 

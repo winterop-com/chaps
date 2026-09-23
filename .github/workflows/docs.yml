@@ -1,0 +1,66 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+  # Lets the book be rebuilt without a push, for a Pages settings change.
+  workflow_dispatch:
+
+# One deployment at a time, and never cancel one halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build the book
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: latest
+
+      # The same check `cargo test` makes, run here so a stale reference
+      # cannot reach the published book.
+      - name: The command reference is up to date
+        run: |
+          set -euo pipefail
+          cargo run -q -- docs-markdown > /tmp/reference.md
+          if ! diff -u docs/reference.md /tmp/reference.md; then
+            echo "::error file=docs/reference.md::docs/reference.md is stale; run \`make docs-reference\` and commit the result"
+            exit 1
+          fi
+
+      - name: Build
+        run: mdbook build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy to github pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

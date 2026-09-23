@@ -1,33 +1,24 @@
 # chaps
 
-`chaps` deploys and manages [CHAP](https://chap.dhis2.org), the DHIS2 Climate
-Health Analytics Platform: a Docker Compose deployment of
+`chaps` is the CHAP stack manager. It deploys and manages
+[CHAP](https://chap.dhis2.org), the DHIS2 Climate Health Analytics Platform, as
+a Docker Compose deployment of
 [chap-core](https://github.com/dhis2-chap/chap-core) together with the
 forecasting model services published in the
-[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).
+[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace). One
+command writes a self-contained deployment directory, and after that `chaps` is
+a thin wrapper around `docker compose` that always passes the explicit `-f`
+list, plus a model manager that can add or remove models without you
+hand-editing YAML. A machine that runs it needs Docker and one binary: no
+Python, no uv, no checkout of chap-core.
 
-One command writes a self-contained deployment directory: the base stack
-(chap-core, its worker, Valkey and PostgreSQL), one Compose overlay per enabled
-model, an `.env` file, and a `.chaps/` directory that records exactly what the
-deployment is meant to be. After that, `chaps` is a thin wrapper around
-`docker compose` that always passes the explicit `-f` list, plus a model manager
-that can add or remove models without you hand-editing YAML.
-
-Every command takes `--json` for machine-readable output.
+**Documentation: <https://mortenoh.github.io/chaps-cli/>**
 
 ## Install
 
-From a checkout:
-
-```sh
-cargo install --path .
-```
-
-Or download a prebuilt archive for your platform from the
+Download an archive for your platform from the
 [releases page](https://github.com/mortenoh/chaps-cli/releases) and put the
-`chaps` binary on your `PATH`. Archives exist for Linux (static musl builds),
-macOS and Windows, each on amd64 and arm64, and each ships with a `.sha256`
-file. On a Linux server:
+`chaps` binary on your `PATH`:
 
 ```sh
 curl -fsSLO https://github.com/mortenoh/chaps-cli/releases/latest/download/chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
@@ -35,14 +26,9 @@ tar -xzf chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
 sudo install -m 0755 chaps-v0.1.0-x86_64-unknown-linux-musl/chaps /usr/local/bin/chaps
 ```
 
-Requirements on the machine that runs the stack: Docker with Compose v2.20 or
-newer (`include:` support). Nothing else: no Python, no uv, no checkout of
-chap-core. `chaps` warns on stderr when the installed Compose is older.
-
-### A note on the name
-
-The binary is `chaps`, not `chap`, because chap-core's own Python package
-already installs a console script called `chap`. The two never collide.
+Or, from a checkout, `cargo install --path .` or `make install`. Requires
+Docker with Compose v2.20 or newer. See
+[Install](https://mortenoh.github.io/chaps-cli/install.html).
 
 ## Quickstart
 
@@ -53,604 +39,19 @@ chaps up                             # sync the compose files, docker compose up
 chaps status                         # chap-core health and registered models
 chaps ui                             # browse the marketplace, toggle models
 chaps up                             # apply what the browser changed
-chaps update                         # move the pins to what upstream publishes now
 ```
 
-Every command that operates on a project finds it the way git finds `.git`:
-from the current directory (or `-C DIR`) upwards to the nearest `.chaps/`, so
-`chaps up` works from any subdirectory of the deployment.
-
-`--models default` enables `chapkit_ewars_model` on its `stable` channel.
-`--models none` writes the base stack only, and `--models a,b` takes an
-explicit list of marketplace ids. chap-core itself is pinned to the newest
-release (`--chap-tag` picks another), and `init` takes the `compose.ghcr.yml`
-that release publishes as the base stack.
-
-chap-core's API is on <http://localhost:8000> (`init --api-port N` puts it
-somewhere else). That is the only host port a deployment publishes: model
-services are reached through the API, or given a port of their own with
-`chaps models expose ID`. See [Ports](#ports).
-
-## Commands
-
-```
-chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <command>
-
-  init [DIR]              create a deployment directory
-      --models none|default|id,id   which models to enable (default: default)
-      --chap-tag latest|master|dev|vX.Y.Z
-                                    tag for the chap-core services (default:
-                                    latest, resolved to the newest release)
-      --api-port PORT               host port for chap-core's API (default 8000)
-      --port-base PORT              lowest host port `models expose` may use
-      --force                       overwrite an existing project
-      --no-env                      do not write .env
-      --fresh-env                   regenerate .env even if one exists
-
-  models list             list marketplace models (--all, --templates, --enabled)
-  models search QUERY     search id, name and summary
-  models info ID          everything known about one model
-  models enable ID        record the model in .chaps/models.yaml and write its overlay
-      --channel stable|latest | --version X
-      --port N|auto  --data-dir PATH  --user USER:GROUP  --allow-template
-  models disable ID       drop the model from .chaps/models.yaml and remove its overlay
-  models expose ID [--port N|auto]
-                          publish a host port for an enabled model, without
-                          touching the version it is pinned to
-  models unexpose ID      take that host port away again
-
-  ui                      the model browser
-
-  registry update         fetch the catalogue now and refresh the cache
-  registry show           where the catalogue came from and what it holds
-
-  sync [--check]          render the compose files from .chaps/; --check writes
-                          nothing and exits non-zero if anything would change
-  update [--dry-run] [--no-restart] [--pin-chap-core]
-                          fetch the registry, move channel-following models to
-                          the version their channel now points at, move a
-                          chap-core release pin to the newest release, sync,
-                          pull, up -d; --pin-chap-core turns a moving chap-core
-                          tag into a release pin
-
-  up [-a] [--pull] [--no-preflight] [EXTRA..]
-                          sync, check that the host ports are free, then
-                          docker compose up -d, and end with what started or
-                          was recreated; -a (also --attach, --foreground) runs
-                          in the foreground and streams the logs instead,
-                          --pull passes --pull always, --no-preflight skips the
-                          port check
-  down [EXTRA..]          docker compose down, then say what it stopped and
-                          that the volumes are still there
-  logs [-f] [SERVICE..]   docker compose logs; says so instead of printing
-                          nothing when the project has no containers, and lists
-                          the services when SERVICE is not one of them
-
-  docker ps [EXTRA..]     list this project's containers (docker compose ps)
-  docker pull             download the pinned images into the local Docker
-                          daemon; no files change
-  docker exec SERVICE [CMD..]
-                          run a command in a running container; CMD defaults to
-                          a shell, and -T is passed for you when there is no
-                          terminal, so it works in scripts
-  docker run -- ARGS..    any docker compose command, behind the project's -f list
-  docker config [-- EXTRA..]
-                          the finished stack: every compose file merged into one
-                          document (--json prints it as JSON)
-
-  backup create [--out PATH] [--no-db] [--no-models]
-                          write the database, the model data and the project
-                          files to one tar.gz
-  backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models]
-                         [--no-start]
-                          put a deployment back from such an archive, after
-                          printing what it overwrites
-
-  status [--url URL] [--timeout SECONDS]
-                          GET /health and /v2/services, check that the answers
-                          are chap-core's, and diff the registered services
-                          against the ones this project enabled; --url defaults
-                          to http://localhost:<api_port>
-```
-
-The everyday verbs are at the top level; the Docker plumbing you only reach for
-when you already know what Docker is doing lives under `chaps docker`, so the
-top-level list stays readable if you have never used Compose.
-
-`chaps --help` adapts to where you are: outside a deployment directory it lists
-only the commands that can work there (`init`, `models`, `registry`) and says
-that the rest appear inside one. The hidden commands still run if you type
-them; they just tell you there is no project.
-
-The wrappers always run `docker compose -f <dir>/compose.yml -f
-<dir>/compose.chaps.yml -f <dir>/compose.marketplace.yml ...` from the project
-directory, so they behave the same whatever your shell's working directory is,
-and they exit with Compose's own exit code.
-
-## Output
-
-Every command ends with a line saying what it did or found, plus the next step
-when there is one; empty output is a bug. `chaps logs` on a deployment that was
-never started says so instead of printing nothing, `chaps down` reports how
-many containers it stopped and that the volumes are still there, `chaps up`
-ends with which services it started or recreated and which it left alone, and
-`chaps docker pull` says how many images it pulled. Output that reads as status
-verifies what it claims rather than assuming it. Where something is wrong there
-is one summary line and one hint per problem, instead of the same fact three
-times over. `--json` still works everywhere and prints exactly one document on
-stdout; a line the wrapper has to say for itself goes to stderr there, so a
-parser's stdin stays that one document.
-
-## What `chaps status` reports
-
-One line for chap-core, one row per model, and one line saying what it adds up
-to:
-
-```
-chap-core   up   http://localhost:8000   v2.3.1
-
-MODEL                             STATE                    REACH                  LAST PING
-chapkit-ewars-model               registered               http://localhost:5001  12s ago
-chapkit-rwanda-malaria-bym-model  running, not registered  internal               -
-auto-arima-chapkit                not running              internal               -
-some-other-service                unmanaged                http://c0ffee:8000     3s ago
-
-internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
-
-2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start the stack with `chaps up`, then `chaps logs auto-arima-chapkit`
-```
-
-The version is chap-core's own when it publishes one, and otherwise the tag
-`.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
-build. Every model the project enables gets a row, registered or not, with its
-state from the registry and `docker compose ps` together; a service registered
-with chap-core that this project does not enable is listed as `unmanaged`, and
-`internal` in REACH means the model publishes no host port of its own (the way
-in is printed once, under the table). A model whose container is up but which
-never registered is the interesting case: chapkit stops trying five attempts
-into its startup, so one that came up before chap-core was healthy stays
-invisible until it is restarted, which is what its hint says.
-
-`up` means chap-core answered *as* chap-core: `/health` has to be JSON with a
-`status` field, and `/v2/services` has to parse as `{count, services}`. A bare
-200 from something else holding the port - a dev server, a proxy, an older
-deployment - is reported as down, naming what answered instead:
-
-```
-chap-core   down   http://localhost:8000   v2.3.1 (pinned)
-...
-error: chap-core at http://localhost:8000 is not responding: port 8000 answers
-but it is not chap-core (got text/html)
-```
-
-`chaps status` exits non-zero when the API is down or a model has not
-registered, which makes it a health gate for a script. The table has already
-named every model that is missing and what to do about each one, so that exit
-adds nothing further; only an API that is not answering prints its one error
-line. A project whose containers do not exist at all skips the table and says
-`stack is not running; start it with chaps up`, and `--url` turns that
-short-circuit off, because then the question is about that API and not about
-this machine.
-
-## Ports
-
-A deployment publishes **one** host port: chap-core's API, 8000 by default and
-`init --api-port N` otherwise. Nothing else needs one. chap-core reaches each
-model over the compose default network at `http://<service_id>:8000` - that
-internal URL is what a model registers with - and PostgreSQL and Valkey sit on
-a second network that model services never join.
-
-So a model service only gets `expose: ["8000"]`, which declares the container
-port without asking the host for anything. To reach one from your own machine
-there are two ways:
-
-```sh
-# through chap-core's read-only proxy, no host port needed
-curl http://localhost:8000/v2/services/chapkit-ewars-model/run/api/v1/info
-open http://localhost:8000/v2/services/chapkit-ewars-model/run/docs
-
-# or give that model a port of its own
-chaps models expose chapkit-ewars-model            # lowest free port, 5001 up
-chaps models expose chapkit-ewars-model --port 5010
-chaps models unexpose chapkit-ewars-model          # and take it away again
-chaps up                                           # apply either change
-```
-
-`expose` and `unexpose` only rewrite the overlay's `ports:`; they never
-re-resolve the version, so they are safe on a deployment running a build you do
-not want moved. `chaps models enable ID --port N|auto` does the same thing
-while enabling. `chaps models list` and `chaps status` show either the port or
-`internal`, and `chaps models info ID` prints the proxy URL for an
-internal-only model. In `chaps ui`, `p` toggles publishing for the row under
-the cursor.
-
-The API's port is not an edit of `compose.yml` - that file is upstream's, byte
-for byte. `chaps sync` renders a small `compose.chaps.yml` next to it and puts
-it in the `-f` list:
-
-```yaml
-services:
-  chap:
-    ports: !override
-      - "${CHAP_API_PORT:-8000}:8000"
-```
-
-`!override` (Compose 2.24+) replaces chap's own mapping rather than adding to
-it, which is why the API ends up on exactly one port; a file listed in
-`include:` could not do that at all. The port comes from `api_port` in
-`.chaps/project.yaml`, and `CHAP_API_PORT` in `.env` overrides it without
-touching `.chaps/`.
-
-Because Compose reads `.env` last, that line wins. `init` never rewrites a
-`.env` it finds - the database password in it outlives the rest - so
-`chaps init --api-port N --force` over an existing deployment moves
-`.chaps/project.yaml` and `compose.chaps.yml` and then warns that the older
-`CHAP_API_PORT=` line is still what the stack will use. Edit that line, or pass
-`--fresh-env` (which rotates the database password too).
-
-### The preflight
-
-`chaps up` checks that every host port the stack is about to publish is free
-before it calls Docker, and refuses with one line per conflict:
-
-```
-2 host ports the stack needs are already in use; nothing was started
-  port 8000 is already in use on this machine (needed by chap); free it, or run
-  `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
-  port 5001 is already in use on this machine (needed by chapkit-ewars-model);
-  free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
-  reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
-```
-
-Docker finds the same conflict eventually, several seconds in and named after a
-container rather than a port. Ports held by this project's own running
-containers are skipped, so `chaps up` on a running stack stays a no-op;
-`chaps up --no-preflight` hands the question back to Docker. `chaps init`
-probes the API port too, but only warns: the process holding it is often a
-previous stack you are about to replace.
-
-### The model browser (`chaps ui`)
-
-`chaps ui` opens a two-pane browser: the catalogue on the left, the
-details of the selected entry on the right. Keys (none of them need Alt on a
-Norwegian keyboard):
-
-```
-j / k / arrows     move            space   enable or disable
-g / G              first / last    p       publish a host port, or stop
-PageUp / PageDown  jump a page     v       switch channel (stable, latest)
-ctrl-u / ctrl-d    jump a page     t       show or hide templates
-Enter / s          save            /       filter (Enter keeps, Esc clears)
-q / Esc            quit            ?       help
-y / n              answer the quit confirmation
-```
-
-The port column reads `internal` for an enabled model with no host port,
-`:5001` for one that has had a port allocated, and `:auto` for a row where `p`
-has asked for one that is not picked until you save.
-
-Saving applies the accumulated changes through the same write path as
-`chaps models enable`, then prints what changed. Nothing is written until you
-save, and quitting with unsaved changes asks first.
-
-## Generated files
-
-`chaps init` writes a directory you own; nothing outside it is touched.
-
-```
-mychap/
-  .chaps/
-    project.yaml               intent: schema version, chap-core tag and compose
-                               source, registry URL, API port, model port range,
-                               the -f list, and which root files sync wrote
-    models.yaml                intent: the enabled models (image, pinned version,
-                               channel, host port or none, data dir, user,
-                               platform, overlay name)
-    compose.chap-core.<tag>.yml
-                               chap-core's own compose.ghcr.yml at the pinned tag,
-                               exactly as downloaded; compose.yml is rendered from it
-  compose.yml                  artifact: the base stack, from the file above
-  compose.chaps.yml            artifact: chaps-owned overrides on top of it - the
-                               API's host port
-  compose.marketplace.yml      artifact: include: list, one line per enabled model
-  compose.<service_id>.yml     artifact: one overlay per enabled model
-  .env                         written once by init; only pins are appended
-```
-
-`.chaps/` is the intent. It is what `models enable`, `models disable`, the
-browser and `update` edit, and it is small enough to read and to diff. The
-compose files at the root are artifacts rendered from it by `chaps sync`, but
-they are plain Compose files with nothing `chaps`-specific in them:
-`docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml
-up -d` works without `chaps` installed, which is the point of generating them.
-
-`compose.yml` is an artifact too. `init` downloads chap-core's own
-`compose.ghcr.yml` at the tag it pinned, keeps the raw copy as
-`.chaps/compose.chap-core.<tag>.yml` and records its URL and SHA-256 in
-`project.yaml`; `sync` renders `compose.yml` as two header lines plus that copy,
-byte for byte. Rendering from the copy rather than the network keeps `sync`
-offline and deterministic, and it is why a hand edit of `compose.yml` is drift
-that `chaps sync` undoes - edit the copy in `.chaps/` instead, and `sync` will
-follow it (and say the checksum no longer matches). When the copy is missing
-`sync` leaves `compose.yml` alone rather than guessing.
-
-`chaps up` runs `sync` before `docker compose up`, so the intent and the
-artifacts never drift in normal use. `chaps sync --check` reports drift
-without writing (for CI or a pre-commit hook), and a plain `chaps sync`
-re-creates a deleted overlay or picks up a hand edit of `models.yaml`. Sync
-only ever removes overlays it wrote itself (`project.yaml` keeps the list), so
-a hand-written `compose.custom.yml` next to them is left alone; add it to the
-umbrella by hand if you want it included.
-
-`.env` is the one file that is written once and then left alone. `init` writes
-it when the directory has none, and never rewrites it afterwards: a second
-`init` keeps the file it finds, `--force` included, `sync` only appends missing
-pin comments and `update` only moves the pin comments of models it changed.
-That is deliberate - the file holds the database password the PostgreSQL volume
-was created with, plus the API token and the registration key, and a rotated
-password leaves chap-core unable to authenticate against its own data.
-`init --fresh-env` is the explicit override: it renders a new `.env` with a new
-password, so an existing volume has to be dropped with
-`chaps docker run -- down -v` (or the role changed with `ALTER USER`) before
-the stack will start again.
-
-| File | What it is |
-| --- | --- |
-| `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
-| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
-| `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break the stack; it only means `sync` can no longer re-render `compose.yml`. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), and commented placeholders for `CHAP_API_TOKEN`, `SERVICEKIT_REGISTRATION_KEY`, `CHAP_DATABASE_URL` and per-model image pins. Written once by `init` and never rewritten by `init`, `sync` or `update`; `sync` appends missing pin comments and `update` moves the pin comments of models it changed. `init --fresh-env` regenerates it on purpose. |
-| `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
-| `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
-| `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
-
-Compose reads `.env` automatically, so `${CHAP_IMAGE_TAG:-latest}` and the
-per-model `${<ID>_IMAGE_TAG:-sha-xxxxxxx}` pins can be overridden there without
-regenerating anything.
-
-### Updating
-
-Model pins only move in two ways: `chaps models enable ID` (with `--channel`
-or `--version`) and `chaps update`. Nothing else, `up`, `expose` and `unexpose`
-included, changes the version a model runs.
-
-`chaps update` fetches the registry from the network (no cache, no fallback;
-it fails under `--offline`, `--dry-run` included, because a plan made from a
-stale catalogue is not a plan). For every model that follows a channel it
-re-resolves the channel; a pin that moved is recorded in `models.yaml` and its
-`# <ID>_IMAGE_TAG=` comment in `.env` is updated. Models enabled with
-`--version` are listed as pinned and skipped. Then it syncs and runs
-`docker compose pull`.
-
-Whether anything restarts depends on the stack. With containers running,
-`docker compose up -d` recreates the services whose pins moved. With nothing
-running, `update` stops after the pull and says ``stack is not running; run
-`chaps up` to start with the new versions``: starting a deployment somebody
-stopped is not an update's business, and an `up -d` that did it would be a
-deployment nobody asked for. `--no-restart` stops after the
-pull either way, and `--dry-run` prints the plan - including which of those two
-it would do - and writes nothing.
-
-chap-core's own pin moves in the same run. `init` resolves the default
-`--chap-tag latest` to the release it points at today (`v2.3.1`, say) and writes
-that into `.env` and `.chaps/project.yaml`, so a deployment is reproducible
-rather than following a tag that changes under it. `chaps update` then looks up
-the newest release, and when there is a newer one it downloads the
-`compose.ghcr.yml` that release publishes, moves `chap_image_tag`, and rewrites
-the single active `CHAP_IMAGE_TAG=` line in `.env` - only that line, and only
-when it still says what the project recorded. A value you pinned yourself, or
-the commented placeholder, is left alone with a warning saying what the stack
-will actually run.
-
-`--chap-tag latest|master|dev` keeps a moving tag instead: nothing to move, so
-`update` only re-pulls it (Compose never re-pulls a tag it already has, so the
-image is refreshed by `chaps docker pull`, `chaps update` or `chaps up --pull`).
-`chaps update --pin-chap-core` converts such a tag into a release pin, the way
-`init` does by default. A tag that is neither a release nor a moving one - a
-`sha-` build - is never moved.
-
-Without the network `init` keeps the tag exactly as given and renders
-`compose.yml` from the copy of `compose.ghcr.yml` compiled into the binary,
-warning on stderr both times; with `--chap-tag latest` that means the deployment
-does follow the moving tag. An already cached
-`.chaps/compose.chap-core.<tag>.yml` is reused rather than re-downloaded, so a
-second `init --force` at the same tag works offline.
-
-## How model overlays work
-
-Each marketplace model is a [chapkit](https://github.com/dhis2-chap/chapkit)
-container listening on port 8000 with `/health` and `/api/v1/info`. The overlay
-`chaps` writes does six things:
-
-- **Pins the image.** `image: <repo>:${<ID>_IMAGE_TAG:-sha-<commit>}`, where the
-  default is the `image_tag` of the version the channel resolves to. The
-  deployment stays reproducible, and a different build is one `.env` line away.
-- **Self-registration.** The service registers itself with chap-core through
-  `SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register` (the
-  `$$` is a literal `$` for Compose). The Compose service name, the DNS name
-  and the marketplace `service_id` are the same string, which is what makes the
-  registration resolvable. Set `SERVICEKIT_REGISTRATION_KEY` in `.env` to
-  require a shared secret.
-- **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
-  else: chap-core reaches it over the compose default network, which is the URL
-  it registers, so a host port would only be there for people. `chaps models
-  expose ID` adds one (`ports: ["5001:8000"]`, alongside the `expose`), from
-  the range 5001-5999; ports are allocated from `.chaps/models.yaml` plus a
-  scan of every `compose*.yml` in the directory *and* a check that nothing on
-  the machine is listening, so two models never collide and neither does a
-  model and something else you are running. `--port N` claims one explicitly.
-  See [Ports](#ports).
-- **Hardening**, matching the posture of the base stack: `init: true`,
-  `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, an unprivileged
-  `user`, a 2 GB tmpfs at `/tmp`, and a named volume for the model's data
-  directory (the only writable path besides `/tmp`).
-- **Hands the data volume to the model user.** Docker seeds a fresh named
-  volume from whatever the image has at the mount point, ownership included, so
-  an image that never creates its data directory yields a root-owned volume the
-  unprivileged model cannot write to - and chapkit dies on
-  `sqlite3.OperationalError: unable to open database file`. Compose cannot
-  `chown` a volume, so each overlay ships a one-shot `<service_id>-init`
-  container (busybox, as root, `restart: "no"`) that chowns the mount point to
-  the model's *numeric* uid:gid (busybox resolves no `chapkit` account) before
-  the model starts. Every overlay gets it, not only the images known to need
-  it, and it is the one service in a deployment that is deliberately not
-  `restart: unless-stopped`.
-- **Ordering.** `depends_on`: the init container with
-  `condition: service_completed_successfully` and `chap` with
-  `condition: service_healthy`, so a model only starts once its volume is
-  writable and chap-core can accept its registration. The overlay adds no
-  `healthcheck` (chapkit images ship their own) and no `networks:` key (the
-  default network reaches chap-core but not PostgreSQL or Valkey).
-
-Every overlay also pins `platform: linux/amd64`. The marketplace images are
-published for amd64 (as is chap-core itself), so an arm64 host such as Apple
-silicon pulls that variant and runs it under emulation instead of failing with
-"no matching manifest".
-
-The data directory and the user differ per image (`/app/data` with
-`chapkit:chapkit` for EWARS, `/app/data` with `chap:chap` for the simple
-multistep model, `/work/data` with `chapkit:chapkit` elsewhere). `chaps` knows
-the published ones; `--data-dir` and `--user` cover anything it does not. A
-model that crash-loops right after starting is almost always writing outside
-its data directory on the read-only filesystem. The init container needs those
-names as numbers (`chapkit` is uid/gid 1000, `chap` is 1001); a `--user` that
-is already numeric is passed through, and a name `chaps` does not know falls
-back to `1000:1000` with a warning from `chaps sync`.
-
-Templates (`kind: template`) are scaffolding for writing your own model, not
-forecasting models. They are hidden from `models list` and the browser by
-default, and enabling one needs `--allow-template`.
-
-## The registry
-
-The catalogue is the YAML in the model-marketplace repository, read from
-
-```
-https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml
-```
-
-(`--registry-url` points somewhere else, for a fork or a mirror.) Resolution
-order for every command that needs the catalogue:
-
-1. a cached copy younger than 24 hours,
-2. the network,
-3. a stale cached copy, when the network fails,
-4. the snapshot compiled into the binary.
-
-`chaps registry show` prints which of those was used; `chaps registry update`
-forces a fetch and refreshes the cache, as does `chaps update`. `--offline`
-never touches the network, so a laptop on a plane still resolves the catalogue
-from the cache or the embedded snapshot (`update` is the one command that
-refuses to run that way).
-
-The cache lives in `$CHAPS_CACHE_DIR`, else `$XDG_CACHE_HOME/chaps`, else
-`~/.cache/chaps`; `--cache-dir` overrides it for one invocation.
-
-## Backup and restore
-
-A deployment is three things: the files in the project directory, the chap-core
-database in PostgreSQL, and one data volume per model service. `chaps backup
-create` puts all three into one `tar.gz`, and `chaps backup restore` puts them
-back. The archive is a plain gzipped tar with a flat layout, so `tar -tzf` reads
-it and an admin can restore it by hand:
-
-```
-chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
-  manifest.yaml              what this archive is: the chaps version that wrote
-                             it, the UTC timestamp, the project directory name,
-                             the chap-core image tag, the PostgreSQL server
-                             version, every enabled model with its service id,
-                             version, image tag, host port (null when it
-                             publishes none), data dir and volume, and what was
-                             included (or why it was not)
-  files/                     .env, .chaps/** and every compose*.yml at the
-                             project root
-  db/chap_core.dump          pg_dump in the custom format (-Fc)
-  models/<service_id>.tar    one model's data directory, as tar saw it
-```
-
-The `logs`, `runs`, `renv`, `uv` and `pytensor` volumes are deliberately left
-out: they are caches that rebuild themselves, and they are far larger than
-everything above put together.
-
-### Taking a backup
-
-```
-chaps backup create [--out PATH] [--no-db] [--no-models]
-```
-
-The archive is named `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` (UTC) and
-written to the current directory, unless `--out` names a file or an existing
-directory to put it in.
-
-PostgreSQL has to be running for the database part, because the dump goes
-through `docker compose exec`; when it is not, the command stops and says to
-start the stack or pass `--no-db`. Model data is read through each overlay's
-one-shot `<service_id>-init` container, which mounts the same named volume at
-the same path as the model itself, so it works whether the model is running,
-stopped, or was brought down entirely. A model that has never started has no
-volume yet; it is skipped with a warning and recorded as such in the manifest.
-
-Everything is staged under `.chaps/tmp/` (same filesystem as the project, so a
-multi-gigabyte model volume never lands in a small `/tmp`) and packed in one
-`tar -czf`; the staging directory is removed afterwards, success or not.
-
-### Restoring
-
-```
-chaps backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-start]
-```
-
-It first prints what the archive holds, what it will overwrite and what it will
-stop, and asks. `--yes` answers in advance; without a terminal to ask at and
-without `--yes` it refuses rather than guessing. Then, in order:
-
-1. `docker compose stop chap worker <models>` - only the services that are
-   actually running, so a stopped stack is not woken up to be stopped,
-2. the files go back over the project directory, and `chaps sync` re-renders
-   the compose files from the `.chaps/` that just arrived. A `.env` that differs
-   from the one in the archive is kept as `.env.before-restore`,
-3. postgres is started on its own (`docker compose up -d postgres`) if it is not
-   up, and once `docker compose ps` reports it healthy the dump goes in through
-   `pg_restore --clean --if-exists --no-owner`. `pg_restore` exits 1 when it
-   finished but complained - dropping objects a fresh database never had, most
-   of all - so exit 1 counts as success and the complaints are printed as
-   warnings; anything above 1 fails the restore,
-4. each model's data directory is emptied and refilled through its init
-   container, then chowned back to the model's numeric uid:gid (busybox resolves
-   no account names, which is why the numbers matter),
-5. `docker compose up -d`, unless `--no-start`.
-
-`--files-only` does step 2 and nothing else, and needs no Docker at all - handy
-for rebuilding a project directory on a new machine before starting anything.
-`--db-only` does step 3 alone. `--no-models` leaves the data volumes as they
-are.
-
-### The same thing without chaps
-
-Every step is an ordinary Docker command. They all need the project's `-f` list,
-which `chaps docker run -- ...` supplies (or write out
-`docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml
-...` yourself). `$PGU`
-and `$PGDB` are `POSTGRES_USER` and `POSTGRES_DB` from `.env`, defaulting to
-`chap` and `chap_core`.
-
-| step | command |
-| --- | --- |
-| list an archive | `tar -tzf <archive>` |
-| read its manifest | `tar -xzf <archive> -O manifest.yaml` |
-| unpack the files | `tar -xzf <archive> -C <project> --strip-components=1 files` |
-| dump the database | `docker compose exec -T postgres pg_dump -U $PGU -Fc $PGDB > chap_core.dump` |
-| load the database | `docker compose exec -T postgres pg_restore -U $PGU -d $PGDB --clean --if-exists --no-owner < chap_core.dump` |
-| read a model's data | `docker compose run --rm --no-deps -T <service>-init tar cf - -C <data_dir> . > <service>.tar` |
-| write it back | `docker compose run --rm --no-deps -T <service>-init sh -c 'rm -rf <data_dir>/* && tar xf - -C <data_dir>' < <service>.tar` |
-| hand it to the model | `docker compose run --rm --no-deps -T <service>-init chown -R 1000:1000 <data_dir>` |
-
-Stop `chap`, `worker` and the model services before loading a database or a data
-volume, and start them again afterwards. `<data_dir>` and the uid:gid are in the
-manifest, one entry per model.
+chap-core's API is on <http://localhost:8000>; model services are reached
+through it, or given a port of their own with `chaps models expose ID`. Every
+command takes `--json`, and every command ends with a line saying what it did.
+
+## The two words to remember
+
+- **`chaps up`** starts what is on disk. It never changes which version of
+  anything you run.
+- **`chaps update`** fetches newer versions: it asks the marketplace and the
+  chap-core release feed what they publish today, moves the pins, then pulls
+  and restarts.
 
 ## Development
 
@@ -660,6 +61,8 @@ make check     # formatting and clippy, fixing nothing
 make release   # universal (arm64+x86_64) macOS binary at bin/chaps
 make install   # copy bin/chaps to $PREFIX/bin (PREFIX defaults to ~/.local)
 make vendor    # refresh the embedded marketplace snapshot
+make docs      # build the documentation into site/
+make docs-serve  # serve it locally at http://localhost:3000
 ```
 
 `make help` lists every target. The underlying commands are `cargo test`,
@@ -669,3 +72,7 @@ make vendor    # refresh the embedded marketplace snapshot
 CI runs the same three checks on Linux, macOS and Windows. Tagging `vX.Y.Z`
 builds release binaries for six targets (Linux, macOS and Windows, on x86_64
 and aarch64) and attaches them to a GitHub release with their SHA-256 sums.
+
+The documentation lives in `docs/` and is built with
+[mdbook](https://rust-lang.github.io/mdBook/); `docs/reference.md` is generated
+from the `--help` texts by `make docs-reference` and checked by `cargo test`.

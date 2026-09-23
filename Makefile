@@ -5,11 +5,11 @@ BIN    := bin/chaps
 PREFIX ?= $(HOME)/.local
 ARGS   ?=
 .DEFAULT_GOAL := help
-.PHONY: help check lint test build release run install vendor clean
+.PHONY: help check lint test build release run install vendor docs docs-reference docs-serve clean
 help: ## Show this help
 	@echo "chaps - make targets:"
 	@echo ""
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / { printf "  \033[1m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 check: ## Report formatting and clippy issues, fixing nothing
 	$(CARGO) fmt --all --check
 	$(CARGO) clippy --all-targets -- -D warnings
@@ -41,6 +41,12 @@ install: release ## Install bin/chaps into PREFIX/bin (PREFIX defaults to ~/.loc
 	@echo "installed $(PREFIX)/bin/chaps"
 vendor: ## Refresh the embedded marketplace snapshot in vendor/marketplace/
 	scripts/vendor-marketplace.sh
+docs-reference: ## Regenerate docs/reference.md from the CLI help texts
+	$(CARGO) run -q -- docs-markdown > docs/reference.md
+docs: docs-reference ## Build the mdbook documentation into site/
+	mdbook build
+docs-serve: ## Serve the documentation at localhost:3000 and open a browser
+	mdbook serve --open
 clean: ## Remove target/ and bin/
 	$(CARGO) clean
 	@rm -rf $(dir $(BIN))

@@ -117,6 +117,10 @@ pub enum Command {
 
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
+
+    /// Print the whole command tree as Markdown (writes docs/reference.md).
+    #[command(hide = true)]
+    DocsMarkdown(DocsMarkdownArgs),
 }
 
 /// Create a deployment directory: compose files, .env and .chaps/.
@@ -526,7 +530,7 @@ pub struct ConfigArgs {
 ///
 /// One archive holds everything a deployment is: `.env`, `.chaps/`, the compose
 /// files, a `pg_dump` of the chap-core database and one tar per model data
-/// volume. It is a plain `tar.gz` - `tar -tzf` lists it, and the README says
+/// volume. It is a plain `tar.gz` - `tar -tzf` lists it, and the docs say
 /// which raw `pg_restore` and `tar` commands put it back without `chaps`.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
@@ -612,6 +616,14 @@ pub struct StatusArgs {
     #[arg(long, value_name = "SECONDS", default_value_t = 5)]
     pub timeout: u64,
 }
+
+/// Print the whole command tree as Markdown.
+///
+/// Hidden: it documents `chaps` rather than doing anything to a deployment,
+/// and `make docs-reference` is the only caller. It needs no project and no
+/// Docker.
+#[derive(Debug, Clone, Args)]
+pub struct DocsMarkdownArgs {}
 
 /// The docker compose wrappers, as one value for `commands::docker::run`.
 ///

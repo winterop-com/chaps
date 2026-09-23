@@ -2,6 +2,7 @@
 
 pub mod backup;
 pub mod docker;
+pub mod docs;
 pub mod enable;
 pub mod init;
 pub mod models;
