@@ -1,7 +1,10 @@
 //! The `chaps` command tree.
 //!
-//! Doc comments on the types and fields are the `--help` text. This file and
-//! `main.rs` are complete: the command modules only read the arg structs.
+//! Doc comments on the types and fields are the `--help` text. A subcommand's
+//! own help comes from its variant in the enum, never from the argument struct
+//! the variant names, so the prose a person reads lives on the variant and the
+//! struct keeps a one-line summary. This file and `main.rs` are complete: the
+//! command modules only read the arg structs.
 
 use crate::compose::PortRequest;
 use crate::project::DEFAULT_API_PORT;
@@ -106,6 +109,19 @@ pub enum Command {
     Models(ModelsArgs),
 
     /// Show and change what this deployment is made of.
+    ///
+    /// A component is a service (or a small group of them) that `chaps sync`
+    /// renders a compose file for: `chap-core`, which is CHAP itself and is on
+    /// unless it was turned off, `ocs`, which is Open Climate Service beside
+    /// it, and `s3`, the object store OCS will keep its objects in. The set
+    /// lives in `.chaps/components.yaml`; enabling or disabling one syncs the
+    /// compose files straight away, and `chaps up` applies them.
+    ///
+    /// Enabling `ocs` also scaffolds `ocs/climate-service.yaml`, the OCS
+    /// instance configuration: which country or region this instance covers,
+    /// and where it keeps its data. That file is yours from the moment it
+    /// exists - `chaps` never rewrites it - and `chaps doctor` warns while it
+    /// still holds OCS's example values.
     Components(ComponentsArgs),
 
     /// Open the model browser.
@@ -115,10 +131,20 @@ pub enum Command {
     Registry(RegistryArgs),
 
     /// Render the compose files from .chaps/ (what `up` does first).
+    ///
+    /// Writes every enabled model's overlay and compose.marketplace.yml,
+    /// removes overlays of models that are no longer enabled, and appends
+    /// missing image pin comments to .env. Files that already match are left
+    /// alone.
     Sync(SyncArgs),
 
     /// Move the model and chap-core pins to what upstream publishes now, pull
     /// the images and say what needs restarting.
+    ///
+    /// After updating .chaps/models.yaml and the .env pin comments it runs
+    /// `chaps sync` and `docker compose pull`. A chap-core pin on a release
+    /// tag moves to the newest release, compose file included; a moving tag
+    /// (`latest`, `master`, `dev`) is only refreshed by the pull.
     ///
     /// Always fetches the registry from the network (no cache, no fallback).
     /// Models pinned to an exact version are listed but not moved. The run
@@ -131,6 +157,10 @@ pub enum Command {
     Update(UpdateArgs),
 
     /// Sync, then start CHAP (docker compose up).
+    ///
+    /// Before invoking Docker it checks that the host ports the stack
+    /// publishes are free, and says what to do about any that are not;
+    /// `--no-preflight` skips that.
     Up(UpArgs),
 
     /// Stop CHAP (docker compose down).
@@ -154,26 +184,64 @@ pub enum Command {
     Restart(RestartArgs),
 
     /// Talk to Docker directly: containers, images, raw compose commands.
+    ///
+    /// The everyday verbs (`up`, `down`, `logs`) are at the top level; this
+    /// group holds the plumbing you only reach for when you already know what
+    /// Docker is doing.
     Docker(DockerArgs),
 
-    /// Create or restore a backup of the database, model data and project files.
+    /// Create or restore a backup of the database, model data and project
+    /// files.
+    ///
+    /// One archive holds everything a deployment is: `.env`, `.chaps/`, the
+    /// compose files, a `pg_dump` of the chap-core database and one tar per
+    /// model data volume. It is a plain `tar.gz` - `tar -tzf` lists it, and
+    /// the docs say which raw `pg_restore` and `tar` commands put it back
+    /// without `chaps`.
     Backup(BackupArgs),
 
     /// Check chap-core health and which model services have registered.
     Status(StatusArgs),
 
     /// Run a checklist over this machine and this deployment.
+    ///
+    /// One line per check: Docker and Compose, the CPU architecture, free
+    /// disk, whether the hosts CHAP pulls from answer, and which release of
+    /// `chaps` this is. Inside a deployment directory it also checks the
+    /// project files, whether the compose files are in sync, `.env`, the host
+    /// ports, the chap-core pin, each enabled model's image and the running
+    /// stack.
+    ///
+    /// Every check is bounded, so this always finishes; it exits non-zero only
+    /// when a check failed, never on a warning. `--json` prints the same
+    /// checklist as a document, and `--offline` skips everything that would
+    /// need the network.
     Doctor(DoctorArgs),
 
     /// Turn API authentication on or off, and show the token to paste into
     /// DHIS2.
+    ///
+    /// Two secrets, both living in `.env` and nowhere else: `CHAP_API_TOKEN`,
+    /// which every client has to send as `Authorization: Bearer <token>`, and
+    /// `SERVICEKIT_REGISTRATION_KEY`, which each model service sends when it
+    /// registers with chap-core. `.chaps/project.yaml` records only whether
+    /// they are in use.
     Auth(AuthArgs),
 
     /// Update chaps itself, and report what this build is.
+    ///
+    /// These are the only commands that are about the CLI rather than about a
+    /// deployment, so they work anywhere, project or not.
     #[command(name = "self")]
     SelfCmd(SelfArgs),
 
     /// Print a shell completion script for chaps.
+    ///
+    /// The script is written to stdout, so it can be sourced directly or saved
+    /// into the shell's completion directory. The release archives ship the
+    /// same four scripts under `completions/`, and the install script puts
+    /// them in place, so this command is for a checkout or a shell the
+    /// archives do not cover.
     Completions(CompletionsArgs),
 
     /// Print the whole command tree as Markdown (writes docs/reference.md).
@@ -279,19 +347,6 @@ pub struct OcsConfigArgs {
 }
 
 /// Show and change what this deployment is made of.
-///
-/// A component is a service (or a small group of them) that `chaps sync`
-/// renders a compose file for: `chap-core`, which is CHAP itself and is on
-/// unless it was turned off, `ocs`, which is Open Climate Service beside it,
-/// and `s3`, the object store OCS will keep its objects in. The set lives in
-/// `.chaps/components.yaml`; enabling or disabling one syncs the compose files
-/// straight away, and `chaps up` applies them.
-///
-/// Enabling `ocs` also scaffolds `ocs/climate-service.yaml`, the OCS instance
-/// configuration: which country or region this instance covers, and where it
-/// keeps its data. That file is yours from the moment it exists - `chaps` never
-/// rewrites it - and `chaps doctor` warns while it still holds OCS's example
-/// values.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct ComponentsArgs {
@@ -305,10 +360,18 @@ pub enum ComponentsCmd {
     List(ComponentsListArgs),
 
     /// Turn a component on: record it in .chaps/components.yaml and sync.
+    ///
+    /// Enabling one that is already on is how its settings are changed:
+    /// `--port` moves the host port it publishes. `ocs` is published on 9000
+    /// by default because it serves a web interface; `s3` publishes nothing,
+    /// since OCS reaches it over the compose network.
     Enable(ComponentsEnableArgs),
 
     /// Turn a component off: drop it from .chaps/components.yaml, remove its
     /// compose file and sync.
+    ///
+    /// Turning `chap-core` off is refused while any model is enabled: model
+    /// services register with chap-core and are reached through it.
     Disable(ComponentsDisableArgs),
 }
 
@@ -317,11 +380,6 @@ pub enum ComponentsCmd {
 pub struct ComponentsListArgs {}
 
 /// Turn a component on: record it in .chaps/components.yaml and sync.
-///
-/// Enabling one that is already on is how its settings are changed: `--port`
-/// moves the host port it publishes. `ocs` is published on 9000 by default
-/// because it serves a web interface; `s3` publishes nothing, since OCS
-/// reaches it over the compose network.
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsEnableArgs {
     /// Component name: `ocs`, `s3` or `chap-core`.
@@ -337,9 +395,6 @@ pub struct ComponentsEnableArgs {
 }
 
 /// Turn a component off, remove its compose file and sync.
-///
-/// Turning `chap-core` off is refused while any model is enabled: model
-/// services register with chap-core and are reached through it.
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsDisableArgs {
     /// Component name: `ocs`, `s3` or `chap-core`.
@@ -366,15 +421,27 @@ pub enum ModelsCmd {
     Info(ModelsInfoArgs),
 
     /// Enable a model: record it in .chaps/models.yaml and write its overlay.
+    ///
+    /// The model gets no host port: chap-core reaches it over the compose
+    /// network and a human through `/v2/services/<id>/run/`. `--port` opts in
+    /// to one.
     Enable(ModelsEnableArgs),
 
     /// Disable a model: drop it from .chaps/models.yaml and remove its overlay.
     Disable(ModelsDisableArgs),
 
     /// Publish a host port for an enabled model.
+    ///
+    /// The model keeps the version it is pinned to: this only rewrites its
+    /// overlay's `ports:`, so it is safe on a deployment that is running a
+    /// build you do not want moved. Run `chaps up` afterwards to apply it.
     Expose(ModelsExposeArgs),
 
     /// Take an enabled model's host port away again.
+    ///
+    /// It stays registered with chap-core and reachable at
+    /// `/v2/services/<id>/run/`; only the host mapping goes. Run `chaps up`
+    /// afterwards to apply it.
     Unexpose(ModelsUnexposeArgs),
 }
 
@@ -411,9 +478,6 @@ pub struct ModelsInfoArgs {
 }
 
 /// Enable a model: record it in .chaps/models.yaml and write its overlay.
-///
-/// The model gets no host port: chap-core reaches it over the compose network
-/// and a human through `/v2/services/<id>/run/`. `--port` opts in to one.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsEnableArgs {
     /// Marketplace id or service id.
@@ -455,10 +519,6 @@ pub struct ModelsDisableArgs {
 }
 
 /// Publish a host port for a model this project already enabled.
-///
-/// The model keeps the version it is pinned to: this only rewrites its
-/// overlay's `ports:`, so it is safe on a deployment that is running a build
-/// you do not want moved. Run `chaps up` afterwards to apply it.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsExposeArgs {
     /// Marketplace id or service id.
@@ -471,10 +531,6 @@ pub struct ModelsExposeArgs {
 }
 
 /// Take a model's host port away again.
-///
-/// It stays registered with chap-core and reachable at
-/// `/v2/services/<id>/run/`; only the host mapping goes. Run `chaps up`
-/// afterwards to apply it.
 #[derive(Debug, Clone, Args)]
 pub struct ModelsUnexposeArgs {
     /// Marketplace id or service id.
@@ -511,10 +567,6 @@ pub struct RegistryUpdateArgs {}
 pub struct RegistryShowArgs {}
 
 /// Render the compose files from .chaps/ (what `up` does first).
-///
-/// Writes every enabled model's overlay and compose.marketplace.yml, removes
-/// overlays of models that are no longer enabled, and appends missing image
-/// pin comments to .env. Files that already match are left alone.
 #[derive(Debug, Clone, Args)]
 pub struct SyncArgs {
     /// Write nothing; exit non-zero if anything would change.
@@ -523,14 +575,6 @@ pub struct SyncArgs {
 }
 
 /// Move the pins forward, pull, and say what needs restarting.
-///
-/// After updating .chaps/models.yaml and the .env pin comments it runs
-/// `chaps sync` and `docker compose pull`. A chap-core pin on a release tag
-/// moves to the newest release, compose file included; a moving tag
-/// (`latest`, `master`, `dev`) is only refreshed by the pull.
-///
-/// The prose a person reads is on the `Update` variant above, which is where
-/// clap takes a subcommand's `--help` from.
 #[derive(Debug, Clone, Args)]
 pub struct UpdateArgs {
     /// Show what would change: no pull, and nothing written.
@@ -544,10 +588,6 @@ pub struct UpdateArgs {
 }
 
 /// Sync, then start CHAP (docker compose up).
-///
-/// Before invoking Docker it checks that the host ports the stack publishes
-/// are free, and says what to do about any that are not; `--no-preflight`
-/// skips that.
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
     /// Run in the foreground and stream all logs (Ctrl-C stops CHAP).
@@ -597,9 +637,6 @@ pub struct LogsArgs {
 }
 
 /// Recreate the running services whose image or configuration changed.
-///
-/// The prose a person reads is on the `Restart` variant above, which is where
-/// clap takes a subcommand's `--help` from.
 #[derive(Debug, Clone, Args)]
 pub struct RestartArgs {
     /// Recreate the named services even when nothing about them changed
@@ -615,10 +652,6 @@ pub struct RestartArgs {
 }
 
 /// Talk to Docker directly: containers, images, raw compose commands.
-///
-/// The everyday verbs (`up`, `down`, `logs`) are at the top level; this group
-/// holds the plumbing you only reach for when you already know what Docker is
-/// doing.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct DockerArgs {
@@ -635,12 +668,25 @@ pub enum DockerSub {
     Pull(PullArgs),
 
     /// Run a command inside one of the running containers.
+    ///
+    /// The container has to be up already; start the stack with `chaps up`
+    /// first. Without a CMD you get a shell. When this command's own input is
+    /// not a terminal - in a script, or behind a pipe - `-T` is passed to
+    /// compose so it does not try to allocate one.
     Exec(ExecArgs),
 
     /// Run any docker compose command against this project's files.
+    ///
+    /// Everything after `run` is handed to `docker compose` unchanged, behind
+    /// the project's `-f` list: `chaps docker run -- restart chap` becomes
+    /// `docker compose -f ... -f ... restart chap`.
     Run(RunArgs),
 
     /// Print the finished configuration: every compose file merged into one document.
+    ///
+    /// This is what Docker actually reads after the `-f` list, the `include:`
+    /// and the `.env` substitutions have been applied - useful when a setting
+    /// is not taking effect. With `--json` the document is printed as JSON.
     Config(ConfigArgs),
 }
 
@@ -661,11 +707,6 @@ pub struct PsArgs {
 pub struct PullArgs {}
 
 /// Run a command inside one of the running containers.
-///
-/// The container has to be up already; start the stack with `chaps up` first.
-/// Without a CMD you get a shell. When this command's own input is not a
-/// terminal - in a script, or behind a pipe - `-T` is passed to compose so it
-/// does not try to allocate one.
 #[derive(Debug, Clone, Args)]
 pub struct ExecArgs {
     /// Service to run the command in, as named in the compose files.
@@ -682,10 +723,6 @@ pub struct ExecArgs {
 }
 
 /// Run any docker compose command against this project's files.
-///
-/// Everything after `run` is handed to `docker compose` unchanged, behind the
-/// project's `-f` list: `chaps docker run -- restart chap` becomes
-/// `docker compose -f ... -f ... restart chap`.
 #[derive(Debug, Clone, Args)]
 pub struct RunArgs {
     /// Arguments passed to docker compose after the project's -f list.
@@ -698,10 +735,6 @@ pub struct RunArgs {
 }
 
 /// Print the finished configuration: every compose file merged into one document.
-///
-/// This is what Docker actually reads after the `-f` list, the `include:` and
-/// the `.env` substitutions have been applied - useful when a setting is not
-/// taking effect. With `--json` the document is printed as JSON.
 #[derive(Debug, Clone, Args)]
 pub struct ConfigArgs {
     /// Extra arguments passed through to docker compose config.
@@ -714,11 +747,6 @@ pub struct ConfigArgs {
 }
 
 /// Create or restore a backup of the database, model data and project files.
-///
-/// One archive holds everything a deployment is: `.env`, `.chaps/`, the compose
-/// files, a `pg_dump` of the chap-core database and one tar per model data
-/// volume. It is a plain `tar.gz` - `tar -tzf` lists it, and the docs say
-/// which raw `pg_restore` and `tar` commands put it back without `chaps`.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct BackupArgs {
@@ -729,18 +757,24 @@ pub struct BackupArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum BackupSub {
     /// Write a tar.gz of the database, the model data and the project files.
+    ///
+    /// The database part needs a running postgres (`chaps up`); each model's
+    /// data is read straight from its volume by the overlay's one-shot init
+    /// container, so it works whether or not the model itself is running. A
+    /// model that has never started has no volume yet and is skipped with a
+    /// warning.
     Create(BackupCreateArgs),
 
-    /// Put a deployment back from an archive.
+    /// Put a deployment back from an archive `chaps backup create` wrote.
+    ///
+    /// Prints what it is about to overwrite and asks before touching
+    /// anything. Then: stop `chap`, `worker` and the model services, write the
+    /// files back and sync, `pg_restore --clean` the database, refill each
+    /// model's data volume, and start the stack again.
     Restore(RestoreArgs),
 }
 
 /// Write a tar.gz of the database, the model data and the project files.
-///
-/// The database part needs a running postgres (`chaps up`); each model's data
-/// is read straight from its volume by the overlay's one-shot init container,
-/// so it works whether or not the model itself is running. A model that has
-/// never started has no volume yet and is skipped with a warning.
 #[derive(Debug, Clone, Args)]
 pub struct BackupCreateArgs {
     /// Where to write the archive: a file, or a directory to name it in.
@@ -759,11 +793,6 @@ pub struct BackupCreateArgs {
 }
 
 /// Put a deployment back from an archive `chaps backup create` wrote.
-///
-/// Prints what it is about to overwrite and asks before touching anything.
-/// Then: stop `chap`, `worker` and the model services, write the files back and
-/// sync, `pg_restore --clean` the database, refill each model's data volume,
-/// and start the stack again.
 #[derive(Debug, Clone, Args)]
 pub struct RestoreArgs {
     /// The `tar.gz` written by `chaps backup create`.
@@ -805,27 +834,10 @@ pub struct StatusArgs {
 }
 
 /// Run a checklist over this machine and this deployment.
-///
-/// One line per check: Docker and Compose, the CPU architecture, free disk,
-/// whether the hosts CHAP pulls from answer, and which release of `chaps`
-/// this is. Inside a deployment directory it also checks the project files,
-/// whether the compose files are in sync, `.env`, the host ports, the
-/// chap-core pin, each enabled model's image and the running stack.
-///
-/// Every check is bounded, so this always finishes; it exits non-zero only
-/// when a check failed, never on a warning. `--json` prints the same
-/// checklist as a document, and `--offline` skips everything that would need
-/// the network.
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {}
 
 /// Turn API authentication on or off, and show the token to paste into DHIS2.
-///
-/// Two secrets, both living in `.env` and nowhere else: `CHAP_API_TOKEN`, which
-/// every client has to send as `Authorization: Bearer <token>`, and
-/// `SERVICEKIT_REGISTRATION_KEY`, which each model service sends when it
-/// registers with chap-core. `.chaps/project.yaml` records only whether they
-/// are in use.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct AuthArgs {
@@ -836,24 +848,39 @@ pub struct AuthArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum AuthSub {
     /// Say whether the API is protected, and by which token.
+    ///
+    /// Reads `.chaps/project.yaml` for the intent and `.env` for what is
+    /// actually set, and says so when the two disagree. The token is
+    /// abbreviated unless `--reveal` asks for it in full.
     Show(AuthShowArgs),
 
     /// Turn authentication on: generate the secrets, write them to .env and
     /// sync.
+    ///
+    /// Writes an active `CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`
+    /// into `.env` - only those two lines change - records both in
+    /// `.chaps/project.yaml` and re-renders the model overlays so each service
+    /// sends the registration key. Run `chaps up` afterwards: chap-core and
+    /// the models only read `.env` when their containers are created.
     Enable(AuthEnableArgs),
 
     /// Turn authentication off again, keeping both values as comments.
+    ///
+    /// Comments the two `.env` lines out rather than deleting them, so the
+    /// token your clients are configured with can be recovered, and re-renders
+    /// the overlays without the registration key. Run `chaps up` afterwards.
     Disable(AuthDisableArgs),
 
     /// Replace both secrets with freshly generated ones.
+    ///
+    /// Rewrites only those two `.env` lines and leaves the rest of the file
+    /// alone. Every client keeps sending the old token until it is updated, so
+    /// rotating is two steps: `chaps auth rotate`, then `chaps up` and the new
+    /// token wherever the old one was configured.
     Rotate(AuthRotateArgs),
 }
 
 /// Say whether the API is protected, and by which token.
-///
-/// Reads `.chaps/project.yaml` for the intent and `.env` for what is actually
-/// set, and says so when the two disagree. The token is abbreviated unless
-/// `--reveal` asks for it in full.
 #[derive(Debug, Clone, Args)]
 pub struct AuthShowArgs {
     /// Print the API token in full, to paste into the DHIS2 Modeling App.
@@ -862,12 +889,6 @@ pub struct AuthShowArgs {
 }
 
 /// Turn authentication on: generate the secrets, write them to .env and sync.
-///
-/// Writes an active `CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY` into
-/// `.env` - only those two lines change - records both in
-/// `.chaps/project.yaml` and re-renders the model overlays so each service
-/// sends the registration key. Run `chaps up` afterwards: chap-core and the
-/// models only read `.env` when their containers are created.
 #[derive(Debug, Clone, Args)]
 pub struct AuthEnableArgs {
     /// Use this API token instead of generating one.
@@ -876,26 +897,14 @@ pub struct AuthEnableArgs {
 }
 
 /// Turn authentication off again, keeping both values as comments.
-///
-/// Comments the two `.env` lines out rather than deleting them, so the token
-/// your clients are configured with can be recovered, and re-renders the
-/// overlays without the registration key. Run `chaps up` afterwards.
 #[derive(Debug, Clone, Args)]
 pub struct AuthDisableArgs {}
 
 /// Replace both secrets with freshly generated ones.
-///
-/// Rewrites only those two `.env` lines and leaves the rest of the file alone.
-/// Every client keeps sending the old token until it is updated, so rotating
-/// is two steps: `chaps auth rotate`, then `chaps up` and the new token
-/// wherever the old one was configured.
 #[derive(Debug, Clone, Args)]
 pub struct AuthRotateArgs {}
 
 /// Update chaps itself, and report what this build is.
-///
-/// These are the only commands that are about the CLI rather than about a
-/// deployment, so they work anywhere, project or not.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct SelfArgs {
@@ -906,22 +915,25 @@ pub struct SelfArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum SelfSub {
     /// Replace this binary with the newest release.
+    ///
+    /// Looks up the release, downloads the archive built for this target (on
+    /// macOS the universal one, which carries both slices), checks it against
+    /// the release's `SHA256SUMS`, and renames the new binary over the running
+    /// one. The file is never written through: a failed download leaves the
+    /// installed `chaps` exactly as it was.
+    ///
+    /// A binary installed by `cargo install` is replaced the same way, but
+    /// `cargo install chaps-cli` is the more honest way to move that one on.
     Update(SelfUpdateArgs),
 
     /// Show what this build is: version, revision, target and path.
+    ///
+    /// `chaps --version` prints the version alone; this prints everything that
+    /// identifies one build, which is what a bug report needs.
     Version(SelfVersionArgs),
 }
 
 /// Replace this binary with the newest release.
-///
-/// Looks up the release, downloads the archive built for this target (on macOS
-/// the universal one, which carries both slices), checks it against the
-/// release's `SHA256SUMS`, and renames the new binary over the running one.
-/// The file is never written through: a failed download leaves the installed
-/// `chaps` exactly as it was.
-///
-/// A binary installed by `cargo install` is replaced the same way, but
-/// `cargo install chaps-cli` is the more honest way to move that one on.
 #[derive(Debug, Clone, Args)]
 pub struct SelfUpdateArgs {
     /// Report what an update would do and change nothing.
@@ -939,19 +951,10 @@ pub struct SelfUpdateArgs {
 }
 
 /// Show what this build is: version, revision, target and path.
-///
-/// `chaps --version` prints the version alone; this prints everything that
-/// identifies one build, which is what a bug report needs.
 #[derive(Debug, Clone, Args)]
 pub struct SelfVersionArgs {}
 
 /// Print a shell completion script for chaps.
-///
-/// The script is written to stdout, so it can be sourced directly or saved
-/// into the shell's completion directory. The release archives ship the same
-/// four scripts under `completions/`, and the install script puts them in
-/// place, so this command is for a checkout or a shell the archives do not
-/// cover.
 #[derive(Debug, Clone, Args)]
 pub struct CompletionsArgs {
     /// Shell to generate for.

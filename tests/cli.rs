@@ -8,8 +8,10 @@ use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use serde_json::Value as Json;
 use serde_yaml_ng::Value as Yaml;
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tempfile::TempDir;
 
 /// A cache directory plus the project directory the tests write into.
@@ -146,6 +148,41 @@ fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
         .arg("--offline")
         .args(args);
     cmd
+}
+
+/// A `--port-base` no other test in this binary hands out, and nothing on this
+/// machine is listening on.
+///
+/// `--port auto` walks upwards from the base and takes the first port nothing
+/// holds, and the probe behind that is a real bind. Two tests walking from the
+/// same base can therefore catch each other mid-probe and be told the port is
+/// taken, so a test that asserts a port it did not choose takes a base of its
+/// own. `--port N` probes too, so a test naming a fixed port picks it inside
+/// its own slot.
+fn port_base() -> u16 {
+    /// The first base handed out. Inside the default range, so the top of it
+    /// stays 5999, and clear of the ports a developer machine tends to run
+    /// (5432 for postgres, 5900 for screen sharing).
+    const FIRST: u16 = 5200;
+    /// Room for a test to name a fixed port or two above its base.
+    const STRIDE: u16 = 10;
+
+    static NEXT: AtomicU16 = AtomicU16::new(FIRST);
+    loop {
+        let base = NEXT.fetch_add(STRIDE, Ordering::Relaxed);
+        assert!(base < 5990, "this test binary ran out of port bases");
+        if is_free(base) {
+            return base;
+        }
+    }
+}
+
+/// Whether `port` can be bound on both the addresses the CLI's own probe
+/// tries first, which is what it takes for the CLI to call the port free.
+fn is_free(port: u16) -> bool {
+    [Ipv4Addr::UNSPECIFIED, Ipv4Addr::LOCALHOST]
+        .into_iter()
+        .all(|addr| std::net::TcpListener::bind((addr, port)).is_ok())
 }
 
 fn includes(dir: &Path) -> Vec<String> {
@@ -494,22 +531,34 @@ fn a_template_needs_allow_template() {
 fn enable_takes_an_explicit_port_and_rejects_a_taken_one() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
+    // A port of this test's own, above the base so `--port auto` below still
+    // has the base itself to hand out.
+    let fixed = base + 5;
     sandbox
-        .init(&["--models", "chapkit_ewars_model"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
 
     sandbox
-        .models(&["enable", "auto_arima_chapkit", "--port", "5100"])
+        .models(&["enable", "auto_arima_chapkit", "--port", &fixed.to_string()])
         .assert()
         .success()
-        .stdout(predicates::str::contains("http://localhost:5100"));
+        .stdout(predicates::str::contains(format!(
+            "http://localhost:{fixed}"
+        )));
     assert_eq!(
         state(&dir)["models"]["auto_arima_chapkit"]["host_port"],
-        5100
+        fixed
     );
     let svc = &yaml(&dir.join("compose.auto-arima-chapkit.yml"))["services"]["auto-arima-chapkit"];
-    assert_eq!(svc["ports"][0].as_str(), Some("5100:8000"));
+    let published = format!("{fixed}:8000");
+    assert_eq!(svc["ports"][0].as_str(), Some(published.as_str()));
     assert_eq!(
         svc["expose"][0].as_str(),
         Some("8000"),
@@ -517,7 +566,12 @@ fn enable_takes_an_explicit_port_and_rejects_a_taken_one() {
     );
 
     sandbox
-        .models(&["enable", "chapkit_simple_multistep_model", "--port", "5100"])
+        .models(&[
+            "enable",
+            "chapkit_simple_multistep_model",
+            "--port",
+            &fixed.to_string(),
+        ])
         .assert()
         .failure()
         .stderr(predicates::str::contains(
@@ -531,7 +585,7 @@ fn enable_takes_an_explicit_port_and_rejects_a_taken_one() {
         .success();
     assert_eq!(
         state(&dir)["models"]["chapkit_simple_multistep_model"]["host_port"],
-        5001
+        base
     );
 
     // Anything that is neither a number nor `auto` is a parse error.
@@ -546,8 +600,14 @@ fn enable_takes_an_explicit_port_and_rejects_a_taken_one() {
 fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
     let pinned = read(&dir.join(".chaps/models.yaml"));
@@ -556,24 +616,25 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
         .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(
-            "exposed chapkit-ewars-model on http://localhost:5001",
-        ))
+        .stdout(predicates::str::contains(format!(
+            "exposed chapkit-ewars-model on http://localhost:{base}",
+        )))
         .stdout(predicates::str::contains(
             "written  compose.chapkit-ewars-model.yml",
         ));
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
-        5001
+        base
     );
     let svc =
         &yaml(&dir.join("compose.chapkit-ewars-model.yml"))["services"]["chapkit-ewars-model"];
-    assert_eq!(svc["ports"][0].as_str(), Some("5001:8000"));
+    let published = format!("{base}:8000");
+    assert_eq!(svc["ports"][0].as_str(), Some(published.as_str()));
 
     // Only the port moved: the version and the image pin are untouched.
     let after = read(&dir.join(".chaps/models.yaml"));
     assert_eq!(
-        after.replace("host_port: 5001", "host_port: null"),
+        after.replace(&format!("host_port: {base}"), "host_port: null"),
         pinned,
         "expose re-resolved the version"
     );
@@ -607,8 +668,14 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
 #[test]
 fn models_list_and_info_say_internal_until_a_port_is_published() {
     let sandbox = Sandbox::new();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
 
@@ -639,21 +706,30 @@ fn models_list_and_info_say_internal_until_a_port_is_published() {
             .clone(),
     )
     .expect("the table is text");
-    assert!(listed.contains("5001"), "{listed}");
+    assert!(listed.contains(&base.to_string()), "{listed}");
     assert!(!listed.contains("internal"), "{listed}");
     sandbox
         .models(&["info", "chapkit_ewars_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("reach    http://localhost:5001"));
+        .stdout(predicates::str::contains(format!(
+            "reach    http://localhost:{base}"
+        )));
 }
 
 #[test]
 fn json_output_parses_for_init_and_enable() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     let out = sandbox
-        .init(&["--models", "chapkit_ewars_model", "--json"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--json",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success()
         .get_output()
@@ -700,7 +776,7 @@ fn json_output_parses_for_init_and_enable() {
         .stdout
         .clone();
     let value: Json = serde_json::from_slice(&out).expect("enable --json is JSON");
-    assert_eq!(value["enabled"][0][1]["host_port"], 5001);
+    assert_eq!(value["enabled"][0][1]["host_port"], base);
     assert!(value["disabled"].as_array().unwrap().is_empty());
 
     // expose/unexpose have a JSON shape of their own.
@@ -715,7 +791,7 @@ fn json_output_parses_for_init_and_enable() {
     assert_eq!(value["id"], "auto_arima_chapkit");
     assert_eq!(value["service_id"], "auto-arima-chapkit");
     assert_eq!(value["host_port"], Json::Null);
-    assert_eq!(value["previous"], 5001);
+    assert_eq!(value["previous"], base);
     assert_eq!(
         value["url"],
         "http://localhost:8000/v2/services/auto-arima-chapkit/run/"
@@ -741,8 +817,14 @@ fn json_errors_are_reported_as_json_on_stdout() {
 fn a_second_init_needs_force() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
 
@@ -755,7 +837,13 @@ fn a_second_init_needs_force() {
     assert!(state(&dir)["models"].get("chapkit_ewars_model").is_some());
 
     sandbox
-        .init(&["--models", "none", "--force"])
+        .init(&[
+            "--models",
+            "none",
+            "--force",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
     assert_eq!(state(&dir)["models"], serde_json::json!({}));
@@ -770,7 +858,7 @@ fn a_second_init_needs_force() {
         .success();
     assert_eq!(
         state(&dir)["models"]["auto_arima_chapkit"]["host_port"],
-        5001
+        base
     );
 }
 
@@ -873,17 +961,29 @@ fn fresh_env_and_no_env_are_mutually_exclusive() {
 fn forcing_the_same_model_starts_its_state_over() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model,auto_arima_chapkit"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model,auto_arima_chapkit",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
     sandbox
-        .models(&["expose", "chapkit_ewars_model", "--port", "5001"])
+        .models(&["expose", "chapkit_ewars_model", "--port", &base.to_string()])
         .assert()
         .success();
 
     sandbox
-        .init(&["--models", "chapkit_ewars_model", "--force"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--force",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
     // `--force` re-renders the whole state, and `init` publishes no model
@@ -897,7 +997,7 @@ fn forcing_the_same_model_starts_its_state_over() {
 
     // And the port it used to hold is free, not orphaned in a stale overlay.
     sandbox
-        .models(&["expose", "chapkit_ewars_model", "--port", "5001"])
+        .models(&["expose", "chapkit_ewars_model", "--port", &base.to_string()])
         .assert()
         .success();
 }
@@ -1110,11 +1210,17 @@ fn a_cached_compose_file_that_goes_missing_leaves_compose_yml_alone() {
 fn the_port_base_moves_the_whole_range() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model", "--port-base", "5500"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
-    assert_eq!(state(&dir)["port_range"], serde_json::json!([5500, 5999]));
+    assert_eq!(state(&dir)["port_range"], serde_json::json!([base, 5999]));
 
     // The range only matters once a port is asked for.
     sandbox
@@ -1123,7 +1229,7 @@ fn the_port_base_moves_the_whole_range() {
         .success();
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
-        5500
+        base
     );
 }
 
@@ -1268,8 +1374,14 @@ fn an_exact_version_pins_without_a_channel() {
 fn re_enabling_keeps_the_port_and_applies_the_overrides() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let base = port_base();
     sandbox
-        .init(&["--models", "chapkit_ewars_model,auto_arima_chapkit"])
+        .init(&[
+            "--models",
+            "chapkit_ewars_model,auto_arima_chapkit",
+            "--port-base",
+            &base.to_string(),
+        ])
         .assert()
         .success();
     sandbox
@@ -1278,7 +1390,7 @@ fn re_enabling_keeps_the_port_and_applies_the_overrides() {
         .success();
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
-        5001
+        base
     );
 
     sandbox
@@ -1295,7 +1407,7 @@ fn re_enabling_keeps_the_port_and_applies_the_overrides() {
         .stdout(predicates::str::contains("updated chapkit_ewars_model"));
 
     let model = &state(&dir)["models"]["chapkit_ewars_model"];
-    assert_eq!(model["host_port"], 5001, "the port survives a rewrite");
+    assert_eq!(model["host_port"], base, "the port survives a rewrite");
     assert_eq!(model["data_dir"], "/srv/data");
     assert_eq!(model["user"], "1000:1000");
 
