@@ -5,7 +5,7 @@ BIN    := bin/chaps
 PREFIX ?= $(HOME)/.local
 ARGS   ?=
 .DEFAULT_GOAL := help
-.PHONY: help check lint test build release run install vendor docs docs-reference docs-serve clean
+.PHONY: help check lint test build release run install vendor docs docs-reference docs-serve release-tag clean
 help: ## Show this help
 	@echo "chaps - make targets:"
 	@echo ""
@@ -47,6 +47,9 @@ docs: docs-reference ## Build the mdbook documentation into site/
 	mdbook build
 docs-serve: ## Serve the documentation at localhost:3000 and open a browser
 	mdbook serve --open
+release-tag: ## Bump the version, run the checks, commit and tag (VERSION=x.y.z, PUSH=1 to push)
+	@test -n "$(VERSION)" || { echo "usage: make release-tag VERSION=x.y.z [PUSH=1]"; exit 2; }
+	CARGO="$(CARGO)" MAKE="$(MAKE)" scripts/release.sh $(VERSION) $(if $(PUSH),--push,)
 clean: ## Remove target/ and bin/
 	$(CARGO) clean
 	@rm -rf $(dir $(BIN))

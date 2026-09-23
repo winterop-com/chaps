@@ -1,10 +1,32 @@
 name: release
 
+# Builds `chaps` for six targets natively, plus a universal macOS binary, and
+# attaches the archives to the GitHub release for the tag.
+#
+# macOS archives are signed with a Developer ID Application certificate and
+# notarized by Apple when these repository (or organisation) secrets are set.
+# Without them the macOS build still succeeds and ships an UNSIGNED binary:
+#
+#   APPLE_CERTIFICATE            base64 of the exported Developer ID
+#                                Application certificate (.p12)
+#   APPLE_CERTIFICATE_PASSWORD   the .p12 export password
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID                     the Apple ID email
+#   APPLE_PASSWORD               an app-specific password (appleid.apple.com)
+#   APPLE_TEAM_ID                the 10-character Team ID
+#
+# `scripts/github-secrets.sh` sets all six from 1Password.
+#
+# Windows binaries are not signed: that needs an Authenticode certificate,
+# which is a separate purchase, so SmartScreen may warn on first run. The
+# Linux builds are static musl and have nothing to sign.
+
 on:
   push:
     tags: ["v*"]
   # Lets the build matrix be exercised without cutting a release; the publish
-  # job below only runs for a tag.
+  # job below only runs for a tag. Signing still happens on a dispatch run if
+  # the secrets are present, so the signing path is exercised too.
   workflow_dispatch:
 
 permissions:
@@ -17,6 +39,12 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # `secrets` is not available in a step-level `if:`, so whether the signing
+    # certificate exists is hoisted into a job-level env var and the macOS
+    # steps test that. The value is the string "true" or "false"; no secret
+    # material is exposed.
+    env:
+      HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +64,7 @@ jobs:
           - target: aarch64-pc-windows-msvc
             os: windows-11-arm
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -55,6 +83,21 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Signing happens between the build and the packaging so the archive
+      # contains the signed binary.
+      - name: Sign and notarize
+        if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
+        uses: ./.github/actions/sign-macos
+        with:
+          binary: target/${{ matrix.target }}/release/chaps
+          label: ${{ matrix.target }}
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_PASSWORD }}
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
@@ -99,22 +142,111 @@ jobs:
           $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chaps-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
+      # Cleanup lives in the calling job rather than in the composite action,
+      # so the keychain goes away even when a later step fails.
+      - name: Delete the temporary keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          security list-keychains -d user -s login.keychain || true
+          security delete-keychain build.keychain || true
+
+  universal:
+    name: build universal-apple-darwin
+    needs: build
+    runs-on: macos-latest
+    env:
+      HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      # Checked out for the README and LICENSE that go into the archive.
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: chaps-*-apple-darwin
+          path: macos
+          merge-multiple: true
+
+      - name: Fuse the two macOS binaries with lipo
+        id: lipo
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/*) version="$GITHUB_REF_NAME" ;;
+            *) version="dev-${GITHUB_SHA:0:7}" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          for target in x86_64-apple-darwin aarch64-apple-darwin; do
+            tar -xzf "macos/chaps-${version}-${target}.tar.gz" -C macos
+          done
+          mkdir -p universal
+          lipo -create -output universal/chaps \
+            "macos/chaps-${version}-x86_64-apple-darwin/chaps" \
+            "macos/chaps-${version}-aarch64-apple-darwin/chaps"
+          lipo -info universal/chaps
+          chmod 0755 universal/chaps
+
+      # lipo rewrites the Mach-O container, which invalidates the per-slice
+      # signatures, so the universal binary is signed and notarized again from
+      # scratch rather than inheriting anything.
+      - name: Sign and notarize
+        if: env.HAS_APPLE == 'true'
+        uses: ./.github/actions/sign-macos
+        with:
+          binary: universal/chaps
+          label: universal-apple-darwin
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_PASSWORD }}
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Package (tar.gz)
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.lipo.outputs.version }}"
+          name="chaps-${version}-universal-apple-darwin"
+          mkdir -p "dist/$name"
+          cp universal/chaps "dist/$name/"
+          cp README.md "dist/$name/"
+          if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          rm -rf "dist/$name"
+          cd dist
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chaps-universal-apple-darwin
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Delete the temporary keychain
+        if: always()
+        shell: bash
+        run: |
+          security list-keychains -d user -s login.keychain || true
+          security delete-keychain build.keychain || true
+
   publish:
     name: publish the release
-    needs: build
+    needs: [build, universal]
     # A workflow_dispatch run builds and uploads artifacts but creates nothing.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -122,8 +254,59 @@ jobs:
       - name: List what will be attached
         run: ls -l dist
 
-      - uses: softprops/action-gh-release@v2
+      - name: Write SHA256SUMS over every archive
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum chaps-*.tar.gz chaps-*.zip > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Write the release notes header
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          repo="$GITHUB_REPOSITORY"
+          cat > notes.md <<NOTES
+          ### Downloads
+
+          | Platform | Archive |
+          | --- | --- |
+          | macOS, universal (Apple silicon and Intel) | \`chaps-${tag}-universal-apple-darwin.tar.gz\` |
+          | macOS, Apple silicon | \`chaps-${tag}-aarch64-apple-darwin.tar.gz\` |
+          | macOS, Intel | \`chaps-${tag}-x86_64-apple-darwin.tar.gz\` |
+          | Linux, x86_64 (static musl) | \`chaps-${tag}-x86_64-unknown-linux-musl.tar.gz\` |
+          | Linux, arm64 (static musl) | \`chaps-${tag}-aarch64-unknown-linux-musl.tar.gz\` |
+          | Windows, x86_64 | \`chaps-${tag}-x86_64-pc-windows-msvc.zip\` |
+          | Windows, arm64 | \`chaps-${tag}-aarch64-pc-windows-msvc.zip\` |
+
+          The macOS binaries are signed with a Developer ID certificate and
+          notarized by Apple, so Gatekeeper does not block them. The Windows
+          binaries are unsigned and SmartScreen may warn the first time one
+          runs. The Linux binaries are static, so they need no shared library
+          from the distribution.
+
+          ### Verify a download
+
+          Every archive has a \`.sha256\` file beside it, and \`SHA256SUMS\`
+          covers all of them at once:
+
+          \`\`\`sh
+          curl -fsSLO https://github.com/${repo}/releases/download/${tag}/SHA256SUMS
+          shasum -a 256 -c SHA256SUMS --ignore-missing
+          \`\`\`
+
+          On macOS, check the signature of the extracted binary:
+
+          \`\`\`sh
+          codesign -dv --verbose=4 chaps
+          \`\`\`
+          NOTES
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+          body_path: notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true

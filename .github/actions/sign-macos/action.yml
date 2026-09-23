@@ -1,0 +1,151 @@
+name: "Sign and notarize a macOS binary"
+description: >
+  Signs a bare Mach-O executable with a Developer ID Application certificate
+  imported into a throwaway keychain, notarizes it with notarytool, and records
+  the signing identity in the job summary. The caller is responsible for
+  deleting the keychain afterwards in an `if: always()` step, because a step
+  inside a composite action cannot clean up after a later failure in the
+  calling job.
+
+inputs:
+  binary:
+    description: "Path to the executable to sign"
+    required: true
+  label:
+    description: "How to name this binary in the job summary, e.g. the target triple"
+    required: true
+  certificate:
+    description: "base64 of the exported Developer ID Application certificate (.p12)"
+    required: true
+  certificate-password:
+    description: "Export password of the .p12"
+    required: true
+  signing-identity:
+    description: 'The identity to sign with, e.g. "Developer ID Application: Name (TEAMID)"'
+    required: true
+  apple-id:
+    description: "Apple ID email used for notarization"
+    required: true
+  apple-password:
+    description: "App-specific password for that Apple ID"
+    required: true
+  team-id:
+    description: "The 10-character Apple Team ID"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The certificate lands in a keychain of its own, never in the login
+    # keychain, and the keychain password is a throwaway generated here and
+    # masked out of the log.
+    - name: Import the Developer ID certificate
+      shell: bash
+      env:
+        APPLE_CERTIFICATE: ${{ inputs.certificate }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+      run: |
+        set -euo pipefail
+        keychain_password="$(openssl rand -base64 24)"
+        echo "::add-mask::$keychain_password"
+        certificate="$RUNNER_TEMP/certificate.p12"
+        printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+
+        security create-keychain -p "$keychain_password" build.keychain
+        # Lock after six hours of idling, which outlives any build here.
+        security set-keychain-settings -lut 21600 build.keychain
+        security unlock-keychain -p "$keychain_password" build.keychain
+        security import "$certificate" \
+          -k build.keychain \
+          -P "$APPLE_CERTIFICATE_PASSWORD" \
+          -T /usr/bin/codesign \
+          -T /usr/bin/security
+        # Without this, codesign blocks on a UI prompt for the private key.
+        security set-key-partition-list \
+          -S apple-tool:,apple: -s -k "$keychain_password" build.keychain
+        security list-keychains -d user -s build.keychain login.keychain
+
+        rm -f "$certificate"
+        security find-identity -v -p codesigning build.keychain
+
+    - name: Sign the binary
+      shell: bash
+      env:
+        APPLE_SIGNING_IDENTITY: ${{ inputs.signing-identity }}
+        BINARY: ${{ inputs.binary }}
+      run: |
+        set -euo pipefail
+        codesign --force \
+          --sign "$APPLE_SIGNING_IDENTITY" \
+          --options runtime \
+          --timestamp \
+          "$BINARY"
+        codesign --verify --verbose "$BINARY"
+
+    - name: Notarize the binary
+      shell: bash
+      env:
+        APPLE_ID: ${{ inputs.apple-id }}
+        APPLE_PASSWORD: ${{ inputs.apple-password }}
+        APPLE_TEAM_ID: ${{ inputs.team-id }}
+        BINARY: ${{ inputs.binary }}
+      run: |
+        set -euo pipefail
+        # notarytool only accepts a zip, a disk image or an installer package,
+        # so the bare executable is zipped with ditto first.
+        ditto -c -k --keepParent "$BINARY" "$RUNNER_TEMP/notarize.zip"
+
+        set +e
+        xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait --timeout 30m \
+          --output-format json > "$RUNNER_TEMP/notarization.json"
+        submit_status=$?
+        set -e
+        cat "$RUNNER_TEMP/notarization.json"
+
+        status="$(jq -r '.status // "unknown"' "$RUNNER_TEMP/notarization.json")"
+        id="$(jq -r '.id // empty' "$RUNNER_TEMP/notarization.json")"
+        if [ "$submit_status" -ne 0 ] || [ "$status" != "Accepted" ]; then
+          echo "::error::notarization of $BINARY finished with status: $status"
+          if [ -n "$id" ]; then
+            xcrun notarytool log "$id" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" || true
+          fi
+          exit 1
+        fi
+
+        # There is deliberately no `xcrun stapler staple` here. Stapling
+        # attaches the ticket to a bundle, a disk image or an installer
+        # package; a bare Mach-O executable has nowhere to put it. Gatekeeper
+        # fetches the ticket from Apple over the network instead, so the
+        # binary is accepted on any machine that can reach Apple once.
+        rm -f "$RUNNER_TEMP/notarize.zip"
+
+    - name: Record the signature
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        LABEL: ${{ inputs.label }}
+      run: |
+        set -euo pipefail
+        # `spctl --assess --type execute` is not meaningful for a command-line
+        # tool: it assesses launch policy for app bundles and reports a plain
+        # executable as rejected even when it is correctly signed and
+        # notarized. codesign's own dump is the check that means something.
+        codesign -dv --verbose=4 "$BINARY" 2> "$RUNNER_TEMP/codesign.txt"
+        cat "$RUNNER_TEMP/codesign.txt"
+        authority="$(grep -m1 '^Authority=' "$RUNNER_TEMP/codesign.txt" | cut -d= -f2- || true)"
+        timestamp="$(grep -m1 '^Timestamp=' "$RUNNER_TEMP/codesign.txt" | cut -d= -f2- || true)"
+        {
+          echo "### ${LABEL}"
+          echo
+          echo "- signed by: \`${authority:-unknown}\`"
+          echo "- secure timestamp: ${timestamp:-none}"
+          echo "- notarized: yes (ticket served online; a bare executable cannot be stapled)"
+          echo
+        } >> "$GITHUB_STEP_SUMMARY"

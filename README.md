@@ -1,7 +1,7 @@
 # chaps
 
 `chaps` is the CHAP stack manager. It deploys and manages
-[CHAP](https://chap.dhis2.org), the DHIS2 Climate Health Analytics Platform, as
+[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, as
 a Docker Compose deployment of
 [chap-core](https://github.com/dhis2-chap/chap-core) together with the
 forecasting model services published in the
@@ -12,23 +12,37 @@ list, plus a model manager that can add or remove models without you
 hand-editing YAML. A machine that runs it needs Docker and one binary: no
 Python, no uv, no checkout of chap-core.
 
-**Documentation: <https://mortenoh.github.io/chaps-cli/>**
+**Documentation: <https://winterop-com.github.io/chaps/>**
 
 ## Install
 
 Download an archive for your platform from the
-[releases page](https://github.com/mortenoh/chaps-cli/releases) and put the
-`chaps` binary on your `PATH`:
+[releases page](https://github.com/winterop-com/chaps/releases) and put the
+`chaps` binary on your `PATH`. On macOS, one universal binary covers Apple
+silicon and Intel:
 
 ```sh
-curl -fsSLO https://github.com/mortenoh/chaps-cli/releases/latest/download/chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+curl -fsSLO https://github.com/winterop-com/chaps/releases/download/v0.1.0/chaps-v0.1.0-universal-apple-darwin.tar.gz
+tar -xzf chaps-v0.1.0-universal-apple-darwin.tar.gz
+sudo install -m 0755 chaps-v0.1.0-universal-apple-darwin/chaps /usr/local/bin/chaps
+```
+
+On Linux, take the static musl build, which runs on any distribution:
+
+```sh
+curl -fsSLO https://github.com/winterop-com/chaps/releases/download/v0.1.0/chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
 tar -xzf chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
 sudo install -m 0755 chaps-v0.1.0-x86_64-unknown-linux-musl/chaps /usr/local/bin/chaps
 ```
 
+The macOS binaries are signed with an Apple Developer ID certificate and
+notarized, so Gatekeeper does not block them. The Windows binaries are
+unsigned and SmartScreen may warn on first run. Every archive has a `.sha256`
+beside it and each release has a `SHA256SUMS` covering all of them.
+
 Or, from a checkout, `cargo install --path .` or `make install`. Requires
 Docker with Compose v2.20 or newer. See
-[Install](https://mortenoh.github.io/chaps-cli/install.html).
+[Install](https://winterop-com.github.io/chaps/install.html).
 
 ## Quickstart
 
