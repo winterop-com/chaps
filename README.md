@@ -1,5 +1,10 @@
 # chaps
 
+[![ci](https://github.com/winterop-com/chaps/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/chaps/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/winterop-com/chaps)](https://github.com/winterop-com/chaps/releases/latest)
+[![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fchaps-informational)](https://winterop-com.github.io/chaps/)
+
 `chaps` is the CHAP stack manager. It deploys and manages
 [CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, as
 a Docker Compose deployment of
@@ -12,35 +17,50 @@ list, plus a model manager that can add or remove models without you
 hand-editing YAML. A machine that runs it needs Docker and one binary: no
 Python, no uv, no checkout of chap-core.
 
-**Documentation: <https://winterop-com.github.io/chaps/>**
-
 Licensed under the AGPL-3.0, like chap-core.
 
 ## Install
 
-Download an archive for your platform from the
-[releases page](https://github.com/winterop-com/chaps/releases) and put the
-`chaps` binary on your `PATH`. On macOS, one universal binary covers Apple
-silicon and Intel:
+On macOS and Linux:
 
 ```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/download/v0.1.0/chaps-v0.1.0-universal-apple-darwin.tar.gz
-tar -xzf chaps-v0.1.0-universal-apple-darwin.tar.gz
-sudo install -m 0755 chaps-v0.1.0-universal-apple-darwin/chaps /usr/local/bin/chaps
+curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
 ```
 
-On Linux, take the static musl build, which runs on any distribution:
+That works out the platform, downloads the release archive for it, checks it
+against the release's `SHA256SUMS` and installs the binary into
+`/usr/local/bin` when that is writable and `~/.local/bin` otherwise.
+`CHAPS_INSTALL_DIR=/somewhere sh` or `--dir` picks the directory,
+`CHAPS_VERSION=v0.2.0` or `--version` picks the release, and `--dry-run` says
+what it would do. Shell completions are installed alongside when the
+directories a shell reads already exist.
 
-```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/download/v0.1.0/chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
-tar -xzf chaps-v0.1.0-x86_64-unknown-linux-musl.tar.gz
-sudo install -m 0755 chaps-v0.1.0-x86_64-unknown-linux-musl/chaps /usr/local/bin/chaps
-```
+Or download an archive and put `chaps` on your `PATH` yourself. These links
+always point at the newest release:
+
+| Platform | Download |
+| --- | --- |
+| macOS, any Mac (universal) | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) |
+| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) |
+| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) |
+| Linux, x86_64 (static musl) | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) |
+| Linux, arm64 (static musl) | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) |
+| Windows, x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) |
+| Windows, arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) |
+
+Every release attaches each archive twice: once under
+`chaps-<version>-<target>` and once under the version-less name above, so a
+link written down today still resolves after the next release. Both copies are
+the same bytes and both are covered by `SHA256SUMS`; the per-archive `.sha256`
+file sits next to the versioned copy.
 
 The macOS binaries are signed with an Apple Developer ID certificate and
 notarized, so Gatekeeper does not block them. The Windows binaries are
-unsigned and SmartScreen may warn on first run. Every archive has a `.sha256`
-beside it and each release has a `SHA256SUMS` covering all of them.
+unsigned and SmartScreen may warn on first run.
+
+Once installed, `chaps self update` replaces the binary with the newest
+release, `chaps self version` says which build this is, and `chaps completions
+<bash|zsh|fish|powershell|elvish>` prints a completion script.
 
 Or, from a checkout, `cargo install --path .` or `make install`. Requires
 Docker with Compose v2.20 or newer. See
@@ -85,10 +105,14 @@ make docs-serve  # serve it locally at http://localhost:3000
 `cargo clippy --all-targets -- -D warnings`, `cargo fmt --all --check` and
 `scripts/vendor-marketplace.sh`.
 
-CI runs the same three checks on Linux, macOS and Windows. Tagging `vX.Y.Z`
-builds release binaries for six targets (Linux, macOS and Windows, on x86_64
-and aarch64), fuses the two macOS builds into a seventh universal archive, and
-attaches all seven to a GitHub release with their SHA-256 sums.
+CI runs the same three checks on Linux, macOS and Windows, and shellcheck over
+`install.sh` and `scripts/`. Tagging `vX.Y.Z` builds release binaries for six
+targets (Linux, macOS and Windows, on x86_64 and aarch64), fuses the two macOS
+builds into a seventh universal archive, and attaches all seven to a GitHub
+release with their SHA-256 sums, each one carrying the shell completion
+scripts and a version-less copy for the stable download links. A weekly
+workflow refreshes the embedded marketplace snapshot and opens a pull request
+when upstream moved.
 
 The documentation lives in `docs/` and is built with
 [mdbook](https://rust-lang.github.io/mdBook/); `docs/reference.md` is generated

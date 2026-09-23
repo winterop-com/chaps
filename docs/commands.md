@@ -4,7 +4,7 @@
 chaps [--json] [-C DIR] [--registry-url URL] [--offline] [--cache-dir DIR] <command>
 ```
 
-The five groups below are the shape of the tool. The
+The groups below are the shape of the tool. The
 [Command reference](./reference.md) is generated from the `--help` texts and
 lists every command, every flag and every default.
 
@@ -86,6 +86,22 @@ way to find out why a setting is not taking effect.
 | `chaps backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-start]` | Put a deployment back from such an archive, after printing what it overwrites. |
 
 See [Backup and restore](./backup.md).
+
+## chaps itself
+
+The two commands that are about the CLI rather than about a deployment. Both
+work anywhere, inside a project or not.
+
+| Command | What it does |
+| --- | --- |
+| `chaps self update [--check] [--version TAG] [--yes]` | Replace this binary with the newest release: download the archive for this target, check it against the release's `SHA256SUMS`, rename it over the running one. `--check` only reports. |
+| `chaps self version` | Version, git revision, target triple, binary path and whether it came from a release archive or `cargo install`. |
+| `chaps completions SHELL` | Print a completion script for bash, zsh, fish, PowerShell or elvish. |
+
+`chaps update` moves a deployment's pins; `chaps self update` replaces the
+`chaps` binary. Nothing in the first touches the second. See
+[Install](./install.md) for both of these and for the once-a-day notice that a
+newer release exists.
 
 ## Global options
 

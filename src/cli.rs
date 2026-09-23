@@ -140,6 +140,13 @@ pub enum Command {
     /// DHIS2.
     Auth(AuthArgs),
 
+    /// Update chaps itself, and report what this build is.
+    #[command(name = "self")]
+    SelfCmd(SelfArgs),
+
+    /// Print a shell completion script for chaps.
+    Completions(CompletionsArgs),
+
     /// Print the whole command tree as Markdown (writes docs/reference.md).
     #[command(hide = true)]
     DocsMarkdown(DocsMarkdownArgs),
@@ -721,6 +728,73 @@ pub struct AuthDisableArgs {}
 /// wherever the old one was configured.
 #[derive(Debug, Clone, Args)]
 pub struct AuthRotateArgs {}
+
+/// Update chaps itself, and report what this build is.
+///
+/// These are the only commands that are about the CLI rather than about a
+/// deployment, so they work anywhere, project or not.
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct SelfArgs {
+    #[command(subcommand)]
+    pub command: SelfSub,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum SelfSub {
+    /// Replace this binary with the newest release.
+    Update(SelfUpdateArgs),
+
+    /// Show what this build is: version, revision, target and path.
+    Version(SelfVersionArgs),
+}
+
+/// Replace this binary with the newest release.
+///
+/// Looks up the release, downloads the archive built for this target (on macOS
+/// the universal one, which carries both slices), checks it against the
+/// release's `SHA256SUMS`, and renames the new binary over the running one.
+/// The file is never written through: a failed download leaves the installed
+/// `chaps` exactly as it was.
+///
+/// A binary installed by `cargo install` is replaced the same way, but
+/// `cargo install chaps-cli` is the more honest way to move that one on.
+#[derive(Debug, Clone, Args)]
+pub struct SelfUpdateArgs {
+    /// Report what an update would do and change nothing.
+    #[arg(long)]
+    pub check: bool,
+
+    /// Install this release tag instead of the newest one. Going back to an
+    /// older release is allowed; going nowhere is not.
+    #[arg(long, value_name = "TAG")]
+    pub version: Option<String>,
+
+    /// Do not ask before replacing the binary.
+    #[arg(short, long)]
+    pub yes: bool,
+}
+
+/// Show what this build is: version, revision, target and path.
+///
+/// `chaps --version` prints the version alone; this prints everything that
+/// identifies one build, which is what a bug report needs.
+#[derive(Debug, Clone, Args)]
+pub struct SelfVersionArgs {}
+
+/// Print a shell completion script for chaps.
+///
+/// The script is written to stdout, so it can be sourced directly or saved
+/// into the shell's completion directory. The release archives ship the same
+/// four scripts under `completions/`, and the install script puts them in
+/// place, so this command is for a checkout or a shell the archives do not
+/// cover.
+#[derive(Debug, Clone, Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate for.
+    #[arg(value_name = "SHELL")]
+    pub shell: clap_complete::Shell,
+}
 
 /// Print the whole command tree as Markdown.
 ///

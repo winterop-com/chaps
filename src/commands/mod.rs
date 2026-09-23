@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod backup;
+pub mod completions;
 pub mod docker;
 pub mod docs;
 pub mod enable;
@@ -9,6 +10,7 @@ pub mod init;
 pub mod models;
 pub mod registry;
 pub mod restore;
+pub mod selfcmd;
 pub mod status;
 pub mod sync;
 pub mod tui;

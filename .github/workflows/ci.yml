@@ -37,3 +37,17 @@ jobs:
 
       - name: Test
         run: cargo test
+
+  scripts:
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # install.sh is what `curl | sh` runs, so it is POSIX sh rather than
+      # bash and is checked as such. The rest of scripts/ is bash.
+      - name: Lint install.sh
+        run: shellcheck -s sh install.sh
+
+      - name: Lint scripts/
+        run: shellcheck scripts/*.sh

@@ -50,14 +50,15 @@ fi
   fi
   echo "fetched:        $(date -u +%Y-%m-%d)"
   echo
-  echo "Files in this directory are verbatim copies of the upstream YAML. They are"
-  echo "compiled into the binary by src/registry/embedded.rs and used as the last"
-  echo "resort fallback when the registry cannot be fetched or read from cache."
+  echo "Files in this directory are verbatim copies of the upstream YAML. build.rs"
+  echo "generates the table src/registry/embedded.rs compiles into the binary, which"
+  echo "is the last resort fallback when the registry cannot be fetched or read from"
+  echo "cache. There is no hand-written file list to keep in step."
   echo
   echo "Refresh with scripts/vendor-marketplace.sh and commit the result."
 } > "${dest}/SNAPSHOT"
 
 echo
 echo "snapshot written to ${dest}"
-echo "remember to update the include_str! list in src/registry/embedded.rs if the"
-echo "set of model files changed"
+echo "build.rs picks the new set up on the next build; run 'cargo test registry' to"
+echo "check it, then commit vendor/marketplace/"

@@ -34,7 +34,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps auth`](#chaps-auth)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -431,3 +431,47 @@ Replace both secrets with freshly generated ones.
 ```text
 Usage: chaps auth rotate [OPTIONS]
 ```
+
+## chaps self
+
+Update chaps itself, and report what this build is.
+
+```text
+Usage: chaps self [OPTIONS] <COMMAND>
+```
+
+Subcommands: [`chaps self update`](#chaps-self-update), [`chaps self version`](#chaps-self-version)
+
+## chaps self update
+
+Replace this binary with the newest release.
+
+```text
+Usage: chaps self update [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--check` | Report what an update would do and change nothing. |
+| `--version <TAG>` | Install this release tag instead of the newest one. Going back to an older release is allowed; going nowhere is not. |
+| `-y, --yes` | Do not ask before replacing the binary. |
+
+## chaps self version
+
+Show what this build is: version, revision, target and path.
+
+```text
+Usage: chaps self version [OPTIONS]
+```
+
+## chaps completions
+
+Print a shell completion script for chaps.
+
+```text
+Usage: chaps completions [OPTIONS] <SHELL>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<SHELL>` | Shell to generate for. Values: `bash`, `elvish`, `fish`, `powershell`, `zsh`. |

@@ -1,0 +1,76 @@
+name: vendor-marketplace
+
+# Keeps the marketplace snapshot compiled into the binary in step with
+# upstream. It runs `scripts/vendor-marketplace.sh`, checks the result builds
+# and passes the registry tests, and opens a pull request when anything moved.
+# Nothing is pushed to main: a snapshot change is a code change, because
+# build.rs compiles these files in.
+
+on:
+  schedule:
+    # Monday 06:00 UTC, which is the quiet end of the week for the upstream
+    # repository and leaves the review for a working day.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: vendor-marketplace
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  refresh:
+    name: refresh the snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fetch the upstream snapshot
+        run: scripts/vendor-marketplace.sh
+
+      # build.rs generates the embedded table from what was just fetched, so
+      # this is where a malformed index or a missing model file shows up.
+      - name: The snapshot still builds and parses
+        run: cargo test registry
+
+      - name: What changed
+        id: changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- vendor/marketplace; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo "upstream has not moved since the last snapshot"
+          else
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat -- vendor/marketplace
+          fi
+
+      - name: Open or update the pull request
+        if: steps.changed.outputs.any == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          add-paths: vendor/marketplace
+          branch: chore/vendor-marketplace
+          delete-branch: true
+          title: "chore: refresh embedded marketplace snapshot"
+          commit-message: "chore: refresh embedded marketplace snapshot"
+          body: |
+            `scripts/vendor-marketplace.sh` found changes in the
+            [CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).
+
+            `vendor/marketplace/` is compiled into the binary by `build.rs`, so
+            this is what `chaps` falls back to when the registry can be neither
+            fetched nor read from cache. `cargo test registry` passed on this
+            snapshot before the pull request was opened.
+
+            Opened by `.github/workflows/vendor-marketplace.yml`.

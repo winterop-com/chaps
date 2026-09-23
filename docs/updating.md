@@ -1,5 +1,10 @@
 # Updating
 
+This chapter is about updating a deployment: the model versions and the
+chap-core release it runs. Updating the `chaps` binary itself is
+`chaps self update`, which is in [Install](./install.md) and has nothing to do
+with anything here.
+
 ## What moves, and when
 
 Model pins only move in two ways: `chaps models enable ID` (with `--channel`

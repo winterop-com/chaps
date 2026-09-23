@@ -16,12 +16,13 @@ mod paths;
 mod ports;
 mod project;
 mod registry;
+mod selfupdate;
 mod status;
 mod tui;
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, FromArgMatches};
-use cli::{AuthSub, BackupSub, Cli, Command, DockerCmd, ModelsCmd};
+use cli::{AuthSub, BackupSub, Cli, Command, DockerCmd, ModelsCmd, SelfSub};
 use commands::Ctx;
 use error::ChapError;
 use output::Out;
@@ -64,6 +65,14 @@ const CHAP_CORE_COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    // Windows cannot rename over a running image, so `chaps self update`
+    // parks the outgoing binary beside the new one and the next run is the
+    // first moment it can be deleted.
+    #[cfg(windows)]
+    if let Ok(path) = std::env::current_exe() {
+        selfupdate::clean_backup(&path);
+    }
+
     let cli = parse();
     let ctx = Ctx::from_cli(&cli);
 
@@ -77,6 +86,23 @@ fn main() {
         }
         std::process::exit(exit_code(&err));
     }
+
+    // Only after the command said what it did, and only when it worked: a
+    // notice ahead of the answer would be noise, and one after a failure
+    // would be advice about the wrong problem.
+    if wants_update_notice(&cli.command) {
+        commands::selfcmd::notify(&ctx);
+    }
+}
+
+/// Whether this command may be followed by the once-a-day update notice.
+///
+/// Everything except the `self` group, which is the thing the notice would be
+/// telling you to run, and `docs-markdown`, whose output is a file. The rest
+/// of the conditions (a terminal, no `--json`, no `--offline`) are
+/// [`commands::selfcmd::notify`]'s to check.
+fn wants_update_notice(command: &Command) -> bool {
+    !matches!(command, Command::SelfCmd(_) | Command::DocsMarkdown(_))
 }
 
 fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
@@ -117,6 +143,13 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             AuthSub::Disable(args) => commands::auth::disable(ctx, args),
             AuthSub::Rotate(args) => commands::auth::rotate(ctx, args),
         },
+
+        Command::SelfCmd(s) => match &s.command {
+            SelfSub::Update(args) => commands::selfcmd::update(ctx, args),
+            SelfSub::Version(args) => commands::selfcmd::version(ctx, args),
+        },
+
+        Command::Completions(args) => commands::completions::run(ctx, args),
 
         Command::DocsMarkdown(args) => commands::docs::run(ctx, args),
     }

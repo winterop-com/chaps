@@ -2574,3 +2574,166 @@ fn debug_implies_verbose_and_adds_the_resolved_project() {
         .success()
         .stderr(predicates::str::contains("compared"));
 }
+
+// ---------------------------------------------------------------------------
+// `chaps self` and `chaps completions`
+//
+// The two commands that are about the CLI rather than about a deployment, so
+// they work outside a project and are listed everywhere.
+// ---------------------------------------------------------------------------
+
+/// A `chaps` run that needs no project: outside one, with its own cache and no
+/// update check, so nothing here can reach the network.
+fn bare() -> (TempDir, Command) {
+    let cache = tempfile::tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
+    cmd.env("CHAPS_CACHE_DIR", cache.path())
+        .env("CHAPS_NO_UPDATE_CHECK", "1")
+        .current_dir(cache.path());
+    (cache, cmd)
+}
+
+#[test]
+fn self_version_says_what_this_build_is() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .args(["self", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("utf-8");
+
+    assert!(
+        text.contains(env!("CARGO_PKG_VERSION")),
+        "the version is in there: {text}"
+    );
+    assert!(text.contains("target"), "{text}");
+    assert!(text.contains("path"), "{text}");
+    assert!(text.contains("installed by"), "{text}");
+}
+
+#[test]
+fn self_version_json_carries_the_fields_a_bug_report_needs() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .args(["--json", "self", "version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: Json = serde_json::from_slice(&out).expect("--json is JSON");
+
+    assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+    assert!(
+        !value["target"]
+            .as_str()
+            .expect("a target triple")
+            .is_empty(),
+        "{value}"
+    );
+    assert!(value["path"].as_str().is_some(), "{value}");
+    assert!(
+        ["release archive", "cargo install"]
+            .contains(&value["install_method"].as_str().expect("a method")),
+        "{value}"
+    );
+}
+
+/// The whole point of `--offline` is that nothing touches the network, and an
+/// update is a download, so the two cannot be combined. This is also what
+/// keeps the test suite off the network: nothing else in it runs `self
+/// update`.
+#[test]
+fn self_update_refuses_to_run_offline() {
+    let (_cache, mut cmd) = bare();
+    cmd.args(["--offline", "self", "update", "--check"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--offline"));
+}
+
+#[test]
+fn self_works_outside_a_project_and_says_what_it_offers() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .args(["self", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(out).expect("utf-8");
+    assert!(help.contains("update"), "{help}");
+    assert!(help.contains("version"), "{help}");
+
+    // And `chaps self` on its own is a usage error, not a no-op.
+    let (_cache, mut cmd) = bare();
+    cmd.arg("self").assert().failure();
+}
+
+#[test]
+fn completions_are_printed_for_every_shell() {
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let (_cache, mut cmd) = bare();
+        let out = cmd
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let script = String::from_utf8(out).unwrap_or_else(|e| panic!("{shell}: {e}"));
+
+        assert!(!script.trim().is_empty(), "{shell} printed nothing");
+        assert!(script.contains("chaps"), "{shell} does not name chaps");
+        // Generated from the live tree, so the newest commands are in there.
+        assert!(script.contains("self"), "{shell} misses `self`");
+        assert!(script.contains("init"), "{shell} misses `init`");
+    }
+}
+
+#[test]
+fn completions_rejects_a_shell_it_cannot_write_for() {
+    let (_cache, mut cmd) = bare();
+    cmd.args(["completions", "tcsh"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("possible values"));
+}
+
+/// Neither command needs a deployment directory, and both are listed in the
+/// help you get outside one.
+#[test]
+fn the_help_outside_a_project_offers_self_and_completions() {
+    let (_cache, mut cmd) = bare();
+    let out = cmd
+        .arg("--help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(out).expect("utf-8");
+    assert!(help.contains("self"), "{help}");
+    assert!(help.contains("completions"), "{help}");
+}
+
+/// The update notice is a courtesy on a terminal. The test suite is not one,
+/// and `assert_cmd` captures stdout, so no command in it may reach the
+/// release feed or write the check file.
+#[test]
+fn a_captured_run_never_checks_for_an_update() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox.chap().args(["models", "list"]).assert().success();
+
+    let check = sandbox.cache.path().join("self-update-check.json");
+    assert!(
+        !check.exists(),
+        "a piped run wrote {}; the notice must be terminal-only",
+        check.display()
+    );
+}

@@ -34,6 +34,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # The packaging steps run the binary they just built, to generate the
+  # completion scripts. Nothing in a release build should reach out to the
+  # release feed while doing it.
+  CHAPS_NO_UPDATE_CHECK: "1"
 
 jobs:
   build:
@@ -99,6 +103,8 @@ jobs:
           apple-password: ${{ secrets.APPLE_PASSWORD }}
           team-id: ${{ secrets.APPLE_TEAM_ID }}
 
+      # Every target is built natively, so the binary that was just built is
+      # the one that generates its own completion scripts.
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
         shell: bash
@@ -109,12 +115,20 @@ jobs:
             *) version="dev-${GITHUB_SHA:0:7}" ;;
           esac
           name="chaps-${version}-${{ matrix.target }}"
-          mkdir -p "dist/$name"
-          cp "target/${{ matrix.target }}/release/chaps" "dist/$name/"
+          binary="target/${{ matrix.target }}/release/chaps"
+          mkdir -p "dist/$name/completions"
+          cp "$binary" "dist/$name/"
           cp README.md "dist/$name/"
           if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
+          "$binary" completions bash       > "dist/$name/completions/chaps.bash"
+          "$binary" completions zsh        > "dist/$name/completions/_chaps"
+          "$binary" completions fish       > "dist/$name/completions/chaps.fish"
+          "$binary" completions powershell > "dist/$name/completions/_chaps.ps1"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           rm -rf "dist/$name"
+          # A second copy without the version in the name, so
+          # releases/latest/download/<name> is a link that keeps working.
+          cp "dist/$name.tar.gz" "dist/chaps-${{ matrix.target }}.tar.gz"
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
@@ -133,12 +147,31 @@ jobs:
             "dev-" + $env:GITHUB_SHA.Substring(0, 7)
           }
           $name = "chaps-$version-${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/chaps.exe" "dist/$name/"
+          # Absolute, so the call operator below cannot mistake it for a
+          # command name.
+          $binary = Join-Path $PWD "target/${{ matrix.target }}/release/chaps.exe"
+          New-Item -ItemType Directory -Force -Path "dist/$name/completions" | Out-Null
+          Copy-Item $binary "dist/$name/"
           Copy-Item "README.md" "dist/$name/"
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$name/" }
-          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+          # Written byte for byte: a redirection would give UTF-16 and CRLF,
+          # and a bash or fish completion script with CRLF does not load.
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+          foreach ($pair in @(
+            @("bash", "chaps.bash"), @("zsh", "_chaps"),
+            @("fish", "chaps.fish"), @("powershell", "_chaps.ps1")
+          )) {
+            $text = ((& $binary completions $pair[0]) -join "`n") + "`n"
+            $out = Join-Path $PWD "dist/$name/completions/$($pair[1])"
+            [System.IO.File]::WriteAllText($out, $text, $utf8)
+          }
+          # The directory, not its contents, so the zip has the same
+          # chaps-<version>-<target>/ top level the tar.gz archives have.
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           Remove-Item -Recurse -Force "dist/$name"
+          # A second copy without the version in the name, so
+          # releases/latest/download/<name> is a link that keeps working.
+          Copy-Item "dist/$name.zip" "dist/chaps-${{ matrix.target }}.zip"
           $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
 
@@ -215,12 +248,17 @@ jobs:
           set -euo pipefail
           version="${{ steps.lipo.outputs.version }}"
           name="chaps-${version}-universal-apple-darwin"
-          mkdir -p "dist/$name"
+          mkdir -p "dist/$name/completions"
           cp universal/chaps "dist/$name/"
           cp README.md "dist/$name/"
           if [ -f LICENSE ]; then cp LICENSE "dist/$name/"; fi
+          universal/chaps completions bash       > "dist/$name/completions/chaps.bash"
+          universal/chaps completions zsh        > "dist/$name/completions/_chaps"
+          universal/chaps completions fish       > "dist/$name/completions/chaps.fish"
+          universal/chaps completions powershell > "dist/$name/completions/_chaps.ps1"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           rm -rf "dist/$name"
+          cp "dist/$name.tar.gz" "dist/chaps-universal-apple-darwin.tar.gz"
           cd dist
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
 
@@ -268,6 +306,14 @@ jobs:
           tag="$GITHUB_REF_NAME"
           repo="$GITHUB_REPOSITORY"
           cat > notes.md <<NOTES
+          ### Install
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/${repo}/main/install.sh | sh
+          \`\`\`
+
+          An installed \`chaps\` updates itself with \`chaps self update\`.
+
           ### Downloads
 
           | Platform | Archive |
@@ -279,6 +325,15 @@ jobs:
           | Linux, arm64 (static musl) | \`chaps-${tag}-aarch64-unknown-linux-musl.tar.gz\` |
           | Windows, x86_64 | \`chaps-${tag}-x86_64-pc-windows-msvc.zip\` |
           | Windows, arm64 | \`chaps-${tag}-aarch64-pc-windows-msvc.zip\` |
+
+          Each archive is also attached under a version-less name, e.g.
+          \`chaps-universal-apple-darwin.tar.gz\`, so
+          \`https://github.com/${repo}/releases/latest/download/<name>\` is a
+          link that goes on working after the next release. Both copies are
+          byte for byte the same file and both are covered by \`SHA256SUMS\`.
+
+          Every archive carries the binary, \`README.md\`, \`LICENSE\` and
+          shell completion scripts under \`completions/\`.
 
           The macOS binaries are signed with a Developer ID certificate and
           notarized by Apple, so Gatekeeper does not block them. The Windows

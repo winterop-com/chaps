@@ -454,6 +454,20 @@ pub fn warn(message: &str) {
     }
 }
 
+/// Print one dimmed line to stderr.
+///
+/// For something worth knowing that is not about the command that was run, and
+/// that nothing is wrong with: the update notice is the only caller. Dimmed
+/// rather than labelled `warning:`, and on stderr for the same reason warnings
+/// are, so a `--json` consumer's stdout stays parseable.
+pub fn notice(message: &str) {
+    if stderr_color() {
+        eprintln!("{}", Style::new().dim().apply_to(message));
+    } else {
+        eprintln!("{message}");
+    }
+}
+
 /// Render `label  value` pairs with the labels padded to a common width.
 ///
 /// Entries whose value is empty are skipped, and a value containing newlines
