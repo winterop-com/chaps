@@ -8,6 +8,13 @@ On macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
 ```
 
+Or, to get the binary and nothing else - into this directory as `./chaps`, no
+`PATH` advice, no completion scripts, nothing written anywhere outside it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh -s -- --here
+```
+
 Then run `chaps doctor`: it checks in one pass that this machine has everything
 a deployment needs - Docker, Compose 2.20 or newer, disk, and a route to the
 hosts CHAP pulls from - and says what to do about anything it did not find. See
@@ -24,8 +31,9 @@ machine where `/usr/local/bin` needs root.
 
 | Option | Environment variable | What it does |
 | --- | --- | --- |
-| `--version TAG` | `CHAPS_VERSION` | Install that release instead of the newest |
+| `--version TAG` | `CHAPS_VERSION` | Install that release instead of the newest. `dev` is the rolling build of `main` |
 | `--dir DIR` | `CHAPS_INSTALL_DIR` | Install into that directory |
+| `--here` | `CHAPS_INSTALL_DIR=.` | Put `./chaps` in the current directory and do nothing else |
 | `--dry-run` | | Print what would happen and change nothing |
 | `--help` | | Print the options |
 
@@ -41,6 +49,53 @@ which a CI runner can exhaust.
 
 There is no PowerShell installer yet. On Windows, take the zip from the table
 below, unpack it and put `chaps.exe` on your `PATH`.
+
+## Which version
+
+There are two series, and a binary knows which one it belongs to.
+
+**Stable** is a `vX.Y.Z` tag: a release that was cut on purpose, with notes,
+and it never changes once published. It is what the one-liner installs, what
+`chaps self update` follows, and what the download links point at.
+
+**dev** is the rolling build of `main`, republished under the single moving
+tag `dev` on every push. It is the same seven archives, built and signed the
+same way, from a commit that has passed CI and nothing more: no release notes
+worth the name, no promise that anything in it stays. It reports the version
+of the last tag, so `chaps --version` says `v0.2.1` on a dev build as well;
+`chaps self version` is what tells the two apart:
+
+```text
+  version       v0.2.1
+  revision      bff294c
+  channel       dev
+```
+
+`channel` is always printed, `stable` or `dev`, and is in `--json` under the
+same name. A binary built anywhere else, `cargo install` included, is stable.
+
+Picking one with the installer:
+
+```sh
+curl -fsSL .../install.sh | sh                        # the newest stable release
+curl -fsSL .../install.sh | sh -s -- --version dev    # the rolling build of main
+curl -fsSL .../install.sh | sh -s -- --version v0.2.0 # one named release
+```
+
+and with an installed `chaps`:
+
+```sh
+chaps self update                      # the newest build of the channel this one is on
+chaps self update --version dev        # cross over to the rolling build
+chaps self update --version v0.2.1     # go back to a stable release
+```
+
+`chaps self update` on a stable build follows `releases/latest`, which
+excludes pre-releases, so a stable install is never moved onto a dev build by
+itself. On a dev build the same command follows the `dev` release, and
+compares the commit it was built from rather than the version number, since
+the version does not move between two rolling builds. `--version TAG` always
+wins over both.
 
 ## Downloading an archive
 
@@ -71,7 +126,9 @@ still resolves after the next release. A release attaches these seven archives
 and one `SHA256SUMS` covering all of them, and nothing else.
 
 An archive holds one directory, `chaps-<version>-<target>/`, containing the
-`chaps` binary, `README.md`, `LICENSE` and a `completions/` directory.
+`chaps` binary, `README.md`, `LICENSE` and a `completions/` directory. In a
+dev archive that version is `dev-<short commit>`, which is the one place the
+commit shows up without running the binary.
 
 The Linux builds are static musl binaries, so one file runs on any
 distribution with no shared library to match. Linux and macOS ship as
@@ -129,7 +186,7 @@ matters.
 ```sh
 chaps self update           # replace this binary with the newest release
 chaps self update --check   # say whether there is one, change nothing
-chaps self version          # version, revision, target, path, install method
+chaps self version          # version, revision, channel, target, path, install method
 ```
 
 `chaps self update` looks up the release, downloads the archive built for this
@@ -138,10 +195,15 @@ against `SHA256SUMS` and renames the new binary over the running one. The
 installed file is never written through, so a download that fails or does not
 verify leaves what you have exactly as it was.
 
-`--version TAG` installs a named release, going backwards included.
-`--yes` skips the confirmation, and `--json` reports the result as a document.
-If the binary lives somewhere you cannot write, `chaps` says so and suggests
+`--version TAG` installs a named release, going backwards included, and `dev`
+is a tag like any other. `--yes` skips the confirmation, and `--json` reports
+the result as a document, with `channel` alongside `current` and `latest`. If
+the binary lives somewhere you cannot write, `chaps` says so and suggests
 `sudo` or an install directory of your own rather than half-replacing itself.
+
+Without `--version`, an update follows the channel this build is on: the
+newest tag for a stable build, the newest build of `main` for a dev one. See
+[Which version](#which-version).
 
 Once a day, after a command that succeeded, `chaps` asks the release feed
 whether there is a newer version and prints one dimmed line on stderr if there
@@ -150,6 +212,16 @@ is:
 ```text
 chaps v0.2.0 is available (you have v0.1.0): run `chaps self update`
 ```
+
+On a dev build the same notice compares commits, because the version number
+does not move between two rolling builds:
+
+```text
+a newer chaps dev build is available (commit 9f3a2c1, you have bff294c): run `chaps self update`
+```
+
+It stays quiet unless it can see that the commit moved, so a build with no
+recorded revision is never nagged about nothing.
 
 The check has a two-second timeout, its answer is cached in
 `<cache dir>/self-update-check.json`, and any failure is ignored: it can never

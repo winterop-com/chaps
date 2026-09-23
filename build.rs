@@ -12,6 +12,9 @@
 //!    `chaps self update` needs to pick its release asset.
 //! 3. `GIT_REVISION` is the short commit of the checkout, empty when there is
 //!    no git or no repository, which `chaps self version` reports.
+//! 4. `CHAPS_BUILD_CHANNEL` is `stable` or `dev`, taken from the environment
+//!    variable of the same name, which `chaps self version` reports and
+//!    `chaps self update` uses to decide which release it follows.
 
 use std::path::{Path, PathBuf};
 
@@ -19,6 +22,8 @@ use std::path::{Path, PathBuf};
 const VENDOR_DIR: &str = "vendor/marketplace";
 /// The index inside it, which names every model file to embed.
 const INDEX_FILE: &str = "registry.yaml";
+/// The environment variable the release workflow sets for a rolling build.
+const CHANNEL_ENV: &str = "CHAPS_BUILD_CHANNEL";
 
 fn main() {
     let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -26,7 +31,24 @@ fn main() {
 
     emit_target();
     emit_git_revision(&root);
+    emit_build_channel();
     emit_embedded_files(&root, &out_dir);
+}
+
+/// Which release series this build follows.
+///
+/// `CHAPS_BUILD_CHANNEL=dev` is set by `.github/workflows/release.yml` for the
+/// rolling build of `main`, which is published as the `dev` pre-release and
+/// carries the same Cargo version as the last tag. Everything else, a local
+/// build included, is `stable`. Only the one spelling is honoured, so nothing
+/// an environment happens to hold can end up in the compiled string.
+fn emit_build_channel() {
+    println!("cargo:rerun-if-env-changed={CHANNEL_ENV}");
+    let is_dev = std::env::var(CHANNEL_ENV)
+        .map(|value| value.trim().eq_ignore_ascii_case("dev"))
+        .unwrap_or(false);
+    let channel = if is_dev { "dev" } else { "stable" };
+    println!("cargo:rustc-env={CHANNEL_ENV}={channel}");
 }
 
 /// The triple being built for, so the running binary can name its own release

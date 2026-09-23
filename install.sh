@@ -12,8 +12,17 @@
 #
 #   --version TAG        CHAPS_VERSION         release to install, e.g. v0.2.0
 #   --dir DIR            CHAPS_INSTALL_DIR     where to put the binary
+#   --here               CHAPS_INSTALL_DIR=.   just ./chaps, nothing else
 #   --dry-run                                  print what would happen
 #   --help
+#
+# --version dev installs the rolling pre-release built from every push to
+# main. It carries the version of the last tag and is not a stable release;
+# --version vX.Y.Z or no --version at all is the stable one.
+#
+# --here downloads, verifies and unpacks the binary into the current directory
+# as ./chaps and stops there: no PATH advice, no completions, nothing outside
+# this directory. It is the shape a CI job or a one-off trial wants.
 #
 # CHAPS_DOWNLOAD_BASE overrides where the archive and SHA256SUMS are fetched
 # from. It exists to test this script against a locally built release and is
@@ -29,6 +38,10 @@ VERSION="${CHAPS_VERSION:-}"
 INSTALL_DIR="${CHAPS_INSTALL_DIR:-}"
 DOWNLOAD_BASE="${CHAPS_DOWNLOAD_BASE:-}"
 DRY_RUN=0
+HERE=0
+
+# The tag of the rolling pre-release built from main.
+DEV_TAG="dev"
 
 say() {
   printf '%s\n' "$*"
@@ -46,15 +59,25 @@ install chaps, the CHAP stack manager
 Usage: install.sh [OPTIONS]
 
 Options:
-      --version TAG   Release to install (default: the newest one)
+      --version TAG   Release to install (default: the newest stable one).
+                      `dev` is the rolling pre-release built from every push
+                      to main: same version number as the last tag, but not a
+                      stable release.
       --dir DIR       Directory to install into (default: /usr/local/bin if
                       writable, otherwise ~/.local/bin)
+      --here          Put the binary in the current directory as ./chaps and
+                      do nothing else: no PATH advice, no completions
       --dry-run       Print what would be done and change nothing
   -h, --help          Print this message
 
 Environment:
   CHAPS_VERSION       Same as --version
-  CHAPS_INSTALL_DIR   Same as --dir
+  CHAPS_INSTALL_DIR   Same as --dir; `.` is the same as --here
+
+Examples:
+  install.sh                      the newest stable release
+  install.sh --version dev        the rolling build of main
+  install.sh --here               ./chaps, and nothing else
 USAGE
 }
 
@@ -78,6 +101,10 @@ while [ $# -gt 0 ]; do
       INSTALL_DIR="${1#--dir=}"
       shift
       ;;
+    --here)
+      HERE=1
+      shift
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
@@ -91,6 +118,23 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+# `--dir .` and CHAPS_INSTALL_DIR=. ask for exactly what --here does, so they
+# are the same thing rather than a directory that happens to be this one: the
+# difference people mean by "just put it here" is the completions and the PATH
+# advice that --here leaves out. Any other directory alongside --here is two
+# different answers to the same question, and picking one quietly would be
+# worse than saying so.
+case "$INSTALL_DIR" in
+  . | ./) HERE=1 ;;
+  ?*)
+    [ "$HERE" -eq 0 ] ||
+      die "--here installs into the current directory; pass one of --here and --dir (CHAPS_INSTALL_DIR), not both"
+    ;;
+esac
+if [ "$HERE" -eq 1 ]; then
+  INSTALL_DIR="$(pwd)"
+fi
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -197,9 +241,16 @@ if [ -z "$INSTALL_DIR" ]; then
 fi
 
 say "chaps ${VERSION}"
+if [ "$VERSION" = "$DEV_TAG" ]; then
+  say "  channel   dev: the rolling build of main, not a stable release"
+fi
 say "  platform  ${os} ${arch} (${target})"
 say "  archive   ${base}/${archive}"
-say "  install   ${INSTALL_DIR}/chaps"
+if [ "$HERE" -eq 1 ]; then
+  say "  install   ${INSTALL_DIR}/chaps (the binary alone)"
+else
+  say "  install   ${INSTALL_DIR}/chaps"
+fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
   say ""
@@ -241,14 +292,33 @@ say "verifying the checksum"
 say "unpacking"
 tar -xzf "${tmp}/${archive}" -C "$tmp" || die "could not unpack ${archive}"
 
-binary="${tmp}/chaps-${VERSION}-${target}/chaps"
-[ -f "$binary" ] || die "${archive} does not contain chaps"
+# The directory inside the archive carries the version: the tag for a release
+# build, dev-<short sha> for a rolling one. It is matched rather than spelled
+# out, so `--version dev` unpacks like any other release.
+binary=""
+for candidate in "${tmp}"/chaps-*-"${target}"/chaps; do
+  if [ -f "$candidate" ]; then
+    binary="$candidate"
+    break
+  fi
+done
+[ -n "$binary" ] || die "${archive} does not contain chaps"
 
 mkdir -p "$INSTALL_DIR" || die "could not create ${INSTALL_DIR}"
 [ -w "$INSTALL_DIR" ] || die "${INSTALL_DIR} is not writable; re-run with sudo, or pass --dir DIR"
 
 install -m 0755 "$binary" "${INSTALL_DIR}/chaps" ||
   die "could not install into ${INSTALL_DIR}"
+
+# --here is the whole job: the binary, verified, in this directory. Anything
+# further - completion scripts in a shell's directory, advice about PATH -
+# would be a change outside it, which is exactly what was not asked for.
+if [ "$HERE" -eq 1 ]; then
+  say ""
+  say "installed ${INSTALL_DIR}/chaps"
+  "${INSTALL_DIR}/chaps" --version || true
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Shell completions, best effort
@@ -270,7 +340,7 @@ install_completion() {
   return 0
 }
 
-completions="${tmp}/chaps-${VERSION}-${target}/completions"
+completions="${binary%/chaps}/completions"
 if [ -d "$completions" ]; then
   install_completion "${completions}/chaps.bash" \
     "${XDG_DATA_HOME:-${HOME}/.local/share}/bash-completion/completions" "chaps"

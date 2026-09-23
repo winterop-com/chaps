@@ -39,7 +39,7 @@ when it is not there, so the suite is green on a machine without a daemon.
 
 ## The build script
 
-`build.rs` produces three things the compiler cannot work out on its own.
+`build.rs` produces four things the compiler cannot work out on its own.
 
 - `$OUT_DIR/embedded_files.rs`, the `(relative path, contents)` table that
   `src/registry/embedded.rs` includes. It is generated from
@@ -52,9 +52,17 @@ when it is not there, so the suite is green on a machine without a daemon.
   reads to pick its release asset and `chaps self version` prints.
 - `GIT_REVISION`, the short commit of the checkout, empty when there is no git
   or no repository, which `chaps self version` prints when it is there.
+- `CHAPS_BUILD_CHANNEL`, `stable` or `dev`, read from the environment variable
+  of the same name. Only the exact value `dev` selects the dev channel, so
+  nothing an environment happens to hold can end up in the compiled string,
+  and a local build is stable without anyone having to say so.
+  `.github/workflows/release.yml` sets it for a branch build. See
+  [The dev channel](#the-dev-channel).
 
 The script names its own `rerun-if-changed` files, so it re-runs when the
-vendor directory or `.git/HEAD` moves and not otherwise.
+vendor directory or `.git/HEAD` moves and not otherwise, plus a
+`rerun-if-env-changed` for `CHAPS_BUILD_CHANNEL`, so flipping the channel
+rebuilds rather than handing back a cached binary from the other one.
 
 ## Vendoring the marketplace snapshot
 
@@ -140,7 +148,9 @@ attaches them all to a GitHub release with their SHA-256 sums. Every target is
 built natively, so there is no cross-compilation toolchain to maintain, the
 freshly built binary generates its own completion scripts into the archive,
 and the Linux builds are static musl so one binary runs on any distribution. A
-`workflow_dispatch` run exercises the build matrix without creating a release.
+push to `main` runs the same seven builds and publishes them as the rolling
+`dev` pre-release; a `workflow_dispatch` run exercises the build matrix
+without publishing anything.
 
 `.github/workflows/docs.yml` publishes the book to GitHub Pages on every push
 to `main`. It regenerates `docs/reference.md` and fails if the result differs
@@ -268,6 +278,50 @@ the tables in the README and in [Install](./install.md) from going stale, and
 the archive does keep the version, because that is what someone sees after
 unpacking it.
 
+### The dev channel
+
+Every push to `main` publishes the same seven archives as a GitHub
+pre-release under the single moving tag `dev`, named `dev (rolling build of
+main)`. It is the same build the tag path produces, signed and notarized the
+same way; what differs is which release it lands on and what the binary says
+about itself.
+
+- `CHAPS_BUILD_CHANNEL` is set at the workflow level to `stable` for a
+  `refs/tags/v*` run and `dev` for everything else, so a dispatch build is
+  never mistaken for a release build either. `build.rs` compiles it in and
+  `chaps self version` prints it as `channel`.
+- The version does not change: a dev build reports the Cargo version, which
+  is the last tag. The commit is what moves, so `chaps self update` on a dev
+  build compares the commit the release notes record against the build's own
+  `GIT_REVISION` rather than comparing versions, and the once-a-day notice
+  does the same. The line the commit is read back from is written by the
+  "Write the release notes" step; `commit` and the sha have to stay together
+  in it, and a unit test in `src/selfupdate.rs` checks that they do.
+- A stable build never drifts onto a dev one: it follows
+  `releases/latest`, which GitHub documents as "the most recent
+  non-prerelease, non-draft release", and the notice checks `prerelease`
+  itself on top of that. Crossing over is `chaps self update --version dev`,
+  and `install.sh --version dev` installs one from scratch.
+- The tag is moved by the workflow itself, with `git tag -f dev` and a force
+  push, before the release is written. GitHub's create-a-release and
+  update-a-release APIs both document `target_commitish` as unused once the
+  tag exists, so leaving it to the release action would place the tag on the
+  first rolling build and never move it again.
+- `softprops/action-gh-release` overwrites an asset of the same name
+  (`overwrite_files` defaults to true) and reuses the release the tag already
+  has, so the eight files are replaced in place. It does not delete assets it
+  was not handed, so a final step removes anything attached to the release
+  that this build did not produce - a target that was renamed or dropped -
+  after the upload rather than before it, which keeps the release from
+  briefly missing an archive.
+- `concurrency: release-<ref>` with `cancel-in-progress` for anything that is
+  not a tag means a burst of pushes to `main` does not queue seven-target
+  builds behind each other. A tag run is in a group of its own, named after
+  the tag, and is never cancelled.
+
+The two publish jobs are guarded against each other: `publish` runs only for
+`refs/tags/v*` and `publish-dev` only for a push to `refs/heads/main`.
+
 ### The install script
 
 `install.sh` at the repository root is what
@@ -281,6 +335,17 @@ directory, verifies with whichever of `sha256sum` and `shasum` exists, and
 installs with `install -m 0755`. Completion scripts are copied into the
 standard user directories that already exist, and a failure there never fails
 the install.
+
+`--version dev` needs nothing special: the tag goes into the download URL like
+any other, and the binary inside the archive is found by matching
+`chaps-*-<target>/chaps` rather than by spelling the directory out, because a
+rolling archive carries `dev-<short commit>` where a release carries the tag.
+
+`--here`, which `CHAPS_INSTALL_DIR=.` and `--dir .` also select, stops after
+`install -m 0755 ./chaps`: it prints the path and the version and returns
+without touching completion directories or saying anything about `PATH`. It is
+the shape a CI job or a one-off trial wants, and the one mode that writes
+nothing outside the current directory.
 
 `CHAPS_DOWNLOAD_BASE` overrides where the archive and `SHA256SUMS` come from.
 It is there to test the script against a locally built release and an install

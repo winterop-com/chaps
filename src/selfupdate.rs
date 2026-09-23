@@ -31,6 +31,16 @@ pub const GIT_REVISION: &str = env!("GIT_REVISION");
 /// The version this binary reports, without a leading `v`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The channel this build follows, from the build script: `stable` or `dev`.
+pub const BUILD_CHANNEL: &str = env!("CHAPS_BUILD_CHANNEL");
+
+/// The tag the rolling pre-release of `main` is published under.
+///
+/// One tag that moves, rather than one per commit: the release it names is
+/// always the newest build of `main`, so `releases/download/dev/<asset>` is a
+/// URL that keeps working.
+pub const DEV_TAG: &str = "dev";
+
 /// `User-Agent` sent with every request, matching the registry fetch.
 const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
 
@@ -52,6 +62,61 @@ const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The name of the checksum manifest attached to every release.
 pub const SUMS_FILE: &str = "SHA256SUMS";
+
+// --------------------------------------------------------------------------
+// Channels
+// --------------------------------------------------------------------------
+
+/// Which release series a build follows.
+///
+/// The two are not versions of each other: a `dev` build carries the Cargo
+/// version of the last tag, because it is built from `main` after that tag,
+/// so comparing them as versions says nothing. What separates two dev builds
+/// is the commit they came from, which is why the dev side of this module
+/// compares commits and the stable side compares versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Channel {
+    /// Built from a `vX.Y.Z` tag, or built anywhere else without being told
+    /// otherwise: what `releases/latest` serves.
+    #[default]
+    Stable,
+    /// The rolling build of `main`, published as the `dev` pre-release.
+    Dev,
+}
+
+impl Channel {
+    /// The name this channel is printed and recorded under.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Dev => "dev",
+        }
+    }
+
+    /// The channel `name` spells. Anything but `dev` is stable, so an unset or
+    /// misspelled value can only ever mean the conservative answer.
+    pub fn from_name(name: &str) -> Channel {
+        if name.trim().eq_ignore_ascii_case("dev") {
+            Channel::Dev
+        } else {
+            Channel::Stable
+        }
+    }
+
+    /// The release tag this channel follows without an explicit `--version`,
+    /// or `None` for stable, which asks `releases/latest` instead.
+    pub fn tag(self) -> Option<&'static str> {
+        match self {
+            Channel::Stable => None,
+            Channel::Dev => Some(DEV_TAG),
+        }
+    }
+}
+
+/// The channel this binary was built on.
+pub fn channel() -> Channel {
+    Channel::from_name(BUILD_CHANNEL)
+}
 
 // --------------------------------------------------------------------------
 // Assets
@@ -119,18 +184,36 @@ pub fn download_base(tag: &str) -> String {
 // --------------------------------------------------------------------------
 
 /// A release, trimmed to what an update needs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Release {
     /// The tag, e.g. `v0.2.0`.
     pub tag: String,
     /// Asset names attached to the release.
     pub assets: Vec<String>,
+    /// Whether GitHub marks this release a pre-release. The `dev` release is
+    /// one; every `vX.Y.Z` release is not.
+    pub prerelease: bool,
+    /// When the release was published, as GitHub's ISO-8601 string, empty
+    /// when the payload did not carry one.
+    pub published_at: String,
+    /// The release notes, which is where a dev build records the commit it
+    /// was built from. See [`release_commit`].
+    pub body: String,
 }
 
 impl Release {
     /// Whether the release carries `name`.
     pub fn has_asset(&self, name: &str) -> bool {
         self.assets.iter().any(|asset| asset == name)
+    }
+
+    /// The day the release was published, `YYYY-MM-DD`, or the whole
+    /// timestamp when it is not the shape GitHub documents.
+    pub fn published_day(&self) -> &str {
+        match self.published_at.split_once('T') {
+            Some((day, _)) => day,
+            None => &self.published_at,
+        }
     }
 }
 
@@ -142,6 +225,12 @@ pub fn parse_release(body: &str) -> Result<Release> {
         tag_name: String,
         #[serde(default)]
         assets: Vec<Asset>,
+        #[serde(default)]
+        prerelease: bool,
+        #[serde(default)]
+        published_at: Option<String>,
+        #[serde(default)]
+        body: Option<String>,
     }
     #[derive(Debug, Deserialize)]
     struct Asset {
@@ -162,7 +251,74 @@ pub fn parse_release(body: &str) -> Result<Release> {
             .map(|asset| asset.name)
             .filter(|name| !name.is_empty())
             .collect(),
+        prerelease: payload.prerelease,
+        // `published_at` and `body` are null on a draft and on a release with
+        // no notes, so both are read as an option and flattened to "".
+        published_at: payload.published_at.unwrap_or_default().trim().to_string(),
+        body: payload.body.unwrap_or_default(),
     })
+}
+
+/// The commit a release was built from, as its notes record it.
+///
+/// The dev release notes carry one line reading `built from commit <sha> on
+/// <date>`, written by `.github/workflows/release.yml`, because the API does
+/// not otherwise say: `target_commitish` is documented as unused once the tag
+/// exists, and the `dev` tag exists from the first rolling build onwards, so
+/// it goes on reporting whatever the release was first created with.
+///
+/// The first hexadecimal word of at least seven characters after the word
+/// `commit` wins. `None` when the notes say nothing of the sort, which is the
+/// case for every `vX.Y.Z` release.
+pub fn release_commit(release: &Release) -> Option<String> {
+    let mut words = release
+        .body
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty());
+    while let Some(word) = words.next() {
+        if !word.eq_ignore_ascii_case("commit") {
+            continue;
+        }
+        if let Some(candidate) = words.next()
+            && is_commit_sha(candidate)
+        {
+            return Some(candidate.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+/// Whether `word` could be a git object name: 7 to 40 hex digits.
+fn is_commit_sha(word: &str) -> bool {
+    (7..=40).contains(&word.len()) && word.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Whether two commits are the same one, comparing on the shorter of the two.
+///
+/// A build records the short revision git gave it, which is seven characters
+/// on this repository today but grows with the object count, while the notes
+/// carry the full forty, so neither length can be assumed.
+pub fn same_commit(a: &str, b: &str) -> bool {
+    if !is_commit_sha(a) || !is_commit_sha(b) {
+        return false;
+    }
+    let shortest = a.len().min(b.len());
+    a[..shortest].eq_ignore_ascii_case(&b[..shortest])
+}
+
+/// Whether `release` is a build of something other than commit `revision`.
+///
+/// Unknown counts as available: a build with no recorded revision, or a
+/// release whose notes name no commit, cannot be shown to be the same one,
+/// and re-installing a dev build that turns out to be identical costs a
+/// download, while refusing one that is not would leave `self update` unable
+/// to move at all. [`dev_notice_line`] takes the opposite side of the same
+/// question, because an unprompted daily line has to be sure before it speaks.
+pub fn dev_update_available(release: &Release, revision: &str) -> bool {
+    match release_commit(release) {
+        Some(commit) => !same_commit(&commit, revision),
+        None => true,
+    }
 }
 
 /// The asset `target` should download from `release`.
@@ -194,11 +350,21 @@ fn release_at(url: &str, timeout: Duration) -> Result<Release> {
 }
 
 /// The newest final release of this repository.
+///
+/// `releases/latest` is documented as "the most recent non-prerelease,
+/// non-draft release", so the rolling `dev` pre-release is invisible here and
+/// a stable build is never offered one by the daily notice. GitHub will not
+/// mark a pre-release as latest either, which is the same guarantee from the
+/// other end. [`Release::prerelease`] is read all the same, so the one place
+/// that must never offer a pre-release can check rather than trust.
 pub fn latest_release(timeout: Duration) -> Result<Release> {
     release_at(LATEST_RELEASE_URL, timeout)
 }
 
-/// One release by tag, for `--version`.
+/// One release by tag, for `--version` and for the `dev` channel.
+///
+/// `releases/tags/<tag>` returns a pre-release like any other release, which
+/// is what makes `--version dev` work at all.
 pub fn release_by_tag(tag: &str, timeout: Duration) -> Result<Release> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{tag}");
     release_at(&url, timeout).map_err(|e| match e.downcast_ref::<ChapError>() {
@@ -442,6 +608,11 @@ pub struct CheckState {
     /// The tag the feed reported, empty when the check failed.
     #[serde(default)]
     pub latest: String,
+    /// The commit that release was built from, for the `dev` channel, where
+    /// the tag never changes and so says nothing on its own. Empty on the
+    /// stable channel and on a state written by an older chaps.
+    #[serde(default)]
+    pub commit: String,
 }
 
 /// Where the check state is kept.
@@ -509,6 +680,25 @@ pub fn notice_line(latest: &str, current: &str) -> Option<String> {
     crate::chapcore::is_newer(latest, current).then(|| {
         format!("chaps {latest} is available (you have v{current}): run `chaps self update`")
     })
+}
+
+/// The same line for a `dev` build, which compares commits rather than
+/// versions: the rolling release carries the version of the last tag, so the
+/// only thing that moves between two dev builds is the commit.
+///
+/// Silent unless both commits are known and they differ. An unprompted line
+/// that cannot tell whether there is anything new would be noise on every
+/// command, which is the opposite trade-off from [`dev_update_available`],
+/// where the user asked.
+pub fn dev_notice_line(commit: &str, revision: &str) -> Option<String> {
+    if !is_commit_sha(commit) || !is_commit_sha(revision) || same_commit(commit, revision) {
+        return None;
+    }
+    let short = &commit[..revision.len().min(commit.len()).max(7)];
+    Some(format!(
+        "a newer chaps dev build is available (commit {short}, you have {revision}): \
+         run `chaps self update`"
+    ))
 }
 
 // --------------------------------------------------------------------------
@@ -696,6 +886,7 @@ mod tests {
                 "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string(),
                 SUMS_FILE.to_string(),
             ],
+            ..Default::default()
         };
         assert_eq!(
             pick_asset(&full, LINUX).unwrap(),
@@ -928,12 +1119,14 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
         let fresh = CheckState {
             checked_at_unix: now - 60,
             latest: "v0.2.0".to_string(),
+            ..CheckState::default()
         };
         assert!(!is_stale(Some(&fresh), now, CHECK_INTERVAL));
 
         let stale = CheckState {
             checked_at_unix: now - day - 1,
             latest: "v0.2.0".to_string(),
+            ..CheckState::default()
         };
         assert!(is_stale(Some(&stale), now, CHECK_INTERVAL));
 
@@ -962,6 +1155,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
         let state = CheckState {
             checked_at_unix: 1_700_000_000,
             latest: "v0.3.0".to_string(),
+            ..CheckState::default()
         };
         write_check(&cache, &state);
         let read = read_check(&cache).expect("what was just written");
@@ -993,6 +1187,199 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
         assert_eq!(notice_line("v0.0.9", "0.1.0"), None);
         assert_eq!(notice_line("", "0.1.0"), None);
         assert_eq!(notice_line("latest", "0.1.0"), None);
+    }
+
+    // ----------------------------------------------------------------------
+    // Channels
+    // ----------------------------------------------------------------------
+
+    /// A dev release as the workflow publishes it: the `dev` tag, the notes
+    /// that name the commit, and the same asset names a tag release carries.
+    fn dev_release(commit: &str) -> Release {
+        Release {
+            tag: DEV_TAG.to_string(),
+            assets: vec![
+                "chaps-x86_64-unknown-linux-musl.tar.gz".to_string(),
+                SUMS_FILE.to_string(),
+            ],
+            prerelease: true,
+            published_at: "2026-09-23T17:08:44Z".to_string(),
+            body: format!(
+                "### Unstable\n\nThis is a rolling build of `main`, \
+                 built from commit `{commit}` on 2026-09-23.\n"
+            ),
+        }
+    }
+
+    #[test]
+    fn only_dev_names_the_dev_channel() {
+        assert_eq!(Channel::from_name("dev"), Channel::Dev);
+        assert_eq!(Channel::from_name(" DEV \n"), Channel::Dev);
+        for other in ["stable", "", "development", "main", "nightly"] {
+            assert_eq!(Channel::from_name(other), Channel::Stable, "{other}");
+        }
+        assert_eq!(Channel::Dev.as_str(), "dev");
+        assert_eq!(Channel::Stable.as_str(), "stable");
+        assert_eq!(Channel::Dev.tag(), Some(DEV_TAG));
+        assert_eq!(Channel::Stable.tag(), None);
+        // This build is one or the other, and a plain `cargo build` is stable.
+        assert_eq!(channel(), Channel::from_name(BUILD_CHANNEL));
+        assert_eq!(channel(), Channel::Stable, "an untagged build is stable");
+    }
+
+    #[test]
+    fn the_dev_release_says_which_commit_it_was_built_from() {
+        let release = dev_release("0b1c2d3e4f50617283940a1b2c3d4e5f60718293");
+        assert_eq!(
+            release_commit(&release).as_deref(),
+            Some("0b1c2d3e4f50617283940a1b2c3d4e5f60718293")
+        );
+        assert_eq!(release.published_day(), "2026-09-23");
+
+        // A tagged release says nothing of the sort.
+        let stable = Release {
+            tag: "v0.2.1".to_string(),
+            body: "### Downloads\n\nNothing about a commit here.\n".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(release_commit(&stable), None);
+
+        // The word has to be followed by something that could be a commit.
+        let vague = Release {
+            body: "built from commit unknown".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(release_commit(&vague), None);
+
+        // Upper case and a short revision are both accepted, and the answer
+        // is normalised.
+        let shouty = Release {
+            body: "Commit ABC1234 it is".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(release_commit(&shouty).as_deref(), Some("abc1234"));
+    }
+
+    /// The commit is read out of notes this repository writes, so the reader
+    /// and the writer are checked against each other rather than only
+    /// against a fixture. A packaged crate without the workflow has nothing
+    /// to check and says nothing.
+    #[test]
+    fn the_workflow_writes_the_line_the_commit_is_read_from() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/.github/workflows/release.yml");
+        let Ok(workflow) = std::fs::read_to_string(path) else {
+            return;
+        };
+        assert!(
+            workflow.contains("commit \\`${GITHUB_SHA}\\`"),
+            "release.yml no longer writes `commit <sha>` into the dev release \
+             notes, which is the line release_commit reads"
+        );
+    }
+
+    #[test]
+    fn two_commits_match_on_the_shorter_of_the_two() {
+        let full = "0b1c2d3e4f50617283940a1b2c3d4e5f60718293";
+        assert!(same_commit(full, "0b1c2d3"));
+        assert!(same_commit("0b1c2d3", full));
+        assert!(same_commit("0B1C2D3", full));
+        assert!(!same_commit(full, "deadbee"));
+        // Too short to be anything, or not hexadecimal at all.
+        assert!(!same_commit(full, "0b1c2d"));
+        assert!(!same_commit(full, ""));
+        assert!(!same_commit(full, "not-a-sha"));
+    }
+
+    #[test]
+    fn a_dev_build_is_up_to_date_only_on_the_commit_the_release_names() {
+        let commit = "0b1c2d3e4f50617283940a1b2c3d4e5f60718293";
+        let release = dev_release(commit);
+
+        assert!(!dev_update_available(&release, "0b1c2d3"));
+        assert!(dev_update_available(&release, "deadbee"));
+        // A build with no revision, and a release with no commit in its
+        // notes, both mean "cannot tell", and an update that was asked for
+        // goes ahead rather than refusing.
+        assert!(dev_update_available(&release, ""));
+        assert!(dev_update_available(
+            &Release {
+                tag: DEV_TAG.to_string(),
+                ..Default::default()
+            },
+            "0b1c2d3"
+        ));
+    }
+
+    #[test]
+    fn the_dev_notice_speaks_only_when_it_knows_the_commit_moved() {
+        let commit = "0b1c2d3e4f50617283940a1b2c3d4e5f60718293";
+        let line = dev_notice_line(commit, "deadbee").expect("a different commit");
+        assert!(line.contains("newer chaps dev build"), "{line}");
+        assert!(line.contains("commit 0b1c2d3"), "{line}");
+        assert!(line.contains("you have deadbee"), "{line}");
+        assert!(line.contains("chaps self update"), "{line}");
+
+        // The same build, and the two "cannot tell" cases, say nothing: this
+        // line is printed without being asked for.
+        assert_eq!(dev_notice_line(commit, "0b1c2d3"), None);
+        assert_eq!(dev_notice_line(commit, ""), None);
+        assert_eq!(dev_notice_line("", "deadbee"), None);
+        assert_eq!(dev_notice_line("latest", "deadbee"), None);
+    }
+
+    /// The stable notice is fed from `releases/latest`, which GitHub
+    /// documents as excluding pre-releases, so the `dev` tag can never reach
+    /// it. The tag is not a version either, so even if it did, nothing would
+    /// be printed.
+    #[test]
+    fn the_stable_notice_cannot_be_talked_into_offering_a_prerelease() {
+        assert_eq!(notice_line(DEV_TAG, VERSION), None);
+        assert!(!is_newer_than_current(DEV_TAG));
+
+        let parsed = parse_release(
+            r#"{"tag_name":"dev","prerelease":true,"published_at":"2026-09-23T17:08:44Z",
+                "body":"built from commit abc1234 on 2026-09-23",
+                "assets":[{"name":"chaps-x86_64-unknown-linux-musl.tar.gz"}]}"#,
+        )
+        .unwrap();
+        assert!(parsed.prerelease);
+        assert_eq!(parsed.tag, DEV_TAG);
+        assert_eq!(release_commit(&parsed).as_deref(), Some("abc1234"));
+        assert_eq!(parsed.published_day(), "2026-09-23");
+
+        // A tagged release parses as what it is, with nulls tolerated.
+        let stable =
+            parse_release(r#"{"tag_name":"v0.2.1","published_at":null,"body":null}"#).unwrap();
+        assert!(!stable.prerelease);
+        assert!(stable.published_at.is_empty());
+        assert_eq!(release_commit(&stable), None);
+    }
+
+    #[test]
+    fn the_check_state_carries_the_commit_and_survives_an_older_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_check(
+            tmp.path(),
+            &CheckState {
+                checked_at_unix: 1_700_000_000,
+                latest: DEV_TAG.to_string(),
+                commit: "0b1c2d3".to_string(),
+            },
+        );
+        let state = read_check(tmp.path()).expect("written a moment ago");
+        assert_eq!(state.latest, DEV_TAG);
+        assert_eq!(state.commit, "0b1c2d3");
+
+        // A file written by a chaps that had no commit field still reads.
+        std::fs::write(
+            check_path(tmp.path()),
+            r#"{"checked_at_unix":1700000000,"latest":"v0.2.1"}"#,
+        )
+        .unwrap();
+        let old = read_check(tmp.path()).expect("an older state is still a state");
+        assert_eq!(old.latest, "v0.2.1");
+        assert!(old.commit.is_empty());
+        assert_eq!(dev_notice_line(&old.commit, "0b1c2d3"), None);
     }
 
     #[test]

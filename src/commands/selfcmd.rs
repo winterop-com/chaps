@@ -8,7 +8,7 @@ use crate::cli::{SelfUpdateArgs, SelfVersionArgs};
 use crate::commands::Ctx;
 use crate::error::Result;
 use crate::output;
-use crate::selfupdate::{self, GIT_REVISION, TARGET, VERSION};
+use crate::selfupdate::{self, Channel, GIT_REVISION, TARGET, VERSION};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -23,6 +23,11 @@ struct VersionReport {
     /// was none to record.
     #[serde(skip_serializing_if = "Option::is_none")]
     revision: Option<&'static str>,
+    /// `stable` or `dev`. Always present, in the text output as well as in
+    /// `--json`: a field that only appears on a dev build would make its
+    /// absence the thing to notice, and the whole point of this command is to
+    /// say what a build is without anyone having to know that.
+    channel: &'static str,
     target: &'static str,
     /// The running executable, as the OS reports it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +41,9 @@ struct VersionReport {
 struct UpdateReport {
     /// The version before the run.
     current: String,
+    /// The channel this build follows, which is what decides whether `latest`
+    /// is the newest tag or the newest rolling build.
+    channel: &'static str,
     /// The release that was looked up.
     latest: String,
     /// Whether `latest` is newer than `current`.
@@ -55,6 +63,7 @@ pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
     let report = VersionReport {
         version: VERSION,
         revision: Some(GIT_REVISION).filter(|rev| !rev.is_empty()),
+        channel: selfupdate::channel().as_str(),
         target: TARGET,
         path: path.clone(),
         install_method: path
@@ -65,6 +74,7 @@ pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
     ctx.out.emit(&report, || {
         let mut fields = vec![
             ("version", ctx.out.value(&format!("v{}", report.version))),
+            ("channel", report.channel.to_string()),
             ("target", report.target.to_string()),
         ];
         if let Some(revision) = report.revision {
@@ -94,17 +104,40 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
         ));
     }
 
-    let release = match &args.version {
-        Some(tag) => selfupdate::release_by_tag(tag, TIMEOUT)?,
-        None => selfupdate::latest_release(TIMEOUT)?,
+    // A dev build follows the rolling `dev` pre-release rather than
+    // `releases/latest`, which GitHub documents as excluding pre-releases.
+    // `--version TAG` always wins, `dev` included: that is how a stable build
+    // crosses over, and how a dev build goes back to a numbered release.
+    let channel = selfupdate::channel();
+    let release = match (&args.version, channel.tag()) {
+        (Some(tag), _) => selfupdate::release_by_tag(tag, TIMEOUT)?,
+        (None, Some(tag)) => selfupdate::release_by_tag(tag, TIMEOUT)?,
+        (None, None) => selfupdate::latest_release(TIMEOUT)?,
     };
 
     // Without --version the run is about moving forward, so an equal or older
     // tag is nothing to do. With --version the tag was asked for by name and
     // going back is allowed; only landing where we already are is not.
+    //
+    // The `dev` tag never moves, so neither of those questions can be asked of
+    // it as a version: what separates two rolling builds is the commit, which
+    // the release notes record and the running build knows as GIT_REVISION.
     let wanted = args.version.is_some();
-    let newer = selfupdate::is_newer_than_current(&release.tag);
-    let same = release.tag.trim_start_matches('v') == VERSION;
+    let rolling = release.tag == selfupdate::DEV_TAG;
+    let newer = if rolling {
+        selfupdate::dev_update_available(&release, GIT_REVISION)
+    } else {
+        selfupdate::is_newer_than_current(&release.tag)
+    };
+    // A dev build already on that commit is where the release would put it,
+    // with or without --version. A stable build asking for `--version dev` is
+    // crossing channels and is never "already there", even in the one case
+    // where the tag and the rolling build sit on the same commit.
+    let same = if rolling {
+        channel == Channel::Dev && !newer
+    } else {
+        release.tag.trim_start_matches('v') == VERSION
+    };
 
     let asset = selfupdate::pick_asset(&release, TARGET);
     let path = std::env::current_exe().ok();
@@ -112,6 +145,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     if (!wanted && !newer) || same {
         let report = UpdateReport {
             current: format!("v{VERSION}"),
+            channel: channel.as_str(),
             latest: release.tag.clone(),
             update_available: newer,
             updated: false,
@@ -122,7 +156,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             format!(
                 "{} {}",
                 ctx.out.ok("already up to date:"),
-                ctx.out.value(&format!("chaps v{VERSION}"))
+                ctx.out.value(&format!("chaps {}", describe_build()))
             )
         });
     }
@@ -132,6 +166,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     if args.check {
         let report = UpdateReport {
             current: format!("v{VERSION}"),
+            channel: channel.as_str(),
             latest: release.tag.clone(),
             update_available: true,
             updated: false,
@@ -142,8 +177,9 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             format!(
                 "{}\n{}",
                 ctx.out.warn(&format!(
-                    "chaps {} is available (you have v{VERSION})",
-                    release.tag
+                    "chaps {} is available (you have {})",
+                    describe_release(&release),
+                    describe_build()
                 )),
                 output::fields_with(
                     2,
@@ -176,6 +212,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     if !confirm(ctx, args, &release.tag, &path)? {
         let report = UpdateReport {
             current: format!("v{VERSION}"),
+            channel: channel.as_str(),
             latest: release.tag.clone(),
             update_available: true,
             updated: false,
@@ -191,6 +228,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
 
     let report = UpdateReport {
         current: format!("v{VERSION}"),
+        channel: channel.as_str(),
         latest: release.tag.clone(),
         update_available: true,
         updated: true,
@@ -201,9 +239,9 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
         format!(
             "{} {} {} {}\n{}",
             ctx.out.ok("updated chaps:"),
-            ctx.out.value(&format!("v{VERSION}")),
+            ctx.out.value(&describe_build()),
             ctx.out.dim("->"),
-            ctx.out.value(&release.tag),
+            ctx.out.value(&describe_release(&release)),
             output::fields_with(
                 2,
                 &[("path", ctx.out.dim(&path.display().to_string()))],
@@ -211,6 +249,33 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             )
         )
     })
+}
+
+/// How this build names itself in a sentence: the version, and for a rolling
+/// build the channel and the commit, which is the only thing that tells two
+/// of them apart.
+fn describe_build() -> String {
+    match selfupdate::channel() {
+        Channel::Stable => format!("v{VERSION}"),
+        Channel::Dev if GIT_REVISION.is_empty() => format!("v{VERSION} dev"),
+        Channel::Dev => format!("v{VERSION} dev {GIT_REVISION}"),
+    }
+}
+
+/// The same for a release that was looked up: the tag for a numbered release,
+/// and for the rolling one the commit and the day it was built, because its
+/// tag is the same string every time.
+fn describe_release(release: &selfupdate::Release) -> String {
+    if release.tag != selfupdate::DEV_TAG {
+        return release.tag.clone();
+    }
+    let commit = selfupdate::release_commit(release);
+    match (commit, release.published_day()) {
+        (Some(commit), "") => format!("dev {}", &commit[..7]),
+        (Some(commit), day) => format!("dev {} ({day})", &commit[..7]),
+        (None, "") => "dev".to_string(),
+        (None, day) => format!("dev ({day})"),
+    }
 }
 
 /// Download, verify, unpack and swap. Everything before the swap happens in a
@@ -280,41 +345,62 @@ pub fn notify(ctx: &Ctx) {
     if !should_notify(ctx, selfupdate::checks_disabled()) {
         return;
     }
+    let channel = selfupdate::channel();
     let cache_dir = ctx.registry.cache_dir.clone();
     let state = selfupdate::read_check(&cache_dir);
     let now = selfupdate::now_unix();
 
-    let latest = if selfupdate::is_stale(state.as_ref(), now, selfupdate::CHECK_INTERVAL) {
-        match selfupdate::latest_release(selfupdate::CHECK_TIMEOUT) {
+    let known = if selfupdate::is_stale(state.as_ref(), now, selfupdate::CHECK_INTERVAL) {
+        // A dev build watches the rolling release; a stable one watches
+        // `releases/latest`, which GitHub documents as skipping pre-releases,
+        // so the two never see each other's builds.
+        let looked_up = match channel.tag() {
+            Some(tag) => selfupdate::release_by_tag(tag, selfupdate::CHECK_TIMEOUT),
+            None => selfupdate::latest_release(selfupdate::CHECK_TIMEOUT),
+        };
+        match looked_up {
             Ok(release) => {
-                selfupdate::write_check(
-                    &cache_dir,
-                    &selfupdate::CheckState {
-                        checked_at_unix: now,
-                        latest: release.tag.clone(),
+                let found = selfupdate::CheckState {
+                    checked_at_unix: now,
+                    // Belt and braces on top of that documented behaviour: a
+                    // pre-release that somehow arrived here is recorded as
+                    // nothing rather than as something to offer.
+                    latest: if channel == Channel::Stable && release.prerelease {
+                        String::new()
+                    } else {
+                        release.tag.clone()
                     },
-                );
-                release.tag
+                    // The tag alone says nothing on the dev channel, where it
+                    // is the same string every time.
+                    commit: selfupdate::release_commit(&release).unwrap_or_default(),
+                };
+                selfupdate::write_check(&cache_dir, &found);
+                found
             }
             Err(e) => {
                 ctx.out.verbose(&format!("update check failed: {e}"));
                 // Record the attempt so a machine with no network does not
-                // try again on every single command.
+                // try again on every single command, keeping whatever the
+                // last successful check found.
                 selfupdate::write_check(
                     &cache_dir,
                     &selfupdate::CheckState {
                         checked_at_unix: now,
-                        latest: state.map(|s| s.latest).unwrap_or_default(),
+                        ..state.unwrap_or_default()
                     },
                 );
                 return;
             }
         }
     } else {
-        state.map(|s| s.latest).unwrap_or_default()
+        state.unwrap_or_default()
     };
 
-    if let Some(line) = selfupdate::notice_line(&latest, VERSION) {
+    let line = match channel {
+        Channel::Stable => selfupdate::notice_line(&known.latest, VERSION),
+        Channel::Dev => selfupdate::dev_notice_line(&known.commit, GIT_REVISION),
+    };
+    if let Some(line) = line {
         output::notice(&line);
     }
 }
@@ -367,6 +453,7 @@ mod tests {
         let report = VersionReport {
             version: VERSION,
             revision: Some(GIT_REVISION).filter(|r| !r.is_empty()),
+            channel: selfupdate::channel().as_str(),
             target: TARGET,
             path: path.clone(),
             install_method: path
@@ -378,6 +465,9 @@ mod tests {
         assert_eq!(value["version"], VERSION);
         assert_eq!(value["target"], TARGET);
         assert!(value["install_method"].is_string());
+        // The channel is always there, and a plain build is a stable one.
+        assert_eq!(value["channel"], "stable");
+        assert_eq!(describe_build(), format!("v{VERSION}"));
     }
 
     #[test]
@@ -431,6 +521,7 @@ mod tests {
             &selfupdate::CheckState {
                 checked_at_unix: selfupdate::now_unix(),
                 latest: "v99.0.0".to_string(),
+                ..Default::default()
             },
         );
         let state = selfupdate::read_check(tmp.path()).unwrap();
@@ -440,6 +531,36 @@ mod tests {
             selfupdate::CHECK_INTERVAL
         ));
         assert!(selfupdate::notice_line(&state.latest, VERSION).is_some());
+    }
+
+    /// The rolling release is named by its commit and its day, because its
+    /// tag is the string `dev` on every build of `main`.
+    #[test]
+    fn a_release_is_named_by_its_tag_and_the_rolling_one_by_its_commit() {
+        let tagged = selfupdate::Release {
+            tag: "v0.3.0".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(describe_release(&tagged), "v0.3.0");
+
+        let rolling = selfupdate::Release {
+            tag: selfupdate::DEV_TAG.to_string(),
+            prerelease: true,
+            published_at: "2026-09-23T17:08:44Z".to_string(),
+            body: "built from commit `0b1c2d3e4f50617283940a1b2c3d4e5f60718293` \
+                   on 2026-09-23"
+                .to_string(),
+            ..Default::default()
+        };
+        assert_eq!(describe_release(&rolling), "dev 0b1c2d3 (2026-09-23)");
+
+        // Notes that name no commit still say which day the build is from.
+        let vague = selfupdate::Release {
+            tag: selfupdate::DEV_TAG.to_string(),
+            published_at: "2026-09-23T17:08:44Z".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(describe_release(&vague), "dev (2026-09-23)");
     }
 
     /// A lookup that failed still records the attempt, so a machine with no
@@ -455,6 +576,7 @@ mod tests {
             &selfupdate::CheckState {
                 checked_at_unix: selfupdate::now_unix(),
                 latest: String::new(),
+                ..Default::default()
             },
         );
         let state = selfupdate::read_check(&cache).expect("the attempt was recorded");

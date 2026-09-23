@@ -1,8 +1,14 @@
 name: release
-run-name: release ${{ github.ref_name }}
+run-name: release ${{ github.ref_type == 'tag' && github.ref_name || 'dev (main)' }}
 
 # Builds `chaps` for six targets natively, plus a universal macOS binary, and
-# attaches the archives to the GitHub release for the tag.
+# attaches the archives to a GitHub release.
+#
+# Two kinds of run publish. A `v*` tag publishes the stable release for that
+# tag, exactly as before. A push to `main` publishes the same seven archives
+# as a pre-release under the moving tag `dev`, which is the rolling build of
+# `main`: same build, same signing and notarization, different release. The
+# two publish jobs are guarded so that neither can run for the other's event.
 #
 # macOS archives are signed with a Developer ID Application certificate and
 # notarized by Apple when these repository (or organisation) secrets are set.
@@ -25,10 +31,21 @@ run-name: release ${{ github.ref_name }}
 on:
   push:
     tags: ["v*"]
-  # Lets the build matrix be exercised without cutting a release; the publish
-  # job below only runs for a tag. Signing still happens on a dispatch run if
-  # the secrets are present, so the signing path is exercised too.
+    branches: ["main"]
+  # Lets the build matrix be exercised without cutting a release: neither
+  # publish job runs for a dispatch from a branch. Signing still happens on a
+  # dispatch run if the secrets are present, so the signing path is exercised
+  # too.
   workflow_dispatch:
+
+# Pushes to `main` arrive in bursts, and each one is seven builds with
+# notarization. A branch run therefore cancels the one before it: the rolling
+# release only ever wants the newest commit anyway. A tag run is a release and
+# must never be cancelled, which is what the expression says; its group is the
+# tag, which is unique to it, so nothing would cancel it in any case.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
@@ -39,6 +56,13 @@ env:
   # completion scripts. Nothing in a release build should reach out to the
   # release feed while doing it.
   CHAPS_NO_UPDATE_CHECK: "1"
+  # Which release series the binary being built follows. `build.rs` compiles
+  # it in, `chaps self version` prints it as `channel`, and `chaps self
+  # update` uses it to decide whether it follows `releases/latest` or the
+  # rolling `dev` pre-release. A tag is stable; everything else, a branch push
+  # and a dispatch alike, is a dev build, so a binary from a dispatch run is
+  # never mistaken for a release build.
+  CHAPS_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
 
 jobs:
   build:
@@ -272,7 +296,9 @@ jobs:
   publish:
     name: publish the release
     needs: [build, universal]
-    # A workflow_dispatch run builds and uploads artifacts but creates nothing.
+    # A tag and nothing else: a push to `main` goes to publish-dev below, and
+    # a workflow_dispatch run from a branch builds and uploads artifacts but
+    # creates nothing.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -355,3 +381,149 @@ jobs:
           body_path: notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+  publish-dev:
+    name: publish the dev pre-release
+    needs: [build, universal]
+    # A push to `main` and nothing else: not a tag, which the job above
+    # publishes, and not a workflow_dispatch, which publishes nothing.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # The one moving tag the rolling build is published under.
+      DEV_TAG: dev
+    steps:
+      # Checked out for Cargo.toml, which the notes quote, and for the git
+      # remote the tag is pushed to.
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be attached
+        run: ls -l dist
+
+      - name: Write SHA256SUMS over every archive
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum chaps-*.tar.gz chaps-*.zip > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
+
+      # The tag is moved here rather than left to the release action.
+      # GitHub's create-a-release and update-a-release APIs both document
+      # target_commitish as "unused if the Git tag already exists", and `dev`
+      # exists from the first rolling build onwards, so passing it would move
+      # the tag exactly once and then quietly stop. A force-push is the only
+      # thing that moves a tag that is already there, and it happens before
+      # the release is written so the release never points at a commit whose
+      # tag has not caught up.
+      - name: Move the dev tag to this commit
+        run: |
+          set -euo pipefail
+          git tag -f "$DEV_TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$DEV_TAG"
+
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          base="https://github.com/${repo}/releases/download/${DEV_TAG}"
+          script="https://raw.githubusercontent.com/${repo}/main/install.sh"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          built="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          # `chaps self update` reads the commit back out of these notes, from
+          # the line below: the word `commit` followed by the sha. Keep the
+          # two together if this text is ever reworded.
+          cat > notes.md <<NOTES
+          ### Unstable
+
+          This is the rolling build of \`main\`. It is rebuilt and replaced on
+          every push, and it is not a release: it reports the version of the
+          last tag, \`v${version}\`, with \`channel dev\`, and anything in it
+          may change or break. The numbered releases are the stable ones.
+
+          Built from commit \`${GITHUB_SHA}\` on ${built}.
+
+          ### Install
+
+          \`\`\`sh
+          curl -fsSL ${script} | sh -s -- --version dev
+          \`\`\`
+
+          Or into the current directory alone, as \`./chaps\`, touching
+          nothing else:
+
+          \`\`\`sh
+          curl -fsSL ${script} | sh -s -- --version dev --here
+          \`\`\`
+
+          A dev build follows this release from then on: \`chaps self update\`
+          moves it to the newest build of \`main\`, comparing commits rather
+          than version numbers, and \`chaps self version\` says
+          \`channel dev\`. To go back to the stable release:
+
+          \`\`\`sh
+          chaps self update --version v${version}
+          \`\`\`
+
+          ### Downloads
+
+          | Platform | File | Notes |
+          | --- | --- | --- |
+          | Linux x86_64 | [\`chaps-x86_64-unknown-linux-musl.tar.gz\`](${base}/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+          | macOS | [\`chaps-universal-apple-darwin.tar.gz\`](${base}/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+          | Windows x86_64 | [\`chaps-x86_64-pc-windows-msvc.zip\`](${base}/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
+
+          The arm64 Linux, per-architecture macOS and arm64 Windows archives
+          are attached as well, and \`SHA256SUMS\` covers all seven:
+
+          \`\`\`sh
+          curl -fsSLO ${base}/SHA256SUMS
+          shasum -a 256 -c SHA256SUMS --ignore-missing
+          \`\`\`
+          NOTES
+          cat notes.md
+
+      # softprops/action-gh-release documents `overwrite_files` as defaulting
+      # to true, so each of the eight files replaces the asset of the same
+      # name on the existing release; the release itself is reused because
+      # "if a tag already has a GitHub release, the existing release will be
+      # updated with the release assets". name, body and prerelease are all
+      # set explicitly, because the action documents that release info it is
+      # not given is left as it was.
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+          name: dev (rolling build of main)
+          tag_name: dev
+          body_path: notes.md
+          prerelease: true
+          make_latest: "false"
+          fail_on_unmatched_files: true
+
+      # Overwriting covers every asset this build produced, but not one an
+      # older build left behind under a name this one no longer writes, such
+      # as a target that was renamed or dropped. Those are removed after the
+      # upload, so the release only ever lists files from this commit and the
+      # release is never briefly missing an asset.
+      - name: Delete assets no longer built
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$DEV_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' > attached.txt
+          while read -r name; do
+            [ -n "$name" ] || continue
+            if [ ! -e "dist/$name" ]; then
+              echo "removing stale asset $name"
+              gh release delete-asset "$DEV_TAG" "$name" \
+                --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done < attached.txt
