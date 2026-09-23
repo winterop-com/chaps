@@ -227,11 +227,25 @@ fn get(url: &str, timeout: Duration, accept: Option<&str>) -> Result<String> {
     if let Some(accept) = accept {
         request = request.header("Accept", accept);
     }
-    let mut response = request.call().map_err(|e| map_error(url, e))?;
-    response
+    let started = std::time::Instant::now();
+    let mut response = request.call().map_err(|e| {
+        crate::output::verbose(&format!(
+            "GET {url} -> failed in {}ms",
+            started.elapsed().as_millis()
+        ));
+        map_error(url, e)
+    })?;
+    crate::output::verbose(&format!(
+        "GET {url} -> {} in {}ms",
+        response.status().as_u16(),
+        started.elapsed().as_millis()
+    ));
+    let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|e| anyhow::anyhow!("reading the response body from {url}: {e}"))
+        .map_err(|e| anyhow::anyhow!("reading the response body from {url}: {e}"))?;
+    crate::output::debug(&format!("  {}", crate::output::trace_body(&body)));
+    Ok(body)
 }
 
 /// A non-2xx response is a [`ChapError::Http`] (the rate limit and a missing

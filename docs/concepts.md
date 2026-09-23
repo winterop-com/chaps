@@ -17,7 +17,7 @@ mychap/
     compose.chap-core.<tag>.yml
                                chap-core's own compose.ghcr.yml at the pinned tag,
                                exactly as downloaded; compose.yml is rendered from it
-  compose.yml                  artifact: the base stack, from the file above
+  compose.yml                  artifact: the base services, from the file above
   compose.chaps.yml            artifact: chaps-owned overrides on top of it, the
                                API's host port
   compose.marketplace.yml      artifact: include: list, one line per enabled model
@@ -28,9 +28,9 @@ mychap/
 
 | File | What it is |
 | --- | --- |
-| `compose.yml` | The base stack: chap-core, worker, Valkey, PostgreSQL. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
+| `compose.yml` | The base of the CHAP stack, which is chap-core, its worker and database plus the enabled models: chap-core, worker, Valkey and PostgreSQL, with the models added on top by their overlays. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
 | `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
-| `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break the stack; it only means `sync` can no longer re-render `compose.yml`. |
+| `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break CHAP; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
@@ -141,7 +141,7 @@ password, so an existing volume has to be dropped with
 chaps docker run -- down -v
 ```
 
-(or the role changed with `ALTER USER`) before the stack will start again.
+(or the role changed with `ALTER USER`) before CHAP will start again.
 `init --no-env` writes no `.env` at all.
 
 Compose reads `.env` automatically, so `${CHAP_IMAGE_TAG:-latest}` and the

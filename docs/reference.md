@@ -9,10 +9,14 @@ Every command accepts the global options listed under [chaps](#chaps),
 
 ## chaps
 
-chaps deploys and manages CHAP, the DHIS2 Climate Health Analytics Platform.
+chaps deploys and manages CHAP, the Climate Health Analytics Platform.
 
 It runs chap-core, its worker and database with Docker Compose, and adds
 forecasting models from the CHAP model marketplace as pinned overlays.
+
+chap or chaps? `chap` is chap-core's own developer CLI, the one that serves the
+API and runs evaluations from a checkout; `chaps` is this tool, which deploys
+and manages CHAP on a machine.
 Start with `chaps init`. Docs: https://chap.dhis2.org
 
 ```text
@@ -22,6 +26,9 @@ Usage: chaps [OPTIONS] <COMMAND>
 | Global option | Description |
 | --- | --- |
 | `--json` | Emit machine-readable JSON instead of human output. |
+| `--no-color` | Never colour the output (NO_COLOR in the environment does the same). |
+| `-v, --verbose` | Narrate on stderr what runs: external commands, HTTP requests, the registry source, the files sync compared. |
+| `-d, --debug` | Everything --verbose says, plus response bodies, the raw compose ps output and the resolved project paths. Implies --verbose. |
 | `-C, --project-dir <DIR>` | Project directory (or any directory inside one); found like git finds .git. Default: `.`. |
 | `--registry-url <URL>` | URL of the marketplace registry index. Default: `https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml`. |
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
@@ -216,7 +223,7 @@ Usage: chaps update [OPTIONS]
 
 ## chaps up
 
-Sync, then start the stack (docker compose up).
+Sync, then start CHAP (docker compose up).
 
 ```text
 Usage: chaps up [OPTIONS] [EXTRA]...
@@ -224,14 +231,14 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 
 | Argument | Description |
 | --- | --- |
-| `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops the stack). |
+| `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops CHAP). |
 | `--pull` | Pull every image first, including a moving chap-core tag such as `latest` (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first; let Docker report a conflict. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
 
 ## chaps down
 
-Stop the stack (docker compose down).
+Stop CHAP (docker compose down).
 
 ```text
 Usage: chaps down [OPTIONS] [EXTRA]...
@@ -311,7 +318,7 @@ Usage: chaps docker run [OPTIONS] [ARGS]...
 
 ## chaps docker config
 
-Print the finished stack: every compose file merged into one document.
+Print the finished configuration: every compose file merged into one document.
 
 ```text
 Usage: chaps docker config [OPTIONS] [EXTRA]...

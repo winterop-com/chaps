@@ -110,8 +110,8 @@ paste this token in the Modeling App's CHAP settings (`chaps auth show --reveal`
 ```
 
 `chaps up` is not optional. chap-core and the model containers read `.env` when
-Compose creates them, so nothing changes for a running stack until it is
-recreated.
+Compose creates them, so nothing changes for a container that is already
+running until it is recreated.
 
 `chaps auth disable` comments the lines out rather than deleting them:
 

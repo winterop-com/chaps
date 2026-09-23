@@ -1,5 +1,5 @@
-//! `chaps` — deploy and manage CHAP, the DHIS2 Climate Health Analytics
-//! Platform: chap-core and marketplace model services on Docker Compose.
+//! `chaps` — deploy and manage CHAP, the Climate Health Analytics Platform:
+//! chap-core and marketplace model services on Docker Compose.
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
@@ -19,10 +19,12 @@ mod registry;
 mod status;
 mod tui;
 
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, FromArgMatches};
 use cli::{AuthSub, BackupSub, Cli, Command, DockerCmd, ModelsCmd};
 use commands::Ctx;
 use error::ChapError;
+use output::Out;
 use project::Project;
 use std::path::PathBuf;
 
@@ -40,6 +42,26 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable", "expose", "unexpose"
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
      more commands appear: up, down, logs, status, sync, update, ui, docker, backup, auth.";
+
+/// chap-core ships a developer CLI of its own, called `chap`. These are its
+/// commands: typing one of them at `chaps` is a near miss, not a typo, and
+/// deserves an answer that names the other tool.
+const CHAP_CORE_COMMANDS: &[&str] = &[
+    "serve",
+    "evaluate",
+    "eval",
+    "forecast",
+    "multi-forecast",
+    "harmonize",
+    "aggregate-eval",
+    "causal",
+    "convert-request",
+    "explain-lime",
+    "model",
+    "predict",
+    "train",
+    "test",
+];
 
 fn main() {
     let cli = parse();
@@ -111,11 +133,53 @@ fn parse() -> Cli {
     if Project::find_root(&project_dir_of(&argv[1..])).is_none() {
         command = hide_project_commands(command);
     }
-    let matches = command.get_matches_from(argv);
+    let matches = match command.try_get_matches_from(&argv) {
+        Ok(matches) => matches,
+        Err(err) => report_parse_error(err, &argv[1..]),
+    };
     match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
         Err(err) => err.exit(),
     }
+}
+
+/// Let clap print its own error, except for the one case where clap does not
+/// know what happened: a chap-core command typed at `chaps`.
+///
+/// `Ctx` does not exist yet at parse time, so the output mode is read straight
+/// off the raw arguments; getting it wrong would only change the colour.
+fn report_parse_error(err: clap::Error, args: &[String]) -> ! {
+    if err.kind() == ErrorKind::InvalidSubcommand
+        && let Some(ContextValue::String(name)) = err.get(ContextKind::InvalidSubcommand)
+        && let Some(message) = chap_core_hint(name)
+    {
+        let out = Out::detect(
+            args.iter().any(|a| a == "--json"),
+            args.iter().any(|a| a == "--no-color"),
+        );
+        let rendered = out.error(&anyhow::anyhow!(message));
+        if out.json {
+            println!("{rendered}");
+        } else {
+            eprintln!("{rendered}");
+        }
+        // The same code clap exits with for a usage error, so a script that
+        // checks for 2 keeps working.
+        std::process::exit(2);
+    }
+    err.exit()
+}
+
+/// The answer to "chap or chaps?", for a command that belongs to the other
+/// one. `None` for anything that is simply not a command here.
+fn chap_core_hint(name: &str) -> Option<String> {
+    CHAP_CORE_COMMANDS.contains(&name).then(|| {
+        format!(
+            "`chaps {name}` is not a chaps command. `{name}` belongs to the \
+             chap-core developer CLI, which is called `chap`. chaps manages the \
+             deployment: try `chaps --help`."
+        )
+    })
 }
 
 /// Hide the commands that need a project, and say so at the end of `--help`.

@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod keys;
+pub mod theme;
 pub mod ui;
 
 use crate::commands::Ctx;
@@ -20,10 +21,11 @@ use ratatui::DefaultTerminal;
 /// Run the browser. Returns `Ok(None)` when the user quits without saving.
 pub fn run_tui(_ctx: &Ctx, project: &Project, registry: &Registry) -> Result<Option<Selection>> {
     let mut app = App::new(registry, &project.state);
+    let theme = theme::Theme::detect();
     let mut terminal = TerminalGuard::open()?;
 
     loop {
-        terminal.inner.draw(|frame| ui::draw(frame, &app))?;
+        terminal.inner.draw(|frame| ui::draw(frame, &app, &theme))?;
 
         // Resizes and mouse events only mean "draw again"; key releases and
         // repeats would otherwise toggle a row twice on Windows.

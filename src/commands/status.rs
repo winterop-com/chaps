@@ -6,14 +6,14 @@ use crate::cli::StatusArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
-use crate::output::Out;
-use crate::status::{ApiHealth, StatusReport, closing_line, hints, status};
+use crate::output::{Out, PanelKind};
+use crate::status::{ApiHealth, ModelState, StatusReport, closing_line, hints, status};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
 /// What a project with no containers at all is told, instead of a table of
 /// rows that all say the same thing.
-const NOT_RUNNING: &str = "stack is not running; start it with `chaps up`";
+const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
 
 /// Probe the API and print a [`StatusReport`].
 ///
@@ -44,6 +44,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     // where it lives, and a deployment without one reads as `None`. `--url`
     // does not change that: the token belongs to this project either way, and
     // an API that does not want it ignores it.
+    ctx.out.verbose(&format!("asking chap-core at {url}"));
     let token = crate::auth::token_in(&project.dir);
     let report = status(
         &project,
@@ -60,7 +61,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     if never_started {
         // The JSON report is the same document either way; only the human
         // rendering collapses to the one line that matters.
-        ctx.out.emit(&report, || NOT_RUNNING.to_string())?;
+        ctx.out.emit(&report, || not_running(&ctx.out))?;
         std::process::exit(1);
     }
 
@@ -82,24 +83,47 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     }
 }
 
+/// The "nothing here has ever run" line, as a panel on a terminal.
+///
+/// The box is the whole answer in that case, so it is worth drawing; a pipe
+/// still gets the one line it has always parsed.
+fn not_running(out: &Out) -> String {
+    out.panel_or(
+        "Not running",
+        &crate::output::hint_lines(NOT_RUNNING)
+            .iter()
+            .map(|line| out.backticks(line))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        PanelKind::Warning,
+        NOT_RUNNING,
+    )
+}
+
 /// The human rendering: the chap-core line, the model table, then the one
 /// line it adds up to and a hint per model that needs something done.
 fn human(report: &StatusReport, out: &Out) -> String {
     let up = matches!(report.api, ApiHealth::Up { .. });
     let mut text = format!(
-        "chap-core   {}   {}",
-        if up { "up" } else { "down" },
-        report.api_url
+        "{}   {}   {}",
+        out.heading("chap-core"),
+        if up { out.ok("up") } else { out.bad("down") },
+        out.value(&report.api_url)
     );
     let version = report.version.label();
     if !version.is_empty() {
-        text.push_str(&format!("   {version}"));
+        text.push_str(&format!("   {}", out.dim(&version)));
     }
     // Last on the line, always present: "off" is the answer an operator has to
     // be able to see, and a blank space would not say it.
     text.push_str(&format!(
-        "   auth: {}",
-        if report.auth { "on" } else { "off" }
+        "   {} {}",
+        out.dim("auth:"),
+        if report.auth {
+            out.ok("on")
+        } else {
+            out.warn("off")
+        }
     ));
     text.push('\n');
 
@@ -110,9 +134,9 @@ fn human(report: &StatusReport, out: &Out) -> String {
             .map(|m| {
                 vec![
                     m.id.clone(),
-                    m.state.label().to_string(),
-                    dash(&m.reach),
-                    m.last_ping.clone().unwrap_or_else(|| "-".to_string()),
+                    state_cell(out, m.state),
+                    reach_cell(out, &m.reach),
+                    out.dim(&m.last_ping.clone().unwrap_or_else(|| "-".to_string())),
                 ]
             })
             .collect();
@@ -129,19 +153,43 @@ fn human(report: &StatusReport, out: &Out) -> String {
     // The REACH column says `internal` for a model with no host port of its
     // own; the way in is printed once, here, rather than in every row.
     if report.models.iter().any(|m| m.reach == INTERNAL) {
-        text.push_str(&format!(
-            "\ninternal models are reachable through chap-core at {}/v2/services/<id>/run/\n",
+        text.push_str(&out.dim(&format!(
+            "\ninternal models are reachable through chap-core at {}/v2/services/<id>/run/",
             report.api_url
-        ));
+        )));
+        text.push('\n');
     }
 
     text.push('\n');
-    text.push_str(&closing_line(&report.models));
+    // The verdict is the line someone scanning the screen should land on.
+    text.push_str(&out.cmd(&closing_line(&report.models)));
     text.push('\n');
     for hint in hints(&report.models) {
-        text.push_str(&format!("  {hint}\n"));
+        text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
     text
+}
+
+/// The STATE cell, coloured by what the state means for the operator.
+fn state_cell(out: &Out, state: ModelState) -> String {
+    let label = state.label();
+    match state {
+        ModelState::Registered => out.ok(label),
+        ModelState::RunningNotRegistered => out.warn(label),
+        ModelState::NotRunning => out.bad(label),
+        ModelState::Unmanaged => out.dim(label),
+    }
+}
+
+/// The REACH cell: a URL is a thing to click, `internal` is a fact about the
+/// deployment rather than an address.
+fn reach_cell(out: &Out, reach: &str) -> String {
+    let cell = dash(reach);
+    if cell == INTERNAL {
+        out.dim(&cell)
+    } else {
+        cell
+    }
 }
 
 /// The REACH cell of a model that publishes no host port.
@@ -299,7 +347,7 @@ mod tests {
              2 of 3 models are not registered.\n\
              \x20 chapkit-rwanda-malaria-bym-model: restart it with \
              `chaps docker run restart chapkit-rwanda-malaria-bym-model`\n\
-             \x20 auto-arima-chapkit: start the stack with `chaps up`, \
+             \x20 auto-arima-chapkit: start CHAP with `chaps up`, \
              then `chaps logs auto-arima-chapkit`\n"
         );
         // The proxy URL appears once, not once per internal row, and the
@@ -360,10 +408,7 @@ mod tests {
 
     #[test]
     fn the_never_started_line_replaces_the_whole_report() {
-        assert_eq!(
-            NOT_RUNNING,
-            "stack is not running; start it with `chaps up`"
-        );
+        assert_eq!(NOT_RUNNING, "CHAP is not running; start it with `chaps up`");
     }
 
     #[test]

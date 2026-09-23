@@ -258,7 +258,7 @@ The overlay does six things.
   require a shared secret.
 - **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
   else. See [Ports](./ports.md).
-- **Hardening**, matching the posture of the base stack: `init: true`,
+- **Hardening**, matching the posture of the base services: `init: true`,
   `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, an unprivileged
   `user`, a 2 GB tmpfs at `/tmp`, and a named volume for the model's data
   directory (the only writable path besides `/tmp`).

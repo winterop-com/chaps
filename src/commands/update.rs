@@ -15,7 +15,7 @@ use crate::compose::sync::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::compose::{sync, tag_env_var};
 use crate::docker;
 use crate::error::{ChapError, Result};
-use crate::output;
+use crate::output::{self, Out};
 use crate::project::{CHAP_TAG_ENV_VAR, ComposeSource, Project, cached_compose_file};
 use crate::registry::{self, Provenance, Registry, VersionSelector};
 use serde::Serialize;
@@ -135,7 +135,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         dry_run: args.dry_run,
     };
     if args.dry_run {
-        return ctx.out.emit(&report, || human(&report));
+        return ctx.out.emit(&report, || human(&report, &ctx.out));
     }
 
     if report.chap_core.changed {
@@ -162,7 +162,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         run_compose(&project, &["up".to_string(), "-d".to_string()])?;
         report.restarted = true;
     }
-    ctx.out.emit(&report, || human(&report))
+    ctx.out.emit(&report, || human(&report, &ctx.out))
 }
 
 /// Whether any container of this project is up, or `None` when docker could
@@ -293,15 +293,15 @@ fn apply_chap_core(
     match set_env_chap_tag(&project.dir, &update.old_tag, &tag)? {
         EnvTag::Updated | EnvTag::NoFile => {}
         EnvTag::Commented => output::warn(&format!(
-            ".env has {CHAP_TAG_ENV_VAR} commented out, so the stack still follows the compose \
+            ".env has {CHAP_TAG_ENV_VAR} commented out, so CHAP still follows the compose \
              default; set `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),
         EnvTag::Foreign(value) => output::warn(&format!(
             ".env pins {CHAP_TAG_ENV_VAR}={value}, which is yours, not ours; it is left alone, so \
-             the stack keeps running {value} rather than {tag}"
+             CHAP keeps running {value} rather than {tag}"
         )),
         EnvTag::Absent => output::warn(&format!(
-            ".env does not mention {CHAP_TAG_ENV_VAR}, so the stack follows the compose default; \
+            ".env does not mention {CHAP_TAG_ENV_VAR}, so CHAP follows the compose default; \
              add `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),
     }
@@ -361,80 +361,108 @@ fn chap_core_phrase(c: &ChapCoreUpdate, dry_run: bool) -> String {
     }
 }
 
-fn human(report: &UpdateReport) -> String {
+fn human(report: &UpdateReport, out: &Out) -> String {
     let mut text = format!(
-        "registry: {} ({})\n",
+        "{} {} {}\n",
+        out.key("registry:"),
         report.registry.url,
-        report.registry.provenance.describe()
+        out.dim(&format!("({})", report.registry.provenance.describe()))
     );
     if report.models.is_empty() {
-        text.push_str("no models enabled\n");
+        text.push_str(&out.dim("no models enabled"));
+        text.push('\n');
     }
     for m in &report.models {
+        // The new version is the only thing on the line that changed, so it is
+        // the only thing that is coloured.
         let line = if m.pinned {
             format!(
-                "  {}  v{} ({})  pinned, skipped",
-                m.id, m.old_version, m.old_tag
+                "  {}  {}  {}",
+                m.id,
+                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
+                out.dim("pinned, skipped")
             )
         } else if m.changed {
             format!(
-                "  {}  v{} ({}) -> v{} ({})",
-                m.id, m.old_version, m.old_tag, m.new_version, m.new_tag
+                "  {}  {} -> {}",
+                m.id,
+                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
+                out.ok(&format!("v{} ({})", m.new_version, m.new_tag))
             )
         } else {
-            format!("  {}  v{} ({})  unchanged", m.id, m.old_version, m.old_tag)
+            format!(
+                "  {}  {}  {}",
+                m.id,
+                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
+                out.dim("unchanged")
+            )
         };
         text.push_str(&line);
         text.push('\n');
     }
-    text.push_str(&format!("  {}\n", chap_core_line(&report.chap_core)));
+    text.push_str(&format!("  {}\n", chap_core_cell(out, &report.chap_core)));
 
     let changed = report.changed().count();
     if report.dry_run {
-        text.push_str(&format!(
-            "dry run: {changed} model pin(s) would move; {}\n",
+        text.push_str(&out.cmd(&format!(
+            "dry run: {changed} model pin(s) would move; {}",
             chap_core_phrase(&report.chap_core, true)
-        ));
-        text.push_str(&format!("{}\n", stack_line(report)));
-        text.push_str("nothing written\n");
+        )));
+        text.push('\n');
+        text.push_str(&format!("{}\n", out.backticks(&stack_line(report))));
+        text.push_str(&out.dim("nothing written"));
+        text.push('\n');
     } else {
-        text.push_str(&format!(
-            "{changed} model pin(s) moved; {}; images {}\n",
+        text.push_str(&out.cmd(&format!(
+            "{changed} model pin(s) moved; {}; images {}",
             chap_core_phrase(&report.chap_core, false),
             if report.pulled {
                 "pulled"
             } else {
                 "not pulled"
             },
-        ));
-        text.push_str(&format!("{}\n", stack_line(report)));
+        )));
+        text.push('\n');
+        text.push_str(&format!("{}\n", out.backticks(&stack_line(report))));
     }
     text
+}
+
+/// The chap-core row, with the new tag coloured the way a model row's is.
+fn chap_core_cell(out: &Out, change: &ChapCoreUpdate) -> String {
+    let line = chap_core_line(change);
+    if !change.changed {
+        return out.dim(&line);
+    }
+    match line.rsplit_once(" -> ") {
+        Some((head, tail)) => format!("{} -> {}", out.dim(head), out.ok(tail)),
+        None => out.ok(&line),
+    }
 }
 
 /// The closing line: what happened, or would happen, to the stack itself.
 fn stack_line(report: &UpdateReport) -> String {
     match (report.dry_run, report.restart) {
         (true, Restart::Recreate) => {
-            "the stack is running, so the update would recreate the services whose pins moved"
+            "CHAP is running, so the update would recreate the services whose pins moved"
                 .to_string()
         }
         (true, Restart::LeaveStopped) => {
-            "the stack is not running, so the update would leave it stopped; \
-             `chaps up` starts it with the new versions"
+            "CHAP is not running, so the update would leave it stopped; \
+             `chaps up` starts CHAP with the new versions"
                 .to_string()
         }
         (true, Restart::NotAsked) => {
-            "--no-restart: the images would be pulled and the stack left as it is".to_string()
+            "--no-restart: the images would be pulled and CHAP left as it is".to_string()
         }
         (false, Restart::Recreate) => {
             "recreated the services whose pins moved; run `chaps status` to check them".to_string()
         }
         (false, Restart::LeaveStopped) => {
-            "stack is not running; run `chaps up` to start with the new versions".to_string()
+            "CHAP is not running; run `chaps up` to start CHAP with the new versions".to_string()
         }
         (false, Restart::NotAsked) => {
-            "stack not restarted (--no-restart); run `chaps up` to apply the new versions"
+            "CHAP not restarted (--no-restart); run `chaps up` to apply the new versions"
                 .to_string()
         }
     }
@@ -551,7 +579,7 @@ mod tests {
             stack_running: Some(true),
             dry_run: true,
         };
-        let text = human(&report);
+        let text = human(&report, &Out::default());
         assert!(text.starts_with("registry: https://example.test/registry.yaml (network)\n"));
         assert!(text.contains("  a  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
         assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
@@ -562,7 +590,7 @@ mod tests {
             "dry run: 1 model pin(s) would move; chap-core `latest` would be re-pulled\n"
         ));
         assert!(text.contains(
-            "the stack is running, so the update would recreate the services whose pins moved\n"
+            "CHAP is running, so the update would recreate the services whose pins moved\n"
         ));
         assert!(text.ends_with("nothing written\n"));
 
@@ -611,39 +639,44 @@ mod tests {
 
     #[test]
     fn the_closing_line_says_what_happened_to_the_stack() {
-        let text = human(&with_restart(Restart::LeaveStopped, false));
+        let text = human(&with_restart(Restart::LeaveStopped, false), &Out::default());
         assert!(text.contains("0 model pin(s) moved;"), "{text}");
         assert!(
-            text.ends_with("stack is not running; run `chaps up` to start with the new versions\n"),
+            text.ends_with(
+                "CHAP is not running; run `chaps up` to start CHAP with the new versions\n"
+            ),
             "{text}"
         );
         // The old "stack not restarted" clause is gone from the totals line.
         assert!(!text.contains("; stack "), "{text}");
 
-        let text = human(&with_restart(Restart::Recreate, false));
+        let text = human(&with_restart(Restart::Recreate, false), &Out::default());
         assert!(text.ends_with(
             "recreated the services whose pins moved; run `chaps status` to check them\n"
         ));
 
-        let text = human(&with_restart(Restart::NotAsked, false));
+        let text = human(&with_restart(Restart::NotAsked, false), &Out::default());
         assert!(text.ends_with(
-            "stack not restarted (--no-restart); run `chaps up` to apply the new versions\n"
+            "CHAP not restarted (--no-restart); run `chaps up` to apply the new versions\n"
         ));
 
         // A dry run states which of the two it would be.
-        let text = human(&with_restart(Restart::LeaveStopped, true));
+        let text = human(&with_restart(Restart::LeaveStopped, true), &Out::default());
         assert!(text.contains(
-            "the stack is not running, so the update would leave it stopped; \
-             `chaps up` starts it with the new versions\n"
+            "CHAP is not running, so the update would leave it stopped; \
+             `chaps up` starts CHAP with the new versions\n"
         ));
         assert!(text.ends_with("nothing written\n"));
         assert!(
-            human(&with_restart(Restart::NotAsked, true))
-                .contains("--no-restart: the images would be pulled and the stack left as it is\n")
+            human(&with_restart(Restart::NotAsked, true), &Out::default())
+                .contains("--no-restart: the images would be pulled and CHAP left as it is\n")
         );
 
         // No models enabled still says so, before any of this.
-        assert!(human(&with_restart(Restart::Recreate, false)).contains("no models enabled\n"));
+        assert!(
+            human(&with_restart(Restart::Recreate, false), &Out::default())
+                .contains("no models enabled\n")
+        );
     }
 
     /// A [`ChapCoreUpdate`] as `plan_chap_core` would have built it.

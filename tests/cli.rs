@@ -1477,7 +1477,7 @@ fn the_help_says_what_chap_is() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform",
+            "deploy and manage CHAP, the Climate Health Analytics Platform",
         ));
 }
 
@@ -1714,7 +1714,7 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     assert!(text.contains("from   project chapx"));
     assert!(text.contains("files     "));
     assert!(text.contains(".env.before-restore"));
-    assert!(text.contains("the stack was left as it is"));
+    assert!(text.contains("CHAP was left as it is"));
 
     assert_eq!(read(&target.join(".env")), read(&source.join(".env")));
     assert_eq!(read(&target.join(".env.before-restore")), before);
@@ -1925,7 +1925,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "nothing is running for this project; start the stack with `chaps up`",
+            "nothing is running for this project; start CHAP with `chaps up`",
         ));
 
     // The same line for `docker ps`, which is a question, not a failure.
@@ -1958,7 +1958,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "stack is not running; start it with `chaps up`",
+            "CHAP is not running; start it with `chaps up`",
         ));
 }
 
@@ -1974,7 +1974,7 @@ fn up_offers_both_names_for_running_in_the_foreground() {
         .stdout(predicates::str::contains("-a, --attach"))
         .stdout(predicates::str::contains("[alias: --foreground]"))
         .stdout(predicates::str::contains(
-            "Run in the foreground and stream all logs (Ctrl-C stops the stack)",
+            "Run in the foreground and stream all logs (Ctrl-C stops CHAP)",
         ));
 }
 
@@ -2417,4 +2417,139 @@ fn auth_outside_a_project_says_so() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("--no-env"));
+}
+
+#[test]
+fn no_color_is_accepted_everywhere_and_changes_nothing_off_a_terminal() {
+    let sandbox = Sandbox::new();
+    let plain = sandbox
+        .chap()
+        .args(["models", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let asked = sandbox
+        .chap()
+        .args(["--no-color", "models", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        String::from_utf8(plain).expect("utf-8"),
+        String::from_utf8(asked).expect("utf-8"),
+        "piped output is plain either way"
+    );
+
+    // It is global, so it also attaches after the subcommand.
+    sandbox
+        .chap()
+        .args(["models", "list", "--no-color"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn a_chap_core_command_typed_at_chaps_names_the_other_cli() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .chap()
+        .arg("serve")
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("is not a chaps command"))
+        .stderr(predicates::str::contains("chap-core developer CLI"))
+        .stderr(predicates::str::contains("`chap`"))
+        .stderr(predicates::str::contains("chaps --help"));
+
+    // The same for the other commands chap-core publishes.
+    for name in ["evaluate", "forecast", "predict", "harmonize"] {
+        sandbox
+            .chap()
+            .arg(name)
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("chap-core developer CLI"));
+    }
+
+    // Anything that is simply not a command stays clap's business.
+    sandbox
+        .chap()
+        .arg("frobnicate")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("chap-core developer CLI").not());
+}
+
+#[test]
+fn verbose_narrates_on_stderr_and_leaves_stdout_alone() {
+    let sandbox = Sandbox::new();
+    let quiet = sandbox
+        .chap()
+        .args(["models", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let loud = sandbox
+        .chap()
+        .args(["-v", "models", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    assert_eq!(
+        String::from_utf8(quiet).expect("utf-8"),
+        String::from_utf8(loud.stdout).expect("utf-8"),
+        "-v must never reach stdout"
+    );
+    let stderr = String::from_utf8(loud.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("registry:"),
+        "-v says which catalogue was used: {stderr}"
+    );
+    assert!(
+        stderr.contains("embedded") || stderr.contains("cache"),
+        "-v names the source it chose: {stderr}"
+    );
+}
+
+#[test]
+fn debug_implies_verbose_and_adds_the_resolved_project() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let out = sandbox
+        .chap()
+        .arg("-d")
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["sync", "--check"])
+        .assert()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(out).expect("utf-8 stderr");
+    // -v's half: the files the sync compared.
+    assert!(stderr.contains("compared"), "{stderr}");
+    // -d's own half: where the state it read actually lives.
+    assert!(stderr.contains("project:"), "{stderr}");
+    assert!(stderr.contains(".chaps/project.yaml"), "{stderr}");
+
+    // The long spellings do the same.
+    sandbox
+        .chap()
+        .arg("--debug")
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["sync", "--check"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("compared"));
 }

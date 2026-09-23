@@ -125,21 +125,57 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
-/// The one-line key bar under the list.
-pub fn keybar(mode: Mode) -> &'static str {
+/// The one-line key bar under the list, as `(keys, what they do)` so the
+/// renderer can give the keys themselves a colour of their own.
+pub fn keybar_entries(mode: Mode) -> &'static [(&'static str, &'static str)] {
     match mode {
-        Mode::Browse => {
-            "j/k move   space toggle   p port   v channel   t templates   / filter   s save   ? help   q quit"
-        }
-        Mode::Filter => "type to filter   Enter keep   Esc clear",
-        Mode::ConfirmQuit => "y discard the changes and quit   n keep editing",
-        Mode::Help => "? or Esc closes this help",
+        Mode::Browse => &[
+            ("j/k", "move"),
+            ("space", "toggle"),
+            ("p", "port"),
+            ("v", "channel"),
+            ("t", "templates"),
+            ("/", "filter"),
+            ("s", "save"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
+        Mode::Filter => &[("type", "to filter"), ("Enter", "keep"), ("Esc", "clear")],
+        Mode::ConfirmQuit => &[("y", "discard the changes and quit"), ("n", "keep editing")],
+        Mode::Help => &[("? or Esc", "closes this help")],
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The key bar as one line, the way it reads on screen.
+    fn keybar(mode: Mode) -> String {
+        keybar_entries(mode)
+            .iter()
+            .map(|(key, what)| format!("{key} {what}"))
+            .collect::<Vec<String>>()
+            .join("   ")
+    }
+
+    #[test]
+    fn every_mode_has_a_key_bar_that_names_its_way_out() {
+        assert_eq!(
+            keybar(Mode::Browse),
+            "j/k move   space toggle   p port   v channel   t templates   \
+             / filter   s save   ? help   q quit"
+        );
+        assert_eq!(
+            keybar(Mode::Filter),
+            "type to filter   Enter keep   Esc clear"
+        );
+        assert_eq!(
+            keybar(Mode::ConfirmQuit),
+            "y discard the changes and quit   n keep editing"
+        );
+        assert_eq!(keybar(Mode::Help), "? or Esc closes this help");
+    }
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)

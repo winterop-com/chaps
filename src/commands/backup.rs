@@ -16,7 +16,7 @@ use crate::commands::Ctx;
 use crate::compose::volume_name;
 use crate::docker;
 use crate::error::Result;
-use crate::output;
+use crate::output::{self, Out};
 use crate::project::{ENV_FILE, Project};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -98,7 +98,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         path: out,
         manifest,
     };
-    ctx.out.emit(&report, || human(&report))
+    ctx.out.emit(&report, || human(&report, &ctx.out))
 }
 
 /// Where the archive lands, as an absolute path.
@@ -272,50 +272,67 @@ fn compose_run(service: &str, cmd: &[&str]) -> Vec<String> {
 }
 
 /// What went in, with sizes, and where it landed.
-fn human(report: &BackupReport) -> String {
+fn human(report: &BackupReport, out: &Out) -> String {
     let manifest = &report.manifest;
     let content = manifest.content_bytes();
     let mut text = format!(
-        "backup  {}  ({} gzipped, {} of data)\n\n",
-        report.path.display(),
-        backup::human_size(report.size_bytes),
-        backup::human_size(content)
+        "{}  {}  {}\n\n",
+        out.heading("backup"),
+        out.value(&report.path.display().to_string()),
+        out.dim(&format!(
+            "({} gzipped, {} of data)",
+            backup::human_size(report.size_bytes),
+            backup::human_size(content)
+        ))
     );
 
-    text.push_str("included\n");
+    text.push_str(&format!("{}\n", out.heading("included")));
     if manifest.files.is_empty() {
-        text.push_str("  files     none\n");
+        text.push_str(&format!("  {}     {}\n", out.key("files"), out.dim("none")));
     } else {
         text.push_str(&format!(
-            "  files     {} file(s): {}\n",
-            manifest.files.len(),
-            manifest.files.join(", ")
+            "  {}     {} {}\n",
+            out.key("files"),
+            format_args!("{} file(s):", manifest.files.len()),
+            out.dim(&manifest.files.join(", "))
         ));
     }
     match &manifest.database {
         Some(db) => text.push_str(&format!(
-            "  database  {} as {} ({}){}\n",
+            "  {}  {} as {} {}\n",
+            out.key("database"),
             db.name,
             db.user,
-            backup::human_size(db.size_bytes),
-            db.server_version
-                .as_deref()
-                .map(|v| format!(", PostgreSQL {v}"))
-                .unwrap_or_default()
+            out.dim(&format!(
+                "({}){}",
+                backup::human_size(db.size_bytes),
+                db.server_version
+                    .as_deref()
+                    .map(|v| format!(", PostgreSQL {v}"))
+                    .unwrap_or_default()
+            ))
         )),
-        None => text.push_str("  database  not included (--no-db)\n"),
+        None => text.push_str(&format!(
+            "  {}  {}\n",
+            out.key("database"),
+            out.dim("not included (--no-db)")
+        )),
     }
     let captured: Vec<&ManifestModel> = manifest.captured_models().collect();
     if captured.is_empty() {
-        text.push_str("  models    none\n");
+        text.push_str(&format!("  {}    {}\n", out.key("models"), out.dim("none")));
     } else {
         for (i, model) in captured.iter().enumerate() {
-            let label = if i == 0 { "  models  " } else { "          " };
+            let label = if i == 0 {
+                format!("  {}  ", out.key("models"))
+            } else {
+                "          ".to_string()
+            };
             text.push_str(&format!(
-                "{label}  {}  {}  ({})\n",
+                "{label}  {}  {}  {}\n",
                 model.service_id,
                 model.data_dir,
-                backup::human_size(model.size_bytes)
+                out.dim(&format!("({})", backup::human_size(model.size_bytes)))
             ));
         }
     }
@@ -326,12 +343,12 @@ fn human(report: &BackupReport) -> String {
         .filter(|m| m.skipped.is_some())
         .collect();
     if !skipped.is_empty() {
-        text.push_str("\nskipped\n");
+        text.push_str(&format!("\n{}\n", out.heading("skipped")));
         for model in skipped {
             text.push_str(&format!(
                 "  {}  {}\n",
                 model.service_id,
-                model.skipped.as_deref().unwrap_or_default()
+                out.warn(model.skipped.as_deref().unwrap_or_default())
             ));
         }
     }
@@ -384,7 +401,10 @@ mod tests {
 
     #[test]
     fn the_human_output_lists_every_part_with_its_size() {
-        let text = human(&report(true, vec![model("chapkit-ewars-model", None)]));
+        let text = human(
+            &report(true, vec![model("chapkit-ewars-model", None)]),
+            &Out::default(),
+        );
         assert!(text.starts_with(
             "backup  /backups/chaps-backup-e2e-20260923-071000.tar.gz  \
              (5.0 MB gzipped, 42.0 KB of data)\n"
@@ -397,10 +417,13 @@ mod tests {
 
     #[test]
     fn what_was_left_out_is_said_out_loud() {
-        let text = human(&report(
-            false,
-            vec![model("auto-arima-chapkit", Some("no volume yet"))],
-        ));
+        let text = human(
+            &report(
+                false,
+                vec![model("auto-arima-chapkit", Some("no volume yet"))],
+            ),
+            &Out::default(),
+        );
         assert!(text.contains("database  not included (--no-db)"));
         assert!(text.contains("models    none"));
         assert!(text.contains("skipped\n  auto-arima-chapkit  no volume yet"));

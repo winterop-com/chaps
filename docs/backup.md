@@ -46,7 +46,7 @@ existing directory to put it in.
 
 PostgreSQL has to be running for the database part, because the dump goes
 through `docker compose exec`; when it is not, the command stops and says to
-start the stack or pass `--no-db`.
+start CHAP or pass `--no-db`.
 
 Model data is read through each overlay's one-shot `<service_id>-init`
 container, which mounts the same named volume at the same path as the model
@@ -73,7 +73,7 @@ plan has been printed and confirmed.
 Then, in order:
 
 1. `docker compose stop chap worker <models>`, only the services that are
-   actually running, so a stopped stack is not woken up to be stopped,
+   actually running, so nothing is woken up just to be stopped,
 2. the files go back over the project directory, and `chaps sync` re-renders
    the compose files from the `.chaps/` that just arrived. A `.env` that differs
    from the one in the archive is kept as `.env.before-restore`,

@@ -147,7 +147,7 @@ pub fn busy_line(claim: &PortClaim, suggestion: Option<u16>) -> String {
 /// The whole message `chaps up` fails with when a port it needs is taken.
 pub fn preflight_message(busy: &[PortClaim], suggestion: Option<u16>) -> String {
     let mut out = format!(
-        "{} host port{} the stack needs {} already in use; nothing was started\n",
+        "{} host port{} CHAP needs {} already in use; nothing was started\n",
         busy.len(),
         if busy.len() == 1 { "" } else { "s" },
         if busy.len() == 1 { "is" } else { "are" },
@@ -364,9 +364,7 @@ mod tests {
             }],
             Some(8001),
         );
-        assert!(
-            one.starts_with("1 host port the stack needs is already in use; nothing was started\n")
-        );
+        assert!(one.starts_with("1 host port CHAP needs is already in use; nothing was started\n"));
         assert!(one.ends_with("or run `chaps up --no-preflight` to hand the conflict to Docker"));
 
         let two = preflight_message(
@@ -382,7 +380,7 @@ mod tests {
             ],
             None,
         );
-        assert!(two.starts_with("2 host ports the stack needs are already in use"));
+        assert!(two.starts_with("2 host ports CHAP needs are already in use"));
         assert_eq!(two.lines().count(), 4);
         assert!(two.contains("\n  port 5001 is already in use"));
     }

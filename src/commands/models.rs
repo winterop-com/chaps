@@ -87,7 +87,8 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
             // `--enabled` with nothing to show is a different fact from a
             // filter that matched nothing, and has an obvious next step.
             return if args.enabled {
-                "no models enabled; run `chaps models enable ID` to add one".to_string()
+                ctx.out
+                    .backticks("no models enabled; run `chaps models enable ID` to add one")
             } else {
                 "no models match".to_string()
             };
@@ -95,7 +96,7 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
         format!(
             "{}\n{}\n",
             table(&ctx.out, &rows, with_kind),
-            counted(&rows, project.is_some())
+            ctx.out.backticks(&counted(&rows, project.is_some()))
         )
     })
 }
@@ -115,10 +116,9 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
         if rows.is_empty() {
             return format!("no model matches `{}`", args.query);
         }
-        format!(
-            // A search can turn up templates, so their kind is always shown.
-            "{}\n{} {} `{}`{}\n",
-            table(&ctx.out, &rows, true),
+        // A search can turn up templates, so their kind is always shown.
+        let closing = format!(
+            "{} {} `{}`{}",
             rows.len(),
             if rows.len() == 1 {
                 "model matches"
@@ -127,6 +127,11 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
             },
             args.query,
             enabled_clause(&rows, project.is_some())
+        );
+        format!(
+            "{}\n{}\n",
+            table(&ctx.out, &rows, true),
+            ctx.out.backticks(&closing)
         )
     })
 }
@@ -225,13 +230,13 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
                 r.id.clone(),
                 r.service_id.clone(),
                 r.display_name.clone(),
-                status_label(r.assessed_status).to_string(),
+                status_cell(out, r.assessed_status),
                 r.stable.clone(),
-                r.latest.clone(),
-                enabled_cell(r),
+                out.dim(&r.latest),
+                enabled_cell(out, r),
             ];
             if with_kind {
-                cells.push(kind_label(r.kind).to_string());
+                cells.push(out.dim(kind_label(r.kind)));
             }
             cells
         })
@@ -241,11 +246,35 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
 
 /// The ENABLED cell: the host port when the model publishes one, `internal`
 /// when it is enabled without one, and a dash when it is not enabled at all.
-fn enabled_cell(row: &ModelRow) -> String {
+fn enabled_cell(out: &Out, row: &ModelRow) -> String {
     match (row.enabled, row.enabled_port) {
-        (_, Some(port)) => port.to_string(),
-        (true, None) => "internal".to_string(),
-        (false, None) => "-".to_string(),
+        (_, Some(port)) => out.key(&port.to_string()),
+        (true, None) => out.dim("internal"),
+        (false, None) => out.dim("-"),
+    }
+}
+
+/// The STATUS cell, painted the colour the marketplace assessment means.
+fn status_cell(out: &Out, status: AssessedStatus) -> String {
+    let label = status_label(status);
+    match status {
+        AssessedStatus::Green => out.ok(label),
+        // There is no orange in the 16-colour palette, and a half-verified
+        // model is the same kind of "look before you run it" as a yellow one.
+        AssessedStatus::Yellow | AssessedStatus::Orange => out.warn(label),
+        AssessedStatus::Red => out.bad(label),
+        AssessedStatus::Gray => out.dim(label),
+    }
+}
+
+/// The STATUS cell of one version in `models info`.
+fn version_status_cell(out: &Out, status: VersionStatus) -> String {
+    let label = version_status_label(status);
+    match status {
+        VersionStatus::Verified => out.ok(label),
+        VersionStatus::Unstable => out.warn(label),
+        VersionStatus::Deprecated => out.warn(label),
+        VersionStatus::Yanked => out.bad(label),
     }
 }
 
@@ -282,7 +311,7 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         yes_no(m.covariates.allow_free_additional)
     ));
 
-    let fields = output::fields(
+    let fields = output::fields_with(
         2,
         &[
             ("id", m.id.clone()),
@@ -320,9 +349,10 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
             ("maintainers", m.maintainers.join(", ")),
             ("attribution", attribution),
         ],
+        &|label| out.dim(label),
     );
 
-    let mut text = format!("{}\n\n{fields}", m.display_name);
+    let mut text = format!("{}\n\n{fields}", out.heading(&m.display_name));
 
     let versions: Vec<Vec<String>> = m
         .versions
@@ -330,15 +360,15 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         .map(|v| {
             vec![
                 v.version.clone(),
-                v.image_tag.clone(),
-                version_status_label(v.status).to_string(),
+                out.dim(&v.image_tag),
+                version_status_cell(out, v.status),
                 v.chapkit.clone(),
-                first_line(v.changelog.as_deref()),
+                out.dim(&first_line(v.changelog.as_deref())),
             ]
         })
         .collect();
     if !versions.is_empty() {
-        text.push_str("\nversions\n");
+        text.push_str(&format!("\n{}\n", out.heading("versions")));
         text.push_str(&indent_block(
             &out.table(
                 &["VERSION", "IMAGE TAG", "STATUS", "CHAPKIT", "CHANGELOG"],
@@ -349,9 +379,9 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
     }
 
     if !m.configurations.is_empty() {
-        text.push_str("\nconfigurations\n");
+        text.push_str(&format!("\n{}\n", out.heading("configurations")));
         for (name, cfg) in &m.configurations {
-            text.push_str(&format!("  {name}\n"));
+            text.push_str(&format!("  {}\n", out.cmd(name)));
             if let Some(description) = &cfg.description {
                 text.push_str(&indent_block(&output::wrapped(description, DETAIL_WRAP), 4));
             }
@@ -362,8 +392,8 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
     }
 
     if let Some(enabled) = detail.enabled {
-        text.push_str("\nenabled in this project\n");
-        text.push_str(&output::fields(
+        text.push_str(&format!("\n{}\n", out.heading("enabled in this project")));
+        text.push_str(&output::fields_with(
             2,
             &[
                 (
@@ -388,19 +418,26 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
                 ("image", format!("{}:{}", enabled.image, enabled.image_tag)),
                 ("overlay", enabled.compose_file.clone()),
             ],
+            &|label| out.dim(label),
         ));
     } else if detail.in_project {
         // The absence of the block above is easy to miss, and the next step
         // is the whole reason anyone reads this page.
         text.push_str(&format!(
-            "\nnot enabled in this project; enable it with `chaps models enable {}`\n",
-            m.id
+            "\n{}\n",
+            out.backticks(&format!(
+                "not enabled in this project; enable it with `chaps models enable {}`",
+                m.id
+            ))
         ));
     } else {
         text.push_str(&format!(
-            "\nnot in a deployment directory; `chaps init` creates one, \
-             then `chaps models enable {}`\n",
-            m.id
+            "\n{}\n",
+            out.backticks(&format!(
+                "not in a deployment directory; `chaps init` creates one, \
+                 then `chaps models enable {}`",
+                m.id
+            ))
         ));
     }
 
@@ -522,7 +559,7 @@ mod tests {
         assert_eq!(r.latest, m.channels.latest);
         assert_eq!(r.enabled_port, None);
         assert!(!r.enabled);
-        assert_eq!(enabled_cell(&r), "-");
+        assert_eq!(enabled_cell(&Out::default(), &r), "-");
         assert!(
             r.image.starts_with(&format!("{}:", m.source.image)),
             "{} should be a tagged reference",
@@ -535,13 +572,13 @@ mod tests {
         let r = row(&model("chapkit_ewars_model"), Some(&enabled()));
         assert!(r.enabled);
         assert_eq!(r.enabled_port, Some(5001));
-        assert_eq!(enabled_cell(&r), "5001");
+        assert_eq!(enabled_cell(&Out::default(), &r), "5001");
 
         // Enabled without a port: `internal`, not a dash.
         let r = row(&model("chapkit_ewars_model"), Some(&enabled_on(None)));
         assert!(r.enabled);
         assert_eq!(r.enabled_port, None);
-        assert_eq!(enabled_cell(&r), "internal");
+        assert_eq!(enabled_cell(&Out::default(), &r), "internal");
     }
 
     #[test]

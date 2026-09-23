@@ -1,104 +1,129 @@
-//! TUI rendering: header, model list, details pane, key bar.
+//! TUI rendering: title bar, marketplace list, details pane, key bar.
 //!
 //! Owned by agent C.
 //!
 //! Drawing never mutates the [`App`]: everything on screen is derived from the
-//! state the reducer produced. The layout degrades on narrow terminals by
-//! dropping columns rather than wrapping or panicking.
+//! state the reducer produced, and every colour comes from the [`Theme`]. The
+//! layout degrades on narrow terminals by dropping columns rather than
+//! wrapping or panicking.
 
-use crate::registry::{AssessedStatus, Channel, Version, VersionStatus};
+use crate::registry::{Channel, Version, VersionStatus};
 use crate::tui::app::{App, Mode, Row};
 use crate::tui::keys;
+use crate::tui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
+
+/// The label column in the details pane.
+const LABEL_WIDTH: usize = 12;
 
 /// Draw one frame.
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
     if area.width == 0 || area.height == 0 {
         return;
     }
 
-    let [header_area, body_area, footer_area] = Layout::vertical([
-        Constraint::Length(2),
+    let [title_area, body_area, footer_area] = Layout::vertical([
+        Constraint::Length(1),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
     .areas(area);
 
-    draw_header(frame, header_area, app);
+    draw_title(frame, title_area, app, theme);
 
     let [list_area, details_area] =
         Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
             .areas(body_area);
-    draw_list(frame, list_area, app);
-    draw_details(frame, details_area, app);
+    draw_list(frame, list_area, app, theme);
+    draw_details(frame, details_area, app, theme);
 
-    draw_footer(frame, footer_area, app);
+    draw_footer(frame, footer_area, app, theme);
 
     match app.mode {
-        Mode::Help => draw_help(frame, area),
-        Mode::ConfirmQuit => draw_confirm(frame, area),
+        Mode::Help => draw_help(frame, area, theme),
+        Mode::ConfirmQuit => draw_confirm(frame, area, theme),
         _ => {}
     }
 }
 
-fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
+/// `chaps · models` on the left, where the catalogue came from and how big it
+/// is on the right. Both halves shrink out of the way before they collide.
+fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if area.height == 0 {
         return;
     }
     let counts = app.counts();
-    let title = Line::from(vec![
-        Span::styled(
-            "chaps models",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+    let left = vec![
+        Span::styled("chaps", theme.accent_style()),
+        Span::styled(" · ", theme.dim_style()),
+        Span::styled("models", theme.label_style()),
+    ];
+
+    let provenance = Span::styled(
+        format!("registry: {}", app.registry.provenance.label()),
+        theme.dim_style(),
+    );
+    let totals = Span::styled(
+        format!("{} models, {} enabled, ", counts.total, counts.enabled),
+        theme.dim_style(),
+    );
+    let pending = Span::styled(
+        format!(
+            "{} pending change{}",
+            counts.pending,
+            plural(counts.pending)
         ),
-        Span::raw("   "),
-        Span::styled(
-            format!("registry: {}", app.registry.provenance.label()),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
-    let summary = Line::from(vec![
-        Span::raw(format!(
-            "{} models, {} enabled, ",
-            counts.total, counts.enabled
-        )),
-        Span::styled(
-            format!(
-                "{} pending change{}",
-                counts.pending,
-                plural(counts.pending)
-            ),
-            if counts.pending > 0 {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            },
-        ),
-    ]);
-    frame.render_widget(Paragraph::new(vec![title, summary]), area);
+        if counts.pending > 0 {
+            theme.warn_style()
+        } else {
+            theme.dim_style()
+        },
+    );
+
+    // Widest right-hand side that still fits, then the next widest, then none.
+    let gap = Span::raw("   ");
+    let full = vec![
+        provenance.clone(),
+        gap.clone(),
+        totals.clone(),
+        pending.clone(),
+    ];
+    let just_counts = vec![totals, pending];
+    let just_registry = vec![provenance];
+    let room = area.width as usize - width_of(&left).min(area.width as usize);
+    let right = [full, just_counts, just_registry]
+        .into_iter()
+        .find(|spans| width_of(spans) + 2 <= room)
+        .unwrap_or_default();
+
+    let mut spans = left;
+    if !right.is_empty() {
+        let pad = area.width as usize - width_of(&spans) - width_of(&right);
+        spans.push(Span::raw(" ".repeat(pad)));
+        spans.extend(right);
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
-    let block = Block::bordered().title(" models ");
+fn draw_list(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    // The list is the only thing the keys act on, so it always holds focus.
+    let block = pane(theme, "Marketplace", true);
     let inner_width = area.width.saturating_sub(2);
 
     let items: Vec<ListItem> = app
         .visible
         .iter()
-        .map(|row_idx| ListItem::new(row_line(app, &app.rows[*row_idx], inner_width)))
+        .map(|row_idx| ListItem::new(row_line(app, &app.rows[*row_idx], inner_width, theme)))
         .collect();
 
     let list = List::new(items)
         .block(block)
-        .highlight_symbol("> ")
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        .highlight_symbol("▸ ")
+        .highlight_style(theme.selection_style());
 
     let mut state = ListState::default();
     if !app.visible.is_empty() {
@@ -107,11 +132,11 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// One list line: `[x] Display Name   id   status   vX.Y.Z   :port`.
+/// One list line: `✓ Display Name   id   status   vX.Y.Z   :port`.
 ///
-/// Columns drop off from the right as the pane narrows, so the checkbox and
-/// the name are always readable.
-fn row_line<'a>(app: &App, row: &Row, width: u16) -> Line<'a> {
+/// Columns drop off from the right as the pane narrows, so the mark and the
+/// name are always readable.
+fn row_line<'a>(app: &App, row: &Row, width: u16, theme: &Theme) -> Line<'a> {
     let model = app.model(row);
     // Two columns go to the highlight symbol. The remaining columns switch on
     // in the order they become affordable, so nothing important is cut off.
@@ -120,36 +145,35 @@ fn row_line<'a>(app: &App, row: &Row, width: u16) -> Line<'a> {
     let show_status = width >= 49;
     let show_id = width >= 80;
 
+    // What the row will be, against what the project has on disk: a change
+    // nobody has saved yet is the thing to see first.
+    let (mark, mark_style) = match (app.recorded(row).is_some(), row.enabled) {
+        (false, true) => ("+", theme.warn_style()),
+        (true, false) => ("-", theme.warn_style()),
+        (_, true) => ("✓", theme.ok_style()),
+        (_, false) => ("·", theme.dim_style()),
+    };
+
     let mut spans = vec![
-        Span::styled(
-            if row.enabled { "[x] " } else { "[ ] " },
-            if row.enabled {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            },
-        ),
+        Span::styled(format!("{mark} "), mark_style),
         Span::raw(fit(&model.display_name, 22)),
     ];
     // The marker comes before the optional columns: a template must be
     // recognisable even in a pane too narrow for anything else.
     if model.is_template() {
-        spans.push(Span::styled(
-            " [template]",
-            Style::default().fg(Color::Magenta),
-        ));
+        spans.push(Span::styled(" [template]", theme.dim_style()));
     }
     if show_id {
         spans.push(Span::styled(
             format!(" {}", fit(&model.id, 30)),
-            Style::default().fg(Color::DarkGray),
+            theme.dim_style(),
         ));
     }
     if show_status {
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
             fit(status_label(model.assessed_status), 7),
-            status_style(model.assessed_status),
+            theme.status_style(model.assessed_status),
         ));
     }
     if show_version {
@@ -157,28 +181,35 @@ fn row_line<'a>(app: &App, row: &Row, width: u16) -> Line<'a> {
             .resolved(row)
             .map(|v| format!("v{}", v.version))
             .unwrap_or_else(|| "-".to_string());
-        spans.push(Span::raw(format!(" {}", fit(&version, 8))));
+        spans.push(Span::styled(
+            format!(" {}", fit(&version, 8)),
+            theme.dim_style(),
+        ));
     }
     // Enabled rows say how they are reached: their own host port, or that they
     // are only on the compose network. It follows the pending publish flag, so
     // pressing `p` is visible before saving - the port itself is only picked
     // when the selection is applied, hence `:auto`.
     if row.enabled {
-        let (text, colour) = match (row.publish, row.port) {
-            (true, Some(port)) => (format!(" :{port}"), Color::Blue),
-            (true, None) => (" :auto".to_string(), Color::Yellow),
-            (false, _) => (" internal".to_string(), Color::DarkGray),
+        let (text, style) = match (row.publish, row.port) {
+            (true, Some(port)) => (format!(" :{port}"), theme.accent_style()),
+            (true, None) => (" :auto".to_string(), theme.warn_style()),
+            (false, _) => (" internal".to_string(), theme.dim_style()),
         };
-        spans.push(Span::styled(text, Style::default().fg(colour)));
+        spans.push(Span::styled(text, style));
     }
     Line::from(spans)
 }
 
-fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
-    let block = Block::bordered().title(" details ");
+fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let block = pane(theme, "Details", false);
     let Some(row) = app.selected() else {
         frame.render_widget(
-            Paragraph::new("nothing matches this filter").block(block),
+            Paragraph::new(Span::styled(
+                "nothing matches this filter",
+                theme.dim_style(),
+            ))
+            .block(block),
             area,
         );
         return;
@@ -189,11 +220,11 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
 
     lines.push(Line::from(Span::styled(
         model.display_name.clone(),
-        Style::default().add_modifier(Modifier::BOLD),
+        theme.accent_style(),
     )));
     lines.push(Line::from(Span::styled(
         model.id.clone(),
-        Style::default().fg(Color::DarkGray),
+        theme.dim_style(),
     )));
 
     // What this project already runs outranks the catalogue blurb: a short
@@ -202,9 +233,10 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
             "enabled in this project",
-            Style::default().fg(Color::Green),
+            theme.ok_style(),
         )));
         lines.push(field(
+            theme,
             "reach",
             &match recorded.host_port {
                 Some(port) => format!("http://localhost:{port}"),
@@ -212,46 +244,58 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
             },
         ));
         lines.push(field(
+            theme,
             "pinned",
             &format!("{} ({})", recorded.version, recorded.image_tag),
         ));
-        lines.push(field("data dir", &recorded.data_dir));
-        lines.push(field("user", &recorded.user));
+        lines.push(field(theme, "data dir", &recorded.data_dir));
+        lines.push(field(theme, "user", &recorded.user));
     }
 
     lines.push(Line::raw(""));
     lines.push(Line::raw(model.summary.clone()));
     lines.push(Line::raw(""));
 
-    lines.push(field(
-        "kind",
-        if model.is_template() {
-            "template (scaffolding, not a forecasting model)"
-        } else {
-            "model"
-        },
-    ));
+    // A template is not a forecasting model, and the pane says so in a colour
+    // that is neither "good" nor "bad", just different.
     lines.push(Line::from(vec![
-        Span::styled("status      ", Style::default().fg(Color::DarkGray)),
+        Span::styled(fit("kind", LABEL_WIDTH), theme.label_style()),
+        if model.is_template() {
+            Span::styled(
+                "template (scaffolding, not a forecasting model)",
+                theme.template_style(),
+            )
+        } else {
+            Span::raw("model")
+        },
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(fit("status", LABEL_WIDTH), theme.label_style()),
         Span::styled(
             status_label(model.assessed_status).to_string(),
-            status_style(model.assessed_status),
+            theme.status_style(model.assessed_status),
         ),
     ]));
-    lines.push(field("channel", channel_label(row.channel)));
+    lines.push(field(theme, "channel", channel_label(row.channel)));
 
     match app.resolved(row) {
         Some(version) => {
             lines.push(field(
+                theme,
                 "image",
                 &format!("{}:{}", model.source.image, version.image_tag),
             ));
             lines.push(field(
+                theme,
                 "version",
                 &format!("{} ({})", version.version, version_status(version)),
             ));
         }
-        None => lines.push(field("image", "unresolved: this channel has no version")),
+        None => lines.push(field(
+            theme,
+            "image",
+            "unresolved: this channel has no version",
+        )),
     }
 
     let runtime = if model.needs_amd64() {
@@ -259,12 +303,14 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         model.source.runtime_image.clone()
     };
-    lines.push(field("runtime", &runtime));
+    lines.push(field(theme, "runtime", &runtime));
     lines.push(field(
+        theme,
         "periods",
         &model.compatibility.period_types.join(", "),
     ));
     lines.push(field(
+        theme,
         "horizon",
         &format!(
             "{} to {} periods",
@@ -272,6 +318,7 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
         ),
     ));
     lines.push(field(
+        theme,
         "geo",
         if model.compatibility.requires_geo {
             "polygons required"
@@ -280,16 +327,18 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
         },
     ));
     lines.push(field(
+        theme,
         "covariates",
         &list_or_dash(&model.covariates.required),
     ));
-    lines.push(field("defaults", &list_or_dash(&model.covariates.defaults)));
+    lines.push(field(
+        theme,
+        "defaults",
+        &list_or_dash(&model.covariates.defaults),
+    ));
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(
-        "versions",
-        Style::default().fg(Color::DarkGray),
-    )));
+    lines.push(Line::from(Span::styled("versions", theme.label_style())));
     for version in &model.versions {
         let mut marks: Vec<&str> = Vec::new();
         if version.version == model.channels.stable {
@@ -307,17 +356,17 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw(format!("  {}  ", fit(&version.version, 10))),
             Span::styled(
                 fit(version_status(version), 10),
-                version_style(version.status),
+                theme.version_style(version.status),
             ),
-            Span::styled(marker, Style::default().fg(Color::Cyan)),
+            Span::styled(marker, theme.accent_style()),
         ]));
     }
 
     if !model.maintainers.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(field("maintainers", &model.maintainers.join(", ")));
+        lines.push(field(theme, "maintainers", &model.maintainers.join(", ")));
     }
-    lines.push(field("author", &model.attribution.author));
+    lines.push(field(theme, "author", &model.attribution.author));
 
     frame.render_widget(
         Paragraph::new(lines)
@@ -327,48 +376,52 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App) {
     );
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if area.height == 0 {
         return;
     }
     let line = if let Some(message) = &app.message {
-        Line::from(Span::styled(
-            format!(" {message}"),
-            Style::default().fg(Color::Yellow),
-        ))
+        Line::from(Span::styled(format!(" {message}"), theme.warn_style()))
     } else if app.mode == Mode::Filter {
-        Line::from(vec![
-            Span::styled(" filter: ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                app.filter.clone(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("_   ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                keys::keybar(Mode::Filter).to_string(),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ])
+        let mut spans = vec![
+            Span::styled(" filter: ", theme.accent_style()),
+            Span::styled(app.filter.clone(), theme.label_style()),
+            Span::styled("_   ", theme.accent_style()),
+        ];
+        spans.extend(keybar(Mode::Filter, theme));
+        Line::from(spans)
     } else {
         let mut spans = Vec::new();
         if !app.filter.is_empty() {
             spans.push(Span::styled(
                 format!(" filter: {}  ", app.filter),
-                Style::default().fg(Color::Cyan),
+                theme.accent_style(),
             ));
         } else {
             spans.push(Span::raw(" "));
         }
-        spans.push(Span::styled(
-            keys::keybar(app.mode).to_string(),
-            Style::default().fg(Color::DarkGray),
-        ));
+        spans.extend(keybar(app.mode, theme));
         Line::from(spans)
     };
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn draw_help(frame: &mut Frame, area: Rect) {
+/// The key bar for a mode: the keys themselves in the accent, what they do in
+/// the quiet colour, so the line reads as keys first.
+fn keybar<'a>(mode: Mode, theme: &Theme) -> Vec<Span<'a>> {
+    let mut spans = Vec::new();
+    for (i, (key, what)) in keys::keybar_entries(mode).iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("   "));
+        }
+        spans.push(Span::styled((*key).to_string(), theme.accent_style()));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled((*what).to_string(), theme.dim_style()));
+    }
+    spans
+}
+
+fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
     let entries = keys::help_entries();
     let width = 52u16;
     let height = entries.len() as u16 + 2;
@@ -378,38 +431,48 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         .iter()
         .map(|&(key, what)| {
             Line::from(vec![
-                Span::styled(
-                    format!(" {}", fit(key, 20)),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::raw(what.to_string()),
+                Span::styled(format!(" {}", fit(key, 20)), theme.accent_style()),
+                Span::styled(what.to_string(), theme.dim_style()),
             ])
         })
         .collect();
 
     frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(" keys ")),
-        popup,
-    );
+    frame.render_widget(Paragraph::new(lines).block(overlay(theme, "Keys")), popup);
 }
 
-fn draw_confirm(frame: &mut Frame, area: Rect) {
+fn draw_confirm(frame: &mut Frame, area: Rect, theme: &Theme) {
     let popup = centered(area, 46, 4);
     let lines = vec![
-        Line::raw(" There are unsaved changes."),
+        Line::from(Span::styled(
+            " There are unsaved changes.",
+            theme.warn_style(),
+        )),
         Line::from(vec![
             Span::raw(" Quit anyway? "),
-            Span::styled("y", Style::default().fg(Color::Red)),
+            Span::styled("y", theme.bad_style()),
             Span::raw(" / "),
-            Span::styled("n", Style::default().fg(Color::Green)),
+            Span::styled("n", theme.ok_style()),
         ]),
     ];
     frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(" quit ")),
-        popup,
-    );
+    frame.render_widget(Paragraph::new(lines).block(overlay(theme, "Quit")), popup);
+}
+
+/// A pane: rounded border, a title that follows the border's colour.
+fn pane<'a>(theme: &Theme, title: &'a str, focused: bool) -> Block<'a> {
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border_style(focused))
+        .title(Span::styled(
+            format!(" {title} "),
+            theme.pane_title_style(focused),
+        ))
+}
+
+/// An overlay: the same shape as a pane, always in the accent.
+fn overlay<'a>(theme: &Theme, title: &'a str) -> Block<'a> {
+    pane(theme, title, true)
 }
 
 /// A centred rectangle that never leaves `area`, whatever the terminal size.
@@ -424,11 +487,16 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
-fn field<'a>(label: &str, value: &str) -> Line<'a> {
+fn field<'a>(theme: &Theme, label: &str, value: &str) -> Line<'a> {
     Line::from(vec![
-        Span::styled(fit(label, 12), Style::default().fg(Color::DarkGray)),
+        Span::styled(fit(label, LABEL_WIDTH), theme.label_style()),
         Span::raw(value.to_string()),
     ])
+}
+
+/// How many columns a run of spans occupies.
+fn width_of(spans: &[Span]) -> usize {
+    spans.iter().map(|s| s.content.chars().count()).sum()
 }
 
 fn list_or_dash(values: &[String]) -> String {
@@ -466,7 +534,8 @@ fn channel_label(channel: Channel) -> &'static str {
     channel.as_str()
 }
 
-fn status_label(status: AssessedStatus) -> &'static str {
+fn status_label(status: crate::registry::AssessedStatus) -> &'static str {
+    use crate::registry::AssessedStatus;
     match status {
         AssessedStatus::Green => "green",
         AssessedStatus::Yellow => "yellow",
@@ -476,33 +545,12 @@ fn status_label(status: AssessedStatus) -> &'static str {
     }
 }
 
-fn status_style(status: AssessedStatus) -> Style {
-    match status {
-        AssessedStatus::Green => Style::default().fg(Color::Green),
-        AssessedStatus::Yellow => Style::default().fg(Color::Yellow),
-        // No orange in the 16-colour palette; light red is the closest thing
-        // every terminal renders.
-        AssessedStatus::Orange => Style::default().fg(Color::LightRed),
-        AssessedStatus::Red => Style::default().fg(Color::Red),
-        AssessedStatus::Gray => Style::default().fg(Color::DarkGray),
-    }
-}
-
 fn version_status(version: &Version) -> &'static str {
     match version.status {
         VersionStatus::Verified => "verified",
         VersionStatus::Unstable => "unstable",
         VersionStatus::Deprecated => "deprecated",
         VersionStatus::Yanked => "yanked",
-    }
-}
-
-fn version_style(status: VersionStatus) -> Style {
-    match status {
-        VersionStatus::Verified => Style::default().fg(Color::Green),
-        VersionStatus::Unstable => Style::default().fg(Color::Yellow),
-        VersionStatus::Deprecated => Style::default().fg(Color::LightRed),
-        VersionStatus::Yanked => Style::default().fg(Color::Red).crossed_out(),
     }
 }
 
@@ -519,10 +567,20 @@ mod tests {
         load_embedded().expect("embedded snapshot parses")
     }
 
+    fn theme() -> Theme {
+        Theme::default()
+    }
+
     fn render(app: &App, width: u16, height: u16) -> String {
+        render_with(app, width, height, &theme())
+    }
+
+    fn render_with(app: &App, width: u16, height: u16, theme: &Theme) -> String {
         let mut terminal =
             Terminal::new(TestBackend::new(width, height)).expect("test backend starts");
-        terminal.draw(|frame| draw(frame, app)).expect("draw");
+        terminal
+            .draw(|frame| draw(frame, app, theme))
+            .expect("draw");
         let buffer = terminal.backend().buffer().clone();
         (0..buffer.area.height)
             .map(|y| {
@@ -540,13 +598,17 @@ mod tests {
     }
 
     #[test]
-    fn a_normal_terminal_shows_the_header_list_and_details() {
+    fn a_normal_terminal_shows_the_title_list_and_details() {
         let registry = registry();
         let app = App::new(&registry, &ProjectState::default());
         let screen = render(&app, 140, 40);
-        assert!(screen.contains("chaps models"));
+        assert!(screen.contains("chaps · models"));
         assert!(screen.contains("registry: embedded"));
         assert!(screen.contains("6 models, 0 enabled, 0 pending changes"));
+        assert!(screen.contains("Marketplace"));
+        assert!(screen.contains("Details"));
+        // Rounded corners, not square ones.
+        assert!(screen.contains('╭') && screen.contains('╯'), "{screen}");
         assert!(screen.contains("CHAP-EWARS"));
         assert!(screen.contains("chapkit_ewars_model"));
         assert!(screen.contains("space toggle"));
@@ -578,15 +640,72 @@ mod tests {
     }
 
     #[test]
-    fn enabled_rows_are_checked_and_show_their_port() {
+    fn enabled_rows_are_ticked_and_show_their_port() {
         let registry = registry();
         let state = state_with_ewars(&registry, Some(5001));
         let app = App::new(&registry, &state);
         let screen = render(&app, 100, 30);
-        assert!(screen.contains("[x]"));
+        assert!(screen.contains('✓'), "{screen}");
         assert!(screen.contains(":5001"));
         assert!(screen.contains("enabled in this project"));
         assert!(screen.contains("http://localhost:5001"));
+    }
+
+    #[test]
+    fn a_pending_change_is_marked_before_it_is_saved() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
+        let mut app = App::new(&registry, &state);
+
+        // The first row is the one the project already runs; turning it off is
+        // a removal, not an absence.
+        app.reduce(Action::Toggle);
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, 120, &theme());
+        assert_eq!(line.spans[0].content, "- ");
+        assert_eq!(line.spans[0].style, theme().warn_style());
+
+        // And back on again is no change at all.
+        app.reduce(Action::Toggle);
+        let row = app.selected().expect("a row is selected");
+        assert_eq!(row_line(&app, row, 120, &theme()).spans[0].content, "✓ ");
+
+        // A row the project never had reads as an addition.
+        let mut fresh = App::new(&registry, &ProjectState::default());
+        fresh.reduce(Action::Toggle);
+        let row = fresh.selected().expect("a row is selected");
+        let line = row_line(&fresh, row, 120, &theme());
+        assert_eq!(line.spans[0].content, "+ ");
+        assert_eq!(line.spans[0].style, theme().warn_style());
+    }
+
+    #[test]
+    fn a_row_nobody_enabled_is_marked_with_a_quiet_dot() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, 120, &theme());
+        assert_eq!(line.spans[0].content, "· ");
+        assert_eq!(line.spans[0].style, theme().dim_style());
+    }
+
+    #[test]
+    fn the_status_column_carries_the_assessment_colour() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, 120, &theme());
+        let status = line
+            .spans
+            .iter()
+            .find(|s| s.content.trim() == "orange")
+            .expect("the status column is there");
+        assert_eq!(status.style, theme().status_style(row_status(&app, row)));
+        assert_eq!(status.style.fg, Some(theme().warn));
+    }
+
+    fn row_status(app: &App, row: &Row) -> crate::registry::AssessedStatus {
+        app.model(row).assessed_status
     }
 
     #[test]
@@ -595,7 +714,7 @@ mod tests {
         let state = state_with_ewars(&registry, None);
         let mut app = App::new(&registry, &state);
         let screen = render(&app, 100, 30);
-        assert!(screen.contains("[x]"));
+        assert!(screen.contains('✓'));
         assert!(screen.contains("internal"), "{screen}");
         assert!(!screen.contains(":500"), "no host port is published");
         assert!(screen.contains("proxy"), "the details name the way in");
@@ -611,7 +730,7 @@ mod tests {
         let registry = registry();
         let app = App::new(&registry, &ProjectState::default());
         let row = app.selected().expect("a row is selected");
-        let text = line_text(&row_line(&app, row, 120));
+        let text = line_text(&row_line(&app, row, 120, &theme()));
         assert!(!text.contains("internal"), "{text}");
         assert!(!text.contains(':'), "{text}");
     }
@@ -626,18 +745,20 @@ mod tests {
     }
 
     #[test]
-    fn the_overlays_render_on_top() {
+    fn the_overlays_render_on_top_in_rounded_boxes() {
         let registry = registry();
         let mut app = App::new(&registry, &ProjectState::default());
         app.reduce(Action::Help);
         let screen = render(&app, 100, 30);
-        assert!(screen.contains("keys"));
+        assert!(screen.contains("Keys"));
         assert!(screen.contains("enable or disable the model"));
+        assert!(screen.contains('╭'));
 
         let mut app = App::new(&registry, &ProjectState::default());
         app.reduce(Action::Toggle);
         app.reduce(Action::Quit);
         let screen = render(&app, 100, 30);
+        assert!(screen.contains("Quit"));
         assert!(screen.contains("unsaved changes"));
         assert!(screen.contains("Quit anyway?"));
     }
@@ -653,6 +774,23 @@ mod tests {
         let screen = render(&app, 100, 30);
         assert!(screen.contains("filter: ewars"));
         assert!(screen.contains("CHAP-EWARS"));
+        assert!(screen.contains("Esc clear"), "{screen}");
+    }
+
+    #[test]
+    fn the_key_bar_changes_with_the_mode_and_paints_the_keys() {
+        let theme = theme();
+        let browse = keybar(Mode::Browse, &theme);
+        assert_eq!(browse[0].content, "j/k");
+        assert_eq!(browse[0].style, theme.accent_style());
+        assert_eq!(browse[2].style, theme.dim_style());
+
+        let confirm = keybar(Mode::ConfirmQuit, &theme);
+        assert_eq!(confirm[0].content, "y");
+        assert!(
+            line_text(&Line::from(confirm)).contains("discard the changes"),
+            "the bar says what the mode is about"
+        );
     }
 
     #[test]
@@ -668,32 +806,62 @@ mod tests {
     }
 
     #[test]
-    fn small_terminals_do_not_panic() {
+    fn the_layout_holds_from_a_tiny_terminal_to_a_huge_one() {
         let registry = registry();
-        let mut app = App::new(&registry, &ProjectState::default());
-        for (width, height) in [
-            (1, 1),
-            (2, 2),
-            (8, 3),
-            (20, 5),
-            (40, 10),
-            (79, 23),
-            (80, 24),
-            (200, 60),
-        ] {
-            render(&app, width, height);
+        let app = App::new(&registry, &ProjectState::default());
+        for (width, height) in [(60, 16), (80, 24), (200, 60)] {
+            let screen = render(&app, width, height);
+            assert!(screen.contains("chaps · models"), "{width}x{height}");
+            assert!(screen.contains("Marketplace"), "{width}x{height}");
+            assert!(screen.contains("Details"), "{width}x{height}");
+            assert!(screen.contains("CHAP-EWARS"), "{width}x{height}");
+            assert!(screen.contains("space toggle"), "{width}x{height}");
+            assert_eq!(
+                screen.lines().count(),
+                height as usize,
+                "the frame fills the terminal exactly"
+            );
         }
-        // Overlays are the easiest thing to draw outside a tiny screen.
-        app.reduce(Action::Help);
-        for (width, height) in [(1, 1), (10, 4), (30, 6), (80, 24)] {
-            render(&app, width, height);
-        }
-        app.reduce(Action::Help);
-        app.reduce(Action::Toggle);
-        app.reduce(Action::Quit);
-        for (width, height) in [(1, 1), (10, 4), (30, 6), (80, 24)] {
-            render(&app, width, height);
-        }
+    }
+
+    #[test]
+    fn the_title_bar_drops_what_does_not_fit_instead_of_overflowing() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        // Wide: both halves.
+        let wide = render(&app, 140, 20);
+        let first = wide.lines().next().unwrap();
+        assert!(first.contains("registry: embedded"));
+        assert!(first.contains("6 models"));
+
+        // Narrow: the counts are worth more than where the file came from.
+        let narrow = render(&app, 60, 16);
+        let first = narrow.lines().next().unwrap();
+        assert_eq!(first.chars().count(), 60);
+        assert!(!first.contains("registry: embedded"), "{first}");
+        assert!(first.contains("chaps · models"));
+    }
+
+    #[test]
+    fn a_monochrome_theme_draws_the_same_shape_without_colour() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
+        let app = App::new(&registry, &state);
+        assert_eq!(
+            render_with(&app, 100, 30, &Theme::monochrome()),
+            render(&app, 100, 30),
+            "NO_COLOR changes the styles, never the characters"
+        );
+
+        let mono = Theme::monochrome();
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, 120, &mono);
+        assert!(line.spans.iter().all(|s| s.style.fg.is_none()));
+        assert_ne!(
+            line.spans[0].style,
+            ratatui::style::Style::default(),
+            "the tick still stands out"
+        );
     }
 
     fn line_text(line: &Line) -> String {
@@ -709,7 +877,7 @@ mod tests {
         let app = App::new(&registry, &ProjectState::default());
         let row = app.selected().expect("a row is selected");
 
-        let wide = line_text(&row_line(&app, row, 120));
+        let wide = line_text(&row_line(&app, row, 120, &theme()));
         assert!(wide.contains("CHAP-EWARS"));
         assert!(
             wide.contains("chapkit_ewars_model"),
@@ -717,13 +885,44 @@ mod tests {
         );
         assert!(wide.contains("orange"), "the assessed status has a column");
 
-        let narrow = line_text(&row_line(&app, row, 30));
+        let narrow = line_text(&row_line(&app, row, 30, &theme()));
         assert!(narrow.contains("CHAP-EWARS"), "the name always fits");
         assert!(
             !narrow.contains("chapkit_ewars_model"),
             "the id column drops out of a narrow pane"
         );
         assert!(!narrow.contains("orange"), "so does the status column");
+    }
+
+    #[test]
+    fn small_terminals_do_not_panic() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        for (width, height) in [
+            (1, 1),
+            (2, 2),
+            (8, 3),
+            (20, 5),
+            (40, 10),
+            (60, 16),
+            (79, 23),
+            (80, 24),
+            (200, 60),
+        ] {
+            render(&app, width, height);
+            render_with(&app, width, height, &Theme::monochrome());
+        }
+        // Overlays are the easiest thing to draw outside a tiny screen.
+        app.reduce(Action::Help);
+        for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
+            render(&app, width, height);
+        }
+        app.reduce(Action::Help);
+        app.reduce(Action::Toggle);
+        app.reduce(Action::Quit);
+        for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
+            render(&app, width, height);
+        }
     }
 
     #[test]

@@ -9,6 +9,7 @@ use crate::compose::ports::allocator_for;
 use crate::compose::sync::sync;
 use crate::compose::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 use crate::error::{ChapError, Result};
+use crate::output::Out;
 use crate::project::Project;
 use crate::registry::{self, Channel, VersionSelector};
 use std::collections::BTreeSet;
@@ -42,7 +43,8 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     };
 
     let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
-    ctx.out.emit(&report, || summary(&report, &project))
+    ctx.out
+        .emit(&report, || summary(&report, &project, &ctx.out))
 }
 
 /// Disable one model: remove its overlay, regenerate the umbrella file and
@@ -61,7 +63,8 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     };
 
     let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
-    ctx.out.emit(&report, || summary(&report, &project))
+    ctx.out
+        .emit(&report, || summary(&report, &project, &ctx.out))
 }
 
 /// Publish a host port for a model that is already enabled.
@@ -140,33 +143,48 @@ fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
         written: synced.written,
     };
     ctx.out.emit(&change, || {
-        port_summary(&change, &project, &synced.warnings)
+        port_summary(&change, &project, &synced.warnings, &ctx.out)
     })
 }
 
 /// The human rendering of one port change.
-fn port_summary(change: &PortChange, project: &Project, warnings: &[String]) -> String {
-    let mut out = match change.host_port {
-        Some(port) => format!("exposed {} on http://localhost:{port}\n", change.service_id),
+fn port_summary(change: &PortChange, project: &Project, warnings: &[String], out: &Out) -> String {
+    let mut text = match change.host_port {
+        Some(port) => format!(
+            "{} {} on {}\n",
+            out.ok("exposed"),
+            change.service_id,
+            out.value(&format!("http://localhost:{port}"))
+        ),
         None => format!(
-            "unexposed {}; it stays registered with chap-core and reachable at {}\n",
-            change.service_id, change.url
+            "{} {}; it stays registered with chap-core and reachable at {}\n",
+            out.warn("unexposed"),
+            change.service_id,
+            out.value(&change.url)
         ),
     };
     if change.host_port == change.previous {
-        out.push_str("(that is what it published already)\n");
+        text.push_str(&out.dim("(that is what it published already)"));
+        text.push('\n');
     }
     for path in &change.written {
-        out.push_str(&format!(
-            "written  {}\n",
-            path.strip_prefix(&project.dir).unwrap_or(path).display()
+        text.push_str(&format!(
+            "{}  {}\n",
+            out.ok("written"),
+            out.dim(
+                &path
+                    .strip_prefix(&project.dir)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string()
+            )
         ));
     }
     for warning in warnings {
-        out.push_str(&format!("warning: {warning}\n"));
+        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
     }
-    out.push_str("run `chaps up` to apply");
-    out
+    text.push_str(&out.backticks("run `chaps up` to apply"));
+    text
 }
 
 /// The state key for a marketplace id or a compose service id.
@@ -182,38 +200,46 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
         .map(|(id, _)| id.clone())
 }
 
-fn summary(report: &ApplyReport, project: &Project) -> String {
-    let mut out = String::new();
+fn summary(report: &ApplyReport, project: &Project, out: &Out) -> String {
+    let mut text = String::new();
     for (id, model) in report.touched() {
         let verb = if report.enabled.iter().any(|(e, _)| e == id) {
             "enabled"
         } else {
             "updated"
         };
-        out.push_str(&format!(
-            "{verb} {id} v{} {} ({})\n",
-            model.version,
+        text.push_str(&format!(
+            "{} {id} {} {} {}\n",
+            out.ok(verb),
+            out.dim(&format!("v{}", model.version)),
             match model.host_port {
-                Some(port) => format!("on http://localhost:{port}"),
-                None => format!("at {}", project.proxy_url(&model.service_id)),
+                Some(port) => format!("on {}", out.value(&format!("http://localhost:{port}"))),
+                None => format!("at {}", out.value(&project.proxy_url(&model.service_id))),
             },
-            model.compose_file
+            out.dim(&format!("({})", model.compose_file))
         ));
     }
     for id in &report.disabled {
-        out.push_str(&format!("disabled {id}\n"));
+        text.push_str(&format!("{} {id}\n", out.warn("disabled")));
     }
     for path in &report.removed {
-        out.push_str(&format!(
-            "removed {}\n",
-            path.strip_prefix(&project.dir).unwrap_or(path).display()
+        text.push_str(&format!(
+            "{} {}\n",
+            out.bad("removed"),
+            out.dim(
+                &path
+                    .strip_prefix(&project.dir)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string()
+            )
         ));
     }
     for warning in &report.warnings {
-        out.push_str(&format!("warning: {warning}\n"));
+        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
     }
-    out.push_str("run `chaps up` to apply");
-    out
+    text.push_str(&out.backticks("run `chaps up` to apply"));
+    text
 }
 
 #[cfg(test)]
@@ -272,7 +298,7 @@ mod tests {
     #[test]
     fn the_summary_ends_with_the_next_step() {
         let project = project_with_ewars(Some(5001));
-        let text = summary(&enabled_report(&project), &project);
+        let text = summary(&enabled_report(&project), &project, &Out::default());
         assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001"));
         assert!(text.ends_with("run `chaps up` to apply"));
     }
@@ -280,7 +306,7 @@ mod tests {
     #[test]
     fn a_model_with_no_host_port_is_summarised_with_the_proxy_url() {
         let project = project_with_ewars(None);
-        let text = summary(&enabled_report(&project), &project);
+        let text = summary(&enabled_report(&project), &project, &Out::default());
         assert!(
             text.contains(
                 "enabled chapkit_ewars_model v1.0.0 at \
@@ -298,7 +324,7 @@ mod tests {
             removed: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
             ..ApplyReport::default()
         };
-        let text = summary(&report, &project);
+        let text = summary(&report, &project, &Out::default());
         assert!(text.contains("disabled chapkit_ewars_model"));
         assert!(text.contains("removed compose.chapkit-ewars-model.yml"));
     }
@@ -314,7 +340,7 @@ mod tests {
             url: "http://localhost:5001".into(),
             written: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
         };
-        let text = port_summary(&exposed, &project, &[]);
+        let text = port_summary(&exposed, &project, &[], &Out::default());
         assert!(text.starts_with("exposed chapkit-ewars-model on http://localhost:5001\n"));
         assert!(text.contains("written  compose.chapkit-ewars-model.yml\n"));
         assert!(text.ends_with("run `chaps up` to apply"));
@@ -327,7 +353,12 @@ mod tests {
             written: Vec::new(),
             ..exposed
         };
-        let text = port_summary(&internal, &project, &["careful".to_string()]);
+        let text = port_summary(
+            &internal,
+            &project,
+            &["careful".to_string()],
+            &Out::default(),
+        );
         assert!(text.starts_with(
             "unexposed chapkit-ewars-model; it stays registered with chap-core and \
              reachable at http://localhost:8000/v2/services/chapkit-ewars-model/run/\n"
@@ -340,6 +371,9 @@ mod tests {
             previous: None,
             ..internal
         };
-        assert!(port_summary(&again, &project, &[]).contains("that is what it published already"));
+        assert!(
+            port_summary(&again, &project, &[], &Out::default())
+                .contains("that is what it published already")
+        );
     }
 }

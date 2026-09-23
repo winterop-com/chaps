@@ -18,7 +18,7 @@ internal models are reachable through chap-core at http://localhost:8000/v2/serv
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start the stack with `chaps up`, then `chaps logs auto-arima-chapkit`
+  auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
 The version is chap-core's own when it publishes one, and otherwise the tag
@@ -77,7 +77,7 @@ line.
 A project whose containers do not exist at all skips the table and says
 
 ```text
-stack is not running; start it with `chaps up`
+CHAP is not running; start it with `chaps up`
 ```
 
 `--url` turns that short-circuit off, because then the question is about that
@@ -106,6 +106,31 @@ Output that reads as status verifies what it claims rather than assuming it.
 Where something is wrong there is one summary line and one hint per problem,
 instead of the same fact three times over.
 
+## Output
+
+On a terminal the answer is coloured and errors arrive in a rounded box; piped
+into a file or another program it is the same plain text it has always been, so
+nothing that parses `chaps` output has to change. `--no-color`, or `NO_COLOR`
+in the environment, turns the colour off and keeps the shapes.
+
+`-v` (`--verbose`) narrates what a command does on the way to its answer, on
+stderr, dimmed and never on stdout:
+
+```text
+$ chaps -v status
+project: /srv/chapx (state in /srv/chapx/.chaps/project.yaml)
+registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (6 models)
+asking chap-core at http://localhost:8000
+GET http://localhost:8000/health -> 200 in 12ms
+GET http://localhost:8000/v2/services -> 200 in 8ms
+chap-core   up   http://localhost:8000   v2.3.1   auth: on
+```
+
+`-d` (`--debug`) implies `-v` and adds what came back: response bodies cut to
+2 KB, the raw `docker compose ps` JSON, and the resolved path of the project
+state a command read. Both are global, so they work with `--json` too: stdout
+stays exactly one document either way.
+
 ## `--json`
 
 `--json` works everywhere and prints exactly one document on stdout. A line the
@@ -116,7 +141,7 @@ error under `--json` is a JSON object with `error` and `causes`.
 ```sh
 chaps --json status | jq '.models[] | select(.state != "registered")'
 chaps --json docker ps
-chaps --json docker config        # the merged stack as JSON
+chaps --json docker config        # the merged configuration as JSON
 ```
 
 `chaps ui` is the one command that rejects `--json`: it owns the terminal, so

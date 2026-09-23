@@ -1,11 +1,17 @@
 # Troubleshooting
 
+When a command does something you did not expect, run it again with `-v`. It
+prints every external command, every HTTP request with its status and timing,
+which catalogue it loaded and which files `sync` compared, all on stderr and
+all out of the way of `--json`. `-d` adds the response bodies and the resolved
+project paths.
+
 ## A host port is already in use
 
 `chaps up` refuses before it calls Docker, with one line per conflict:
 
 ```text
-2 host ports the stack needs are already in use; nothing was started
+2 host ports CHAP needs are already in use; nothing was started
   port 8000 is already in use on this machine (needed by chap); free it, or run
   `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
@@ -15,7 +21,7 @@
 
 Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
 `.env`, or move (or drop) the model's port. Ports held by this project's own
-running containers are not conflicts, so `chaps up` on a running stack is still
+running containers are not conflicts, so `chaps up` on a running deployment is still
 a no-op. `chaps up --no-preflight` hands the question back to Docker.
 
 ## The port answers, but it is not chap-core
@@ -185,7 +191,7 @@ warning: docker compose 2.18.1 is older than 2.20.0; compose.marketplace.yml use
 
 `compose.marketplace.yml` uses `include:`, which arrived in Compose 2.20, and
 `compose.chaps.yml` uses `!override`, which arrived in 2.24. `chaps` warns
-rather than failing, because the base stack still runs, but the model overlays
+rather than failing, because the base services still run, but the model overlays
 are the part that will not load. Upgrade Docker Compose.
 
 ## A hand edit disappeared
@@ -195,7 +201,7 @@ are the part that will not load. Upgrade Docker Compose.
 `compose.<service_id>.yml` is drift that the next `sync` (and therefore the next
 `chaps up`) undoes.
 
-- To change the base stack, edit `.chaps/compose.chap-core.<tag>.yml`. `sync`
+- To change the base services, edit `.chaps/compose.chap-core.<tag>.yml`. `sync`
   follows it, and says that the recorded checksum no longer matches.
 - To change a model, edit `.chaps/models.yaml` and run `chaps sync`.
 - To add something of your own, write a `compose.custom.yml`. `sync` only ever

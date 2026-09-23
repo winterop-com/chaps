@@ -9,6 +9,7 @@ use crate::commands::Ctx;
 use crate::compose::spec::EnvSpec;
 use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
+use crate::output::{Out, PanelKind};
 use crate::project::{
     API_PORT_ENV_VAR, AuthState, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE,
     MODELS_FILE, PROJECT_FILE, Project, ProjectState, cached_compose_file,
@@ -218,6 +219,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     });
     ctx.out.emit(&value, || {
         summary(
+            &ctx.out,
             &dir,
             &written,
             &report,
@@ -534,6 +536,7 @@ fn env_auth(env: EnvAction, path: &Path) -> AuthState {
 
 #[allow(clippy::too_many_arguments)]
 fn summary(
+    out: &Out,
     dir: &Path,
     written: &[PathBuf],
     report: &ApplyReport,
@@ -543,66 +546,93 @@ fn summary(
     project: &Project,
     secrets: Option<&Secrets>,
 ) -> String {
-    let mut out = format!(
-        "Initialized a chaps project in {}\n\nWrote:\n",
-        dir.display()
+    let mut text = format!(
+        "{}\n\n{}\n",
+        out.heading(&format!("Initialized a chaps project in {}", dir.display())),
+        out.heading("Wrote:")
     );
     for path in written {
-        out.push_str(&format!("  {}\n", file_label(dir, path)));
+        text.push_str(&format!("  {}\n", out.dim(&file_label(dir, path))));
     }
     if env == EnvAction::Kept {
-        out.push_str("\nkept .env (already present)\n");
+        text.push_str(&format!("\n{}\n", out.dim("kept .env (already present)")));
     }
-    out.push_str(&format!(
-        "\nchap-core: {} ({})\n",
-        chap_core.tag,
-        chap_core.source.describe()
+    text.push_str(&format!(
+        "\n{} {} {}\n",
+        out.key("chap-core:"),
+        out.value(&chap_core.tag),
+        out.dim(&format!("({})", chap_core.source.describe()))
     ));
-    out.push_str(&format!("API:       {}\n", project.api_url()));
+    text.push_str(&format!(
+        "{}       {}\n",
+        out.key("API:"),
+        out.value(&project.api_url())
+    ));
     // The token is printed once and only in its masked form: the full value
     // stays in `.env`, and `chaps auth show --reveal` is the way back to it.
     if let Some(secrets) = secrets {
-        out.push_str(&format!(
-            "API token: {} (chaps auth show --reveal prints it)\n",
-            auth::mask(&secrets.api_token)
+        text.push_str(&format!(
+            "{} {} {}\n",
+            out.key("API token:"),
+            out.value(&auth::mask(&secrets.api_token)),
+            out.dim("(chaps auth show --reveal prints it)")
         ));
     } else if project.state.auth.api_token {
-        out.push_str("API token: set in .env (chaps auth show --reveal prints it)\n");
+        text.push_str(&format!(
+            "{} {} {}\n",
+            out.key("API token:"),
+            out.value("set in .env"),
+            out.dim("(chaps auth show --reveal prints it)")
+        ));
     }
 
     if report.enabled.is_empty() {
-        out.push_str("\nNo models enabled; run `chaps models enable ID` to add one.\n");
+        text.push_str(&format!(
+            "\n{}\n",
+            out.backticks("No models enabled; run `chaps models enable ID` to add one.")
+        ));
     } else {
-        out.push_str("\nEnabled:\n");
+        text.push_str(&format!("\n{}\n", out.heading("Enabled:")));
         for (id, model) in &report.enabled {
             let name = registry
                 .get(id)
                 .map(|m| m.display_name.clone())
                 .unwrap_or_else(|| id.clone());
             let reach = match model.host_port {
-                Some(port) => format!("http://localhost:{port}"),
-                None => "internal".to_string(),
+                Some(port) => out.value(&format!("http://localhost:{port}")),
+                None => out.dim("internal"),
             };
-            out.push_str(&format!("  {id}  {name} v{}  {reach}\n", model.version));
+            text.push_str(&format!(
+                "  {id}  {name} {}  {reach}\n",
+                out.dim(&format!("v{}", model.version))
+            ));
         }
         if report.enabled.iter().any(|(_, m)| m.host_port.is_none()) {
-            out.push_str(&format!(
+            text.push_str(&out.dim(&format!(
                 "\nModel services publish no host port: chap-core reaches them over the\n\
                  compose network, and you reach them through it at\n\
-                 {}/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.\n",
+                 {}/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.",
                 project.api_url()
-            ));
+            )));
+            text.push('\n');
         }
     }
     for warning in &report.warnings {
-        out.push_str(&format!("\nwarning: {warning}\n"));
+        text.push_str(&format!("\n{} {warning}\n", out.warn("warning:")));
     }
 
-    out.push_str(&format!(
-        "\nNext:\n  cd {} && chaps up\n  chaps status\n",
-        dir.display()
+    // The last thing on the screen is the thing to type next, so it gets the
+    // one box `init` draws.
+    let next = format!("cd {} && chaps up\nchaps status", dir.display());
+    text.push('\n');
+    text.push_str(&out.panel_or(
+        "Next",
+        &out.backticks(&next),
+        PanelKind::Ok,
+        &format!("Next:\n  cd {} && chaps up\n  chaps status", dir.display()),
     ));
-    out
+    text.push('\n');
+    text
 }
 
 /// Paths are printed relative to the project directory; everything written

@@ -23,6 +23,14 @@ pub const DOCKER_NOT_FOUND: i32 = 127;
 /// The paths are absolute so the child process does not depend on its working
 /// directory, and they are in the order recorded in `.chaps/project.yaml`: later files
 /// override earlier ones.
+/// Echo a `docker` invocation under `-v`, the way a person would have typed it.
+///
+/// Every spawn in this module goes through it, so `-v` is a complete record of
+/// what `chaps` asked Docker to do.
+fn trace_command(args: &[String]) {
+    crate::output::verbose(&format!("$ docker {}", args.join(" ")));
+}
+
 pub fn compose_args(project: &Project) -> Vec<String> {
     let mut args = Vec::with_capacity(1 + project.state.compose_files.len() * 2);
     args.push("compose".to_string());
@@ -42,6 +50,7 @@ pub fn compose_args(project: &Project) -> Vec<String> {
 pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
     let mut args = compose_args(project);
     args.extend(extra.iter().cloned());
+    trace_command(&args);
 
     let status = Command::new("docker")
         .args(&args)
@@ -250,6 +259,7 @@ pub fn image_count(project: &Project) -> Option<usize> {
 fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
     let mut args = compose_args(project);
     args.extend(extra.iter().map(|a| a.to_string()));
+    trace_command(&args);
     let out = Command::new("docker")
         .args(&args)
         .current_dir(&project.dir)
@@ -258,9 +268,15 @@ fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
         .output()
         .ok()?;
     if !out.status.success() {
+        crate::output::verbose("  docker answered non-zero; ignoring its output");
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    let body = String::from_utf8_lossy(&out.stdout).into_owned();
+    crate::output::debug(&format!(
+        "  docker said:\n{}",
+        crate::output::trace_body(body.trim_end())
+    ));
+    Some(body)
 }
 
 /// The container objects in `docker compose ps --format json` output.
@@ -312,6 +328,7 @@ pub fn service_is_healthy(text: &str, service: &str) -> bool {
 pub fn compose_output(project: &Project, extra: &[String]) -> Result<(i32, String, String)> {
     let mut args = compose_args(project);
     args.extend(extra.iter().cloned());
+    trace_command(&args);
     let out = Command::new("docker")
         .args(&args)
         .current_dir(&project.dir)
@@ -350,6 +367,7 @@ pub fn run_compose_piped(
     let mut args = compose_args(project);
     args.extend(extra.iter().cloned());
 
+    trace_command(&args);
     let mut cmd = Command::new("docker");
     cmd.args(&args).current_dir(&project.dir);
     match stdin {
@@ -415,6 +433,11 @@ pub fn compose_project_name(project: &Project) -> Option<String> {
 
 /// Whether a named docker volume exists.
 pub fn volume_exists(name: &str) -> bool {
+    trace_command(&[
+        "volume".to_string(),
+        "inspect".to_string(),
+        name.to_string(),
+    ]);
     Command::new("docker")
         .args(["volume", "inspect", name])
         .stdin(Stdio::null())
@@ -427,6 +450,11 @@ pub fn volume_exists(name: &str) -> bool {
 
 /// The installed `docker compose` version, from `docker compose version --short`.
 pub fn compose_version() -> Result<(u32, u32, u32)> {
+    trace_command(&[
+        "compose".to_string(),
+        "version".to_string(),
+        "--short".to_string(),
+    ]);
     let out = Command::new("docker")
         .args(["compose", "version", "--short"])
         .stdin(Stdio::null())

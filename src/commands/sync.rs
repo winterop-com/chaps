@@ -4,6 +4,7 @@ use crate::cli::SyncArgs;
 use crate::commands::Ctx;
 use crate::compose::{SyncReport, sync};
 use crate::error::{ChapError, Result};
+use crate::output::Out;
 use crate::project::Project;
 use crate::registry;
 use std::path::Path;
@@ -15,7 +16,8 @@ pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
     let registry = registry::load(&ctx.registry)?;
     let report = sync(&mut project, &registry, ctx.cli_version, args.check)?;
 
-    ctx.out.emit(&report, || human(&report, &project.dir))?;
+    ctx.out
+        .emit(&report, || human(&report, &project.dir, &ctx.out))?;
     if !(args.check && report.drift) {
         return Ok(());
     }
@@ -29,10 +31,13 @@ pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
 }
 
 /// One line per file, then the totals.
-pub fn human(report: &SyncReport, dir: &Path) -> String {
+///
+/// The verb carries the colour: written is a change that landed, removed is a
+/// file that is gone, unchanged is the part nobody has to read.
+pub fn human(report: &SyncReport, dir: &Path, out: &Out) -> String {
     let mut text = String::new();
     for warning in &report.warnings {
-        text.push_str(&format!("warning: {warning}\n"));
+        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
     }
     let (write, remove) = if report.check {
         ("would write ", "would remove")
@@ -40,19 +45,31 @@ pub fn human(report: &SyncReport, dir: &Path) -> String {
         ("written     ", "removed     ")
     };
     for path in &report.written {
-        text.push_str(&format!("{write}  {}\n", relative(dir, path)));
+        text.push_str(&format!(
+            "{}  {}\n",
+            out.ok(write),
+            out.dim(&relative(dir, path))
+        ));
     }
     for path in &report.removed {
-        text.push_str(&format!("{remove}  {}\n", relative(dir, path)));
+        text.push_str(&format!(
+            "{}  {}\n",
+            out.bad(remove),
+            out.dim(&relative(dir, path))
+        ));
     }
     for path in &report.unchanged {
-        text.push_str(&format!("unchanged     {}\n", relative(dir, path)));
+        text.push_str(&format!(
+            "{}     {}\n",
+            out.dim("unchanged"),
+            out.dim(&relative(dir, path))
+        ));
     }
     if report.drift {
-        text.push_str(&report.summary());
+        text.push_str(&out.cmd(&report.summary()));
     } else {
-        text.push_str("in sync: ");
-        text.push_str(&report.summary());
+        text.push_str(&out.ok("in sync: "));
+        text.push_str(&out.cmd(&report.summary()));
     }
     text.push('\n');
     text
@@ -90,7 +107,7 @@ pub fn announce(ctx: &Ctx, report: &SyncReport, project: &Project) {
     if ctx.out.json {
         eprintln!("{line}");
     } else {
-        println!("{line}");
+        println!("{}", ctx.out.dim(&line));
     }
 }
 
@@ -112,7 +129,7 @@ mod tests {
 
     #[test]
     fn human_lists_files_relative_to_the_project() {
-        let text = human(&report(false), Path::new("/p"));
+        let text = human(&report(false), Path::new("/p"), &Out::default());
         assert_eq!(
             text,
             "written       compose.chapkit-ewars-model.yml\n\
@@ -124,7 +141,7 @@ mod tests {
 
     #[test]
     fn check_mode_uses_the_conditional() {
-        let text = human(&report(true), Path::new("/p"));
+        let text = human(&report(true), Path::new("/p"), &Out::default());
         assert!(text.starts_with("would write   compose.chapkit-ewars-model.yml\n"));
         assert!(text.contains("would remove  compose.auto-arima-chapkit.yml\n"));
         assert!(text.ends_with("1 to write, 1 unchanged, 1 to remove\n"));
@@ -137,7 +154,7 @@ mod tests {
             check: true,
             ..SyncReport::default()
         };
-        let text = human(&clean, Path::new("/p"));
+        let text = human(&clean, Path::new("/p"), &Out::default());
         assert!(text.ends_with("in sync: 0 to write, 1 unchanged, 0 to remove\n"));
     }
 }

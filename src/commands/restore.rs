@@ -22,7 +22,7 @@ use crate::commands::Ctx;
 use crate::compose::{overrides, sync};
 use crate::docker;
 use crate::error::Result;
-use crate::output;
+use crate::output::{self, Out};
 use crate::project::{ENV_FILE, Project};
 use crate::registry;
 use serde::Serialize;
@@ -52,7 +52,7 @@ pub struct RestoreReport {
     pub models: Vec<String>,
     /// Services that were stopped first.
     pub stopped: Vec<String>,
-    /// Whether the stack was started again.
+    /// Whether CHAP was started again.
     pub started: bool,
 }
 
@@ -115,7 +115,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         report.started = true;
     }
 
-    ctx.out.emit(&report, || human(&report))
+    ctx.out.emit(&report, || human(&report, &ctx.out))
 }
 
 /// The manifest, read without unpacking the archive.
@@ -443,22 +443,34 @@ fn compose(project: &Project, args: &[String]) -> Result<()> {
 }
 
 /// What was restored, in the order it happened.
-fn human(report: &RestoreReport) -> String {
+fn human(report: &RestoreReport, out: &Out) -> String {
     let mut text = String::new();
     if !report.stopped.is_empty() {
-        text.push_str(&format!("stopped   {}\n", report.stopped.join(", ")));
+        text.push_str(&format!(
+            "{}   {}\n",
+            out.key("stopped"),
+            out.warn(&report.stopped.join(", "))
+        ));
     }
     if report.files.is_empty() {
-        text.push_str("files     not restored\n");
+        text.push_str(&format!(
+            "{}     {}\n",
+            out.key("files"),
+            out.dim("not restored")
+        ));
     } else {
         text.push_str(&format!(
-            "files     {} restored: {}\n",
-            report.files.len(),
-            report.files.join(", ")
+            "{}     {} {}\n",
+            out.key("files"),
+            out.ok(&format!("{} restored:", report.files.len())),
+            out.dim(&report.files.join(", "))
         ));
     }
     if let Some(kept) = &report.env_backup {
-        text.push_str(&format!("          the previous .env is kept as {kept}\n"));
+        text.push_str(&format!(
+            "          {}\n",
+            out.dim(&format!("the previous .env is kept as {kept}"))
+        ));
     }
     if report.database {
         let name = report
@@ -468,28 +480,46 @@ fn human(report: &RestoreReport) -> String {
             .as_ref()
             .map(|d| d.name.as_str())
             .unwrap_or("the database");
-        text.push_str(&format!("database  {name} restored"));
+        text.push_str(&format!("{}  ", out.key("database")));
         if report.database_warnings.is_empty() {
+            text.push_str(&out.ok(&format!("{name} restored")));
             text.push('\n');
         } else {
-            text.push_str(&format!(
-                " with {} warning(s) from pg_restore\n",
+            text.push_str(&out.warn(&format!(
+                "{name} restored with {} warning(s) from pg_restore",
                 report.database_warnings.len()
-            ));
+            )));
+            text.push('\n');
         }
     } else {
-        text.push_str("database  not restored\n");
+        text.push_str(&format!(
+            "{}  {}\n",
+            out.key("database"),
+            out.dim("not restored")
+        ));
     }
     if report.models.is_empty() {
-        text.push_str("models    not restored\n");
+        text.push_str(&format!(
+            "{}    {}\n",
+            out.key("models"),
+            out.dim("not restored")
+        ));
     } else {
-        text.push_str(&format!("models    {}\n", report.models.join(", ")));
+        text.push_str(&format!(
+            "{}    {}\n",
+            out.key("models"),
+            out.ok(&report.models.join(", "))
+        ));
     }
+    text.push('\n');
     if report.started {
-        text.push_str("\nthe stack is starting; `chaps status` says when the models are back\n");
+        text.push_str(
+            &out.backticks("CHAP is starting; `chaps status` says when the models are back"),
+        );
     } else {
-        text.push_str("\nthe stack was left as it is; start it with `chaps up`\n");
+        text.push_str(&out.backticks("CHAP was left as it is; start it with `chaps up`"));
     }
+    text.push('\n');
     text
 }
 
@@ -727,23 +757,23 @@ mod tests {
 
     #[test]
     fn the_summary_reads_in_the_order_things_happened() {
-        let text = human(&report(true, vec![]));
+        let text = human(&report(true, vec![]), &Out::default());
         assert!(text.starts_with("stopped   chap, worker\n"));
         assert!(text.contains("files     2 restored: .env, .chaps/models.yaml"));
         assert!(text.contains("the previous .env is kept as .env.before-restore"));
         assert!(text.contains("database  chap_core restored\n"));
         assert!(text.contains("models    chapkit-ewars-model"));
-        assert!(text.contains("the stack is starting"));
+        assert!(text.contains("CHAP is starting"));
     }
 
     #[test]
     fn pg_restore_warnings_are_counted_not_hidden() {
-        let text = human(&report(
-            false,
-            vec!["warning: errors ignored on restore: 2"],
-        ));
+        let text = human(
+            &report(false, vec!["warning: errors ignored on restore: 2"]),
+            &Out::default(),
+        );
         assert!(text.contains("database  chap_core restored with 1 warning(s) from pg_restore"));
-        assert!(text.contains("the stack was left as it is"));
+        assert!(text.contains("CHAP was left as it is"));
     }
 
     #[test]
@@ -754,7 +784,7 @@ mod tests {
         report.database = false;
         report.models.clear();
         report.stopped.clear();
-        let text = human(&report);
+        let text = human(&report, &Out::default());
         assert!(text.starts_with("files     not restored\n"));
         assert!(text.contains("database  not restored"));
         assert!(text.contains("models    not restored"));

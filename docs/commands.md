@@ -72,7 +72,7 @@ have never used Compose.
 | `chaps docker pull` | Download the pinned images into the local Docker daemon; no files change. |
 | `chaps docker exec SERVICE [CMD..]` | Run a command in a running container. `CMD` defaults to a shell, and `-T` is passed for you when there is no terminal, so it works in scripts. |
 | `chaps docker run -- ARGS..` | Any `docker compose` command, behind the project's `-f` list. |
-| `chaps docker config [-- EXTRA..]` | The finished stack: every compose file merged into one document (`--json` prints it as JSON). |
+| `chaps docker config [-- EXTRA..]` | The finished configuration: every compose file merged into one document (`--json` prints it as JSON). |
 
 `chaps docker config` is what Docker actually reads after the `-f` list, the
 `include:` and the `.env` substitutions have been applied, which is the fastest
@@ -95,6 +95,9 @@ They are accepted before or after the subcommand, and the
 | Option | What it does |
 | --- | --- |
 | `--json` | Machine-readable output: exactly one JSON document on stdout. |
+| `--no-color` | Never colour the output; `NO_COLOR` in the environment does the same. |
+| `-v, --verbose` | Narrate on stderr what runs: commands, HTTP requests, the registry source. |
+| `-d, --debug` | Everything `-v` says, plus response bodies and resolved paths. |
 | `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
 | `--registry-url URL` | A different marketplace index, for a fork or a mirror. |
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |

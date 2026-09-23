@@ -38,15 +38,20 @@ fn update(ctx: &Ctx) -> Result<()> {
     let report = report(ctx, &registry, false);
     ctx.out.emit(&report, || {
         format!(
-            "updated the registry\n{}",
-            output::fields(
+            "{}\n{}",
+            ctx.out.ok("updated the registry"),
+            output::fields_with(
                 2,
                 &[
                     ("url", report.url.clone()),
                     ("source", report.provenance.describe()),
                     ("models", report.models.to_string()),
-                    ("cache", report.cache_dir.display().to_string()),
+                    (
+                        "cache",
+                        ctx.out.dim(&report.cache_dir.display().to_string())
+                    ),
                 ],
+                &|label| ctx.out.key(label),
             )
         )
     })
@@ -58,24 +63,28 @@ fn show(ctx: &Ctx) -> Result<()> {
     let registry = registry::load(&ctx.registry)?;
     let report = report(ctx, &registry, true);
     ctx.out.emit(&report, || {
-        let mut text = output::fields(
+        let mut text = output::fields_with(
             2,
             &[
                 ("url", report.url.clone()),
                 ("source", report.provenance.describe()),
                 ("models", report.models.to_string()),
-                ("cache", report.cache_dir.display().to_string()),
+                (
+                    "cache",
+                    ctx.out.dim(&report.cache_dir.display().to_string()),
+                ),
             ],
+            &|label| ctx.out.key(label),
         );
         for (i, id) in report.ids.iter().flatten().enumerate() {
             if i == 0 {
                 text.push('\n');
             }
-            text.push_str(&format!("  {id}\n"));
+            text.push_str(&format!("  {}\n", ctx.out.dim(id)));
         }
         // A list of ids is not a statement about the catalogue, and an empty
         // one says nothing at all.
-        text.push_str(&format!("\n{}\n", catalogue_line(&report)));
+        text.push_str(&format!("\n{}\n", ctx.out.cmd(&catalogue_line(&report))));
         text
     })
 }

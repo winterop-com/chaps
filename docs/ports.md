@@ -77,7 +77,7 @@ chaps init --api-port 9000 --force
 ```
 
 over an existing deployment moves `.chaps/project.yaml` and `compose.chaps.yml`
-and then warns that the older `CHAP_API_PORT=` line is still what the stack
+and then warns that the older `CHAP_API_PORT=` line is still what CHAP
 will use. Edit that line, or pass `--fresh-env` (which rotates the database
 password too; see the [`.env` contract](./concepts.md#the-env-contract)).
 
@@ -86,11 +86,11 @@ port is discoverable by reading `.env`.
 
 ## The preflight
 
-`chaps up` checks that every host port the stack is about to publish is free
+`chaps up` checks that every host port CHAP is about to publish is free
 before it calls Docker, and refuses with one line per conflict:
 
 ```text
-2 host ports the stack needs are already in use; nothing was started
+2 host ports CHAP needs are already in use; nothing was started
   port 8000 is already in use on this machine (needed by chap); free it, or run
   `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
@@ -102,17 +102,17 @@ Docker finds the same conflict eventually, several seconds in and named after a
 container rather than a port.
 
 - Ports held by this project's own running containers are skipped, so
-  `chaps up` on a running stack stays a no-op.
+  `chaps up` on a running deployment stays a no-op.
 - `chaps up --no-preflight` hands the question back to Docker.
 - `chaps init` probes the API port too, but only warns: the process holding it
-  is often a previous stack you are about to replace.
+  is often a previous deployment you are about to replace.
 
 The probe is a bind, not a connect, so it needs no privileges and leaves
 nothing behind: a listening socket has no `TIME_WAIT`. It takes four binds
 rather than one, because `std` sets `SO_REUSEADDR` on Unix and on BSD (macOS
 included) that lets a wildcard bind succeed next to a loopback-only listener
 and the other way round. Only the same address reliably collides, so every
-address the stack could be published on is tried in turn.
+address CHAP could be published on is tried in turn.
 
 ## Internal-only models and the proxy URL
 

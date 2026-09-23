@@ -35,13 +35,13 @@ Next:
 ```
 
 `--models default` enables `chapkit_ewars_model` on its `stable` channel.
-`--models none` writes the base stack only, and `--models a,b` takes an
+`--models none` writes the base services only, and `--models a,b` takes an
 explicit list of marketplace ids. `--interactive` opens the model browser
 instead of reading `--models`.
 
 chap-core itself is pinned to the newest release, `v2.3.1` in the run above,
 and `init` takes the `compose.ghcr.yml` that release publishes as the base
-stack. `--chap-tag` picks another tag; see [Updating](./updating.md).
+of the deployment. `--chap-tag` picks another tag; see [Updating](./updating.md).
 
 The deployment above has no authentication: anything that can reach the port can
 use the API. `chaps init mychap --models default --api-token` generates a token
@@ -56,7 +56,7 @@ chaps up
 ```
 
 `up` renders the compose files from `.chaps/` first, then checks that every
-host port the stack is about to publish is free, then calls
+host port CHAP is about to publish is free, then calls
 `docker compose up -d` and reports what started or was recreated and what it
 left alone.
 
@@ -83,14 +83,14 @@ internal models are reachable through chap-core at http://localhost:8000/v2/serv
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start the stack with `chaps up`, then `chaps logs auto-arima-chapkit`
+  auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
 On a deployment whose containers do not exist at all, `status` skips the table
 and says so:
 
 ```text
-stack is not running; start it with `chaps up`
+CHAP is not running; start it with `chaps up`
 ```
 
 [Status and output](./status.md) explains every column and every state.

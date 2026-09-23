@@ -1,23 +1,113 @@
-//! Human and `--json` output.
+//! Human and `--json` output, and the one place that knows about colour.
 //!
 //! Every command renders through [`Out`] so `--json` is uniform: the same
 //! value is either pretty-printed as JSON or handed to a human formatter.
+//! [`Out`] also carries the two facts that decide how the human rendering
+//! looks: whether stdout is a terminal, and whether colour is wanted. Nothing
+//! else in the crate calls into `console`.
 
 use crate::error::Result;
+use console::{Style, measure_text_width};
 use serde::Serialize;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::Duration;
 
 /// Width human prose is wrapped to.
 pub const WRAP_WIDTH: usize = 80;
 
+/// Widest a panel is drawn, however wide the terminal is: a box the width of
+/// an ultrawide terminal is a worse read, not a better one.
+pub const PANEL_MAX_WIDTH: usize = 100;
+
+/// Narrowest panel worth drawing; below this the box is all frame.
+const PANEL_MIN_WIDTH: usize = 24;
+
+/// Say nothing but the answer.
+pub const QUIET: u8 = 0;
+/// `-v`: narrate what runs.
+pub const VERBOSE: u8 = 1;
+/// `-d`: narrate what runs and what came back.
+pub const DEBUG: u8 = 2;
+
+/// How much of a response body a `-d` line prints.
+pub const MAX_TRACE_BODY: usize = 2048;
+
+/// What a panel is about, which is all the border colour says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelKind {
+    Error,
+    Warning,
+    Ok,
+    /// Neither good nor bad: the CLI's own colour.
+    Accent,
+}
+
+impl Default for PanelKind {
+    /// A box with nothing to report is just a box.
+    fn default() -> PanelKind {
+        PanelKind::Accent
+    }
+}
+
 /// Output mode for one CLI invocation.
+///
+/// `Default` is the plain, colourless, non-terminal mode: that is what the
+/// unit tests render against, and what a pipe gets.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Out {
     pub json: bool,
+    /// Paint with ANSI styles. Implies [`Out::tty`] in practice, but the two
+    /// are tracked apart so `NO_COLOR` on a terminal still gets the boxes.
+    pub color: bool,
+    /// Whether stdout is a terminal. Panels are only drawn when it is, so a
+    /// script that parses `chaps` output sees exactly the plain lines it
+    /// always saw.
+    pub tty: bool,
+    /// [`QUIET`], [`VERBOSE`] or [`DEBUG`]. Tracing never reaches stdout, so
+    /// raising it can never change what a caller parses.
+    pub verbosity: u8,
 }
 
 impl Out {
+    /// The real environment: colour when stdout is a terminal, `NO_COLOR` is
+    /// unset and `--no-color` was not given. `--json` is never coloured, so
+    /// its bytes are the same everywhere.
+    pub fn detect(json: bool, no_color: bool) -> Out {
+        let tty = std::io::stdout().is_terminal();
+        Out {
+            json,
+            color: !json && tty && !no_color && std::env::var_os("NO_COLOR").is_none(),
+            tty,
+            verbosity: QUIET,
+        }
+    }
+
+    /// `-v` or `-d` was given. `-d` implies `-v`: there is no way to ask for
+    /// the bodies without the requests they belong to.
+    pub fn is_verbose(&self) -> bool {
+        self.verbosity >= VERBOSE
+    }
+
+    /// `-d` was given.
+    pub fn is_debug(&self) -> bool {
+        self.verbosity >= DEBUG
+    }
+
+    /// Narrate one step under `-v`, on stderr, dimmed.
+    pub fn verbose(&self, message: &str) {
+        if self.is_verbose() {
+            trace(message);
+        }
+    }
+
+    /// Narrate one detail under `-d`, on stderr, dimmed.
+    pub fn debug(&self, message: &str) {
+        if self.is_debug() {
+            trace(message);
+        }
+    }
+
     /// Print `value` as pretty JSON under `--json`, otherwise print `human()`.
     ///
     /// The human string is printed as one line with a trailing newline added
@@ -42,12 +132,154 @@ impl Out {
         Ok(())
     }
 
+    /// Apply a style, or hand the text back untouched when colour is off.
+    fn paint(&self, text: &str, style: Style) -> String {
+        if self.color {
+            // `console` would otherwise re-decide for itself whether the
+            // stream is a terminal; the decision was already made in
+            // `Out::detect`, and the tests depend on it being ours.
+            style.force_styling(true).apply_to(text).to_string()
+        } else {
+            text.to_string()
+        }
+    }
+
+    /// A section or document heading.
+    pub fn heading(&self, text: &str) -> String {
+        self.paint(text, Style::new().cyan().bold())
+    }
+
+    /// Something that worked, is up, or is on.
+    pub fn ok(&self, text: &str) -> String {
+        self.paint(text, Style::new().green())
+    }
+
+    /// Something that needs attention but is not a failure.
+    pub fn warn(&self, text: &str) -> String {
+        self.paint(text, Style::new().yellow())
+    }
+
+    /// Something that failed, is down, or is off.
+    pub fn bad(&self, text: &str) -> String {
+        self.paint(text, Style::new().red())
+    }
+
+    /// Secondary text: paths, ages, labels, things that are already known.
+    pub fn dim(&self, text: &str) -> String {
+        self.paint(text, Style::new().dim())
+    }
+
+    /// A command the reader is meant to type.
+    pub fn cmd(&self, text: &str) -> String {
+        self.paint(text, Style::new().bold())
+    }
+
+    /// A label in front of a value.
+    pub fn key(&self, text: &str) -> String {
+        self.paint(text, Style::new().cyan())
+    }
+
+    /// A value worth reading twice: a URL, a token, a port.
+    pub fn value(&self, text: &str) -> String {
+        self.paint(text, Style::new().bold())
+    }
+
+    /// Bold every `` `backticked` `` span in a sentence, backticks included,
+    /// so the plain rendering is byte-for-byte what it always was.
+    pub fn backticks(&self, text: &str) -> String {
+        if !self.color {
+            return text.to_string();
+        }
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(open) = rest.find('`') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('`') else { break };
+            out.push_str(&rest[..open]);
+            out.push_str(&self.cmd(&rest[open..open + close + 2]));
+            rest = &after[close + 1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Draw `body` in a rounded box titled `title`, sized to the terminal.
+    ///
+    /// The border carries the only colour: a panel is a shape first, so it
+    /// still reads as one under `NO_COLOR`.
+    pub fn panel(&self, title: &str, body: &str, kind: PanelKind) -> String {
+        self.panel_at(title, body, kind, terminal_width())
+    }
+
+    /// [`Out::panel`] at an explicit width, for tests and fixed layouts.
+    pub fn panel_at(&self, title: &str, body: &str, kind: PanelKind, width: usize) -> String {
+        let width = width.clamp(PANEL_MIN_WIDTH, PANEL_MAX_WIDTH);
+        let border = match kind {
+            PanelKind::Error => Style::new().red(),
+            PanelKind::Warning => Style::new().yellow(),
+            PanelKind::Ok => Style::new().green(),
+            PanelKind::Accent => Style::new().cyan(),
+        };
+        // `│ ` on the left and ` │` on the right.
+        let inner = width - 4;
+
+        let mut title_text = if title.is_empty() {
+            String::new()
+        } else {
+            format!(" {title} ")
+        };
+        // A title longer than the box would push the closing corner off the
+        // line; cut it rather than let the frame break.
+        if title_text.chars().count() + 3 > width {
+            title_text = title_text.chars().take(width - 3).collect();
+        }
+        let fill = width - 3 - title_text.chars().count();
+
+        let mut out = String::new();
+        out.push_str(&self.paint("╭─", border.clone()));
+        if !title_text.is_empty() {
+            out.push_str(&self.paint(&title_text, border.clone().bold()));
+        }
+        out.push_str(&self.paint(&format!("{}╮", "─".repeat(fill)), border.clone()));
+        out.push('\n');
+
+        for line in wrap_hard(body, inner) {
+            let pad = inner.saturating_sub(measure_text_width(&line));
+            out.push_str(&self.paint("│", border.clone()));
+            out.push(' ');
+            out.push_str(&line);
+            out.push_str(&" ".repeat(pad));
+            out.push(' ');
+            out.push_str(&self.paint("│", border.clone()));
+            out.push('\n');
+        }
+
+        out.push_str(&self.paint(&format!("╰{}╯", "─".repeat(width - 2)), border));
+        out
+    }
+
+    /// A panel on a terminal, `plain` anywhere else.
+    ///
+    /// Pipes and scripts keep the exact line they have always parsed; only a
+    /// human at a terminal gets the box.
+    pub fn panel_or(&self, title: &str, body: &str, kind: PanelKind, plain: &str) -> String {
+        if self.tty {
+            self.panel(title, body, kind)
+        } else {
+            plain.to_string()
+        }
+    }
+
     /// Render a table with two spaces between columns and no trailing
     /// whitespace. Returns the text, ending in a newline when non-empty.
     ///
-    /// Cells are left-aligned and padded to the widest cell in their column.
-    /// The last column is never padded, so no line ends in a space and the
-    /// output pastes cleanly into a terminal or a bug report.
+    /// Cells are left-aligned and padded to the widest cell in their column,
+    /// measured with the ANSI escapes stripped so a coloured cell lines up
+    /// with a plain one. The last column is never padded, so no line ends in a
+    /// space and the output pastes cleanly into a terminal or a bug report.
+    ///
+    /// With colour on the header is bold and gets a rule under it; with colour
+    /// off the table is exactly the plain grid it always was.
     pub fn table(&self, headers: &[&str], rows: &[Vec<String>]) -> String {
         if headers.is_empty() && rows.is_empty() {
             return String::new();
@@ -67,7 +299,16 @@ impl Out {
 
         let mut out = String::new();
         if !headers.is_empty() {
-            push_row(&mut out, headers.iter().copied(), &widths);
+            let bold: Vec<String> = headers
+                .iter()
+                .map(|h| self.paint(h, Style::new().bold()))
+                .collect();
+            push_row(&mut out, bold.iter().map(String::as_str), &widths);
+            if self.color {
+                let rule: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
+                out.push_str(&self.dim(rule.join("  ").trim_end()));
+                out.push('\n');
+            }
         }
         for row in rows {
             push_row(&mut out, row.iter().map(String::as_str), &widths);
@@ -75,9 +316,9 @@ impl Out {
         out
     }
 
-    /// Render an error: a JSON object under `--json`, otherwise `error: ...`
-    /// followed by one indented line per cause. The result has no trailing
-    /// newline.
+    /// Render an error: a JSON object under `--json`, a red `Error` panel on a
+    /// terminal, and otherwise `error: ...` followed by one indented line per
+    /// cause. The result has no trailing newline.
     pub fn error(&self, err: &anyhow::Error) -> String {
         let causes: Vec<String> = err.chain().skip(1).map(|c| c.to_string()).collect();
         if self.json {
@@ -85,24 +326,132 @@ impl Out {
                 "error": err.to_string(),
                 "causes": causes,
             });
-            serde_json::to_string_pretty(&value)
-                .unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", err))
+            return serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", err));
+        }
+
+        let mut plain = format!("error: {err}");
+        for cause in &causes {
+            plain.push_str(&format!("\n  caused by: {cause}"));
+        }
+        if !self.tty {
+            return plain;
+        }
+
+        // A hint ("run `chaps init` first") is the line the reader acts on, so
+        // it gets a line of its own inside the box instead of trailing off the
+        // end of the sentence.
+        let mut body: Vec<String> = hint_lines(&err.to_string())
+            .iter()
+            .map(|line| self.backticks(line))
+            .collect();
+        for cause in &causes {
+            body.push(format!(
+                "{} {}",
+                self.dim("caused by:"),
+                self.backticks(cause)
+            ));
+        }
+        self.panel("Error", &body.join("\n"), PanelKind::Error)
+    }
+}
+
+/// Remember `--no-color` for the stderr side, which has no [`Out`] to consult.
+static NO_COLOR_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// The same, for `-v` and `-d`: the docker runner and the HTTP helpers sit
+/// several layers below the command that owns the [`Out`].
+static LEVEL: AtomicU8 = AtomicU8::new(QUIET);
+
+/// Record the global `-v` / `-d` flags. Called once, from `Ctx::from_cli`.
+pub fn set_verbosity(verbose: bool, debug: bool) -> u8 {
+    let level = if debug {
+        DEBUG
+    } else if verbose {
+        VERBOSE
+    } else {
+        QUIET
+    };
+    LEVEL.store(level, Ordering::Relaxed);
+    level
+}
+
+/// Whether `-v` (or `-d`) was given.
+pub fn verbose_enabled() -> bool {
+    LEVEL.load(Ordering::Relaxed) >= VERBOSE
+}
+
+/// Whether `-d` was given.
+pub fn debug_enabled() -> bool {
+    LEVEL.load(Ordering::Relaxed) >= DEBUG
+}
+
+/// Narrate one step under `-v`, for code with no [`Out`] in reach.
+pub fn verbose(message: &str) {
+    if verbose_enabled() {
+        trace(message);
+    }
+}
+
+/// Narrate one detail under `-d`, for code with no [`Out`] in reach.
+pub fn debug(message: &str) {
+    if debug_enabled() {
+        trace(message);
+    }
+}
+
+/// One trace line: stderr, dimmed, never stdout.
+///
+/// stdout belongs to the answer; a `--json` consumer has to be able to pipe it
+/// into a parser however loud the CLI is being.
+fn trace(message: &str) {
+    for line in message.split('\n') {
+        if stderr_color() {
+            let styled = Style::new().dim().force_styling(true).apply_to(line);
+            eprintln!("{styled}");
         } else {
-            let mut out = format!("error: {err}");
-            for cause in causes {
-                out.push_str(&format!("\n  caused by: {cause}"));
-            }
-            out
+            eprintln!("{line}");
         }
     }
 }
 
-/// Print a one-line warning to stderr.
+/// A response body, cut to [`MAX_TRACE_BODY`] bytes on a character boundary.
+pub fn trace_body(body: &str) -> String {
+    if body.len() <= MAX_TRACE_BODY {
+        return body.to_string();
+    }
+    let mut end = MAX_TRACE_BODY;
+    while end > 0 && !body.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}... ({} bytes total)", &body[..end], body.len())
+}
+
+/// Record the global `--no-color` flag. Called once, from `Ctx::from_cli`.
+pub fn set_no_color(flag: bool) {
+    NO_COLOR_FLAG.store(flag, Ordering::Relaxed);
+}
+
+/// Whether a warning on stderr may be coloured.
+fn stderr_color() -> bool {
+    !NO_COLOR_FLAG.load(Ordering::Relaxed)
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::io::stderr().is_terminal()
+}
+
+/// Print a one-line warning to stderr, with a yellow `warning:` in front of it
+/// when stderr is a terminal.
 ///
 /// Warnings never go to stdout: a `--json` consumer must be able to pipe
-/// stdout straight into a parser.
+/// stdout straight into a parser. They are never panels either - a warning is
+/// something noticed in passing, not the answer to the command.
 pub fn warn(message: &str) {
-    eprintln!("warning: {message}");
+    if stderr_color() {
+        let label = Style::new().yellow().bold().apply_to("warning:");
+        eprintln!("{label} {message}");
+    } else {
+        eprintln!("warning: {message}");
+    }
 }
 
 /// Render `label  value` pairs with the labels padded to a common width.
@@ -111,6 +460,18 @@ pub fn warn(message: &str) {
 /// keeps the value column on its continuation lines. The result ends in a
 /// newline when it is non-empty.
 pub fn fields(indent: usize, entries: &[(&str, String)]) -> String {
+    fields_with(indent, entries, &|label| label.to_string())
+}
+
+/// [`fields`] with the labels run through `style` as they are written.
+///
+/// The column is measured on the plain label, so a styled label lines up with
+/// an unstyled one.
+pub fn fields_with(
+    indent: usize,
+    entries: &[(&str, String)],
+    style: &dyn Fn(&str) -> String,
+) -> String {
     let width = entries
         .iter()
         .filter(|(_, v)| !v.is_empty())
@@ -123,7 +484,7 @@ pub fn fields(indent: usize, entries: &[(&str, String)]) -> String {
         for (i, line) in value.split('\n').enumerate() {
             if i == 0 {
                 out.push_str(&lead);
-                out.push_str(key);
+                out.push_str(&style(key));
                 out.push_str(&" ".repeat(width - display_width(key) + 2));
             } else {
                 out.push_str(&lead);
@@ -138,6 +499,30 @@ pub fn fields(indent: usize, entries: &[(&str, String)]) -> String {
         }
     }
     out
+}
+
+/// Split a sentence at the `; ` in front of a hint, so the thing to do next
+/// can be put on a line of its own.
+///
+/// A hint is what the messages in this CLI have always looked like: it either
+/// starts with ``run `...` `` or tells you to start something with something.
+pub fn hint_lines(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest
+        .match_indices("; ")
+        .find(|(i, _)| is_hint(&rest[i + 2..]))
+        .map(|(i, _)| i)
+    {
+        parts.push(rest[..at].trim_end().to_string());
+        rest = &rest[at + 2..];
+    }
+    parts.push(rest.to_string());
+    parts
+}
+
+fn is_hint(tail: &str) -> bool {
+    tail.starts_with("run `") || (tail.starts_with("start ") && tail.contains(" with "))
 }
 
 /// Greedily wrap `text` to `width` columns, preserving explicit line breaks.
@@ -158,6 +543,27 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
                 lines.push(std::mem::take(&mut current));
                 current.push_str(word);
             }
+        }
+        lines.push(current);
+    }
+    lines
+}
+
+/// [`wrap`], then break anything still too wide. Inside a box a long word has
+/// to be cut: the alternative is a frame with a hole in it.
+fn wrap_hard(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in wrap(text, width) {
+        if measure_text_width(&line) <= width {
+            lines.push(line);
+            continue;
+        }
+        let mut current = String::new();
+        for c in line.chars() {
+            if measure_text_width(&current) + 1 > width {
+                lines.push(std::mem::take(&mut current));
+            }
+            current.push(c);
         }
         lines.push(current);
     }
@@ -205,6 +611,12 @@ fn age_parts(age: Duration) -> (u64, &'static str) {
     }
 }
 
+/// How wide a panel may be here. Off a terminal `console` answers with its own
+/// default, which is the same 80 columns the prose is wrapped to.
+fn terminal_width() -> usize {
+    console::Term::stdout().size().1 as usize
+}
+
 fn push_row<'a>(out: &mut String, cells: impl Iterator<Item = &'a str>, widths: &[usize]) {
     let cells: Vec<&str> = cells.collect();
     let last = cells.len().saturating_sub(1);
@@ -218,15 +630,32 @@ fn push_row<'a>(out: &mut String, cells: impl Iterator<Item = &'a str>, widths: 
     out.push('\n');
 }
 
-/// Column width in characters. Good enough for the identifiers and short
-/// labels the tables hold; no attempt at full grapheme or East Asian width.
+/// Column width in characters, with any ANSI escapes discounted, so a styled
+/// cell occupies the same number of columns as the text inside it.
 fn display_width(s: &str) -> usize {
-    s.chars().count()
+    measure_text_width(s)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A terminal that wants colour.
+    fn colored() -> Out {
+        Out {
+            color: true,
+            tty: true,
+            ..Out::default()
+        }
+    }
+
+    /// A terminal that does not: `NO_COLOR`, or `--no-color`.
+    fn plain_tty() -> Out {
+        Out {
+            tty: true,
+            ..Out::default()
+        }
+    }
 
     #[test]
     fn table_pads_columns_and_trims_line_ends() {
@@ -271,8 +700,221 @@ mod tests {
     }
 
     #[test]
+    fn a_styled_cell_occupies_the_width_of_its_text() {
+        let out = colored();
+        let text = out.table(
+            &["ID", "STATUS", "PORT"],
+            &[
+                vec!["a".into(), out.ok("green"), "5001".into()],
+                vec!["bbbb".into(), out.bad("red"), "5002".into()],
+            ],
+        );
+        // Row 0 is the header, row 1 the rule colour adds, then the body.
+        let rows: Vec<String> = text
+            .lines()
+            .skip(2)
+            .map(|l| console::strip_ansi_codes(l).to_string())
+            .collect();
+        assert_eq!(rows[0], "a     green   5001");
+        assert_eq!(rows[1], "bbbb  red     5002");
+    }
+
+    #[test]
+    fn colour_adds_a_rule_under_the_header_and_plain_does_not() {
+        let rows = vec![vec!["a".into(), "5001".into()]];
+        assert!(colored().table(&["ID", "PORT"], &rows).contains('─'));
+        assert!(!plain_tty().table(&["ID", "PORT"], &rows).contains('─'));
+        assert!(!Out::default().table(&["ID", "PORT"], &rows).contains('─'));
+    }
+
+    #[test]
+    fn styling_helpers_are_a_no_op_without_colour() {
+        let out = Out::default();
+        assert_eq!(out.heading("Next"), "Next");
+        assert_eq!(out.ok("up"), "up");
+        assert_eq!(out.warn("slow"), "slow");
+        assert_eq!(out.bad("down"), "down");
+        assert_eq!(out.dim("path"), "path");
+        assert_eq!(out.cmd("chaps up"), "chaps up");
+        assert_eq!(out.key("API"), "API");
+        assert_eq!(out.value("8000"), "8000");
+        assert_eq!(out.backticks("run `chaps up`"), "run `chaps up`");
+    }
+
+    #[test]
+    fn styling_helpers_emit_escapes_with_colour() {
+        let out = colored();
+        let painted = out.ok("up");
+        assert!(painted.contains('\u{1b}'), "{painted:?}");
+        assert_eq!(console::strip_ansi_codes(&painted), "up");
+        let hint = out.backticks("start it with `chaps up`");
+        assert!(hint.contains('\u{1b}'));
+        assert_eq!(
+            console::strip_ansi_codes(&hint),
+            "start it with `chaps up`",
+            "the backticks stay, so the plain reading never changes"
+        );
+    }
+
+    #[test]
+    fn tracing_is_off_until_a_flag_turns_it_on() {
+        let quiet = Out::default();
+        assert!(!quiet.is_verbose());
+        assert!(!quiet.is_debug());
+
+        let verbose = Out {
+            verbosity: VERBOSE,
+            ..Out::default()
+        };
+        assert!(verbose.is_verbose());
+        assert!(!verbose.is_debug(), "-v does not print bodies");
+
+        let debug = Out {
+            verbosity: DEBUG,
+            ..Out::default()
+        };
+        assert!(debug.is_debug());
+        assert!(debug.is_verbose(), "-d implies -v");
+    }
+
+    #[test]
+    fn set_verbosity_maps_the_flags_onto_the_levels() {
+        assert_eq!(set_verbosity(false, false), QUIET);
+        assert_eq!(set_verbosity(true, false), VERBOSE);
+        assert_eq!(set_verbosity(false, true), DEBUG, "-d implies -v");
+        assert_eq!(set_verbosity(true, true), DEBUG);
+        // Leave the process as quiet as the other tests expect it.
+        set_verbosity(false, false);
+    }
+
+    #[test]
+    fn a_traced_body_is_cut_at_a_character_boundary() {
+        let short = "{\"status\":\"ok\"}";
+        assert_eq!(trace_body(short), short);
+
+        let long = "æ".repeat(MAX_TRACE_BODY);
+        let cut = trace_body(&long);
+        assert!(cut.ends_with(&format!("({} bytes total)", long.len())));
+        assert!(cut.starts_with('æ'));
+        assert!(
+            cut.len() < long.len(),
+            "a body that does not fit is cut, not printed whole"
+        );
+    }
+
+    #[test]
+    fn detect_turns_colour_off_for_json_and_no_color() {
+        // stdout is not a terminal under `cargo test`, which is the case that
+        // matters most: piped output is never painted.
+        assert!(!Out::detect(false, false).color);
+        assert!(!Out::detect(true, false).color);
+        assert!(!Out::detect(false, true).color);
+        assert!(!Out::detect(false, false).tty);
+        assert!(!Out::detect(true, false).tty || Out::detect(true, false).json);
+    }
+
+    #[test]
+    fn a_panel_is_a_box_of_exactly_the_asked_for_width() {
+        let out = plain_tty();
+        let text = out.panel_at("Error", "CHAP is not running", PanelKind::Error, 40);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], format!("╭─ Error {}╮", "─".repeat(30)));
+        assert_eq!(
+            lines[1],
+            format!("│ CHAP is not running{} │", " ".repeat(17))
+        );
+        assert_eq!(lines[2], format!("╰{}╯", "─".repeat(38)));
+        assert!(lines.iter().all(|l| l.chars().count() == 40));
+        assert!(!text.ends_with('\n'), "the caller adds the newline");
+    }
+
+    #[test]
+    fn a_panel_wraps_its_body_on_words() {
+        let out = plain_tty();
+        let text = out.panel_at(
+            "Not running",
+            "CHAP is not running\nstart it with `chaps up`",
+            PanelKind::Warning,
+            30,
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], format!("╭─ Not running {}╮", "─".repeat(14)));
+        assert_eq!(
+            lines[1],
+            format!("│ CHAP is not running{} │", " ".repeat(7))
+        );
+        assert_eq!(
+            lines[2],
+            format!("│ start it with `chaps up`{} │", " ".repeat(2))
+        );
+        assert_eq!(lines[3], format!("╰{}╯", "─".repeat(28)));
+        assert!(lines.iter().all(|l| l.chars().count() == 30));
+    }
+
+    #[test]
+    fn a_panel_breaks_a_word_too_long_for_the_box() {
+        let out = plain_tty();
+        let text = out.panel_at("", "ghcr.io/dhis2-chap/chapkit-r-inla", PanelKind::Ok, 24);
+        assert!(text.lines().all(|l| l.chars().count() == 24), "{text}");
+        let body: String = text
+            .lines()
+            .skip(1)
+            .take_while(|l| l.starts_with('│'))
+            .map(|l| l[4..l.len() - 4].trim_end().to_string())
+            .collect();
+        assert_eq!(body, "ghcr.io/dhis2-chap/chapkit-r-inla");
+    }
+
+    #[test]
+    fn a_panel_never_grows_past_the_maximum() {
+        let text = plain_tty().panel_at("Error", "boom", PanelKind::Error, 400);
+        assert!(
+            text.lines().all(|l| l.chars().count() == PANEL_MAX_WIDTH),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_long_title_is_cut_rather_than_breaking_the_frame() {
+        let text = plain_tty().panel_at(
+            "a title far wider than this little box",
+            "x",
+            PanelKind::Accent,
+            24,
+        );
+        assert!(text.lines().all(|l| l.chars().count() == 24), "{text}");
+    }
+
+    #[test]
+    fn a_panel_only_paints_the_frame_when_colour_is_on() {
+        let plain = plain_tty().panel_at("Error", "boom", PanelKind::Error, 30);
+        assert!(!plain.contains('\u{1b}'));
+        let painted = colored().panel_at("Error", "boom", PanelKind::Error, 30);
+        assert!(painted.contains('\u{1b}'));
+        assert_eq!(
+            console::strip_ansi_codes(&painted).to_string(),
+            plain,
+            "colour changes nothing about the shape"
+        );
+    }
+
+    #[test]
+    fn panel_or_falls_back_to_the_plain_line_off_a_terminal() {
+        let plain = "CHAP is not running; start it with `chaps up`";
+        assert_eq!(
+            Out::default().panel_or("Not running", "x", PanelKind::Warning, plain),
+            plain
+        );
+        assert!(
+            plain_tty()
+                .panel_or("Not running", "x", PanelKind::Warning, plain)
+                .starts_with("╭─ Not running")
+        );
+    }
+
+    #[test]
     fn human_error_lists_causes() {
-        let out = Out { json: false };
+        let out = Out::default();
         let err = anyhow::anyhow!("root cause")
             .context("middle")
             .context("top");
@@ -283,12 +925,56 @@ mod tests {
     }
 
     #[test]
+    fn an_error_on_a_terminal_is_a_panel_with_the_hint_on_its_own_line() {
+        let out = plain_tty();
+        let err = anyhow::anyhow!("compose files are out of date with .chaps/; run `chaps sync`");
+        let text = out.error(&err);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("╭─ Error "), "{text}");
+        assert!(lines[1].contains("compose files are out of date with .chaps/"));
+        assert!(
+            !lines[1].contains("chaps sync"),
+            "the hint moved down a line"
+        );
+        assert!(lines[2].contains("run `chaps sync`"));
+        assert!(lines[3].starts_with('╰'));
+    }
+
+    #[test]
     fn json_error_is_an_object_with_causes() {
-        let out = Out { json: true };
+        let out = Out {
+            json: true,
+            ..Out::default()
+        };
         let err = anyhow::anyhow!("root cause").context("top");
         let value: serde_json::Value = serde_json::from_str(&out.error(&err)).unwrap();
         assert_eq!(value["error"], "top");
         assert_eq!(value["causes"], serde_json::json!(["root cause"]));
+    }
+
+    #[test]
+    fn hint_lines_split_only_in_front_of_a_hint() {
+        assert_eq!(
+            hint_lines("CHAP is not running; start it with `chaps up`"),
+            vec!["CHAP is not running", "start it with `chaps up`"]
+        );
+        assert_eq!(
+            hint_lines("compose files are out of date with .chaps/; run `chaps sync`"),
+            vec![
+                "compose files are out of date with .chaps/",
+                "run `chaps sync`"
+            ]
+        );
+        assert_eq!(
+            hint_lines("one thing; another thing"),
+            vec!["one thing; another thing"],
+            "a plain semicolon is not a hint"
+        );
+        assert_eq!(
+            hint_lines("a; b; run `x`"),
+            vec!["a; b", "run `x`"],
+            "only the semicolon in front of the hint splits"
+        );
     }
 
     #[test]
@@ -309,6 +995,20 @@ mod tests {
         assert_eq!(lines[3], "              defaults: none");
         assert!(lines.iter().all(|l| !l.ends_with(' ')));
         assert!(!text.contains("citation"));
+    }
+
+    #[test]
+    fn styled_labels_keep_the_same_column() {
+        let out = colored();
+        let entries = [
+            ("id", "chapkit_ewars_model".to_string()),
+            ("service", "chapkit-ewars-model".to_string()),
+        ];
+        let styled = fields_with(2, &entries, &|label| out.dim(label));
+        assert_eq!(
+            console::strip_ansi_codes(&styled).to_string(),
+            fields(2, &entries)
+        );
     }
 
     #[test]

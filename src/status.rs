@@ -353,7 +353,7 @@ pub fn hints(rows: &[ModelStatus]) -> Vec<String> {
                 row.id, row.id
             )),
             ModelState::NotRunning => Some(format!(
-                "{}: start the stack with `chaps up`, then `chaps logs {}`",
+                "{}: start CHAP with `chaps up`, then `chaps logs {}`",
                 row.id, row.id
             )),
             ModelState::Registered | ModelState::Unmanaged => None,
@@ -722,8 +722,21 @@ fn get(
         // that spelling exists for servicekit, which can send no other.
         request = request.header("Authorization", format!("Bearer {token}"));
     }
-    let mut response = request.call().map_err(|e| Failure::Other(e.to_string()))?;
+    let url = format!("{base}{path}");
+    let started = std::time::Instant::now();
+    let mut response = request.call().map_err(|e| {
+        crate::output::verbose(&format!(
+            "GET {url} -> failed in {}ms",
+            started.elapsed().as_millis()
+        ));
+        Failure::Other(e.to_string())
+    })?;
     let status = response.status();
+    crate::output::verbose(&format!(
+        "GET {url} -> {} in {}ms",
+        status.as_u16(),
+        started.elapsed().as_millis()
+    ));
     if status.as_u16() == 401 {
         return Err(Failure::Unauthorized);
     }
@@ -740,6 +753,7 @@ fn get(
         .body_mut()
         .read_to_string()
         .map_err(|e| Failure::Other(e.to_string()))?;
+    crate::output::debug(&format!("  {}", crate::output::trace_body(&body)));
     Ok(Answer { content_type, body })
 }
 
@@ -1235,7 +1249,7 @@ mod tests {
                 "chapkit-rwanda-malaria-bym-model: restart it with \
                  `chaps docker run restart chapkit-rwanda-malaria-bym-model`"
                     .to_string(),
-                "auto-arima-chapkit: start the stack with `chaps up`, \
+                "auto-arima-chapkit: start CHAP with `chaps up`, \
                  then `chaps logs auto-arima-chapkit`"
                     .to_string(),
             ]

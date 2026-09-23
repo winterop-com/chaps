@@ -190,6 +190,18 @@ impl Registry {
 /// out-of-date catalogue is how a user ends up pinning a version the
 /// marketplace has already yanked. `--offline` does not warn: the user asked.
 pub fn load(opts: &RegistryOptions) -> Result<Registry> {
+    let registry = load_chosen(opts)?;
+    crate::output::verbose(&format!(
+        "registry: {} from {} ({} models)",
+        registry.url,
+        registry.provenance.describe(),
+        registry.models.len()
+    ));
+    Ok(registry)
+}
+
+/// [`load`] itself: cache, then network, then whatever can still be parsed.
+fn load_chosen(opts: &RegistryOptions) -> Result<Registry> {
     let cached = cache::read(opts)?;
 
     if let Some((index, files, age)) = &cached

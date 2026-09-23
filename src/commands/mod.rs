@@ -31,8 +31,15 @@ pub struct Ctx {
 impl Ctx {
     /// Build a context from the parsed global flags.
     pub fn from_cli(cli: &Cli) -> Ctx {
+        // The stderr side of the CLI has no `Ctx` to consult, so the flags
+        // are recorded once here for `output::warn` and the trace helpers.
+        crate::output::set_no_color(cli.no_color);
+        let verbosity = crate::output::set_verbosity(cli.verbose, cli.debug);
         Ctx {
-            out: Out { json: cli.json },
+            out: Out {
+                verbosity,
+                ..Out::detect(cli.json, cli.no_color)
+            },
             project_dir: cli.project_dir.clone(),
             registry: RegistryOptions {
                 url: cli.registry_url.clone(),
@@ -50,7 +57,19 @@ impl Ctx {
     /// Load the project that contains [`Ctx::project_dir`], walking up parent
     /// directories the way git finds `.git`.
     pub fn project(&self) -> crate::error::Result<crate::project::Project> {
-        crate::project::Project::find(&self.project_dir)
+        let project = crate::project::Project::find(&self.project_dir)?;
+        // Which deployment a command actually landed on is the first thing to
+        // check when it is not the one you meant.
+        self.out.debug(&format!(
+            "project: {} (state in {})",
+            project.dir.display(),
+            project
+                .dir
+                .join(crate::project::CHAPS_DIR)
+                .join(crate::project::PROJECT_FILE)
+                .display()
+        ));
+        Ok(project)
     }
 }
 

@@ -33,25 +33,43 @@ impl std::str::FromStr for PortArg {
 }
 
 /// The one-liner `chaps -h` opens with.
-const ABOUT: &str = "deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform";
+const ABOUT: &str = "deploy and manage CHAP, the Climate Health Analytics Platform";
 
 /// The header `chaps --help` opens with. Clap renders `long_about` for the long
 /// help and falls back to `about` for the short one, so both spellings of help
 /// say what CHAP is.
 const LONG_ABOUT: &str = "\
-chaps deploys and manages CHAP, the DHIS2 Climate Health Analytics Platform.
+chaps deploys and manages CHAP, the Climate Health Analytics Platform.
 
 It runs chap-core, its worker and database with Docker Compose, and adds
 forecasting models from the CHAP model marketplace as pinned overlays.
+
+chap or chaps? `chap` is chap-core's own developer CLI, the one that serves the
+API and runs evaluations from a checkout; `chaps` is this tool, which deploys
+and manages CHAP on a machine.
 Start with `chaps init`. Docs: https://chap.dhis2.org";
 
-/// Deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform.
+/// Deploy and manage CHAP, the Climate Health Analytics Platform.
 #[derive(Debug, Parser)]
 #[command(name = "chaps", version, about = ABOUT, long_about = LONG_ABOUT)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of human output.
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Never colour the output (NO_COLOR in the environment does the same).
+    #[arg(long, global = true)]
+    pub no_color: bool,
+
+    /// Narrate on stderr what runs: external commands, HTTP requests, the
+    /// registry source, the files sync compared.
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    /// Everything --verbose says, plus response bodies, the raw compose ps
+    /// output and the resolved project paths. Implies --verbose.
+    #[arg(short, long, global = true)]
+    pub debug: bool,
 
     /// Project directory (or any directory inside one); found like git finds .git.
     #[arg(
@@ -100,10 +118,10 @@ pub enum Command {
     /// pull and restart.
     Update(UpdateArgs),
 
-    /// Sync, then start the stack (docker compose up).
+    /// Sync, then start CHAP (docker compose up).
     Up(UpArgs),
 
-    /// Stop the stack (docker compose down).
+    /// Stop CHAP (docker compose down).
     Down(DownArgs),
 
     /// Show container logs (docker compose logs).
@@ -388,14 +406,14 @@ pub struct UpdateArgs {
     pub pin_chap_core: bool,
 }
 
-/// Sync, then start the stack (docker compose up).
+/// Sync, then start CHAP (docker compose up).
 ///
 /// Before invoking Docker it checks that the host ports the stack publishes
 /// are free, and says what to do about any that are not; `--no-preflight`
 /// skips that.
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
-    /// Run in the foreground and stream all logs (Ctrl-C stops the stack).
+    /// Run in the foreground and stream all logs (Ctrl-C stops CHAP).
     #[arg(short = 'a', long, visible_alias = "foreground")]
     pub attach: bool,
 
@@ -417,7 +435,7 @@ pub struct UpArgs {
     pub extra: Vec<String>,
 }
 
-/// Stop the stack (docker compose down).
+/// Stop CHAP (docker compose down).
 #[derive(Debug, Clone, Args)]
 pub struct DownArgs {
     /// Extra arguments passed through to docker compose down.
@@ -467,7 +485,7 @@ pub enum DockerSub {
     /// Run any docker compose command against this project's files.
     Run(RunArgs),
 
-    /// Print the finished stack: every compose file merged into one document.
+    /// Print the finished configuration: every compose file merged into one document.
     Config(ConfigArgs),
 }
 
@@ -524,7 +542,7 @@ pub struct RunArgs {
     pub args: Vec<String>,
 }
 
-/// Print the finished stack: every compose file merged into one document.
+/// Print the finished configuration: every compose file merged into one document.
 ///
 /// This is what Docker actually reads after the `-f` list, the `include:` and
 /// the `.env` substitutions have been applied - useful when a setting is not
@@ -1139,7 +1157,7 @@ mod tests {
         assert!(help.contains("--foreground"), "{help}");
         assert!(help.contains("-a"), "{help}");
         assert!(
-            help.contains("Run in the foreground and stream all logs (Ctrl-C stops the stack)"),
+            help.contains("Run in the foreground and stream all logs (Ctrl-C stops CHAP)"),
             "{help}"
         );
     }

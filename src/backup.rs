@@ -635,7 +635,7 @@ pub struct RestorePlan {
     pub models: Vec<PlannedModel>,
     /// Running services that will be stopped first.
     pub stop: Vec<String>,
-    /// Whether the stack is brought back up at the end.
+    /// Whether CHAP is brought back up at the end.
     pub start: bool,
 }
 
@@ -707,7 +707,7 @@ pub fn plan_text(plan: &RestorePlan) -> String {
     if plan.start {
         text.push_str("then runs    docker compose up -d\n");
     } else {
-        text.push_str("then leaves  the stack as it is (--no-start)\n");
+        text.push_str("then leaves  CHAP as it is (--no-start)\n");
     }
     text
 }
@@ -999,7 +999,7 @@ mod tests {
     fn the_plan_of_a_stopped_stack_says_there_is_nothing_to_stop() {
         let text = plan_text(&plan(false, vec![]));
         assert!(text.contains("nothing is running, so nothing is stopped first"));
-        assert!(text.contains("then leaves  the stack as it is (--no-start)"));
+        assert!(text.contains("then leaves  CHAP as it is (--no-start)"));
     }
 
     #[test]

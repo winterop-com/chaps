@@ -1,20 +1,28 @@
 # Introduction
 
 `chaps` runs the CHAP stack. The name is what it does: **CHAP Stack**. It
-deploys and manages [CHAP](https://chap.dhis2.org), the DHIS2 Climate Health
+deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
 Analytics Platform, as a Docker Compose deployment of
 [chap-core](https://github.com/dhis2-chap/chap-core) together with the
 forecasting model services published in the
 [CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).
 
-Today `chaps` is built around the CHAP stack, and that is the only stack it
-knows. Support for related DHIS2 climate stacks such as OCS (Open Climate
-Service) is planned rather than available, through a `--stack` selection that
-would leave existing projects working unchanged as `stack: chap`.
+Today `chaps` is built around the CHAP stack, and that is the only one it
+knows. Related climate stacks such as OCS (Open Climate Service) are planned as
+optional components of a chaps deployment beside chap-core; existing projects
+keep working unchanged.
+
+> **chap or chaps?** `chap` is chap-core's own developer CLI, the one that
+> serves the API and runs evaluations from a checkout of chap-core. `chaps` is
+> this tool: it deploys and manages CHAP on a machine, and never runs a
+> forecast itself.
+>
+> Typing a `chap` command at `chaps` says so rather than printing a bare
+> "unrecognized subcommand".
 
 ## What it does, in one screen
 
-One command writes a self-contained deployment directory: the base stack
+One command writes a self-contained deployment directory: the base services
 (chap-core, its worker, Valkey and PostgreSQL), one Compose overlay per enabled
 model, an `.env` file, and a `.chaps/` directory that records exactly what the
 deployment is meant to be.

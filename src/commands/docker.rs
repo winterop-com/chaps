@@ -11,6 +11,7 @@ use crate::commands::Ctx;
 use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
+use crate::output::{Out, PanelKind};
 use crate::ports;
 use crate::project::Project;
 use crate::registry;
@@ -21,8 +22,7 @@ const DEFAULT_EXEC_CMD: &str = "sh";
 
 /// What `logs` and `docker ps` say for a project that has no containers at
 /// all. Both would otherwise print nothing whatsoever.
-const NOTHING_RUNNING: &str =
-    "nothing is running for this project; start the stack with `chaps up`";
+const NOTHING_RUNNING: &str = "nothing is running for this project; start CHAP with `chaps up`";
 
 /// The hint that closes a detached `up`.
 const AFTER_UP: &str = "run `chaps status` to check chap-core and the models";
@@ -113,7 +113,7 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
                 return Ok(Pre::Run(Vec::new()));
             };
             if containers.is_empty() {
-                note(ctx, NOTHING_RUNNING);
+                note(ctx, &nothing_running(&ctx.out));
                 return Ok(Pre::Skip(1));
             }
             if !args.services.is_empty()
@@ -137,7 +137,7 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
             if let Some(containers) = docker::all_containers(project)
                 && containers.is_empty()
             {
-                note(ctx, NOTHING_RUNNING);
+                note(ctx, &nothing_running(&ctx.out));
                 // A parser asked for a list of containers; there are none.
                 if ctx.out.json {
                     println!("[]");
@@ -168,13 +168,16 @@ fn report_what_changed(
         // there is nothing left running to summarise.
         DockerCmd::Up(args) if !args.attach => {
             let after = docker::running_containers(project).unwrap_or_default();
-            note(ctx, &up_summary(before, &after));
+            note(ctx, &up_summary(&ctx.out, before, &after));
         }
         DockerCmd::Down(args) => note(
             ctx,
-            &down_summary(&docker::service_names(before), &args.extra),
+            &down_summary(&ctx.out, &docker::service_names(before), &args.extra),
         ),
-        DockerCmd::Pull(_) => note(ctx, &pull_summary(docker::image_count(project))),
+        DockerCmd::Pull(_) => note(
+            ctx,
+            &ctx.out.ok(&pull_summary(docker::image_count(project))),
+        ),
         _ => {}
     }
 }
@@ -196,30 +199,34 @@ fn note(ctx: &Ctx, line: &str) {
 /// Compose prints one line per service as it goes, in no particular order and
 /// in the language of its own steps ("Created", "Running"); this is the one
 /// line that says which services are new to this run.
-pub fn up_summary(before: &[docker::Container], after: &[docker::Container]) -> String {
+pub fn up_summary(out: &Out, before: &[docker::Container], after: &[docker::Container]) -> String {
     let (started, unchanged) = docker::diff_containers(before, after);
+    let started_cell = |names: &[String]| {
+        format!(
+            "{} {}",
+            out.ok("started/recreated:"),
+            out.value(&names.join(", "))
+        )
+    };
+    let unchanged_cell = |names: &[String]| out.dim(&format!("unchanged: {}", names.join(", ")));
     let summary = match (started.is_empty(), unchanged.is_empty()) {
         (true, true) => {
-            return "nothing is running after `up`; run `chaps logs` to see why".to_string();
+            return out.backticks("nothing is running after `up`; run `chaps logs` to see why");
         }
-        (false, true) => format!("started/recreated: {}", started.join(", ")),
-        (true, false) => format!("unchanged: {}", unchanged.join(", ")),
-        (false, false) => format!(
-            "started/recreated: {}; unchanged: {}",
-            started.join(", "),
-            unchanged.join(", ")
-        ),
+        (false, true) => started_cell(&started),
+        (true, false) => unchanged_cell(&unchanged),
+        (false, false) => format!("{}; {}", started_cell(&started), unchanged_cell(&unchanged)),
     };
-    format!("{summary}\n{AFTER_UP}")
+    format!("{summary}\n{}", out.backticks(AFTER_UP))
 }
 
 /// What `down` stopped, and what it left behind.
 ///
 /// The volumes are the point of the second half: `down` is the command people
 /// reach for to "reset" a deployment, and it keeps the database.
-pub fn down_summary(stopped: &[String], extra: &[String]) -> String {
+pub fn down_summary(out: &Out, stopped: &[String], extra: &[String]) -> String {
     if stopped.is_empty() {
-        return "nothing was running".to_string();
+        return out.dim("nothing was running");
     }
     let volumes = if extra.iter().any(|a| a == "-v" || a == "--volumes") {
         "volumes removed too (-v)"
@@ -227,10 +234,30 @@ pub fn down_summary(stopped: &[String], extra: &[String]) -> String {
         "volumes kept (`chaps docker run down -v` removes them)"
     };
     format!(
-        "stopped {} container{} ({}); {volumes}",
-        stopped.len(),
-        if stopped.len() == 1 { "" } else { "s" },
-        stopped.join(", ")
+        "{} {}; {}",
+        out.warn("stopped CHAP:"),
+        out.dim(&format!(
+            "{} ({} container{})",
+            stopped.join(", "),
+            stopped.len(),
+            if stopped.len() == 1 { "" } else { "s" }
+        )),
+        out.backticks(volumes)
+    )
+}
+
+/// The "there is nothing here" answer `logs` and `ps` give a project whose
+/// containers have never been created, as a panel on a terminal.
+fn nothing_running(out: &Out) -> String {
+    out.panel_or(
+        "Not running",
+        &crate::output::hint_lines(NOTHING_RUNNING)
+            .iter()
+            .map(|line| out.backticks(line))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        PanelKind::Warning,
+        NOTHING_RUNNING,
     )
 }
 
@@ -363,7 +390,7 @@ fn warn_about_old_compose() {
         return;
     }
     if let Ok(Some(warning)) = docker::check_compose_version() {
-        eprintln!("warning: {warning}");
+        crate::output::warn(&warning);
     }
 }
 
@@ -602,20 +629,23 @@ mod tests {
             container("chapkit-ewars-model", "ddd", "t2"),
         ];
         assert_eq!(
-            up_summary(&before, &after),
+            up_summary(&Out::default(), &before, &after),
             "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
              run `chaps status` to check chap-core and the models"
         );
 
         // A first start has nothing to leave alone.
-        assert!(up_summary(&[], &after).starts_with(
+        assert!(up_summary(&Out::default(), &[], &after).starts_with(
             "started/recreated: chap, postgres, chapkit-ewars-model\nrun `chaps status`"
         ));
         // A no-op `up` says so rather than printing an empty list.
-        assert!(up_summary(&after, &after).starts_with("unchanged: chap, postgres, chapkit"));
+        assert!(
+            up_summary(&Out::default(), &after, &after)
+                .starts_with("unchanged: chap, postgres, chapkit")
+        );
         // And an `up` that left nothing running is a problem, not a summary.
         assert_eq!(
-            up_summary(&[], &[]),
+            up_summary(&Out::default(), &[], &[]),
             "nothing is running after `up`; run `chaps logs` to see why"
         );
     }
@@ -624,18 +654,25 @@ mod tests {
     fn down_reports_what_it_stopped_and_what_it_kept() {
         let stopped = vec!["chap".to_string(), "worker".to_string()];
         assert_eq!(
-            down_summary(&stopped, &[]),
-            "stopped 2 containers (chap, worker); volumes kept \
+            down_summary(&Out::default(), &stopped, &[]),
+            "stopped CHAP: chap, worker (2 containers); volumes kept \
              (`chaps docker run down -v` removes them)"
         );
-        assert!(down_summary(&stopped[..1], &[]).starts_with("stopped 1 container (chap);"));
+        assert!(
+            down_summary(&Out::default(), &stopped[..1], &[])
+                .starts_with("stopped CHAP: chap (1 container);")
+        );
         // `down -v` did take the volumes, so it must not claim otherwise.
         assert!(
-            down_summary(&stopped, &["-v".to_string()]).ends_with("volumes removed too (-v)"),
+            down_summary(&Out::default(), &stopped, &["-v".to_string()])
+                .ends_with("volumes removed too (-v)"),
             "{}",
-            down_summary(&stopped, &["-v".to_string()])
+            down_summary(&Out::default(), &stopped, &["-v".to_string()])
         );
-        assert_eq!(down_summary(&[], &[]), "nothing was running");
+        assert_eq!(
+            down_summary(&Out::default(), &[], &[]),
+            "nothing was running"
+        );
     }
 
     #[test]
@@ -672,7 +709,7 @@ mod tests {
     fn the_empty_state_line_says_what_to_do_about_it() {
         assert_eq!(
             NOTHING_RUNNING,
-            "nothing is running for this project; start the stack with `chaps up`"
+            "nothing is running for this project; start CHAP with `chaps up`"
         );
     }
 }

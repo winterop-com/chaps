@@ -17,7 +17,7 @@ use crate::cli::{AuthDisableArgs, AuthEnableArgs, AuthRotateArgs, AuthShowArgs};
 use crate::commands::Ctx;
 use crate::compose::sync::sync;
 use crate::error::Result;
-use crate::output;
+use crate::output::{self, Out};
 use crate::project::{AuthState, ENV_FILE, Project};
 use crate::registry;
 use std::path::{Path, PathBuf};
@@ -45,7 +45,13 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
         "env_file": project.dir.join(ENV_FILE),
     });
     ctx.out.emit(&value, || {
-        show_human(&effective, recorded, token.as_deref(), args.reveal)
+        show_human(
+            &ctx.out,
+            &effective,
+            recorded,
+            token.as_deref(),
+            args.reveal,
+        )
     })
 }
 
@@ -282,57 +288,70 @@ fn written_block(dir: &Path, written: &[PathBuf]) -> String {
 
 /// The human rendering of `chaps auth show`.
 fn show_human(
+    out: &Out,
     effective: &AuthState,
     recorded: AuthState,
     token: Option<&str>,
     reveal: bool,
 ) -> String {
-    let on_off = |on: bool| if on { "on" } else { "off" };
+    // On is the safe state and off is the one to act on, so off is the colour
+    // that asks for attention rather than the one that says "broken".
+    let on_off = |on: bool| {
+        if on { out.ok("on") } else { out.warn("off") }
+    };
     let mut rows = vec![
-        (
-            "API authentication",
-            on_off(effective.api_token).to_string(),
-        ),
-        (
-            "Registration key",
-            on_off(effective.registration_key).to_string(),
-        ),
+        ("API authentication", on_off(effective.api_token)),
+        ("Registration key", on_off(effective.registration_key)),
     ];
     if let Some(token) = token {
         let shown = if reveal {
-            token.to_string()
+            out.value(token)
         } else {
-            format!("{} (--reveal prints it in full)", mask(token))
+            format!(
+                "{} {}",
+                out.value(&mask(token)),
+                out.dim("(--reveal prints it in full)")
+            )
         };
         rows.push(("API token", shown));
     }
-    let mut text = output::fields(0, &rows);
+    let mut text = output::fields_with(0, &rows, &|label| out.key(label));
 
     if !effective.is_on() {
-        text.push_str(
-            "\nnothing protects this API: anyone who can reach the port can use it. \
-             `chaps auth enable` turns authentication on.\n",
-        );
+        text.push('\n');
+        text.push_str(&out.backticks(
+            "nothing protects this API: anyone who can reach the port can use it. \
+             `chaps auth enable` turns authentication on.",
+        ));
+        text.push('\n');
         return text;
     }
     if effective.api_token {
         text.push_str(&format!(
-            "\nclients send it as `Authorization: Bearer <token>`; {MODELING_APP_HINT}.\n"
+            "\n{}\n",
+            out.backticks(&format!(
+                "clients send it as `Authorization: Bearer <token>`; {MODELING_APP_HINT}."
+            ))
         ));
     }
     if effective.registration_key {
-        text.push_str(
-            "model services send the registration key as `X-Service-Key` when they register.\n",
-        );
+        text.push_str(&out.backticks(
+            "model services send the registration key as `X-Service-Key` when they register.",
+        ));
+        text.push('\n');
     }
     // `.env` is what the deployment does; the booleans in `.chaps/` are only a
     // record of it, and a mismatch means one of them was edited by hand.
     if recorded != *effective {
         text.push_str(&format!(
-            "\nwarning: .chaps/project.yaml records api_token: {}, registration_key: {}, \
-             which is not what {ENV_FILE} sets; `chaps auth enable` or `chaps auth disable` \
-             lines them up again\n",
-            recorded.api_token, recorded.registration_key
+            "\n{} {}\n",
+            out.warn("warning:"),
+            out.backticks(&format!(
+                ".chaps/project.yaml records api_token: {}, registration_key: {}, \
+                 which is not what {ENV_FILE} sets; `chaps auth enable` or `chaps auth disable` \
+                 lines them up again",
+                recorded.api_token, recorded.registration_key
+            ))
         ));
     }
     text
@@ -351,7 +370,13 @@ mod tests {
 
     #[test]
     fn show_says_off_and_what_to_do_about_it() {
-        let text = show_human(&AuthState::default(), AuthState::default(), None, false);
+        let text = show_human(
+            &Out::default(),
+            &AuthState::default(),
+            AuthState::default(),
+            None,
+            false,
+        );
         assert!(text.contains("API authentication  off"), "{text}");
         assert!(text.contains("Registration key    off"), "{text}");
         assert!(text.contains("nothing protects this API"), "{text}");
@@ -362,14 +387,14 @@ mod tests {
     #[test]
     fn show_masks_the_token_until_reveal_asks_for_it() {
         let token = "0123456789abcdef0123456789abcdef";
-        let masked = show_human(&on(), on(), Some(token), false);
+        let masked = show_human(&Out::default(), &on(), on(), Some(token), false);
         assert!(masked.contains("API token           012345..."), "{masked}");
         assert!(!masked.contains(token), "the secret leaked: {masked}");
         assert!(masked.contains("--reveal prints it in full"), "{masked}");
         assert!(masked.contains(MODELING_APP_HINT), "{masked}");
         assert!(masked.contains("X-Service-Key"), "{masked}");
 
-        let revealed = show_human(&on(), on(), Some(token), true);
+        let revealed = show_human(&Out::default(), &on(), on(), Some(token), true);
         assert!(
             revealed.contains(&format!("API token           {token}")),
             "{revealed}"
@@ -382,6 +407,7 @@ mod tests {
         // `.env` has both, `.chaps/` remembers neither: a hand edit, or a
         // restore from an archive written before `auth` existed.
         let text = show_human(
+            &Out::default(),
             &on(),
             AuthState::default(),
             Some("sekret-token-value"),
@@ -394,7 +420,16 @@ mod tests {
         assert!(text.contains("api_token: false"), "{text}");
 
         // Agreement says nothing at all.
-        assert!(!show_human(&on(), on(), Some("sekret-token-value"), false).contains("warning:"));
+        assert!(
+            !show_human(
+                &Out::default(),
+                &on(),
+                on(),
+                Some("sekret-token-value"),
+                false
+            )
+            .contains("warning:")
+        );
     }
 
     #[test]
@@ -403,7 +438,7 @@ mod tests {
             api_token: false,
             registration_key: true,
         };
-        let text = show_human(&key_only, key_only, None, false);
+        let text = show_human(&Out::default(), &key_only, key_only, None, false);
         assert!(text.contains("API authentication  off"), "{text}");
         assert!(text.contains("Registration key    on"), "{text}");
         assert!(text.contains("X-Service-Key"), "{text}");

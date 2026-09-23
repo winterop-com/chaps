@@ -139,7 +139,14 @@ pub fn sync(
 
     for (name, content) in &desired {
         let path = dir.join(name);
-        if std::fs::read_to_string(&path).ok().as_deref() == Some(content.as_str()) {
+        let same = std::fs::read_to_string(&path).ok().as_deref() == Some(content.as_str());
+        crate::output::verbose(&format!(
+            "compared {} ({} rendered bytes): {}",
+            path.display(),
+            content.len(),
+            if same { "unchanged" } else { "differs" }
+        ));
+        if same {
             report.unchanged.push(path);
             continue;
         }

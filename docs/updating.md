@@ -33,13 +33,13 @@ skipped. Then it syncs and runs `docker compose pull`.
 
 ## Whether anything restarts
 
-That depends on the stack, and it is the one rule worth remembering:
-**`update` never starts a stopped stack.**
+That depends on whether CHAP is running, and it is the one rule worth
+remembering: **`update` never starts CHAP when it is stopped.**
 
 - With containers running, `docker compose up -d` recreates the services whose
   pins moved.
 - With nothing running, `update` stops after the pull and says
-  ``stack is not running; run `chaps up` to start with the new versions``.
+  ``CHAP is not running; run `chaps up` to start CHAP with the new versions``.
   Starting a deployment somebody stopped is not an update's business, and an
   `up -d` that did it would be a deployment nobody asked for.
 
@@ -64,7 +64,7 @@ it downloads the `compose.ghcr.yml` that release publishes, moves
 `chap_image_tag`, and rewrites the single active `CHAP_IMAGE_TAG=` line in
 `.env`. Only that line, and only when it still says what the project recorded.
 A value you pinned yourself, or the commented placeholder, is left alone with a
-warning saying what the stack will actually run.
+warning saying what CHAP will actually run.
 
 ## Moving tags
 
