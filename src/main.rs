@@ -36,6 +36,7 @@ const PROJECT_ONLY: &[&str] = &[
     "up",
     "down",
     "logs",
+    "restart",
     "docker",
     "backup",
     "status",
@@ -53,8 +54,8 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable", "expose", "unexpose"
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
-     more commands appear: up, down, logs, status, sync, update, ui, components, docker, \
-     backup, auth.";
+     more commands appear: up, down, logs, restart, status, sync, update, ui, components, \
+     docker, backup, auth.";
 
 /// chap-core ships a developer CLI of its own, called `chap`. These are its
 /// commands: typing one of them at `chaps` is a near miss, not a typo, and
@@ -146,6 +147,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         Command::Up(args) => commands::docker::run(ctx, &DockerCmd::Up(args.clone())),
         Command::Down(args) => commands::docker::run(ctx, &DockerCmd::Down(args.clone())),
         Command::Logs(args) => commands::docker::run(ctx, &DockerCmd::Logs(args.clone())),
+        Command::Restart(args) => commands::docker::run(ctx, &DockerCmd::Restart(args.clone())),
         Command::Docker(d) => commands::docker::run(ctx, &DockerCmd::from(&d.command)),
 
         Command::Backup(b) => match &b.command {

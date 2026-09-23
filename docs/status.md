@@ -19,7 +19,7 @@ some-other-service                unmanaged                http://c0ffee:8000   
 internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
 
 2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
+  chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
   auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
@@ -63,7 +63,10 @@ way in is printed once, under the table, rather than repeated per row. See
 A model whose container is up but which never registered is the interesting
 case. chapkit stops trying five attempts into its startup, so one that came up
 before chap-core was healthy stays invisible until it is restarted, which is
-what its hint says.
+what its hint says. The hint asks for `chaps restart --all <id>` rather than a
+plain `chaps restart`: nothing about the service has changed, so there is
+nothing a restart would recreate on its own, and `--all` is what recreates it
+anyway.
 
 ## What `up` means
 

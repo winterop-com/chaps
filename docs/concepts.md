@@ -119,8 +119,10 @@ A deployment is reproducible because everything it runs is pinned.
   [Components](./components.md).
 
 Model pins only move in two ways: `chaps models enable ID` (with `--channel`
-or `--version`) and `chaps update`. Nothing else, `up`, `expose` and `unexpose`
-included, changes the version a model runs. See [Updating](./updating.md).
+or `--version`) and `chaps update`. Nothing else, `up`, `restart`, `expose` and
+`unexpose` included, changes the version a model runs. `update` moves the pins
+and pulls; `chaps restart` applies what it fetched to the services that are
+running. See [Updating](./updating.md).
 
 ## The `.env` contract
 
@@ -186,7 +188,7 @@ Commands:
 
 ...
 
-Inside a directory created by `chaps init`, more commands appear: up, down, logs, status, sync, update, ui, components, docker, backup, auth.
+Inside a directory created by `chaps init`, more commands appear: up, down, logs, restart, status, sync, update, ui, components, docker, backup, auth.
 ```
 
 The hidden commands still run if you type them; they just tell you there is no

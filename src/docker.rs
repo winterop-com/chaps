@@ -8,7 +8,7 @@
 
 use crate::error::{ChapError, Result};
 use crate::project::Project;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::process::{Command, ExitStatus, Stdio};
 
 /// Minimum compose version that understands `include:`.
@@ -100,16 +100,21 @@ pub fn parse_ps_json(text: &str) -> BTreeSet<String> {
 /// One container of this project, as `docker compose ps` reports it.
 ///
 /// Only the fields the wrappers reason about: which service it belongs to,
-/// whether it is up, and the pair that says whether it is the same container
-/// as before (`id` plus `created_at`, because a recreated service keeps its
-/// name but gets both anew).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// whether it is up, the image reference it was created from, and the pair
+/// that says whether it is the same container as before (`id` plus
+/// `created_at`, because a recreated service keeps its name but gets both
+/// anew).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Container {
     pub service: String,
     pub name: String,
     pub id: String,
     pub created_at: String,
     pub state: String,
+    /// The image as compose names it, such as `ghcr.io/dhis2-chap/chap:v2.3.1`.
+    /// It is the reference the container was created from, which is not the
+    /// same question as which image that reference points at today.
+    pub image: String,
 }
 
 impl Container {
@@ -155,6 +160,7 @@ pub fn containers(text: &str) -> Vec<Container> {
                 id: string("ID"),
                 created_at: string("CreatedAt"),
                 state: string("State"),
+                image: string("Image"),
             })
         })
         .collect()
@@ -261,6 +267,200 @@ pub fn image_count(project: &Project) -> Option<usize> {
         .filter(|l| !l.is_empty())
         .collect();
     Some(images.len())
+}
+
+/// The image reference each service of this project pins, from
+/// `docker compose config --format json`.
+///
+/// This is the stack as the files describe it now, which is the half
+/// `docker compose ps` cannot answer: `ps` reports the reference a container
+/// was created from, and the point of asking both is to find where they have
+/// come apart. Best-effort: an empty map when docker could not be asked.
+pub fn service_images(project: &Project) -> BTreeMap<String, String> {
+    match compose_capture(project, &["config", "--format", "json"]) {
+        Some(text) => parse_service_images(&text),
+        None => BTreeMap::new(),
+    }
+}
+
+/// The `services.<name>.image` of a `docker compose config --format json`
+/// document. A service built from a Dockerfile has no image and is left out.
+pub fn parse_service_images(text: &str) -> BTreeMap<String, String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return BTreeMap::new();
+    };
+    let Some(services) = value.get("services").and_then(|s| s.as_object()) else {
+        return BTreeMap::new();
+    };
+    services
+        .iter()
+        .filter_map(|(name, service)| {
+            let image = service.get("image")?.as_str()?;
+            (!image.is_empty()).then(|| (name.clone(), image.to_string()))
+        })
+        .collect()
+}
+
+/// The configuration hash compose computes for each service of this project
+/// right now (`docker compose config --hash='*'`).
+///
+/// It is the same value compose stamps on a container as
+/// `com.docker.compose.config-hash` when it creates it, so the two together
+/// say whether a running container was made from the files as they are today.
+/// Best-effort: an empty map when docker could not be asked.
+pub fn config_hashes(project: &Project) -> BTreeMap<String, String> {
+    match compose_capture(project, &["config", "--hash=*"]) {
+        Some(text) => parse_config_hashes(&text),
+        None => BTreeMap::new(),
+    }
+}
+
+/// Parse the `<service> <hash>` lines of `docker compose config --hash='*'`.
+pub fn parse_config_hashes(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let (service, hash) = line.trim().split_once(char::is_whitespace)?;
+            let hash = hash.trim();
+            (!service.is_empty() && !hash.is_empty())
+                .then(|| (service.to_string(), hash.to_string()))
+        })
+        .collect()
+}
+
+/// What one running container is actually made of.
+///
+/// The pair that decides whether it is stale: the id of the image it runs
+/// (not the reference, which can point somewhere else after a pull) and the
+/// configuration hash it was created with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContainerBuild {
+    pub image_id: String,
+    pub config_hash: String,
+}
+
+/// What each of these containers is made of, keyed by the id it was asked
+/// about (`docker inspect`).
+///
+/// One call for the whole list, matched back by id rather than by position,
+/// so a container that vanished between the `ps` and the `inspect` costs its
+/// own row and not the rows after it.
+pub fn container_builds(ids: &[String]) -> BTreeMap<String, ContainerBuild> {
+    if ids.is_empty() {
+        return BTreeMap::new();
+    }
+    let mut args = vec![
+        "inspect".to_string(),
+        "--format".to_string(),
+        INSPECT_FORMAT.to_string(),
+    ];
+    args.extend(ids.iter().cloned());
+    let Some(text) = docker_capture(&args) else {
+        return BTreeMap::new();
+    };
+    let found = parse_container_builds(&text);
+    // `ps` prints short ids and `inspect` prints full ones, so the answer is
+    // keyed back to the id the caller knows.
+    ids.iter()
+        .filter_map(|id| {
+            let build = found
+                .iter()
+                .find(|(full, _)| full == id || full.starts_with(id.as_str()))?;
+            Some((id.clone(), build.1.clone()))
+        })
+        .collect()
+}
+
+/// The `--format` [`container_builds`] asks for: full id, image id and
+/// configuration hash, one tab-separated line per container.
+///
+/// `{{json .Config.Labels}}` rather than `{{index .Config.Labels "..."}}`
+/// because the quotes that second spelling needs are one more thing to get
+/// right on a Windows command line, and the whole label set costs nothing.
+const INSPECT_FORMAT: &str = "{{.Id}}\t{{.Image}}\t{{json .Config.Labels}}";
+
+/// The label compose stamps a container with, so a later run can tell whether
+/// the files it was made from have changed.
+const CONFIG_HASH_LABEL: &str = "com.docker.compose.config-hash";
+
+/// Parse the [`INSPECT_FORMAT`] lines into `(full id, build)` pairs.
+pub fn parse_container_builds(text: &str) -> Vec<(String, ContainerBuild)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.trim_end().splitn(3, '\t');
+            let id = fields.next()?.trim();
+            let image_id = fields.next()?.trim();
+            if id.is_empty() {
+                return None;
+            }
+            let labels = fields.next().unwrap_or_default();
+            let config_hash = serde_json::from_str::<serde_json::Value>(labels)
+                .ok()
+                .and_then(|v| {
+                    v.get(CONFIG_HASH_LABEL)
+                        .and_then(|h| h.as_str())
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            Some((
+                id.to_string(),
+                ContainerBuild {
+                    image_id: image_id.to_string(),
+                    config_hash,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// The local image id each of these references points at right now
+/// (`docker image inspect`), leaving out the ones this machine does not have.
+///
+/// A reference is asked about once however many services share it, and a
+/// reference docker has never pulled is simply absent: "we do not know" and
+/// "it changed" must not be the same answer.
+pub fn image_ids(refs: &[String]) -> BTreeMap<String, String> {
+    let unique: BTreeSet<&String> = refs.iter().filter(|r| !r.is_empty()).collect();
+    unique
+        .into_iter()
+        .filter_map(|reference| Some((reference.clone(), image_id(reference)?)))
+        .collect()
+}
+
+/// The local image id one reference points at, or `None` when this machine
+/// does not have it.
+fn image_id(reference: &str) -> Option<String> {
+    let args = vec![
+        "image".to_string(),
+        "inspect".to_string(),
+        "--format".to_string(),
+        "{{.Id}}".to_string(),
+        reference.to_string(),
+    ];
+    let id = docker_capture(&args)?.trim().to_string();
+    (!id.is_empty()).then_some(id)
+}
+
+/// Run a plain `docker` command (no `compose`, no project) and return its
+/// stdout, or `None` when it could not be run or answered non-zero.
+///
+/// Best-effort like [`compose_capture`]: every caller is sharpening an answer
+/// it can give without docker's help.
+fn docker_capture(args: &[String]) -> Option<String> {
+    trace_command(args);
+    let out = Command::new("docker")
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        crate::output::verbose(&format!(
+            "  `docker {}` exited with status {}",
+            args.first().map(String::as_str).unwrap_or_default(),
+            exit_code(out.status)
+        ));
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Why a short `docker compose` query went unanswered.
@@ -797,6 +997,7 @@ mod tests {
             id: id.to_string(),
             created_at: created.to_string(),
             state: "running".to_string(),
+            ..Container::default()
         }
     }
 
@@ -951,5 +1152,68 @@ mod tests {
         let err = spawn_error(&std::io::Error::other("boom"));
         assert!(err.downcast_ref::<ChapError>().is_none());
         assert!(err.to_string().contains("could not run"));
+    }
+
+    #[test]
+    fn ps_carries_the_image_reference_the_container_was_made_from() {
+        let text = r#"{"Service":"chap","Name":"x-chap-1","ID":"ca78","CreatedAt":"now","State":"running","Image":"ghcr.io/dhis2-chap/chap:v2.3.1"}"#;
+        let found = containers(text);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].image, "ghcr.io/dhis2-chap/chap:v2.3.1");
+        // A `ps` from a compose that does not print it is not an error.
+        assert_eq!(containers(r#"{"Service":"chap"}"#)[0].image, "");
+    }
+
+    #[test]
+    fn the_service_images_come_from_the_merged_configuration() {
+        let text = r#"{
+          "name": "chapx",
+          "services": {
+            "chap":   {"image": "ghcr.io/dhis2-chap/chap:v2.3.1"},
+            "worker": {"image": "ghcr.io/dhis2-chap/chap:v2.3.1"},
+            "local":  {"build": {"context": "."}}
+          }
+        }"#;
+        let images = parse_service_images(text);
+        assert_eq!(images.len(), 2, "a built service pins no image");
+        assert_eq!(
+            images.get("chap").map(String::as_str),
+            Some("ghcr.io/dhis2-chap/chap:v2.3.1")
+        );
+        assert_eq!(images.get("worker"), images.get("chap"));
+        assert!(parse_service_images("not json").is_empty());
+        assert!(parse_service_images("{}").is_empty());
+    }
+
+    #[test]
+    fn the_config_hashes_are_one_service_per_line() {
+        let text = "chap 8b08690bc131\nworker 2aaae2717d12\n";
+        let hashes = parse_config_hashes(text);
+        assert_eq!(hashes.get("chap").map(String::as_str), Some("8b08690bc131"));
+        assert_eq!(
+            hashes.get("worker").map(String::as_str),
+            Some("2aaae2717d12")
+        );
+        // Anything that is not a pair is not a hash.
+        assert!(parse_config_hashes("chap\n\n   \n").is_empty());
+    }
+
+    #[test]
+    fn an_inspected_container_yields_its_image_and_its_config_hash() {
+        let text = "abc123def456\tsha256:aaa\t{\"com.docker.compose.config-hash\":\"h1\",\
+                    \"com.docker.compose.project\":\"chapx\"}\n\
+                    fff000\tsha256:bbb\t{}\n";
+        let found = parse_container_builds(text);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].0, "abc123def456");
+        assert_eq!(found[0].1.image_id, "sha256:aaa");
+        assert_eq!(found[0].1.config_hash, "h1");
+        // No label, no hash: unknown, not empty-and-therefore-changed.
+        assert_eq!(found[1].1.config_hash, "");
+        // Labels that are not JSON at all cost the hash and nothing else.
+        let odd = parse_container_builds("abc\tsha256:ccc\tnot json\n");
+        assert_eq!(odd[0].1.image_id, "sha256:ccc");
+        assert_eq!(odd[0].1.config_hash, "");
+        assert!(parse_container_builds("").is_empty());
     }
 }

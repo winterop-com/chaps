@@ -1,10 +1,10 @@
-//! `chaps up|down|logs` and the `chaps docker` group — the docker compose
-//! wrappers.
+//! `chaps up|down|logs|restart` and the `chaps docker` group — the docker
+//! compose wrappers.
 //!
 //! Every one of them builds an argument list and hands it to the same runner,
 //! so they all get the project's explicit `-f` list and the same exit-code
-//! behaviour. `up` syncs the compose files from `.chaps/` first; the others
-//! run against whatever is on disk.
+//! behaviour. `up` syncs the compose files from `.chaps/` first; the others,
+//! `restart` included, run against whatever is on disk.
 
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;
@@ -23,6 +23,11 @@ const DEFAULT_EXEC_CMD: &str = "sh";
 /// What `logs` and `docker ps` say for a project that has no containers at
 /// all. Both would otherwise print nothing whatsoever.
 const NOTHING_RUNNING: &str = "nothing is running for this project; start CHAP with `chaps up`";
+
+/// What `restart` says when there is nothing to recreate. Recreating is not
+/// starting: a deployment that is down is `chaps up`'s to bring up, the same
+/// answer `chaps status` gives.
+const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
 
 /// The hint that closes a detached `up`.
 const AFTER_UP: &str = "run `chaps status` to check chap-core and the models";
@@ -160,22 +165,22 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
                 note(ctx, &nothing_running(&ctx.out));
                 return Ok(Pre::Skip(1));
             }
-            if !args.services.is_empty()
-                && let Some(services) = docker::config_services(project)
-            {
-                let unknown: Vec<String> = args
-                    .services
-                    .iter()
-                    .filter(|name| !services.contains(name))
-                    .cloned()
-                    .collect();
-                if !unknown.is_empty() {
-                    return Err(anyhow::anyhow!(unknown_service_message(
-                        &unknown, &services
-                    )));
-                }
-            }
+            reject_unknown_services(project, &args.services)?;
             Ok(Pre::run(Vec::new()))
+        }
+        // Nothing to recreate is not a failure of docker's to report: it is
+        // the one thing this command cannot do, so it says which command can.
+        DockerCmd::Restart(args) => {
+            let before = match docker::running_containers_or_why(project) {
+                Ok(before) => before,
+                Err(why) => return Ok(Pre::run_blind(why)),
+            };
+            if before.is_empty() {
+                note(ctx, &not_running(&ctx.out));
+                return Ok(Pre::Skip(1));
+            }
+            reject_unknown_services(project, &args.services)?;
+            Ok(Pre::run(before))
         }
         DockerCmd::Ps(_) => match docker::all_containers_or_why(project) {
             Ok(containers) if containers.is_empty() => {
@@ -200,6 +205,32 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
     }
 }
 
+/// Fail on a service name this project does not have, naming the ones it does.
+///
+/// Compose answers a name it does not know with `no such service`, which does
+/// not say what the services are; this does, and it does it before docker is
+/// asked to do anything. A docker that cannot list the services is not a
+/// reason to refuse: the name may well be right.
+fn reject_unknown_services(project: &Project, names: &[String]) -> Result<()> {
+    if names.is_empty() {
+        return Ok(());
+    }
+    let Some(services) = docker::config_services(project) else {
+        return Ok(());
+    };
+    let unknown: Vec<String> = names
+        .iter()
+        .filter(|name| !services.contains(name))
+        .cloned()
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(unknown_service_message(
+        &unknown, &services
+    )))
+}
+
 /// Say what the wrapper did, now that docker has finished.
 fn report_what_changed(
     ctx: &Ctx,
@@ -213,6 +244,10 @@ fn report_what_changed(
         DockerCmd::Up(args) if !args.attach => {
             let after = docker::running_containers(project).unwrap_or_default();
             note(ctx, &up_summary(&ctx.out, before, &after));
+        }
+        DockerCmd::Restart(_) => {
+            let after = docker::running_containers(project).unwrap_or_default();
+            note(ctx, &restart_summary(&ctx.out, before, &after));
         }
         DockerCmd::Down(args) => note(
             ctx,
@@ -264,6 +299,35 @@ pub fn up_summary(out: &Out, before: &[docker::Container], after: &[docker::Cont
     format!("{summary}\n{}", out.backticks(AFTER_UP))
 }
 
+/// What `restart` recreated, from the containers before and after.
+///
+/// Compose recreates only the containers that no longer match the files, and
+/// says nothing at all about the ones it skipped; this is the line that says
+/// which half each service fell in. A run that recreated nothing is the
+/// answer "nothing had moved on under you", not a failure.
+pub fn restart_summary(
+    out: &Out,
+    before: &[docker::Container],
+    after: &[docker::Container],
+) -> String {
+    let (recreated, unchanged) = docker::diff_containers(before, after);
+    if recreated.is_empty() {
+        return out.backticks("nothing needed a restart");
+    }
+    let head = format!(
+        "{} {}",
+        out.ok("recreated:"),
+        out.value(&recreated.join(", "))
+    );
+    if unchanged.is_empty() {
+        return head;
+    }
+    format!(
+        "{head}; {}",
+        out.dim(&format!("unchanged: {}", unchanged.join(", ")))
+    )
+}
+
 /// What `down` stopped, and what it left behind.
 ///
 /// The volumes are the point of the second half: `down` is the command people
@@ -302,6 +366,21 @@ fn nothing_running(out: &Out) -> String {
             .join("\n"),
         PanelKind::Warning,
         NOTHING_RUNNING,
+    )
+}
+
+/// The "there is nothing to recreate" answer `restart` gives a deployment
+/// that is not running, as a panel on a terminal.
+fn not_running(out: &Out) -> String {
+    out.panel_or(
+        "Not running",
+        &crate::output::hint_lines(NOT_RUNNING)
+            .iter()
+            .map(|line| out.backticks(line))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        PanelKind::Warning,
+        NOT_RUNNING,
     )
 }
 
@@ -355,6 +434,23 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
                 out.push("-f".to_string());
             }
             out.extend(args.services.iter().cloned());
+            out
+        }
+        // `up -d` rather than `restart`: compose's own `restart` stops and
+        // starts the container it has, which is exactly what does not pick up
+        // a new image or a changed file. `up -d` recreates what no longer
+        // matches and leaves the rest alone.
+        DockerCmd::Restart(args) => {
+            let mut out = vec!["up".to_string(), "-d".to_string()];
+            if args.all {
+                out.push("--force-recreate".to_string());
+            }
+            // Named services are the ones asked for: --no-deps keeps compose
+            // from recreating what they depend on as well.
+            if !args.services.is_empty() {
+                out.push("--no-deps".to_string());
+                out.extend(args.services.iter().cloned());
+            }
             out
         }
         DockerCmd::Ps(args) => {
@@ -572,6 +668,70 @@ mod tests {
         );
     }
 
+    /// The `RestartArgs` a `chaps restart` would have parsed.
+    fn restart(all: bool, services: &[&str]) -> DockerCmd {
+        DockerCmd::Restart(crate::cli::RestartArgs {
+            all,
+            services: services.iter().map(|s| s.to_string()).collect(),
+        })
+    }
+
+    #[test]
+    fn restart_is_an_up_that_recreates_only_what_moved() {
+        // The whole project: compose decides, service by service.
+        assert_eq!(args_for(&restart(false, &[]), TERM), vec!["up", "-d"]);
+        // Named services are recreated on their own.
+        assert_eq!(
+            args_for(&restart(false, &["chap", "worker"]), TERM),
+            vec!["up", "-d", "--no-deps", "chap", "worker"]
+        );
+        // --all is what turns a restart into an unconditional one.
+        assert_eq!(
+            args_for(&restart(true, &[]), TERM),
+            vec!["up", "-d", "--force-recreate"]
+        );
+        assert_eq!(
+            args_for(&restart(true, &["chapkit-ewars-model"]), TERM),
+            vec![
+                "up",
+                "-d",
+                "--force-recreate",
+                "--no-deps",
+                "chapkit-ewars-model"
+            ]
+        );
+        // Nothing about it depends on --json.
+        assert_eq!(args_for(&restart(false, &[]), JSON), vec!["up", "-d"]);
+    }
+
+    #[test]
+    fn restart_says_which_services_it_recreated() {
+        let before = vec![
+            container("chap", "aaa", "t1"),
+            container("worker", "bbb", "t1"),
+            container("postgres", "ccc", "t1"),
+        ];
+        let after = vec![
+            container("chap", "ddd", "t2"),
+            container("worker", "eee", "t2"),
+            container("postgres", "ccc", "t1"),
+        ];
+        assert_eq!(
+            restart_summary(&Out::default(), &before, &after),
+            "recreated: chap, worker; unchanged: postgres"
+        );
+        // Everything moved: there is no second half to print.
+        assert_eq!(
+            restart_summary(&Out::default(), &before, &[container("chap", "ddd", "t2")]),
+            "recreated: chap"
+        );
+        // Nothing moved, which is an answer and not a failure.
+        assert_eq!(
+            restart_summary(&Out::default(), &before, &before),
+            "nothing needed a restart"
+        );
+    }
+
     #[test]
     fn ps_asks_docker_for_json_under_the_global_flag() {
         let cmd = DockerCmd::Ps(PsArgs { extra: vec![] });
@@ -693,6 +853,7 @@ mod tests {
             id: id.to_string(),
             created_at: created.to_string(),
             state: "running".to_string(),
+            ..docker::Container::default()
         }
     }
 

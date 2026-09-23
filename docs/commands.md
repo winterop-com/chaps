@@ -17,12 +17,15 @@ lists every command, every flag and every default.
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d`, and end with what started or was recreated. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
 | `chaps down [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there. |
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
+| `chaps restart [SERVICE..] [--all]` | Recreate the running services whose image or configuration changed (`docker compose up -d`), and say which ones that was. Changes no file and no pin; `--all` recreates the named services anyway. |
 | `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
-| `chaps update [--dry-run] [--no-restart] [--pin-chap-core]` | Move the pins to what upstream publishes now, then pull and restart. |
+| `chaps update [--dry-run] [--pin-chap-core]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. |
 | `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts CHAP pulls from, and - inside a project - the files, the ports, the pins, the images and the running stack. Works anywhere. |
 
-`chaps up` starts what is on disk; `chaps update` fetches newer versions. That
-is the whole distinction, and it is why `up` is safe to run at any time.
+`chaps up` starts what is on disk, `chaps update` fetches newer versions, and
+`chaps restart` applies them to the services that are running. That is the
+whole distinction, and it is why `up` and `update` are both safe to run at any
+time. See [Updating](./updating.md).
 
 `chaps doctor` is the one to run first on a machine you have not deployed on
 before, and first again when something is wrong: it asks in one pass what the

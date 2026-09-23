@@ -460,11 +460,16 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// not a crash to read the logs for: chapkit tries to register five times
 /// while it starts and then gives up for good, so a model that came up before
 /// chap-core was healthy stays invisible until it is restarted.
+///
+/// `--all` because nothing about the service has changed: it is running the
+/// image and the configuration it should be, and the restart is only there to
+/// make it introduce itself again. A plain `chaps restart` would recreate
+/// what moved, which here is nothing.
 pub fn hints(rows: &[ModelStatus]) -> Vec<String> {
     rows.iter()
         .filter_map(|row| match row.state {
             ModelState::RunningNotRegistered => Some(format!(
-                "{}: restart it with `chaps docker run restart {}`",
+                "{}: restart it with `chaps restart --all {}`",
                 row.id, row.id
             )),
             ModelState::NotRunning => Some(format!(
@@ -1362,7 +1367,7 @@ mod tests {
             hints(&rows),
             vec![
                 "chapkit-rwanda-malaria-bym-model: restart it with \
-                 `chaps docker run restart chapkit-rwanda-malaria-bym-model`"
+                 `chaps restart --all chapkit-rwanda-malaria-bym-model`"
                     .to_string(),
                 "auto-arima-chapkit: start CHAP with `chaps up`, \
                  then `chaps logs auto-arima-chapkit`"

@@ -98,7 +98,7 @@ some-other-service                unmanaged                http://c0ffee:8000   
 internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
 
 2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `chaps docker run restart chapkit-rwanda-malaria-bym-model`
+  chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
   auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
@@ -180,7 +180,12 @@ See [Backup and restore](./backup.md).
 
 ```sh
 chaps update --dry-run    # the plan, writing nothing
-chaps update              # do it
+chaps update              # move the pins, pull the images
+chaps restart             # apply them to the services that are running
 ```
 
-See [Updating](./updating.md).
+`chaps update` never touches a container: it ends with one line saying what
+moved and which running services are now behind it, and `chaps restart`
+recreates exactly those. On a deployment that is not running there is nothing
+to restart, and the same line says so: `chaps up` starts it with the new
+versions. See [Updating](./updating.md).

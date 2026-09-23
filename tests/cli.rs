@@ -1466,6 +1466,64 @@ fn update_needs_the_network_even_for_a_dry_run() {
 }
 
 #[test]
+fn restart_outside_a_project_says_so() {
+    let sandbox = Sandbox::new();
+    chap_in(&sandbox, sandbox.home.path(), &["restart"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
+}
+
+#[test]
+fn restart_says_what_it_is_for_and_what_it_leaves_alone() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    let help = chap_in(&sandbox, &dir, &["restart", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(help).expect("help is text");
+    assert!(help.contains("--all"), "{help}");
+    assert!(help.contains("[SERVICE]"), "{help}");
+    // The two promises the command makes: it changes no file, and it is not
+    // the command that starts a deployment.
+    assert!(help.contains("never syncs"), "{help}");
+    assert!(help.contains("`chaps up`"), "{help}");
+}
+
+#[test]
+fn restart_on_a_deployment_that_was_never_started_says_to_start_it() {
+    if !docker_ready() {
+        return;
+    }
+    let sandbox = Sandbox::new();
+    // Its own directory: compose names the project after it, and this asks
+    // docker about that name.
+    let dir = sandbox.home.path().join("chaps-never-restarted");
+    let mut init = sandbox.chap();
+    init.arg("init").arg(&dir).args(["--models", "none"]);
+    init.assert().success();
+
+    chap_in(&sandbox, &dir, &["restart"])
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains(
+            "CHAP is not running; start it with `chaps up`",
+        ));
+
+    // And the same before it has any opinion about the service names it was
+    // given: there is nothing to restart either way.
+    chap_in(&sandbox, &dir, &["restart", "--all", "chap"])
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains("CHAP is not running"));
+}
+
+#[test]
 fn the_help_lists_only_the_commands_that_can_work_here() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
@@ -1510,7 +1568,8 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
         .clone();
     let inside = String::from_utf8(inside).expect("help is text");
     for name in [
-        "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui", "auth",
+        "up", "down", "logs", "restart", "docker", "backup", "status", "sync", "update", "ui",
+        "auth",
     ] {
         assert!(
             inside.contains(&format!("\n  {name} ")),

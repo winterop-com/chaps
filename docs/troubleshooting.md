@@ -56,9 +56,14 @@ stops. A model that came up before chap-core was healthy therefore stays
 invisible until it is restarted:
 
 ```sh
-chaps docker run restart chapkit-rwanda-malaria-bym-model
+chaps restart --all chapkit-rwanda-malaria-bym-model
 chaps status
 ```
+
+`--all` because nothing about the service has changed: it is running the image
+and the configuration it should be, and the restart is only there to make it
+introduce itself again. A plain `chaps restart` recreates what moved, which
+here is nothing.
 
 The overlay's `depends_on: chap: {condition: service_healthy}` is there to stop
 this happening in the first place, so a model in this state usually means
@@ -217,6 +222,21 @@ are the part that will not load. Upgrade Docker Compose.
 
 `chaps sync --check` reports drift without writing, and exits non-zero, which
 makes it a usable pre-commit or CI check.
+
+## `chaps update` said a restart is needed
+
+That is the whole design, not a failure. `chaps update` moves the pins and
+pulls the images and stops there: it never decides for you when a deployment
+goes down. The closing line names the running services that are now behind
+what the files say, and
+
+```sh
+chaps restart
+```
+
+recreates exactly those, leaving the rest running. If the line says CHAP is not
+running instead, `chaps up` starts it with the new versions. See
+[Updating](./updating.md).
 
 ## `chaps update` fails offline
 

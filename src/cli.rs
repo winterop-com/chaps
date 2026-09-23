@@ -117,8 +117,17 @@ pub enum Command {
     /// Render the compose files from .chaps/ (what `up` does first).
     Sync(SyncArgs),
 
-    /// Move the model and chap-core pins to what upstream publishes now, then
-    /// pull and restart.
+    /// Move the model and chap-core pins to what upstream publishes now, pull
+    /// the images and say what needs restarting.
+    ///
+    /// Always fetches the registry from the network (no cache, no fallback).
+    /// Models pinned to an exact version are listed but not moved. The run
+    /// reads in that order: the plan, the pull, and one line saying what
+    /// moved.
+    ///
+    /// It never touches a container. `chaps restart` applies what it fetched
+    /// to the services that are running, and `chaps up` starts a deployment
+    /// that is not.
     Update(UpdateArgs),
 
     /// Sync, then start CHAP (docker compose up).
@@ -129,6 +138,20 @@ pub enum Command {
 
     /// Show container logs (docker compose logs).
     Logs(LogsArgs),
+
+    /// Recreate the running services whose image or configuration changed.
+    ///
+    /// This is the second half of `chaps update`: the update moves the pins
+    /// and pulls the images, and this applies them to what is running. It is
+    /// `docker compose up -d`, which recreates only the containers that no
+    /// longer match the files, so a service nothing changed for is left alone
+    /// and its uptime with it. `--all` recreates the named services anyway,
+    /// which is what a model that is running but never registered needs.
+    ///
+    /// It changes no file, no pin and nothing in `.chaps/`, and it never
+    /// syncs: it starts what is already on disk. A deployment that is not
+    /// running at all is `chaps up`'s to start.
+    Restart(RestartArgs),
 
     /// Talk to Docker directly: containers, images, raw compose commands.
     Docker(DockerArgs),
@@ -499,24 +522,20 @@ pub struct SyncArgs {
     pub check: bool,
 }
 
-/// Move the model and chap-core pins to what upstream publishes now, then pull
-/// and restart.
+/// Move the pins forward, pull, and say what needs restarting.
 ///
-/// Always fetches the registry from the network (no cache, no fallback). Models
-/// pinned to an exact version are listed but not moved. After updating
-/// .chaps/models.yaml and the .env pin comments it runs `chaps sync`,
-/// `docker compose pull` and `docker compose up -d`. A chap-core pin on a
-/// release tag moves to the newest release, compose file included; a moving
-/// tag (`latest`, `master`, `dev`) is only refreshed by the pull.
+/// After updating .chaps/models.yaml and the .env pin comments it runs
+/// `chaps sync` and `docker compose pull`. A chap-core pin on a release tag
+/// moves to the newest release, compose file included; a moving tag
+/// (`latest`, `master`, `dev`) is only refreshed by the pull.
+///
+/// The prose a person reads is on the `Update` variant above, which is where
+/// clap takes a subcommand's `--help` from.
 #[derive(Debug, Clone, Args)]
 pub struct UpdateArgs {
-    /// Show what would change and write nothing.
+    /// Show what would change: no pull, and nothing written.
     #[arg(long)]
     pub dry_run: bool,
-
-    /// Update the files and pull the images but do not run `up -d`.
-    #[arg(long)]
-    pub no_restart: bool,
 
     /// Turn a moving chap-core tag (`latest`, `master`, `dev`) into a pin on
     /// the newest release, the way `chaps init` does by default.
@@ -573,6 +592,24 @@ pub struct LogsArgs {
     pub follow: bool,
 
     /// Services to show logs for; all of them when omitted.
+    #[arg(value_name = "SERVICE")]
+    pub services: Vec<String>,
+}
+
+/// Recreate the running services whose image or configuration changed.
+///
+/// The prose a person reads is on the `Restart` variant above, which is where
+/// clap takes a subcommand's `--help` from.
+#[derive(Debug, Clone, Args)]
+pub struct RestartArgs {
+    /// Recreate the named services even when nothing about them changed
+    /// (docker compose up --force-recreate). This is what a model that is
+    /// running but never registered needs.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Services to restart; the whole project when omitted. Named services are
+    /// recreated on their own, without their dependencies.
     #[arg(value_name = "SERVICE")]
     pub services: Vec<String>,
 }
@@ -940,6 +977,7 @@ pub enum DockerCmd {
     Up(UpArgs),
     Down(DownArgs),
     Logs(LogsArgs),
+    Restart(RestartArgs),
     Ps(PsArgs),
     Pull(PullArgs),
     Exec(ExecArgs),
@@ -1379,12 +1417,46 @@ mod tests {
         let Command::Update(args) = cli.command else {
             panic!("expected update");
         };
-        assert!(!args.dry_run && !args.no_restart);
-        let cli = Cli::try_parse_from(["chap", "update", "--dry-run", "--no-restart"]).unwrap();
+        assert!(!args.dry_run && !args.pin_chap_core);
+        let cli = Cli::try_parse_from(["chap", "update", "--dry-run", "--pin-chap-core"]).unwrap();
         let Command::Update(args) = cli.command else {
             panic!("expected update");
         };
-        assert!(args.dry_run && args.no_restart);
+        assert!(args.dry_run && args.pin_chap_core);
+
+        // `update` no longer touches containers, so the flag that said not to
+        // is gone rather than accepted and ignored.
+        assert!(Cli::try_parse_from(["chap", "update", "--no-restart"]).is_err());
+    }
+
+    /// The `RestartArgs` behind `chap restart <argv..>`.
+    fn restart_args(argv: &[&str]) -> RestartArgs {
+        let mut args = vec!["chap", "restart"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Restart(args) = cli.command else {
+            panic!("expected restart");
+        };
+        args
+    }
+
+    #[test]
+    fn restart_takes_service_names_with_the_flag_on_either_side() {
+        let args = restart_args(&[]);
+        assert!(!args.all && args.services.is_empty());
+
+        let args = restart_args(&["--all"]);
+        assert!(args.all && args.services.is_empty());
+
+        // The order the status hint prints: flag first, then the service.
+        let args = restart_args(&["--all", "chapkit-ewars-model"]);
+        assert!(args.all);
+        assert_eq!(args.services, vec!["chapkit-ewars-model"]);
+
+        // And the other way round, plus more than one name.
+        let args = restart_args(&["chap", "worker", "--all"]);
+        assert!(args.all);
+        assert_eq!(args.services, vec!["chap", "worker"]);
     }
 
     #[test]

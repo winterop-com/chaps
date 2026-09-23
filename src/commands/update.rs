@@ -1,4 +1,4 @@
-//! `chaps update [--dry-run] [--no-restart]` — move the pins forward.
+//! `chaps update [--dry-run]` — move the pins forward and pull.
 //!
 //! Two kinds of pin move here. A model that follows a channel is re-resolved
 //! against the marketplace, and the only other thing that moves those is
@@ -7,6 +7,18 @@
 //! also re-fetches the `compose.ghcr.yml` that release publishes. A moving
 //! chap-core tag (`latest`, `master`, `dev`) is only refreshed by the pull,
 //! unless `--pin-chap-core` turns it into a release pin.
+//!
+//! What it does not do is touch a container. The run reads: the plan, then
+//! the pull, then one line saying what moved and which running services are
+//! now out of date. Applying that is `chaps restart`, and starting a
+//! deployment that is down is `chaps up`; an update that did either would be
+//! a deployment nobody asked for.
+//!
+//! "Out of date" is two questions asked of every running container. Is the
+//! image it runs still the image its reference points at, now that the pull
+//! has finished? And is the configuration hash compose stamped on it still
+//! the hash compose computes for the files as they are? Either answer being
+//! no means the service is running something the project no longer describes.
 
 use crate::chapcore;
 use crate::cli::UpdateArgs;
@@ -20,6 +32,7 @@ use crate::output::{self, Out};
 use crate::project::{CHAP_TAG_ENV_VAR, ComposeSource, Project, cached_compose_file};
 use crate::registry::{self, Provenance, Registry, VersionSelector};
 use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The shape of `update --json`, and what the human output is built from.
 #[derive(Debug, Serialize)]
@@ -31,42 +44,58 @@ pub struct UpdateReport {
     /// tags, so there is no pin to move - only a pull to report.
     pub components: Vec<ComponentUpdate>,
     pub pulled: bool,
-    pub restarted: bool,
-    /// What the run does about the stack, and why.
-    pub restart: Restart,
+    /// Services the pull brought a different image for. A moving tag that
+    /// still points at the image this machine already had is not one of them.
+    pub pulled_new: Vec<String>,
+    /// Running services whose image or configuration no longer matches what
+    /// this project describes: what `chaps restart` would recreate.
+    pub restart_needed: Vec<String>,
     /// Whether any of this project's containers was up, `null` when docker
     /// could not be asked.
     pub stack_running: Option<bool>,
     pub dry_run: bool,
 }
 
-/// What `update` does with the stack once the pins have moved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Restart {
-    /// The stack is running: `up -d` recreates whatever changed under it.
-    Recreate,
-    /// Nothing is running. Starting a stopped deployment is `chaps up`'s job:
-    /// an update that started it would turn a version bump into a deployment
-    /// nobody asked for.
-    LeaveStopped,
-    /// `--no-restart` said to stop after the pull.
-    NotAsked,
+/// One running service, and what it would be made of if it were created now.
+///
+/// The two halves come from opposite sides of the run: the `running_` fields
+/// from the container docker has, the other two from the files on disk and
+/// the images the pull left behind.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServiceCheck {
+    pub service: String,
+    /// The id of the image the container is running.
+    pub running_image: String,
+    /// The id that image reference points at now, after the pull.
+    pub pulled_image: String,
+    /// The configuration hash the container was created with.
+    pub running_hash: String,
+    /// The hash compose computes for that service today.
+    pub current_hash: String,
 }
 
-/// Which of the three, given what docker reported and the flag.
+/// Whether this service is running something the project no longer describes.
 ///
-/// `running` is `None` when docker could not be asked at all; the run then
-/// goes ahead with `up -d`, because docker reports its own trouble far better
-/// than a guess from here would.
-pub fn restart_decision(running: Option<bool>, no_restart: bool) -> Restart {
-    if no_restart {
-        return Restart::NotAsked;
-    }
-    match running {
-        Some(false) => Restart::LeaveStopped,
-        Some(true) | None => Restart::Recreate,
-    }
+/// A value that could not be read is not a difference: docker being unable to
+/// say what an image is must never turn into "restart everything". Both sides
+/// of a comparison have to be there for it to count.
+pub fn needs_restart(check: &ServiceCheck) -> bool {
+    differs(&check.running_image, &check.pulled_image)
+        || differs(&check.running_hash, &check.current_hash)
+}
+
+/// Whether two answers disagree, as opposed to one of them being missing.
+fn differs(running: &str, current: &str) -> bool {
+    !running.is_empty() && !current.is_empty() && running != current
+}
+
+/// The services of `checks` that need recreating, in the order given.
+pub fn restart_needed(checks: &[ServiceCheck]) -> Vec<String> {
+    checks
+        .iter()
+        .filter(|check| needs_restart(check))
+        .map(|check| check.service.clone())
+        .collect()
 }
 
 /// chap-core's own before and after.
@@ -188,8 +217,8 @@ impl UpdateReport {
     }
 }
 
-/// Refresh the registry, re-resolve every channel-following model, sync,
-/// pull and restart.
+/// Refresh the registry, re-resolve every channel-following model, sync and
+/// pull, then say what needs restarting.
 pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let mut project = ctx.project()?;
     // No fallback on purpose: an update from a stale catalogue is not an update.
@@ -201,9 +230,9 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         args.pin_chap_core,
         ctx.registry.timeout,
     );
-    // Asked before the pull, which can neither start nor stop a container, so
-    // the dry run and the real run answer the same question.
-    let running = stack_running(&project);
+    // Nothing here starts or stops a container, so this answer holds for the
+    // whole run and the dry run answers the same question.
+    let running = docker::running_containers(&project);
     let mut report = UpdateReport {
         registry: RegistryInfo {
             url: registry.url.clone(),
@@ -213,13 +242,19 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         chap_core: plan_chap_core(&project, latest, args.pin_chap_core),
         components: plan_components(&project),
         pulled: false,
-        restarted: false,
-        restart: restart_decision(running, args.no_restart),
-        stack_running: running,
+        pulled_new: Vec::new(),
+        restart_needed: Vec::new(),
+        stack_running: running.as_ref().map(|c| !c.is_empty()),
         dry_run: args.dry_run,
     };
+
+    // The plan first, before any of docker's own noise: it is what the pull
+    // is about to act on, and it is the half a person reads.
+    say(ctx, &plan_text(&report, &ctx.out));
     if args.dry_run {
-        return ctx.out.emit(&report, || human(&report, &ctx.out));
+        return ctx
+            .out
+            .emit(&report, || dry_run_line(updated(&report).as_deref()));
     }
 
     if report.chap_core.changed {
@@ -240,19 +275,104 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         output::warn(warning);
     }
 
+    // After the sync, so these are the images the files pin now, and before
+    // the pull, so the difference the pull makes can be seen at all.
+    let images = docker::service_images(&project);
+    let refs: Vec<String> = images.values().cloned().collect();
+    let before = docker::image_ids(&refs);
+
     run_compose(&project, &["pull".to_string()])?;
     report.pulled = true;
-    if report.restart == Restart::Recreate {
-        run_compose(&project, &["up".to_string(), "-d".to_string()])?;
-        report.restarted = true;
-    }
-    ctx.out.emit(&report, || human(&report, &ctx.out))
+
+    let after = docker::image_ids(&refs);
+    report.pulled_new = pulled_new(&images, &before, &after);
+    let running = running.unwrap_or_default();
+    let builds =
+        docker::container_builds(&running.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
+    let checks = service_checks(
+        &running,
+        &builds,
+        &images,
+        &after,
+        &docker::config_hashes(&project),
+    );
+    report.restart_needed = restart_needed(&checks);
+
+    let line = closing_line(
+        updated(&report).as_deref(),
+        &report.restart_needed,
+        report.stack_running,
+    );
+    ctx.out.emit(&report, || ctx.out.backticks(&line))
 }
 
-/// Whether any container of this project is up, or `None` when docker could
-/// not be asked.
-fn stack_running(project: &Project) -> Option<bool> {
-    Some(!docker::running_containers(project)?.is_empty())
+/// Print one of the command's own sections, unless a parser is reading.
+///
+/// Under `--json` stdout carries exactly one document, printed at the end;
+/// everything the human rendering would have said is left out rather than
+/// mixed into it.
+fn say(ctx: &Ctx, text: &str) {
+    if !ctx.out.json && !text.is_empty() {
+        print!("{text}");
+    }
+}
+
+/// Pair every running service with what it would be made of today.
+///
+/// A container whose service the files no longer mention, or that docker
+/// would not talk about, yields a check with empty halves, which
+/// [`needs_restart`] reads as "not known to have moved".
+pub fn service_checks(
+    running: &[docker::Container],
+    builds: &BTreeMap<String, docker::ContainerBuild>,
+    images: &BTreeMap<String, String>,
+    ids: &BTreeMap<String, String>,
+    hashes: &BTreeMap<String, String>,
+) -> Vec<ServiceCheck> {
+    let mut seen = BTreeSet::new();
+    running
+        .iter()
+        .filter(|container| container.is_running())
+        .filter(|container| seen.insert(container.service.clone()))
+        .map(|container| {
+            let build = builds.get(&container.id).cloned().unwrap_or_default();
+            // The reference the files pin, not the one the container was made
+            // from: they are the same until a pin moves, and when they are
+            // not, the hashes have already said so.
+            let reference = images.get(&container.service);
+            ServiceCheck {
+                service: container.service.clone(),
+                running_image: build.image_id,
+                pulled_image: reference
+                    .and_then(|r| ids.get(r))
+                    .cloned()
+                    .unwrap_or_default(),
+                running_hash: build.config_hash,
+                current_hash: hashes.get(&container.service).cloned().unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+/// The services whose image reference points somewhere else than it did
+/// before the pull.
+///
+/// A reference docker still does not have afterwards is left out: the pull
+/// having failed to fetch something is not the same as it having fetched
+/// something new.
+pub fn pulled_new(
+    images: &BTreeMap<String, String>,
+    before: &BTreeMap<String, String>,
+    after: &BTreeMap<String, String>,
+) -> Vec<String> {
+    images
+        .iter()
+        .filter(|(_, reference)| match after.get(*reference) {
+            Some(new) => before.get(*reference) != Some(new),
+            None => false,
+        })
+        .map(|(service, _)| service.clone())
+        .collect()
 }
 
 /// Resolve every enabled model against the fresh registry without changing
@@ -406,7 +526,8 @@ fn run_compose(project: &Project, args: &[String]) -> Result<()> {
 fn chap_core_line(c: &ChapCoreUpdate) -> String {
     if c.changed {
         // The compose file only follows the pin once the run has actually
-        // fetched it, so a dry run says nothing about it.
+        // fetched it, and the plan is printed before that happens, so the
+        // note is there for a report built after the fetch and nowhere else.
         let compose = match &c.compose_source {
             ComposeSource::Fetched { tag, .. } if tag == &c.new_tag => "  (compose.ghcr.yml too)",
             _ => "",
@@ -431,21 +552,94 @@ fn chap_core_line(c: &ChapCoreUpdate) -> String {
     }
 }
 
-/// The clause the totals line ends on.
-fn chap_core_phrase(c: &ChapCoreUpdate, dry_run: bool) -> String {
-    match (c.changed, c.moving, dry_run) {
-        (true, _, true) => format!(
-            "the chap-core pin would move {} -> {}",
-            c.old_tag, c.new_tag
-        ),
-        (true, _, false) => format!("the chap-core pin moved {} -> {}", c.old_tag, c.new_tag),
-        (false, true, true) => format!("chap-core `{}` would be re-pulled", c.old_tag),
-        (false, true, false) => format!("chap-core `{}` re-pulled", c.old_tag),
-        (false, false, _) => format!("the chap-core pin `{}` did not move", c.old_tag),
+/// What this run actually changed, as the closing line names it, or `None`
+/// when the answer is "nothing".
+///
+/// Three clauses at most, in the order they matter: the pins that moved, and
+/// then the images that arrived. A moving tag that pulled the same image
+/// again is not a change and says nothing here, which is the whole point of
+/// asking the image ids rather than trusting that a pull did something.
+pub fn updated_phrase(
+    models: usize,
+    chap_core: Option<(&str, &str)>,
+    pulled_new: &[String],
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if models > 0 {
+        parts.push(format!(
+            "{models} model pin{}",
+            if models == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some((old, new)) = chap_core {
+        parts.push(format!("chap-core {old} -> {new}"));
+    }
+    if !pulled_new.is_empty() {
+        parts.push(format!(
+            "new image{} for {}",
+            if pulled_new.len() == 1 { "" } else { "s" },
+            pulled_new.join(", ")
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+/// [`updated_phrase`] for a finished report.
+fn updated(report: &UpdateReport) -> Option<String> {
+    let chap_core = report.chap_core.changed.then_some((
+        report.chap_core.old_tag.as_str(),
+        report.chap_core.new_tag.as_str(),
+    ));
+    updated_phrase(report.changed().count(), chap_core, &report.pulled_new)
+}
+
+/// The one line the run ends on.
+///
+/// It answers the only question left: is there anything to do now? A stale
+/// running service is that answer whether or not this run is what made it
+/// stale, so the restart clause comes first and stands on its own.
+pub fn closing_line(
+    what: Option<&str>,
+    restart_needed: &[String],
+    running: Option<bool>,
+) -> String {
+    let head = match what {
+        Some(what) => format!("updated {what}"),
+        None => "already up to date".to_string(),
+    };
+    if !restart_needed.is_empty() {
+        return format!(
+            "{head}; restart needed: {} (run `chaps restart`)",
+            restart_needed.join(", ")
+        );
+    }
+    if what.is_none() {
+        return head;
+    }
+    match running {
+        Some(false) => {
+            format!("{head}; CHAP is not running, the new versions start with `chaps up`")
+        }
+        Some(true) => format!("{head}; nothing needs a restart"),
+        // Docker would not say what is running, so neither will we.
+        None => format!("{head}; run `chaps restart` to apply it to whatever is running"),
     }
 }
 
-fn human(report: &UpdateReport, out: &Out) -> String {
+/// The one line a `--dry-run` ends on.
+///
+/// It says what the pins would do and nothing about restarting: the images
+/// were not pulled and the files were not written, so what a running
+/// container would then be out of step with does not exist yet.
+pub fn dry_run_line(what: Option<&str>) -> String {
+    match what {
+        Some(what) => format!("would update {what}; nothing written (run `chaps update` to do it)"),
+        None => "already up to date; nothing would change".to_string(),
+    }
+}
+
+/// The plan: where the catalogue came from, and a row per thing that can move.
+fn plan_text(report: &UpdateReport, out: &Out) -> String {
     let mut text = format!(
         "{} {} {}\n",
         out.key("registry:"),
@@ -488,30 +682,6 @@ fn human(report: &UpdateReport, out: &Out) -> String {
     for component in &report.components {
         text.push_str(&format!("  {}\n", out.dim(&component_line(component))));
     }
-
-    let changed = report.changed().count();
-    if report.dry_run {
-        text.push_str(&out.cmd(&format!(
-            "dry run: {changed} model pin(s) would move; {}",
-            chap_core_phrase(&report.chap_core, true)
-        )));
-        text.push('\n');
-        text.push_str(&format!("{}\n", out.backticks(&stack_line(report))));
-        text.push_str(&out.dim("nothing written"));
-        text.push('\n');
-    } else {
-        text.push_str(&out.cmd(&format!(
-            "{changed} model pin(s) moved; {}; images {}",
-            chap_core_phrase(&report.chap_core, false),
-            if report.pulled {
-                "pulled"
-            } else {
-                "not pulled"
-            },
-        )));
-        text.push('\n');
-        text.push_str(&format!("{}\n", out.backticks(&stack_line(report))));
-    }
     text
 }
 
@@ -524,34 +694,6 @@ fn chap_core_cell(out: &Out, change: &ChapCoreUpdate) -> String {
     match line.rsplit_once(" -> ") {
         Some((head, tail)) => format!("{} -> {}", out.dim(head), out.ok(tail)),
         None => out.ok(&line),
-    }
-}
-
-/// The closing line: what happened, or would happen, to the stack itself.
-fn stack_line(report: &UpdateReport) -> String {
-    match (report.dry_run, report.restart) {
-        (true, Restart::Recreate) => {
-            "CHAP is running, so the update would recreate the services whose pins moved"
-                .to_string()
-        }
-        (true, Restart::LeaveStopped) => {
-            "CHAP is not running, so the update would leave it stopped; \
-             `chaps up` starts CHAP with the new versions"
-                .to_string()
-        }
-        (true, Restart::NotAsked) => {
-            "--no-restart: the images would be pulled and CHAP left as it is".to_string()
-        }
-        (false, Restart::Recreate) => {
-            "recreated the services whose pins moved; run `chaps status` to check them".to_string()
-        }
-        (false, Restart::LeaveStopped) => {
-            "CHAP is not running; run `chaps up` to start CHAP with the new versions".to_string()
-        }
-        (false, Restart::NotAsked) => {
-            "CHAP not restarted (--no-restart); run `chaps up` to apply the new versions"
-                .to_string()
-        }
     }
 }
 
@@ -633,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn human_dry_run_lists_each_model_and_writes_nothing() {
+    fn the_plan_lists_each_model_before_anything_is_pulled() {
         let report = UpdateReport {
             registry: RegistryInfo {
                 url: "https://example.test/registry.yaml".into(),
@@ -662,30 +804,32 @@ mod tests {
             chap_core: chap_core("latest", "latest", None),
             components: Vec::new(),
             pulled: false,
-            restarted: false,
-            restart: Restart::Recreate,
+            pulled_new: Vec::new(),
+            restart_needed: Vec::new(),
             stack_running: Some(true),
             dry_run: true,
         };
-        let text = human(&report, &Out::default());
+        let text = plan_text(&report, &Out::default());
         assert!(text.starts_with("registry: https://example.test/registry.yaml (network)\n"));
         assert!(text.contains("  a  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
         assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
         assert!(text.contains(
             "  chap-core  latest  moving tag, re-pulled; pin it with `chaps update --pin-chap-core`\n"
         ));
-        assert!(text.contains(
-            "dry run: 1 model pin(s) would move; chap-core `latest` would be re-pulled\n"
-        ));
-        assert!(text.contains(
-            "CHAP is running, so the update would recreate the services whose pins moved\n"
-        ));
-        assert!(text.ends_with("nothing written\n"));
+        // The plan is the plan: nothing in it claims anything has happened.
+        assert!(!text.contains("restart"), "{text}");
+        assert!(!text.contains("pulled the"), "{text}");
 
         let value = serde_json::to_value(&report).unwrap();
         assert_eq!(value["dry_run"], true);
-        assert_eq!(value["restart"], "recreate");
         assert_eq!(value["stack_running"], true);
+        assert_eq!(value["restart_needed"], serde_json::json!([]));
+        assert_eq!(value["pulled_new"], serde_json::json!([]));
+        assert_eq!(value["pulled"], false);
+        assert!(
+            value.get("restarted").is_none() && value.get("restart").is_none(),
+            "update no longer touches containers: {value}"
+        );
         assert_eq!(value["models"][0]["changed"], true);
         assert_eq!(value["registry"]["provenance"]["kind"], "network");
         assert_eq!(value["chap_core"]["old_tag"], "latest");
@@ -694,78 +838,171 @@ mod tests {
         assert_eq!(value["chap_core"]["compose_source"]["kind"], "embedded");
     }
 
-    #[test]
-    fn a_stopped_stack_is_not_started_by_an_update() {
-        // Running: the update recreates whatever its pins changed.
-        assert_eq!(restart_decision(Some(true), false), Restart::Recreate);
-        // Stopped: starting it is `chaps up`'s job.
-        assert_eq!(restart_decision(Some(false), false), Restart::LeaveStopped);
-        // Docker could not be asked; `up -d` reports that better than we can.
-        assert_eq!(restart_decision(None, false), Restart::Recreate);
-        // --no-restart wins over all of it.
-        for running in [Some(true), Some(false), None] {
-            assert_eq!(restart_decision(running, true), Restart::NotAsked);
+    /// A [`ServiceCheck`] as `service_checks` would have built it.
+    fn check(service: &str, images: (&str, &str), hashes: (&str, &str)) -> ServiceCheck {
+        ServiceCheck {
+            service: service.to_string(),
+            running_image: images.0.to_string(),
+            pulled_image: images.1.to_string(),
+            running_hash: hashes.0.to_string(),
+            current_hash: hashes.1.to_string(),
         }
     }
 
-    /// The same report with another stack decision, for the closing line.
-    fn with_restart(restart: Restart, dry_run: bool) -> UpdateReport {
-        UpdateReport {
-            registry: RegistryInfo {
-                url: "https://example.test/registry.yaml".into(),
-                provenance: Provenance::Network,
+    #[test]
+    fn a_service_is_stale_when_its_image_or_its_configuration_moved() {
+        // Everything as it was created.
+        assert!(!needs_restart(&check(
+            "chap",
+            ("sha256:a", "sha256:a"),
+            ("h1", "h1")
+        )));
+        // The pull moved the tag under it.
+        assert!(needs_restart(&check(
+            "ocs",
+            ("sha256:a", "sha256:b"),
+            ("h1", "h1")
+        )));
+        // The files changed under it: a pin moved, a port, a secret.
+        assert!(needs_restart(&check(
+            "chap",
+            ("sha256:a", "sha256:a"),
+            ("h1", "h2")
+        )));
+        // Both at once is still one restart.
+        assert!(needs_restart(&check(
+            "chap",
+            ("sha256:a", "sha256:b"),
+            ("h1", "h2")
+        )));
+    }
+
+    #[test]
+    fn an_answer_docker_did_not_give_is_never_a_reason_to_restart() {
+        for c in [
+            check("chap", ("", "sha256:b"), ("h1", "h1")),
+            check("chap", ("sha256:a", ""), ("h1", "h1")),
+            check("chap", ("sha256:a", "sha256:a"), ("", "h2")),
+            check("chap", ("sha256:a", "sha256:a"), ("h1", "")),
+            check("chap", ("", ""), ("", "")),
+        ] {
+            assert!(!needs_restart(&c), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn the_stale_services_keep_the_order_they_were_checked_in() {
+        let checks = vec![
+            check("chap", ("sha256:a", "sha256:b"), ("h1", "h1")),
+            check("postgres", ("sha256:c", "sha256:c"), ("h2", "h2")),
+            check("worker", ("sha256:a", "sha256:a"), ("h3", "h4")),
+        ];
+        assert_eq!(restart_needed(&checks), vec!["chap", "worker"]);
+        assert!(restart_needed(&[]).is_empty());
+    }
+
+    /// Everything `service_checks` reads, for a two-service project whose
+    /// `chap` image moved under it and whose `redis` did not.
+    struct Maps {
+        builds: BTreeMap<String, docker::ContainerBuild>,
+        images: BTreeMap<String, String>,
+        ids: BTreeMap<String, String>,
+        hashes: BTreeMap<String, String>,
+    }
+
+    fn maps() -> Maps {
+        let build = |image: &str, hash: &str| docker::ContainerBuild {
+            image_id: image.to_string(),
+            config_hash: hash.to_string(),
+        };
+        Maps {
+            builds: BTreeMap::from([
+                ("id-chap".to_string(), build("sha256:old", "h1")),
+                ("id-redis".to_string(), build("sha256:r", "h2")),
+            ]),
+            images: BTreeMap::from([
+                ("chap".to_string(), "ghcr.io/chap:latest".to_string()),
+                ("redis".to_string(), "valkey:8".to_string()),
+            ]),
+            ids: BTreeMap::from([
+                ("ghcr.io/chap:latest".to_string(), "sha256:new".to_string()),
+                ("valkey:8".to_string(), "sha256:r".to_string()),
+            ]),
+            hashes: BTreeMap::from([
+                ("chap".to_string(), "h1".to_string()),
+                ("redis".to_string(), "h2".to_string()),
+            ]),
+        }
+    }
+
+    fn container(service: &str, id: &str) -> docker::Container {
+        docker::Container {
+            service: service.to_string(),
+            id: id.to_string(),
+            state: "running".to_string(),
+            ..docker::Container::default()
+        }
+    }
+
+    #[test]
+    fn every_running_service_is_paired_with_what_it_would_be_made_of_today() {
+        let m = maps();
+        let running = vec![container("chap", "id-chap"), container("redis", "id-redis")];
+        let checks = service_checks(&running, &m.builds, &m.images, &m.ids, &m.hashes);
+        assert_eq!(checks.len(), 2);
+        assert_eq!(
+            checks[0],
+            check("chap", ("sha256:old", "sha256:new"), ("h1", "h1"))
+        );
+        assert_eq!(
+            checks[1],
+            check("redis", ("sha256:r", "sha256:r"), ("h2", "h2"))
+        );
+        assert_eq!(restart_needed(&checks), vec!["chap"]);
+    }
+
+    #[test]
+    fn a_container_docker_would_not_describe_costs_only_its_own_row() {
+        let m = maps();
+        // A service the files no longer mention, and one `docker inspect`
+        // said nothing about: neither is a reason to claim a restart.
+        let running = vec![
+            container("gone", "id-gone"),
+            container("chap", "id-unknown"),
+            // A stopped container is not a running service.
+            docker::Container {
+                state: "exited".to_string(),
+                ..container("redis", "id-redis")
             },
-            models: Vec::new(),
-            chap_core: chap_core("v2.3.1", "v2.3.1", Some("v2.3.1")),
-            components: Vec::new(),
-            pulled: !dry_run,
-            restarted: !dry_run && restart == Restart::Recreate,
-            restart,
-            stack_running: Some(restart == Restart::Recreate),
-            dry_run,
-        }
+        ];
+        let checks = service_checks(&running, &m.builds, &m.images, &m.ids, &m.hashes);
+        assert_eq!(checks.len(), 2, "the exited one is left out");
+        assert!(restart_needed(&checks).is_empty(), "{checks:?}");
     }
 
     #[test]
-    fn the_closing_line_says_what_happened_to_the_stack() {
-        let text = human(&with_restart(Restart::LeaveStopped, false), &Out::default());
-        assert!(text.contains("0 model pin(s) moved;"), "{text}");
-        assert!(
-            text.ends_with(
-                "CHAP is not running; run `chaps up` to start CHAP with the new versions\n"
-            ),
-            "{text}"
-        );
-        // The old "stack not restarted" clause is gone from the totals line.
-        assert!(!text.contains("; stack "), "{text}");
-
-        let text = human(&with_restart(Restart::Recreate, false), &Out::default());
-        assert!(text.ends_with(
-            "recreated the services whose pins moved; run `chaps status` to check them\n"
-        ));
-
-        let text = human(&with_restart(Restart::NotAsked, false), &Out::default());
-        assert!(text.ends_with(
-            "CHAP not restarted (--no-restart); run `chaps up` to apply the new versions\n"
-        ));
-
-        // A dry run states which of the two it would be.
-        let text = human(&with_restart(Restart::LeaveStopped, true), &Out::default());
-        assert!(text.contains(
-            "CHAP is not running, so the update would leave it stopped; \
-             `chaps up` starts CHAP with the new versions\n"
-        ));
-        assert!(text.ends_with("nothing written\n"));
-        assert!(
-            human(&with_restart(Restart::NotAsked, true), &Out::default())
-                .contains("--no-restart: the images would be pulled and CHAP left as it is\n")
-        );
-
-        // No models enabled still says so, before any of this.
-        assert!(
-            human(&with_restart(Restart::Recreate, false), &Out::default())
-                .contains("no models enabled\n")
-        );
+    fn the_pull_is_new_only_when_the_image_id_moved() {
+        let images = BTreeMap::from([
+            ("ocs".to_string(), "ghcr.io/ocs:main".to_string()),
+            ("s3".to_string(), "minio:latest".to_string()),
+            ("chap".to_string(), "ghcr.io/chap:v2.3.1".to_string()),
+            ("gone".to_string(), "ghcr.io/nowhere:1".to_string()),
+        ]);
+        let before = BTreeMap::from([
+            ("ghcr.io/ocs:main".to_string(), "sha256:a".to_string()),
+            ("minio:latest".to_string(), "sha256:b".to_string()),
+        ]);
+        let after = BTreeMap::from([
+            // The moving tag moved.
+            ("ghcr.io/ocs:main".to_string(), "sha256:c".to_string()),
+            // And this one pointed at the same image as yesterday.
+            ("minio:latest".to_string(), "sha256:b".to_string()),
+            // This one was not on the machine at all before.
+            ("ghcr.io/chap:v2.3.1".to_string(), "sha256:d".to_string()),
+        ]);
+        // `gone` is absent from both: the pull did not fetch it, which is not
+        // the same as it having fetched something new.
+        assert_eq!(pulled_new(&images, &before, &after), vec!["chap", "ocs"]);
     }
 
     /// A [`ChapCoreUpdate`] as `plan_chap_core` would have built it.
@@ -863,25 +1100,11 @@ mod tests {
             chap_core_line(&moved),
             "chap-core  v2.3.0 -> v2.3.1  (compose.ghcr.yml too)"
         );
-        assert_eq!(
-            chap_core_phrase(&moved, true),
-            "the chap-core pin would move v2.3.0 -> v2.3.1"
-        );
-        assert_eq!(
-            chap_core_phrase(&moved, false),
-            "the chap-core pin moved v2.3.0 -> v2.3.1"
-        );
-
         let current = chap_core("v2.3.1", "v2.3.1", Some("v2.3.1"));
         assert_eq!(
             chap_core_line(&current),
             "chap-core  v2.3.1  unchanged, the newest release"
         );
-        assert_eq!(
-            chap_core_phrase(&current, true),
-            "the chap-core pin `v2.3.1` did not move"
-        );
-
         let ahead = chap_core("v2.4.0", "v2.4.0", Some("v2.3.1"));
         assert_eq!(
             chap_core_line(&ahead),
@@ -893,11 +1116,86 @@ mod tests {
             chap_core_line(&unknown),
             "chap-core  sha-abcdef0  unchanged"
         );
+    }
 
-        let moving = chap_core("latest", "latest", None);
+    #[test]
+    fn the_updated_phrase_names_only_what_actually_moved() {
+        assert_eq!(updated_phrase(0, None, &[]), None);
+        assert_eq!(updated_phrase(1, None, &[]).as_deref(), Some("1 model pin"));
         assert_eq!(
-            chap_core_phrase(&moving, false),
-            "chap-core `latest` re-pulled"
+            updated_phrase(3, None, &[]).as_deref(),
+            Some("3 model pins")
         );
+        assert_eq!(
+            updated_phrase(0, Some(("v2.3.0", "v2.3.1")), &[]).as_deref(),
+            Some("chap-core v2.3.0 -> v2.3.1")
+        );
+        assert_eq!(
+            updated_phrase(0, None, &["ocs".to_string()]).as_deref(),
+            Some("new image for ocs")
+        );
+        assert_eq!(
+            updated_phrase(
+                2,
+                Some(("v2.3.0", "v2.3.1")),
+                &["chap".to_string(), "worker".to_string()]
+            )
+            .as_deref(),
+            Some("2 model pins, chap-core v2.3.0 -> v2.3.1, new images for chap, worker")
+        );
+    }
+
+    #[test]
+    fn the_closing_line_is_one_of_four_things() {
+        let stale = ["chap".to_string(), "worker".to_string()];
+
+        // Nothing moved, nothing is stale: the short answer.
+        assert_eq!(closing_line(None, &[], Some(true)), "already up to date");
+        // A moving tag that pulled the image this machine already had counts
+        // as nothing moving, because `updated` never names it.
+        assert_eq!(closing_line(None, &[], Some(false)), "already up to date");
+
+        // Something moved and running services are behind it.
+        assert_eq!(
+            closing_line(Some("1 model pin"), &stale, Some(true)),
+            "updated 1 model pin; restart needed: chap, worker (run `chaps restart`)"
+        );
+        // Stale without this run having moved anything: someone edited `.env`
+        // and never applied it. Still worth saying, and still one line.
+        assert_eq!(
+            closing_line(None, &stale, Some(true)),
+            "already up to date; restart needed: chap, worker (run `chaps restart`)"
+        );
+
+        // Something moved and there is nothing running to be behind it.
+        assert_eq!(
+            closing_line(Some("chap-core v2.3.0 -> v2.3.1"), &[], Some(false)),
+            "updated chap-core v2.3.0 -> v2.3.1; CHAP is not running, the new versions start \
+             with `chaps up`"
+        );
+        // Something moved, the stack is up, and none of it was affected.
+        assert_eq!(
+            closing_line(Some("1 model pin"), &[], Some(true)),
+            "updated 1 model pin; nothing needs a restart"
+        );
+        // Docker would not say what is running, so neither do we.
+        assert_eq!(
+            closing_line(Some("1 model pin"), &[], None),
+            "updated 1 model pin; run `chaps restart` to apply it to whatever is running"
+        );
+    }
+
+    #[test]
+    fn a_dry_run_says_what_would_happen_and_claims_nothing_else() {
+        assert_eq!(
+            dry_run_line(None),
+            "already up to date; nothing would change"
+        );
+        assert_eq!(
+            dry_run_line(Some("1 model pin")),
+            "would update 1 model pin; nothing written (run `chaps update` to do it)"
+        );
+        // A dry run pulls nothing, so it never claims a restart is needed.
+        assert!(!dry_run_line(Some("1 model pin")).contains("restart"));
     }
 }

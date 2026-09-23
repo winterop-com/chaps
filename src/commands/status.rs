@@ -414,7 +414,7 @@ mod tests {
              \n\
              2 of 3 models are not registered.\n\
              \x20 chapkit-rwanda-malaria-bym-model: restart it with \
-             `chaps docker run restart chapkit-rwanda-malaria-bym-model`\n\
+             `chaps restart --all chapkit-rwanda-malaria-bym-model`\n\
              \x20 auto-arima-chapkit: start CHAP with `chaps up`, \
              then `chaps logs auto-arima-chapkit`\n"
         );

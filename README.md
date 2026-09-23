@@ -92,13 +92,15 @@ chap-core's API is on <http://localhost:8000>; model services are reached
 through it, or given a port of their own with `chaps models expose ID`. Every
 command takes `--json`, and every command ends with a line saying what it did.
 
-## The two words to remember
+## The three words to remember
 
 - **`chaps up`** starts what is on disk. It never changes which version of
   anything you run.
 - **`chaps update`** fetches newer versions: it asks the marketplace and the
-  chap-core release feed what they publish today, moves the pins, then pulls
-  and restarts.
+  chap-core release feed what they publish today, moves the pins and pulls the
+  images. It never touches a container; it says which ones are now out of date.
+- **`chaps restart`** applies them, recreating the running services whose image
+  or configuration changed and leaving the rest alone.
 
 ## Development
 

@@ -196,5 +196,7 @@ message names the models in the way.
 - **`chaps update`** reports each component's image. Both follow moving tags, so
   there is no pin to move, only a pull: `docker compose pull` takes whatever the
   tag points at today. An active `OCS_IMAGE_TAG` or `S3_IMAGE_TAG` line in
-  `.env` is your own pin, and is reported as such.
+  `.env` is your own pin, and is reported as such. When the pull brings an image
+  the machine did not have, the closing line names the component and
+  `chaps restart` is what puts it in service.
 - **`chaps ui`** is unchanged: it browses models, not components.

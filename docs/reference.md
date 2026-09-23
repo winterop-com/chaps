@@ -34,7 +34,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -260,7 +260,11 @@ Usage: chaps sync [OPTIONS]
 
 ## chaps update
 
-Move the model and chap-core pins to what upstream publishes now, then pull and restart.
+Move the model and chap-core pins to what upstream publishes now, pull the images and say what needs restarting.
+
+Always fetches the registry from the network (no cache, no fallback). Models pinned to an exact version are listed but not moved. The run reads in that order: the plan, the pull, and one line saying what moved.
+
+It never touches a container. `chaps restart` applies what it fetched to the services that are running, and `chaps up` starts a deployment that is not.
 
 ```text
 Usage: chaps update [OPTIONS]
@@ -268,8 +272,7 @@ Usage: chaps update [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--dry-run` | Show what would change and write nothing. |
-| `--no-restart` | Update the files and pull the images but do not run `up -d`. |
+| `--dry-run` | Show what would change: no pull, and nothing written. |
 | `--pin-chap-core` | Turn a moving chap-core tag (`latest`, `master`, `dev`) into a pin on the newest release, the way `chaps init` does by default. |
 
 ## chaps up
@@ -311,6 +314,23 @@ Usage: chaps logs [OPTIONS] [SERVICE]...
 | --- | --- |
 | `-f, --follow` | Keep streaming new output. |
 | `<SERVICE>...` | Services to show logs for; all of them when omitted. |
+
+## chaps restart
+
+Recreate the running services whose image or configuration changed.
+
+This is the second half of `chaps update`: the update moves the pins and pulls the images, and this applies them to what is running. It is `docker compose up -d`, which recreates only the containers that no longer match the files, so a service nothing changed for is left alone and its uptime with it. `--all` recreates the named services anyway, which is what a model that is running but never registered needs.
+
+It changes no file, no pin and nothing in `.chaps/`, and it never syncs: it starts what is already on disk. A deployment that is not running at all is `chaps up`'s to start.
+
+```text
+Usage: chaps restart [OPTIONS] [SERVICE]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `--all` | Recreate the named services even when nothing about them changed (docker compose up --force-recreate). This is what a model that is running but never registered needs. |
+| `<SERVICE>...` | Services to restart; the whole project when omitted. Named services are recreated on their own, without their dependencies. |
 
 ## chaps docker
 

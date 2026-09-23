@@ -38,6 +38,7 @@ chaps status                         # chap-core health and registered models
 chaps ui                             # browse the marketplace, toggle models
 chaps up                             # apply what the browser changed
 chaps update                         # move the pins to what upstream publishes now
+chaps restart                        # apply them to the services that are running
 ```
 
 After `init`, `chaps` is two things at once: a thin wrapper around
@@ -47,19 +48,23 @@ that can add or remove models without you hand-editing YAML.
 Every command takes `--json` for machine-readable output, and every command
 ends with a line saying what it did or found. Empty output is a bug.
 
-## The two words to remember
+## The three words to remember
 
 - **`chaps up`** starts what is on disk. It renders the compose files from
   `.chaps/`, checks the host ports, and runs `docker compose up -d`. It never
   changes which version of anything you run.
 - **`chaps update`** fetches newer versions. It asks the marketplace and the
   chap-core release feed what they publish today, moves the pins that follow a
-  channel or a release, and then pulls and restarts.
+  channel or a release, and pulls the images. It never touches a container: it
+  ends by naming the services that are now running something out of date.
+- **`chaps restart`** applies them to the services that are running. It
+  recreates the containers that no longer match the files and leaves the rest
+  alone, and it changes no file and no pin.
 
-Everything else follows from that split. `chaps up`, `chaps models expose` and
-`chaps models unexpose` are safe on a deployment running a build you do not
-want moved; `chaps update` and `chaps models enable` are the only commands that
-move a version.
+Everything else follows from that split. `chaps up`, `chaps restart`,
+`chaps models expose` and `chaps models unexpose` are safe on a deployment
+running a build you do not want moved; `chaps update` and `chaps models enable`
+are the only commands that move a version.
 
 ## The pure server promise
 
