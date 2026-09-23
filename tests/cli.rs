@@ -53,6 +53,16 @@ impl Sandbox {
         cmd
     }
 
+    /// `chaps -C <project> components ...`.
+    fn components(&self, args: &[&str]) -> Command {
+        let mut cmd = self.chap();
+        cmd.arg("-C")
+            .arg(self.project())
+            .arg("components")
+            .args(args);
+        cmd
+    }
+
     /// `chaps -C <project> auth ...`.
     fn auth(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
@@ -931,13 +941,16 @@ fn the_chap_tag_reaches_the_env_file_and_the_state() {
     assert!(!env.contains("# CHAP_IMAGE_TAG"));
     // The base file still reads the variable with `latest` as its default.
     assert!(read(&dir.join("compose.yml")).contains("${CHAP_IMAGE_TAG:-latest}"));
-    // Nothing was cached, so nothing but the two state files is in .chaps/.
+    // Nothing was cached, so nothing but the three state files is in .chaps/.
     let mut names: Vec<String> = std::fs::read_dir(dir.join(".chaps"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    assert_eq!(names, vec!["models.yaml", "project.yaml"]);
+    assert_eq!(
+        names,
+        vec!["components.yaml", "models.yaml", "project.yaml"]
+    );
 }
 
 #[test]
@@ -2930,4 +2943,450 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
 
     // A moving chap-core tag is nothing to compare against a release list.
     assert_eq!(doctor_status(&report, "chap-core-pin"), "ok", "{report}");
+}
+
+// ---------------------------------------------------------------------------
+// Components: chap-core, ocs and the object store
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_with_ocs_writes_the_component_and_its_scaffold() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("components: chap-core, ocs"))
+        .stdout(predicates::str::contains(
+            "OCS:       http://localhost:9000",
+        ))
+        // The heads-up about the object store OCS will need, once.
+        .stdout(predicates::str::contains("chaps components enable s3"));
+
+    for name in [
+        "compose.ocs.yml",
+        "ocs/climate-service.yaml",
+        ".chaps/components.yaml",
+    ] {
+        assert!(dir.join(name).is_file(), "{name} was not written");
+    }
+    assert!(
+        !dir.join("compose.s3.yml").exists(),
+        "the object store was not asked for"
+    );
+
+    // The component file sits between the chaps override and the umbrella.
+    let state = state(&dir);
+    assert_eq!(
+        state["compose_files"],
+        serde_json::json!([
+            "compose.yml",
+            "compose.chaps.yml",
+            "compose.ocs.yml",
+            "compose.marketplace.yml"
+        ])
+    );
+    assert!(
+        state["rendered_files"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("compose.ocs.yml"))
+    );
+
+    let components = yaml(&dir.join(".chaps/components.yaml"));
+    assert_eq!(components["chap-core"]["enabled"], Yaml::Bool(true));
+    assert_eq!(components["ocs"]["enabled"], Yaml::Bool(true));
+    assert_eq!(components["ocs"]["port"].as_u64(), Some(9000));
+    assert_eq!(components["ocs"]["image_tag"].as_str(), Some("main"));
+    assert_eq!(components["s3"]["enabled"], Yaml::Bool(false));
+
+    // The service itself: published, no S3 variables yet, no platform pin.
+    let ocs = yaml(&dir.join("compose.ocs.yml"));
+    let svc = &ocs["services"]["ocs"];
+    assert_eq!(
+        svc["image"].as_str(),
+        Some("ghcr.io/dhis2/open-climate-service:${OCS_IMAGE_TAG:-main}")
+    );
+    assert_eq!(svc["ports"][0].as_str(), Some("9000:9000"));
+    assert!(svc.get("platform").is_none());
+    assert!(svc["environment"].get("S3_ENDPOINT").is_none());
+
+    // The scaffold is OCS's own example, and says so where doctor can see it.
+    let config = read(&dir.join("ocs/climate-service.yaml"));
+    assert!(config.contains("Sierra Leone example values"), "{config}");
+    let parsed = yaml(&dir.join("ocs/climate-service.yaml"));
+    assert_eq!(parsed["extent"]["country_code"].as_str(), Some("SLE"));
+    assert_eq!(parsed["data_dir"].as_str(), Some("/app/data"));
+
+    // The image pin reaches .env as a commented line, like a model's.
+    let env = sandbox.env();
+    assert!(env.contains("\n# OCS_IMAGE_TAG=main\n"), "{env}");
+    assert!(!env.contains("S3_ACCESS_KEY="), "no store, no credentials");
+}
+
+#[test]
+fn the_ocs_flags_fill_the_scaffold_instead_of_the_example() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "ocs",
+            "--ocs-name",
+            "Malawi",
+            "--ocs-country",
+            "mwi",
+            "--ocs-bbox",
+            "32.6,-17.2,35.9,-9.3",
+        ])
+        .assert()
+        .success();
+
+    let path = dir.join("ocs/climate-service.yaml");
+    let config = yaml(&path);
+    assert_eq!(config["id"].as_str(), Some("malawi-climate-service"));
+    assert_eq!(config["name"].as_str(), Some("Malawi Climate Service"));
+    assert_eq!(config["extent"]["name"].as_str(), Some("Malawi"));
+    assert_eq!(config["extent"]["country_code"].as_str(), Some("MWI"));
+    assert_eq!(config["extent"]["bbox"][0].as_f64(), Some(32.6));
+    assert!(
+        !read(&path).contains("Sierra Leone example values"),
+        "these are the operator's own values"
+    );
+}
+
+#[test]
+fn enabling_the_object_store_adds_its_file_its_secrets_and_the_ocs_variables() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs"])
+        .assert()
+        .success();
+
+    sandbox
+        .components(&["enable", "s3"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("enabled s3"))
+        .stdout(predicates::str::contains("compose.s3.yml"));
+
+    assert!(dir.join("compose.s3.yml").is_file());
+    let s3 = yaml(&dir.join("compose.s3.yml"));
+    let svc = &s3["services"]["s3"];
+    assert_eq!(
+        svc["environment"]["RUSTFS_ACCESS_KEY"].as_str(),
+        Some("${S3_ACCESS_KEY:-}")
+    );
+    assert_eq!(svc["expose"][0].as_str(), Some("9000"));
+    assert!(svc.get("ports").is_none(), "internal by default");
+    assert!(s3["services"]["s3-init"].is_mapping());
+
+    // OCS is re-rendered with the (forward-looking) S3 variables.
+    let ocs = yaml(&dir.join("compose.ocs.yml"));
+    let env = &ocs["services"]["ocs"]["environment"];
+    assert_eq!(env["S3_ENDPOINT"].as_str(), Some("http://s3:9000"));
+    assert_eq!(env["S3_BUCKET"].as_str(), Some("ocs"));
+
+    // The credentials are generated once and land in .env, nowhere else.
+    let body = sandbox.env();
+    let access = env_value(&body, "S3_ACCESS_KEY").expect("an access key");
+    let secret = env_value(&body, "S3_SECRET_KEY").expect("a secret key");
+    assert_eq!(access.len(), 32);
+    assert_eq!(secret.len(), 32);
+    assert_ne!(access, secret);
+    assert!(body.contains("\n# S3_IMAGE_TAG=latest\n"), "{body}");
+    assert!(
+        !read(&dir.join("compose.s3.yml")).contains(access),
+        "the compose file substitutes them, it does not hold them"
+    );
+
+    // A second enable changes nothing, credentials least of all.
+    sandbox.components(&["enable", "s3"]).assert().success();
+    assert_eq!(env_value(&sandbox.env(), "S3_ACCESS_KEY"), Some(access));
+
+    assert_eq!(
+        state(&dir)["compose_files"],
+        serde_json::json!([
+            "compose.yml",
+            "compose.chaps.yml",
+            "compose.ocs.yml",
+            "compose.s3.yml",
+            "compose.marketplace.yml"
+        ])
+    );
+}
+
+#[test]
+fn a_component_port_is_recorded_and_published() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs,s3"])
+        .assert()
+        .success();
+
+    sandbox
+        .components(&["enable", "ocs", "--port", "9010"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("http://localhost:9010"));
+    assert_eq!(
+        yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"]["ports"][0].as_str(),
+        Some("9010:9000")
+    );
+
+    sandbox
+        .components(&["enable", "s3", "--port", "9002"])
+        .assert()
+        .success();
+    assert_eq!(
+        yaml(&dir.join("compose.s3.yml"))["services"]["s3"]["ports"][0].as_str(),
+        Some("9002:9000")
+    );
+
+    let listed = sandbox.components(&["list"]).assert().success();
+    let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
+    assert!(text.contains("http://localhost:9010"), "{text}");
+    assert!(text.contains("http://localhost:9002"), "{text}");
+}
+
+#[test]
+fn disabling_a_component_removes_its_file_and_its_place_in_the_f_list() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs,s3"])
+        .assert()
+        .success();
+
+    sandbox
+        .components(&["disable", "ocs"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("disabled ocs"))
+        .stdout(predicates::str::contains("compose.ocs.yml"));
+
+    assert!(!dir.join("compose.ocs.yml").exists());
+    assert!(
+        dir.join("ocs/climate-service.yaml").is_file(),
+        "the operator's own config is never deleted"
+    );
+    assert_eq!(
+        state(&dir)["compose_files"],
+        serde_json::json!([
+            "compose.yml",
+            "compose.chaps.yml",
+            "compose.s3.yml",
+            "compose.marketplace.yml"
+        ])
+    );
+    assert_eq!(
+        yaml(&dir.join(".chaps/components.yaml"))["ocs"]["enabled"],
+        Yaml::Bool(false)
+    );
+
+    // Enabling it again restores the file and keeps the config that is there.
+    std::fs::write(dir.join("ocs/climate-service.yaml"), "id: mine\n").unwrap();
+    sandbox.components(&["enable", "ocs"]).assert().success();
+    assert!(dir.join("compose.ocs.yml").is_file());
+    assert_eq!(read(&dir.join("ocs/climate-service.yaml")), "id: mine\n");
+}
+
+#[test]
+fn chap_core_cannot_be_disabled_while_a_model_is_enabled() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("chapkit_ewars_model"))
+        .stderr(predicates::str::contains("chaps models disable"));
+    assert!(sandbox.project().join("compose.yml").is_file());
+
+    // With the model gone it is allowed, and the base stack goes with it.
+    sandbox
+        .models(&["disable", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success();
+    assert!(!sandbox.project().join("compose.yml").exists());
+    assert!(!sandbox.project().join("compose.chaps.yml").exists());
+}
+
+#[test]
+fn a_standalone_ocs_deployment_leaves_chap_core_out() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--with", "ocs", "--without", "chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("components: ocs"))
+        .stdout(predicates::str::contains("OCS:"))
+        .stdout(predicates::str::contains("API:").not());
+
+    assert!(!dir.join("compose.yml").exists());
+    assert!(!dir.join("compose.chaps.yml").exists());
+    assert!(dir.join("compose.ocs.yml").is_file());
+    assert_eq!(
+        state(&dir)["compose_files"],
+        serde_json::json!(["compose.ocs.yml", "compose.marketplace.yml"])
+    );
+
+    // Asking for a model at the same time is a contradiction, not a surprise.
+    let other = Sandbox::new();
+    other
+        .init(&["--without", "chap-core", "--models", "chapkit_ewars_model"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--without chap-core"));
+}
+
+#[test]
+fn an_unknown_component_name_is_reported_before_anything_is_written() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--with", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("unknown component `nope`"));
+    assert!(!sandbox.project().exists());
+}
+
+#[test]
+fn status_reports_every_enabled_component() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs,s3", "--api-port", "8123"])
+        .assert()
+        .success();
+
+    // Nothing is running, so this exits non-zero; the document is the point.
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["status", "--json", "--timeout", "1"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    let components = report["components"].as_array().expect("a component list");
+    assert_eq!(components.len(), 2);
+    assert_eq!(components[0]["name"], "ocs");
+    assert_eq!(components[0]["reach"], "http://localhost:9000");
+    assert_eq!(components[0]["health_url"], "http://localhost:9000/health");
+    assert_eq!(components[0]["state"], "not-running");
+    assert_eq!(components[1]["name"], "s3");
+    assert_eq!(components[1]["reach"], "internal");
+    assert_eq!(components[1]["health_url"], Json::Null);
+}
+
+#[test]
+fn doctor_checks_the_components_and_the_files_they_add() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs"])
+        .assert()
+        .success();
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("doctor")
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out).into_owned();
+    // The scaffold is still the example, which is a warning with a fix.
+    assert!(
+        text.contains("components") && text.contains("still holds OCS's example values"),
+        "{text}"
+    );
+    assert!(text.contains("port ocs"), "{text}");
+    assert!(text.contains("project files"), "{text}");
+
+    // Editing the config and deleting the note turns the line green.
+    std::fs::write(
+        dir.join("ocs/climate-service.yaml"),
+        "id: mine\nname: Mine\nextent:\n  name: Mine\n  bbox: [0, 0, 1, 1]\n  \
+         country_code: MWI\ndata_dir: /app/data\n",
+    )
+    .unwrap();
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("doctor")
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out).into_owned();
+    assert!(
+        text.contains("chap-core, ocs; ocs/climate-service.yaml present"),
+        "{text}"
+    );
+}
+
+#[test]
+fn docker_accepts_a_deployment_with_both_components() {
+    if !docker_ready() {
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs,s3", "--api-port", "8123"])
+        .assert()
+        .success();
+
+    let out = std::process::Command::new("docker")
+        .args(["compose", "-f", "compose.yml", "-f", "compose.chaps.yml"])
+        .args(["-f", "compose.ocs.yml", "-f", "compose.s3.yml"])
+        .args(["-f", "compose.marketplace.yml", "config"])
+        .current_dir(&dir)
+        .output()
+        .expect("docker compose config runs");
+    assert!(
+        out.status.success(),
+        "docker compose config failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let merged: Yaml = serde_yaml_ng::from_slice(&out.stdout).expect("config is YAML");
+    let ocs = &merged["services"]["ocs"];
+    assert_eq!(ocs["ports"][0]["published"].as_str(), Some("9000"));
+    assert_eq!(ocs["ports"][0]["target"].as_u64(), Some(9000));
+    // The .env values reached the merged document rather than an empty string.
+    let key = ocs["environment"]["S3_ACCESS_KEY"].as_str().unwrap();
+    assert_eq!(key.len(), 32, "compose substituted S3_ACCESS_KEY");
+    assert_eq!(
+        merged["services"]["s3"]["environment"]["RUSTFS_ACCESS_KEY"].as_str(),
+        Some(key)
+    );
+    assert!(
+        merged["services"]["s3"].get("ports").is_none(),
+        "the store is internal"
+    );
+    assert_eq!(
+        merged["services"]["s3-init"]["restart"].as_str(),
+        Some("no")
+    );
 }

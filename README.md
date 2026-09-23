@@ -27,6 +27,9 @@ On macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
 ```
 
+Or `... | sh -s -- --here` for the binary alone, as `./chaps` in the current
+directory and nothing else.
+
 That works out the platform, downloads the release archive for it, checks it
 against the release's `SHA256SUMS` and installs the binary into
 `/usr/local/bin` when that is writable and `~/.local/bin` otherwise.

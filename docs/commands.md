@@ -12,7 +12,7 @@ lists every command, every flag and every default.
 
 | Command | What it does |
 | --- | --- |
-| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start. |
+| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--with ocs[,s3]` adds optional components. |
 | `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d`, and end with what started or was recreated. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
 | `chaps down [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there. |
@@ -44,6 +44,20 @@ other commands assume. It exits non-zero only when a check failed. See
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
 rest write to a project. See [Models and the marketplace](./models.md).
+
+## Components
+
+| Command | What it does |
+| --- | --- |
+| `chaps components list` | Every component, whether this deployment has it and where it is reached. |
+| `chaps components enable NAME [--port N]` | Turn a component on, or change the settings of one that already is, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds. |
+| `chaps components disable NAME` | Turn it off, remove its compose file and sync. |
+
+A component is a service (or a small group) that `chaps sync` renders one
+compose file for: `chap-core`, which is CHAP itself and is on unless you turn it
+off, `ocs` (Open Climate Service) and `s3` (the object store OCS will use). The
+set lives in `.chaps/components.yaml`. `chaps init --with ocs,s3` and
+`--without chap-core` set it at creation time. See [Components](./components.md).
 
 ## Authentication
 

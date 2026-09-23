@@ -11,6 +11,11 @@ pub use apply::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 pub use render::render_env;
 pub use sync::{SyncReport, sync};
 
+/// Compose service name of the OCS component.
+pub const OCS_SERVICE: &str = "ocs";
+/// Compose service name of the object store component.
+pub const S3_SERVICE: &str = "s3";
+
 /// Platform pinned for services built on the R-INLA runtime.
 pub const AMD64_PLATFORM: &str = "linux/amd64";
 

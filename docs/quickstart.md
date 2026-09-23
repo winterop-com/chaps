@@ -47,6 +47,9 @@ Next:
   chaps status
 ```
 
+`chaps init mychap --with ocs` adds Open Climate Service beside chap-core, and
+`--with ocs,s3` adds the object store with it. See [Components](./components.md).
+
 `--models default` enables `chapkit_ewars_model` on its `stable` channel.
 `--models none` writes the base services only, and `--models a,b` takes an
 explicit list of marketplace ids. `--interactive` opens the model browser

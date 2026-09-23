@@ -8,6 +8,7 @@ mod backup;
 mod chapcore;
 mod cli;
 mod commands;
+mod components;
 mod compose;
 mod docker;
 mod error;
@@ -22,7 +23,7 @@ mod tui;
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, FromArgMatches};
-use cli::{AuthSub, BackupSub, Cli, Command, DockerCmd, ModelsCmd, SelfSub};
+use cli::{AuthSub, BackupSub, Cli, Command, ComponentsCmd, DockerCmd, ModelsCmd, SelfSub};
 use commands::Ctx;
 use error::ChapError;
 use output::Out;
@@ -32,7 +33,17 @@ use std::path::PathBuf;
 /// Commands that need a deployment directory, hidden from `--help` when there
 /// is none. They still run when typed, and say what is missing.
 const PROJECT_ONLY: &[&str] = &[
-    "up", "down", "logs", "docker", "backup", "status", "sync", "update", "ui", "auth",
+    "up",
+    "down",
+    "logs",
+    "docker",
+    "backup",
+    "status",
+    "sync",
+    "update",
+    "ui",
+    "auth",
+    "components",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -42,7 +53,8 @@ const PROJECT_ONLY_MODELS: &[&str] = &["enable", "disable", "expose", "unexpose"
 /// The line appended to `--help` outside a project, so the hidden half of the
 /// tree is not a surprise.
 const OUTSIDE_PROJECT_HINT: &str = "Inside a directory created by `chaps init`, \
-     more commands appear: up, down, logs, status, sync, update, ui, docker, backup, auth.";
+     more commands appear: up, down, logs, status, sync, update, ui, components, docker, \
+     backup, auth.";
 
 /// chap-core ships a developer CLI of its own, called `chap`. These are its
 /// commands: typing one of them at `chaps` is a near miss, not a typo, and
@@ -118,6 +130,12 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Expose(args) => commands::enable::expose(ctx, args),
             ModelsCmd::Unexpose(args) => commands::enable::unexpose(ctx, args),
         },
+        Command::Components(c) => match &c.command {
+            ComponentsCmd::List(args) => commands::components::list(ctx, args),
+            ComponentsCmd::Enable(args) => commands::components::enable(ctx, args),
+            ComponentsCmd::Disable(args) => commands::components::disable(ctx, args),
+        },
+
         Command::Ui(args) => run_ui(ctx, args),
 
         Command::Registry(r) => commands::registry::run(ctx, &r.command),

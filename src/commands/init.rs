@@ -6,8 +6,10 @@ use crate::auth;
 use crate::chapcore;
 use crate::cli::InitArgs;
 use crate::commands::Ctx;
+use crate::components::{COMPONENTS_FILE, Component, Components, S3_SOON_NOTE};
 use crate::compose::spec::EnvSpec;
-use crate::compose::{ApplyReport, EnableRequest, Selection, apply, render_env};
+use crate::compose::sync::write_ocs_config;
+use crate::compose::{API_SERVICE, ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::output::{Out, PanelKind};
 use crate::project::{
@@ -16,7 +18,7 @@ use crate::project::{
 };
 use crate::registry::{self, Registry};
 use serde::Serialize;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component as PathComponent, Path, PathBuf};
 
 /// The model `--models default` enables.
 pub const DEFAULT_MODEL: &str = "chapkit_ewars_model";
@@ -52,6 +54,10 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     }
 
     let registry = registry::load(&ctx.registry)?;
+    // What the deployment is made of is settled first: it decides which
+    // compose files are rendered at all, and an unknown name in --with is a
+    // typo to report before anything is written.
+    let components = parse_components(args.with.as_deref(), args.without.as_deref())?;
     // Settle the chap-core tag and the compose file that goes with it before
     // anything is written: both need the network, and a failure of either is a
     // warning plus a fallback, never a half-written directory.
@@ -62,13 +68,15 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         registry_url: ctx.registry.url.clone(),
         api_port: args.api_port,
         port_range: (args.port_base, DEFAULT_PORT_RANGE.1.max(args.port_base)),
+        components: components.clone(),
         ..ProjectState::default()
     };
-    // The API's port is the one port the deployment publishes, and a busy one
-    // is only a problem at `chaps up`: the process holding it may well be a
-    // previous stack this deployment is meant to replace. So: a warning with
-    // a way out, not a refusal to write the directory.
-    let api_port_busy = warn_if_api_port_is_busy(args.api_port, &crate::ports::is_busy);
+    // The ports the deployment publishes, and a busy one is only a problem at
+    // `chaps up`: the process holding one may well be a previous stack this
+    // deployment is meant to replace. So: a warning with a way out, not a
+    // refusal to write the directory.
+    let busy_ports = warn_about_busy_ports(&components, args.api_port, &crate::ports::is_busy);
+    let api_port_busy = busy_ports.iter().any(|c| c.service == API_SERVICE);
     let mut project = Project {
         dir: dir.clone(),
         state,
@@ -79,9 +87,25 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     let selection = if args.interactive {
         // Quitting the browser without saving is "no models", not an error.
         crate::tui::run_tui(ctx, &project, &registry)?.unwrap_or_default()
+    } else if !components.chap_core.enabled && args.models == "default" {
+        // The default model set is a default, not a request: a deployment
+        // without chap-core has nowhere to register one, so it starts empty
+        // rather than making the operator also type `--models none`.
+        Selection::default()
     } else {
         parse_models(&args.models, &registry)?
     };
+    // A model service registers with chap-core and is reached through it, so
+    // the two cannot be asked for separately.
+    if !components.chap_core.enabled && !selection.enable.is_empty() {
+        let ids: Vec<String> = selection.enable.iter().map(|r| r.id.clone()).collect();
+        return Err(anyhow::anyhow!(
+            "--without chap-core leaves nowhere for {} to register: model services \
+             register with chap-core and are reached through it. Pass `--models none`, \
+             or keep chap-core",
+            ids.join(", ")
+        ));
+    }
 
     // --force starts the state over, so overlays the previous project owned
     // would otherwise linger: unreferenced by the umbrella, but still holding
@@ -186,6 +210,18 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // key - so it has to be settled before apply().
     project.state.auth = env_auth(env, &env_path);
 
+    // The OCS instance config goes in before the sync inside apply(), so the
+    // `--ocs-*` values land in it rather than the example ones sync falls
+    // back to. Like `.env`, an existing file is kept: it is the operator's.
+    if components.ocs.enabled
+        && let Some(path) = write_ocs_config(
+            &dir,
+            &crate::commands::components::request(&args.ocs).into_spec(),
+        )?
+    {
+        written.push(path);
+    }
+
     // apply() writes the overlays, compose.marketplace.yml (even with no
     // models) and .chaps/.
     let mut report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
@@ -193,6 +229,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     written.extend(report.written.iter().cloned());
     written.push(dir.join(CHAPS_DIR).join(PROJECT_FILE));
     written.push(dir.join(CHAPS_DIR).join(MODELS_FILE));
+    written.push(dir.join(CHAPS_DIR).join(COMPONENTS_FILE));
     // apply() reports .env again when it appends a pin to the file init just
     // wrote; the summary lists each file once.
     let mut seen = std::collections::BTreeSet::new();
@@ -212,6 +249,8 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "api_port": args.api_port,
         "api_url": project.api_url(),
         "api_port_busy": api_port_busy,
+        "busy_ports": busy_ports.iter().map(|c| c.port).collect::<Vec<u16>>(),
+        "components": project.state.components,
         // Whether the deployment is protected, never the secrets themselves:
         // `--json` output is the kind of thing that ends up in a log.
         "auth": project.state.auth,
@@ -244,25 +283,81 @@ fn env_api_port(body: &str) -> Option<u16> {
         .find_map(|value| value.trim().parse::<u16>().ok())
 }
 
-/// Warn when something is already listening on the API's host port, and say
-/// which free port to use instead.
+/// Warn about every host port the new deployment publishes that something is
+/// already listening on, and say what to do about each.
 ///
-/// Returns whether it was busy. Not an error: the process holding the port may
+/// Returns the claims that were busy. Not an error: the process holding one may
 /// be a stack this deployment is meant to replace, and the directory is worth
 /// writing either way.
-fn warn_if_api_port_is_busy(api_port: u16, busy: &dyn Fn(u16) -> bool) -> bool {
-    if !busy(api_port) {
-        return false;
+fn warn_about_busy_ports(
+    components: &Components,
+    api_port: u16,
+    busy: &dyn Fn(u16) -> bool,
+) -> Vec<crate::ports::PortClaim> {
+    let mut claims = Vec::new();
+    if components.chap_core.enabled {
+        claims.push(crate::ports::PortClaim {
+            service: API_SERVICE.to_string(),
+            port: api_port,
+        });
     }
+    for (component, service) in [
+        (Component::Ocs, crate::compose::OCS_SERVICE),
+        (Component::S3, crate::compose::S3_SERVICE),
+    ] {
+        if let Some(port) = components.port_of(component) {
+            claims.push(crate::ports::PortClaim {
+                service: service.to_string(),
+                port,
+            });
+        }
+    }
+    claims.retain(|claim| busy(claim.port));
     // Upwards from the requested port: the next free number is the one least
     // likely to collide with something else the operator has in mind.
-    let suggestion = crate::ports::first_free(api_port.saturating_add(1), u16::MAX, busy);
-    let claim = crate::ports::PortClaim {
-        service: crate::compose::API_SERVICE.to_string(),
-        port: api_port,
+    let suggestion = claims
+        .first()
+        .and_then(|claim| crate::ports::first_free(claim.port.saturating_add(1), u16::MAX, busy));
+    for claim in &claims {
+        crate::output::warn(&crate::ports::busy_line(claim, suggestion));
+    }
+    claims
+}
+
+/// Expand `--with` and `--without` into a component set.
+///
+/// chap-core is on unless `--without chap-core` says otherwise; everything
+/// else is off until `--with` names it. A name in both lists is a
+/// contradiction rather than a silent winner.
+fn parse_components(with: Option<&str>, without: Option<&str>) -> Result<Components> {
+    let on = parse_component_list(with)?;
+    let off = parse_component_list(without)?;
+    if let Some(both) = on.iter().find(|c| off.contains(c)) {
+        return Err(anyhow::anyhow!(
+            "`{}` is in both --with and --without; it cannot be on and off at once",
+            both.name()
+        ));
+    }
+    let mut components = Components::default();
+    for component in on {
+        components.set_enabled(component, true);
+    }
+    for component in off {
+        components.set_enabled(component, false);
+    }
+    Ok(components)
+}
+
+/// A comma-separated list of component names.
+fn parse_component_list(spec: Option<&str>) -> Result<Vec<Component>> {
+    let Some(spec) = spec else {
+        return Ok(Vec::new());
     };
-    crate::output::warn(&crate::ports::busy_line(&claim, suggestion));
-    true
+    spec.split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(Component::from_name)
+        .collect()
 }
 
 /// The chap-core tag `init` settled on, and where `compose.yml` comes from.
@@ -467,7 +562,7 @@ fn resolve_dir(arg: &Path) -> Result<PathBuf> {
     };
     for component in arg.components() {
         match component {
-            Component::CurDir => {}
+            PathComponent::CurDir => {}
             other => out.push(other.as_os_str()),
         }
     }
@@ -557,17 +652,57 @@ fn summary(
     if env == EnvAction::Kept {
         text.push_str(&format!("\n{}\n", out.dim("kept .env (already present)")));
     }
+    // The component list stands on its own, above the block of addresses the
+    // enabled ones contribute, so the two read as answer and detail.
+    let components = &project.state.components;
     text.push_str(&format!(
-        "\n{} {} {}\n",
-        out.key("chap-core:"),
-        out.value(&chap_core.tag),
-        out.dim(&format!("({})", chap_core.source.describe()))
+        "\n{} {}\n",
+        out.key("components:"),
+        out.value(&components.label())
     ));
-    text.push_str(&format!(
-        "{}       {}\n",
-        out.key("API:"),
-        out.value(&project.api_url())
-    ));
+    let mut addresses = String::new();
+    if components.chap_core.enabled {
+        addresses.push_str(&format!(
+            "{} {} {}\n",
+            out.key("chap-core:"),
+            out.value(&chap_core.tag),
+            out.dim(&format!("({})", chap_core.source.describe()))
+        ));
+        addresses.push_str(&format!(
+            "{}       {}\n",
+            out.key("API:"),
+            out.value(&project.api_url())
+        ));
+    }
+    if components.ocs.enabled {
+        addresses.push_str(&format!(
+            "{}       {} {}\n",
+            out.key("OCS:"),
+            out.value(&components.ocs_url()),
+            out.dim(&format!(
+                "(config in {}/{})",
+                crate::components::OCS_DIR,
+                crate::components::OCS_CONFIG_FILE
+            ))
+        ));
+    }
+    if components.s3.enabled {
+        addresses.push_str(&format!(
+            "{}        {}\n",
+            out.key("S3:"),
+            match components.s3.port {
+                Some(port) => out.value(&format!("http://localhost:{port}")),
+                None => out.dim(&format!(
+                    "internal (http://s3:{} inside the deployment)",
+                    crate::components::S3_CONTAINER_PORT
+                )),
+            }
+        ));
+    }
+    if !addresses.is_empty() {
+        text.push('\n');
+        text.push_str(&addresses);
+    }
     // The token is printed once and only in its masked form: the full value
     // stays in `.env`, and `chaps auth show --reveal` is the way back to it.
     if let Some(secrets) = secrets {
@@ -616,6 +751,9 @@ fn summary(
             )));
             text.push('\n');
         }
+    }
+    if components.ocs.enabled && !components.s3.enabled {
+        text.push_str(&format!("\n{} {S3_SOON_NOTE}\n", out.dim("note:")));
     }
     for warning in &report.warnings {
         text.push_str(&format!("\n{} {warning}\n", out.warn("warning:")));
@@ -678,6 +816,57 @@ mod tests {
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownModel(id)) if id == "nope"
         ));
+    }
+
+    #[test]
+    fn the_with_and_without_lists_shape_the_component_set() {
+        let plain = parse_components(None, None).unwrap();
+        assert_eq!(plain, Components::default());
+        assert!(plain.chap_core.enabled && !plain.ocs.enabled);
+
+        let both = parse_components(Some("ocs,s3"), None).unwrap();
+        assert!(both.chap_core.enabled && both.ocs.enabled && both.s3.enabled);
+        assert_eq!(both.label(), "chap-core, ocs, s3");
+        // Whitespace and case are the shell's, not part of the name.
+        assert_eq!(parse_components(Some(" OCS , s3 "), None).unwrap(), both);
+
+        let standalone = parse_components(Some("ocs"), Some("chap-core")).unwrap();
+        assert!(!standalone.chap_core.enabled && standalone.ocs.enabled);
+        assert_eq!(standalone.label(), "ocs");
+
+        // An unknown name is a typo to report before anything is written.
+        let err = parse_components(Some("ocs,nope"), None).expect_err("unknown component");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::UnknownComponent(name)) if name == "nope"
+        ));
+
+        // And a name on both lists is a contradiction, not a silent winner.
+        let err = parse_components(Some("ocs"), Some("ocs")).expect_err("on and off at once");
+        assert!(
+            err.to_string().contains("both --with and --without"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_component_port_is_probed_alongside_the_api_port() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        components.ocs.port = 9000;
+
+        assert!(warn_about_busy_ports(&components, 8000, &|_| false).is_empty());
+        let busy = warn_about_busy_ports(&components, 8000, &|port| port == 9000);
+        assert_eq!(busy.len(), 1);
+        assert_eq!(busy[0].service, "ocs");
+        assert_eq!(busy[0].port, 9000);
+
+        // With chap-core off the API port is not one of this deployment's.
+        components.chap_core.enabled = false;
+        assert!(
+            warn_about_busy_ports(&components, 8000, &|port| port == 8000).is_empty(),
+            "no chap-core, no API port"
+        );
     }
 
     #[test]
@@ -807,16 +996,24 @@ mod tests {
 
     #[test]
     fn a_free_api_port_warns_about_nothing() {
-        assert!(!warn_if_api_port_is_busy(8000, &|_| false));
+        assert!(warn_about_busy_ports(&Components::default(), 8000, &|_| false).is_empty());
     }
 
     #[test]
     fn a_busy_api_port_is_a_warning_not_a_refusal() {
         // 8000 and 8001 are taken, 8002 is not: init still writes the
         // directory and says which port to use instead.
-        assert!(warn_if_api_port_is_busy(8000, &|port| (8000..=8001).contains(&port)));
+        assert_eq!(
+            warn_about_busy_ports(&Components::default(), 8000, &|port| (8000..=8001)
+                .contains(&port))
+            .len(),
+            1
+        );
         // Even with nothing free above it, the warning goes out.
-        assert!(warn_if_api_port_is_busy(8000, &|_| true));
+        assert_eq!(
+            warn_about_busy_ports(&Components::default(), 8000, &|_| true).len(),
+            1
+        );
     }
 
     #[test]

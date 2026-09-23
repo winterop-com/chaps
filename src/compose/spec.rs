@@ -2,6 +2,7 @@
 //!
 //! The types are frozen here; the constructors are owned by agent B.
 
+use crate::components::Components;
 use crate::compose::{AMD64_PLATFORM, overrides, tag_env_var, volume_name};
 use crate::project::EnabledModel;
 use crate::registry::{Model, Version};
@@ -48,6 +49,154 @@ pub struct EnvSpec {
     /// `(<ID>_IMAGE_TAG, tag)` pairs written as commented-out pins.
     pub model_tag_pins: Vec<(String, String)>,
     pub cli_version: String,
+}
+
+/// Values for `compose.ocs.yml`.
+#[derive(Debug, Clone)]
+pub struct OcsSpec {
+    /// Host port OCS is published on.
+    pub host_port: u16,
+    /// The tag the `${OCS_IMAGE_TAG:-...}` default carries.
+    pub image_tag: String,
+    /// Whether the `s3` component is on, which is what decides if the service
+    /// gets the (forward-looking) `S3_*` variables.
+    pub s3: bool,
+    pub cli_version: String,
+}
+
+impl OcsSpec {
+    /// The spec a project's components describe.
+    pub fn from_components(components: &Components, cli_version: &str) -> OcsSpec {
+        OcsSpec {
+            host_port: components.ocs.port,
+            image_tag: components.ocs.image_tag.clone(),
+            s3: components.s3.enabled,
+            cli_version: cli_version.to_string(),
+        }
+    }
+}
+
+/// Values for `compose.s3.yml`.
+#[derive(Debug, Clone)]
+pub struct S3Spec {
+    /// Host port the object store is published on, or `None` for the default:
+    /// reachable only inside the compose network, which is where OCS is.
+    pub host_port: Option<u16>,
+    pub image_tag: String,
+    pub cli_version: String,
+}
+
+impl S3Spec {
+    /// The spec a project's components describe.
+    pub fn from_components(components: &Components, cli_version: &str) -> S3Spec {
+        S3Spec {
+            host_port: components.s3.port,
+            image_tag: crate::components::S3_DEFAULT_TAG.to_string(),
+            cli_version: cli_version.to_string(),
+        }
+    }
+}
+
+/// Values for the scaffolded `ocs/climate-service.yaml`.
+///
+/// Everything but `example` comes from the `--ocs-*` flags; without them the
+/// file is OCS's own Sierra Leone example, and `example` is what says so - in
+/// the file, and to `chaps doctor`.
+#[derive(Debug, Clone)]
+pub struct OcsConfigSpec {
+    /// STAC catalog id, derived from the name.
+    pub id: String,
+    /// Human-readable instance name.
+    pub name: String,
+    /// Name of the spatial extent: the country or region.
+    pub extent_name: String,
+    /// `xmin, ymin, xmax, ymax`, already formatted.
+    pub bbox: String,
+    /// ISO 3166-1 alpha-3 country code.
+    pub country_code: String,
+    /// Whether these are the example values rather than someone's own.
+    pub example: bool,
+}
+
+impl Default for OcsConfigSpec {
+    /// OCS's own `climate-service.yaml.example`, which is Sierra Leone.
+    fn default() -> OcsConfigSpec {
+        OcsConfigSpec {
+            id: "sierra-leone-climate-service".to_string(),
+            name: "Sierra Leone Climate Service".to_string(),
+            extent_name: "Sierra Leone".to_string(),
+            bbox: "-13.5, 6.9, -10.1, 10.0".to_string(),
+            country_code: "SLE".to_string(),
+            example: true,
+        }
+    }
+}
+
+/// Whether one field of a scaffold was given on the command line.
+///
+/// Kept as three independent options rather than all-or-nothing: someone who
+/// only knows the country code still gets it into the file, and the fields
+/// they did not give stay the example's, which the note still points at.
+#[derive(Debug, Clone, Default)]
+pub struct OcsConfigRequest {
+    pub name: Option<String>,
+    pub country_code: Option<String>,
+    pub bbox: Option<String>,
+}
+
+impl OcsConfigRequest {
+    /// Whether anything at all was asked for.
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none() && self.country_code.is_none() && self.bbox.is_none()
+    }
+
+    /// The scaffold these flags describe, filling the gaps from the example.
+    pub fn into_spec(self) -> OcsConfigSpec {
+        let example = self.is_empty();
+        let mut spec = OcsConfigSpec {
+            example,
+            ..OcsConfigSpec::default()
+        };
+        if let Some(name) = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+        {
+            spec.extent_name = name.to_string();
+            spec.name = format!("{name} Climate Service");
+            spec.id = slug(&spec.name);
+        }
+        if let Some(code) = self
+            .country_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            spec.country_code = code.to_ascii_uppercase();
+        }
+        if let Some(bbox) = self.bbox.as_deref() {
+            spec.bbox = bbox
+                .split(',')
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(", ");
+        }
+        spec
+    }
+}
+
+/// `Sierra Leone Climate Service` -> `sierra-leone-climate-service`.
+fn slug(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
 }
 
 /// Values for one `compose.<service_id>.yml` overlay.

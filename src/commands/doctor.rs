@@ -17,6 +17,11 @@ use crate::auth;
 use crate::chapcore;
 use crate::cli::DoctorArgs;
 use crate::commands::Ctx;
+use crate::components::{
+    COMPONENTS_FILE, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
+    S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
+};
+use crate::compose::render::OCS_EXAMPLE_MARKER;
 use crate::compose::{API_SERVICE, sync};
 use crate::docker;
 use crate::error::Result;
@@ -28,7 +33,7 @@ use crate::project::{
 };
 use crate::registry;
 use crate::selfupdate::{self, TARGET, VERSION};
-use crate::status::{ApiHealth, StatusReport};
+use crate::status::{ApiHealth, ComponentState, StatusReport};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -388,7 +393,8 @@ fn project_checks(
     have_cli: bool,
 ) -> Vec<Check> {
     let mut checks = vec![
-        files_check(&project.dir),
+        files_check(&project.dir, &project.state.components),
+        components_check(project),
         sync_check(ctx, project),
         env_check(
             std::fs::read_to_string(project.dir.join(ENV_FILE))
@@ -418,10 +424,14 @@ fn project_checks(
         checks.push(port_check(claim, &running, &ports::is_busy, suggestion));
     }
 
-    checks.push(pin_check(
-        &project.state.chap_image_tag,
-        ReleaseList::of(probed.map(|p| &p.chap_core)),
-    ));
+    // The chap-core release feed says nothing about a deployment that does not
+    // run chap-core.
+    if project.state.components.chap_core.enabled {
+        checks.push(pin_check(
+            &project.state.chap_image_tag,
+            ReleaseList::of(probed.map(|p| &p.chap_core)),
+        ));
+    }
     checks.extend(image_checks(project, probed, have_cli));
     checks.push(stack_check(project, &running));
     checks
@@ -970,16 +980,26 @@ impl ReachSummary for std::result::Result<String, String> {
 // Project checks
 // ---------------------------------------------------------------------------
 
-/// The files every deployment directory holds, as `chaps init` writes them.
-pub fn project_files() -> Vec<String> {
-    vec![
+/// The files a deployment directory holds, as `chaps init` writes them.
+///
+/// The base stack is only one of them when chap-core is a component of this
+/// deployment: `--without chap-core` renders neither `compose.yml` nor the
+/// chaps-owned override, so looking for them would report a deployment that is
+/// exactly as asked for as broken.
+pub fn project_files(components: &Components) -> Vec<String> {
+    let mut files = vec![
         format!("{CHAPS_DIR}/{PROJECT_FILE}"),
         format!("{CHAPS_DIR}/{MODELS_FILE}"),
+        format!("{CHAPS_DIR}/{COMPONENTS_FILE}"),
         ENV_FILE.to_string(),
-        BASE_COMPOSE.to_string(),
-        CHAPS_COMPOSE.to_string(),
-        MARKETPLACE_COMPOSE.to_string(),
-    ]
+    ];
+    if components.chap_core.enabled {
+        files.push(BASE_COMPOSE.to_string());
+        files.push(CHAPS_COMPOSE.to_string());
+    }
+    files.extend(components.compose_files());
+    files.push(MARKETPLACE_COMPOSE.to_string());
+    files
 }
 
 /// Whether every file a deployment is made of is still there.
@@ -999,8 +1019,8 @@ pub fn files_verdict(total: usize, missing: &[String]) -> (Status, String, Optio
 }
 
 /// The `project-files` line for a directory on disk.
-pub fn files_check(dir: &Path) -> Check {
-    let wanted = project_files();
+pub fn files_check(dir: &Path, components: &Components) -> Check {
+    let wanted = project_files(components);
     let missing: Vec<String> = wanted
         .iter()
         .filter(|name| !dir.join(name).is_file())
@@ -1010,6 +1030,55 @@ pub fn files_check(dir: &Path) -> Check {
         "project-files",
         "project files",
         files_verdict(wanted.len(), &missing),
+    )
+}
+
+/// What the `components` line says about the enabled set and the files that go
+/// with it.
+///
+/// `ocs_config` is what is on disk at `ocs/climate-service.yaml`: `None` when
+/// there is none, which is a real fault (the container would start with no
+/// instance configuration), and a body that still carries the example marker,
+/// which is a warning - it deploys, it just deploys Sierra Leone.
+pub fn components_verdict(
+    components: &Components,
+    ocs_config: Option<&str>,
+) -> (Status, String, Option<String>) {
+    let label = components.label();
+    if !components.ocs.enabled {
+        return (Status::Ok, label, None);
+    }
+    let config = format!("{OCS_DIR}/{OCS_CONFIG_FILE}");
+    let Some(body) = ocs_config else {
+        return (
+            Status::Fail,
+            format!("{label}; {config} is missing"),
+            Some(
+                "run `chaps sync` to scaffold it again, then edit it for your country".to_string(),
+            ),
+        );
+    };
+    if body.contains(OCS_EXAMPLE_MARKER) {
+        return (
+            Status::Warn,
+            format!("{label}; {config} still holds OCS's example values"),
+            Some(format!(
+                "edit {config} for your own country or region and delete the note at the top; \
+                 `chaps components enable ocs --ocs-name NAME --ocs-country CODE --ocs-bbox \
+                 xmin,ymin,xmax,ymax` writes it for a project that has none"
+            )),
+        );
+    }
+    (Status::Ok, format!("{label}; {config} present"), None)
+}
+
+/// The `components` line for a project on disk.
+pub fn components_check(project: &Project) -> Check {
+    let body = std::fs::read_to_string(project.ocs_config_path()).ok();
+    Check::from_verdict(
+        "components",
+        "components",
+        components_verdict(&project.state.components, body.as_deref()),
     )
 }
 
@@ -1287,6 +1356,62 @@ pub fn image_skip_reason(probed: Option<&Probed>, have_cli: bool) -> Option<Stri
         .map(|why| format!("ghcr.io is unreachable: {why}"))
 }
 
+/// One enabled component's image, from what `docker manifest inspect` said.
+///
+/// Unlike a model overlay, a component pins no platform: both images are
+/// multi-arch, so "the tag exists" is the whole question here.
+pub fn component_image_verdict(name: &str, reference: &str, outcome: &Outcome) -> Check {
+    let id = format!("image-{name}");
+    let check_name = format!("image {name}");
+    match outcome {
+        Outcome::Done { ok: true, .. } => Check::ok(id, check_name, format!("{reference} exists")),
+        Outcome::TimedOut => Check::skip(
+            id,
+            check_name,
+            format!(
+                "the registry did not answer for {reference} within {}s",
+                MANIFEST_TIMEOUT.as_secs()
+            ),
+        ),
+        Outcome::Missing => Check::skip(id, check_name, "no docker CLI to ask"),
+        Outcome::Failed(why) => Check::skip(id, check_name, why.clone()),
+        Outcome::Done { stderr, .. } if stderr.to_ascii_lowercase().contains("experimental") => {
+            Check::skip(
+                id,
+                check_name,
+                "this docker CLI has `docker manifest` behind its experimental flag",
+            )
+        }
+        Outcome::Done { stderr, .. } => Check::fail(
+            id,
+            check_name,
+            format!("{reference} was not found: {}", first_line(stderr)),
+            format!(
+                "check the tag: `{OCS_TAG_ENV_VAR}` and `{S3_TAG_ENV_VAR}` in .env pin the \
+                 component images"
+            ),
+        ),
+    }
+}
+
+/// The images the enabled components pull, as `(component, reference)`.
+pub fn component_images(components: &Components) -> Vec<(String, String)> {
+    let mut images = Vec::new();
+    if components.ocs.enabled {
+        images.push((
+            crate::compose::OCS_SERVICE.to_string(),
+            format!("{OCS_IMAGE}:{}", components.ocs.image_tag),
+        ));
+    }
+    if components.s3.enabled {
+        images.push((
+            crate::compose::S3_SERVICE.to_string(),
+            format!("{S3_IMAGE}:{S3_DEFAULT_TAG}"),
+        ));
+    }
+    images
+}
+
 /// One line per enabled model, asked in parallel.
 fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> Vec<Check> {
     // Marketplace id, service id and the exact reference the overlay pins.
@@ -1302,14 +1427,17 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
             )
         })
         .collect();
+    let components = component_images(&project.state.components);
 
     if let Some(reason) = image_skip_reason(probed, have_cli) {
-        return models
-            .iter()
-            .map(|(_, service_id, _)| {
+        let model_skips = models.iter().map(|(_, service_id, _)| service_id);
+        let component_skips = components.iter().map(|(name, _)| name);
+        return model_skips
+            .chain(component_skips)
+            .map(|name| {
                 Check::skip(
-                    format!("image-{service_id}"),
-                    format!("image {service_id}"),
+                    format!("image-{name}"),
+                    format!("image {name}"),
                     reason.clone(),
                 )
             })
@@ -1319,9 +1447,14 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
     // One thread per image: each is a registry round trip, and a deployment
     // with four models would otherwise wait out four of them in a row.
     std::thread::scope(|scope| {
-        let handles: Vec<_> = models
+        let references: Vec<String> = models
             .iter()
-            .map(|(_, _, reference)| {
+            .map(|(_, _, reference)| reference.clone())
+            .chain(components.iter().map(|(_, reference)| reference.clone()))
+            .collect();
+        let handles: Vec<_> = references
+            .iter()
+            .map(|reference| {
                 let reference = reference.clone();
                 scope.spawn(move || {
                     run_bounded(
@@ -1332,22 +1465,62 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
                 })
             })
             .collect();
-        models
+        let mut outcomes = handles.into_iter().map(|handle| {
+            handle
+                .join()
+                .unwrap_or_else(|_| Outcome::Failed("the probe did not finish".to_string()))
+        });
+        let mut checks: Vec<Check> = models
             .iter()
-            .zip(handles)
-            .map(|((marketplace_id, service_id, reference), handle)| {
-                let outcome = handle
-                    .join()
-                    .unwrap_or_else(|_| Outcome::Failed("the probe did not finish".to_string()));
+            .zip(outcomes.by_ref())
+            .map(|((marketplace_id, service_id, reference), outcome)| {
                 image_verdict(marketplace_id, service_id, reference, &outcome)
             })
-            .collect()
+            .collect();
+        checks.extend(
+            components
+                .iter()
+                .zip(outcomes)
+                .map(|((name, reference), outcome)| {
+                    component_image_verdict(name, reference, &outcome)
+                }),
+        );
+        checks
     })
+}
+
+/// What a deployment without chap-core adds up to: its components alone.
+fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<String>) {
+    let (up, down): (Vec<&str>, Vec<&str>) = report
+        .components
+        .iter()
+        .map(|c| (c.name.as_str(), c.state))
+        .fold((Vec::new(), Vec::new()), |(mut up, mut down), (name, s)| {
+            if s == ComponentState::Up {
+                up.push(name);
+            } else {
+                down.push(name);
+            }
+            (up, down)
+        });
+    if down.is_empty() {
+        return (
+            Status::Ok,
+            format!("no chap-core here; up: {}", up.join(", ")),
+            None,
+        );
+    }
+    (
+        Status::Warn,
+        format!("no chap-core here; not up: {}", down.join(", ")),
+        Some("run `chaps status` for what each component is doing".to_string()),
+    )
 }
 
 /// What the running deployment adds up to.
 pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) {
     match &report.api {
+        ApiHealth::Off => components_only_verdict(report),
         ApiHealth::Down { error } => (
             Status::Fail,
             format!("chap-core at {} is down: {error}", report.api_url),
@@ -1902,12 +2075,137 @@ mod tests {
     }
 
     #[test]
+    fn the_components_line_reports_the_set_and_the_ocs_config() {
+        // Nothing but chap-core: there is no config file to have an opinion on.
+        let (status, detail, fix) = components_verdict(&Components::default(), None);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(detail, "chap-core");
+        assert_eq!(fix, None);
+
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
+
+        // The component is on and its instance config is gone: the container
+        // would start with nothing to be an instance of.
+        let (status, detail, fix) = components_verdict(&components, None);
+        assert_eq!(status, Status::Fail);
+        assert!(
+            detail.contains("ocs/climate-service.yaml is missing"),
+            "{detail}"
+        );
+        assert!(fix.unwrap().contains("chaps sync"));
+
+        // Present, but still the example: it deploys, it just deploys the
+        // wrong country.
+        let example = crate::compose::render::render_ocs_config(
+            &crate::compose::spec::OcsConfigSpec::default(),
+        );
+        let (status, detail, fix) = components_verdict(&components, Some(&example));
+        assert_eq!(status, Status::Warn);
+        assert!(detail.starts_with("chap-core, ocs; "), "{detail}");
+        assert!(detail.contains("example values"), "{detail}");
+        assert!(fix.unwrap().contains("--ocs-country"));
+
+        // Edited, note deleted: nothing left to say.
+        let (status, detail, fix) = components_verdict(&components, Some("id: mine\n"));
+        assert_eq!(status, Status::Ok);
+        assert!(
+            detail.ends_with("ocs/climate-service.yaml present"),
+            "{detail}"
+        );
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn the_component_images_are_the_ones_the_enabled_set_pulls() {
+        assert!(component_images(&Components::default()).is_empty());
+
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
+        components.set_enabled(crate::components::Component::S3, true);
+        assert_eq!(
+            component_images(&components),
+            vec![
+                (
+                    "ocs".to_string(),
+                    "ghcr.io/dhis2/open-climate-service:main".to_string()
+                ),
+                ("s3".to_string(), "rustfs/rustfs:latest".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_component_image_is_checked_for_existence_not_for_amd64() {
+        // Both component images are multi-arch and no overlay pins a platform,
+        // so a manifest that answers at all is the whole verdict.
+        let arm_only = r#"{"manifests":[{"platform":{"os":"linux","architecture":"arm64"}}]}"#;
+        let check = component_image_verdict(
+            "ocs",
+            "ghcr.io/dhis2/open-climate-service:main",
+            &Outcome::Done {
+                ok: true,
+                stdout: arm_only.to_string(),
+                stderr: String::new(),
+            },
+        );
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(check.id, "image-ocs");
+
+        let missing = component_image_verdict(
+            "ocs",
+            "ghcr.io/dhis2/open-climate-service:nope",
+            &Outcome::Done {
+                ok: false,
+                stdout: String::new(),
+                stderr: "manifest unknown".to_string(),
+            },
+        );
+        assert_eq!(missing.status, Status::Fail);
+        assert!(missing.detail.contains("manifest unknown"));
+        assert!(missing.fix.unwrap().contains("OCS_IMAGE_TAG"));
+
+        assert_eq!(
+            component_image_verdict("s3", "rustfs/rustfs:latest", &Outcome::Missing).status,
+            Status::Skip
+        );
+    }
+
+    #[test]
+    fn the_stack_line_judges_a_deployment_without_chap_core_by_its_components() {
+        use crate::status::{ComponentState, ComponentStatus};
+
+        let component = |name: &str, state: ComponentState| ComponentStatus {
+            name: name.to_string(),
+            state,
+            reach: "http://localhost:9000".to_string(),
+            health_url: None,
+        };
+        let mut report = status_report(ApiHealth::Off, &[], &[]);
+        report.components = vec![component("ocs", ComponentState::Up)];
+        let (status, detail, fix) = stack_verdict(&report);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(detail, "no chap-core here; up: ocs");
+        assert_eq!(fix, None);
+
+        report.components = vec![
+            component("ocs", ComponentState::Starting),
+            component("s3", ComponentState::Up),
+        ];
+        let (status, detail, fix) = stack_verdict(&report);
+        assert_eq!(status, Status::Warn);
+        assert_eq!(detail, "no chap-core here; not up: ocs");
+        assert!(fix.unwrap().contains("chaps status"));
+    }
+
+    #[test]
     fn the_file_list_is_what_init_writes() {
-        let files = project_files();
-        assert_eq!(files.len(), 6);
+        let files = project_files(&Components::default());
+        assert_eq!(files.len(), 7);
         for name in [
             ".chaps/project.yaml",
             ".chaps/models.yaml",
+            ".chaps/components.yaml",
             ".env",
             "compose.yml",
             "compose.chaps.yml",
@@ -1915,6 +2213,36 @@ mod tests {
         ] {
             assert!(files.contains(&name.to_string()), "{name} is missing");
         }
+
+        // A component adds its own compose file, between the override and the
+        // umbrella; chap-core off takes the base stack out of the list.
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
+        assert_eq!(
+            project_files(&components),
+            vec![
+                ".chaps/project.yaml",
+                ".chaps/models.yaml",
+                ".chaps/components.yaml",
+                ".env",
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.ocs.yml",
+                "compose.marketplace.yml",
+            ]
+        );
+        components.set_enabled(crate::components::Component::ChapCore, false);
+        assert_eq!(
+            project_files(&components),
+            vec![
+                ".chaps/project.yaml",
+                ".chaps/models.yaml",
+                ".chaps/components.yaml",
+                ".env",
+                "compose.ocs.yml",
+                "compose.marketplace.yml",
+            ]
+        );
 
         let (status, detail, fix) = files_verdict(6, &[]);
         assert_eq!(status, Status::Ok);
@@ -2175,6 +2503,7 @@ mod tests {
             models: Vec::<ModelStatus>::new(),
             unmanaged: Vec::new(),
             auth: false,
+            components: Vec::new(),
         }
     }
 

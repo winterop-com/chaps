@@ -8,6 +8,7 @@
 - [Commands](./commands.md)
   - [Command reference](./reference.md)
 - [Models and the marketplace](./models.md)
+- [Components](./components.md)
 - [Ports](./ports.md)
 - [Authentication](./auth.md)
 - [Updating](./updating.md)

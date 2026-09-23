@@ -11,6 +11,7 @@
 use crate::chapcore;
 use crate::cli::UpdateArgs;
 use crate::commands::Ctx;
+use crate::components;
 use crate::compose::sync::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::compose::{sync, tag_env_var};
 use crate::docker;
@@ -26,6 +27,9 @@ pub struct UpdateReport {
     pub registry: RegistryInfo,
     pub models: Vec<ModelUpdate>,
     pub chap_core: ChapCoreUpdate,
+    /// One row per enabled component other than chap-core. They follow moving
+    /// tags, so there is no pin to move - only a pull to report.
+    pub components: Vec<ComponentUpdate>,
     pub pulled: bool,
     pub restarted: bool,
     /// What the run does about the stack, and why.
@@ -86,6 +90,85 @@ pub struct RegistryInfo {
     pub provenance: Provenance,
 }
 
+/// One enabled component's image, and where its tag comes from.
+///
+/// Neither OCS nor the object store publishes a release feed this CLI can
+/// consult, so both follow a moving tag: `docker compose pull` takes whatever
+/// it points at today, and there is nothing in `.chaps/` to move. An active
+/// `*_IMAGE_TAG` line in `.env` is the operator's own pin, and is reported as
+/// such rather than silently overridden.
+#[derive(Debug, Clone, Serialize)]
+pub struct ComponentUpdate {
+    pub name: String,
+    pub image: String,
+    /// The tag the pull will take, whichever of the two it is.
+    pub tag: String,
+    /// Whether that tag came from an active `.env` line.
+    pub pinned: bool,
+}
+
+/// One row per enabled component, read from `.chaps/components.yaml` and the
+/// `.env` beside it.
+pub fn plan_components(project: &Project) -> Vec<ComponentUpdate> {
+    let env =
+        std::fs::read_to_string(project.dir.join(crate::project::ENV_FILE)).unwrap_or_default();
+    let components = &project.state.components;
+    let mut out = Vec::new();
+    if components.ocs.enabled {
+        out.push(component_update(
+            crate::compose::OCS_SERVICE,
+            components::OCS_IMAGE,
+            components::OCS_TAG_ENV_VAR,
+            &components.ocs.image_tag,
+            &env,
+        ));
+    }
+    if components.s3.enabled {
+        out.push(component_update(
+            crate::compose::S3_SERVICE,
+            components::S3_IMAGE,
+            components::S3_TAG_ENV_VAR,
+            components::S3_DEFAULT_TAG,
+            &env,
+        ));
+    }
+    out
+}
+
+fn component_update(
+    name: &str,
+    image: &str,
+    var: &str,
+    default_tag: &str,
+    env: &str,
+) -> ComponentUpdate {
+    match crate::auth::active_value(env, var) {
+        Some(tag) => ComponentUpdate {
+            name: name.to_string(),
+            image: image.to_string(),
+            tag,
+            pinned: true,
+        },
+        None => ComponentUpdate {
+            name: name.to_string(),
+            image: image.to_string(),
+            tag: default_tag.to_string(),
+            pinned: false,
+        },
+    }
+}
+
+/// The row one component gets in the human list.
+pub fn component_line(c: &ComponentUpdate) -> String {
+    if c.pinned {
+        return format!(
+            "{}  {}  pinned in .env, re-pulled at that tag",
+            c.name, c.tag
+        );
+    }
+    format!("{}  {}  moving tag, re-pulled", c.name, c.tag)
+}
+
 /// One enabled model's before and after.
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelUpdate {
@@ -128,6 +211,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         },
         models,
         chap_core: plan_chap_core(&project, latest, args.pin_chap_core),
+        components: plan_components(&project),
         pulled: false,
         restarted: false,
         restart: restart_decision(running, args.no_restart),
@@ -401,6 +485,9 @@ fn human(report: &UpdateReport, out: &Out) -> String {
         text.push('\n');
     }
     text.push_str(&format!("  {}\n", chap_core_cell(out, &report.chap_core)));
+    for component in &report.components {
+        text.push_str(&format!("  {}\n", out.dim(&component_line(component))));
+    }
 
     let changed = report.changed().count();
     if report.dry_run {
@@ -573,6 +660,7 @@ mod tests {
                 },
             ],
             chap_core: chap_core("latest", "latest", None),
+            components: Vec::new(),
             pulled: false,
             restarted: false,
             restart: Restart::Recreate,
@@ -629,6 +717,7 @@ mod tests {
             },
             models: Vec::new(),
             chap_core: chap_core("v2.3.1", "v2.3.1", Some("v2.3.1")),
+            components: Vec::new(),
             pulled: !dry_run,
             restarted: !dry_run && restart == Restart::Recreate,
             restart,

@@ -15,6 +15,10 @@ use std::time::Duration;
 /// rows that all say the same thing.
 const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
 
+/// The name the chap-core line opens with, and the one the component lines are
+/// padded to line up with.
+const CHAP_CORE_LABEL: &str = "chap-core";
+
 /// Probe the API and print a [`StatusReport`].
 ///
 /// Exits non-zero when the API is down or a model the project enabled has not
@@ -92,6 +96,13 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // one; repeating that as an error would be the third telling.
         ApiHealth::Up { .. } if !report.missing.is_empty() => std::process::exit(1),
         ApiHealth::Up { .. } => Ok(()),
+        // chap-core is not part of this deployment, so its API not answering
+        // is the expected state, not a failure. A component that is down says
+        // so on its own line.
+        ApiHealth::Off if report.components.iter().any(|c| c.state.is_problem()) => {
+            std::process::exit(1)
+        }
+        ApiHealth::Off => Ok(()),
     }
 }
 
@@ -116,28 +127,61 @@ fn not_running(out: &Out) -> String {
 /// line it adds up to and a hint per model that needs something done.
 fn human(report: &StatusReport, out: &Out) -> String {
     let up = matches!(report.api, ApiHealth::Up { .. });
-    let mut text = format!(
-        "{}   {}   {}",
-        out.heading("chap-core"),
-        if up { out.ok("up") } else { out.bad("down") },
-        out.value(&report.api_url)
-    );
-    let version = report.version.label();
-    if !version.is_empty() {
-        text.push_str(&format!("   {}", out.dim(&version)));
-    }
-    // Last on the line, always present: "off" is the answer an operator has to
-    // be able to see, and a blank space would not say it.
-    text.push_str(&format!(
-        "   {} {}",
-        out.dim("auth:"),
-        if report.auth {
-            out.ok("on")
-        } else {
-            out.warn("off")
+    let chap_core = !matches!(report.api, ApiHealth::Off);
+    let mut text = String::new();
+    // The name column is padded to the widest of the lines that are actually
+    // printed, and the padding sits outside the styled span so a coloured name
+    // is the same width as a plain one.
+    let width = report
+        .components
+        .iter()
+        .map(|c| c.name.chars().count())
+        .chain(chap_core.then_some(CHAP_CORE_LABEL.chars().count()))
+        .max()
+        .unwrap_or(0);
+    let pad = |name: &str| " ".repeat(width.saturating_sub(name.chars().count()));
+
+    // A deployment without chap-core has no line for it: there is no API on
+    // that port, and "down" would read as a fault rather than as a choice.
+    if chap_core {
+        text.push_str(&format!(
+            "{}{}   {}   {}",
+            out.heading(CHAP_CORE_LABEL),
+            pad(CHAP_CORE_LABEL),
+            if up { out.ok("up") } else { out.bad("down") },
+            out.value(&report.api_url)
+        ));
+        let version = report.version.label();
+        if !version.is_empty() {
+            text.push_str(&format!("   {}", out.dim(&version)));
         }
-    ));
-    text.push('\n');
+        // Last on the line, always present: "off" is the answer an operator
+        // has to be able to see, and a blank space would not say it.
+        text.push_str(&format!(
+            "   {} {}",
+            out.dim("auth:"),
+            if report.auth {
+                out.ok("on")
+            } else {
+                out.warn("off")
+            }
+        ));
+        text.push('\n');
+    }
+    // The components sit directly under chap-core, in the order they are
+    // rendered into the compose files.
+    for component in &report.components {
+        text.push_str(&format!(
+            "{}{}   {}   {}\n",
+            out.heading(&component.name),
+            pad(&component.name),
+            component_cell(out, component.state),
+            match component.state {
+                crate::status::ComponentState::NotRunning => out.dim(&component.reach),
+                _ => out.value(&component.reach),
+            }
+        ));
+    }
 
     if !report.models.is_empty() {
         let rows: Vec<Vec<String>> = report
@@ -180,6 +224,17 @@ fn human(report: &StatusReport, out: &Out) -> String {
         text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
     text
+}
+
+/// The state cell of one component line, coloured the way the model rows are.
+fn component_cell(out: &Out, state: crate::status::ComponentState) -> String {
+    use crate::status::ComponentState;
+    let label = state.label();
+    match state {
+        ComponentState::Up => out.ok(label),
+        ComponentState::Starting => out.warn(label),
+        ComponentState::NotRunning => out.bad(label),
+    }
 }
 
 /// The STATE cell, coloured by what the state means for the operator.
@@ -272,6 +327,7 @@ mod tests {
             models,
             unmanaged,
             auth: false,
+            components: Vec::new(),
         }
     }
 

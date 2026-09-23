@@ -14,16 +14,22 @@ mychap/
     models.yaml                intent: the enabled models (image, pinned version,
                                channel, host port or none, data dir, user,
                                platform, overlay name)
+    components.yaml            intent: which components this deployment is made of
+                               (chap-core, ocs, s3) and their settings
     compose.chap-core.<tag>.yml
                                chap-core's own compose.ghcr.yml at the pinned tag,
                                exactly as downloaded; compose.yml is rendered from it
   compose.yml                  artifact: the base services, from the file above
   compose.chaps.yml            artifact: chaps-owned overrides on top of it, the
                                API's host port
+  compose.ocs.yml              artifact: the ocs component, when it is enabled
+  compose.s3.yml               artifact: the s3 component, when it is enabled
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
-  .env                         written once by init; only pins and the two auth
-                               secrets are ever rewritten
+  ocs/climate-service.yaml     the OCS instance configuration; scaffolded once by
+                               chaps and never rewritten
+  .env                         written once by init; only pins, the two auth
+                               secrets and the component settings are ever added
 ```
 
 | File | What it is |
@@ -32,14 +38,17 @@ mychap/
 | `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break CHAP; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
+| `compose.ocs.yml`, `compose.s3.yml` | One per enabled component other than chap-core, rendered from `.chaps/components.yaml`. They sit in the `-f` list between `compose.chaps.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
+| `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `chaps` never rewrites it, and only re-creates it if it goes missing. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
-| `.chaps/project.yaml`, `.chaps/models.yaml` | The intent, as above. Both open with a comment saying which commands manage them. |
+| `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with a comment saying which commands manage them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
 
 ## Intent and artifacts
 
-`.chaps/` is the **intent**. It is what `models enable`, `models disable`, the
-browser and `update` edit, and it is small enough to read and to diff.
+`.chaps/` is the **intent**. It is what `models enable`, `models disable`,
+`components enable`, `components disable`, the browser and `update` edit, and it
+is small enough to read and to diff.
 
 The compose files at the project root are **artifacts** rendered from it by
 `chaps sync`. They are plain Compose files with nothing `chaps`-specific in
@@ -103,6 +112,12 @@ A deployment is reproducible because everything it runs is pinned.
   reproducible rather than following a tag that changes under it. `--chap-tag
   master` or `dev` keeps a moving tag on purpose.
 
+- **Components** other than chap-core follow a moving tag, because neither OCS
+  nor the object store publishes a release feed: `${OCS_IMAGE_TAG:-main}` and
+  `${S3_IMAGE_TAG:-latest}`. Set either variable in `.env` to pin a build of
+  your own; `chaps update` says which of the two is in force. See
+  [Components](./components.md).
+
 Model pins only move in two ways: `chaps models enable ID` (with `--channel`
 or `--version`) and `chaps update`. Nothing else, `up`, `expose` and `unexpose`
 included, changes the version a model runs. See [Updating](./updating.md).
@@ -133,6 +148,12 @@ Commented out, as the generated file ships them, means no authentication at all.
 The values live only here: `.chaps/project.yaml` records two booleans under
 `auth` and never a secret, so the state directory stays safe to commit and to
 paste into a bug report. See [Authentication](./auth.md).
+
+Enabling a component appends its own section the same way `sync` appends a
+model's pin: a commented `OCS_IMAGE_TAG`, and for the object store a generated
+`S3_ACCESS_KEY` and `S3_SECRET_KEY`. Those two are written once and never
+rewritten, for the same reason the database password is: the volume was created
+with them.
 
 `init --fresh-env` is the explicit override: it renders a new `.env` with a new
 password, so an existing volume has to be dropped with
@@ -165,7 +186,7 @@ Commands:
 
 ...
 
-Inside a directory created by `chaps init`, more commands appear: up, down, logs, status, sync, update, ui, docker, backup, auth.
+Inside a directory created by `chaps init`, more commands appear: up, down, logs, status, sync, update, ui, components, docker, backup, auth.
 ```
 
 The hidden commands still run if you type them; they just tell you there is no
@@ -187,6 +208,8 @@ The wrappers then always run
 ```sh
 docker compose -f <dir>/compose.yml -f <dir>/compose.chaps.yml -f <dir>/compose.marketplace.yml ...
 ```
+
+with one `-f` per enabled component inserted before the umbrella.
 
 from the project directory, so they behave the same whatever your shell's
 working directory is, and they exit with Compose's own exit code.

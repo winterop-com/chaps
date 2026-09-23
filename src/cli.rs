@@ -105,6 +105,9 @@ pub enum Command {
     /// Browse and manage marketplace models.
     Models(ModelsArgs),
 
+    /// Show and change what this deployment is made of.
+    Components(ComponentsArgs),
+
     /// Open the model browser.
     Ui(UiArgs),
 
@@ -214,6 +217,111 @@ pub struct InitArgs {
     /// Not supported yet; passing it is an error.
     #[arg(long, value_name = "PATH")]
     pub source: Option<PathBuf>,
+
+    /// Optional components to add, as a comma-separated list: `ocs` for Open
+    /// Climate Service beside chap-core, `s3` for the object store OCS will
+    /// keep its objects in. `chaps components` changes them afterwards.
+    #[arg(long = "with", value_name = "LIST")]
+    pub with: Option<String>,
+
+    /// Components to leave out, as a comma-separated list. Only `chap-core`
+    /// is on by default, so `--without chap-core` is the standalone case: a
+    /// deployment of the other components alone. Models need chap-core.
+    #[arg(long = "without", value_name = "LIST")]
+    pub without: Option<String>,
+
+    #[command(flatten)]
+    pub ocs: OcsConfigArgs,
+}
+
+/// The values that go into the scaffolded `ocs/climate-service.yaml`.
+///
+/// Shared by `init --with ocs` and `chaps components enable ocs`, because both
+/// write that file the first time the component is turned on. Without them the
+/// file is OCS's own Sierra Leone example, and says so.
+#[derive(Debug, Clone, Default, Args)]
+pub struct OcsConfigArgs {
+    /// Country or region the OCS instance covers, e.g. `Malawi`. It names the
+    /// extent and, with " Climate Service" after it, the instance.
+    #[arg(long = "ocs-name", value_name = "NAME")]
+    pub ocs_name: Option<String>,
+
+    /// ISO 3166-1 alpha-3 country code for the OCS extent, e.g. `MWI`.
+    #[arg(long = "ocs-country", value_name = "CODE")]
+    pub ocs_country: Option<String>,
+
+    /// Bounding box of the OCS extent as `xmin,ymin,xmax,ymax` in degrees.
+    #[arg(long = "ocs-bbox", value_name = "BBOX")]
+    pub ocs_bbox: Option<String>,
+}
+
+/// Show and change what this deployment is made of.
+///
+/// A component is a service (or a small group of them) that `chaps sync`
+/// renders a compose file for: `chap-core`, which is CHAP itself and is on
+/// unless it was turned off, `ocs`, which is Open Climate Service beside it,
+/// and `s3`, the object store OCS will keep its objects in. The set lives in
+/// `.chaps/components.yaml`; enabling or disabling one syncs the compose files
+/// straight away, and `chaps up` applies them.
+///
+/// Enabling `ocs` also scaffolds `ocs/climate-service.yaml`, the OCS instance
+/// configuration: which country or region this instance covers, and where it
+/// keeps its data. That file is yours from the moment it exists - `chaps` never
+/// rewrites it - and `chaps doctor` warns while it still holds OCS's example
+/// values.
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct ComponentsArgs {
+    #[command(subcommand)]
+    pub command: ComponentsCmd,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ComponentsCmd {
+    /// List every component and whether this deployment has it.
+    List(ComponentsListArgs),
+
+    /// Turn a component on: record it in .chaps/components.yaml and sync.
+    Enable(ComponentsEnableArgs),
+
+    /// Turn a component off: drop it from .chaps/components.yaml, remove its
+    /// compose file and sync.
+    Disable(ComponentsDisableArgs),
+}
+
+/// List every component and whether this deployment has it.
+#[derive(Debug, Clone, Args)]
+pub struct ComponentsListArgs {}
+
+/// Turn a component on: record it in .chaps/components.yaml and sync.
+///
+/// Enabling one that is already on is how its settings are changed: `--port`
+/// moves the host port it publishes. `ocs` is published on 9000 by default
+/// because it serves a web interface; `s3` publishes nothing, since OCS
+/// reaches it over the compose network.
+#[derive(Debug, Clone, Args)]
+pub struct ComponentsEnableArgs {
+    /// Component name: `ocs`, `s3` or `chap-core`.
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// Host port to publish this component on.
+    #[arg(long, value_name = "PORT")]
+    pub port: Option<u16>,
+
+    #[command(flatten)]
+    pub ocs: OcsConfigArgs,
+}
+
+/// Turn a component off, remove its compose file and sync.
+///
+/// Turning `chap-core` off is refused while any model is enabled: model
+/// services register with chap-core and are reached through it.
+#[derive(Debug, Clone, Args)]
+pub struct ComponentsDisableArgs {
+    /// Component name: `ocs`, `s3` or `chap-core`.
+    #[arg(value_name = "NAME")]
+    pub name: String,
 }
 
 /// Browse and manage marketplace models.

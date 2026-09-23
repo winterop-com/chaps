@@ -34,7 +34,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -57,6 +57,11 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--no-env` | Do not write a .env file. |
 | `--fresh-env` | Regenerate .env even when the directory already has one, rotating the database password. An existing database volume keeps the old one. |
 | `--source <PATH>` | Build chap-core from a local checkout instead of the published images. Not supported yet; passing it is an error. |
+| `--with <LIST>` | Optional components to add, as a comma-separated list: `ocs` for Open Climate Service beside chap-core, `s3` for the object store OCS will keep its objects in. `chaps components` changes them afterwards. |
+| `--without <LIST>` | Components to leave out, as a comma-separated list. Only `chap-core` is on by default, so `--without chap-core` is the standalone case: a deployment of the other components alone. Models need chap-core. |
+| `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. `Malawi`. It names the extent and, with " Climate Service" after it, the instance. |
+| `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent, e.g. `MWI`. |
+| `--ocs-bbox <BBOX>` | Bounding box of the OCS extent as `xmin,ymin,xmax,ymax` in degrees. |
 
 ## chaps models
 
@@ -160,6 +165,52 @@ Usage: chaps models unexpose [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+
+## chaps components
+
+Show and change what this deployment is made of.
+
+```text
+Usage: chaps components [OPTIONS] <COMMAND>
+```
+
+Subcommands: [`chaps components list`](#chaps-components-list), [`chaps components enable`](#chaps-components-enable), [`chaps components disable`](#chaps-components-disable)
+
+## chaps components list
+
+List every component and whether this deployment has it.
+
+```text
+Usage: chaps components list [OPTIONS]
+```
+
+## chaps components enable
+
+Turn a component on: record it in .chaps/components.yaml and sync.
+
+```text
+Usage: chaps components enable [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<NAME>` | Component name: `ocs`, `s3` or `chap-core`. |
+| `--port <PORT>` | Host port to publish this component on. |
+| `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. `Malawi`. It names the extent and, with " Climate Service" after it, the instance. |
+| `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent, e.g. `MWI`. |
+| `--ocs-bbox <BBOX>` | Bounding box of the OCS extent as `xmin,ymin,xmax,ymax` in degrees. |
+
+## chaps components disable
+
+Turn a component off: drop it from .chaps/components.yaml, remove its compose file and sync.
+
+```text
+Usage: chaps components disable [OPTIONS] <NAME>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<NAME>` | Component name: `ocs`, `s3` or `chap-core`. |
 
 ## chaps ui
 

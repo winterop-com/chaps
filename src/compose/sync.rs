@@ -11,16 +11,23 @@
 //! is deterministic too because the copy of chap-core's `compose.ghcr.yml` it
 //! is rendered from is kept in `.chaps/`; nothing here touches the network.
 
+use crate::components::{
+    Components, OCS_COMPOSE, OCS_CONFIG_FILE, OCS_DIR, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR,
+    S3_COMPOSE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
+};
 use crate::compose::overrides;
 use crate::compose::render::{
-    NO_TAG_PINS, render_base, render_chaps_overlay, render_overlay, render_umbrella,
+    NO_TAG_PINS, render_base, render_chaps_overlay, render_ocs, render_ocs_config, render_overlay,
+    render_s3, render_umbrella,
 };
-use crate::compose::spec::{BaseSpec, OverlaySpec, UpstreamCompose};
+use crate::compose::spec::{
+    BaseSpec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
+};
 use crate::compose::tag_env_var;
 use crate::error::Result;
 use crate::project::{
     BASE_COMPOSE, CHAP_TAG_ENV_VAR, CHAPS_COMPOSE, ComposeSource, ENV_FILE, MARKETPLACE_COMPOSE,
-    Project, default_compose_files,
+    Project, compose_files_for,
 };
 use crate::registry::Registry;
 use serde::Serialize;
@@ -89,18 +96,39 @@ pub fn sync(
     // The umbrella includes the overlays and only the overlays; the base file
     // is one of the `-f` list, not something to include.
     let mut overlays: Vec<String> = Vec::new();
-    let (base, base_warnings) = base_compose(project, cli_version);
-    report.warnings.extend(base_warnings);
-    if let Some(base) = base {
-        desired.push((BASE_COMPOSE.to_string(), base));
+    let components = project.state.components.clone();
+    // chap-core is a component like the others: with it off, neither the base
+    // stack nor the chaps-owned override belongs to this deployment, and both
+    // are removed below.
+    if components.chap_core.enabled {
+        let (base, base_warnings) = base_compose(project, cli_version);
+        report.warnings.extend(base_warnings);
+        if let Some(base) = base {
+            desired.push((BASE_COMPOSE.to_string(), base));
+        }
+        // Always rendered, base file or not: it is the only place the API's
+        // host port is decided, and it has to be a `-f` entry of its own
+        // because a file in `include:` cannot override a service compose.yml
+        // defines.
+        desired.push((
+            CHAPS_COMPOSE.to_string(),
+            render_chaps_overlay(project.state.api_port),
+        ));
     }
-    // Always rendered, base file or not: it is the only place the API's host
-    // port is decided, and it has to be a `-f` entry of its own because a
-    // file in `include:` cannot override a service compose.yml defines.
-    desired.push((
-        CHAPS_COMPOSE.to_string(),
-        render_chaps_overlay(project.state.api_port),
-    ));
+    // The components sit between the base stack and the model overlays, in
+    // the same order as the `-f` list.
+    if components.ocs.enabled {
+        desired.push((
+            OCS_COMPOSE.to_string(),
+            render_ocs(&OcsSpec::from_components(&components, cli_version)),
+        ));
+    }
+    if components.s3.enabled {
+        desired.push((
+            S3_COMPOSE.to_string(),
+            render_s3(&S3Spec::from_components(&components, cli_version)),
+        ));
+    }
     // Every overlay carries the registration key line when the deployment has
     // a key, because chap-core then requires it from each service that
     // registers. The value stays in `.env`, which compose reads from the
@@ -159,10 +187,20 @@ pub fn sync(
 
     // Only overlays a previous sync wrote are candidates for removal, and
     // only when their service is gone: a hand-written compose.*.yml is never
-    // ours to delete.
+    // ours to delete. The base stack is the one exception, and a narrow one:
+    // it goes when chap-core itself was turned off, never because it failed to
+    // render (a base stack we cannot reproduce is not one to delete either).
     let wanted: BTreeSet<&str> = desired.iter().map(|(f, _)| f.as_str()).collect();
+    let doomed: BTreeSet<&str> = if components.chap_core.enabled {
+        BTreeSet::new()
+    } else {
+        BTreeSet::from([BASE_COMPOSE, CHAPS_COMPOSE])
+    };
     for name in &project.state.rendered_files {
-        if wanted.contains(name.as_str()) || !is_overlay_name(name) {
+        if wanted.contains(name.as_str()) {
+            continue;
+        }
+        if !is_overlay_name(name) && !doomed.contains(name.as_str()) {
             continue;
         }
         let path = dir.join(name);
@@ -179,6 +217,12 @@ pub fn sync(
     if let Some(env) = append_env_pins(project, check)? {
         report.written.push(env);
     }
+    // The OCS instance config is scaffolded, not rendered: it is the
+    // operator's file the moment it exists, so sync only ever creates a
+    // missing one.
+    if let Some(path) = ensure_ocs_config(project, check)? {
+        report.written.push(path);
+    }
 
     report.drift = !report.written.is_empty() || !report.removed.is_empty();
     if check {
@@ -186,8 +230,9 @@ pub fn sync(
     }
 
     // A project written before compose.chaps.yml existed records a two-entry
-    // `-f` list; the first sync after an upgrade puts the new file in it.
-    project.state.compose_files = default_compose_files();
+    // `-f` list; the first sync after an upgrade puts the new file in it, and
+    // the same step puts the component files in the list when one is enabled.
+    project.state.compose_files = compose_files_for(&components);
     project.state.rendered_files = desired.into_iter().map(|(f, _)| f).collect();
     project.save()?;
     Ok(report)
@@ -254,7 +299,8 @@ fn is_overlay_name(name: &str) -> bool {
         && name != CHAPS_COMPOSE
 }
 
-/// Add a commented image pin to `.env` for every enabled model that has none.
+/// Add a commented image pin to `.env` for every enabled model that has none,
+/// and the settings section of every enabled component that has none.
 ///
 /// Only ever appends: the file belongs to the operator once `init` wrote it,
 /// and it may hold passwords and tokens we must not rewrite. Returns the path
@@ -264,14 +310,15 @@ fn append_env_pins(project: &Project, check: bool) -> Result<Option<PathBuf>> {
     let Ok(body) = std::fs::read_to_string(&path) else {
         return Ok(None);
     };
-    let mut missing = Vec::new();
+    let mut pins = Vec::new();
     for (id, model) in &project.state.models {
         let var = tag_env_var(id);
         if !mentions_var(&body, &var) {
-            missing.push(format!("# {var}={}", model.image_tag));
+            pins.push(format!("# {var}={}", model.image_tag));
         }
     }
-    if missing.is_empty() {
+    let components = component_env_sections(&project.state.components, &body)?;
+    if pins.is_empty() && components.is_empty() {
         return Ok(None);
     }
     if check {
@@ -279,18 +326,97 @@ fn append_env_pins(project: &Project, check: bool) -> Result<Option<PathBuf>> {
     }
 
     // The generated .env carries a placeholder under the pin heading so the
-    // section is never a dangling title; the first real pin replaces it.
+    // section is never a dangling title; the first real pin replaces it. With
+    // no pin to put there it stays, or the heading would dangle instead.
     let mut out: String = body
         .lines()
-        .filter(|line| line.trim_end() != NO_TAG_PINS)
+        .filter(|line| pins.is_empty() || line.trim_end() != NO_TAG_PINS)
         .map(|line| format!("{line}\n"))
         .collect();
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
-    out.push_str(&missing.join("\n"));
-    out.push('\n');
+    if !pins.is_empty() {
+        out.push_str(&pins.join("\n"));
+        out.push('\n');
+    }
+    for section in &components {
+        out.push('\n');
+        out.push_str(section);
+    }
     std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    Ok(Some(path))
+}
+
+/// The `.env` sections the enabled components need and `body` does not have.
+///
+/// Each one is appended whole, with its own heading, so the file reads as
+/// sections rather than as a tail of loose variables. The object store's
+/// credentials are generated here and never rewritten: like the database
+/// password, the volume they created is stamped with them.
+fn component_env_sections(components: &Components, body: &str) -> Result<Vec<String>> {
+    let mut sections = Vec::new();
+    if components.ocs.enabled && !mentions_var(body, OCS_TAG_ENV_VAR) {
+        sections.push(format!(
+            "# OCS (component). It publishes no release tags yet, so the compose file follows\n\
+             # the moving `main` tag; uncomment to pin a build of your own.\n\
+             # {OCS_TAG_ENV_VAR}={}\n",
+            components.ocs.image_tag
+        ));
+    }
+    if components.s3.enabled
+        && !(mentions_var(body, S3_ACCESS_KEY_ENV_VAR) || mentions_var(body, S3_SECRET_KEY_ENV_VAR))
+    {
+        sections.push(format!(
+            "# S3 (component). Root credentials for the object store, generated once. The volume\n\
+             # is created with them, so changing them later locks the store's own data away.\n\
+             {S3_ACCESS_KEY_ENV_VAR}={}\n\
+             {S3_SECRET_KEY_ENV_VAR}={}\n\
+             # {S3_TAG_ENV_VAR}={}\n",
+            crate::auth::random_hex(16)?,
+            crate::auth::random_hex(16)?,
+            crate::components::S3_DEFAULT_TAG,
+        ));
+    }
+    Ok(sections)
+}
+
+/// Scaffold `ocs/climate-service.yaml` when the `ocs` component is on and the
+/// file is not there yet.
+///
+/// Never overwrites: `chaps components enable ocs --ocs-country ...` writes it
+/// with the values it was given, and this only covers the case where the
+/// component is on and the file has gone missing - a fresh checkout of a
+/// deployment whose `ocs/` was never committed, most of all.
+fn ensure_ocs_config(project: &Project, check: bool) -> Result<Option<PathBuf>> {
+    if !project.state.components.ocs.enabled {
+        return Ok(None);
+    }
+    let path = project.ocs_config_path();
+    if path.is_file() {
+        return Ok(None);
+    }
+    if check {
+        return Ok(Some(path));
+    }
+    write_ocs_config(&project.dir, &OcsConfigSpec::default())?;
+    Ok(Some(path))
+}
+
+/// Write `ocs/climate-service.yaml`, creating `ocs/` around it.
+///
+/// Returns the path when the file was written and `None` when one was already
+/// there: the scaffold is a starting point, not something to put back.
+pub fn write_ocs_config(dir: &Path, spec: &OcsConfigSpec) -> Result<Option<PathBuf>> {
+    let ocs = dir.join(OCS_DIR);
+    let path = ocs.join(OCS_CONFIG_FILE);
+    if path.is_file() {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(&ocs)
+        .map_err(|e| anyhow::anyhow!("creating {}: {e}", ocs.display()))?;
+    std::fs::write(&path, render_ocs_config(spec))
+        .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
     Ok(Some(path))
 }
 
@@ -406,7 +532,7 @@ fn is_commented_pin(line: &str, var: &str) -> bool {
 mod tests {
     use super::*;
     use crate::compose::{EnableRequest, Selection, apply};
-    use crate::project::ProjectState;
+    use crate::project::{ProjectState, default_compose_files};
     use crate::registry::load_embedded;
     use tempfile::TempDir;
 
@@ -694,6 +820,177 @@ mod tests {
             .user = "1000:1000".into();
         let report = sync(&mut project, &registry, VERSION, false).unwrap();
         assert!(report.warnings.is_empty(), "{report:?}");
+    }
+
+    /// A project with the given components, synced once.
+    fn project_with_components(components: Components) -> (TempDir, Project, Registry) {
+        let (dir, mut project, registry) = project_with(&[]);
+        project.state.components = components;
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        (dir, project, registry)
+    }
+
+    #[test]
+    fn a_component_is_rendered_listed_and_removed_again() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+
+        let ocs = dir.path().join(OCS_COMPOSE);
+        assert!(ocs.is_file());
+        assert_eq!(
+            project.state.compose_files,
+            vec![
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.ocs.yml",
+                "compose.marketplace.yml"
+            ],
+            "a component file sits between the override and the umbrella"
+        );
+        assert!(
+            project
+                .state
+                .rendered_files
+                .contains(&OCS_COMPOSE.to_string())
+        );
+        // The scaffold went in too, and a second sync leaves everything alone.
+        assert!(project.ocs_config_path().is_file());
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+
+        // Turning it off removes the file and takes it out of both lists.
+        project.state.components.ocs.enabled = false;
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(names(&report.removed), vec![OCS_COMPOSE]);
+        assert!(!ocs.exists());
+        assert_eq!(project.state.compose_files, default_compose_files());
+        assert!(
+            !project
+                .state
+                .rendered_files
+                .contains(&OCS_COMPOSE.to_string())
+        );
+        // The operator's own config file is not ours to delete.
+        assert!(project.ocs_config_path().is_file());
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn the_object_store_reaches_the_ocs_file_as_well() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        components.s3.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+
+        assert!(dir.path().join(S3_COMPOSE).is_file());
+        assert!(read(&dir.path().join(OCS_COMPOSE)).contains("S3_ENDPOINT: http://s3:9000"));
+        assert_eq!(
+            project.state.compose_files,
+            vec![
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.ocs.yml",
+                "compose.s3.yml",
+                "compose.marketplace.yml"
+            ]
+        );
+
+        // Taking the store away rewrites the OCS file without those lines.
+        project.state.components.s3.enabled = false;
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(names(&report.removed), vec![S3_COMPOSE]);
+        assert!(names(&report.written).contains(&OCS_COMPOSE.to_string()));
+        assert!(!read(&dir.path().join(OCS_COMPOSE)).contains("S3_ENDPOINT"));
+    }
+
+    #[test]
+    fn chap_core_off_leaves_only_the_component_files() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+        assert!(dir.path().join(BASE_COMPOSE).is_file());
+
+        project.state.components.chap_core.enabled = false;
+        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let removed = names(&report.removed);
+        assert!(removed.contains(&BASE_COMPOSE.to_string()), "{removed:?}");
+        assert!(removed.contains(&CHAPS_COMPOSE.to_string()), "{removed:?}");
+        assert!(!dir.path().join(BASE_COMPOSE).exists());
+        assert!(!dir.path().join(CHAPS_COMPOSE).exists());
+        assert_eq!(
+            project.state.compose_files,
+            vec!["compose.ocs.yml", "compose.marketplace.yml"]
+        );
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+    }
+
+    #[test]
+    fn the_component_env_lines_are_appended_once() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(
+            &env,
+            "POSTGRES_PASSWORD=secret
+",
+        )
+        .unwrap();
+
+        project.state.components.ocs.enabled = true;
+        project.state.components.s3.enabled = true;
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift, "the missing lines are drift");
+        assert_eq!(
+            std::fs::read_to_string(&env).unwrap(),
+            "POSTGRES_PASSWORD=secret\n",
+            "--check writes nothing"
+        );
+
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.starts_with("POSTGRES_PASSWORD=secret\n"));
+        assert!(body.contains("\n# OCS_IMAGE_TAG=main\n"), "{body}");
+        assert!(body.contains("\n# S3_IMAGE_TAG=latest\n"), "{body}");
+        let access = crate::auth::active_value(&body, S3_ACCESS_KEY_ENV_VAR).expect("a key");
+        let secret = crate::auth::active_value(&body, S3_SECRET_KEY_ENV_VAR).expect("a secret");
+        assert_eq!(access.len(), 32);
+        assert_eq!(secret.len(), 32);
+        assert_ne!(access, secret);
+
+        // A second sync adds nothing, and never rewrites the credentials: the
+        // volume was created with them.
+        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        let again = std::fs::read_to_string(&env).unwrap();
+        assert_eq!(again, body);
+        assert_eq!(again.matches("OCS_IMAGE_TAG").count(), 1);
+    }
+
+    #[test]
+    fn the_scaffold_is_created_when_missing_and_never_overwritten() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let path = project.ocs_config_path();
+
+        // Someone else's file is kept byte for byte.
+        std::fs::create_dir_all(dir.path().join(OCS_DIR)).unwrap();
+        std::fs::write(&path, "id: mine\n").unwrap();
+        assert!(
+            write_ocs_config(dir.path(), &OcsConfigSpec::default())
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(read(&path), "id: mine\n");
+
+        project.state.components.ocs.enabled = true;
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        assert_eq!(read(&path), "id: mine\n", "sync leaves it alone too");
+
+        // A component enabled with no file at all gets the example.
+        std::fs::remove_file(&path).unwrap();
+        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        assert!(report.drift);
+        assert!(!path.exists(), "--check writes nothing");
+        sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(read(&path).contains("sierra-leone-climate-service"));
     }
 
     #[test]

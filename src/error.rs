@@ -24,6 +24,9 @@ pub enum ChapError {
     #[error("unknown model `{0}`")]
     UnknownModel(String),
 
+    #[error("unknown component `{0}`; the components are chap-core, ocs and s3")]
+    UnknownComponent(String),
+
     #[error(
         "`{0}` is a template, not a deployable model; pass --allow-template to enable it anyway"
     )]

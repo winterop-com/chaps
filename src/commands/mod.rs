@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod backup;
 pub mod completions;
+pub mod components;
 pub mod docker;
 pub mod docs;
 pub mod doctor;

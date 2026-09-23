@@ -18,6 +18,7 @@
 //! reliably collides, so every address the stack could be published on is
 //! tried in turn.
 
+use crate::components::Component;
 use crate::project::{API_PORT_ENV_VAR, Project};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 
@@ -76,10 +77,27 @@ pub fn first_free(lo: u16, hi: u16, busy: &dyn Fn(u16) -> bool) -> Option<u16> {
 /// which only Docker expands. Everything else is read out of the files this
 /// project renders, so a model with no host port contributes nothing.
 pub fn claims(project: &Project) -> Vec<PortClaim> {
-    let mut claims = vec![PortClaim {
-        service: crate::compose::API_SERVICE.to_string(),
-        port: project.state.api_port,
-    }];
+    let mut claims = Vec::new();
+    if project.state.components.chap_core.enabled {
+        claims.push(PortClaim {
+            service: crate::compose::API_SERVICE.to_string(),
+            port: project.state.api_port,
+        });
+    }
+    // The components are read from `.chaps/components.yaml` rather than from
+    // the rendered files, so a port is checked even before the first sync.
+    // The same claim coming back out of the files below is deduplicated.
+    for (component, service) in [
+        (Component::Ocs, crate::compose::OCS_SERVICE),
+        (Component::S3, crate::compose::S3_SERVICE),
+    ] {
+        if let Some(port) = project.state.components.port_of(component) {
+            claims.push(PortClaim {
+                service: service.to_string(),
+                port,
+            });
+        }
+    }
     let mut files: Vec<String> = project.state.compose_files.clone();
     for name in &project.state.rendered_files {
         if !files.contains(name) {
@@ -135,6 +153,16 @@ pub fn busy_line(claim: &PortClaim, suggestion: Option<u16>) -> String {
         return format!(
             "{head}; free it, or run `chaps init --api-port {free} --force` here / \
              set {API_PORT_ENV_VAR}={free} in .env"
+        );
+    }
+    // A component publishes its port from `.chaps/components.yaml`, so the
+    // way to move it is the command that wrote it there.
+    if let Ok(component) = Component::from_name(&claim.service)
+        && component.takes_port()
+    {
+        return format!(
+            "{head}; free it, or run `chaps components enable {name} --port <free>`",
+            name = component.name()
         );
     }
     format!(
@@ -302,6 +330,70 @@ mod tests {
             ],
             "an internal model publishes nothing, and a stray compose file is not ours"
         );
+    }
+
+    #[test]
+    fn a_component_claims_its_port_before_the_first_sync() {
+        let (_dir, mut project) = project();
+        project.state.components.ocs.enabled = true;
+        project.state.components.ocs.port = 9010;
+        project.state.components.s3.enabled = true;
+
+        let found = claims(&project);
+        assert!(found.contains(&PortClaim {
+            service: "ocs".into(),
+            port: 9010
+        }));
+        assert!(
+            !found.iter().any(|c| c.service == "s3"),
+            "the store publishes nothing by default"
+        );
+
+        project.state.components.s3.port = Some(9002);
+        assert!(claims(&project).contains(&PortClaim {
+            service: "s3".into(),
+            port: 9002
+        }));
+
+        // With chap-core off there is no API port to claim at all.
+        project.state.components.chap_core.enabled = false;
+        let found = claims(&project);
+        assert!(!found.iter().any(|c| c.service == "chap"), "{found:?}");
+    }
+
+    #[test]
+    fn a_component_port_is_claimed_once_however_many_files_publish_it() {
+        let (dir, mut project) = project();
+        project.state.components.ocs.enabled = true;
+        project.state.components.ocs.port = 9010;
+        std::fs::write(
+            dir.path().join("compose.ocs.yml"),
+            "services:\n  ocs:\n    ports:\n      - \"9010:9000\"\n",
+        )
+        .unwrap();
+        project.state.rendered_files.push("compose.ocs.yml".into());
+        let ocs: Vec<PortClaim> = claims(&project)
+            .into_iter()
+            .filter(|c| c.service == "ocs")
+            .collect();
+        assert_eq!(ocs.len(), 1, "{ocs:?}");
+        assert_eq!(ocs[0].port, 9010);
+    }
+
+    #[test]
+    fn a_component_message_points_at_the_command_that_moves_its_port() {
+        let claim = PortClaim {
+            service: "ocs".into(),
+            port: 9000,
+        };
+        let line = busy_line(&claim, Some(9001));
+        assert!(line.contains("(needed by ocs)"), "{line}");
+        assert!(
+            line.contains("`chaps components enable ocs --port <free>`"),
+            "{line}"
+        );
+        assert!(!line.contains("--api-port"), "{line}");
+        assert!(!line.contains("models unexpose"), "{line}");
     }
 
     #[test]

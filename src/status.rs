@@ -49,6 +49,9 @@ pub struct StatusReport {
     /// Whether `.env` sets an API token, which is also whether these requests
     /// carried one.
     pub auth: bool,
+    /// One row per enabled component other than chap-core, which has the
+    /// chap-core line of its own. Empty on a deployment that has none.
+    pub components: Vec<ComponentStatus>,
 }
 
 impl StatusReport {
@@ -69,8 +72,60 @@ impl StatusReport {
 #[derive(Debug, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum ApiHealth {
-    Up { status: String, message: String },
-    Down { error: String },
+    Up {
+        status: String,
+        message: String,
+    },
+    Down {
+        error: String,
+    },
+    /// chap-core is not a component of this deployment, so there is no API to
+    /// ask about. Not a failure: `chaps components disable chap-core` is how a
+    /// deployment becomes, say, OCS on its own.
+    Off,
+}
+
+/// Where one component other than chap-core stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ComponentState {
+    /// Answering its health endpoint, or - for a service this CLI does not
+    /// probe over HTTP - simply running.
+    Up,
+    /// Its container is up but it is not answering yet.
+    Starting,
+    /// No container, so nothing to answer.
+    NotRunning,
+}
+
+impl ComponentState {
+    /// The STATE cell.
+    pub fn label(self) -> &'static str {
+        match self {
+            ComponentState::Up => "up",
+            ComponentState::Starting => "starting",
+            ComponentState::NotRunning => "not running",
+        }
+    }
+
+    /// Whether this row is something to do about. A component that was never
+    /// started is not: `chaps up` is the answer, and the report says so once.
+    pub fn is_problem(self) -> bool {
+        self == ComponentState::Starting
+    }
+}
+
+/// One row of the component table.
+#[derive(Debug, Clone, Serialize)]
+pub struct ComponentStatus {
+    /// Component name, which is also the compose service name.
+    pub name: String,
+    pub state: ComponentState,
+    /// Where a human reaches it from this machine, or `internal` for a
+    /// component that publishes no host port.
+    pub reach: String,
+    /// The health URL that was probed, when one was.
+    pub health_url: Option<String>,
 }
 
 /// The version `chaps status` puts next to the API URL.
@@ -184,15 +239,23 @@ pub fn status(
     expected.dedup();
 
     let agent = agent(timeout);
-    let mut api = match get(&agent, &base, HEALTH_PATH, token) {
-        Ok(answer) => parse_health(&base, &answer.content_type, &answer.body),
-        // A 401 is about the token, not about who answered: saying "not
-        // chap-core" here would send an operator hunting for a dev server
-        // that is not there.
-        Err(Failure::Unauthorized) => ApiHealth::Down {
-            error: token_rejected(&base, HEALTH_PATH, token.is_some()),
-        },
-        Err(Failure::Other(error)) => ApiHealth::Down { error },
+    let chap_core = project.state.components.chap_core.enabled;
+    let mut api = if !chap_core {
+        // Nothing to ask, and nothing to wait out: a deployment without
+        // chap-core has no API on this port, and probing one would only spend
+        // a timeout to say so.
+        ApiHealth::Off
+    } else {
+        match get(&agent, &base, HEALTH_PATH, token) {
+            Ok(answer) => parse_health(&base, &answer.content_type, &answer.body),
+            // A 401 is about the token, not about who answered: saying "not
+            // chap-core" here would send an operator hunting for a dev server
+            // that is not there.
+            Err(Failure::Unauthorized) => ApiHealth::Down {
+                error: token_rejected(&base, HEALTH_PATH, token.is_some()),
+            },
+            Err(Failure::Other(error)) => ApiHealth::Down { error },
+        }
     };
 
     // Only ask for the service list when health already looked like
@@ -245,6 +308,7 @@ pub fn status(
         .filter(|m| m.state == ModelState::Unmanaged)
         .map(|m| m.id.clone())
         .collect();
+    let components = component_rows(project, &agent, running);
     StatusReport {
         api_url: base,
         api,
@@ -256,6 +320,57 @@ pub fn status(
         models,
         unmanaged,
         auth: token.is_some(),
+        components,
+    }
+}
+
+/// One row per enabled component other than chap-core.
+///
+/// OCS is asked over HTTP, because it publishes a host port and a `/health`
+/// endpoint of its own; the object store publishes nothing by default, so the
+/// only thing that can be said about it from out here is whether its container
+/// is up. A component with no container at all is `not running` rather than
+/// down: there is nothing wrong with a deployment that has not been started.
+fn component_rows(
+    project: &Project,
+    agent: &ureq::Agent,
+    running: &BTreeSet<String>,
+) -> Vec<ComponentStatus> {
+    let components = &project.state.components;
+    let mut rows = Vec::new();
+    if components.ocs.enabled {
+        let url = components.ocs_url();
+        let health = format!("{url}{HEALTH_PATH}");
+        let answered = get(agent, &url, HEALTH_PATH, None).is_ok();
+        rows.push(ComponentStatus {
+            name: crate::compose::OCS_SERVICE.to_string(),
+            state: component_state(answered, running.contains(crate::compose::OCS_SERVICE)),
+            reach: url,
+            health_url: Some(health),
+        });
+    }
+    if components.s3.enabled {
+        let up = running.contains(crate::compose::S3_SERVICE);
+        rows.push(ComponentStatus {
+            name: crate::compose::S3_SERVICE.to_string(),
+            state: component_state(up, up),
+            reach: match components.s3.port {
+                Some(port) => format!("http://localhost:{port}"),
+                None => "internal".to_string(),
+            },
+            health_url: None,
+        });
+    }
+    rows
+}
+
+/// Where one component stands, from whether it answered and whether its
+/// container is up.
+pub fn component_state(answered: bool, container_up: bool) -> ComponentState {
+    match (answered, container_up) {
+        (true, _) => ComponentState::Up,
+        (false, true) => ComponentState::Starting,
+        (false, false) => ComponentState::NotRunning,
     }
 }
 
@@ -1365,6 +1480,7 @@ mod tests {
             models: Vec::new(),
             unmanaged: Vec::new(),
             auth: false,
+            components: Vec::new(),
         };
         assert!(!report.is_up());
         assert!(!report.is_complete());

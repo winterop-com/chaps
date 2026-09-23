@@ -2,11 +2,13 @@
 
 ## What `chaps status` reports
 
-One line for chap-core, one row per model, and one line saying what it adds up
-to:
+One line for chap-core, one line per enabled component, one row per model, and
+one line saying what it adds up to:
 
 ```text
 chap-core   up   http://localhost:8000   v2.3.1   auth: on
+ocs         up   http://localhost:9000
+s3          up   internal
 
 MODEL                             STATE                    REACH                  LAST PING
 chapkit-ewars-model               registered               http://localhost:5001  12s ago
@@ -28,6 +30,21 @@ build.
 `auth: on` means `.env` sets `CHAP_API_TOKEN`, and that `status` sent it as
 `Authorization: Bearer` on every request; `auth: off` means the API is open to
 anyone who can reach the port. See [Authentication](./auth.md).
+
+Each enabled [component](./components.md) other than chap-core gets a line of
+its own, directly under it and in the order the compose files are rendered. OCS
+is asked over HTTP at `http://localhost:<port>/health`; the object store
+publishes no host port, so the only thing that can be said about it from out
+here is whether its container is up.
+
+| State | Meaning |
+| --- | --- |
+| `up` | Answering its health endpoint, or - for a component with no endpoint to ask - running. |
+| `starting` | Its container is up but it is not answering yet. |
+| `not running` | No container, so nothing to answer. `chaps up` starts it. |
+
+A deployment with `chap-core` disabled has no chap-core line at all, and
+`status` does not exit non-zero over an API that is not meant to be there.
 
 Every model the project enables gets a row, registered or not, with its state
 taken from the registry and `docker compose ps` together.
@@ -140,6 +157,7 @@ error under `--json` is a JSON object with `error` and `causes`.
 
 ```sh
 chaps --json status | jq '.models[] | select(.state != "registered")'
+chaps --json status | jq '.components'   # one entry per enabled component
 chaps --json docker ps
 chaps --json docker config        # the merged configuration as JSON
 ```

@@ -7,8 +7,13 @@
 //! Owned by agent B.
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
+use crate::components::{
+    OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
+    S3_ACCESS_KEY_ENV_VAR, S3_BUCKET, S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR,
+    S3_TAG_ENV_VAR,
+};
 use crate::compose::overrides;
-use crate::compose::spec::{BaseSpec, EnvSpec, OverlaySpec};
+use crate::compose::spec::{BaseSpec, EnvSpec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec};
 use crate::project::{API_PORT_ENV_VAR, BASE_COMPOSE, CHAPS_COMPOSE};
 use std::sync::LazyLock;
 
@@ -40,6 +45,30 @@ static OVERLAY_TEMPLATE: LazyLock<String> =
 /// The generated `.env`.
 static ENV_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/env.example")));
+/// The `ocs` component, as a compose file of its own.
+static OCS_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/compose.ocs.yml")));
+/// The `s3` component, likewise.
+static S3_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/compose.s3.yml")));
+/// The OCS instance config `init --with ocs` scaffolds.
+static OCS_CONFIG_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/climate-service.yaml")));
+
+/// Named volume holding OCS's data directory.
+pub const OCS_VOLUME: &str = "ocs_data";
+/// Named volume holding the object store's data directory.
+pub const S3_VOLUME: &str = "s3_data";
+/// Region the bucket request is signed for. RustFS ignores it, but SigV4 has
+/// to name one.
+const S3_REGION: &str = "us-east-1";
+
+/// The marker line the scaffolded `ocs/climate-service.yaml` carries while it
+/// still holds OCS's example values.
+///
+/// `chaps doctor` looks for exactly this, and the note tells the reader to
+/// delete it once the file is theirs, so the check goes quiet by itself.
+pub const OCS_EXAMPLE_MARKER: &str = "# These are OCS's own Sierra Leone example values.";
 
 /// Placeholder for the pin section of a `.env` with no models enabled, so the
 /// section never renders as a dangling heading above a blank line.
@@ -141,6 +170,103 @@ fn secret_line(var: &str, value: Option<&str>) -> String {
         Some(value) => format!("{var}={value}"),
         None => format!("# {var}="),
     }
+}
+
+/// Render `compose.ocs.yml`: the `ocs` component.
+///
+/// The `S3_*` block only appears when the `s3` component is on. OCS does not
+/// read those variables yet - it is about to - so they are written as
+/// forward-looking settings with a comment that says as much, rather than
+/// being left out until the day the contract lands.
+pub fn render_ocs(spec: &OcsSpec) -> String {
+    let s3_lines = if spec.s3 {
+        format!(
+            "      # Forward-looking: OCS does not read these yet. The `s3` component is\n\
+             \x20     # here now so the object store exists when it does.\n\
+             \x20     S3_ENDPOINT: http://s3:{S3_CONTAINER_PORT}\n\
+             \x20     {S3_ACCESS_KEY_ENV_VAR}: ${{{S3_ACCESS_KEY_ENV_VAR}:-}}\n\
+             \x20     {S3_SECRET_KEY_ENV_VAR}: ${{{S3_SECRET_KEY_ENV_VAR}:-}}\n\
+             \x20     S3_BUCKET: {S3_BUCKET}\n"
+        )
+    } else {
+        String::new()
+    };
+    fill(
+        &OCS_TEMPLATE,
+        &[
+            ("CLI_VERSION", &spec.cli_version),
+            ("IMAGE", OCS_IMAGE),
+            ("TAG_VAR", OCS_TAG_ENV_VAR),
+            ("IMAGE_TAG", &spec.image_tag),
+            ("HOST_PORT", &spec.host_port.to_string()),
+            ("CONTAINER_PORT", &OCS_CONTAINER_PORT.to_string()),
+            ("S3_LINES", &s3_lines),
+            ("CONFIG_PATH", &format!("{OCS_DIR}/{OCS_CONFIG_FILE}")),
+            ("VOLUME", OCS_VOLUME),
+        ],
+    )
+}
+
+/// Render `compose.s3.yml`: the `s3` component.
+pub fn render_s3(spec: &S3Spec) -> String {
+    let port_lines = match spec.host_port {
+        None => format!(
+            "    # No host port: OCS reaches the store at http://s3:{S3_CONTAINER_PORT} on the\n\
+             \x20   # compose default network. `chaps components enable s3 --port N` publishes\n\
+             \x20   # one, for an S3 client of your own.\n\
+             \x20   expose:\n      - \"{S3_CONTAINER_PORT}\"\n"
+        ),
+        Some(port) => format!(
+            "    # Published for an S3 client of your own; OCS itself reaches the store at\n\
+             \x20   # http://s3:{S3_CONTAINER_PORT} on the compose default network.\n\
+             \x20   expose:\n      - \"{S3_CONTAINER_PORT}\"\n\
+             \x20   ports:\n      - \"{port}:{S3_CONTAINER_PORT}\"\n"
+        ),
+    };
+    fill(
+        &S3_TEMPLATE,
+        &[
+            ("CLI_VERSION", &spec.cli_version),
+            ("IMAGE", S3_IMAGE),
+            ("TAG_VAR", S3_TAG_ENV_VAR),
+            ("IMAGE_TAG", &spec.image_tag),
+            ("PORT_LINES", &port_lines),
+            ("CONTAINER_PORT", &S3_CONTAINER_PORT.to_string()),
+            ("ACCESS_KEY_VAR", S3_ACCESS_KEY_ENV_VAR),
+            ("SECRET_KEY_VAR", S3_SECRET_KEY_ENV_VAR),
+            ("BUCKET", S3_BUCKET),
+            ("REGION", S3_REGION),
+            ("VOLUME", S3_VOLUME),
+        ],
+    )
+}
+
+/// Render the scaffolded `ocs/climate-service.yaml`.
+///
+/// Written once, when the component is enabled, and never again: it is the
+/// operator's file from that moment on.
+pub fn render_ocs_config(spec: &OcsConfigSpec) -> String {
+    // The token starts its own line and carries its own newlines, so a file
+    // written from real values leaves no blank comment block behind.
+    let note = if spec.example {
+        format!(
+            "{OCS_EXAMPLE_MARKER} Edit them for your own\n\
+             # country or region, then delete this note; `chaps doctor` warns while it is here.\n"
+        )
+    } else {
+        String::new()
+    };
+    fill(
+        &OCS_CONFIG_TEMPLATE,
+        &[
+            ("EXAMPLE_NOTE", &note),
+            ("ID", &spec.id),
+            ("NAME", &spec.name),
+            ("EXTENT_NAME", &spec.extent_name),
+            ("BBOX", &spec.bbox),
+            ("COUNTRY_CODE", &spec.country_code),
+        ],
+    )
 }
 
 /// Render one `compose.<service_id>.yml` overlay.
@@ -273,7 +399,7 @@ pub(crate) fn fill(template: &str, vars: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compose::spec::UpstreamCompose;
+    use crate::compose::spec::{OcsConfigSpec, UpstreamCompose};
     use crate::compose::{tag_env_var, volume_name};
     use crate::registry::{Channel, VersionSelector, load_embedded};
     use serde_yaml_ng::Value;
@@ -710,6 +836,230 @@ mod tests {
             Value::Sequence(files.iter().map(|f| f.as_str().into()).collect())
         );
         assert!(three.contains("Compose v2.20+"));
+    }
+
+    fn ocs_spec() -> OcsSpec {
+        OcsSpec {
+            host_port: crate::components::OCS_DEFAULT_PORT,
+            image_tag: crate::components::OCS_DEFAULT_TAG.to_string(),
+            s3: false,
+            cli_version: "0.1.0".into(),
+        }
+    }
+
+    fn s3_spec() -> S3Spec {
+        S3Spec {
+            host_port: None,
+            image_tag: crate::components::S3_DEFAULT_TAG.to_string(),
+            cli_version: "0.1.0".into(),
+        }
+    }
+
+    #[test]
+    fn ocs_publishes_its_port_and_mounts_the_scaffolded_config() {
+        let text = render_ocs(&ocs_spec());
+        assert_no_tokens(&text);
+        assert!(text.starts_with("# compose.ocs.yml - generated by chaps (0.1.0);"));
+
+        let doc = parse(&text);
+        let svc = service(&doc, "ocs");
+        assert_eq!(
+            svc["image"].as_str(),
+            Some("ghcr.io/dhis2/open-climate-service:${OCS_IMAGE_TAG:-main}")
+        );
+        // Multi-arch upstream, so no platform pin and no `depends_on` on chap.
+        assert!(svc.get("platform").is_none());
+        assert!(svc.get("depends_on").is_none());
+        assert!(svc.get("networks").is_none());
+        // The image ships its own HEALTHCHECK; a second one here would only
+        // be a copy to keep in step.
+        assert!(svc.get("healthcheck").is_none());
+        assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
+        assert_eq!(svc["init"].as_bool(), Some(true));
+        assert_eq!(
+            svc["ports"],
+            Value::Sequence(vec![Value::String("9000:9000".into())])
+        );
+        // Quoted: an unquoted number is not a string, which is what compose
+        // wants of an environment value.
+        assert_eq!(svc["environment"]["PORT"].as_str(), Some("9000"));
+        assert_eq!(
+            svc["environment"]["CLIMATE_SERVICE_CONFIG"].as_str(),
+            Some("/app/climate-service.yaml")
+        );
+        assert!(svc["environment"].get("ROOT_PATH").is_none());
+        assert_eq!(
+            svc["volumes"][0].as_str(),
+            Some("./ocs/climate-service.yaml:/app/climate-service.yaml:ro")
+        );
+        assert_eq!(svc["volumes"][1]["source"].as_str(), Some(OCS_VOLUME));
+        assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/app/data"));
+        assert!(doc["volumes"].get(OCS_VOLUME).is_some());
+        // One service: OCS needs no init container of its own.
+        assert_eq!(doc["services"].as_mapping().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ocs_gets_the_s3_variables_only_when_the_store_is_enabled() {
+        let without = render_ocs(&ocs_spec());
+        assert!(!without.contains("S3_ENDPOINT"));
+        // Dropping the block must not leave a blank line behind.
+        assert!(!without.contains("\n\n    # ROOT_PATH"));
+
+        let with = render_ocs(&OcsSpec {
+            s3: true,
+            ..ocs_spec()
+        });
+        assert_no_tokens(&with);
+        assert!(
+            with.contains("# Forward-looking: OCS does not read these yet."),
+            "{with}"
+        );
+        let env = &parse(&with)["services"]["ocs"]["environment"];
+        assert_eq!(env["S3_ENDPOINT"].as_str(), Some("http://s3:9000"));
+        assert_eq!(env["S3_ACCESS_KEY"].as_str(), Some("${S3_ACCESS_KEY:-}"));
+        assert_eq!(env["S3_SECRET_KEY"].as_str(), Some("${S3_SECRET_KEY:-}"));
+        assert_eq!(env["S3_BUCKET"].as_str(), Some("ocs"));
+    }
+
+    #[test]
+    fn a_custom_ocs_port_moves_only_the_host_side() {
+        let text = render_ocs(&OcsSpec {
+            host_port: 9010,
+            ..ocs_spec()
+        });
+        assert_eq!(
+            parse(&text)["services"]["ocs"]["ports"],
+            Value::Sequence(vec![Value::String("9010:9000".into())])
+        );
+        // The container port is what chap-core reaches, and it never moves.
+        assert!(text.contains("http://ocs:9000"));
+        assert_eq!(
+            parse(&text)["services"]["ocs"]["environment"]["PORT"].as_str(),
+            Some("9000")
+        );
+    }
+
+    #[test]
+    fn the_store_is_internal_until_a_port_is_asked_for() {
+        let internal = render_s3(&s3_spec());
+        assert_no_tokens(&internal);
+        let doc = parse(&internal);
+        let svc = service(&doc, "s3");
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("9000".into())])
+        );
+        assert!(svc.get("ports").is_none(), "nothing is published");
+        assert!(internal.contains("# No host port: OCS reaches the store at"));
+
+        let published = render_s3(&S3Spec {
+            host_port: Some(9002),
+            ..s3_spec()
+        });
+        assert_no_tokens(&published);
+        let svc = &parse(&published)["services"]["s3"];
+        assert_eq!(
+            svc["ports"],
+            Value::Sequence(vec![Value::String("9002:9000".into())])
+        );
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("9000".into())])
+        );
+    }
+
+    #[test]
+    fn the_store_carries_its_credentials_its_health_check_and_a_bucket_init() {
+        let text = render_s3(&s3_spec());
+        let doc = parse(&text);
+        let svc = service(&doc, "s3");
+        assert_eq!(
+            svc["image"].as_str(),
+            Some("rustfs/rustfs:${S3_IMAGE_TAG:-latest}")
+        );
+        assert!(svc.get("platform").is_none(), "multi-arch upstream");
+        assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
+        assert_eq!(svc["init"].as_bool(), Some(true));
+        // The image's own variable names, substituted from .env.
+        let env = &svc["environment"];
+        assert_eq!(
+            env["RUSTFS_ACCESS_KEY"].as_str(),
+            Some("${S3_ACCESS_KEY:-}")
+        );
+        assert_eq!(
+            env["RUSTFS_SECRET_KEY"].as_str(),
+            Some("${S3_SECRET_KEY:-}")
+        );
+        assert_eq!(env["RUSTFS_VOLUMES"].as_str(), Some("/data"));
+        assert_eq!(
+            svc["healthcheck"]["test"][1].as_str(),
+            Some("curl"),
+            "the image ships curl, which is what signs the bucket request too"
+        );
+        assert_eq!(svc["volumes"][0]["source"].as_str(), Some(S3_VOLUME));
+        assert!(doc["volumes"].get(S3_VOLUME).is_some());
+
+        // The one-shot creates the bucket with the same image, so nothing else
+        // has to be pulled; `$$` survives for the container's own shell.
+        let init = service(&doc, "s3-init");
+        assert_eq!(init["restart"].as_str(), Some("no"));
+        assert_eq!(
+            init["depends_on"]["s3"]["condition"].as_str(),
+            Some("service_healthy")
+        );
+        let command = init["command"][0].as_str().unwrap();
+        assert!(
+            command.contains("--aws-sigv4 \"aws:amz:us-east-1:s3\""),
+            "{command}"
+        );
+        assert!(
+            command.contains("-X PUT \"http://s3:9000/ocs\""),
+            "{command}"
+        );
+        assert!(
+            text.contains("$${S3_ACCESS_KEY}"),
+            "a literal $ for compose"
+        );
+        assert_eq!(doc["services"].as_mapping().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_ocs_config_scaffold_says_when_it_is_the_example() {
+        let example = render_ocs_config(&OcsConfigSpec::default());
+        assert_no_tokens(&example);
+        assert!(example.contains(OCS_EXAMPLE_MARKER), "{example}");
+        let doc = parse(&example);
+        assert_eq!(doc["id"].as_str(), Some("sierra-leone-climate-service"));
+        assert_eq!(doc["name"].as_str(), Some("Sierra Leone Climate Service"));
+        assert_eq!(doc["extent"]["name"].as_str(), Some("Sierra Leone"));
+        assert_eq!(doc["extent"]["country_code"].as_str(), Some("SLE"));
+        assert_eq!(doc["extent"]["bbox"][0].as_f64(), Some(-13.5));
+        assert_eq!(doc["extent"]["bbox"][3].as_f64(), Some(10.0));
+        assert_eq!(doc["data_dir"].as_str(), Some("/app/data"));
+    }
+
+    #[test]
+    fn the_ocs_config_scaffold_fills_the_values_it_is_given() {
+        let spec = crate::compose::spec::OcsConfigRequest {
+            name: Some("Malawi".into()),
+            country_code: Some("mwi".into()),
+            bbox: Some("32.6,-17.2,35.9,-9.3".into()),
+        }
+        .into_spec();
+        let text = render_ocs_config(&spec);
+        assert_no_tokens(&text);
+        assert!(
+            !text.contains(OCS_EXAMPLE_MARKER),
+            "these are the operator's values"
+        );
+        let doc = parse(&text);
+        assert_eq!(doc["id"].as_str(), Some("malawi-climate-service"));
+        assert_eq!(doc["name"].as_str(), Some("Malawi Climate Service"));
+        assert_eq!(doc["extent"]["name"].as_str(), Some("Malawi"));
+        assert_eq!(doc["extent"]["country_code"].as_str(), Some("MWI"));
+        assert_eq!(doc["extent"]["bbox"][1].as_f64(), Some(-17.2));
+        assert_eq!(doc["data_dir"].as_str(), Some("/app/data"));
     }
 
     fn env_spec() -> EnvSpec {

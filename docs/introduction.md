@@ -7,10 +7,12 @@ Analytics Platform, as a Docker Compose deployment of
 forecasting model services published in the
 [CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).
 
-Today `chaps` is built around the CHAP stack, and that is the only one it
-knows. Related climate stacks such as OCS (Open Climate Service) are planned as
-optional components of a chaps deployment beside chap-core; existing projects
-keep working unchanged.
+A deployment is made of **components**. chap-core is one, and it is on unless
+you turn it off; OCS (Open Climate Service) is available as an optional
+component beside it, together with the S3-compatible object store OCS will use.
+Existing projects keep working unchanged - a deployment that says nothing about
+components is chap-core alone, which is what it was. See
+[Components](./components.md).
 
 > **chap or chaps?** `chap` is chap-core's own developer CLI, the one that
 > serves the API and runs evaluations from a checkout of chap-core. `chaps` is
@@ -29,6 +31,7 @@ deployment is meant to be.
 
 ```sh
 chaps init mychap --models default   # writes the deployment directory
+chaps init mychap --with ocs         # ...with Open Climate Service beside it
 cd mychap
 chaps up                             # sync the compose files, docker compose up -d
 chaps status                         # chap-core health and registered models

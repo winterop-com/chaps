@@ -1,0 +1,22 @@
+# ocs/climate-service.yaml - the Open Climate Service instance configuration.
+#
+# Written once by chaps when the `ocs` component was enabled, and never rewritten:
+# this file is yours. It is mounted read-only at /app/climate-service.yaml, which is
+# where CLIMATE_SERVICE_CONFIG points. See the OCS instance guide for every field:
+# https://dhis2.github.io/open-climate-service/instance_guide/
+
+@EXAMPLE_NOTE@id: @ID@
+name: @NAME@
+
+extent:
+  name: @EXTENT_NAME@
+  bbox: [@BBOX@]   # xmin, ymin, xmax, ymax
+  country_code: @COUNTRY_CODE@
+
+data_dir: /app/data   # the ocs_data volume; keep it inside the container
+
+# Recurring checks and event-driven workflows go here. OCS's own
+# climate-service.yaml.example shows the shape, including the `chirps-to-chap`
+# workflow trigger that feeds CHAP.
+# scheduler:
+#   enabled: true

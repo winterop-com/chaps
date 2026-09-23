@@ -1,9 +1,11 @@
 //! `.chaps/` — the directory that records what a deployment is meant to be.
 //!
-//! Two YAML files: `project.yaml` holds the project-wide settings and
-//! `models.yaml` the enabled model set. They are intent; the compose files at
-//! the project root are artifacts rendered from them by `chaps sync`.
+//! Three YAML files: `project.yaml` holds the project-wide settings,
+//! `models.yaml` the enabled model set and `components.yaml` the enabled
+//! components. They are intent; the compose files at the project root are
+//! artifacts rendered from them by `chaps sync`.
 
+use crate::components::{COMPONENTS_FILE, Components};
 use crate::error::{ChapError, Result};
 use crate::registry::Channel;
 use serde::{Deserialize, Serialize};
@@ -43,11 +45,24 @@ pub const DEFAULT_API_PORT: u16 = 8000;
 
 /// The `-f` list a project written by this CLI has.
 pub fn default_compose_files() -> Vec<String> {
-    vec![
-        BASE_COMPOSE.to_string(),
-        CHAPS_COMPOSE.to_string(),
-        MARKETPLACE_COMPOSE.to_string(),
-    ]
+    compose_files_for(&Components::default())
+}
+
+/// The `-f` list a project with these components has.
+///
+/// The base stack and the chaps-owned override only appear when chap-core is
+/// one of the components; a deployment that is only OCS has neither. Component
+/// files sit between the override and the marketplace umbrella, so a component
+/// can add to the base stack and still be added to by a model overlay.
+pub fn compose_files_for(components: &Components) -> Vec<String> {
+    let mut files = Vec::new();
+    if components.chap_core.enabled {
+        files.push(BASE_COMPOSE.to_string());
+        files.push(CHAPS_COMPOSE.to_string());
+    }
+    files.extend(components.compose_files());
+    files.push(MARKETPLACE_COMPOSE.to_string());
+    files
 }
 
 /// [`DEFAULT_API_PORT`], for `serde(default)` on a `project.yaml` written
@@ -84,6 +99,13 @@ const MODELS_HEADER: &str = "\
 # .chaps/models.yaml - managed by chaps. The enabled model set, edited by
 # `chaps models enable|disable`, `chaps ui` and `chaps update`.
 # `chaps sync` renders one compose.<service_id>.yml per entry plus compose.marketplace.yml.
+";
+
+const COMPONENTS_HEADER: &str = "\
+# .chaps/components.yaml - managed by chaps. What this deployment is made of, edited by
+# `chaps init --with|--without` and `chaps components enable|disable`.
+# chap-core is on unless it was turned off; `chaps sync` renders one compose file per
+# enabled component. A file that does not mention a component leaves it at its default.
 ";
 
 /// Where the base `compose.yml` is rendered from.
@@ -184,6 +206,11 @@ pub struct ProjectState {
     /// Enabled models, keyed by marketplace `id`. Lives in `models.yaml`.
     #[serde(skip)]
     pub models: BTreeMap<String, EnabledModel>,
+    /// What the deployment is made of. Lives in `components.yaml`; a project
+    /// written before that file existed loads as chap-core alone, which is
+    /// what it was.
+    #[serde(skip)]
+    pub components: Components,
 }
 
 impl Default for ProjectState {
@@ -200,6 +227,7 @@ impl Default for ProjectState {
             port_range: DEFAULT_PORT_RANGE,
             rendered_files: Vec::new(),
             models: BTreeMap::new(),
+            components: Components::default(),
         }
     }
 }
@@ -309,6 +337,25 @@ impl Project {
                 );
             }
         };
+
+        // Every field of `Components` defaults, so a missing or comment-only
+        // file is "chap-core and nothing else" rather than an error.
+        let components_path = chaps.join(COMPONENTS_FILE);
+        state.components = match std::fs::read_to_string(&components_path) {
+            Ok(body) if is_blank_yaml(&body) => Components::default(),
+            Ok(body) => serde_yaml_ng::from_str(&body).map_err(|e| {
+                anyhow::anyhow!(
+                    "{}: invalid components.yaml: {e}",
+                    components_path.display()
+                )
+            })?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Components::default(),
+            Err(e) => {
+                return Err(
+                    anyhow::Error::new(e).context(format!("reading {}", components_path.display()))
+                );
+            }
+        };
         Ok(Project {
             dir: dir.to_path_buf(),
             state,
@@ -331,7 +378,13 @@ impl Project {
             "{MODELS_HEADER}{}",
             serde_yaml_ng::to_string(&self.state.models)?
         );
-        write_atomically(&chaps.join(MODELS_FILE), &models_body)
+        write_atomically(&chaps.join(MODELS_FILE), &models_body)?;
+
+        let components_body = format!(
+            "{COMPONENTS_HEADER}{}",
+            serde_yaml_ng::to_string(&self.state.components)?
+        );
+        write_atomically(&chaps.join(COMPONENTS_FILE), &components_body)
     }
 
     /// The `.chaps/` directory of this project.
@@ -357,14 +410,27 @@ impl Project {
             .collect()
     }
 
-    /// Host ports already claimed by enabled models. Models with no published
-    /// port claim nothing.
+    /// Host ports already claimed inside this deployment: the enabled models
+    /// and the enabled components. Anything with no published port claims
+    /// nothing.
     pub fn used_ports(&self) -> BTreeSet<u16> {
-        self.state
+        let mut ports: BTreeSet<u16> = self
+            .state
             .models
             .values()
             .filter_map(|m| m.host_port)
-            .collect()
+            .collect();
+        for component in crate::components::Component::ALL {
+            ports.extend(self.state.components.port_of(*component));
+        }
+        ports
+    }
+
+    /// Absolute path of the OCS instance config this project scaffolds.
+    pub fn ocs_config_path(&self) -> PathBuf {
+        self.dir
+            .join(crate::components::OCS_DIR)
+            .join(crate::components::OCS_CONFIG_FILE)
     }
 
     /// Base URL of chap-core's API on this machine.
@@ -693,6 +759,97 @@ mod tests {
 
         std::fs::remove_file(&models).unwrap();
         assert!(Project::load(dir.path()).unwrap().state.models.is_empty());
+    }
+
+    #[test]
+    fn the_components_file_round_trips_and_shapes_the_f_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        components.ocs.port = 9010;
+        components.s3.enabled = true;
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                components: components.clone(),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(COMPONENTS_FILE))
+            .expect("components.yaml is written beside the others");
+        assert!(body.starts_with("# .chaps/components.yaml - managed by chaps"));
+        assert!(body.contains("\nchap-core:\n"), "{body}");
+        assert!(body.contains("  port: 9010\n"), "{body}");
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.components, components);
+        assert_eq!(
+            compose_files_for(&loaded.state.components),
+            vec![
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.ocs.yml",
+                "compose.s3.yml",
+                "compose.marketplace.yml"
+            ]
+        );
+        // The component ports are claimed against the model allocator too.
+        assert_eq!(loaded.used_ports(), BTreeSet::from([9010]));
+        assert_eq!(
+            loaded.ocs_config_path(),
+            dir.path().join("ocs").join("climate-service.yaml")
+        );
+    }
+
+    #[test]
+    fn a_project_written_before_components_existed_is_chap_core_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let chaps = dir.path().join(CHAPS_DIR);
+        std::fs::create_dir_all(&chaps).unwrap();
+        std::fs::write(
+            chaps.join(PROJECT_FILE),
+            "schema_version: 1\n\
+             generated_by: chaps-cli 0.2.1\n\
+             chap_image_tag: latest\n\
+             registry_url: https://example.test/registry.yaml\n\
+             compose_files:\n\
+             - compose.yml\n\
+             - compose.chaps.yml\n\
+             - compose.marketplace.yml\n\
+             port_range:\n\
+             - 5001\n\
+             - 5999\n",
+        )
+        .unwrap();
+
+        // No components.yaml at all: nothing to migrate, and the deployment is
+        // exactly what it was.
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.components, Components::default());
+        assert!(loaded.state.components.chap_core.enabled);
+        assert!(!loaded.state.components.ocs.enabled);
+        assert_eq!(
+            compose_files_for(&loaded.state.components),
+            default_compose_files()
+        );
+
+        // A comment-only file reads the same way.
+        std::fs::write(chaps.join(COMPONENTS_FILE), "# nothing set\n\n").unwrap();
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.components, Components::default());
+    }
+
+    #[test]
+    fn a_deployment_without_chap_core_drops_the_base_files_from_the_list() {
+        let mut components = Components::default();
+        components.chap_core.enabled = false;
+        components.ocs.enabled = true;
+        assert_eq!(
+            compose_files_for(&components),
+            vec!["compose.ocs.yml", "compose.marketplace.yml"]
+        );
     }
 
     #[test]
