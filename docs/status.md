@@ -86,6 +86,25 @@ The check is lenient about the fields chap-core sends, since it may add fields,
 rename optional ones or leave one empty and none of that should turn
 `chaps status` into a crash, and strict about who is answering.
 
+A chap-core whose own container is up and failing its healthcheck is a
+different answer from a port nobody is listening on, and it says so:
+
+```text
+chap-core   down (container unhealthy)   http://localhost:8000   v2.3.1 (pinned)   auth: off
+...
+error: chap-core at http://localhost:8000 is not responding: ...
+why chap is unhealthy:
+  sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) ... password authentication
+  failed for user "chap"
+  the database volume holds a different password than .env (a previous deployment with the
+  same name, or --fresh-env); run `chaps doctor`, or remove the volume with
+  `chaps docker run -- down -v` if this deployment's data can go
+```
+
+The lines are the tail of the container's own log, filtered to the ones that
+look like the failure. See
+[Troubleshooting](./troubleshooting.md#dependency-failed-to-start-container--is-unhealthy).
+
 ## Exit codes and short-circuits
 
 `chaps status` exits non-zero when the API is down or a model has not
@@ -115,7 +134,7 @@ when there is one; empty output is a bug.
   and exits 0.
 - `chaps logs SERVICE` lists the services when `SERVICE` is not one of them.
 - `chaps down` reports how many containers it stopped, and that the volumes are
-  still there.
+  still there, under the compose project name they are prefixed with.
 - `chaps up` ends with which services it started or recreated and which it left
   alone.
 - `chaps docker pull` says how many images it pulled.

@@ -86,12 +86,54 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     };
 
     let args = args_for(cmd, Shell::detect(ctx.out.json));
-    let code = docker::run_compose(&project, &args)?;
+    // `up -d` and `restart` are the two that can end on "dependency failed to
+    // start", and compose says which container that was on stderr and nowhere
+    // else, so those two are run with stderr read as it goes. The rest keep
+    // docker's streams exactly as they were.
+    let code = if reads_stderr(cmd) {
+        let ran = docker::run_compose_teed(&project, &args)?;
+        if ran.code != 0 {
+            explain_unhealthy(ctx, &project, &ran.stderr);
+        }
+        ran.code
+    } else {
+        docker::run_compose(&project, &args)?
+    };
     if code != 0 {
         return Err(docker_failed(code, unasked));
     }
     report_what_changed(ctx, &project, cmd, &before);
     Ok(())
+}
+
+/// Whether this wrapper is one whose stderr is worth reading: a detached `up`
+/// or a `restart`, which is an `up -d` under another name.
+///
+/// An attached `up` is streaming the logs the operator asked for, so its
+/// streams stay docker's own.
+fn reads_stderr(cmd: &DockerCmd) -> bool {
+    match cmd {
+        DockerCmd::Up(args) => !args.attach,
+        DockerCmd::Restart(_) => true,
+        _ => false,
+    }
+}
+
+/// Say why the service compose gave up on is unhealthy, in its own words.
+///
+/// `dependency failed to start: container demo-chap-1 is unhealthy` names
+/// which container failed and nothing about why; the container has been
+/// printing the reason all along. Best-effort: a log that cannot be read, or
+/// one with nothing failure-shaped in it, prints nothing at all rather than a
+/// heading over an empty block.
+fn explain_unhealthy(ctx: &Ctx, project: &Project, stderr: &str) {
+    let unhealthy = crate::diagnose::from_stderr(project, stderr);
+    let block = crate::diagnose::block(&unhealthy, &ctx.out);
+    if block.is_empty() {
+        return;
+    }
+    eprintln!();
+    eprint!("{block}");
 }
 
 /// What the wrapper decided before letting docker run.
@@ -251,7 +293,12 @@ fn report_what_changed(
         }
         DockerCmd::Down(args) => note(
             ctx,
-            &down_summary(&ctx.out, &docker::service_names(before), &args.extra),
+            &down_summary(
+                &ctx.out,
+                &docker::service_names(before),
+                &args.extra,
+                project.compose_project_name().as_deref(),
+            ),
         ),
         DockerCmd::Pull(_) => note(
             ctx,
@@ -331,15 +378,28 @@ pub fn restart_summary(
 /// What `down` stopped, and what it left behind.
 ///
 /// The volumes are the point of the second half: `down` is the command people
-/// reach for to "reset" a deployment, and it keeps the database.
-pub fn down_summary(out: &Out, stopped: &[String], extra: &[String]) -> String {
+/// reach for to "reset" a deployment, and it keeps the database. The compose
+/// project name goes with them, because it is the prefix those volumes carry
+/// and therefore what `docker volume ls` has to be asked about.
+pub fn down_summary(
+    out: &Out,
+    stopped: &[String],
+    extra: &[String],
+    project_name: Option<&str>,
+) -> String {
     if stopped.is_empty() {
         return out.dim("nothing was running");
     }
+    let kept = match project_name {
+        Some(name) => {
+            format!("volumes kept: {name}_* (`chaps docker run -- down -v` removes them)")
+        }
+        None => "volumes kept (`chaps docker run -- down -v` removes them)".to_string(),
+    };
     let volumes = if extra.iter().any(|a| a == "-v" || a == "--volumes") {
-        "volumes removed too (-v)"
+        "volumes removed too (-v)".to_string()
     } else {
-        "volumes kept (`chaps docker run down -v` removes them)"
+        kept
     };
     format!(
         "{} {}; {}",
@@ -350,7 +410,7 @@ pub fn down_summary(out: &Out, stopped: &[String], extra: &[String]) -> String {
             stopped.len(),
             if stopped.len() == 1 { "" } else { "s" }
         )),
-        out.backticks(volumes)
+        out.backticks(&volumes)
     )
 }
 
@@ -893,26 +953,48 @@ mod tests {
     #[test]
     fn down_reports_what_it_stopped_and_what_it_kept() {
         let stopped = vec!["chap".to_string(), "worker".to_string()];
+        let name = Some("mychap-1ab2c3");
+        // The volumes that stay behind are named after the compose project,
+        // so the line says which prefix to look for them under.
         assert_eq!(
-            down_summary(&Out::default(), &stopped, &[]),
-            "stopped CHAP: chap, worker (2 containers); volumes kept \
-             (`chaps docker run down -v` removes them)"
+            down_summary(&Out::default(), &stopped, &[], name),
+            "stopped CHAP: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
+             (`chaps docker run -- down -v` removes them)"
         );
         assert!(
-            down_summary(&Out::default(), &stopped[..1], &[])
+            down_summary(&Out::default(), &stopped[..1], &[], name)
                 .starts_with("stopped CHAP: chap (1 container);")
+        );
+        // A deployment whose name could not be worked out still gets the line.
+        assert!(
+            down_summary(&Out::default(), &stopped, &[], None)
+                .ends_with("volumes kept (`chaps docker run -- down -v` removes them)"),
+            "{}",
+            down_summary(&Out::default(), &stopped, &[], None)
         );
         // `down -v` did take the volumes, so it must not claim otherwise.
         assert!(
-            down_summary(&Out::default(), &stopped, &["-v".to_string()])
+            down_summary(&Out::default(), &stopped, &["-v".to_string()], name)
                 .ends_with("volumes removed too (-v)"),
             "{}",
-            down_summary(&Out::default(), &stopped, &["-v".to_string()])
+            down_summary(&Out::default(), &stopped, &["-v".to_string()], name)
         );
         assert_eq!(
-            down_summary(&Out::default(), &[], &[]),
+            down_summary(&Out::default(), &[], &[], name),
             "nothing was running"
         );
+    }
+
+    #[test]
+    fn only_the_wrappers_that_can_hit_a_failed_dependency_read_stderr() {
+        // A detached `up` and `restart` can end on "dependency failed to
+        // start", and compose says which container that was on stderr.
+        assert!(reads_stderr(&up(false, &[])));
+        assert!(reads_stderr(&restart(false, &[])));
+        // An attached `up` is streaming logs; its streams stay docker's own.
+        assert!(!reads_stderr(&up(true, &[])));
+        assert!(!reads_stderr(&DockerCmd::Down(DownArgs { extra: vec![] })));
+        assert!(!reads_stderr(&exec("chap", &[])));
     }
 
     #[test]

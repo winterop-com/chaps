@@ -5,8 +5,9 @@ on before, and the first one to run when something is wrong. It asks, in one
 pass, every question the other commands assume the answer to: is Docker there,
 is its daemon up, is Compose new enough, is there disk, can this machine reach
 the hosts CHAP pulls from, and is this the newest `chaps`. Inside a deployment
-directory it goes on to the project: the files, the compose files, `.env`, the
-host ports, the pins, the images and the running stack.
+directory it goes on to the project: its compose project name, the files, the
+compose files, `.env`, the volumes, the host ports, the pins, the images and
+the running stack.
 
 ```sh
 chaps doctor
@@ -23,9 +24,11 @@ ok    network ghcr.io            reachable (HTTP 401)
 ok    network marketplace        reachable (HTTP 200)
 ok    network releases           reachable, newest chap-core is v2.3.1
 ok    chaps                      v0.2.0, aarch64-apple-darwin, release archive
+ok    project                    mychap-1ab2c3 (recorded in .chaps/project.yaml)
 ok    project files              all 7 present
 ok    compose files              in sync (0 to write, 7 unchanged, 0 to remove)
 ok    .env                       auth off, POSTGRES_PASSWORD set, CHAP_IMAGE_TAG present
+ok    volumes                    6 volumes named mychap-1ab2c3_*
 fail  api port                   8000 is in use by something else
       port 8000 is already in use on this machine (needed by chap); free it, or run
       `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
@@ -34,7 +37,7 @@ ok    image chapkit-ewars-model  ghcr.io/chap-models/chapkit_ewars_model:sha-fa8
 skip  stack                      no container of this project is running
       run `chaps up` to start CHAP
 
-16 checks: 13 ok, 1 warn, 1 fail, 1 skipped
+18 checks: 15 ok, 1 warn, 1 fail, 1 skipped
 ```
 
 Four words carry the verdict, and only one of them is a problem:
@@ -89,15 +92,17 @@ project: none here (run chaps doctor inside a deployment directory for more)
 
 | Check | What it asks | What a bad answer means |
 | --- | --- | --- |
+| `project` | what compose calls this deployment, and whether that name is its own | Warns while the name is only the directory name, which another deployment in another directory of the same name also has - they then share every container name and every named volume. `chaps sync` writes the name down unchanged, so nothing is renamed and no volume is orphaned; only a deployment created by `chaps init` from this version gets a name with a suffix of its own. See [the compose project name](./concepts.md#the-compose-project-name). |
+| `volumes` | which named volumes docker holds under this deployment's name, and whether the database one is this deployment's | Warns when `<project>_chap-db` was created before `.chaps/project.yaml` was: it belongs to something else, most often an earlier deployment of the same name, and it still holds that deployment's role password - which is exactly the state in which chap-core cannot log in and never becomes healthy. Skipped where the filesystem records no creation time. |
 | `project files` | are `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml`, `.env`, `compose.yml`, `compose.chaps.yml` and `compose.marketplace.yml` all there, plus one file per enabled component | It names the missing ones. `chaps sync` renders the compose files again; `chaps init --force` writes the whole deployment. A deployment with `chap-core` disabled is not asked for the base stack, which it does not have. |
 | `components` | which components this deployment has, and whether the files they need are there | Fails when the `ocs` component is on and `ocs/climate-service.yaml` is missing: the container would start with no instance to be. Warns while that file still holds OCS's example values, so nobody deploys Sierra Leone by accident - edit it and delete the note at the top. See [Components](./components.md). |
 | `compose files` | `chaps sync --check`, without its exit code | The rendered files no longer match `.chaps/`, which is drift the next `chaps up` would undo anyway. Run `chaps sync`. |
-| `.env` | is it readable, and does it still say what it should | Warns when `POSTGRES_PASSWORD` is the default `chap` or unset, and when the `CHAP_IMAGE_TAG` pin comment is gone. Whether authentication is on is reported either way: `auth: off` is a fact to be able to see, not a fault. |
+| `.env` | is it readable, and does it still say what it should | Warns when `POSTGRES_PASSWORD` is the default `chap` or unset, and when the `CHAP_IMAGE_TAG` pin comment is gone. On a protected deployment it also warns when `compose.chaps.yml` does not pass `SERVICEKIT_REGISTRATION_KEY` to chap-core, which is only possible for one rendered by an older `chaps`: without it every model registration is answered with a 401. Whether authentication is on is reported either way: `auth: off` is a fact to be able to see, not a fault. |
 | `api port`, `port <model>`, `port <component>` | is every host port the stack publishes free | Fails when something else holds one, with the same three ways out `chaps up`'s preflight offers. A port held by this project's own running container is not a conflict, exactly as `up` treats it. See [Ports](./ports.md). |
 | `chap-core pin` | is the pinned tag still the newest release (left out when `chap-core` is not a component of this deployment) | Warns when a newer chap-core has been released: `chaps update --dry-run` says what would move. A moving tag (`latest`, `master`, `dev`) is not behind anything, so it passes with a note whether or not the list was read. Skipped when the release list was not reachable, and under `--offline`, where it was never asked for. |
 | `image <model>` | does each enabled model's exact tag exist on ghcr, with a linux/amd64 image | `docker manifest inspect` per model, in parallel, ten seconds each. A tag that is gone fails and names the model to re-resolve with `chaps models enable <id>`. Skipped, with the reason on the line, under `--offline`, when there is no docker CLI to ask through, and when `ghcr.io` was unreachable. `--offline` is the reason given first, so the line reads the same on a machine with Docker and one without. |
 | `image <component>` | does each enabled component's image exist | The same `docker manifest inspect`, without the linux/amd64 question: both component images are multi-arch and no component pins a platform, so "the tag exists" is the whole answer. Skipped for the same three reasons. |
-| `stack` | chap-core's health and whether every model registered | Skipped when no container of this project is running, which is `chaps up`. Otherwise it is the verdict of [`chaps status`](./status.md) as one line. A deployment without chap-core is judged by its components instead. |
+| `stack` | chap-core's health and whether every model registered | Skipped when no container of this project is running, which is `chaps up`. Otherwise it is the verdict of [`chaps status`](./status.md) as one line. A `chap` container that is up and failing its healthcheck is reported as such, with the last error line from its own log and the fix that goes with it. A deployment without chap-core is judged by its components instead. |
 
 ## `--json`
 

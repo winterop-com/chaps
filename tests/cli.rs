@@ -295,6 +295,144 @@ fn init_writes_every_file_of_a_deployment() {
     assert!(env.contains("\nCHAP_API_PORT=8000\n"), "{env}");
 }
 
+/// The shape of a generated compose project name: a slug of the directory
+/// name, then six hex characters of its own.
+///
+/// Compose's own rule as well: lowercase, `[a-z0-9-]`, and it starts with a
+/// letter or a digit.
+const PROJECT_NAME: &str = "^[a-z0-9][a-z0-9-]*-[0-9a-f]{6}$";
+
+/// The `name:` of a rendered compose file, which is the compose project name.
+fn compose_name(path: &Path) -> String {
+    yaml(path)["name"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{} has no name: key", path.display()))
+        .to_string()
+}
+
+#[test]
+fn init_gives_the_deployment_a_compose_project_name_of_its_own() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    // Without it compose would name the project after the directory, and two
+    // deployments in directories both called `chapx` would share every named
+    // volume - including the database.
+    let name = state(&dir)["compose_project"]
+        .as_str()
+        .expect("init records a compose project name")
+        .to_string();
+    let shape = regex::Regex::new(PROJECT_NAME).unwrap();
+    assert!(shape.is_match(&name), "unexpected project name {name:?}");
+    assert!(name.starts_with("chapx-"), "{name}");
+
+    // Both chaps-owned files carry it: the umbrella is the one always in the
+    // `-f` list, and compose takes the `name:` of the last file that sets one.
+    assert_eq!(compose_name(&dir.join("compose.chaps.yml")), name);
+    assert_eq!(compose_name(&dir.join("compose.marketplace.yml")), name);
+
+    // A second deployment of the same directory name gets a different one.
+    let other = Sandbox::new();
+    other.init(&["--models", "none"]).assert().success();
+    let second = state(&other.project())["compose_project"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(shape.is_match(&second), "{second}");
+    assert_ne!(name, second, "two `chapx` directories, two project names");
+
+    // `chaps status --json` and `chaps doctor` both report it.
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .args(["status", "--json", "--timeout", "1"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    assert_eq!(report["project"], Json::String(name.clone()));
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .args(["--json", "doctor"])
+        .output()
+        .expect("doctor runs");
+    let report: Json = serde_json::from_slice(&out.stdout).expect("doctor --json parses");
+    assert_eq!(doctor_status(&report, "compose-project"), "ok", "{report}");
+    assert!(
+        doctor_check(&report, "compose-project")["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with(&name),
+        "{report}"
+    );
+}
+
+#[test]
+fn force_keeps_the_compose_project_name_it_found() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    let name = state(&dir)["compose_project"].as_str().unwrap().to_string();
+
+    // A new name would leave the running deployment's containers and volumes
+    // behind under the old one, which is the trap this whole thing avoids.
+    sandbox
+        .init(&["--models", "none", "--force"])
+        .assert()
+        .success();
+    assert_eq!(state(&dir)["compose_project"].as_str(), Some(name.as_str()));
+    assert_eq!(compose_name(&dir.join("compose.chaps.yml")), name);
+}
+
+#[test]
+fn a_project_written_before_the_name_existed_records_the_directory_name() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    // What an older chaps wrote: no compose_project at all. Compose was
+    // naming that deployment after its directory, so that is the name its
+    // containers and volumes already carry.
+    let project_yaml = dir.join(".chaps").join("project.yaml");
+    let body = read(&project_yaml);
+    let without: String = body
+        .lines()
+        .filter(|line| !line.starts_with("compose_project:"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    std::fs::write(&project_yaml, &without).unwrap();
+    assert!(!read(&project_yaml).contains("compose_project:"));
+
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("sync")
+        .assert()
+        .success();
+
+    // The directory name, with no suffix: nothing is renamed, and it is now
+    // written down rather than derived.
+    assert_eq!(state(&dir)["compose_project"].as_str(), Some("chapx"));
+    assert_eq!(compose_name(&dir.join("compose.chaps.yml")), "chapx");
+    assert_eq!(compose_name(&dir.join("compose.marketplace.yml")), "chapx");
+
+    // And a second sync has nothing left to do.
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .args(["sync", "--check"])
+        .assert()
+        .success();
+}
+
 /// The smallest stack the probe below can ask about: one service that is
 /// never started. `ps` only reads, so the image is never pulled.
 const PROBE_STACK: &str = "services:\n  probe:\n    image: alpine:3\n";
@@ -387,6 +525,28 @@ fn docker_accepts_the_stack_with_the_chaps_override() {
 
     // chap is published exactly once, on the API port; the model not at all.
     let merged: Yaml = serde_yaml_ng::from_slice(&out.stdout).expect("config is YAML");
+    // The project name compose resolves to is this deployment's own, from the
+    // `name:` in the second `-f` file rather than from the directory.
+    let name = state(&dir)["compose_project"].as_str().unwrap().to_string();
+    assert_eq!(
+        merged["name"].as_str(),
+        Some(name.as_str()),
+        "compose takes the name: of a file that is not the first -f"
+    );
+    // And chap-core is handed the registration key: upstream's compose.ghcr.yml
+    // passes only CHAP_API_TOKEN, so without this the API answers every model
+    // registration with 401.
+    assert_eq!(
+        merged["services"]["chap"]["environment"]["SERVICEKIT_REGISTRATION_KEY"].as_str(),
+        Some(""),
+        "the variable reaches the container, empty while .env sets none"
+    );
+    assert!(
+        merged["services"]["chap"]["environment"]
+            .get("CHAP_API_TOKEN")
+            .is_some(),
+        "adding to environment must not replace upstream's own variables"
+    );
     let ports = merged["services"]["chap"]["ports"]
         .as_sequence()
         .expect("chap publishes a port");

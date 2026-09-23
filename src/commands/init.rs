@@ -65,6 +65,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     let state = ProjectState {
         chap_image_tag: chap_core.tag.clone(),
         chap_compose_source: chap_core.source.clone(),
+        compose_project: compose_project(&dir)?,
         registry_url: ctx.registry.url.clone(),
         api_port: args.api_port,
         port_range: (args.port_base, DEFAULT_PORT_RANGE.1.max(args.port_base)),
@@ -269,6 +270,32 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
             secrets.as_ref(),
         )
     })
+}
+
+/// The compose project name this deployment gets: the prefix every container
+/// and every named volume of it carries.
+///
+/// A fresh directory gets `<slug of the directory name>-<6 hex>`, because the
+/// directory name on its own is not unique: two deployments in directories
+/// both called `demo` would share `demo_chap-db` and every other volume, and a
+/// fresh `chaps up` would inherit a database created with a password it has
+/// never seen.
+///
+/// A directory that is already a deployment keeps the name it has, `--force`
+/// included: renaming it would leave its containers and its data behind under
+/// the old name. For one written before the name was recorded that is the
+/// directory name compose has been deriving all along, which is what the next
+/// `sync` would write down anyway.
+fn compose_project(dir: &Path) -> Result<String> {
+    if let Ok(existing) = Project::load(dir) {
+        if let Some(name) = existing.compose_project() {
+            return Ok(name.to_string());
+        }
+        if let Some(derived) = crate::project::derived_project_name(dir) {
+            return Ok(derived);
+        }
+    }
+    crate::project::new_compose_project_name(dir)
 }
 
 /// The port an active (uncommented) `CHAP_API_PORT=` line of a `.env` sets.

@@ -26,6 +26,10 @@ pub const INFO_PATHS: &[&str] = &["/system/info", "/v2/info"];
 /// What `chaps status` reports.
 #[derive(Debug, Serialize)]
 pub struct StatusReport {
+    /// The compose project name: the prefix every container and every named
+    /// volume of this deployment carries. `None` only for a deployment whose
+    /// directory name compose can make no project name out of.
+    pub project: Option<String>,
     pub api_url: String,
     pub api: ApiHealth,
     /// Which chap-core this is, and whether the API said so itself.
@@ -52,6 +56,13 @@ pub struct StatusReport {
     /// One row per enabled component other than chap-core, which has the
     /// chap-core line of its own. Empty on a deployment that has none.
     pub components: Vec<ComponentStatus>,
+    /// Containers of this deployment that are failing, with the lines of their
+    /// logs that say why.
+    ///
+    /// Filled in by the caller, which is the half that has docker: a container
+    /// that is unhealthy is why the API is not answering, and the reason is in
+    /// its log rather than anywhere this probe can reach.
+    pub unhealthy: Vec<crate::diagnose::Unhealthy>,
 }
 
 impl StatusReport {
@@ -65,6 +76,17 @@ impl StatusReport {
     #[cfg(test)]
     pub fn is_complete(&self) -> bool {
         self.is_up() && self.missing.is_empty()
+    }
+
+    /// Whether chap-core's own container is up and failing its healthcheck.
+    ///
+    /// This is the difference between "nothing is listening on that port" and
+    /// "chap-core is there and cannot start", which is the question an
+    /// operator staring at a down API is actually asking.
+    pub fn api_container_unhealthy(&self) -> bool {
+        self.unhealthy
+            .iter()
+            .any(|entry| entry.service == crate::compose::API_SERVICE && entry.unhealthy)
     }
 }
 
@@ -310,6 +332,7 @@ pub fn status(
         .collect();
     let components = component_rows(project, &agent, running);
     StatusReport {
+        project: project.compose_project_name(),
         api_url: base,
         api,
         version,
@@ -321,6 +344,7 @@ pub fn status(
         unmanaged,
         auth: token.is_some(),
         components,
+        unhealthy: Vec::new(),
     }
 }
 
@@ -465,11 +489,24 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// image and the configuration it should be, and the restart is only there to
 /// make it introduce itself again. A plain `chaps restart` would recreate
 /// what moved, which here is nothing.
-pub fn hints(rows: &[ModelStatus]) -> Vec<String> {
+///
+/// `auth` adds the other reason a model never appears on a protected
+/// deployment: chap-core rejects a registration that carries no key, and a
+/// chap-core created before `compose.chaps.yml` passed the key through never
+/// had one to check against.
+pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
+    let registration_key = if auth {
+        concat!(
+            "; if its log shows 401, chap-core is missing the registration key: ",
+            "run `chaps sync`, then `chaps restart`"
+        )
+    } else {
+        ""
+    };
     rows.iter()
         .filter_map(|row| match row.state {
             ModelState::RunningNotRegistered => Some(format!(
-                "{}: restart it with `chaps restart --all {}`",
+                "{}: restart it with `chaps restart --all {}`{registration_key}",
                 row.id, row.id
             )),
             ModelState::NotRunning => Some(format!(
@@ -1364,7 +1401,7 @@ mod tests {
             NOW,
         );
         assert_eq!(
-            hints(&rows),
+            hints(&rows, false),
             vec![
                 "chapkit-rwanda-malaria-bym-model: restart it with \
                  `chaps restart --all chapkit-rwanda-malaria-bym-model`"
@@ -1382,7 +1419,35 @@ mod tests {
             &BTreeSet::new(),
             NOW,
         );
-        assert!(hints(&rows).is_empty());
+        assert!(hints(&rows, false).is_empty());
+        assert!(
+            hints(&rows, true).is_empty(),
+            "nothing wrong, nothing to say"
+        );
+    }
+
+    #[test]
+    fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
+        let rows = model_rows(
+            &enabled()[..1],
+            &[],
+            &running(&["chapkit-ewars-model"]),
+            NOW,
+        );
+        let hint = &hints(&rows, true)[0];
+        assert!(
+            hint.starts_with("chapkit-ewars-model: restart it with "),
+            "{hint}"
+        );
+        assert!(
+            hint.ends_with(
+                "; if its log shows 401, chap-core is missing the registration key: \
+                 run `chaps sync`, then `chaps restart`"
+            ),
+            "{hint}"
+        );
+        // Without authentication there is no 401 to explain.
+        assert!(!hints(&rows, false)[0].contains("401"));
     }
 
     #[test]
@@ -1470,6 +1535,7 @@ mod tests {
     #[test]
     fn report_helpers_describe_the_state() {
         let report = StatusReport {
+            project: Some("chapx-1ab2c3".into()),
             api_url: URL.into(),
             api: ApiHealth::Down {
                 error: "connection refused".into(),
@@ -1486,8 +1552,10 @@ mod tests {
             unmanaged: Vec::new(),
             auth: false,
             components: Vec::new(),
+            unhealthy: Vec::new(),
         };
         assert!(!report.is_up());
+        assert!(!report.api_container_unhealthy());
         assert!(!report.is_complete());
 
         let report = StatusReport {

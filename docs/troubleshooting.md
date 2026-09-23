@@ -124,16 +124,23 @@ chaps up
 chaps status
 ```
 
-If it persists, check that the overlay carries the line:
+If it persists, check that both ends carry the line:
 
 ```sh
-grep SERVICEKIT_REGISTRATION_KEY compose.chapkit-ewars-model.yml
+grep SERVICEKIT_REGISTRATION_KEY compose.chapkit-ewars-model.yml compose.chaps.yml
 ```
 
-An active `SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}` is
-what a protected deployment needs; a commented one means `.chaps/project.yaml`
-does not know the project has a key, which `chaps auth show` will report as a
-mismatch and `chaps auth enable` puts right.
+An active `SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}` in
+the overlay is what the model sends; a commented one means
+`.chaps/project.yaml` does not know the project has a key, which
+`chaps auth show` will report as a mismatch and `chaps auth enable` puts right.
+
+The same line in `compose.chaps.yml` is what chap-core checks it against.
+Upstream's `compose.ghcr.yml` passes only `CHAP_API_TOKEN` into the `chap`
+service, so a `compose.chaps.yml` rendered by an older `chaps` leaves the
+container with no key and the model's `X-Service-Key` is rejected as an invalid
+API token - a 401 in `chaps logs chapkit-ewars-model`. `chaps doctor` reports
+it on the `.env` line; `chaps sync` then `chaps restart` fixes it.
 
 ## `unable to open database file`
 
@@ -161,13 +168,62 @@ so this is fixed by construction. If you see it anyway:
 A model that crash-loops right after starting is almost always one of the last
 two.
 
-## `password authentication failed` after `--fresh-env`
+## `dependency failed to start: container ... is unhealthy`
 
-`init --fresh-env` rotates the PostgreSQL password, but the existing data
-volume was created with the old one, so chap-core can no longer authenticate
-against its own data.
+`chaps up` reads that line and then says why, out of the failing container's
+own log:
 
-Either drop the volume and start over:
+```text
+dependency failed to start: container demo-1ab2c3-chap-1 is unhealthy
+
+why chap is unhealthy:
+  sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) connection to server at
+  "postgres" (192.168.32.2), port 5432 failed: FATAL:  password authentication failed for
+  user "chap"
+  ERROR:    Application startup failed. Exiting.
+  the database volume holds a different password than .env (a previous deployment with the
+  same name, or --fresh-env); run `chaps doctor`, or remove the volume with
+  `chaps docker run -- down -v` if this deployment's data can go
+```
+
+The same lines close `chaps status` and `chaps doctor`'s `stack` check, and
+the chap-core line reads `down (container unhealthy)` rather than plain `down`:
+the container is there, and it is the container that is wrong.
+
+The two causes worth knowing by name are below. `chaps logs chap` has the rest.
+
+## `password authentication failed for user "chap"`
+
+The PostgreSQL volume holds a role password that is not the one in `.env`.
+There are two ways to get there.
+
+**A volume from another deployment of the same name.** Before `chaps` recorded
+a compose project name, Compose derived one from the directory, so two
+deployments in directories both called `demo` shared `demo_chap-db` - on
+different paths, and even when the first one had been deleted long ago. The
+new deployment's `.env` has a freshly generated password; the inherited volume
+still has the old role. `chaps doctor` says so:
+
+```text
+warn  project   compose project name is the directory name; volumes can collide with other
+                deployments named demo
+      run `chaps sync` to record it as `demo` in .chaps/project.yaml; it is the name compose
+      already uses, so nothing is renamed
+warn  volumes   the database volume demo_chap-db predates this deployment; if chap-core cannot
+                log in, it belongs to an earlier deployment with the same name
+      remove it with `chaps docker run -- down -v` if this deployment's data can go, or keep
+      both by giving one of them a name of its own
+```
+
+A deployment created by this version of `chaps` has a name of its own
+(`demo-1ab2c3`) and cannot collide; see
+[the compose project name](./concepts.md#the-compose-project-name). An older
+one gets that name written down, unchanged, by the next `chaps sync`.
+
+**`init --fresh-env`.** It rotates the PostgreSQL password on purpose, and the
+existing volume was created with the old one.
+
+Either way: drop the volume and start over,
 
 ```sh
 chaps docker run -- down -v

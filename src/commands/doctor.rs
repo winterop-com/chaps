@@ -393,6 +393,7 @@ fn project_checks(
     have_cli: bool,
 ) -> Vec<Check> {
     let mut checks = vec![
+        project_check(project),
         files_check(&project.dir, &project.state.components),
         components_check(project),
         sync_check(ctx, project),
@@ -400,7 +401,11 @@ fn project_checks(
             std::fs::read_to_string(project.dir.join(ENV_FILE))
                 .ok()
                 .as_deref(),
+            std::fs::read_to_string(project.dir.join(CHAPS_COMPOSE))
+                .ok()
+                .as_deref(),
         ),
+        volumes_check(project),
     ];
 
     // The containers are asked for once: the ports they hold are not
@@ -433,7 +438,7 @@ fn project_checks(
         ));
     }
     checks.extend(image_checks(project, probed, have_cli));
-    checks.push(stack_check(project, &running));
+    checks.push(stack_check(project, containers.as_deref(), &running));
     checks
 }
 
@@ -1123,6 +1128,149 @@ fn sync_check(ctx: &Ctx, project: &Project) -> Check {
     }
 }
 
+/// The compose project name, and whether it is this deployment's own.
+///
+/// Compose names a project after its directory unless a file says otherwise,
+/// so two deployments in directories both called `demo` share every container
+/// name and every named volume - a fresh `chaps up` in the second one finds
+/// the first one's database, with a password it has never seen. A deployment
+/// written by this version of `chaps` records a name of its own; an older one
+/// has the directory name and nothing else, which is what this warns about.
+pub fn project_name_verdict(
+    recorded: Option<&str>,
+    dir_name: &str,
+) -> (Status, String, Option<String>) {
+    if let Some(name) = recorded {
+        return (
+            Status::Ok,
+            format!("{name} (recorded in {CHAPS_DIR}/{PROJECT_FILE})"),
+            None,
+        );
+    }
+    let derived = crate::project::normalized_project_name(dir_name).unwrap_or_default();
+    (
+        Status::Warn,
+        format!(
+            "compose project name is the directory name; volumes can collide with other \
+             deployments named {dir_name}"
+        ),
+        Some(format!(
+            "run `chaps sync` to record it as `{derived}` in {CHAPS_DIR}/{PROJECT_FILE}; \
+             it is the name compose already uses, so nothing is renamed"
+        )),
+    )
+}
+
+/// The `project` line.
+pub fn project_check(project: &Project) -> Check {
+    let dir_name = project
+        .dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Check::from_verdict(
+        "compose-project",
+        "project",
+        project_name_verdict(project.compose_project(), &dir_name),
+    )
+}
+
+/// Whether the named volumes this deployment would use are its own.
+///
+/// `created` is when `.chaps/project.yaml` was created and each volume's is
+/// when docker created it. A database volume older than the deployment
+/// directory itself was made by something else - an earlier deployment of the
+/// same name, most often - and it still holds that deployment's role password,
+/// which is exactly the state in which chap-core cannot log in.
+///
+/// Both times are optional: a filesystem that does not record a creation time,
+/// and a docker that did not say, each cost the comparison and nothing else.
+pub fn volume_verdict(
+    prefix: &str,
+    db_volume: &str,
+    volumes: &[(String, Option<u64>)],
+    created: Option<u64>,
+) -> (Status, String, Option<String>) {
+    if volumes.is_empty() {
+        return (
+            Status::Ok,
+            format!("no {prefix}* volume yet; `chaps up` creates them"),
+            None,
+        );
+    }
+    let count = format!(
+        "{} volume{} named {prefix}*",
+        volumes.len(),
+        if volumes.len() == 1 { "" } else { "s" }
+    );
+    let older = volumes.iter().find(|(name, at)| {
+        name == db_volume && matches!((at, created), (Some(a), Some(c)) if *a < c)
+    });
+    match older {
+        None => (Status::Ok, count, None),
+        Some((name, at)) => (
+            Status::Warn,
+            format!(
+                "the database volume {name} predates this deployment; if chap-core cannot log \
+                 in, it belongs to an earlier deployment with the same name (volume {}, \
+                 deployment {})",
+                crate::backup::timestamp(at.unwrap_or_default()),
+                crate::backup::timestamp(created.unwrap_or_default())
+            ),
+            Some(
+                "remove it with `chaps docker run -- down -v` if this deployment's data can go, \
+                 or keep both by giving one of them a name of its own"
+                    .to_string(),
+            ),
+        ),
+    }
+}
+
+/// The `volumes` line: what docker holds under this deployment's name.
+fn volumes_check(project: &Project) -> Check {
+    const ID: &str = "volumes";
+    const NAME: &str = "volumes";
+    let Some(prefix) = project.volume_prefix() else {
+        return Check::skip(ID, NAME, "this directory has no compose project name");
+    };
+    let volumes: Vec<(String, Option<u64>)> = docker::volumes_with_prefix(&prefix)
+        .into_iter()
+        .map(|v| (v.name, crate::status::parse_rfc3339(&v.created_at)))
+        .collect();
+    let created = deployment_created_at(project);
+    Check::from_verdict(
+        ID,
+        NAME,
+        volume_verdict(&prefix, &format!("{prefix}chap-db"), &volumes, created),
+    )
+}
+
+/// When this deployment directory was created, in Unix seconds.
+///
+/// The `.chaps/` directory rather than `project.yaml` inside it: every save
+/// writes that file to a temporary sibling and renames it into place, so its
+/// creation time is the time of the last `chaps sync` and not the time the
+/// deployment was made. The directory is created once by `chaps init` and
+/// never replaced.
+///
+/// `None` where the filesystem records no creation time, and the check that
+/// uses it simply does not make the comparison.
+fn deployment_created_at(project: &Project) -> Option<u64> {
+    let chaps = project.chaps_dir();
+    file_created_at(&chaps).or_else(|| file_created_at(&chaps.join(PROJECT_FILE)))
+}
+
+/// When a file or directory was created, in Unix seconds, when the filesystem
+/// records it.
+fn file_created_at(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .and_then(|m| m.created())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
 /// What `.env` says about the two things that bite later.
 ///
 /// The default database password is the one a deployment reachable from
@@ -1130,7 +1278,15 @@ fn sync_check(ctx: &Ctx, project: &Project) -> Check {
 /// line means the pin comments `sync` writes are gone. Whether authentication
 /// is on is reported either way: "off" is a fact an operator has to be able to
 /// see, not a fault.
-pub fn env_verdict(body: Option<&str>) -> (Status, String, Option<String>) {
+///
+/// `chaps_overlay` is the rendered `compose.chaps.yml`, which is where the
+/// registration key is handed to chap-core: a protected deployment whose
+/// override predates that line has a chap-core that answers every model's
+/// registration with a 401.
+pub fn env_verdict(
+    body: Option<&str>,
+    chaps_overlay: Option<&str>,
+) -> (Status, String, Option<String>) {
     let Some(body) = body else {
         return (Status::Skip, "no .env to read".to_string(), None);
     };
@@ -1162,6 +1318,21 @@ pub fn env_verdict(body: Option<&str>) -> (Status, String, Option<String>) {
         facts.push(format!("no {CHAP_TAG_ENV_VAR} line"));
         fixes.push("run `chaps sync` to write the image pin comments back");
     }
+    // Only a deployment with authentication on has anything to hand over, and
+    // only an override rendered by an older chaps is missing the line.
+    if auth_on
+        && let Some(overlay) = chaps_overlay
+        && !overlay.contains(auth::REGISTRATION_KEY_ENV_VAR)
+    {
+        facts.push(format!(
+            "{CHAPS_COMPOSE} does not pass {} to chap-core",
+            auth::REGISTRATION_KEY_ENV_VAR
+        ));
+        fixes.push(
+            "run `chaps sync`, then `chaps restart`: without that line chap-core answers \
+             every model registration with HTTP 401",
+        );
+    }
 
     let detail = facts.join(", ");
     if fixes.is_empty() {
@@ -1175,8 +1346,8 @@ const PASSWORD_FIX: &str = "set POSTGRES_PASSWORD in .env to a value of your own
      exists keeps the old password until `ALTER USER` changes it";
 
 /// The `.env` line.
-pub fn env_check(body: Option<&str>) -> Check {
-    Check::from_verdict("env", ".env", env_verdict(body))
+pub fn env_check(body: Option<&str>, chaps_overlay: Option<&str>) -> Check {
+    Check::from_verdict("env", ".env", env_verdict(body, chaps_overlay))
 }
 
 /// Whether one host port the stack publishes is free to publish on.
@@ -1521,10 +1692,49 @@ fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<Str
 pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) {
     match &report.api {
         ApiHealth::Off => components_only_verdict(report),
+        // A container that is up and unhealthy is a sharper answer than "the
+        // port does not answer", and its own last error line is sharper still.
+        ApiHealth::Down { .. } if report.api_container_unhealthy() => {
+            let cause = crate::diagnose::headline(&report.unhealthy)
+                .map(|line| format!(": {line}"))
+                .unwrap_or_default();
+            (
+                Status::Fail,
+                format!(
+                    "the chap container is up and unhealthy{}",
+                    first_line(&cause)
+                ),
+                Some(
+                    report
+                        .unhealthy
+                        .iter()
+                        .find_map(|entry| entry.hint.clone())
+                        .unwrap_or_else(|| "run `chaps logs chap` to see why".to_string()),
+                ),
+            )
+        }
         ApiHealth::Down { error } => (
             Status::Fail,
-            format!("chap-core at {} is down: {error}", report.api_url),
-            Some("run `chaps logs chap` to see why, and `chaps status` for the detail".to_string()),
+            // Whatever its container last said about itself beats the
+            // connection error out here, which is only the symptom.
+            match crate::diagnose::headline(&report.unhealthy) {
+                Some(line) => format!(
+                    "chap-core at {} is down: {}",
+                    report.api_url,
+                    first_line(&line)
+                ),
+                None => format!("chap-core at {} is down: {error}", report.api_url),
+            },
+            Some(
+                report
+                    .unhealthy
+                    .iter()
+                    .find_map(|entry| entry.hint.clone())
+                    .unwrap_or_else(|| {
+                        "run `chaps logs chap` to see why, and `chaps status` for the detail"
+                            .to_string()
+                    }),
+            ),
         ),
         ApiHealth::Up { .. } if report.missing.is_empty() => (
             Status::Ok,
@@ -1549,7 +1759,11 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
 }
 
 /// The `stack` line, which has nothing to check when nothing is up.
-fn stack_check(project: &Project, running: &BTreeSet<String>) -> Check {
+fn stack_check(
+    project: &Project,
+    containers: Option<&[docker::Container]>,
+    running: &BTreeSet<String>,
+) -> Check {
     const ID: &str = "stack";
     const NAME: &str = "stack";
     if running.is_empty() {
@@ -1563,7 +1777,15 @@ fn stack_check(project: &Project, running: &BTreeSet<String>) -> Check {
     let url = project.api_url();
     crate::output::verbose(&format!("asking chap-core at {url}"));
     let token = auth::token_in(&project.dir);
-    let report = crate::status::status(project, &url, STACK_TIMEOUT, running, token.as_deref());
+    let mut report = crate::status::status(project, &url, STACK_TIMEOUT, running, token.as_deref());
+    // The same diagnosis `chaps status` makes: when the API does not answer,
+    // its container has been saying why in its own log.
+    if !matches!(report.api, ApiHealth::Up { .. })
+        && let Some(containers) = containers
+    {
+        report.unhealthy =
+            crate::diagnose::failing_containers(project, containers, Some(API_SERVICE));
+    }
     Check::from_verdict(ID, NAME, stack_verdict(&report))
 }
 
@@ -2260,12 +2482,12 @@ mod tests {
     #[test]
     fn the_env_check_reads_the_two_things_that_bite_later() {
         // Nothing to read is not a fault: `project-files` already said so.
-        assert_eq!(env_verdict(None).0, Status::Skip);
+        assert_eq!(env_verdict(None, None).0, Status::Skip);
 
         let good = "POSTGRES_PASSWORD=0123456789abcdef\n\
                     CHAP_API_TOKEN=sekret\n\
                     # CHAP_IMAGE_TAG=latest\n";
-        let (status, detail, fix) = env_verdict(Some(good));
+        let (status, detail, fix) = env_verdict(Some(good), Some(OVERRIDE));
         assert_eq!(status, Status::Ok);
         assert_eq!(
             detail,
@@ -2275,27 +2497,183 @@ mod tests {
 
         // Authentication off is reported, not complained about.
         let open = "POSTGRES_PASSWORD=0123456789abcdef\n# CHAP_API_TOKEN=\nCHAP_IMAGE_TAG=v2.3.1\n";
-        let (status, detail, _) = env_verdict(Some(open));
+        let (status, detail, _) = env_verdict(Some(open), Some(OVERRIDE));
         assert_eq!(status, Status::Ok);
         assert!(detail.starts_with("auth off, "), "{detail}");
 
         // The default password is the one that has to be moved off.
-        let (status, detail, fix) =
-            env_verdict(Some("POSTGRES_PASSWORD=chap\n# CHAP_IMAGE_TAG=latest\n"));
+        let (status, detail, fix) = env_verdict(
+            Some("POSTGRES_PASSWORD=chap\n# CHAP_IMAGE_TAG=latest\n"),
+            None,
+        );
         assert_eq!(status, Status::Warn);
         assert!(detail.contains("the default `chap`"), "{detail}");
         assert!(fix.unwrap().contains("ALTER USER"));
 
         // An unset one resolves to the same default through compose.
-        let (status, detail, _) = env_verdict(Some("# CHAP_IMAGE_TAG=latest\n"));
+        let (status, detail, _) = env_verdict(Some("# CHAP_IMAGE_TAG=latest\n"), None);
         assert_eq!(status, Status::Warn);
         assert!(detail.contains("unset"), "{detail}");
 
         // And a file the pin comments have been cut out of.
-        let (status, detail, fix) = env_verdict(Some("POSTGRES_PASSWORD=0123456789abcdef\n"));
+        let (status, detail, fix) = env_verdict(Some("POSTGRES_PASSWORD=0123456789abcdef\n"), None);
         assert_eq!(status, Status::Warn);
         assert!(detail.contains("no CHAP_IMAGE_TAG line"), "{detail}");
         assert!(fix.unwrap().contains("chaps sync"));
+    }
+
+    /// A `compose.chaps.yml` as this version renders it: it hands chap-core
+    /// the registration key.
+    const OVERRIDE: &str = "services:\n  chap:\n    environment:\n      \
+         SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n";
+
+    #[test]
+    fn a_protected_deployment_whose_override_drops_the_key_is_a_warning() {
+        let protected = "POSTGRES_PASSWORD=0123456789abcdef\n\
+                         CHAP_API_TOKEN=sekret\n\
+                         # CHAP_IMAGE_TAG=latest\n";
+        // What an older chaps rendered: the port override and nothing else.
+        let old_override = "services:\n  chap:\n    ports: !override\n      - \"8000:8000\"\n";
+        let (status, detail, fix) = env_verdict(Some(protected), Some(old_override));
+        assert_eq!(status, Status::Warn);
+        assert!(
+            detail.contains("compose.chaps.yml does not pass SERVICEKIT_REGISTRATION_KEY"),
+            "{detail}"
+        );
+        let fix = fix.unwrap();
+        assert!(fix.contains("chaps sync"), "{fix}");
+        assert!(fix.contains("401"), "{fix}");
+
+        // The override this version renders says nothing.
+        assert_eq!(env_verdict(Some(protected), Some(OVERRIDE)).0, Status::Ok);
+        // Neither does a deployment with no authentication at all: there is
+        // no key to hand over.
+        let open = "POSTGRES_PASSWORD=0123456789abcdef\n# CHAP_IMAGE_TAG=latest\n";
+        assert_eq!(env_verdict(Some(open), Some(old_override)).0, Status::Ok);
+    }
+
+    #[test]
+    fn the_project_line_warns_while_the_name_is_only_the_directory() {
+        // A deployment this version wrote records a name of its own.
+        let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"), "demo");
+        assert_eq!(status, Status::Ok);
+        assert_eq!(detail, "demo-1ab2c3 (recorded in .chaps/project.yaml)");
+        assert_eq!(fix, None);
+
+        // One written before that has the directory name, which another
+        // deployment in another directory of the same name also has.
+        let (status, detail, fix) = project_name_verdict(None, "demo");
+        assert_eq!(status, Status::Warn);
+        assert_eq!(
+            detail,
+            "compose project name is the directory name; volumes can collide with other \
+             deployments named demo"
+        );
+        let fix = fix.unwrap();
+        assert!(fix.contains("chaps sync"), "{fix}");
+        // The fix renames nothing: it writes down the name compose already
+        // uses, which is what keeps the running deployment's volumes.
+        assert!(fix.contains("`demo`"), "{fix}");
+        assert!(fix.contains("nothing is renamed"), "{fix}");
+        assert!(
+            project_name_verdict(None, "My Chap")
+                .2
+                .unwrap()
+                .contains("`mychap`")
+        );
+    }
+
+    /// The volumes of a deployment, as `docker volume ls` reports them.
+    fn volumes(names: &[(&str, u64)]) -> Vec<(String, Option<u64>)> {
+        names
+            .iter()
+            .map(|(name, at)| (name.to_string(), Some(*at)))
+            .collect()
+    }
+
+    /// When `.chaps/project.yaml` was created, in these tests.
+    const CREATED: u64 = 1_790_147_400;
+
+    #[test]
+    fn a_database_volume_older_than_the_deployment_is_a_warning() {
+        let prefix = "demo-1ab2c3_";
+        let db = "demo-1ab2c3_chap-db";
+
+        // Nothing started yet: nothing to be suspicious of.
+        let (status, detail, _) = volume_verdict(prefix, db, &[], Some(CREATED));
+        assert_eq!(status, Status::Ok);
+        assert!(detail.contains("no demo-1ab2c3_* volume yet"), "{detail}");
+
+        // Volumes this deployment made itself.
+        let mine = volumes(&[(db, CREATED + 60), ("demo-1ab2c3_logs", CREATED + 60)]);
+        let (status, detail, fix) = volume_verdict(prefix, db, &mine, Some(CREATED));
+        assert_eq!(status, Status::Ok);
+        assert_eq!(detail, "2 volumes named demo-1ab2c3_*");
+        assert_eq!(fix, None);
+
+        // A database volume that predates the directory it belongs to came
+        // from somewhere else, and still holds that deployment's password.
+        let inherited = volumes(&[(db, CREATED - 86_400), ("demo-1ab2c3_logs", CREATED + 60)]);
+        let (status, detail, fix) = volume_verdict(prefix, db, &inherited, Some(CREATED));
+        assert_eq!(status, Status::Warn);
+        assert!(
+            detail.starts_with(
+                "the database volume demo-1ab2c3_chap-db predates this deployment; \
+                 if chap-core cannot log in, it belongs to an earlier deployment with \
+                 the same name"
+            ),
+            "{detail}"
+        );
+        assert!(fix.unwrap().contains("chaps docker run -- down -v"));
+
+        // Neither time is guaranteed: a filesystem that records no creation
+        // time, and a docker that did not say, each cost the comparison only.
+        assert_eq!(volume_verdict(prefix, db, &inherited, None).0, Status::Ok);
+        let undated = vec![(db.to_string(), None)];
+        assert_eq!(
+            volume_verdict(prefix, db, &undated, Some(CREATED)).0,
+            Status::Ok
+        );
+        // And an old volume that is not the database is not this warning.
+        let other = volumes(&[("demo-1ab2c3_logs", CREATED - 86_400)]);
+        assert_eq!(
+            volume_verdict(prefix, db, &other, Some(CREATED)).0,
+            Status::Ok
+        );
+    }
+
+    #[test]
+    fn the_stack_line_says_when_the_container_itself_is_unhealthy() {
+        let mut report = status_report(
+            ApiHealth::Down {
+                error: "connection refused".to_string(),
+            },
+            &[],
+            &[],
+        );
+        // Without a container to blame it is the port that is not answering.
+        let (status, detail, fix) = stack_verdict(&report);
+        assert_eq!(status, Status::Fail);
+        assert!(detail.contains("is down: connection refused"), "{detail}");
+        assert!(fix.unwrap().contains("chaps logs chap"));
+
+        // With one, the check says which half is wrong and what its log said.
+        report.unhealthy = vec![crate::diagnose::Unhealthy::of(
+            API_SERVICE,
+            "FATAL:  password authentication failed for user \"chap\"\n",
+        )];
+        let (status, detail, fix) = stack_verdict(&report);
+        assert_eq!(status, Status::Fail);
+        assert!(
+            detail.starts_with("the chap container is up and unhealthy:"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("password authentication failed"),
+            "{detail}"
+        );
+        assert_eq!(detail.lines().count(), 1, "one line per check: {detail}");
+        assert!(fix.unwrap().contains("down -v"));
     }
 
     /// The claims a two-model deployment would make.
@@ -2490,6 +2868,7 @@ mod tests {
     /// A `StatusReport` with the fields the stack check reads.
     fn status_report(api: ApiHealth, expected: &[&str], missing: &[&str]) -> StatusReport {
         StatusReport {
+            project: Some("mychap-1ab2c3".to_string()),
             api_url: "http://localhost:8000".to_string(),
             api,
             version: ApiVersion {
@@ -2504,6 +2883,7 @@ mod tests {
             unmanaged: Vec::new(),
             auth: false,
             components: Vec::new(),
+            unhealthy: Vec::new(),
         }
     }
 

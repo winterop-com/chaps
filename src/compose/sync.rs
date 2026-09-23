@@ -97,6 +97,13 @@ pub fn sync(
     // is one of the `-f` list, not something to include.
     let mut overlays: Vec<String> = Vec::new();
     let components = project.state.components.clone();
+    // The compose project name is settled before anything is rendered: it goes
+    // into every chaps-owned file. A deployment written before the field
+    // existed has no recorded name, and takes the one compose has been
+    // deriving from its directory all along - so writing it down below renames
+    // nothing, and a running deployment keeps every container and volume name
+    // it has. Only `chaps init` generates a name with a suffix of its own.
+    let project_name = project.compose_project_name();
     // chap-core is a component like the others: with it off, neither the base
     // stack nor the chaps-owned override belongs to this deployment, and both
     // are removed below.
@@ -112,7 +119,7 @@ pub fn sync(
         // defines.
         desired.push((
             CHAPS_COMPOSE.to_string(),
-            render_chaps_overlay(project.state.api_port),
+            render_chaps_overlay(project.state.api_port, project_name.as_deref()),
         ));
     }
     // The components sit between the base stack and the model overlays, in
@@ -163,7 +170,10 @@ pub fn sync(
         overlays.push(model.compose_file.clone());
         desired.push((model.compose_file.clone(), render_overlay(&spec)));
     }
-    desired.push((MARKETPLACE_COMPOSE.to_string(), render_umbrella(&overlays)));
+    desired.push((
+        MARKETPLACE_COMPOSE.to_string(),
+        render_umbrella(&overlays, project_name.as_deref()),
+    ));
 
     for (name, content) in &desired {
         let path = dir.join(name);
@@ -233,6 +243,11 @@ pub fn sync(
     // `-f` list; the first sync after an upgrade puts the new file in it, and
     // the same step puts the component files in the list when one is enabled.
     project.state.compose_files = compose_files_for(&components);
+    // The same upgrade step for the compose project name: what was implicit in
+    // the directory name becomes explicit in `project.yaml`, unchanged.
+    if let Some(name) = project_name {
+        project.state.compose_project = name;
+    }
     project.state.rendered_files = desired.into_iter().map(|(f, _)| f).collect();
     project.save()?;
     Ok(report)

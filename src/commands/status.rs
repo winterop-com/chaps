@@ -62,13 +62,25 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     // an API that does not want it ignores it.
     ctx.out.verbose(&format!("asking chap-core at {url}"));
     let token = crate::auth::token_in(&project.dir);
-    let report = status(
+    let mut report = status(
         &project,
         &url,
         Duration::from_secs(args.timeout),
         &running,
         token.as_deref(),
     );
+    // When the API does not answer, its container usually knows why and has
+    // been saying so in its log. Only asked for when the API is down: a
+    // healthy deployment has nothing to diagnose.
+    if !matches!(report.api, ApiHealth::Up { .. })
+        && let Some(containers) = containers.as_deref()
+    {
+        report.unhealthy = crate::diagnose::failing_containers(
+            &project,
+            containers,
+            Some(crate::compose::API_SERVICE),
+        );
+    }
     let up = matches!(report.api, ApiHealth::Up { .. });
 
     let never_started = args.url.is_none()
@@ -88,10 +100,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // chap-core. Under --json the report already carries it, and a second
         // document on stdout would break single-document parsers.
         ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
-        ApiHealth::Down { error } => Err(anyhow::anyhow!(
-            "chap-core at {} is not responding: {error}",
-            report.api_url
-        )),
+        ApiHealth::Down { error } => Err(anyhow::anyhow!(down_message(&report, error))),
         // The table said which models are missing and what to do about each
         // one; repeating that as an error would be the third telling.
         ApiHealth::Up { .. } if !report.missing.is_empty() => std::process::exit(1),
@@ -104,6 +113,20 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         }
         ApiHealth::Off => Ok(()),
     }
+}
+
+/// The error line for an API that is not answering, plus what its own
+/// container said about why.
+///
+/// `chap-core is not responding` is the symptom; the lines under it are the
+/// cause, which is otherwise a `chaps logs chap` away and forty lines long.
+fn down_message(report: &StatusReport, error: &str) -> String {
+    let mut text = format!("chap-core at {} is not responding: {error}", report.api_url);
+    for line in crate::diagnose::lines(&report.unhealthy) {
+        text.push('\n');
+        text.push_str(&line);
+    }
+    text
 }
 
 /// The "nothing here has ever run" line, as a panel on a terminal.
@@ -148,7 +171,7 @@ fn human(report: &StatusReport, out: &Out) -> String {
             "{}{}   {}   {}",
             out.heading(CHAP_CORE_LABEL),
             pad(CHAP_CORE_LABEL),
-            if up { out.ok("up") } else { out.bad("down") },
+            api_cell(out, up, report.api_container_unhealthy()),
             out.value(&report.api_url)
         ));
         let version = report.version.label();
@@ -220,10 +243,23 @@ fn human(report: &StatusReport, out: &Out) -> String {
     // The verdict is the line someone scanning the screen should land on.
     text.push_str(&out.cmd(&closing_line(&report.models)));
     text.push('\n');
-    for hint in hints(&report.models) {
+    for hint in hints(&report.models, report.auth) {
         text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
     text
+}
+
+/// The STATE cell of the chap-core line.
+///
+/// A container that is up and failing its healthcheck is a different answer
+/// from a port nobody is listening on, and it is the one that says where to
+/// look: the container is there, and it is the container that is wrong.
+fn api_cell(out: &Out, up: bool, unhealthy: bool) -> String {
+    match (up, unhealthy) {
+        (true, _) => out.ok("up"),
+        (false, true) => out.bad("down (container unhealthy)"),
+        (false, false) => out.bad("down"),
+    }
 }
 
 /// The state cell of one component line, coloured the way the model rows are.
@@ -311,6 +347,7 @@ mod tests {
             .map(|m| m.id.clone())
             .collect();
         StatusReport {
+            project: Some("chapx-1ab2c3".to_string()),
             api_url: "http://localhost:8000".to_string(),
             api: ApiHealth::Up {
                 status: "success".to_string(),
@@ -328,6 +365,7 @@ mod tests {
             unmanaged,
             auth: false,
             components: Vec::new(),
+            unhealthy: Vec::new(),
         }
     }
 

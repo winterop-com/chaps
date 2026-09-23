@@ -64,6 +64,61 @@ pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
     Ok(exit_code(status))
 }
 
+/// Run `docker compose <args> <extra>` with stdout inherited and stderr teed:
+/// everything docker writes there goes to this process's stderr as it
+/// arrives, and is kept.
+///
+/// Compose says why a service would not start on stderr and nowhere else -
+/// `dependency failed to start: container x-chap-1 is unhealthy` is the whole
+/// of it - so a wrapper that wants to explain that failure has to have read
+/// it. What is read is passed on byte for byte as it arrives, so the command
+/// still reads as it runs and nothing docker wrote is reformatted, reordered
+/// or held back.
+///
+/// The one visible difference from [`run_compose`] is compose's own doing: a
+/// pipe is not a terminal, so it prints its progress as one line per step
+/// rather than redrawing a block in place.
+pub fn run_compose_teed(project: &Project, extra: &[String]) -> Result<Piped> {
+    use std::io::{Read, Write};
+
+    let mut args = compose_args(project);
+    args.extend(extra.iter().cloned());
+    trace_command(&args);
+
+    let mut child = Command::new("docker")
+        .args(&args)
+        .current_dir(&project.dir)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| spawn_error(&e))?;
+
+    let mut raw: Vec<u8> = Vec::new();
+    if let Some(mut stream) = child.stderr.take() {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => {
+                    let chunk = &buffer[..read];
+                    let mut err = std::io::stderr();
+                    let _ = err.write_all(chunk);
+                    let _ = err.flush();
+                    raw.extend_from_slice(chunk);
+                }
+            }
+        }
+    }
+    let status = child
+        .wait()
+        .map_err(|e| anyhow::anyhow!("waiting for docker: {e}"))?;
+    Ok(Piped {
+        code: exit_code(status),
+        stderr: String::from_utf8_lossy(&raw).into_owned(),
+    })
+}
+
 /// Compose services of this project that have a running container.
 ///
 /// Best-effort by design: this only sharpens a hint in `chaps status`, so no
@@ -111,6 +166,9 @@ pub struct Container {
     pub id: String,
     pub created_at: String,
     pub state: String,
+    /// What the container's healthcheck last said: `healthy`, `unhealthy`,
+    /// `starting`, or empty for a service that declares none.
+    pub health: String,
     /// The image as compose names it, such as `ghcr.io/dhis2-chap/chap:v2.3.1`.
     /// It is the reference the container was created from, which is not the
     /// same question as which image that reference points at today.
@@ -122,6 +180,15 @@ impl Container {
     /// treated as running: plain `ps` lists what is up.
     pub fn is_running(&self) -> bool {
         self.state.is_empty() || self.state.eq_ignore_ascii_case("running")
+    }
+
+    /// Whether its healthcheck is failing.
+    ///
+    /// This is the state `chaps up` ends on when compose says
+    /// `dependency failed to start`: the container is up, so `ps` lists it,
+    /// and nothing that depends on it will start.
+    pub fn is_unhealthy(&self) -> bool {
+        self.health.eq_ignore_ascii_case("unhealthy")
     }
 
     /// The identity `up` compares before and after: a restarted service keeps
@@ -160,6 +227,7 @@ pub fn containers(text: &str) -> Vec<Container> {
                 id: string("ID"),
                 created_at: string("CreatedAt"),
                 state: string("State"),
+                health: string("Health"),
                 image: string("Image"),
             })
         })
@@ -578,6 +646,30 @@ fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
     compose_query(project, extra).ok()
 }
 
+/// The last `tail` lines one service has logged
+/// (`docker compose logs --tail N --no-color SERVICE`).
+///
+/// `--no-color` because this is read rather than shown: the escape codes
+/// compose adds to colour the service column would end up inside the lines
+/// that are quoted back. Best-effort: `None` when docker could not be asked.
+pub fn service_logs(project: &Project, service: &str, tail: usize) -> Option<String> {
+    let tail = tail.to_string();
+    compose_capture(
+        project,
+        &[
+            "logs",
+            "--tail",
+            &tail,
+            "--no-color",
+            "--no-log-prefix",
+            service,
+        ],
+    )
+    // `--no-log-prefix` arrived in compose 2.x but not in every 2.x; a
+    // compose that rejects it still answers the same question without it.
+    .or_else(|| compose_capture(project, &["logs", "--tail", &tail, "--no-color", service]))
+}
+
 /// The container objects in `docker compose ps --format json` output.
 ///
 /// Compose 2.21 and newer print one JSON object per line; older versions print
@@ -708,11 +800,17 @@ pub fn run_compose_piped(
 /// The compose project name, the prefix every container and named volume of
 /// this deployment carries.
 ///
-/// Read from `docker compose config`, which applies the same rules compose
-/// itself does (the directory name, normalised, unless a `name:` key or
+/// The recorded name when `.chaps/project.yaml` has one - it is the `name:`
+/// key `chaps sync` renders into the compose files, so compose reaches the
+/// same answer without being asked. Otherwise read from
+/// `docker compose config`, which applies the same rules compose itself does
+/// (the directory name, normalised, unless a `name:` key or
 /// `COMPOSE_PROJECT_NAME` says otherwise). Best-effort: `None` when docker
 /// cannot be reached, so callers degrade rather than fail.
 pub fn compose_project_name(project: &Project) -> Option<String> {
+    if let Some(name) = project.compose_project() {
+        return Some(name.to_string());
+    }
     let args = [
         "config".to_string(),
         "--format".to_string(),
@@ -728,6 +826,80 @@ pub fn compose_project_name(project: &Project) -> Option<String> {
         .and_then(|n| n.as_str())
         .filter(|n| !n.is_empty())
         .map(str::to_string)
+}
+
+/// One named volume of a deployment, and when docker created it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Volume {
+    pub name: String,
+    /// `CreatedAt` as `docker volume inspect` prints it (RFC 3339), empty when
+    /// this docker did not say.
+    pub created_at: String,
+}
+
+/// The named volumes whose names start with `prefix`
+/// (`docker volume ls --filter name=<prefix>`), each with its creation time.
+///
+/// Best-effort like every other query here: an empty list when docker could
+/// not be asked. The filter is a substring match, so the names are checked
+/// again out here - `demo_` must not answer for `olddemo_chap-db`.
+pub fn volumes_with_prefix(prefix: &str) -> Vec<Volume> {
+    let args = vec![
+        "volume".to_string(),
+        "ls".to_string(),
+        "--filter".to_string(),
+        format!("name={prefix}"),
+        "--format".to_string(),
+        "{{.Name}}".to_string(),
+    ];
+    let Some(text) = docker_capture(&args) else {
+        return Vec::new();
+    };
+    let names: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|name| name.starts_with(prefix))
+        .map(str::to_string)
+        .collect();
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let created = volume_creation_times(&names);
+    names
+        .into_iter()
+        .map(|name| Volume {
+            created_at: created.get(&name).cloned().unwrap_or_default(),
+            name,
+        })
+        .collect()
+}
+
+/// When docker created each of these volumes, keyed by name
+/// (`docker volume inspect`). One call for the whole list.
+fn volume_creation_times(names: &[String]) -> BTreeMap<String, String> {
+    let mut args = vec![
+        "volume".to_string(),
+        "inspect".to_string(),
+        "--format".to_string(),
+        "{{.Name}}\t{{.CreatedAt}}".to_string(),
+    ];
+    args.extend(names.iter().cloned());
+    match docker_capture(&args) {
+        Some(text) => parse_volume_times(&text),
+        None => BTreeMap::new(),
+    }
+}
+
+/// Parse the `<name>\t<created at>` lines of the inspect above.
+pub fn parse_volume_times(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let (name, created) = line.trim_end().split_once('\t')?;
+            let (name, created) = (name.trim(), created.trim());
+            (!name.is_empty() && !created.is_empty())
+                .then(|| (name.to_string(), created.to_string()))
+        })
+        .collect()
 }
 
 /// Whether a named docker volume exists.

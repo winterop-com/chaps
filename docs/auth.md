@@ -52,6 +52,31 @@ same file chap-core reads its own copy from. The two ends cannot disagree.
 `chaps sync` writes that line when `.chaps/project.yaml` says the project has a
 key, and comments it out again when it does not.
 
+chap-core needs the same value, and upstream's `compose.ghcr.yml` passes only
+`CHAP_API_TOKEN` into the `chap` service - so the key never reached the
+container and the API answered every registration with
+
+```text
+{"detail": "Missing or invalid API token"}
+```
+
+`compose.chaps.yml` is where `chaps` puts that right:
+
+```yaml
+services:
+  chap:
+    environment:
+      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}
+```
+
+Compose merges `environment` maps across `-f` files additively, so this adds
+the one variable and leaves upstream's file untouched. It is rendered whether
+or not the deployment has a key: with none in `.env` the variable arrives
+empty, which chap-core reads as no key at all. A deployment whose
+`compose.chaps.yml` was rendered by an older `chaps` is missing the line;
+`chaps doctor` says so on its `.env` line, and `chaps sync` followed by
+`chaps restart` puts it back.
+
 ## Where the secrets live
 
 In `.env`, and nowhere else:

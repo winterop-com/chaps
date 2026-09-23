@@ -71,6 +71,93 @@ fn default_api_port() -> u16 {
     DEFAULT_API_PORT
 }
 
+/// How many random hex characters a generated compose project name ends in.
+///
+/// Three bytes: short enough to keep a container name readable, and 16 million
+/// values is far more than the handful of deployments one machine ever holds.
+pub const PROJECT_SUFFIX_BYTES: usize = 3;
+
+/// The longest slug a generated compose project name starts with.
+///
+/// Compose puts the project name in front of every container and volume name,
+/// and a name nobody can read on a `docker ps` line helps no one.
+const MAX_SLUG: usize = 32;
+
+/// What a generated name falls back to when the directory name yields no
+/// usable slug at all (`~/深度`, say).
+const FALLBACK_SLUG: &str = "chaps";
+
+/// The compose project name compose itself would derive from a directory name.
+///
+/// Compose lowercases the name, drops every character outside `[a-z0-9_-]` and
+/// trims leading `_` and `-`. This mirrors that rule exactly, because it is
+/// what an existing deployment's containers and volumes are already named
+/// after: recording this value changes nothing, which is the point.
+///
+/// `None` when nothing is left, which is a directory compose would refuse to
+/// name a project after either.
+pub fn normalized_project_name(dir_name: &str) -> Option<String> {
+    let kept: String = dir_name
+        .chars()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-')
+        .collect();
+    let trimmed = kept.trim_start_matches(['_', '-']);
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// The same, for the directory itself. `None` for a path with no file name,
+/// or one whose name normalises to nothing.
+pub fn derived_project_name(dir: &Path) -> Option<String> {
+    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    normalized_project_name(&dir.file_name()?.to_string_lossy())
+}
+
+/// The readable half of a generated compose project name.
+///
+/// Lowercase `[a-z0-9-]` starting with a letter or a digit, which is what
+/// Compose accepts and what reads as the deployment's own name on a
+/// `docker ps` line. Anything else folds to a single `-`.
+pub fn project_slug(dir_name: &str) -> String {
+    let mut out = String::with_capacity(dir_name.len());
+    for ch in dir_name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let out = out.trim_matches('-');
+    let out: String = out.chars().take(MAX_SLUG).collect();
+    let out = out.trim_matches('-').to_string();
+    if out.is_empty() {
+        return FALLBACK_SLUG.to_string();
+    }
+    out
+}
+
+/// `<slug>-<suffix>`, the compose project name a new deployment gets.
+pub fn compose_project_name(dir_name: &str, suffix: &str) -> String {
+    format!("{}-{suffix}", project_slug(dir_name))
+}
+
+/// A compose project name for a deployment being created in `dir`.
+///
+/// The directory name is only half of it: two directories both called `demo`
+/// would otherwise share every named volume, so a fresh deployment gets six
+/// random hex characters of its own. See [`ProjectState::compose_project`].
+pub fn new_compose_project_name(dir: &Path) -> Result<String> {
+    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(compose_project_name(
+        &name,
+        &crate::auth::random_hex(PROJECT_SUFFIX_BYTES)?,
+    ))
+}
+
 /// File name of the cached copy of chap-core's `compose.ghcr.yml` at `tag`,
 /// inside [`CHAPS_DIR`].
 ///
@@ -187,6 +274,23 @@ pub struct ProjectState {
     /// Where `compose.yml` is rendered from.
     #[serde(default)]
     pub chap_compose_source: ComposeSource,
+    /// The compose project name: the prefix every container and every named
+    /// volume of this deployment carries.
+    ///
+    /// Compose derives it from the directory name unless a file says
+    /// otherwise, so two deployments in directories both called `demo` share
+    /// `demo_chap-db` and every other volume - including one left behind by a
+    /// deployment deleted long ago. `chaps init` therefore generates
+    /// `<slug>-<6 hex>` and `sync` renders it as the top-level `name:` of the
+    /// files it owns.
+    ///
+    /// Empty in a `project.yaml` written before the field existed. Those
+    /// deployments keep the name their containers and volumes already carry:
+    /// the first `sync` records the directory name compose was deriving
+    /// anyway, without a suffix, so nothing is renamed and nothing is
+    /// orphaned.
+    #[serde(default)]
+    pub compose_project: String,
     pub registry_url: String,
     /// Host port chap-core's API is published on. Written into `.env` as
     /// `CHAP_API_PORT` and into [`CHAPS_COMPOSE`]; a `project.yaml` from
@@ -220,6 +324,7 @@ impl Default for ProjectState {
             generated_by: format!("chaps-cli {}", env!("CARGO_PKG_VERSION")),
             chap_image_tag: "latest".to_string(),
             chap_compose_source: ComposeSource::Embedded,
+            compose_project: String::new(),
             registry_url: crate::registry::DEFAULT_REGISTRY_URL.to_string(),
             api_port: DEFAULT_API_PORT,
             auth: AuthState::default(),
@@ -399,6 +504,34 @@ impl Project {
             .chap_compose_source
             .cached_file()
             .map(|name| self.chaps_dir().join(name))
+    }
+
+    /// The compose project name this deployment records, when it records one.
+    ///
+    /// `None` is a `project.yaml` written before the field existed: compose is
+    /// still naming that deployment after its directory, and the next `sync`
+    /// writes that same name down. See [`ProjectState::compose_project`].
+    pub fn compose_project(&self) -> Option<&str> {
+        let name = self.state.compose_project.trim();
+        (!name.is_empty()).then_some(name)
+    }
+
+    /// The compose project name this deployment has, recorded or not: the
+    /// recorded one, or the one compose derives from the directory name.
+    ///
+    /// Answered without asking docker, which is what makes it usable in
+    /// `status` and in the volume checks.
+    pub fn compose_project_name(&self) -> Option<String> {
+        match self.compose_project() {
+            Some(name) => Some(name.to_string()),
+            None => derived_project_name(&self.dir),
+        }
+    }
+
+    /// The prefix compose puts in front of every named volume of this
+    /// deployment: `<project>_`.
+    pub fn volume_prefix(&self) -> Option<String> {
+        self.compose_project_name().map(|name| format!("{name}_"))
     }
 
     /// Absolute paths of the ordered `-f` list.
@@ -723,6 +856,136 @@ mod tests {
                 registration_key: true,
             }
             .is_on()
+        );
+    }
+
+    #[test]
+    fn the_compose_project_name_round_trips_and_defaults_to_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                compose_project: "mychap-1ab2c3".into(),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+        let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+        assert!(
+            body.contains("\ncompose_project: mychap-1ab2c3\n"),
+            "{body}"
+        );
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.compose_project(), Some("mychap-1ab2c3"));
+        assert_eq!(
+            loaded.compose_project_name().as_deref(),
+            Some("mychap-1ab2c3")
+        );
+        assert_eq!(loaded.volume_prefix().as_deref(), Some("mychap-1ab2c3_"));
+
+        // A file written before the field existed loads as "not recorded",
+        // and the name it has is the one compose derives from the directory.
+        let chaps = dir.path().join(CHAPS_DIR);
+        std::fs::write(
+            chaps.join(PROJECT_FILE),
+            "schema_version: 1\n\
+             generated_by: chaps-cli 0.2.2\n\
+             chap_image_tag: latest\n\
+             registry_url: https://example.test/registry.yaml\n\
+             compose_files:\n\
+             - compose.yml\n\
+             - compose.marketplace.yml\n\
+             port_range:\n\
+             - 5001\n\
+             - 5999\n",
+        )
+        .unwrap();
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.compose_project(), None);
+        assert_eq!(
+            loaded.compose_project_name(),
+            derived_project_name(dir.path()),
+            "an old project is still named after its directory"
+        );
+    }
+
+    #[test]
+    fn a_generated_name_is_a_slug_and_six_hex_characters() {
+        let dir = std::path::PathBuf::from("/srv/My CHAP (prod)");
+        let name = new_compose_project_name(&dir).unwrap();
+        let (slug, suffix) = name.rsplit_once('-').expect("a suffix");
+        assert_eq!(slug, "my-chap-prod");
+        assert_eq!(suffix.len(), PROJECT_SUFFIX_BYTES * 2);
+        assert!(
+            suffix
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+        );
+
+        // Compose's own rule: lowercase, and it starts with a letter or digit.
+        let first = name.chars().next().unwrap();
+        assert!(
+            first.is_ascii_lowercase() || first.is_ascii_digit(),
+            "{name}"
+        );
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            "{name}"
+        );
+
+        // Two deployments of the same name get two different names, which is
+        // the whole point of the suffix.
+        let again = new_compose_project_name(&dir).unwrap();
+        assert_ne!(name, again);
+    }
+
+    #[test]
+    fn the_slug_is_what_compose_accepts_whatever_the_directory_is_called() {
+        assert_eq!(project_slug("demo"), "demo");
+        assert_eq!(project_slug("My CHAP"), "my-chap");
+        assert_eq!(project_slug("chap_prod.eu"), "chap-prod-eu");
+        assert_eq!(project_slug("--weird--"), "weird");
+        assert_eq!(project_slug("2026-deploy"), "2026-deploy");
+        // Nothing usable at all still has to yield a legal name.
+        assert_eq!(project_slug(""), FALLBACK_SLUG);
+        assert_eq!(project_slug("深度"), FALLBACK_SLUG);
+        assert_eq!(project_slug("..."), FALLBACK_SLUG);
+        // And a very long one is cut where it still reads.
+        let long = project_slug(&"a".repeat(100));
+        assert_eq!(long.len(), MAX_SLUG);
+
+        assert_eq!(compose_project_name("demo", "1ab2c3"), "demo-1ab2c3");
+    }
+
+    #[test]
+    fn the_derived_name_is_the_one_compose_would_have_used() {
+        // Compose lowercases, drops everything outside [a-z0-9_-] and trims
+        // leading separators. Verified against docker compose 5.5.1.
+        assert_eq!(normalized_project_name("demo").as_deref(), Some("demo"));
+        assert_eq!(
+            normalized_project_name("My Chap").as_deref(),
+            Some("mychap")
+        );
+        assert_eq!(normalized_project_name("demo.1").as_deref(), Some("demo1"));
+        assert_eq!(
+            normalized_project_name("-demo_x").as_deref(),
+            Some("demo_x")
+        );
+        assert_eq!(normalized_project_name("Démo").as_deref(), Some("dmo"));
+        assert_eq!(
+            normalized_project_name("chap+prod").as_deref(),
+            Some("chapprod")
+        );
+        // Nothing left: compose would refuse to name a project after it, so
+        // there is nothing for chaps to record either.
+        assert_eq!(normalized_project_name("..."), None);
+        assert_eq!(normalized_project_name(""), None);
+
+        assert_eq!(
+            derived_project_name(Path::new("/srv/My Chap")).as_deref(),
+            Some("mychap")
         );
     }
 

@@ -10,6 +10,7 @@ mod cli;
 mod commands;
 mod components;
 mod compose;
+mod diagnose;
 mod docker;
 mod error;
 mod output;

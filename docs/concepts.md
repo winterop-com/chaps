@@ -8,9 +8,10 @@
 mychap/
   .chaps/
     project.yaml               intent: schema version, chap-core tag and compose
-                               source, registry URL, API port, whether the two
-                               auth secrets are in use, the -f list, the model
-                               port range, and which root files sync wrote
+                               source, the compose project name, registry URL,
+                               API port, whether the two auth secrets are in
+                               use, the -f list, the model port range, and
+                               which root files sync wrote
     models.yaml                intent: the enabled models (image, pinned version,
                                channel, host port or none, data dir, user,
                                platform, overlay name)
@@ -20,8 +21,9 @@ mychap/
                                chap-core's own compose.ghcr.yml at the pinned tag,
                                exactly as downloaded; compose.yml is rendered from it
   compose.yml                  artifact: the base services, from the file above
-  compose.chaps.yml            artifact: chaps-owned overrides on top of it, the
-                               API's host port
+  compose.chaps.yml            artifact: chaps-owned overrides on top of it: the
+                               compose project name, the API's host port and the
+                               registration key chap-core checks
   compose.ocs.yml              artifact: the ocs component, when it is enabled
   compose.s3.yml               artifact: the s3 component, when it is enabled
   compose.marketplace.yml      artifact: include: list, one line per enabled model
@@ -35,12 +37,12 @@ mychap/
 | File | What it is |
 | --- | --- |
 | `compose.yml` | The base of the CHAP stack, which is chap-core, its worker and database plus the enabled models: chap-core, worker, Valkey and PostgreSQL, with the models added on top by their overlays. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
-| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: today, the API's host port as `ports: !override`. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `api_port` in `.chaps/project.yaml`. |
+| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: the compose project `name:`, the API's host port as `ports: !override`, and `SERVICEKIT_REGISTRATION_KEY` in the `chap` service's environment. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break CHAP; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
 | `compose.ocs.yml`, `compose.s3.yml` | One per enabled component other than chap-core, rendered from `.chaps/components.yaml`. They sit in the `-f` list between `compose.chaps.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
 | `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `chaps` never rewrites it, and only re-creates it if it goes missing. |
-| `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. |
+| `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. It carries the project `name:` as well, because it is the one file that is always in the `-f` list. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with a comment saying which commands manage them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
 
@@ -96,6 +98,46 @@ unchanged.
 - Sync only ever removes overlays it wrote itself; `project.yaml` keeps the
   list. A hand-written `compose.custom.yml` next to them is left alone. Add it
   to the umbrella by hand if you want it included.
+
+## The compose project name
+
+Compose puts a project name in front of every container and every named volume
+it creates, and unless a file says otherwise that name is the **directory
+name**. Two deployments in directories both called `demo` therefore share
+`demo_chap-db`, `demo_logs` and the rest - on different paths, and even when
+one of them was deleted months ago. A fresh `chaps init demo && chaps up` then
+starts chap-core against a PostgreSQL volume created with a password it has
+never seen, the container never becomes healthy, and `up` ends on
+
+```text
+dependency failed to start: container demo-chap-1 is unhealthy
+```
+
+So `chaps init` generates a name of its own and records it:
+
+```yaml
+compose_project: demo-1ab2c3
+```
+
+`chaps sync` renders it as the top-level `name:` of the files it owns
+(`compose.chaps.yml` and `compose.marketplace.yml` - compose takes the `name:`
+of the last `-f` file that sets one, and the umbrella is the one file always in
+the list). Containers become `demo-1ab2c3-chap-1` and volumes
+`demo-1ab2c3_chap-db`, which no other deployment can be holding.
+
+The name never changes once it is written. `chaps init --force` keeps the one
+it finds, because a new name would leave the running deployment's containers
+and its data behind under the old one.
+
+A deployment created before `chaps` recorded this has no name in
+`project.yaml`. It keeps the one it has: the next `chaps sync` writes the
+directory name down as it stands, with no suffix, so nothing is renamed and no
+volume is orphaned. `chaps doctor` says so until that sync happens, and
+`chaps status --json`, `chaps doctor` and the closing line of `chaps down` all
+name the project either way.
+
+`COMPOSE_PROJECT_NAME` in the environment still wins over the `name:` key, as
+it does for any compose project.
 
 ## Pins
 
