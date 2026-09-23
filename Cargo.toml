@@ -2,7 +2,7 @@
 name = "chaps-cli"
 version = "0.1.0"
 edition = "2024"
-description = "Generate and manage a docker compose deployment of chap-core plus marketplace model services"
+description = "Deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform, with Docker Compose"
 license = "MIT"
 
 [[bin]]

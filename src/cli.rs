@@ -7,10 +7,22 @@ use crate::registry::{Channel, DEFAULT_REGISTRY_URL};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Generate and manage a docker compose deployment of chap-core plus
-/// marketplace model services.
+/// The one-liner `chaps -h` opens with.
+const ABOUT: &str = "deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform";
+
+/// The header `chaps --help` opens with. Clap renders `long_about` for the long
+/// help and falls back to `about` for the short one, so both spellings of help
+/// say what CHAP is.
+const LONG_ABOUT: &str = "\
+chaps deploys and manages CHAP, the DHIS2 Climate Health Analytics Platform.
+
+It runs chap-core, its worker and database with Docker Compose, and adds
+forecasting models from the CHAP model marketplace as pinned overlays.
+Start with `chaps init`. Docs: https://chap.dhis2.org";
+
+/// Deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform.
 #[derive(Debug, Parser)]
-#[command(name = "chaps", version, about, long_about = None)]
+#[command(name = "chaps", version, about = ABOUT, long_about = LONG_ABOUT)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of human output.
     #[arg(long, global = true)]

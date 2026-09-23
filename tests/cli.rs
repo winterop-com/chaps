@@ -1064,6 +1064,28 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
 }
 
 #[test]
+fn the_help_says_what_chap_is() {
+    let sandbox = Sandbox::new();
+
+    // The header has to name the platform, not just chap-core: someone typing
+    // `chaps --help` for the first time may not know what chap-core is.
+    chap_in(&sandbox, sandbox.home.path(), &["--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Climate Health Analytics Platform",
+        ));
+
+    // The short help is the one-liner, and says the same thing.
+    chap_in(&sandbox, sandbox.home.path(), &["-h"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "deploy and manage CHAP, the DHIS2 Climate Health Analytics Platform",
+        ));
+}
+
+#[test]
 fn init_inside_a_project_warns_about_the_parent() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();

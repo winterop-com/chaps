@@ -1,6 +1,7 @@
 # chaps
 
-`chaps` generates and manages a Docker Compose deployment of
+`chaps` deploys and manages [CHAP](https://chap.dhis2.org), the DHIS2 Climate
+Health Analytics Platform: a Docker Compose deployment of
 [chap-core](https://github.com/dhis2-chap/chap-core) together with the
 forecasting model services published in the
 [CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).

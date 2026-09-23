@@ -1,5 +1,5 @@
-//! `chaps` — generate and manage a docker compose deployment of chap-core plus
-//! marketplace model services.
+//! `chaps` — deploy and manage CHAP, the DHIS2 Climate Health Analytics
+//! Platform: chap-core and marketplace model services on Docker Compose.
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
