@@ -93,7 +93,7 @@ have never used Compose.
 | --- | --- |
 | `chaps docker ps [EXTRA..]` | List this project's containers (`docker compose ps`). |
 | `chaps docker pull` | Download the pinned images into the local Docker daemon; no files change. |
-| `chaps docker exec SERVICE [CMD..]` | Run a command in a running container. `CMD` defaults to a shell, and `-T` is passed for you when there is no terminal, so it works in scripts. |
+| `chaps docker exec SERVICE [CMD..]` | Run a command in a running container, which has to be up already (`chaps up`). `CMD` defaults to a shell, and `-T` is passed for you when there is no terminal, so it works in scripts. |
 | `chaps docker run -- ARGS..` | Any `docker compose` command, behind the project's `-f` list. |
 | `chaps docker config [-- EXTRA..]` | The finished configuration: every compose file merged into one document (`--json` prints it as JSON). |
 
@@ -135,7 +135,7 @@ They are accepted before or after the subcommand, and the
 | --- | --- |
 | `--json` | Machine-readable output: exactly one JSON document on stdout. |
 | `--no-color` | Never colour the output; `NO_COLOR` in the environment does the same. |
-| `-v, --verbose` | Narrate on stderr what runs: commands, HTTP requests, the registry source. |
+| `-v, --verbose` | Narrate on stderr what runs: commands, HTTP requests, the registry source, the files `sync` compared. |
 | `-d, --debug` | Everything `-v` says, plus response bodies and resolved paths. |
 | `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
 | `--registry-url URL` | A different marketplace index, for a fork or a mirror. |

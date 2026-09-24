@@ -1813,10 +1813,16 @@ fn restart_says_what_it_is_for_and_what_it_leaves_alone() {
     let help = String::from_utf8(help).expect("help is text");
     assert!(help.contains("--all"), "{help}");
     assert!(help.contains("[SERVICE]"), "{help}");
-    // The two promises the command makes: it changes no file, and it is not
-    // the command that starts a deployment.
-    assert!(help.contains("never syncs"), "{help}");
-    assert!(help.contains("`chaps up`"), "{help}");
+    // One clause, and the clause is what the command is for. What it leaves
+    // alone is the book's to explain, which the last line points at.
+    assert!(
+        help.contains("Recreate the named services even when nothing changed"),
+        "{help}"
+    );
+    assert!(
+        !help.contains("\n\n  It "),
+        "no paragraphs in help:\n{help}"
+    );
 }
 
 #[test]
@@ -1933,12 +1939,43 @@ fn the_help_says_what_chap_is() {
         ));
 
     // The short help is the one-liner, and says the same thing.
-    chap_in(&sandbox, sandbox.home.path(), &["-h"])
+    let short = chap_in(&sandbox, sandbox.home.path(), &["-h"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
             "deploy and manage CHAP, the Climate Health Analytics Platform",
-        ));
+        ))
+        .get_output()
+        .stdout
+        .clone();
+
+    // The same thing, exactly: there is no longer version to ask for.
+    let long = chap_in(&sandbox, sandbox.home.path(), &["--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        String::from_utf8(short).expect("help is text"),
+        String::from_utf8(long).expect("help is text"),
+        "`chaps -h` and `chaps --help` print the same thing"
+    );
+
+    // And the whole of it fits on a screen, with the book one line away.
+    let help = chap_in(&sandbox, sandbox.home.path(), &["--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(help).expect("help is text");
+    assert!(help.lines().count() <= 40, "{help}");
+    assert!(
+        help.trim_end()
+            .ends_with("Docs: https://winterop-com.github.io/chaps/"),
+        "{help}"
+    );
 }
 
 #[test]
@@ -2939,36 +2976,28 @@ fn no_color_is_accepted_everywhere_and_changes_nothing_off_a_terminal() {
         .success();
 }
 
+/// A command that is not one is clap's business: it names what was typed,
+/// suggests what was probably meant, and exits 2. `chaps` adds nothing of its
+/// own, not even for the commands chap-core's developer CLI publishes.
 #[test]
-fn a_chap_core_command_typed_at_chaps_names_the_other_cli() {
+fn an_unknown_subcommand_is_claps_own_error() {
     let sandbox = Sandbox::new();
     sandbox
         .chap()
         .arg("serve")
         .assert()
         .code(2)
-        .stderr(predicates::str::contains("is not a chaps command"))
-        .stderr(predicates::str::contains("chap-core developer CLI"))
-        .stderr(predicates::str::contains("`chap`"))
-        .stderr(predicates::str::contains("chaps --help"));
+        .stderr(predicates::str::contains("unrecognized subcommand 'serve'"))
+        .stderr(predicates::str::contains("--help"));
 
-    // The same for the other commands chap-core publishes.
-    for name in ["evaluate", "forecast", "predict", "harmonize"] {
-        sandbox
-            .chap()
-            .arg(name)
-            .assert()
-            .code(2)
-            .stderr(predicates::str::contains("chap-core developer CLI"));
-    }
-
-    // Anything that is simply not a command stays clap's business.
+    // And a near miss of a real command gets clap's suggestion.
     sandbox
         .chap()
-        .arg("frobnicate")
+        .arg("stat")
         .assert()
-        .failure()
-        .stderr(predicates::str::contains("chap-core developer CLI").not());
+        .code(2)
+        .stderr(predicates::str::contains("similar subcommands"))
+        .stderr(predicates::str::contains("status"));
 }
 
 #[test]

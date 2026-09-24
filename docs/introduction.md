@@ -14,14 +14,6 @@ Existing projects keep working unchanged - a deployment that says nothing about
 components is chap-core alone, which is what it was. See
 [Components](./components.md).
 
-> **chap or chaps?** `chap` is chap-core's own developer CLI, the one that
-> serves the API and runs evaluations from a checkout of chap-core. `chaps` is
-> this tool: it deploys and manages CHAP on a machine, and never runs a
-> forecast itself.
->
-> Typing a `chap` command at `chaps` says so rather than printing a bare
-> "unrecognized subcommand".
-
 ## What it does, in one screen
 
 One command writes a self-contained deployment directory: the base services

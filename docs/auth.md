@@ -115,6 +115,11 @@ who can reach the port.
 | `chaps auth disable` | Comment both lines out, keeping their values, and re-render. |
 | `chaps auth rotate` | Replace both secrets with new ones. |
 
+`chaps auth show` reads both ends: `.chaps/project.yaml` for what the
+deployment intends and `.env` for what is actually set, and says so when the two
+disagree - a token recorded as in use but commented out in `.env`, say. The
+token is abbreviated unless `--reveal` asks for it in full.
+
 All four only ever touch those two `.env` lines. The database password, the
 image pins, the comments and the blank lines come out byte for byte as they
 went in, which is what makes them safe on a file an operator has edited.
