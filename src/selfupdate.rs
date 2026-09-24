@@ -262,7 +262,7 @@ pub fn parse_release(body: &str) -> Result<Release> {
 /// The commit a release was built from, as its notes record it.
 ///
 /// The dev release notes carry one line reading `built from commit <sha> on
-/// <date>`, written by `.github/workflows/release.yml`, because the API does
+/// <date>`, written by `scripts/release-notes.sh`, because the API does
 /// not otherwise say: `target_commitish` is documented as unused once the tag
 /// exists, and the `dev` tag exists from the first rolling build onwards, so
 /// it goes on reporting whatever the release was first created with.
@@ -1262,19 +1262,95 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
 
     /// The commit is read out of notes this repository writes, so the reader
     /// and the writer are checked against each other rather than only
-    /// against a fixture. A packaged crate without the workflow has nothing
-    /// to check and says nothing.
+    /// against a fixture: first that `scripts/release-notes.sh` still writes
+    /// the line, then, where git can run, that `release_commit` reads the
+    /// real script's output back as the commit this checkout is on. A
+    /// packaged crate without the script has nothing to check and says
+    /// nothing.
     #[test]
-    fn the_workflow_writes_the_line_the_commit_is_read_from() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/.github/workflows/release.yml");
-        let Ok(workflow) = std::fs::read_to_string(path) else {
+    fn the_notes_script_writes_the_line_the_commit_is_read_from() {
+        let root = env!("CARGO_MANIFEST_DIR");
+        let script = format!("{root}/scripts/release-notes.sh");
+        let Ok(source) = std::fs::read_to_string(&script) else {
+            return;
+        };
+
+        // `Built from commit` followed by a backtick, escaped for the heredoc
+        // it sits in, and a shell expansion of the sha: `${GITHUB_SHA}`,
+        // `${sha}` or `$sha`. The name has to mention the sha, so a rewrite
+        // that interpolates something else fails here rather than in the
+        // field.
+        let expansion = source.lines().find_map(|line| {
+            let rest = line.split_once("Built from commit")?.1;
+            let name = rest
+                .trim_start_matches([' ', '\\', '`'])
+                .strip_prefix('$')?;
+            let name: String = name
+                .strip_prefix('{')
+                .unwrap_or(name)
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            name.to_ascii_lowercase().contains("sha").then_some(name)
+        });
+        assert!(
+            expansion.is_some(),
+            "scripts/release-notes.sh no longer writes `Built from commit \
+             <sha>` into the dev release notes, which is the line \
+             release_commit reads"
+        );
+
+        // The writer itself, where it can run: the notes the script prints
+        // for the rolling build name the commit HEAD is on, and that is what
+        // comes back out. No git, or no shell to run the script with, and
+        // the line above is all that was checked.
+        let Some(head) = git(root, &["rev-parse", "HEAD"]) else {
+            return;
+        };
+        let Ok(printed) = std::process::Command::new("bash")
+            .arg(&script)
+            .arg("dev")
+            // GITHUB_SHA is what the workflow builds from; here the commit is
+            // whatever this checkout has, which is what HEAD was read as.
+            .env_remove("GITHUB_SHA")
+            .output()
+        else {
             return;
         };
         assert!(
-            workflow.contains("commit \\`${GITHUB_SHA}\\`"),
-            "release.yml no longer writes `commit <sha>` into the dev release \
-             notes, which is the line release_commit reads"
+            printed.status.success(),
+            "scripts/release-notes.sh dev failed: {}",
+            String::from_utf8_lossy(&printed.stderr)
         );
+
+        let notes = Release {
+            tag: DEV_TAG.to_string(),
+            body: String::from_utf8_lossy(&printed.stdout).into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(
+            release_commit(&notes).as_deref(),
+            Some(head.to_ascii_lowercase().as_str()),
+            "release_commit did not read HEAD out of the notes the script \
+             printed:\n{}",
+            notes.body
+        );
+    }
+
+    /// One git command in this checkout, or `None` where git cannot answer,
+    /// which is a test that skips rather than one that fails.
+    fn git(root: &str, args: &[&str]) -> Option<String> {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!text.is_empty()).then_some(text)
     }
 
     #[test]
