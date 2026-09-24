@@ -46,6 +46,11 @@ pub(crate) const GENERATED_HEADER: &str =
 /// One model service, as a compose overlay.
 static OVERLAY_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/compose.overlay.yml")));
+/// The one-shot container that hands a model's data volume over before it
+/// starts. A fragment rather than a file of its own: an image that runs as
+/// root needs no chown, and then the overlay has no such service at all.
+static OVERLAY_INIT_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/compose.overlay-init.yml")));
 /// The generated `.env`.
 static ENV_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/env.example")));
@@ -336,6 +341,13 @@ pub fn render_ocs_config(spec: &OcsConfigSpec) -> String {
 }
 
 /// Render one `compose.<service_id>.yml` overlay.
+///
+/// An image that runs as root gets neither a `user:` line nor an init
+/// container: there is nothing to override, and root can write a fresh volume
+/// as docker seeded it. Every other image gets both, with the same numeric
+/// `uid:gid` in each - the `user:` line so compose and the `chown` cannot
+/// drift apart, and the numbers because the init container is busybox, which
+/// resolves no account name of its own.
 pub fn render_overlay(spec: &OverlaySpec) -> String {
     // The token sits at the start of its line and carries its own newline, so
     // an image that needs no platform pin leaves neither a comment nor a blank
@@ -365,8 +377,46 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // The init container chowns the data volume from busybox, which knows none
     // of the images' account names; an unresolvable one falls back to the
     // chapkit ids (`chaps sync` warns about it).
-    let uid_gid = overrides::numeric_user(&spec.user)
+    let uid_gid = overrides::numeric_pair(&spec.user)
         .unwrap_or_else(|| overrides::FALLBACK_UID_GID.to_string());
+    // A `user:` line only exists to override what the image declares. For an
+    // image that already runs as root it would override root with root, and
+    // the init container behind it would chown a root-owned volume to root -
+    // two lines that do nothing, and one of them (a `user:` that later moves
+    // off root by hand) able to take away a permission the image needs.
+    let root = overrides::is_root(&spec.user);
+    let user_line = match root {
+        true => String::new(),
+        // The numeric form, so this line and the chown below are the same two
+        // numbers; a name nothing could resolve is kept as it is, which is
+        // what `chaps sync` warns about.
+        false => format!(
+            "    user: {}\n",
+            overrides::numeric_pair(&spec.user).unwrap_or_else(|| spec.user.clone())
+        ),
+    };
+    let init_depends = match root {
+        true => String::new(),
+        false => format!(
+            "      {}-init:\n        condition: service_completed_successfully\n",
+            spec.service_id
+        ),
+    };
+    let init_service = match root {
+        true => "\n".to_string(),
+        false => format!(
+            "\n{}\n",
+            fill(
+                &OVERLAY_INIT_TEMPLATE,
+                &[
+                    ("SERVICE_ID", &spec.service_id),
+                    ("UID_GID", &uid_gid),
+                    ("DATA_DIR", &spec.data_dir),
+                    ("VOLUME", &spec.volume_name),
+                ],
+            )
+        ),
+    };
     fill(
         &OVERLAY_TEMPLATE,
         &[
@@ -384,8 +434,9 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("PORT_LINES", &port_lines),
             ("REGISTRATION_KEY_LINES", &registration_key_lines),
             ("DATA_DIR", &spec.data_dir),
-            ("USER", &spec.user),
-            ("UID_GID", &uid_gid),
+            ("USER_LINE", &user_line),
+            ("INIT_DEPENDS", &init_depends),
+            ("INIT_SERVICE", &init_service),
             ("VOLUME", &spec.volume_name),
         ],
     )
@@ -507,6 +558,58 @@ mod tests {
         assert_eq!(text, golden);
     }
 
+    /// The other shape an overlay has: an image that runs as root, which gets
+    /// neither a `user:` line nor the init container that would chown its
+    /// volume to an account it does not use.
+    #[test]
+    fn a_root_overlay_matches_its_own_golden_fixture() {
+        let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
+        let golden = normalize_newlines(include_str!(
+            "../../tests/fixtures/compose.chapkit-rwanda-malaria-bym-model.yml"
+        ));
+        assert_eq!(text, golden);
+    }
+
+    /// What the two shapes differ in, said as assertions rather than as a
+    /// diff of two files.
+    #[test]
+    fn a_root_image_gets_no_user_line_and_no_init_container() {
+        let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
+        assert_no_tokens(&text);
+        let doc = parse(&text);
+        let svc = service(&doc, "chapkit-rwanda-malaria-bym-model");
+        assert!(svc.get("user").is_none(), "root needs no override");
+        assert!(!text.contains("chown"), "{text}");
+        assert!(
+            doc["services"]
+                .get("chapkit-rwanda-malaria-bym-model-init")
+                .is_none(),
+            "{text}"
+        );
+        // The model still waits for chap-core, and still gets its volume.
+        assert_eq!(
+            svc["depends_on"]["chap"]["condition"].as_str(),
+            Some("service_healthy")
+        );
+        assert!(
+            svc["depends_on"]
+                .get("chapkit-rwanda-malaria-bym-model-init")
+                .is_none()
+        );
+        assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/work/data"));
+        assert!(doc["volumes"]["ck_chapkit_rwanda_malaria_bym_model_data"].is_mapping());
+        // And the hardening it shares with every other overlay is untouched.
+        assert_eq!(svc["read_only"].as_bool(), Some(true));
+        assert_eq!(svc["init"].as_bool(), Some(true));
+
+        // Every spelling of root renders the same file.
+        let mut spec = overlay_spec("chapkit_rwanda_malaria_bym_model");
+        for user in ["root", "0", "0:0", "root:root", ""] {
+            spec.user = user.to_string();
+            assert_eq!(render_overlay(&spec), text, "{user:?}");
+        }
+    }
+
     #[test]
     fn an_overlay_publishes_a_port_only_when_one_was_asked_for() {
         // The default: exposed on the compose network, invisible to the host.
@@ -616,7 +719,9 @@ mod tests {
         assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
         assert_eq!(svc["init"].as_bool(), Some(true));
         assert_eq!(svc["read_only"].as_bool(), Some(true));
-        assert_eq!(svc["user"].as_str(), Some("chapkit:chapkit"));
+        // The numeric form, so this line and the init container's chown are
+        // the same two numbers.
+        assert_eq!(svc["user"].as_str(), Some("1000:1000"));
 
         // chap-core/tests/test_compose_deployment.py: a pinned sha build behind
         // an overridable ${<ID>_IMAGE_TAG:-sha-xxxxxxx}, and no pull_policy.

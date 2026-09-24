@@ -4,11 +4,13 @@ pub mod apply;
 pub mod overrides;
 pub mod ports;
 pub mod render;
+pub mod resolve;
 pub mod spec;
 pub mod sync;
 
 pub use apply::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 pub use render::render_env;
+pub use resolve::UserSource;
 pub use sync::{SyncReport, sync};
 
 /// Compose service name of the OCS component.

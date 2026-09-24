@@ -155,8 +155,9 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // The overlay's init container chowns the data volume from busybox,
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the
-        // chapkit ids, but the operator should know the guess was taken.
-        if overrides::numeric_user(&spec.user).is_none() {
+        // chapkit ids, but the operator should know the guess was taken. A
+        // model that runs as root has no init container to warn about.
+        if overrides::numeric_pair(&spec.user).is_none() {
             report.warnings.push(format!(
                 "{id} runs as `{}`, which has no known uid:gid; the volume init \
                  container will chown {} to {} instead - pass `--user <uid>:<gid>` \
@@ -693,7 +694,8 @@ fn is_commented_pin(line: &str, var: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compose::{EnableRequest, Selection, apply};
+    use crate::compose::apply::apply_with;
+    use crate::compose::{EnableRequest, Selection};
     use crate::project::{ProjectState, default_compose_files};
     use crate::registry::load_embedded;
     use tempfile::TempDir;
@@ -709,7 +711,14 @@ mod tests {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel).unwrap();
+        apply_with(
+            &mut project,
+            &registry,
+            &sel,
+            &|_| false,
+            &crate::compose::resolve::from_table,
+        )
+        .unwrap();
         (dir, project, registry)
     }
 

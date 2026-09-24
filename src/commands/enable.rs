@@ -37,6 +37,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
             port: args.port.map(|p| p.0),
             data_dir: args.data_dir.clone(),
             user: args.user.clone(),
+            user_from: None,
             allow_template: args.allow_template,
             // `models enable` is where a version is decided, so it always
             // resolves: that is what `--version` and `--channel` are for, and
@@ -46,7 +47,8 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
         disable: Vec::new(),
     };
 
-    let report = apply(&mut project, &registry, &selection)?;
+    let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+    let report = apply(&mut project, &registry, &selection, &endpoints)?;
     ctx.out
         .emit(&report, || summary(&report, &[], &project, &ctx.out))
 }
@@ -139,7 +141,9 @@ pub(crate) fn disable_enabled(
     }
 
     let report = DisableReport {
-        apply: apply(project, registry, &selection)?,
+        // A disable enables nothing, so nothing here is ever looked up; the
+        // offline endpoints say so rather than leaving it to chance.
+        apply: apply(project, registry, &selection, &offline_endpoints())?,
         stopped,
         purged,
         kept_volumes,
@@ -340,6 +344,15 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], out
     text
 }
 
+/// Endpoints for a call that enables nothing and therefore looks nothing up.
+fn offline_endpoints() -> crate::manual::Endpoints {
+    crate::manual::Endpoints {
+        offline: true,
+        docker_probe: false,
+        ..crate::manual::Endpoints::default()
+    }
+}
+
 /// The state key for a marketplace id or a compose service id.
 pub(crate) fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
     if project.state.models.contains_key(wanted) {
@@ -439,6 +452,7 @@ mod tests {
             host_port,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
             platform: Some("linux/amd64".into()),
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         };

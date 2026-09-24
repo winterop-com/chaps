@@ -6,9 +6,11 @@ use crate::components::{Component, MODELS_NEED_CHAP_CORE};
 use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
 use crate::compose::ports::allocator_for;
+use crate::compose::resolve::{self, ResolveFn, UserSource};
 use crate::compose::spec::OverlaySpec;
 use crate::compose::sync::sync;
 use crate::error::{ChapError, Result};
+use crate::manual::Endpoints;
 use crate::project::{EnabledModel, Project};
 use crate::registry::{Registry, VersionSelector};
 use serde::Serialize;
@@ -44,6 +46,14 @@ pub struct EnableRequest {
     pub port: Option<PortRequest>,
     pub data_dir: Option<String>,
     pub user: Option<String>,
+    /// Where [`user`] came from, for a caller that resolved it already.
+    ///
+    /// `chaps models add` reads the image itself and hands the answer over;
+    /// leaving this `None` records the flag as [`UserSource::Flag`], which is
+    /// what it is for everyone who typed `--user`.
+    ///
+    /// [`user`]: EnableRequest::user
+    pub user_from: Option<UserSource>,
     pub allow_template: bool,
     /// Leave the version the project recorded exactly as it is, [`selector`]
     /// included.
@@ -67,6 +77,7 @@ impl EnableRequest {
             port: None,
             data_dir: None,
             user: None,
+            user_from: None,
             allow_template: false,
             keep_version: false,
         }
@@ -157,17 +168,31 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
 ///
 /// Nothing is written until the whole selection has resolved, so an unknown
 /// model or a port clash leaves the directory as it was.
-pub fn apply(project: &mut Project, registry: &Registry, sel: &Selection) -> Result<ApplyReport> {
-    apply_with(project, registry, sel, &crate::ports::is_busy)
+///
+/// `endpoints` is where the user of a newly enabled marketplace model is read
+/// from: the registry, or the local daemon, or - for an `--offline` run that
+/// has neither - the table compiled into this binary. See
+/// [`crate::compose::resolve`].
+pub fn apply(
+    project: &mut Project,
+    registry: &Registry,
+    sel: &Selection,
+    endpoints: &Endpoints,
+) -> Result<ApplyReport> {
+    apply_with(project, registry, sel, &crate::ports::is_busy, &|req| {
+        resolve::from_image(req, endpoints)
+    })
 }
 
-/// [`apply`] with the host port probe injected, so tests can decide what the
-/// machine is listening on without binding anything.
+/// [`apply`] with the host port probe and the user resolution injected, so
+/// tests can decide what the machine is listening on without binding anything
+/// and what an image declares without pulling one.
 pub fn apply_with(
     project: &mut Project,
     registry: &Registry,
     sel: &Selection,
     busy: &dyn Fn(u16) -> bool,
+    resolve: ResolveFn,
 ) -> Result<ApplyReport> {
     validate(project, registry, sel)?;
     let mut report = ApplyReport::default();
@@ -237,24 +262,60 @@ pub fn apply_with(
         };
 
         let known = known_override(&model.id);
-        // A manually added model carries its own answers: the built-in table
-        // is a list of images this CLI shipped knowing about, and cannot
-        // have an entry for one it has never seen.
+        // A manually added model carries its own answers: `models add` read
+        // them off the image when the entry was written, and the built-in
+        // table cannot have an entry for an image this CLI has never seen.
         let manual = project.state.manual.get(&model.id).cloned();
-        let data_dir = req
-            .data_dir
-            .clone()
-            .or_else(|| existing.as_ref().map(|e| e.data_dir.clone()))
-            .or_else(|| manual.as_ref().and_then(|m| m.data_dir.clone()))
-            .or_else(|| known.map(|k| k.data_dir.to_string()))
-            .unwrap_or_else(|| DEFAULT_DATA_DIR.to_string());
-        let user = req
-            .user
-            .clone()
-            .or_else(|| existing.as_ref().map(|e| e.user.clone()))
-            .or_else(|| manual.as_ref().and_then(|m| m.user.clone()))
-            .or_else(|| known.map(|k| k.user.to_string()))
-            .unwrap_or_else(|| DEFAULT_USER.to_string());
+        // A marketplace model's user comes from the image itself, re-read on
+        // every enable, because an image can change what it runs as between
+        // two tags. A port-only change (`keep_version`) asks nothing: it is
+        // not about the image, and re-resolving here would make publishing a
+        // port a network operation.
+        let resolved = match (&manual, &pinned) {
+            (None, None) => {
+                let version = model.resolve(&req.selector)?;
+                Some(resolve(&resolve::Request {
+                    id: &model.id,
+                    image: &model.source.image,
+                    image_tag: &version.image_tag,
+                    data_dir_flag: req.data_dir.as_deref(),
+                    user_flag: req.user.as_deref(),
+                }))
+            }
+            _ => None,
+        };
+        let (data_dir, user, user_from) = match &resolved {
+            Some(resolution) => {
+                report.warnings.extend(resolution.notes.iter().cloned());
+                (
+                    resolution.data_dir.clone(),
+                    resolution.user.clone(),
+                    resolution.user_from,
+                )
+            }
+            None => {
+                let data_dir = req
+                    .data_dir
+                    .clone()
+                    .or_else(|| existing.as_ref().map(|e| e.data_dir.clone()))
+                    .or_else(|| manual.as_ref().and_then(|m| m.data_dir.clone()))
+                    .or_else(|| known.map(|k| k.data_dir.to_string()))
+                    .unwrap_or_else(|| DEFAULT_DATA_DIR.to_string());
+                let user = req
+                    .user
+                    .clone()
+                    .or_else(|| existing.as_ref().map(|e| e.user.clone()))
+                    .or_else(|| manual.as_ref().and_then(|m| m.user.clone()))
+                    .or_else(|| known.map(|k| k.user.to_string()))
+                    .unwrap_or_else(|| DEFAULT_USER.to_string());
+                let user_from = req
+                    .user_from
+                    .or_else(|| req.user.as_ref().map(|_| UserSource::Flag))
+                    .or_else(|| existing.as_ref().map(|e| e.user_from))
+                    .unwrap_or_default();
+                (data_dir, user, user_from)
+            }
+        };
 
         let entry = match pinned {
             // A port change, and nothing about the image: the recorded pin,
@@ -263,6 +324,7 @@ pub fn apply_with(
                 host_port,
                 data_dir,
                 user,
+                user_from,
                 ..previous
             },
             None => {
@@ -286,6 +348,7 @@ pub fn apply_with(
                     host_port,
                     data_dir,
                     user,
+                    user_from,
                     platform: spec.platform.clone(),
                     compose_file: overlay_filename(&model.service_id),
                 }
@@ -339,10 +402,11 @@ mod tests {
         false
     }
 
-    /// [`apply`] with the host probe stubbed out, which is how every test here
-    /// runs: a real probe would make the result depend on the machine.
+    /// [`apply`] with the host probe and the user lookup stubbed out, which is
+    /// how every test here runs: either one would make the result depend on
+    /// the machine - what it listens on, and what it has pulled.
     fn apply(project: &mut Project, registry: &Registry, sel: &Selection) -> Result<ApplyReport> {
-        apply_with(project, registry, sel, &all_free)
+        apply_with(project, registry, sel, &all_free, &resolve::from_table)
     }
 
     fn project() -> (TempDir, Project) {
@@ -396,7 +460,8 @@ mod tests {
         assert_eq!(entry.channel, Some(Channel::Stable));
         assert_eq!(entry.image_tag, "sha-fa880a1");
         assert_eq!(entry.data_dir, "/app/data");
-        assert_eq!(entry.user, "chapkit:chapkit");
+        assert_eq!(entry.user, "1000:1000");
+        assert_eq!(entry.user_from, UserSource::Table, "the test resolver");
         assert_eq!(entry.platform.as_deref(), Some("linux/amd64"));
         assert_eq!(entry.compose_file, "compose.chapkit-ewars-model.yml");
 
@@ -453,6 +518,7 @@ mod tests {
             &registry,
             &publish(&["chapkit_ewars_model"]),
             &busy,
+            &resolve::from_table,
         )
         .unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5004));
@@ -484,8 +550,14 @@ mod tests {
         // A port nothing in the project claims, but that the machine does.
         let mut listening = enable(&["auto_arima_chapkit"]);
         listening.enable[0].port = Some(PortRequest::Fixed(5200));
-        let err = apply_with(&mut project, &registry, &listening, &|port| port == 5200)
-            .expect_err("something is listening on 5200");
+        let err = apply_with(
+            &mut project,
+            &registry,
+            &listening,
+            &|port| port == 5200,
+            &resolve::from_table,
+        )
+        .expect_err("something is listening on 5200");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::PortInUse {

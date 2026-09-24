@@ -556,6 +556,7 @@ mod tests {
             host_port: Some(5001),
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
             platform: None,
             compose_file: "compose.m.yml".into(),
         };

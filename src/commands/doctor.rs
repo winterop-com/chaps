@@ -454,6 +454,7 @@ fn project_checks(
         ));
     }
     checks.extend(image_checks(project, probed, have_cli));
+    checks.extend(user_checks(project, have_cli));
     checks.push(stack_check(project, containers.as_deref(), &running));
     checks
 }
@@ -1900,6 +1901,77 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
     images
 }
 
+/// One line per enabled model: does the user its overlay runs it as still
+/// match what the image declares.
+///
+/// The one class of breakage `chaps sync` cannot see: the recorded user is
+/// what the overlay renders from, and an image that runs as root under a
+/// `user: 1000:1000` starts fine and then fails on its own binaries - the
+/// Rwanda BYM model's `inla.run: Permission denied`. Only a locally pulled
+/// image can be asked without a network round trip per model, so a model whose
+/// image is not on this machine is skipped rather than guessed at.
+fn user_checks(project: &Project, have_cli: bool) -> Vec<Check> {
+    user_checks_with(project, have_cli, &crate::docker::image_config)
+}
+
+/// [`user_checks`] with the daemon injected, so the verdicts can be tested.
+fn user_checks_with(
+    project: &Project,
+    have_cli: bool,
+    declared: &dyn Fn(&str) -> Option<(String, String)>,
+) -> Vec<Check> {
+    project
+        .state
+        .models
+        .iter()
+        .map(|(id, model)| {
+            let reference = crate::compose::image_ref(&model.image, &model.image_tag);
+            let found = have_cli
+                .then(|| declared(&reference))
+                .flatten()
+                .map(|(user, _)| user);
+            user_check(id, &model.service_id, &model.user, found.as_deref())
+        })
+        .collect()
+}
+
+/// The verdict for one model, given what its image declares.
+///
+/// `None` is "the image is not on this machine", which is the usual state
+/// before the first `chaps up` and no reason to say anything is wrong.
+pub fn user_check(id: &str, service_id: &str, recorded: &str, declared: Option<&str>) -> Check {
+    let check_id = format!("user-{service_id}");
+    let name = format!("user {service_id}");
+    let Some(declared) = declared else {
+        return Check::skip(
+            check_id,
+            name,
+            format!("{recorded}; the image is not pulled here, so it was not asked"),
+        );
+    };
+    let wanted = crate::compose::resolve::normalize(declared);
+    // An account name only the image itself can resolve says nothing about
+    // whether the numbers beside it are right.
+    if crate::compose::overrides::numeric_pair(&wanted).is_none() {
+        return Check::skip(
+            check_id,
+            name,
+            format!("the image runs as `{wanted}`, which only the image can turn into numbers"),
+        );
+    }
+    if crate::compose::resolve::normalize(recorded) == wanted {
+        return Check::ok(check_id, name, format!("{recorded}, as the image declares"));
+    }
+    Check::warn(
+        check_id,
+        name,
+        format!("{recorded}, but the image runs as {wanted}"),
+        format!(
+            "run `chaps models enable {id}` to read the user off the image again, or `chaps update`"
+        ),
+    )
+}
+
 /// One line per enabled model, asked in parallel.
 fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> Vec<Check> {
     // Marketplace id, service id and the exact reference the overlay pins.
@@ -2294,6 +2366,111 @@ mod tests {
             pinned.detail.contains("pinned to sha-1eb8cf1"),
             "{pinned:?}"
         );
+    }
+
+    /// The `user <service>` line: what the overlay runs the model as, against
+    /// what the pulled image says it runs as.
+    #[test]
+    fn a_models_user_is_checked_against_the_image_it_pins() {
+        // The image declares `USER chapkit`; the entry records the numbers
+        // that resolves to, so the two agree.
+        let ok = user_check(
+            "chapkit_ewars_model",
+            "chapkit-ewars-model",
+            "1000:1000",
+            Some("chapkit"),
+        );
+        assert_eq!(ok.status, Status::Ok);
+        assert_eq!(ok.id, "user-chapkit-ewars-model");
+        assert_eq!(ok.name, "user chapkit-ewars-model");
+        assert!(ok.detail.contains("as the image declares"), "{ok:?}");
+        assert_eq!(ok.fix, None);
+
+        // Root, however it is spelled on either side.
+        for declared in ["root", "", "0:0"] {
+            let check = user_check("m", "m", "root", Some(declared));
+            assert_eq!(check.status, Status::Ok, "{declared:?} {check:?}");
+        }
+
+        // The bug this check exists for: an image that runs as root under an
+        // overlay that hands it an unprivileged uid.
+        let wrong = user_check(
+            "chapkit_rwanda_malaria_bym_model",
+            "chapkit-rwanda-malaria-bym-model",
+            "1000:1000",
+            Some("root"),
+        );
+        assert_eq!(wrong.status, Status::Warn);
+        assert!(
+            wrong
+                .detail
+                .contains("1000:1000, but the image runs as root"),
+            "{wrong:?}"
+        );
+        assert_eq!(
+            wrong.fix.as_deref(),
+            Some(
+                "run `chaps models enable chapkit_rwanda_malaria_bym_model` to read the \
+                 user off the image again, or `chaps update`"
+            )
+        );
+
+        // Nothing to ask: the image is not on this machine.
+        let absent = user_check("m", "m", "1000:1000", None);
+        assert_eq!(absent.status, Status::Skip);
+        assert!(absent.detail.contains("not pulled here"), "{absent:?}");
+        assert_eq!(absent.fix, None);
+
+        // And an account name only the image can resolve proves nothing about
+        // the numbers recorded beside it.
+        let opaque = user_check("m", "m", "10001:10001", Some("app"));
+        assert_eq!(opaque.status, Status::Skip);
+        assert!(opaque.detail.contains("`app`"), "{opaque:?}");
+    }
+
+    /// One line per enabled model, and none at all without a docker CLI to
+    /// ask.
+    #[test]
+    fn the_user_checks_cover_every_enabled_model() {
+        let entry = crate::project::EnabledModel {
+            service_id: "chapkit-ewars-model".into(),
+            image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
+            image_tag: "sha-fa880a1".into(),
+            version: "1.0.0".into(),
+            channel: None,
+            host_port: None,
+            data_dir: "/app/data".into(),
+            user: "1000:1000".into(),
+            user_from: Default::default(),
+            platform: None,
+            compose_file: "compose.chapkit-ewars-model.yml".into(),
+        };
+        let mut project = Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state: crate::project::ProjectState {
+                models: std::collections::BTreeMap::from([(
+                    "chapkit_ewars_model".to_string(),
+                    entry,
+                )]),
+                ..crate::project::ProjectState::default()
+            },
+        };
+        let checks = user_checks_with(&project, true, &|reference| {
+            reference
+                .contains("ewars")
+                .then(|| ("root".to_string(), "/app".to_string()))
+        });
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].id, "user-chapkit-ewars-model");
+        assert_eq!(checks[0].status, Status::Warn);
+
+        // Without a docker CLI nothing is asked, but the line is still there.
+        let skipped = user_checks_with(&project, false, &|_| panic!("no CLI, no question"));
+        assert_eq!(skipped[0].status, Status::Skip);
+
+        // A deployment with no models has no such lines.
+        project.state.models.clear();
+        assert!(user_checks_with(&project, true, &|_| None).is_empty());
     }
 
     /// What `docker version` prints when it worked.

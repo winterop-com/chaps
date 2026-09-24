@@ -28,7 +28,8 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         return Ok(());
     }
 
-    let report = apply(&mut project, &registry, &selection)?;
+    let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+    let report = apply(&mut project, &registry, &selection, &endpoints)?;
     ctx.out.emit(&report, || human(&report))?;
     Ok(())
 }
@@ -88,6 +89,7 @@ mod tests {
             host_port: port,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
             platform: Some("linux/amd64".into()),
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         }
@@ -151,8 +153,14 @@ mod tests {
 
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
-        let report = apply(&mut project, &registry, &selection)
-            .expect("the browser's selection is applicable");
+        let report = crate::compose::apply::apply_with(
+            &mut project,
+            &registry,
+            &selection,
+            &|_| false,
+            &crate::compose::resolve::from_table,
+        )
+        .expect("the browser's selection is applicable");
 
         assert_eq!(report.enabled.len(), 1);
         let (id, model) = &report.enabled[0];

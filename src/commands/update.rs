@@ -24,6 +24,7 @@ use crate::chapcore;
 use crate::cli::UpdateArgs;
 use crate::commands::Ctx;
 use crate::components;
+use crate::compose::resolve::{self, UserSource};
 use crate::compose::sync::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::compose::{sync, tag_env_var};
 use crate::docker;
@@ -222,6 +223,15 @@ pub struct ModelUpdate {
     /// The commit the new tag was built from, where the lookup said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_commit: Option<String>,
+    /// The account the model runs as today.
+    pub old_user: String,
+    /// What the image at the new tag declares, which is the same string
+    /// unless the image changed what it runs as between the two builds.
+    pub new_user: String,
+    /// Where [`new_user`] came from.
+    ///
+    /// [`new_user`]: ModelUpdate::new_user
+    pub user_from: UserSource,
 }
 
 impl ModelUpdate {
@@ -239,7 +249,15 @@ impl ModelUpdate {
             follow: None,
             checked: true,
             new_commit: None,
+            old_user: entry.user.clone(),
+            new_user: entry.user.clone(),
+            user_from: entry.user_from,
         }
+    }
+
+    /// The user this row moves, when it moves one.
+    fn moved_user(&self) -> Option<(&str, &str)> {
+        (self.new_user != self.old_user).then_some((&self.old_user, &self.new_user))
     }
 }
 
@@ -262,6 +280,14 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let models = plan(&project, &registry, &|id, entry| {
         newest_published(id, entry, &endpoints)
     })?;
+    // A new tag is a new image, and an image can change what it runs as
+    // between two builds - which is the difference between a model that works
+    // and one whose own binaries it may not execute. Only the rows that move
+    // are asked, and only about the user: moving the data directory here
+    // would point the service at an empty path next to a volume holding its
+    // database.
+    let mut models = models;
+    resolve_users(&project, &mut models, &endpoints);
     let latest = lookup_latest(
         &project.state.chap_image_tag,
         args.pin_chap_core,
@@ -314,6 +340,8 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             .expect("plan only lists enabled models");
         entry.version = change.new_version.clone();
         entry.image_tag = change.new_tag.clone();
+        entry.user = change.new_user.clone();
+        entry.user_from = change.user_from;
         refresh_env_pin(&project.dir, &tag_env_var(&change.id), &change.new_tag)?;
     }
     let synced = sync(&mut project, &registry, false)?;
@@ -471,6 +499,35 @@ fn plan(project: &Project, registry: &Registry, follow: FollowFn) -> Result<Vec<
         out.push(update);
     }
     Ok(out)
+}
+
+/// Re-read the user of every marketplace model the plan moves to a new tag.
+///
+/// A manual entry is left alone: `models add` resolved its user against the
+/// image, and `models remove` plus a fresh add is how that answer is revisited.
+/// A row that is not moving is left alone too - the image behind it has not
+/// changed, so neither has what it runs as.
+fn resolve_users(project: &Project, models: &mut [ModelUpdate], endpoints: &manual::Endpoints) {
+    for update in models.iter_mut().filter(|m| m.changed && !m.manual) {
+        let Some(entry) = project.state.models.get(&update.id) else {
+            continue;
+        };
+        let resolution = resolve::from_image(
+            &resolve::Request {
+                id: &update.id,
+                image: &entry.image,
+                image_tag: &update.new_tag,
+                data_dir_flag: None,
+                user_flag: None,
+            },
+            endpoints,
+        );
+        for note in &resolution.notes {
+            output::warn(note);
+        }
+        update.new_user = resolution.user;
+        update.user_from = resolution.user_from;
+    }
 }
 
 /// The newest published build of a manually added model's branch, as
@@ -771,12 +828,25 @@ fn plan_text(report: &UpdateReport, out: &Out) -> String {
         };
         text.push_str(&line);
         text.push('\n');
+        if let Some(user) = user_line(m) {
+            text.push_str(&format!("    {}\n", out.dim(&user)));
+        }
     }
     text.push_str(&format!("  {}\n", chap_core_cell(out, &report.chap_core)));
     for component in &report.components {
         text.push_str(&format!("  {}\n", out.dim(&component_line(component))));
     }
     text
+}
+
+/// What a row says about the account the model runs as, when the new tag
+/// changed it: `user 1000:1000 -> root (image config)`.
+///
+/// Nothing at all when it did not, which is almost every row: an image that
+/// kept its `USER` line has nothing to report here.
+fn user_line(m: &ModelUpdate) -> Option<String> {
+    let (old, new) = m.moved_user()?;
+    Some(format!("user {old} -> {new} ({})", m.user_from.label()))
 }
 
 /// How one row's pin reads: `v1.0.0 (sha-fa880a1)` for a marketplace model,
@@ -814,7 +884,8 @@ fn chap_core_cell(out: &Out, change: &ChapCoreUpdate) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compose::{EnableRequest, Selection, apply};
+    use crate::compose::apply::apply_with;
+    use crate::compose::{EnableRequest, Selection};
     use crate::project::ProjectState;
     use crate::registry::{Channel, load_embedded};
 
@@ -829,7 +900,14 @@ mod tests {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel).unwrap();
+        apply_with(
+            &mut project,
+            &registry,
+            &sel,
+            &|_| false,
+            &crate::compose::resolve::from_table,
+        )
+        .unwrap();
         (dir, project, registry)
     }
 
@@ -916,7 +994,14 @@ mod tests {
             enable: vec![request],
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel).unwrap();
+        apply_with(
+            &mut project,
+            &registry,
+            &sel,
+            &|_| false,
+            &crate::compose::resolve::from_table,
+        )
+        .unwrap();
         (dir, project, registry)
     }
 
@@ -1091,6 +1176,62 @@ mod tests {
         assert_eq!(value["chap_core"]["compose_source"]["kind"], "embedded");
     }
 
+    /// A new tag can be a new user, and the plan says so where it happened.
+    #[test]
+    fn a_row_whose_image_changed_its_user_says_so_under_the_pin() {
+        let moved = ModelUpdate {
+            old_version: "1.0.0".into(),
+            old_tag: "sha-1111111".into(),
+            new_version: "1.1.0".into(),
+            new_tag: "sha-2222222".into(),
+            changed: true,
+            old_user: "1000:1000".into(),
+            new_user: "root".into(),
+            user_from: UserSource::ImageConfig,
+            ..row("chapkit_rwanda_malaria_bym_model")
+        };
+        assert_eq!(
+            user_line(&moved).as_deref(),
+            Some("user 1000:1000 -> root (image config)")
+        );
+
+        let report = UpdateReport {
+            registry: RegistryInfo {
+                url: "https://example.test/registry.yaml".into(),
+                provenance: Provenance::Network,
+            },
+            models: vec![moved.clone()],
+            chap_core: chap_core("latest", "latest", None),
+            components: Vec::new(),
+            pulled: false,
+            pulled_new: Vec::new(),
+            restart_needed: Vec::new(),
+            stack_running: Some(true),
+            dry_run: true,
+        };
+        let text = plan_text(&report, &Out::default());
+        assert!(
+            text.contains(
+                "  chapkit_rwanda_malaria_bym_model  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n    user 1000:1000 -> root (image config)\n"
+            ),
+            "{text}"
+        );
+
+        // An image that kept its user has nothing to report, and a row that is
+        // not moving was never asked.
+        let same = ModelUpdate {
+            new_user: "1000:1000".into(),
+            ..moved
+        };
+        assert_eq!(user_line(&same), None);
+        assert_eq!(user_line(&row("chapkit_ewars_model")), None);
+
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["models"][0]["old_user"], "1000:1000");
+        assert_eq!(value["models"][0]["new_user"], "root");
+        assert_eq!(value["models"][0]["user_from"], "image-config");
+    }
+
     /// A row with everything a marketplace model's is, for the fields a test
     /// does not care about.
     fn row(id: &str) -> ModelUpdate {
@@ -1105,6 +1246,7 @@ mod tests {
                 host_port: None,
                 data_dir: "/work/data".into(),
                 user: "chapkit:chapkit".into(),
+                user_from: Default::default(),
                 platform: None,
                 compose_file: format!("compose.{id}.yml"),
             },

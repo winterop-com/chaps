@@ -57,15 +57,18 @@ PostgreSQL has to be running for the database part, because the dump goes
 through `docker compose exec`; when it is not, the command stops and says to
 start CHAP or pass `--no-db`.
 
-Model data is read through each overlay's one-shot `<service_id>-init`
+Model data is read through the overlay's one-shot `<service_id>-init`
 container, which mounts the same named volume at the same path as the model
 itself, so it works whether the model is running, stopped, or was brought down
-entirely. A model that has never started has no volume yet; it is skipped with
-a warning and recorded as such in the manifest.
+entirely. A model that runs as root has no such container - it needs no chown,
+so the overlay ships none - and its volume is mounted into a throwaway
+`busybox` container instead; the bytes are the same either way. A model that
+has never started has no volume yet; it is skipped with a warning and recorded
+as such in the manifest.
 
-Component data (`ocs_data`, `s3_data`) is read the same way, except that
-neither service has an init container, so the volume is mounted into a
-throwaway `busybox` container instead. `--no-components` leaves both out.
+Component data (`ocs_data`, `s3_data`) is read the second way for the same
+reason: neither service has an init container. `--no-components` leaves both
+out.
 
 A service that is running is paused for the seconds its volume takes to read:
 
@@ -209,6 +212,7 @@ defaulting to `chap` and `chap_core`.
 | read a model's data | `docker compose run --rm --no-deps -T <service>-init tar cf - -C <data_dir> . > <service>.tar` |
 | write it back | `docker compose run --rm --no-deps -T <service>-init sh -c 'rm -rf <data_dir>/* && tar xf - -C <data_dir>' < <service>.tar` |
 | hand it to the model | `docker compose run --rm --no-deps -T <service>-init chown -R 1000:1000 <data_dir>` |
+| the same for a root model | the two `busybox` lines below, with `<project>_ck_<id>_data` as the volume; there is no init container and no chown |
 | check the connection | `docker compose exec -T postgres psql -U $PGU -d $PGDB -tAc 'select 1'` |
 | hold a service still | `docker compose pause <service>`, and `unpause` afterwards |
 | read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.37 tar -C /v -cf - . > ocs.tar` |

@@ -246,7 +246,8 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
     // models) and .chaps/.
-    let mut report = apply(&mut project, &registry, &selection)?;
+    let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+    let mut report = apply(&mut project, &registry, &selection, &endpoints)?;
     report.removed.extend(stale);
     written.extend(report.written.iter().cloned());
     written.push(dir.join(CHAPS_DIR).join(PROJECT_FILE));

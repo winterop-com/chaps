@@ -1,8 +1,12 @@
 //! Per-image data directory and user overrides.
 //!
-//! Most chapkit services write to `/work/data` as `chapkit:chapkit`, but some
-//! images differ; getting this wrong crash-loops the container on the
-//! read-only root filesystem. `--data-dir` and `--user` override the table.
+//! Most chapkit services write to `/work/data`, but the account they run as
+//! differs per image, and getting it wrong either crash-loops the container on
+//! the read-only root filesystem or takes away a permission the image's own
+//! binaries need. The image config is the source of truth
+//! ([`crate::compose::resolve`]); this table is the last resort, for a run
+//! that can reach neither the registry nor a local copy of the image.
+//! `--data-dir` and `--user` override both.
 //!
 //! Owned by agent B.
 
@@ -78,12 +82,56 @@ fn numeric_id(part: &str) -> Option<u32> {
         .map(|(_, id)| *id)
 }
 
-/// Data dir and user per marketplace id, read off each model's own Dockerfile.
+/// The full `uid:gid` an image's `User` means, for both the compose `user:`
+/// line and the init container's `chown`.
+///
+/// [`numeric_user`] keeps a bare `chapkit` a bare uid, which is what compose
+/// and `chown` have always read as "leave the group alone". A `User` read off
+/// an image config is bare far more often than a hand-written `--user` is
+/// (`USER chapkit` is the usual line), and leaving the group out there would
+/// render a `user: 1000` next to a `chown 1000` that the group of the volume
+/// no longer matches. Each account name the images create has a group of the
+/// same name and the same id (verified with `id` inside each published image),
+/// so a name resolves to the pair. A bare *number* still cannot: nothing here
+/// knows which group uid 1500 is in, so it stays as it was given.
+pub fn numeric_pair(user: &str) -> Option<String> {
+    let user = user.trim();
+    if user.contains(':') {
+        return numeric_user(user);
+    }
+    if user.parse::<u32>().is_ok() {
+        return Some(user.to_string());
+    }
+    let id = numeric_id(user)?;
+    Some(format!("{id}:{id}"))
+}
+
+/// Whether this `user:` value is root, which is the one value that needs no
+/// `user:` line and no init container: root can write a fresh volume as it is.
+///
+/// An empty value counts, because an image config with no `User` is an image
+/// that runs as root.
+pub fn is_root(user: &str) -> bool {
+    let user = user.trim();
+    if user.is_empty() {
+        return true;
+    }
+    matches!(numeric_pair(user).as_deref(), Some("0") | Some("0:0"))
+}
+
+/// Data dir and user per marketplace id, as each image's own config declares
+/// them.
 ///
 /// Every marketplace entry is listed, including the ones that match the
-/// defaults, so that the table doubles as the record of what was checked.
-/// Repositories are the clones under `chap-models/<id>`.
+/// defaults, so that the table doubles as the record of what was checked. The
+/// values are `config.User` and `config.WorkingDir`+`/data` of the image the
+/// `stable` channel pins, read anonymously off ghcr - the same two fields
+/// [`crate::compose::resolve`] reads at enable time, so a run that falls back
+/// to this table lands where a run that could reach the registry would have.
+/// Four of the six images end their Dockerfile on `USER root`; only EWARS and
+/// the simple multistep model drop to an account of their own.
 const KNOWN: &[(&str, ImageOverride)] = &[
+    // User=chapkit, WorkingDir=/app at sha-fa880a1.
     // chapkit_ewars_model/Dockerfile:14 `WORKDIR /app`,
     // :33 `RUN mkdir -p /app/data && chown -R chapkit:chapkit /app/data`,
     // :37 `USER chapkit`.
@@ -91,30 +139,34 @@ const KNOWN: &[(&str, ImageOverride)] = &[
         "chapkit_ewars_model",
         ImageOverride {
             data_dir: "/app/data",
-            user: "chapkit:chapkit",
+            user: "chapkit",
         },
     ),
+    // User=chap, WorkingDir=/app at sha-57eeb78.
     // chapkit_simple_multistep_model/Dockerfile:12 `WORKDIR /app`,
     // :10 `useradd ... chap`, :30 `RUN mkdir -p /app/data && chown chap:chap
-    // /app/data`, :37 `USER chap`. The only image with its own user.
+    // /app/data`, :37 `USER chap`. The only image with a user of its own.
     (
         "chapkit_simple_multistep_model",
         ImageOverride {
             data_dir: "/app/data",
-            user: "chap:chap",
+            user: "chap",
         },
     ),
+    // User=root, WorkingDir=/work at sha-028bb5a.
     // chapkit_rwanda_malaria_bym_model/Dockerfile:11 `WORKDIR /work`; main.py:81
     // keeps the relative default `sqlite+aiosqlite:///data/chapkit.db`, so
-    // /work/data. The image ends on `USER root`; the inherited chapkit user
-    // (uid 1000) is what the hardened overlay runs it as.
+    // /work/data. The image ends on `USER root` and never drops back, and its
+    // INLA binaries are mode 744 root-owned: run as anyone else, every
+    // prediction fails with `inla.run: Permission denied`.
     (
         "chapkit_rwanda_malaria_bym_model",
         ImageOverride {
             data_dir: "/work/data",
-            user: "chapkit:chapkit",
+            user: "root",
         },
     ),
+    // User=root, WorkingDir=/work at sha-70c07a9.
     // auto_arima_chapkit/Dockerfile:13 `WORKDIR /work`; main.py:77 keeps the
     // relative default database URL. (The model repo's own compose.yml mounts
     // /workspace/data, which does not match its WORKDIR; /work/data is what
@@ -123,25 +175,27 @@ const KNOWN: &[(&str, ImageOverride)] = &[
         "auto_arima_chapkit",
         ImageOverride {
             data_dir: "/work/data",
-            user: "chapkit:chapkit",
+            user: "root",
         },
     ),
+    // User=root, WorkingDir=/work at sha-5689ab5.
     // chapkit_minimalist_example_py/Dockerfile:7 `WORKDIR /work`; main.py:101
     // keeps the relative default database URL.
     (
         "chapkit_minimalist_example_py",
         ImageOverride {
             data_dir: "/work/data",
-            user: "chapkit:chapkit",
+            user: "root",
         },
     ),
+    // User=root, WorkingDir=/work at sha-75c26ab.
     // chapkit_minimalist_example_r/Dockerfile:15 `WORKDIR /work`; same
     // default database URL as the Python template.
     (
         "chapkit_minimalist_example_r",
         ImageOverride {
             data_dir: "/work/data",
-            user: "chapkit:chapkit",
+            user: "root",
         },
     ),
 ];
@@ -173,33 +227,54 @@ mod tests {
         assert_eq!(KNOWN.len(), registry.models.len());
     }
 
+    /// The table is the last resort, so it has to land where reading the
+    /// image config would have. Each pair below was read off the published
+    /// image the `stable` channel pins, anonymously from ghcr: a pull token,
+    /// the OCI index, the amd64 manifest inside it and the config blob it
+    /// names - `config.User` and `config.WorkingDir` verbatim. `docker image
+    /// inspect` of the same tags agrees, except for the simple multistep
+    /// model, whose local copy on the development machine carries an empty
+    /// config; ghcr is what is quoted here.
     #[test]
-    fn the_table_matches_the_model_dockerfiles() {
-        let expected = [
-            ("chapkit_ewars_model", "/app/data", "chapkit:chapkit"),
-            ("chapkit_simple_multistep_model", "/app/data", "chap:chap"),
-            (
-                "chapkit_rwanda_malaria_bym_model",
-                "/work/data",
-                "chapkit:chapkit",
-            ),
-            ("auto_arima_chapkit", "/work/data", "chapkit:chapkit"),
-            (
-                "chapkit_minimalist_example_py",
-                "/work/data",
-                "chapkit:chapkit",
-            ),
-            (
-                "chapkit_minimalist_example_r",
-                "/work/data",
-                "chapkit:chapkit",
-            ),
+    fn the_table_matches_what_the_marketplace_images_declare() {
+        // (id, WorkingDir, User) as ghcr serves them today.
+        let declared = [
+            ("chapkit_ewars_model", "/app", "chapkit"),
+            ("chapkit_simple_multistep_model", "/app", "chap"),
+            ("chapkit_rwanda_malaria_bym_model", "/work", "root"),
+            ("auto_arima_chapkit", "/work", "root"),
+            ("chapkit_minimalist_example_py", "/work", "root"),
+            ("chapkit_minimalist_example_r", "/work", "root"),
         ];
-        for (id, data_dir, user) in expected {
+        for (id, working_dir, user) in declared {
             let found = known_override(id).unwrap_or_else(|| panic!("no entry for {id}"));
-            assert_eq!(found.data_dir, data_dir, "{id} data dir");
+            assert_eq!(
+                found.data_dir,
+                format!("{working_dir}/data"),
+                "{id} writes under its WorkingDir"
+            );
             assert_eq!(found.user, user, "{id} user");
         }
+    }
+
+    /// The four images that end on `USER root` get no `user:` line and no
+    /// init container; the two that drop to an account of their own do.
+    #[test]
+    fn the_table_says_which_images_run_as_root() {
+        let root: Vec<&str> = KNOWN
+            .iter()
+            .filter(|(_, o)| is_root(o.user))
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(
+            root,
+            [
+                "chapkit_rwanda_malaria_bym_model",
+                "auto_arima_chapkit",
+                "chapkit_minimalist_example_py",
+                "chapkit_minimalist_example_r",
+            ]
+        );
     }
 
     #[test]
@@ -245,10 +320,39 @@ mod tests {
     fn every_user_in_the_table_is_resolvable() {
         for (id, o) in KNOWN {
             assert!(
-                numeric_user(o.user).is_some(),
+                numeric_pair(o.user).is_some(),
                 "{id} runs as {} which the init container cannot chown to",
                 o.user
             );
+        }
+    }
+
+    #[test]
+    fn numeric_pair_gives_a_bare_account_name_its_group() {
+        // What an image config says - `USER chapkit` - has to render the same
+        // pair as a hand-written `chapkit:chapkit`.
+        assert_eq!(numeric_pair("chapkit").as_deref(), Some("1000:1000"));
+        assert_eq!(
+            numeric_pair("chapkit:chapkit").as_deref(),
+            Some("1000:1000")
+        );
+        assert_eq!(numeric_pair("chap").as_deref(), Some("1001:1001"));
+        assert_eq!(numeric_pair("root").as_deref(), Some("0:0"));
+        // A bare number names no group this CLI can look up, so it is left
+        // exactly as it was given.
+        assert_eq!(numeric_pair("1500").as_deref(), Some("1500"));
+        assert_eq!(numeric_pair("1500:1600").as_deref(), Some("1500:1600"));
+        assert_eq!(numeric_pair("nobody"), None);
+        assert_eq!(numeric_pair("chapkit:nobody"), None);
+    }
+
+    #[test]
+    fn root_is_recognised_however_it_is_written() {
+        for user in ["root", "root:root", "0", "0:0", "0:root", " root ", ""] {
+            assert!(is_root(user), "{user:?}");
+        }
+        for user in ["chapkit", "chapkit:chapkit", "1000:1000", "nobody"] {
+            assert!(!is_root(user), "{user:?}");
         }
     }
 }

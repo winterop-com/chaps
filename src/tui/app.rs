@@ -435,9 +435,11 @@ fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest
         selector: VersionSelector::Channel(row.channel),
         port,
         // Data dirs and users keep whatever the project already has; the
-        // browser does not edit them.
+        // browser does not edit them. A toggled row is enabled afresh, so its
+        // user is read off the image like any other `models enable`.
         data_dir: None,
         user: None,
+        user_from: None,
         allow_template: model.is_template(),
         // The caller decides: a row the user toggled or re-channelled resolves
         // the registry again, a row that only changed its port does not.
@@ -512,6 +514,7 @@ mod tests {
                 host_port,
                 data_dir: "/work/data".to_string(),
                 user: "chapkit:chapkit".to_string(),
+                user_from: Default::default(),
                 platform: None,
                 compose_file: format!("compose.{}.yml", model.service_id),
             },

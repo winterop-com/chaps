@@ -246,9 +246,15 @@ reviewed catalogue entry:
 | service | `--service-id`, else the id with hyphens. |
 | name | `--name`, else the repository or image name. |
 | pin | The newest published `sha-` build of the branch, or the tag or digest that was named. |
-| data dir | `--data-dir`, else `<WORKDIR>/data` from the image config, else `/work/data`. |
+| data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else `/work/data`. |
 | user | `--user`, else the image's own `User` when it is numeric or an account `chaps` knows, else the numbers a `docker run ... id -u` probe reads out of the image, else the name with a warning. |
 | amd64 | Whether ghcr publishes the image for amd64 alone; `--runtime-amd64` records it either way. |
+
+The data directory and the user are resolved the same way for a marketplace
+model, and from the same two fields of the same image config; see
+[Data directories and users](#data-directories-and-users). The difference is
+only where the answer is recorded: `.chaps/models-manual.yaml` holds a manual
+model's definition, `.chaps/models.yaml` holds every enabled model's.
 
 `--port N|auto` publishes a host port, exactly as on `models enable`, and is
 the one flag that is about the deployment rather than about the model.
@@ -402,7 +408,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    user: chapkit:chapkit
+    user: 1000:1000
     volumes:
       - type: tmpfs
         target: /tmp
@@ -448,14 +454,20 @@ The overlay does six things.
 - **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
   else. See [Ports](./ports.md).
 - **Hardening**, matching the posture of the base services: `init: true`,
-  `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, an unprivileged
-  `user`, a 2 GB tmpfs at `/tmp`, and a named volume for the model's data
-  directory (the only writable path besides `/tmp`).
+  `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, a 2 GB tmpfs at
+  `/tmp`, and a named volume for the model's data directory (the only writable
+  path besides `/tmp`).
+- **Runs it as the account its image declares.** `user: <uid>:<gid>`, in
+  numbers, for an image that drops to an account of its own. An image that
+  runs as root gets no `user:` line at all: the line exists to override the
+  image, and overriding root with root only risks taking a permission the
+  image's own binaries need. See
+  [Data directories and users](#data-directories-and-users).
 - **Hands the data volume to the model user**, through the init container
-  below.
+  below - again, only where the model is not root.
 - **Ordering.** `depends_on`: the init container with
-  `condition: service_completed_successfully` and `chap` with
-  `condition: service_healthy`, so a model only starts once its volume is
+  `condition: service_completed_successfully` (where there is one) and `chap`
+  with `condition: service_healthy`, so a model only starts once its volume is
   writable and chap-core can accept its registration.
 
 Three things an overlay deliberately leaves out:
@@ -472,41 +484,70 @@ point, ownership included, so an image that never creates its data directory
 yields a root-owned volume the unprivileged model cannot write to, and chapkit
 dies on `sqlite3.OperationalError: unable to open database file`.
 
-Compose cannot `chown` a volume, so each overlay ships a one-shot
-`<service_id>-init` container (busybox, as root, `restart: "no"`) that chowns
-the mount point to the model's **numeric** uid:gid before the model starts.
-Busybox resolves no `chapkit` account, which is why the numbers matter. Every
-overlay gets this container, not only the images known to need it, and it is
-the one service in a deployment that is deliberately not
-`restart: unless-stopped` (the `"no"` is quoted because bare `no` is YAML's
-`false`).
+Compose cannot `chown` a volume, so the overlay of a model that runs as an
+unprivileged account ships a one-shot `<service_id>-init` container (busybox,
+as root, `restart: "no"`) that chowns the mount point to the model's
+**numeric** uid:gid before the model starts. Busybox resolves no `chapkit`
+account, which is why the numbers matter, and why the `user:` line above
+carries the same two numbers rather than the name. It is the one service in a
+deployment that is deliberately not `restart: unless-stopped` (the `"no"` is
+quoted because bare `no` is YAML's `false`).
 
-It has a second job: because it mounts the same named volume at the same path
-as the model itself, `chaps backup` reads and writes model data through it,
-whether the model is running, stopped, or brought down entirely. See
-[Backup and restore](./backup.md).
+A model that runs as **root** has no such container: docker seeds the volume
+root-owned, which is exactly what that model needs, and there is nothing to
+hand over.
+
+Where there is one, it has a second job: because it mounts the same named
+volume at the same path as the model itself, `chaps backup` reads and writes
+model data through it, whether the model is running, stopped, or brought down
+entirely. See [Backup and restore](./backup.md). A root model's data is read
+through the model's own container instead.
 
 ## Data directories and users
 
-The data directory and the user differ per image:
+Both differ per image, and both are read off the image itself when the model
+is enabled - `chaps models enable`, `chaps init --models`, the browser's
+toggle. The answers go into `.chaps/models.yaml`, so `chaps sync` renders the
+overlay from what is recorded and never asks the network: the same state
+renders the same bytes on any machine.
+
+| Value | Where it comes from, in order |
+| --- | --- |
+| data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else the built-in table, else `/work/data`. |
+| user | `--user`, else `config.User` from the image config on ghcr, else the same field from an image already pulled here (`docker image inspect`), else the built-in table. |
+
+`chaps models info <id>` and the browser's details pane name which of those
+answered: `image config`, `docker probe`, `--user` or `table`. A run that could
+reach neither ghcr nor a local copy says so, because the table is a snapshot
+this binary was built with and an image can change what it runs as.
+
+What the marketplace images declare today:
 
 | Image | Data directory | User |
 | --- | --- | --- |
-| EWARS | `/app/data` | `chapkit:chapkit` |
-| The simple multistep model | `/app/data` | `chap:chap` |
-| Everything else | `/work/data` | `chapkit:chapkit` |
+| EWARS | `/app/data` | `chapkit`, rendered as `1000:1000` |
+| The simple multistep model | `/app/data` | `chap`, rendered as `1001:1001` |
+| Everything else | `/work/data` | `root` |
 
-`chaps` knows the published ones; `--data-dir` and `--user` cover anything it
-does not. A model that crash-loops right after starting is almost always
-writing outside its data directory on the read-only filesystem.
+**An image that runs as root gets no `user:` line and no init container.** Four
+of the six marketplace images end their Dockerfile on `USER root`, and forcing
+an unprivileged uid on one of them takes away a permission its own binaries
+need: the Rwanda BYM model's INLA binaries are root-owned and mode 744, so
+every prediction fails with `inla.run: Permission denied`. See
+[`Permission denied` from a model's own binaries](./troubleshooting.md#permission-denied-from-a-models-own-binaries).
 
-The init container needs those names as numbers: `chapkit` is uid/gid 1000 and
-`chap` is 1001. A `--user` that is already numeric is passed through, and a
+The init container needs an account name as numbers: `chapkit` is uid/gid 1000
+and `chap` is 1001. A `--user` that is already numeric is passed through, and a
 name `chaps` does not know falls back to `1000:1000` with a warning from
-`chaps sync`.
+`chaps sync`. `--data-dir` and `--user` override everything above, for an image
+whose config says something the deployment has to contradict.
 
-A model added with `chaps models add` cannot be in that table, so it carries
-its own answers in `.chaps/models-manual.yaml`, read off the image itself. See
+`chaps doctor` re-checks each enabled model against the image on this machine
+and warns when the two have drifted apart, which is what a marketplace model
+moved to a new tag by hand looks like.
+
+A model added with `chaps models add` is resolved the same way at the moment it
+is added, and carries its answers in `.chaps/models-manual.yaml`. See
 [Models outside the marketplace](#models-outside-the-marketplace).
 
 ## The amd64 pin, and why

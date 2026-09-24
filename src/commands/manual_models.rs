@@ -16,6 +16,21 @@ use crate::project::{ManualModel, Project};
 use crate::registry::Registry;
 use serde::Serialize;
 
+/// How `models add`'s own origin reads to every command downstream.
+///
+/// [`Origin::Default`] is the chapkit fallback rather than a table lookup, but
+/// both are "this CLI's own last resort" and both are fixed the same way -
+/// pass `--user`, or add the model where its image can be read.
+fn user_source(origin: Origin) -> crate::compose::UserSource {
+    use crate::compose::UserSource;
+    match origin {
+        Origin::Flag => UserSource::Flag,
+        Origin::Image => UserSource::ImageConfig,
+        Origin::Probe => UserSource::DockerProbe,
+        Origin::Default => UserSource::Table,
+    }
+}
+
 /// What `models add` did, and the shape of its `--json`.
 #[derive(Debug, Serialize)]
 struct AddReport {
@@ -110,12 +125,16 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
             port: args.port.map(|p| p.0),
             data_dir: Some(resolved.data_dir.clone()),
             user: Some(resolved.user.clone()),
+            // `models add` has already asked the image; saying where its
+            // answer came from keeps `models info` honest about an entry
+            // nobody typed a `--user` for.
+            user_from: Some(user_source(resolved.user_from)),
             allow_template: false,
             keep_version: false,
         }],
         disable: Vec::new(),
     };
-    let applied = apply(&mut project, &registry, &selection)?;
+    let applied = apply(&mut project, &registry, &selection, &endpoints)?;
 
     let mut notes = resolved.notes.clone();
     notes.push(format!(

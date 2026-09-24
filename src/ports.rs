@@ -415,6 +415,7 @@ mod tests {
             host_port: port,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
             platform: None,
             compose_file: format!("compose.{service_id}.yml"),
         }

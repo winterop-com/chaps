@@ -38,8 +38,10 @@ pub struct Endpoints {
     pub ghcr_url: String,
     /// `--offline`: the network is not to be touched.
     pub offline: bool,
-    /// Whether the uid probe may run a container. Off in the tests, which
-    /// have no image to run.
+    /// Whether the local docker daemon may be asked about an image at all:
+    /// `docker image inspect` for a config the registry would not give up,
+    /// and the `id -u` probe that pulls and runs one. Off in the tests, whose
+    /// answers must not depend on what this machine has pulled.
     pub docker_probe: bool,
     pub timeout: Duration,
 }
@@ -424,7 +426,7 @@ fn read_config(
 
 /// `/work` -> `/work/data`, which is where a chapkit service keeps its SQLite
 /// file when it leaves the default `DATABASE_URL` alone.
-fn data_dir_under(working_dir: &str) -> String {
+pub(crate) fn data_dir_under(working_dir: &str) -> String {
     let base = working_dir.trim().trim_end_matches('/');
     if base.is_empty() {
         return overrides::DEFAULT_DATA_DIR.to_string();

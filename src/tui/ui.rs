@@ -262,7 +262,11 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             },
         ));
         lines.push(field(theme, "data dir", &recorded.data_dir));
-        lines.push(field(theme, "user", &recorded.user));
+        lines.push(field(
+            theme,
+            "user",
+            &format!("{}  ({})", recorded.user, recorded.user_from.label()),
+        ));
     }
 
     lines.push(Line::raw(""));
@@ -647,6 +651,7 @@ mod tests {
                 host_port,
                 data_dir: "/app/data".into(),
                 user: "chapkit:chapkit".into(),
+                user_from: Default::default(),
                 platform: Some("linux/amd64".into()),
                 compose_file: "compose.chapkit-ewars-model.yml".into(),
             },

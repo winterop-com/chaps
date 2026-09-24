@@ -221,6 +221,10 @@ pub struct OverlaySpec {
     /// `Some("linux/amd64")` for R-INLA services.
     pub platform: Option<String>,
     pub data_dir: String,
+    /// What the service runs as: `root`, a numeric `uid:gid`, or an account
+    /// name nothing could turn into numbers. `root` is the one value that
+    /// renders no `user:` line and no init container; see
+    /// [`crate::compose::render::render_overlay`].
     pub user: String,
     /// See [`crate::compose::volume_name`].
     pub volume_name: String,
@@ -231,8 +235,11 @@ pub struct OverlaySpec {
 impl OverlaySpec {
     /// Build a spec for a freshly enabled model.
     ///
-    /// `data_dir` and `user` override
-    /// [`crate::compose::known_override`] and the defaults when given.
+    /// `data_dir` and `user` override the table and the defaults when given,
+    /// and [`crate::compose::apply`] always gives them: it resolves both
+    /// against the image itself ([`crate::compose::resolve`]) and records the
+    /// answers. The table below it is the last resort, for a caller that
+    /// resolved nothing.
     ///
     /// Owned by agent B.
     pub fn from_model(
@@ -353,10 +360,17 @@ mod tests {
     #[test]
     fn data_dir_and_user_prefer_the_explicit_value_then_the_table() {
         let r = registry();
-        // The table: ewars writes to /app/data.
+        // The table: ewars writes to /app/data as the account its image
+        // declares.
         let table = spec_for(&r, "chapkit_ewars_model", None, None);
         assert_eq!(table.data_dir, "/app/data");
-        assert_eq!(table.user, "chapkit:chapkit");
+        assert_eq!(table.user, "chapkit");
+
+        // And the Rwanda model runs as root, which is what the overlay has to
+        // leave alone.
+        let root = spec_for(&r, "chapkit_rwanda_malaria_bym_model", None, None);
+        assert_eq!(root.data_dir, "/work/data");
+        assert_eq!(root.user, "root");
 
         // The flags win over the table.
         let explicit = spec_for(
@@ -368,8 +382,16 @@ mod tests {
         assert_eq!(explicit.data_dir, "/srv/data");
         assert_eq!(explicit.user, "1000:1000");
 
-        // Nothing known: the chapkit defaults.
-        let fallback = spec_for(&r, "auto_arima_chapkit", None, None);
+        // Nothing known about the image at all: the chapkit defaults. Every
+        // marketplace id has a table entry, so this is a model the catalogue
+        // grew after this binary was built.
+        let unlisted = r.get("chapkit_ewars_model").unwrap();
+        let v = unlisted
+            .resolve(&VersionSelector::Channel(Channel::Stable))
+            .unwrap();
+        let mut unknown = unlisted.clone();
+        unknown.id = "grown_since_this_build".to_string();
+        let fallback = OverlaySpec::from_model(&unknown, v, None, None, None);
         assert_eq!(fallback.data_dir, overrides::DEFAULT_DATA_DIR);
         assert_eq!(fallback.user, overrides::DEFAULT_USER);
     }
@@ -387,6 +409,7 @@ mod tests {
             host_port: Some(5007),
             data_dir: "/srv/data".into(),
             user: "1000:1000".into(),
+            user_from: Default::default(),
             platform: None,
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         };

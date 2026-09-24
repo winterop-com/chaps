@@ -152,9 +152,11 @@ Docker seeds a fresh named volume from whatever the image has at the mount
 point, ownership included, so an image that never creates its data directory
 yields a root-owned volume the unprivileged model cannot write to.
 
-Every overlay `chaps` writes ships a one-shot `<service_id>-init` container
-that chowns the volume to the model's numeric uid:gid before the model starts,
-so this is fixed by construction. If you see it anyway:
+The overlay of a model that runs as an unprivileged account ships a one-shot
+`<service_id>-init` container that chowns the volume to its numeric uid:gid
+before the model starts, so this is fixed by construction. (A model that runs
+as root needs no such container: root can write the volume as docker seeded
+it.) If you see it anyway:
 
 - the overlay was hand-edited, or the init container was removed. Run
   `chaps sync` to render it again.
@@ -167,6 +169,39 @@ so this is fixed by construction. If you see it anyway:
 
 A model that crash-loops right after starting is almost always one of the last
 two.
+
+## `Permission denied` from a model's own binaries
+
+```text
+sh: /usr/local/lib/R/site-library/INLA/bin/linux/64bit/inla.run: Permission denied
+```
+
+The model started, registered, and then could not execute a file it ships
+itself. The overlay is running it as an account the image does not use.
+
+Some model images end their Dockerfile on `USER root` and keep their binaries
+root-owned and not world-executable - the Rwanda BYM model's INLA binaries are
+mode 744 - so an overlay that hardens such an image down to `user: 1000:1000`
+takes away the one permission it needed. The container comes up either way,
+which is why this surfaces as a failed prediction rather than a failed start.
+
+`chaps models enable <id>` reads the account off the image again and rewrites
+the overlay; `chaps up` then restarts the service with it:
+
+```console
+$ chaps models enable chapkit_rwanda_malaria_bym_model
+$ chaps up
+```
+
+The rendered overlay should then carry no `user:` line and no
+`<service_id>-init` container at all for a root image. `chaps models info <id>`
+shows what was recorded and where it came from, and `chaps doctor` has one
+`user <service>` line per enabled model that compares the two whenever the
+image is pulled here.
+
+`--user <uid>:<gid>` overrides the image, for the rare case where the image is
+wrong about itself. See
+[Data directories and users](./models.md#data-directories-and-users).
 
 ## `dependency failed to start: container ... is unhealthy`
 

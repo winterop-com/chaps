@@ -462,6 +462,15 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
                     "image",
                     crate::compose::image_ref(&enabled.image, &enabled.image_tag),
                 ),
+                ("data dir", enabled.data_dir.clone()),
+                // Where the user came from is half the answer: `table` is the
+                // last resort, and the difference between `root` from the
+                // image and `root` from a guess is what someone debugging a
+                // permission error needs to see.
+                (
+                    "user",
+                    format!("{}  ({})", enabled.user, enabled.user_from.label()),
+                ),
                 ("overlay", enabled.compose_file.clone()),
             ],
             &|label| out.dim(label),
@@ -600,7 +609,10 @@ mod tests {
             channel: Some(Channel::Stable),
             host_port,
             data_dir: "/app/data".into(),
-            user: "chapkit:chapkit".into(),
+            // What `models enable` records today: the numeric pair the image's
+            // `USER chapkit` resolves to.
+            user: "1000:1000".into(),
+            user_from: Default::default(),
             platform: Some("linux/amd64".into()),
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         }
@@ -884,9 +896,25 @@ mod tests {
     fn info_shows_the_project_entry_when_the_model_is_enabled() {
         let text = detail_of(&model("chapkit_ewars_model"), Some(&enabled()));
         assert!(text.contains("enabled in this project"));
-        assert!(text.contains("reach    http://localhost:5001"));
+        assert!(text.contains("reach     http://localhost:5001"), "{text}");
         assert!(text.contains("1.0.0 (stable)"));
         assert!(text.contains("compose.chapkit-ewars-model.yml"));
+        // The user, and where it came from: `table` is the last resort, and a
+        // permission error is read off exactly this line.
+        assert!(text.contains("data dir  /app/data"), "{text}");
+        assert!(text.contains("user      1000:1000  (table)"), "{text}");
+    }
+
+    /// The same block for a model whose user was read off the image.
+    #[test]
+    fn info_says_where_the_user_came_from() {
+        let entry = EnabledModel {
+            user: "root".into(),
+            user_from: crate::compose::UserSource::ImageConfig,
+            ..enabled()
+        };
+        let text = detail_of(&model("chapkit_ewars_model"), Some(&entry));
+        assert!(text.contains("user      root  (image config)"), "{text}");
     }
 
     #[test]
@@ -894,7 +922,7 @@ mod tests {
         let text = detail_of(&model("chapkit_ewars_model"), Some(&enabled_on(None)));
         assert!(
             text.contains(
-                "reach    internal \
+                "reach     internal \
                  (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)"
             ),
             "{text}"

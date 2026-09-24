@@ -6,6 +6,7 @@
 //! artifacts rendered from them by `chaps sync`.
 
 use crate::components::{COMPONENTS_FILE, Components};
+use crate::compose::UserSource;
 use crate::error::{ChapError, Result};
 use crate::registry::Channel;
 use serde::{Deserialize, Serialize};
@@ -384,8 +385,21 @@ pub struct EnabledModel {
     #[serde(default)]
     pub host_port: Option<u16>,
     pub data_dir: String,
-    /// `user:group` the container runs as.
+    /// What the container runs as: `root`, a numeric `uid:gid`, or an account
+    /// name nothing could turn into numbers.
+    ///
+    /// Resolved from the image when the model was enabled and recorded here,
+    /// which is what keeps `chaps sync` offline: the overlay is rendered from
+    /// this line, not from a lookup.
     pub user: String,
+    /// Where [`user`] came from, for `models info`, the browser and
+    /// `chaps doctor`. A `models.yaml` written before this field existed has
+    /// none and reads as [`UserSource::Table`], which is where its user did
+    /// come from.
+    ///
+    /// [`user`]: EnabledModel::user
+    #[serde(default)]
+    pub user_from: UserSource,
     /// `Some("linux/amd64")` for R-INLA services.
     pub platform: Option<String>,
     /// Overlay file name, relative to the project directory.
@@ -850,6 +864,7 @@ mod tests {
             host_port: port,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
             platform: Some("linux/amd64".into()),
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         }
@@ -1036,6 +1051,49 @@ mod tests {
             loaded.state.models["chapkit_ewars_model"],
             enabled(Some(5001))
         );
+    }
+
+    /// The user and where it came from are recorded, and a `models.yaml`
+    /// written before they were reads as the table - which is where the user
+    /// of every such file did come from.
+    #[test]
+    fn the_resolved_user_round_trips_and_an_older_file_reads_as_the_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = EnabledModel {
+            user: "root".into(),
+            user_from: UserSource::ImageConfig,
+            ..enabled(None)
+        };
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                models: BTreeMap::from([("chapkit_ewars_model".to_string(), entry.clone())]),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+        let path = dir.path().join(CHAPS_DIR).join(MODELS_FILE);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("  user: root\n"), "{body}");
+        assert!(body.contains("  user_from: image-config\n"), "{body}");
+        assert_eq!(
+            Project::load(dir.path()).unwrap().state.models["chapkit_ewars_model"],
+            entry
+        );
+
+        // The same file as a deployment written before this CLI knew to ask.
+        let older: String = body
+            .lines()
+            .filter(|line| !line.starts_with("  user_from:"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        std::fs::write(&path, older).unwrap();
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(
+            loaded.state.models["chapkit_ewars_model"].user_from,
+            UserSource::Table
+        );
+        assert_eq!(loaded.state.models["chapkit_ewars_model"].user, "root");
     }
 
     #[test]

@@ -13,8 +13,8 @@ mychap/
                                use, the -f list, the model port range, and
                                which root files sync wrote
     models.yaml                intent: the enabled models (image, pinned version,
-                               channel, host port or none, data dir, user,
-                               platform, overlay name)
+                               channel, host port or none, data dir, user and
+                               where it was read from, platform, overlay name)
     models-manual.yaml         intent: the models this deployment defines itself,
                                added by `chaps models add`; only present when it
                                has added one
