@@ -25,9 +25,7 @@ mod status;
 mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
-use cli::{
-    AuthSub, BackupSub, Cli, Command, ComponentsCmd, DOCS_LINE, DockerCmd, ModelsCmd, SelfSub,
-};
+use cli::{AuthSub, BackupSub, Cli, Command, ComponentsCmd, DockerCmd, ModelsCmd, SelfSub};
 use commands::Ctx;
 use error::ChapError;
 use project::Project;
@@ -53,11 +51,6 @@ const PROJECT_ONLY: &[&str] = &[
 /// The same, for the subcommands of `models`: browsing the marketplace works
 /// anywhere, changing a project's model set does not.
 const PROJECT_ONLY_MODELS: &[&str] = &["add", "remove", "enable", "disable", "expose", "unexpose"];
-
-/// The line appended to `--help` outside a project, so the hidden half of the
-/// tree is not a surprise. One line: the rest is the book's.
-const OUTSIDE_PROJECT_HINT: &str =
-    "Inside a directory created by `chaps init`, the deployment commands appear too.";
 
 fn main() {
     // Windows cannot rename over a running image, so `chaps self update`
@@ -179,9 +172,8 @@ fn parse() -> Cli {
     }
 }
 
-/// Hide the commands that need a project, and say so at the end of `--help`.
-fn hide_project_commands(command: clap::Command) -> clap::Command {
-    let mut command = command.after_help(format!("{OUTSIDE_PROJECT_HINT}\n{DOCS_LINE}"));
+/// Hide the commands that need a project: outside one they cannot work.
+fn hide_project_commands(mut command: clap::Command) -> clap::Command {
     for name in PROJECT_ONLY {
         command = command.mut_subcommand(name, |c| c.hide(true));
     }
@@ -324,7 +316,8 @@ mod tests {
         for shown in ["init", "models", "registry", "doctor"] {
             assert!(help.contains(shown), "`{shown}` works anywhere");
         }
-        assert!(help.contains("Inside a directory created by `chaps init`"));
+        // Hiding is the whole of it: the help still ends on the docs link.
+        assert!(help.trim_end().ends_with(cli::DOCS_LINE));
 
         // Hidden is not gone: the command still parses and runs.
         assert!(matches!(
@@ -342,7 +335,7 @@ mod tests {
                 "`{name}` should be listed in a project"
             );
         }
-        assert!(!help.contains("Inside a directory created by `chaps init`"));
+        assert!(help.trim_end().ends_with(cli::DOCS_LINE));
     }
 
     #[test]

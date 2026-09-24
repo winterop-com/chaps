@@ -1918,7 +1918,13 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
         !outside.contains("\n  auth "),
         "auth needs a project:\n{outside}"
     );
-    assert!(outside.contains("Inside a directory created by `chaps init`"));
+    // Hiding is all that changes: the help still ends on the docs link.
+    assert!(
+        outside
+            .trim_end()
+            .ends_with("Docs: https://winterop-com.github.io/chaps/"),
+        "{outside}"
+    );
 
     sandbox.init(&["--models", "none"]).assert().success();
 
@@ -1938,7 +1944,12 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
             "{name} should be listed inside a project:\n{inside}"
         );
     }
-    assert!(!inside.contains("Inside a directory created by `chaps init`"));
+    assert!(
+        inside
+            .trim_end()
+            .ends_with("Docs: https://winterop-com.github.io/chaps/"),
+        "{inside}"
+    );
 
     // Hiding is cosmetic: a hidden command still runs, and `docker` reaches
     // its own help from a subdirectory of the project.

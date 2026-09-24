@@ -289,8 +289,7 @@ out of `chaps auth rotate` with one, holding the new token.
 ## Context-sensitive help
 
 `chaps --help` adapts to where you are. Outside a deployment directory it lists
-only the commands that can work there, and says that the rest appear inside
-one:
+only the commands that can work there:
 
 ```text
 Commands:
@@ -298,11 +297,10 @@ Commands:
   models    Browse and manage marketplace models
   registry  Inspect and refresh the marketplace registry
   help      Print this message or the help of the given subcommand(s)
-
-...
-
-Inside a directory created by `chaps init`, more commands appear: up, down, logs, restart, status, sync, update, ui, components, docker, backup, auth.
 ```
+
+Inside one, the deployment commands are listed too: up, down, logs, restart,
+status, sync, update, ui, components, docker, backup, auth.
 
 The hidden commands still run if you type them; they just tell you there is no
 project. `chaps models` is split the same way: `list`, `search` and `info`
