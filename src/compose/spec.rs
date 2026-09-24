@@ -52,22 +52,32 @@ pub struct EnvSpec {
 /// Values for `compose.ocs.yml`.
 #[derive(Debug, Clone)]
 pub struct OcsSpec {
-    /// Host port OCS is published on.
-    pub host_port: u16,
+    /// Host port OCS is published on, or `None` for an instance that is only
+    /// `expose`d on the compose network - the reverse-proxy shape.
+    pub host_port: Option<u16>,
     /// The tag the `${OCS_IMAGE_TAG:-...}` default carries.
     pub image_tag: String,
+    /// The `${CLIMATE_SERVICE_BASE_URL:-...}` default: the public origin, or
+    /// nothing, which OCS reads as "compose the links from the request".
+    pub base_url: Option<String>,
     /// Whether the `s3` component is on, which is what decides if the service
     /// gets the (forward-looking) `S3_*` variables.
     pub s3: bool,
+    /// Whether `ocs/plugins/` is there to mount. A filesystem fact rather than
+    /// a recorded setting: the directory is the whole declaration.
+    pub plugins: bool,
 }
 
 impl OcsSpec {
-    /// The spec a project's components describe.
-    pub fn from_components(components: &Components) -> OcsSpec {
+    /// The spec a project's components describe, given whether the project has
+    /// a plugin directory.
+    pub fn from_components(components: &Components, plugins: bool) -> OcsSpec {
         OcsSpec {
             host_port: components.ocs.port,
             image_tag: components.ocs.image_tag.clone(),
+            base_url: components.ocs.base_url.clone(),
             s3: components.s3.enabled,
+            plugins,
         }
     }
 }

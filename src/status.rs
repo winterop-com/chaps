@@ -152,10 +152,14 @@ pub struct ComponentStatus {
     pub name: String,
     pub state: ComponentState,
     /// Where a human reaches it from this machine, or `internal` for a
-    /// component that publishes no host port.
+    /// component that publishes no host port - with the proxy named when the
+    /// component records one, since that is the address that does work.
     pub reach: String,
     /// The health URL that was probed, when one was.
     pub health_url: Option<String>,
+    /// Whether this OCS instance refuses ingestion over HTTP. Always false for
+    /// every other component, none of which has the setting.
+    pub read_only: bool,
 }
 
 /// The version `chaps status` puts next to the API URL.
@@ -374,14 +378,23 @@ fn component_rows(
     let components = &project.state.components;
     let mut rows = Vec::new();
     if components.ocs.enabled {
-        let url = components.ocs_url();
-        let health = format!("{url}{HEALTH_PATH}");
-        let answered = get(agent, &url, HEALTH_PATH, None).is_ok();
+        // An instance with no host port cannot be asked from out here at all:
+        // the only way in is the compose network or whatever proxy sits in
+        // front of it, and neither is something this probe can assume. So it
+        // is judged by its container, exactly as the object store is.
+        let probe = components
+            .ocs_url()
+            .map(|url| (get(agent, &url, HEALTH_PATH, None).is_ok(), url));
+        let up = running.contains(crate::compose::OCS_SERVICE);
         rows.push(ComponentStatus {
             name: crate::compose::OCS_SERVICE.to_string(),
-            state: component_state(answered, running.contains(crate::compose::OCS_SERVICE)),
-            reach: url,
-            health_url: Some(health),
+            state: match &probe {
+                Some((answered, _)) => component_state(*answered, up),
+                None => component_state(up, up),
+            },
+            reach: components.ocs_reach(),
+            health_url: probe.map(|(_, url)| format!("{url}{HEALTH_PATH}")),
+            read_only: components.ocs.read_only,
         });
     }
     if components.s3.enabled {
@@ -394,6 +407,7 @@ fn component_rows(
                 None => "internal".to_string(),
             },
             health_url: None,
+            read_only: false,
         });
     }
     rows

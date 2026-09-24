@@ -26,6 +26,16 @@ pub const OCS_DIR: &str = "ocs";
 /// The OCS instance config, inside [`OCS_DIR`]. Mounted read-only at
 /// `/app/climate-service.yaml`.
 pub const OCS_CONFIG_FILE: &str = "climate-service.yaml";
+/// Dataset plugins, inside [`OCS_DIR`]. Mounted read-only at
+/// [`OCS_PLUGINS_TARGET`] when the directory exists.
+pub const OCS_PLUGINS_DIR: &str = "plugins";
+/// Where [`OCS_PLUGINS_DIR`] is mounted, and what the `plugins_dir` key of the
+/// instance config then points at.
+pub const OCS_PLUGINS_TARGET: &str = "/app/plugins";
+/// The instance config key naming the plugin directory.
+pub const OCS_PLUGINS_KEY: &str = "plugins_dir";
+/// The instance config key that turns ingestion over HTTP off.
+pub const OCS_READ_ONLY_KEY: &str = "read_only";
 
 /// Image OCS is deployed from. No release tags are published yet, so the
 /// default pin is the moving `main` tag.
@@ -38,6 +48,34 @@ pub const OCS_CONTAINER_PORT: u16 = 9000;
 pub const OCS_DEFAULT_PORT: u16 = 9000;
 /// The `.env` variable that moves the OCS image pin.
 pub const OCS_TAG_ENV_VAR: &str = "OCS_IMAGE_TAG";
+/// The variable naming the public origin OCS builds its STAC and openEO links
+/// from, which is what a deployment behind a reverse proxy needs.
+pub const OCS_BASE_URL_ENV_VAR: &str = "CLIMATE_SERVICE_BASE_URL";
+
+/// The variables OCS reads its dataset credentials from, in the order they are
+/// written and reported.
+///
+/// `ECMWF_DATASTORES_*` is the Copernicus Climate Data Store, for the ERA5-Land
+/// monthly datasets; `EDH_API_KEY` is Earth Data Hub, for the hourly and daily
+/// ones; `CDSE_S3_*` is the Copernicus Data Space Ecosystem, for the CLMS GPP
+/// dataset plugin. WorldPop and CHIRPS3 are public and need none of them.
+///
+/// OCS reads every one of them as `os.getenv(...) or <the file>`, so a variable
+/// that arrives empty is a variable it does not have: the compose file can pass
+/// all five unconditionally and a deployment that sets none behaves exactly as
+/// one whose compose file never mentioned them.
+pub const OCS_DATA_SOURCE_ENV_VARS: &[&str] = &[
+    "ECMWF_DATASTORES_URL",
+    "ECMWF_DATASTORES_KEY",
+    "EDH_API_KEY",
+    "CDSE_S3_ACCESS_KEY",
+    "CDSE_S3_SECRET_KEY",
+];
+
+/// The Copernicus Climate Data Store endpoint, as the commented `.env`
+/// placeholder carries it: the one data source variable with a value worth
+/// pre-filling, since it is the same for everyone.
+pub const OCS_ECMWF_URL: &str = "https://cds.climate.copernicus.eu/api";
 
 /// Image the `s3` component runs: RustFS, an S3-compatible object store.
 pub const S3_IMAGE: &str = "rustfs/rustfs";
@@ -127,8 +165,8 @@ fn enabled_by_default() -> bool {
     true
 }
 
-fn default_ocs_port() -> u16 {
-    OCS_DEFAULT_PORT
+fn default_ocs_port() -> Option<u16> {
+    Some(OCS_DEFAULT_PORT)
 }
 
 fn default_ocs_tag() -> String {
@@ -155,9 +193,23 @@ pub struct OcsComponent {
     #[serde(default)]
     pub enabled: bool,
     /// Host port OCS is published on. OCS has a web interface, so it is
-    /// published by default rather than hidden on the compose network.
+    /// published by default rather than hidden on the compose network; `None`
+    /// keeps it on the compose network alone, for a deployment whose way in is
+    /// a reverse proxy.
     #[serde(default = "default_ocs_port")]
-    pub port: u16,
+    pub port: Option<u16>,
+    /// The public origin OCS builds absolute links from, for an instance
+    /// reached through a proxy rather than on its own port. `None` leaves OCS
+    /// to compose them from the request, which behind a proxy names the
+    /// internal address.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Whether the instance config turns ingestion over HTTP off.
+    ///
+    /// A record of what `ocs/climate-service.yaml` says, not the setting
+    /// itself: that file is the operator's, and OCS reads it and not this.
+    #[serde(default)]
+    pub read_only: bool,
     /// The tag the compose file defaults to, and the one `.env` pins.
     #[serde(default = "default_ocs_tag")]
     pub image_tag: String,
@@ -167,7 +219,9 @@ impl Default for OcsComponent {
     fn default() -> OcsComponent {
         OcsComponent {
             enabled: false,
-            port: OCS_DEFAULT_PORT,
+            port: Some(OCS_DEFAULT_PORT),
+            base_url: None,
+            read_only: false,
             image_tag: OCS_DEFAULT_TAG.to_string(),
         }
     }
@@ -218,7 +272,7 @@ impl Components {
     pub fn port_of(&self, component: Component) -> Option<u16> {
         match component {
             Component::ChapCore => None,
-            Component::Ocs => self.ocs.enabled.then_some(self.ocs.port),
+            Component::Ocs => self.ocs.port.filter(|_| self.ocs.enabled),
             Component::S3 => self.s3.port.filter(|_| self.s3.enabled),
         }
     }
@@ -255,9 +309,24 @@ impl Components {
         files
     }
 
-    /// The URL a human reaches OCS at from this machine.
-    pub fn ocs_url(&self) -> String {
-        format!("http://localhost:{}", self.ocs.port)
+    /// The URL a human reaches OCS at from this machine, or `None` for an
+    /// instance that publishes no host port.
+    pub fn ocs_url(&self) -> Option<String> {
+        self.ocs.port.map(|port| format!("http://localhost:{port}"))
+    }
+
+    /// The one cell that says how OCS is reached: its own host port, or the
+    /// compose network plus whatever proxy the base URL names.
+    ///
+    /// An unpublished instance is not unreachable, it is reached somewhere
+    /// else, so the base URL is printed where the address would be rather than
+    /// being a setting nothing on the screen mentions.
+    pub fn ocs_reach(&self) -> String {
+        match (&self.ocs_url(), &self.ocs.base_url) {
+            (Some(url), _) => url.clone(),
+            (None, Some(base)) => format!("internal (proxy: {base})"),
+            (None, None) => "internal".to_string(),
+        }
     }
 }
 
@@ -311,7 +380,9 @@ mod tests {
             chap_core: ChapCoreComponent { enabled: true },
             ocs: OcsComponent {
                 enabled: true,
-                port: 9010,
+                port: Some(9010),
+                base_url: None,
+                read_only: false,
                 image_tag: "main".into(),
             },
             s3: S3Component {
@@ -323,6 +394,8 @@ mod tests {
         assert!(text.contains("chap-core:\n"), "{text}");
         assert!(text.contains("  port: 9010\n"), "{text}");
         assert!(text.contains("  port: null\n"), "{text}");
+        assert!(text.contains("  base_url: null\n"), "{text}");
+        assert!(text.contains("  read_only: false\n"), "{text}");
         assert_eq!(
             serde_yaml_ng::from_str::<Components>(&text).unwrap(),
             components
@@ -335,15 +408,64 @@ mod tests {
         );
         assert_eq!(components.port_of(Component::Ocs), Some(9010));
         assert_eq!(components.port_of(Component::S3), None);
-        assert_eq!(components.ocs_url(), "http://localhost:9010");
+        assert_eq!(
+            components.ocs_url().as_deref(),
+            Some("http://localhost:9010")
+        );
+        assert_eq!(components.ocs_reach(), "http://localhost:9010");
+    }
+
+    /// The reverse-proxy shape: no host port, and a base URL in its place.
+    #[test]
+    fn an_unpublished_instance_reads_as_internal_and_names_its_proxy() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        components.ocs.port = None;
+        assert_eq!(components.ocs_url(), None);
+        assert_eq!(components.port_of(Component::Ocs), None);
+        assert_eq!(components.ocs_reach(), "internal");
+
+        components.ocs.base_url = Some("https://ocs.example.org".to_string());
+        assert_eq!(
+            components.ocs_reach(),
+            "internal (proxy: https://ocs.example.org)"
+        );
+
+        // A published port is the address, whatever the base URL says: that is
+        // where this machine reaches it.
+        components.ocs.port = Some(9000);
+        assert_eq!(components.ocs_reach(), "http://localhost:9000");
+    }
+
+    /// `port: null` is how a deployment records "no host port", and it has to
+    /// survive a round trip: the field defaults to 9000, so a null that read
+    /// back as the default would republish the port on the next sync.
+    #[test]
+    fn a_null_port_survives_the_round_trip_and_a_missing_one_is_the_default() {
+        let explicit: Components =
+            serde_yaml_ng::from_str("ocs:\n  enabled: true\n  port: null\n").unwrap();
+        assert_eq!(explicit.ocs.port, None);
+        let text = serde_yaml_ng::to_string(&explicit).unwrap();
+        assert_eq!(
+            serde_yaml_ng::from_str::<Components>(&text)
+                .unwrap()
+                .ocs
+                .port,
+            None
+        );
+
+        let omitted: Components = serde_yaml_ng::from_str("ocs:\n  enabled: true\n").unwrap();
+        assert_eq!(omitted.ocs.port, Some(OCS_DEFAULT_PORT));
     }
 
     #[test]
     fn a_partial_block_keeps_the_defaults_of_the_fields_it_omits() {
         let components: Components = serde_yaml_ng::from_str("ocs:\n  enabled: true\n").unwrap();
         assert!(components.ocs.enabled);
-        assert_eq!(components.ocs.port, OCS_DEFAULT_PORT);
+        assert_eq!(components.ocs.port, Some(OCS_DEFAULT_PORT));
         assert_eq!(components.ocs.image_tag, OCS_DEFAULT_TAG);
+        assert_eq!(components.ocs.base_url, None);
+        assert!(!components.ocs.read_only);
         assert!(components.chap_core.enabled, "still on when unmentioned");
     }
 

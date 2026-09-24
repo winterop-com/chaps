@@ -12,8 +12,9 @@
 //! is rendered from is kept in `.chaps/`; nothing here touches the network.
 
 use crate::components::{
-    Components, OCS_COMPOSE, OCS_CONFIG_FILE, OCS_DIR, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR,
-    S3_COMPOSE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
+    Components, OCS_COMPOSE, OCS_CONFIG_FILE, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_PLUGINS_KEY,
+    OCS_PLUGINS_TARGET, OCS_READ_ONLY_KEY, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR, S3_COMPOSE,
+    S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
 };
 use crate::compose::overrides;
 use crate::compose::render::{
@@ -122,7 +123,10 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     if components.ocs.enabled {
         desired.push((
             OCS_COMPOSE.to_string(),
-            render_ocs(&OcsSpec::from_components(&components)),
+            render_ocs(&OcsSpec::from_components(
+                &components,
+                project.ocs_plugins_path().is_dir(),
+            )),
         ));
     }
     if components.s3.enabled {
@@ -226,6 +230,14 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     // operator's file the moment it exists, so sync only ever creates a
     // missing one.
     if let Some(path) = ensure_ocs_config(project, check)? {
+        report.written.push(path);
+    }
+    // And once it is there, the one key that has to follow the project rather
+    // than the operator: a plugin directory that is mounted and not configured
+    // is a mount OCS never looks in.
+    if let Some(path) = ensure_plugins_key(project, check)?
+        && !report.written.contains(&path)
+    {
         report.written.push(path);
     }
 
@@ -367,6 +379,30 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
             components.ocs.image_tag
         ));
     }
+    // Placeholders only: a credential is the operator's to paste in, and an
+    // ERA5-Land key that arrives here would have had to come from somewhere
+    // this CLI has no business reading. The section exists so the variable
+    // names are in the file an operator already edits rather than in the docs
+    // alone, and so `chaps auth show` has something to report on.
+    if components.ocs.enabled
+        && !OCS_DATA_SOURCE_ENV_VARS
+            .iter()
+            .any(|var| mentions_var(body, var))
+    {
+        let mut section = String::from(
+            "# OCS data sources (optional): ERA5-Land needs one of these; \
+             WorldPop and CHIRPS3 need none.\n",
+        );
+        for var in OCS_DATA_SOURCE_ENV_VARS {
+            let value = if *var == "ECMWF_DATASTORES_URL" {
+                crate::components::OCS_ECMWF_URL
+            } else {
+                ""
+            };
+            section.push_str(&format!("# {var}={value}\n"));
+        }
+        sections.push(section);
+    }
     if components.s3.enabled
         && !(mentions_var(body, S3_ACCESS_KEY_ENV_VAR) || mentions_var(body, S3_SECRET_KEY_ENV_VAR))
     {
@@ -419,6 +455,138 @@ pub fn write_ocs_config(dir: &Path, spec: &OcsConfigSpec) -> Result<Option<PathB
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", ocs.display()))?;
     std::fs::write(&path, render_ocs_config(spec))
         .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    Ok(Some(path))
+}
+
+/// What [`set_config_key`] found in `ocs/climate-service.yaml`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyEdit {
+    /// The key was already set to this value; nothing changed.
+    Unchanged,
+    /// Its line was rewritten in place.
+    Rewritten,
+    /// The file did not have the key, so it was added at the end.
+    Appended,
+}
+
+/// Set one top-level key of an OCS instance config, and nothing else.
+///
+/// The file is the operator's: it carries their comments, their dataset list
+/// and their scheduler, so this rewrites the one line that assigns `key` and
+/// leaves every other byte alone, appending the key when the file does not have
+/// it. Text rather than a serde round trip for exactly that reason - parsing
+/// and re-emitting the document would drop every comment in it.
+///
+/// Only a top-level key counts, so a `read_only:` nested inside some other
+/// block is not mistaken for this one, and neither is a commented line: the
+/// commented `# read_only: true` that a note explains is still only a note.
+/// A trailing comment on the line survives the rewrite.
+pub fn set_config_key(body: &str, key: &str, value: &str) -> (String, KeyEdit) {
+    let wanted = format!("{key}: {value}");
+    let mut out = String::with_capacity(body.len() + wanted.len() + 2);
+    let mut edit = KeyEdit::Appended;
+    for line in body.lines() {
+        match top_level_value(line, key) {
+            Some(rest) if edit == KeyEdit::Appended => {
+                // The operator's comment on this line says why the value is
+                // what it is, so it comes across with its own spacing.
+                let replacement = format!("{wanted}{}", trailing_comment(rest));
+                edit = if replacement == line {
+                    KeyEdit::Unchanged
+                } else {
+                    KeyEdit::Rewritten
+                };
+                out.push_str(&replacement);
+            }
+            _ => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    if edit != KeyEdit::Appended {
+        return (out, edit);
+    }
+    // A blank line first, so an appended key reads as its own setting rather
+    // than as a continuation of whatever the file happened to end on.
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(&wanted);
+    out.push('\n');
+    (out, KeyEdit::Appended)
+}
+
+/// Whether an OCS instance config assigns a top-level `key`.
+pub fn has_config_key(body: &str, key: &str) -> bool {
+    body.lines()
+        .any(|line| top_level_value(line, key).is_some())
+}
+
+/// The inline comment of a value, whitespace and all, or `""`.
+///
+/// YAML needs whitespace before an inline `#`, which is also what tells one
+/// apart from a `#` inside the value; the whitespace comes along so the
+/// rewritten line is aligned exactly as the operator aligned it.
+fn trailing_comment(rest: &str) -> &str {
+    let Some(at) = rest
+        .char_indices()
+        .find(|(at, ch)| *ch == '#' && rest[..*at].ends_with([' ', '\t']))
+        .map(|(at, _)| at)
+    else {
+        return "";
+    };
+    &rest[rest[..at].trim_end_matches([' ', '\t']).len()..]
+}
+
+/// The text after `key:` when `line` is that key's top-level assignment.
+///
+/// Top-level means column zero: YAML nests by indentation, so an indented
+/// `read_only:` belongs to some other block and is none of our business.
+fn top_level_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    if line.starts_with([' ', '\t', '#']) {
+        return None;
+    }
+    line.strip_prefix(key)?.strip_prefix(':')
+}
+
+/// Write `read_only` into `ocs/climate-service.yaml`.
+///
+/// Returns `None` when there is no file to edit, which is the case a caller
+/// reports rather than fails on: the component may not be enabled yet.
+pub fn set_read_only(dir: &Path, read_only: bool) -> Result<Option<KeyEdit>> {
+    let path = dir.join(OCS_DIR).join(OCS_CONFIG_FILE);
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    let (out, edit) = set_config_key(&body, OCS_READ_ONLY_KEY, &read_only.to_string());
+    if edit == KeyEdit::Unchanged {
+        return Ok(Some(edit));
+    }
+    std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    Ok(Some(edit))
+}
+
+/// Point the instance config at the mounted plugin directory when the project
+/// has one and the file does not name it yet.
+///
+/// Only ever adds the key: an operator who pointed `plugins_dir` somewhere else
+/// meant it, and the mount is at a fixed path either way. Returns the path when
+/// the file was (or with `check`, would be) changed.
+fn ensure_plugins_key(project: &Project, check: bool) -> Result<Option<PathBuf>> {
+    if !project.state.components.ocs.enabled || !project.ocs_plugins_path().is_dir() {
+        return Ok(None);
+    }
+    let path = project.ocs_config_path();
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    if has_config_key(&body, OCS_PLUGINS_KEY) {
+        return Ok(None);
+    }
+    if check {
+        return Ok(Some(path));
+    }
+    let (out, _) = set_config_key(&body, OCS_PLUGINS_KEY, OCS_PLUGINS_TARGET);
+    std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
     Ok(Some(path))
 }
 
@@ -959,6 +1127,162 @@ mod tests {
         let again = std::fs::read_to_string(&env).unwrap();
         assert_eq!(again, body);
         assert_eq!(again.matches("OCS_IMAGE_TAG").count(), 1);
+    }
+
+    /// The data source section is placeholders, appended once, and never
+    /// rewritten: an operator who pasted a Copernicus key into it must not
+    /// find it commented out again by the next sync.
+    #[test]
+    fn the_ocs_data_source_placeholders_are_appended_once_and_never_rewritten() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
+
+        project.state.components.ocs.enabled = true;
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(
+            body.contains(
+                "\n# OCS data sources (optional): ERA5-Land needs one of these; \
+                 WorldPop and CHIRPS3 need none.\n"
+            ),
+            "{body}"
+        );
+        assert!(
+            body.contains("# ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api\n"),
+            "the endpoint is the same for everyone, so it is pre-filled: {body}"
+        );
+        for var in ["ECMWF_DATASTORES_KEY", "EDH_API_KEY", "CDSE_S3_SECRET_KEY"] {
+            assert!(body.contains(&format!("# {var}=\n")), "{var}: {body}");
+        }
+        // Commented, so nothing is set: the compose file's `${VAR:-}` then
+        // passes an empty value, which OCS reads as absent.
+        for var in OCS_DATA_SOURCE_ENV_VARS {
+            assert_eq!(crate::dotenv::non_empty(&body, var), None, "{var}");
+        }
+
+        // A second sync adds nothing.
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+
+        // And a filled-in value keeps the section from being appended again.
+        let filled = body.replace("# ECMWF_DATASTORES_KEY=", "ECMWF_DATASTORES_KEY=mine");
+        std::fs::write(&env, &filled).unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), filled);
+        assert_eq!(filled.matches("OCS data sources").count(), 1);
+    }
+
+    /// The mount and the config key arrive together: a plugin directory that
+    /// is mounted and not configured is a mount OCS never looks in.
+    #[test]
+    fn a_plugin_directory_adds_the_mount_and_the_config_key() {
+        let mut components = Components::default();
+        components.ocs.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+        let compose = dir.path().join(OCS_COMPOSE);
+        assert!(!read(&compose).contains("/app/plugins"), "nothing to mount");
+
+        std::fs::create_dir_all(project.ocs_plugins_path().join("datasets")).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
+        assert!(report.drift, "the mount and the key are both missing");
+        assert!(
+            !read(&project.ocs_config_path()).contains(OCS_PLUGINS_KEY),
+            "--check writes nothing"
+        );
+
+        sync(&mut project, &registry, false).unwrap();
+        assert!(
+            read(&compose).contains("- ./ocs/plugins:/app/plugins:ro"),
+            "{}",
+            read(&compose)
+        );
+        let config = read(&project.ocs_config_path());
+        assert!(config.ends_with("plugins_dir: /app/plugins\n"), "{config}");
+        assert!(
+            config.contains("sierra-leone-climate-service"),
+            "the rest of the operator's file is untouched: {config}"
+        );
+
+        // Idempotent, and an operator's own value is never moved.
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+        std::fs::write(
+            project.ocs_config_path(),
+            "id: mine\nplugins_dir: /somewhere/else\n",
+        )
+        .unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(
+            read(&project.ocs_config_path()),
+            "id: mine\nplugins_dir: /somewhere/else\n"
+        );
+    }
+
+    /// Only the one key changes, in a file that has it and in one that does
+    /// not: everything else in it is the operator's.
+    #[test]
+    fn the_read_only_switch_edits_one_key_and_leaves_the_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            set_read_only(dir.path(), true).unwrap(),
+            None,
+            "no file to edit yet"
+        );
+
+        let path = dir.path().join(OCS_DIR).join(OCS_CONFIG_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = "# my instance\nid: mine\n\nextent:\n  read_only: true\n  name: Mine\n\n\
+                        # a note about ingestion\n# read_only: true\n";
+        std::fs::write(&path, original).unwrap();
+
+        // Appended: neither the nested key nor the commented one is this key.
+        assert_eq!(
+            set_read_only(dir.path(), true).unwrap(),
+            Some(KeyEdit::Appended)
+        );
+        let body = read(&path);
+        assert!(body.starts_with(original), "{body}");
+        assert!(body.ends_with("\nread_only: true\n"), "{body}");
+        assert!(
+            body.contains("  read_only: true\n  name: Mine\n"),
+            "the nested key is someone else's: {body}"
+        );
+
+        // Rewritten in place, and nothing else moves.
+        assert_eq!(
+            set_read_only(dir.path(), false).unwrap(),
+            Some(KeyEdit::Rewritten)
+        );
+        let flipped = read(&path);
+        assert_eq!(
+            flipped,
+            body.replace("\nread_only: true\n", "\nread_only: false\n")
+        );
+
+        // Already that value: no write at all.
+        assert_eq!(
+            set_read_only(dir.path(), false).unwrap(),
+            Some(KeyEdit::Unchanged)
+        );
+        assert_eq!(read(&path), flipped);
+    }
+
+    /// A trailing comment says why the value is what it is, so it survives.
+    #[test]
+    fn setting_a_key_keeps_its_trailing_comment_and_finds_the_first_one() {
+        let (out, edit) = set_config_key("read_only: false  # public demo\n", "read_only", "true");
+        assert_eq!(edit, KeyEdit::Rewritten);
+        assert_eq!(out, "read_only: true  # public demo\n");
+
+        // Two active assignments is not valid YAML, but the first is the one
+        // a parser would report, so it is the one that is edited.
+        let (out, _) = set_config_key("read_only: false\nread_only: false\n", "read_only", "true");
+        assert_eq!(out, "read_only: true\nread_only: false\n");
+
+        // A key that is a prefix of another is not that other key.
+        assert!(!has_config_key("read_only_mode: true\n", "read_only"));
+        assert!(has_config_key("read_only: true\n", "read_only"));
+        assert!(!has_config_key("  read_only: true\n", "read_only"));
+        assert!(!has_config_key("# read_only: true\n", "read_only"));
     }
 
     #[test]

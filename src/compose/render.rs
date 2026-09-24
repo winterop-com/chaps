@@ -8,9 +8,9 @@
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::components::{
-    OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
-    S3_ACCESS_KEY_ENV_VAR, S3_BUCKET, S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR,
-    S3_TAG_ENV_VAR,
+    OCS_BASE_URL_ENV_VAR, OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR,
+    OCS_IMAGE, OCS_PLUGINS_DIR, OCS_PLUGINS_TARGET, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR,
+    S3_BUCKET, S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
 };
 use crate::compose::overrides;
 use crate::compose::spec::{BaseSpec, EnvSpec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec};
@@ -211,10 +211,21 @@ fn secret_line(var: &str, value: Option<&str>) -> String {
 
 /// Render `compose.ocs.yml`: the `ocs` component.
 ///
-/// The `S3_*` block only appears when the `s3` component is on. OCS does not
-/// read those variables yet - it is about to - so they are written as
-/// forward-looking settings with a comment that says as much, rather than
-/// being left out until the day the contract lands.
+/// Three blocks are conditional. The host port is published only when the
+/// component records one, so an instance behind a reverse proxy is `expose`d on
+/// the compose network and nowhere else. The plugin mount appears only when the
+/// project has an `ocs/plugins/` to mount, since compose fails to start a
+/// service whose bind source does not exist. And the `S3_*` block only appears
+/// when the `s3` component is on: OCS does not read those variables yet - it is
+/// about to - so they are written as forward-looking settings with a comment
+/// that says as much, rather than being left out until the day the contract
+/// lands.
+///
+/// The five dataset credential variables are unconditional, all of them
+/// `${VAR:-}`. OCS reads each one as `os.getenv(...) or <the file>`, so an empty
+/// value is one it does not have: passing them always costs a deployment that
+/// sets none of them nothing, and means the operator only ever has to put a
+/// credential in `.env` rather than in `.env` and then in `.chaps/` as well.
 pub fn render_ocs(spec: &OcsSpec) -> String {
     let s3_lines = if spec.s3 {
         format!(
@@ -227,16 +238,37 @@ pub fn render_ocs(spec: &OcsSpec) -> String {
     } else {
         String::new()
     };
+    let mut data_source_lines = String::from(
+        "      # Dataset credentials, empty unless .env sets them; see docs/components.md.\n",
+    );
+    for var in OCS_DATA_SOURCE_ENV_VARS {
+        data_source_lines.push_str(&format!("      {var}: ${{{var}:-}}\n"));
+    }
+    let mut port_lines = format!("    expose:\n      - \"{OCS_CONTAINER_PORT}\"\n");
+    if let Some(port) = spec.host_port {
+        port_lines.push_str(&format!(
+            "    ports:\n      - \"{port}:{OCS_CONTAINER_PORT}\"\n"
+        ));
+    }
+    let plugins_line = if spec.plugins {
+        format!("      - ./{OCS_DIR}/{OCS_PLUGINS_DIR}:{OCS_PLUGINS_TARGET}:ro\n")
+    } else {
+        String::new()
+    };
     fill(
         &OCS_TEMPLATE,
         &[
             ("IMAGE", OCS_IMAGE),
             ("TAG_VAR", OCS_TAG_ENV_VAR),
             ("IMAGE_TAG", &spec.image_tag),
-            ("HOST_PORT", &spec.host_port.to_string()),
+            ("PORT_LINES", &port_lines),
             ("CONTAINER_PORT", &OCS_CONTAINER_PORT.to_string()),
+            ("BASE_URL_VAR", OCS_BASE_URL_ENV_VAR),
+            ("BASE_URL", spec.base_url.as_deref().unwrap_or_default()),
+            ("DATA_SOURCE_LINES", &data_source_lines),
             ("S3_LINES", &s3_lines),
             ("CONFIG_PATH", &format!("{OCS_DIR}/{OCS_CONFIG_FILE}")),
+            ("PLUGINS_LINE", &plugins_line),
             ("VOLUME", OCS_VOLUME),
         ],
     )
@@ -914,9 +946,11 @@ mod tests {
 
     fn ocs_spec() -> OcsSpec {
         OcsSpec {
-            host_port: crate::components::OCS_DEFAULT_PORT,
+            host_port: Some(crate::components::OCS_DEFAULT_PORT),
             image_tag: crate::components::OCS_DEFAULT_TAG.to_string(),
+            base_url: None,
             s3: false,
+            plugins: false,
         }
     }
 
@@ -953,6 +987,10 @@ mod tests {
         assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
         assert_eq!(svc["init"].as_bool(), Some(true));
         assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("9000".into())])
+        );
+        assert_eq!(
             svc["ports"],
             Value::Sequence(vec![Value::String("9000:9000".into())])
         );
@@ -970,9 +1008,95 @@ mod tests {
         );
         assert_eq!(svc["volumes"][1]["source"].as_str(), Some(OCS_VOLUME));
         assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/app/data"));
+        assert_eq!(
+            svc["volumes"].as_sequence().unwrap().len(),
+            2,
+            "no plugin mount without an ocs/plugins/ to mount"
+        );
         assert!(doc["volumes"].get(OCS_VOLUME).is_some());
         // One service: OCS needs no init container of its own.
         assert_eq!(doc["services"].as_mapping().unwrap().len(), 1);
+    }
+
+    /// The five dataset credentials are passed whatever the deployment has:
+    /// OCS reads each as `os.getenv(...) or <the file>`, so empty is absent.
+    #[test]
+    fn ocs_always_gets_the_dataset_credential_variables_as_empty_defaults() {
+        let text = render_ocs(&ocs_spec());
+        assert_no_tokens(&text);
+        let env = &parse(&text)["services"]["ocs"]["environment"];
+        for var in crate::components::OCS_DATA_SOURCE_ENV_VARS {
+            assert_eq!(
+                env[*var].as_str(),
+                Some(format!("${{{var}:-}}").as_str()),
+                "{var}"
+            );
+        }
+        assert!(text.contains("# Dataset credentials, empty unless .env sets them"));
+    }
+
+    /// The base URL is a `${VAR:-default}` like the image tag: the recorded
+    /// value is the default, and `.env` can still move it without a sync.
+    #[test]
+    fn the_base_url_renders_as_a_default_that_env_can_override() {
+        let without = render_ocs(&ocs_spec());
+        assert_eq!(
+            parse(&without)["services"]["ocs"]["environment"]["CLIMATE_SERVICE_BASE_URL"].as_str(),
+            Some("${CLIMATE_SERVICE_BASE_URL:-}"),
+            "unset, which OCS reads as `compose the links from the request`"
+        );
+
+        let with = render_ocs(&OcsSpec {
+            base_url: Some("https://ocs.example.org".to_string()),
+            ..ocs_spec()
+        });
+        assert_no_tokens(&with);
+        assert_eq!(
+            parse(&with)["services"]["ocs"]["environment"]["CLIMATE_SERVICE_BASE_URL"].as_str(),
+            Some("${CLIMATE_SERVICE_BASE_URL:-https://ocs.example.org}")
+        );
+    }
+
+    /// The reverse-proxy shape: `expose` and no `ports`, so nothing on the
+    /// host is bound and the proxy is the only way in.
+    #[test]
+    fn ocs_publishes_nothing_when_it_has_no_host_port() {
+        let text = render_ocs(&OcsSpec {
+            host_port: None,
+            base_url: Some("https://ocs.example.org".to_string()),
+            ..ocs_spec()
+        });
+        assert_no_tokens(&text);
+        let doc = parse(&text);
+        let svc = service(&doc, "ocs");
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("9000".into())])
+        );
+        assert!(svc.get("ports").is_none(), "{text}");
+        // The container port never moves: it is what chap-core and the proxy
+        // both reach.
+        assert_eq!(svc["environment"]["PORT"].as_str(), Some("9000"));
+    }
+
+    /// The mount only appears when the directory is there: compose refuses to
+    /// start a service whose bind source does not exist.
+    #[test]
+    fn the_plugin_directory_is_mounted_only_when_the_project_has_one() {
+        let text = render_ocs(&OcsSpec {
+            plugins: true,
+            ..ocs_spec()
+        });
+        assert_no_tokens(&text);
+        let doc = parse(&text);
+        let volumes = doc["services"]["ocs"]["volumes"].as_sequence().unwrap();
+        assert_eq!(
+            volumes[1].as_str(),
+            Some("./ocs/plugins:/app/plugins:ro"),
+            "{text}"
+        );
+        assert_eq!(volumes.len(), 3, "the config, the plugins, the data volume");
+        assert_eq!(volumes[2]["source"].as_str(), Some(OCS_VOLUME));
     }
 
     #[test]
@@ -1001,7 +1125,7 @@ mod tests {
     #[test]
     fn a_custom_ocs_port_moves_only_the_host_side() {
         let text = render_ocs(&OcsSpec {
-            host_port: 9010,
+            host_port: Some(9010),
             ..ocs_spec()
         });
         assert_eq!(

@@ -18,8 +18,8 @@ use crate::chapcore;
 use crate::cli::DoctorArgs;
 use crate::commands::Ctx;
 use crate::components::{
-    COMPONENTS_FILE, Component, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
-    S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
+    COMPONENTS_FILE, Component, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_PLUGINS_DIR,
+    OCS_TAG_ENV_VAR, S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
 };
 use crate::compose::render::OCS_EXAMPLE_MARKER;
 use crate::compose::{API_SERVICE, sync};
@@ -1054,20 +1054,38 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
 /// What the `components` line says about the enabled set and the files that go
 /// with it.
 ///
-/// `ocs_config` is what is on disk at `ocs/climate-service.yaml`: `None` when
+/// Everything about the `ocs` component that is on disk rather than in
+/// `components.yaml`, gathered once so the verdict is a pure function of it.
+#[derive(Debug, Clone, Default)]
+pub struct OcsFacts<'a> {
+    /// The body of `ocs/climate-service.yaml`, or `None` when there is none.
+    pub config: Option<&'a str>,
+    /// Whether `.env` sets any of the dataset credential variables.
+    pub credentials: bool,
+    /// How many files `ocs/plugins/` holds, or `None` when the project has no
+    /// plugin directory at all.
+    pub plugins: Option<usize>,
+}
+
+/// `facts.config` is what is on disk at `ocs/climate-service.yaml`: `None` when
 /// there is none, which is a real fault (the container would start with no
 /// instance configuration), and a body that still carries the example marker,
 /// which is a warning - it deploys, it just deploys Sierra Leone.
+///
+/// The credentials and the plugin count are only ever reported, never judged. A
+/// deployment with no dataset credentials is a working deployment: WorldPop and
+/// CHIRPS3 need none, and an operator who only wants those should not be told
+/// once a day that something is unset on purpose.
 pub fn components_verdict(
     components: &Components,
-    ocs_config: Option<&str>,
+    facts: &OcsFacts,
 ) -> (Status, String, Option<String>) {
     let label = components.label();
     if !components.ocs.enabled {
         return (Status::Ok, label, None);
     }
     let config = format!("{OCS_DIR}/{OCS_CONFIG_FILE}");
-    let Some(body) = ocs_config else {
+    let Some(body) = facts.config else {
         return (
             Status::Fail,
             format!("{label}; {config} is missing"),
@@ -1087,17 +1105,71 @@ pub fn components_verdict(
             )),
         );
     }
-    (Status::Ok, format!("{label}; {config} present"), None)
+    (
+        Status::Ok,
+        format!("{label}; {config} present{}", ocs_notes(facts)),
+        None,
+    )
+}
+
+/// The informational tail of the `components` line: what the OCS instance has
+/// beyond its config file.
+fn ocs_notes(facts: &OcsFacts) -> String {
+    let mut notes = String::new();
+    if !facts.credentials {
+        notes.push_str("; ERA5-Land: credentials unset (WorldPop and CHIRPS3 work without them)");
+    }
+    if let Some(count) = facts.plugins {
+        notes.push_str(&format!(
+            "; {OCS_PLUGINS_DIR}/: {count} file{}",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
+    notes
 }
 
 /// The `components` line for a project on disk.
 pub fn components_check(project: &Project) -> Check {
     let body = std::fs::read_to_string(project.ocs_config_path()).ok();
+    let env = std::fs::read_to_string(project.dir.join(ENV_FILE)).unwrap_or_default();
+    let facts = OcsFacts {
+        config: body.as_deref(),
+        credentials: crate::components::OCS_DATA_SOURCE_ENV_VARS
+            .iter()
+            .any(|var| crate::dotenv::non_empty(&env, var).is_some()),
+        plugins: plugin_count(&project.ocs_plugins_path()),
+    };
     Check::from_verdict(
         "components",
         "components",
-        components_verdict(&project.state.components, body.as_deref()),
+        components_verdict(&project.state.components, &facts),
     )
+}
+
+/// How many files the plugin directory holds, or `None` when there is none.
+///
+/// Files at any depth, because OCS's own layout is `plugins/datasets/*.py`: a
+/// count of the top level would read `1` for a directory with a dozen datasets
+/// in it.
+fn plugin_count(dir: &Path) -> Option<usize> {
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut count = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => stack.push(entry.path()),
+                Ok(_) => count += 1,
+                Err(_) => {}
+            }
+        }
+    }
+    Some(count)
 }
 
 /// One line per model this deployment added itself that follows a branch:
@@ -2572,10 +2644,20 @@ mod tests {
         assert_eq!(check.fix.unwrap(), "run `chaps self update`");
     }
 
+    /// The facts of a deployment that has its credentials and no plugins: the
+    /// quiet case, where the line says nothing beyond the config file.
+    fn facts(config: Option<&str>) -> OcsFacts<'_> {
+        OcsFacts {
+            config,
+            credentials: true,
+            plugins: None,
+        }
+    }
+
     #[test]
     fn the_components_line_reports_the_set_and_the_ocs_config() {
         // Nothing but chap-core: there is no config file to have an opinion on.
-        let (status, detail, fix) = components_verdict(&Components::default(), None);
+        let (status, detail, fix) = components_verdict(&Components::default(), &facts(None));
         assert_eq!(status, Status::Ok);
         assert_eq!(detail, "chap-core");
         assert_eq!(fix, None);
@@ -2585,7 +2667,7 @@ mod tests {
 
         // The component is on and its instance config is gone: the container
         // would start with nothing to be an instance of.
-        let (status, detail, fix) = components_verdict(&components, None);
+        let (status, detail, fix) = components_verdict(&components, &facts(None));
         assert_eq!(status, Status::Fail);
         assert!(
             detail.contains("ocs/climate-service.yaml is missing"),
@@ -2598,20 +2680,89 @@ mod tests {
         let example = crate::compose::render::render_ocs_config(
             &crate::compose::spec::OcsConfigSpec::default(),
         );
-        let (status, detail, fix) = components_verdict(&components, Some(&example));
+        let (status, detail, fix) = components_verdict(&components, &facts(Some(&example)));
         assert_eq!(status, Status::Warn);
         assert!(detail.starts_with("chap-core, ocs; "), "{detail}");
         assert!(detail.contains("example values"), "{detail}");
         assert!(fix.unwrap().contains("--ocs-country"));
 
         // Edited, note deleted: nothing left to say.
-        let (status, detail, fix) = components_verdict(&components, Some("id: mine\n"));
+        let (status, detail, fix) = components_verdict(&components, &facts(Some("id: mine\n")));
         assert_eq!(status, Status::Ok);
         assert!(
             detail.ends_with("ocs/climate-service.yaml present"),
             "{detail}"
         );
         assert_eq!(fix, None);
+    }
+
+    /// Two things the line reports and never judges: missing credentials, which
+    /// are optional, and the plugin count, which is a fact about a directory
+    /// the operator put there.
+    #[test]
+    fn the_components_line_notes_the_credentials_and_the_plugins_without_complaining() {
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
+
+        let (status, detail, fix) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: false,
+                plugins: Some(2),
+            },
+        );
+        assert_eq!(status, Status::Ok, "neither is a problem: {detail}");
+        assert_eq!(fix, None);
+        assert!(
+            detail
+                .contains("ERA5-Land: credentials unset (WorldPop and CHIRPS3 work without them)"),
+            "{detail}"
+        );
+        assert!(detail.ends_with("plugins/: 2 files"), "{detail}");
+
+        // One file is singular, and a set credential says nothing at all.
+        let (_, detail, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: true,
+                plugins: Some(1),
+            },
+        );
+        assert!(!detail.contains("credentials unset"), "{detail}");
+        assert!(detail.ends_with("plugins/: 1 file"), "{detail}");
+
+        // An example config is a warning either way, and the notes wait for
+        // the file to be the operator's own: one thing to fix at a time.
+        let example = crate::compose::render::render_ocs_config(
+            &crate::compose::spec::OcsConfigSpec::default(),
+        );
+        let (status, detail, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some(&example),
+                credentials: false,
+                plugins: Some(3),
+            },
+        );
+        assert_eq!(status, Status::Warn);
+        assert!(!detail.contains("plugins/"), "{detail}");
+    }
+
+    /// Files at any depth, because OCS's own layout is `plugins/datasets/*.py`.
+    #[test]
+    fn the_plugin_count_reaches_into_subdirectories() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugins = dir.path().join("plugins");
+        assert_eq!(plugin_count(&plugins), None, "no directory, no count");
+
+        std::fs::create_dir_all(plugins.join("datasets")).unwrap();
+        assert_eq!(plugin_count(&plugins), Some(0));
+        std::fs::write(plugins.join("datasets").join("clms_gpp.py"), "").unwrap();
+        std::fs::write(plugins.join("datasets").join("clms_gpp.yaml"), "").unwrap();
+        std::fs::write(plugins.join("README.md"), "").unwrap();
+        assert_eq!(plugin_count(&plugins), Some(3));
     }
 
     #[test]
@@ -2678,6 +2829,7 @@ mod tests {
             state,
             reach: "http://localhost:9000".to_string(),
             health_url: None,
+            read_only: false,
         };
         let mut report = status_report(ApiHealth::Off, &[], &[]);
         report.components = vec![component("ocs", ComponentState::Up)];

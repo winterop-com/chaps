@@ -1,0 +1,199 @@
+- generic [active] [ref=f1e1]:
+  - link "Skip to content" [ref=f1e2] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=f1e3]:
+    - link [ref=f1e4] [cursor=pointer]:
+      - /url: /
+      - heading "Sierra Leone Climate Service" [level=1] [ref=f1e12]
+  - generic [ref=f1e13]:
+    - navigation "Sections" [ref=f1e14]:
+      - list [ref=f1e15]:
+        - listitem [ref=f1e16]:
+          - link "Overview" [ref=f1e17] [cursor=pointer]:
+            - /url: /
+        - listitem [ref=f1e18]:
+          - link "Datasets" [ref=f1e19] [cursor=pointer]:
+            - /url: /datasets
+        - listitem [ref=f1e20]:
+          - link "Dataset templates" [ref=f1e21] [cursor=pointer]:
+            - /url: /dataset-templates
+        - listitem [ref=f1e22]:
+          - link "Workflows" [ref=f1e23] [cursor=pointer]:
+            - /url: /workflows
+        - listitem [ref=f1e24]:
+          - link "Processes" [ref=f1e25] [cursor=pointer]:
+            - /url: /processes
+        - listitem [ref=f1e26]:
+          - link "Map viewer" [ref=f1e27] [cursor=pointer]:
+            - /url: /map
+        - listitem [ref=f1e28]:
+          - link "API" [ref=f1e29] [cursor=pointer]:
+            - /url: /api
+        - listitem [ref=f1e30]:
+          - link "openEO editor" [ref=f1e31] [cursor=pointer]:
+            - /url: /openeo
+    - main [ref=f1e32]:
+      - heading "Dataset templates" [level=2] [ref=f1e33]
+      - paragraph [ref=f1e34]: Data this instance can fetch from outside providers.
+      - generic [ref=f1e35]:
+        - generic [ref=f1e36]:
+          - generic [ref=f1e37]:
+            - text: Search
+            - searchbox "Search" [ref=f1e38]
+          - generic [ref=f1e39]:
+            - text: Period
+            - combobox "Period" [ref=f1e40]:
+              - option "All" [selected]
+              - option "climatology"
+              - option "daily"
+              - option "monthly"
+              - option "yearly"
+          - group "Layout" [ref=f1e41]:
+            - button "Tiles" [pressed] [ref=f1e42] [cursor=pointer]
+            - button "List" [ref=f1e43] [cursor=pointer]
+          - generic [ref=f1e44]: Showing 1–12 of 12
+        - generic [ref=f1e45]:
+          - article [ref=f1e46] [cursor=pointer]:
+            - generic [ref=f1e47]:
+              - heading [level=3] [ref=f1e48]:
+                - link "Total population (WorldPop Global2, 100m)" [ref=f1e49]:
+                  - /url: /dataset-templates/worldpop_population_global2_100m
+              - generic "WorldPop Global2" [ref=f1e50]
+              - paragraph [ref=f1e51]: Modelled number of people living in each 100 m grid cell, worldwide. Yearly estimates and projections for 2015-2030 from the WorldPop Global2 R2025A release.
+              - generic [ref=f1e52]:
+                - generic [ref=f1e53]: yearly
+                - generic [ref=f1e54]: people
+                - generic [ref=f1e55]: 100m x 100m
+                - generic [ref=f1e56]: CC-BY-4.0
+          - article [ref=f1e57] [cursor=pointer]:
+            - generic [ref=f1e58]:
+              - heading [level=3] [ref=f1e59]:
+                - link "Population by age and sex (WorldPop Global2, 100m)" [ref=f1e60]:
+                  - /url: /dataset-templates/worldpop_agesex_global2_100m
+              - generic "WorldPop Global2" [ref=f1e61]
+              - paragraph [ref=f1e62]: People per 100 m grid cell split by age band and sex, worldwide. Yearly estimates and projections for 2015-2030 from the WorldPop Global2 R2025A release.
+              - generic [ref=f1e63]:
+                - generic [ref=f1e64]: yearly
+                - generic [ref=f1e65]: people
+                - generic [ref=f1e66]: 100m x 100m
+                - generic [ref=f1e67]: CC-BY-4.0
+          - article [ref=f1e68] [cursor=pointer]:
+            - generic [ref=f1e69]:
+              - heading [level=3] [ref=f1e70]:
+                - link "2m temperature (ERA5-Land)" [ref=f1e71]:
+                  - /url: /dataset-templates/era5land_temperature_daily
+              - generic "ERA5-Land Reanalysis" [ref=f1e72]
+              - paragraph [ref=f1e73]: Daily mean air temperature 2 m above the ground at 9 km, worldwide, from 1950 to a few days ago. Days run in UTC.
+              - generic [ref=f1e74]:
+                - generic [ref=f1e75]: daily
+                - generic [ref=f1e76]: degC
+                - generic [ref=f1e77]: 9 km x 9 km
+                - generic [ref=f1e78]: Licence to Use Copernicus Products
+          - article [ref=f1e79] [cursor=pointer]:
+            - generic [ref=f1e80]:
+              - heading [level=3] [ref=f1e81]:
+                - link "Precipitation rate (ERA5-Land)" [ref=f1e82]:
+                  - /url: /dataset-templates/era5land_precipitation_daily
+              - generic "ERA5-Land Reanalysis" [ref=f1e83]
+              - paragraph [ref=f1e84]: Daily rainfall at 9 km, worldwide, from 1950 to a few days ago, stored as a mean daily rate. A day runs from midnight in the instance's own time zone.
+              - generic [ref=f1e85]:
+                - generic [ref=f1e86]: daily
+                - generic [ref=f1e87]: mm/d
+                - generic [ref=f1e88]: 9 km x 9 km
+                - generic [ref=f1e89]: Licence to Use Copernicus Products
+          - article [ref=f1e90] [cursor=pointer]:
+            - generic [ref=f1e91]:
+              - heading [level=3] [ref=f1e92]:
+                - link "2m temperature (ERA5-Land)" [ref=f1e93]:
+                  - /url: /dataset-templates/era5land_temperature_monthly
+              - generic "ERA5-Land Reanalysis" [ref=f1e94]
+              - paragraph [ref=f1e95]: Monthly mean air temperature 2 m above the ground at 9 km, worldwide, from 1950 onwards.
+              - generic [ref=f1e96]:
+                - generic [ref=f1e97]: monthly
+                - generic [ref=f1e98]: degC
+                - generic [ref=f1e99]: 9 km x 9 km
+                - generic [ref=f1e100]: Licence to Use Copernicus Products
+          - article [ref=f1e101] [cursor=pointer]:
+            - generic [ref=f1e102]:
+              - heading [level=3] [ref=f1e103]:
+                - link "Precipitation rate (ERA5-Land)" [ref=f1e104]:
+                  - /url: /dataset-templates/era5land_precipitation_monthly
+              - generic "ERA5-Land Reanalysis" [ref=f1e105]
+              - paragraph [ref=f1e106]: Monthly rainfall at 9 km, worldwide, from 1950 onwards, stored as a mean daily rate rather than a monthly total.
+              - generic [ref=f1e107]:
+                - generic [ref=f1e108]: monthly
+                - generic [ref=f1e109]: mm/d
+                - generic [ref=f1e110]: 9 km x 9 km
+                - generic [ref=f1e111]: Licence to Use Copernicus Products
+          - article [ref=f1e112] [cursor=pointer]:
+            - generic [ref=f1e113]:
+              - heading [level=3] [ref=f1e114]:
+                - link "2m temperature (ERA5-Land, local time)" [ref=f1e115]:
+                  - /url: /dataset-templates/era5land_temperature_daily_from_hourly
+              - generic "ERA5-Land Reanalysis" [ref=f1e116]
+              - paragraph [ref=f1e117]: Daily mean air temperature 2 m above the ground, averaged over the local day rather than the UTC day. Use this where the time zone matters more than a direct match with ERA5-Land.
+              - generic [ref=f1e118]:
+                - generic [ref=f1e119]: daily
+                - generic [ref=f1e120]: degC
+                - generic [ref=f1e121]: 9 km x 9 km
+                - generic [ref=f1e122]: Licence to Use Copernicus Products
+          - article [ref=f1e123] [cursor=pointer]:
+            - generic [ref=f1e124]:
+              - heading [level=3] [ref=f1e125]:
+                - link "Precipitation rate (ERA5-Land, local time)" [ref=f1e126]:
+                  - /url: /dataset-templates/era5land_precipitation_daily_from_hourly
+              - generic "ERA5-Land Reanalysis" [ref=f1e127]
+              - paragraph [ref=f1e128]: Daily rainfall at 9 km, worldwide, from 1950 to a few days ago, stored as a mean daily rate. A day runs from midnight in the instance's own time zone.
+              - generic [ref=f1e129]:
+                - generic [ref=f1e130]: daily
+                - generic [ref=f1e131]: mm/d
+                - generic [ref=f1e132]: 9 km x 9 km
+                - generic [ref=f1e133]: Licence to Use Copernicus Products
+          - article [ref=f1e134] [cursor=pointer]:
+            - generic [ref=f1e135]:
+              - heading [level=3] [ref=f1e136]:
+                - link "2m temperature daily normal (ERA5-Land, 1991–2020)" [ref=f1e137]:
+                  - /url: /dataset-templates/era5land_temperature_daily_normal_1991_2020
+              - generic "ERA5-Land Reanalysis (Earth Data Hub)" [ref=f1e138]
+              - paragraph [ref=f1e139]: Average ERA5-Land temperature for each day of the year over 1991-2020, smoothed over a 31-day window. The baseline an anomaly is measured against.
+              - generic [ref=f1e140]:
+                - generic [ref=f1e141]: climatology
+                - generic [ref=f1e142]: degC
+                - generic [ref=f1e143]: 9 km x 9 km
+                - generic [ref=f1e144]: Licence to Use Copernicus Products
+          - article [ref=f1e145] [cursor=pointer]:
+            - generic [ref=f1e146]:
+              - heading [level=3] [ref=f1e147]:
+                - link "Total precipitation daily normal (ERA5-Land, 1991–2020)" [ref=f1e148]:
+                  - /url: /dataset-templates/era5land_precipitation_daily_normal_1991_2020
+              - generic "ERA5-Land Reanalysis (Earth Data Hub)" [ref=f1e149]
+              - paragraph [ref=f1e150]: Average ERA5-Land rainfall for each day of the year over 1991-2020, smoothed over a 31-day window. The baseline an anomaly is measured against.
+              - generic [ref=f1e151]:
+                - generic [ref=f1e152]: climatology
+                - generic [ref=f1e153]: mm
+                - generic [ref=f1e154]: 9 km x 9 km
+                - generic [ref=f1e155]: Licence to Use Copernicus Products
+          - article [ref=f1e156] [cursor=pointer]:
+            - generic [ref=f1e157]:
+              - heading [level=3] [ref=f1e158]:
+                - link "Precipitation rate (CHIRPS3)" [ref=f1e159]:
+                  - /url: /dataset-templates/chirps3_precipitation_daily
+              - generic "CHIRPS v3" [ref=f1e160]
+              - paragraph [ref=f1e161]: Daily rainfall over land at 5 km, from satellite estimates calibrated against station observations. Covers 50 degrees south to 50 degrees north from 1981 onwards.
+              - generic [ref=f1e162]:
+                - generic [ref=f1e163]: daily
+                - generic [ref=f1e164]: mm/d
+                - generic [ref=f1e165]: 5 km x 5 km
+                - generic [ref=f1e166]: CC-BY-4.0
+          - article [ref=f1e167] [cursor=pointer]:
+            - generic [ref=f1e168]:
+              - heading [level=3] [ref=f1e169]:
+                - link "Precipitation rate (CHIRPS3, monthly)" [ref=f1e170]:
+                  - /url: /dataset-templates/chirps3_precipitation_monthly
+              - generic "CHIRPS v3 (monthly)" [ref=f1e171]
+              - paragraph [ref=f1e172]: Monthly rainfall over land at 5 km, from satellite estimates calibrated against station observations, from 1981 onwards. Units are mm/d — a MEAN DAILY RATE, not a monthly total. Multiply by the days in the month to get the total.
+              - generic [ref=f1e173]:
+                - generic [ref=f1e174]: monthly
+                - generic [ref=f1e175]: mm/d
+                - generic [ref=f1e176]: 5 km x 5 km
+                - generic [ref=f1e177]: CC-BY-4.0

@@ -57,7 +57,11 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // What the deployment is made of is settled first: it decides which
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
-    let components = parse_components(args.with.as_deref(), args.without.as_deref())?;
+    let components = parse_components(
+        args.with.as_deref(),
+        args.without.as_deref(),
+        args.ocs_base_url.as_deref(),
+    )?;
     // Settle the chap-core tag and the compose file that goes with it before
     // anything is written: both need the network, and a failure of either is a
     // warning plus a fallback, never a half-written directory.
@@ -374,12 +378,17 @@ fn warn_about_busy_ports(
     claims
 }
 
-/// Expand `--with` and `--without` into a component set.
+/// Expand `--with`, `--without` and `--ocs-base-url` into a component set.
 ///
 /// chap-core is on unless `--without chap-core` says otherwise; everything
 /// else is off until `--with` names it. A name in both lists is a
-/// contradiction rather than a silent winner.
-fn parse_components(with: Option<&str>, without: Option<&str>) -> Result<Components> {
+/// contradiction rather than a silent winner, and so is a base URL for a
+/// component this deployment is not getting.
+fn parse_components(
+    with: Option<&str>,
+    without: Option<&str>,
+    ocs_base_url: Option<&str>,
+) -> Result<Components> {
     let on = parse_component_list(with)?;
     let off = parse_component_list(without)?;
     if let Some(both) = on.iter().find(|c| off.contains(c)) {
@@ -394,6 +403,20 @@ fn parse_components(with: Option<&str>, without: Option<&str>) -> Result<Compone
     }
     for component in off {
         components.set_enabled(component, false);
+    }
+    if let Some(base_url) = ocs_base_url.map(str::trim).filter(|url| !url.is_empty()) {
+        if !components.ocs.enabled {
+            return Err(anyhow::anyhow!(
+                "--ocs-base-url needs the ocs component; add `--with ocs`"
+            ));
+        }
+        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+            return Err(anyhow::anyhow!(
+                "--ocs-base-url has to be an absolute URL, so `{base_url}` will not do: OCS \
+                 builds its STAC and openEO links by appending a path to this value"
+            ));
+        }
+        components.ocs.base_url = Some(base_url.trim_end_matches('/').to_string());
     }
     Ok(components)
 }
@@ -725,10 +748,14 @@ fn summary(
         ));
     }
     if components.ocs.enabled {
+        let reach = components.ocs_reach();
         addresses.push_str(&format!(
             "{}       {} {}\n",
             out.key("OCS:"),
-            out.value(&components.ocs_url()),
+            match components.ocs_url() {
+                Some(_) => out.value(&reach),
+                None => out.dim(&reach),
+            },
             out.dim(&format!(
                 "(config in {}/{})",
                 crate::components::OCS_DIR,
@@ -870,29 +897,32 @@ mod tests {
 
     #[test]
     fn the_with_and_without_lists_shape_the_component_set() {
-        let plain = parse_components(None, None).unwrap();
+        let plain = parse_components(None, None, None).unwrap();
         assert_eq!(plain, Components::default());
         assert!(plain.chap_core.enabled && !plain.ocs.enabled);
 
-        let both = parse_components(Some("ocs,s3"), None).unwrap();
+        let both = parse_components(Some("ocs,s3"), None, None).unwrap();
         assert!(both.chap_core.enabled && both.ocs.enabled && both.s3.enabled);
         assert_eq!(both.label(), "chap-core, ocs, s3");
         // Whitespace and case are the shell's, not part of the name.
-        assert_eq!(parse_components(Some(" OCS , s3 "), None).unwrap(), both);
+        assert_eq!(
+            parse_components(Some(" OCS , s3 "), None, None).unwrap(),
+            both
+        );
 
-        let standalone = parse_components(Some("ocs"), Some("chap-core")).unwrap();
+        let standalone = parse_components(Some("ocs"), Some("chap-core"), None).unwrap();
         assert!(!standalone.chap_core.enabled && standalone.ocs.enabled);
         assert_eq!(standalone.label(), "ocs");
 
         // An unknown name is a typo to report before anything is written.
-        let err = parse_components(Some("ocs,nope"), None).expect_err("unknown component");
+        let err = parse_components(Some("ocs,nope"), None, None).expect_err("unknown component");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownComponent(name)) if name == "nope"
         ));
 
         // And a name on both lists is a contradiction, not a silent winner.
-        let err = parse_components(Some("ocs"), Some("ocs")).expect_err("on and off at once");
+        let err = parse_components(Some("ocs"), Some("ocs"), None).expect_err("on and off at once");
         assert!(
             err.to_string().contains("both --with and --without"),
             "{err}"
@@ -900,10 +930,38 @@ mod tests {
     }
 
     #[test]
+    fn the_ocs_base_url_needs_the_component_and_has_to_be_absolute() {
+        let proxied =
+            parse_components(Some("ocs"), None, Some("https://ocs.example.org/")).unwrap();
+        assert_eq!(
+            proxied.ocs.base_url.as_deref(),
+            Some("https://ocs.example.org"),
+            "the trailing slash goes: OCS appends a path to this"
+        );
+
+        // An empty value is no value, not a refusal.
+        assert_eq!(
+            parse_components(Some("ocs"), None, Some("  "))
+                .unwrap()
+                .ocs
+                .base_url,
+            None
+        );
+
+        let err = parse_components(None, None, Some("https://ocs.example.org"))
+            .expect_err("no component to set it on");
+        assert!(err.to_string().contains("--with ocs"), "{err}");
+
+        let err =
+            parse_components(Some("ocs"), None, Some("ocs.example.org")).expect_err("no scheme");
+        assert!(err.to_string().contains("absolute URL"), "{err}");
+    }
+
+    #[test]
     fn a_component_port_is_probed_alongside_the_api_port() {
         let mut components = Components::default();
         components.ocs.enabled = true;
-        components.ocs.port = 9000;
+        components.ocs.port = Some(9000);
 
         assert!(warn_about_busy_ports(&components, 8000, &|_| false).is_empty());
         let busy = warn_about_busy_ports(&components, 8000, &|port| port == 9000);

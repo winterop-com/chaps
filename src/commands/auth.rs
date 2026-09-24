@@ -32,6 +32,7 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
     let recorded = project.state.auth;
     let effective = auth::state_of(&body);
     let token = auth::active_value(&body, API_TOKEN_ENV_VAR);
+    let data_sources = data_sources(&project, &body);
 
     let value = serde_json::json!({
         "api_token": effective.api_token,
@@ -42,6 +43,19 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
         "token_masked": token.as_deref().map(mask),
         "token": args.reveal.then(|| token.clone()).flatten(),
         "env_file": project.dir.join(ENV_FILE),
+        // One entry per OCS data source variable, masked either way: these are
+        // third-party credentials, so `--reveal` does not reach them. Absent
+        // on a deployment without the ocs component, which has no data sources.
+        "ocs_data_sources": data_sources
+            .iter()
+            .map(|(var, value)| {
+                serde_json::json!({
+                    "variable": var,
+                    "set": value.is_some(),
+                    "masked": value.as_deref().map(mask),
+                })
+            })
+            .collect::<Vec<_>>(),
     });
     ctx.out.emit(&value, || {
         show_human(
@@ -50,8 +64,24 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
             recorded,
             token.as_deref(),
             args.reveal,
+            &data_sources,
         )
     })
+}
+
+/// Which of the OCS data source variables `.env` sets, and their values.
+///
+/// Empty for a deployment without the `ocs` component: the variables mean
+/// nothing there, and a block of five `unset` rows would only suggest that
+/// something is missing.
+fn data_sources(project: &Project, body: &str) -> Vec<(&'static str, Option<String>)> {
+    if !project.state.components.ocs.enabled {
+        return Vec::new();
+    }
+    crate::components::OCS_DATA_SOURCE_ENV_VARS
+        .iter()
+        .map(|var| (*var, crate::dotenv::non_empty(body, var)))
+        .collect()
 }
 
 /// `chaps auth enable`: put both secrets in `.env` and render the overlays.
@@ -292,6 +322,7 @@ fn show_human(
     recorded: AuthState,
     token: Option<&str>,
     reveal: bool,
+    data_sources: &[(&str, Option<String>)],
 ) -> String {
     // On is the safe state and off is the one to act on, so off is the colour
     // that asks for attention rather than the one that says "broken".
@@ -323,6 +354,7 @@ fn show_human(
              `chaps auth enable` turns authentication on.",
         ));
         text.push('\n');
+        text.push_str(&data_sources_block(out, data_sources));
         return text;
     }
     if effective.api_token {
@@ -353,6 +385,40 @@ fn show_human(
             ))
         ));
     }
+    text.push_str(&data_sources_block(out, data_sources));
+    text
+}
+
+/// The `OCS data sources` block: one row per credential variable, saying
+/// whether `.env` sets it.
+///
+/// These are not this deployment's secrets - they are accounts with Copernicus
+/// and Earth Data Hub - so the value is masked whatever `--reveal` asked for:
+/// there is nothing to paste into a client here, only the question of whether
+/// a dataset will ingest. Empty for a deployment without the `ocs` component.
+fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> String {
+    if data_sources.is_empty() {
+        return String::new();
+    }
+    let rows: Vec<(&str, String)> = data_sources
+        .iter()
+        .map(|(var, value)| {
+            (
+                *var,
+                match value {
+                    Some(value) => format!("{} {}", out.ok("set"), out.dim(&mask(value))),
+                    None => out.dim("unset"),
+                },
+            )
+        })
+        .collect();
+    let mut text = format!("\n{}\n", out.heading("OCS data sources"));
+    text.push_str(&output::fields_with(2, &rows, &|label| out.key(label)));
+    text.push_str(&out.backticks(
+        "ERA5-Land needs one of these; WorldPop and CHIRPS3 need none. \
+         Set them in .env and run `chaps up`.",
+    ));
+    text.push('\n');
     text
 }
 
@@ -375,6 +441,7 @@ mod tests {
             AuthState::default(),
             None,
             false,
+            &[],
         );
         assert!(text.contains("API authentication  off"), "{text}");
         assert!(text.contains("Registration key    off"), "{text}");
@@ -386,14 +453,14 @@ mod tests {
     #[test]
     fn show_masks_the_token_until_reveal_asks_for_it() {
         let token = "0123456789abcdef0123456789abcdef";
-        let masked = show_human(&Out::default(), &on(), on(), Some(token), false);
+        let masked = show_human(&Out::default(), &on(), on(), Some(token), false, &[]);
         assert!(masked.contains("API token           012345..."), "{masked}");
         assert!(!masked.contains(token), "the secret leaked: {masked}");
         assert!(masked.contains("--reveal prints it in full"), "{masked}");
         assert!(masked.contains(MODELING_APP_HINT), "{masked}");
         assert!(masked.contains("X-Service-Key"), "{masked}");
 
-        let revealed = show_human(&Out::default(), &on(), on(), Some(token), true);
+        let revealed = show_human(&Out::default(), &on(), on(), Some(token), true, &[]);
         assert!(
             revealed.contains(&format!("API token           {token}")),
             "{revealed}"
@@ -411,6 +478,7 @@ mod tests {
             AuthState::default(),
             Some("sekret-token-value"),
             false,
+            &[],
         );
         assert!(
             text.contains("warning: .chaps/project.yaml records"),
@@ -425,7 +493,8 @@ mod tests {
                 &on(),
                 on(),
                 Some("sekret-token-value"),
-                false
+                false,
+                &[]
             )
             .contains("warning:")
         );
@@ -437,11 +506,60 @@ mod tests {
             api_token: false,
             registration_key: true,
         };
-        let text = show_human(&Out::default(), &key_only, key_only, None, false);
+        let text = show_human(&Out::default(), &key_only, key_only, None, false, &[]);
         assert!(text.contains("API authentication  off"), "{text}");
         assert!(text.contains("Registration key    on"), "{text}");
         assert!(text.contains("X-Service-Key"), "{text}");
         assert!(!text.contains("nothing protects"), "{text}");
+    }
+
+    /// The OCS block is there whether or not the API is protected, because the
+    /// two have nothing to do with each other: an unprotected deployment can
+    /// still have a Copernicus key, and a protected one can still be missing
+    /// it.
+    #[test]
+    fn show_reports_the_ocs_data_sources_masked_and_never_reveals_them() {
+        let key = "0123456789abcdef";
+        let sources = vec![
+            (
+                "ECMWF_DATASTORES_URL",
+                Some("https://cds.example/api".into()),
+            ),
+            ("ECMWF_DATASTORES_KEY", Some(key.to_string())),
+            ("EDH_API_KEY", None),
+            ("CDSE_S3_ACCESS_KEY", None),
+            ("CDSE_S3_SECRET_KEY", None),
+        ];
+        for reveal in [false, true] {
+            let text = show_human(&Out::default(), &on(), on(), Some("t"), reveal, &sources);
+            assert!(text.contains("OCS data sources"), "{text}");
+            assert!(
+                text.contains("ECMWF_DATASTORES_KEY  set 012345..."),
+                "{text}"
+            );
+            assert!(
+                !text.contains(key),
+                "a third-party credential leaked at reveal={reveal}: {text}"
+            );
+            assert!(text.contains("EDH_API_KEY           unset"), "{text}");
+            assert!(text.contains("WorldPop and CHIRPS3 need none"), "{text}");
+        }
+
+        // Off does not skip it: the block is the answer to a different
+        // question, and the off path returns early.
+        let off = show_human(
+            &Out::default(),
+            &AuthState::default(),
+            AuthState::default(),
+            None,
+            false,
+            &sources,
+        );
+        assert!(off.contains("OCS data sources"), "{off}");
+
+        // A deployment without the component has no block at all.
+        let none = show_human(&Out::default(), &on(), on(), Some("t"), false, &[]);
+        assert!(!none.contains("OCS data sources"), "{none}");
     }
 
     #[test]

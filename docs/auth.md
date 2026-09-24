@@ -110,7 +110,7 @@ who can reach the port.
 
 | Command | What it does |
 | --- | --- |
-| `chaps auth show [--reveal]` | Whether each secret is set, and the token, abbreviated unless `--reveal`. |
+| `chaps auth show [--reveal]` | Whether each secret is set, and the token, abbreviated unless `--reveal`; plus the OCS data sources, always masked. |
 | `chaps auth enable [--token VALUE]` | Write both secrets, record them, re-render the overlays. |
 | `chaps auth disable` | Comment both lines out, keeping their values, and re-render. |
 | `chaps auth rotate` | Replace both secrets with new ones. |
@@ -119,6 +119,25 @@ who can reach the port.
 deployment intends and `.env` for what is actually set, and says so when the two
 disagree - a token recorded as in use but commented out in `.env`, say. The
 token is abbreviated unless `--reveal` asks for it in full.
+
+On a deployment with the `ocs` component it also lists the OCS data source
+credentials, which live in the same `.env`:
+
+```text
+OCS data sources
+  ECMWF_DATASTORES_URL  set https:/...
+  ECMWF_DATASTORES_KEY  set 012345...
+  EDH_API_KEY           unset
+  CDSE_S3_ACCESS_KEY    unset
+  CDSE_S3_SECRET_KEY    unset
+```
+
+Those five are read and never written: they are accounts with Copernicus and
+Earth Data Hub rather than this deployment's own secrets, so `enable`, `disable`
+and `rotate` do not touch them, and they stay masked even under `--reveal` -
+there is nothing to paste into a client, only the question of whether a dataset
+will ingest. `--json` carries them under `ocs_data_sources`. See
+[Components](./components.md#data-source-credentials).
 
 All four only ever touch those two `.env` lines. The database password, the
 image pins, the comments and the blank lines come out byte for byte as they

@@ -757,6 +757,17 @@ impl Project {
             .join(crate::components::OCS_CONFIG_FILE)
     }
 
+    /// Absolute path of the OCS dataset plugin directory.
+    ///
+    /// Never created by this CLI: the directory existing is how a deployment
+    /// says it has plugins, so creating an empty one would turn the mount on
+    /// for every project.
+    pub fn ocs_plugins_path(&self) -> PathBuf {
+        self.dir
+            .join(crate::components::OCS_DIR)
+            .join(crate::components::OCS_PLUGINS_DIR)
+    }
+
     /// The host port chap-core's API is actually published on, and which file
     /// decided that.
     ///
@@ -1480,7 +1491,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut components = Components::default();
         components.ocs.enabled = true;
-        components.ocs.port = 9010;
+        components.ocs.port = Some(9010);
         components.s3.enabled = true;
         let project = Project {
             dir: dir.path().to_path_buf(),

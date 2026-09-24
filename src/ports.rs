@@ -363,7 +363,7 @@ mod tests {
     fn a_component_claims_its_port_before_the_first_sync() {
         let (_dir, mut project) = project();
         project.state.components.ocs.enabled = true;
-        project.state.components.ocs.port = 9010;
+        project.state.components.ocs.port = Some(9010);
         project.state.components.s3.enabled = true;
 
         let found = claims(&project);
@@ -392,7 +392,7 @@ mod tests {
     fn a_component_port_is_claimed_once_however_many_files_publish_it() {
         let (dir, mut project) = project();
         project.state.components.ocs.enabled = true;
-        project.state.components.ocs.port = 9010;
+        project.state.components.ocs.port = Some(9010);
         std::fs::write(
             dir.path().join("compose.ocs.yml"),
             "services:\n  ocs:\n    ports:\n      - \"9010:9000\"\n",

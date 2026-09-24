@@ -174,6 +174,14 @@ fn state(dir: &Path) -> Json {
     project
 }
 
+/// The `--json` document one command printed, whatever it exited with:
+/// `status` on a stack that is not running and `doctor` with a failing check
+/// both print their report and exit non-zero.
+fn json_of(cmd: &mut Command) -> Json {
+    let out = cmd.output().expect("the command runs");
+    serde_json::from_slice(&out.stdout).expect("the --json output is one document")
+}
+
 /// `chaps <args>` run from `cwd`, without `-C`.
 fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
@@ -3486,9 +3494,29 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
         svc["image"].as_str(),
         Some("ghcr.io/dhis2/open-climate-service:${OCS_IMAGE_TAG:-main}")
     );
+    assert_eq!(svc["expose"][0].as_str(), Some("9000"));
     assert_eq!(svc["ports"][0].as_str(), Some("9000:9000"));
     assert!(svc.get("platform").is_none());
     assert!(svc["environment"].get("S3_ENDPOINT").is_none());
+    // The five dataset credentials are always passed, empty until .env has
+    // them, and so is the base URL: OCS reads an empty value as absent.
+    let env_block = &svc["environment"];
+    for var in [
+        "ECMWF_DATASTORES_URL",
+        "ECMWF_DATASTORES_KEY",
+        "EDH_API_KEY",
+        "CDSE_S3_ACCESS_KEY",
+        "CDSE_S3_SECRET_KEY",
+        "CLIMATE_SERVICE_BASE_URL",
+    ] {
+        assert_eq!(
+            env_block[var].as_str(),
+            Some(format!("${{{var}:-}}").as_str()),
+            "{var}"
+        );
+    }
+    // Nothing to mount: the plugin directory is opt-in.
+    assert_eq!(svc["volumes"].as_sequence().unwrap().len(), 2);
 
     // The scaffold is OCS's own example, and says so where doctor can see it.
     let config = read(&dir.join("ocs/climate-service.yaml"));
@@ -3497,10 +3525,33 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
     assert_eq!(parsed["extent"]["country_code"].as_str(), Some("SLE"));
     assert_eq!(parsed["data_dir"].as_str(), Some("/app/data"));
 
-    // The image pin reaches .env as a commented line, like a model's.
+    // The image pin reaches .env as a commented line, like a model's, and so
+    // does the data source section: placeholders, for the operator to fill in.
     let env = sandbox.env();
     assert!(env.contains("\n# OCS_IMAGE_TAG=main\n"), "{env}");
-    assert!(!env.contains("S3_ACCESS_KEY="), "no store, no credentials");
+    assert!(
+        env.contains(
+            "\n# OCS data sources (optional): ERA5-Land needs one of these; \
+             WorldPop and CHIRPS3 need none.\n"
+        ),
+        "{env}"
+    );
+    assert!(
+        env.contains("\n# ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api\n"),
+        "{env}"
+    );
+    for var in [
+        "ECMWF_DATASTORES_KEY",
+        "EDH_API_KEY",
+        "CDSE_S3_ACCESS_KEY",
+        "CDSE_S3_SECRET_KEY",
+    ] {
+        assert!(env.contains(&format!("\n# {var}=\n")), "{var}: {env}");
+    }
+    assert!(
+        !env.contains("\nS3_ACCESS_KEY="),
+        "no store, no credentials"
+    );
 }
 
 #[test]
@@ -3630,6 +3681,295 @@ fn a_component_port_is_recorded_and_published() {
     let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
     assert!(text.contains("http://localhost:9010"), "{text}");
     assert!(text.contains("http://localhost:9002"), "{text}");
+}
+
+/// A western extent starts with a minus sign, and the spelling without `=` is
+/// the one anyone types first.
+#[test]
+fn init_takes_a_negative_bbox_without_the_equals_sign() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "ocs",
+            "--ocs-name",
+            "Sierra Leone",
+            "--ocs-country",
+            "SLE",
+            "--ocs-bbox",
+            "-13.5,6.9,-10.1,10.0",
+        ])
+        .assert()
+        .success();
+
+    let config = yaml(&dir.join("ocs/climate-service.yaml"));
+    assert_eq!(config["extent"]["bbox"][0].as_f64(), Some(-13.5));
+    assert_eq!(config["extent"]["bbox"][2].as_f64(), Some(-10.1));
+    assert!(
+        !read(&dir.join("ocs/climate-service.yaml")).contains("Sierra Leone example values"),
+        "these are the operator's own values, even where they match the example"
+    );
+}
+
+/// The reverse-proxy shape, set at init and then changed: no host port, a base
+/// URL in its place, and ingestion over HTTP refused.
+#[test]
+fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "ocs",
+            "--ocs-base-url",
+            "https://ocs.example.org",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"]["environment"]
+            ["CLIMATE_SERVICE_BASE_URL"]
+            .as_str(),
+        Some("${CLIMATE_SERVICE_BASE_URL:-https://ocs.example.org}")
+    );
+
+    sandbox
+        .components(&[
+            "enable",
+            "ocs",
+            "--port",
+            "none",
+            "--base-url",
+            "https://climate.example.org/",
+            "--read-only",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "reached through the proxy at https://climate.example.org",
+        ))
+        .stdout(predicates::str::contains("read_only: true"))
+        // Not a plain `chaps restart`: the config is a bind mount, so compose
+        // compares nothing that changed and recreates nothing.
+        .stdout(predicates::str::contains(
+            "`chaps restart --all ocs` applies it",
+        ));
+
+    // The overlay: exposed on the compose network, published nowhere.
+    let svc = yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"].clone();
+    assert_eq!(svc["expose"][0].as_str(), Some("9000"));
+    assert!(svc.get("ports").is_none(), "nothing is bound on the host");
+    assert_eq!(
+        svc["environment"]["CLIMATE_SERVICE_BASE_URL"].as_str(),
+        Some("${CLIMATE_SERVICE_BASE_URL:-https://climate.example.org}"),
+        "the trailing slash goes: OCS appends a path to this"
+    );
+
+    // The instance config: one key added, the rest of the file untouched.
+    let config = read(&dir.join("ocs/climate-service.yaml"));
+    assert!(config.ends_with("read_only: true\n"), "{config}");
+    assert!(config.contains("sierra-leone-climate-service"), "{config}");
+
+    // And both facts in the record and in `status --json`.
+    let components = yaml(&dir.join(".chaps/components.yaml"));
+    assert_eq!(components["ocs"]["port"], Yaml::Null);
+    assert_eq!(
+        components["ocs"]["base_url"].as_str(),
+        Some("https://climate.example.org")
+    );
+    assert_eq!(components["ocs"]["read_only"], Yaml::Bool(true));
+
+    let status = json_of(
+        sandbox
+            .chap()
+            .arg("-C")
+            .arg(&dir)
+            .args(["status", "--json"]),
+    );
+    let ocs = &status["components"][0];
+    assert_eq!(ocs["name"].as_str(), Some("ocs"));
+    assert_eq!(
+        ocs["reach"].as_str(),
+        Some("internal (proxy: https://climate.example.org)")
+    );
+    assert_eq!(ocs["read_only"], serde_json::json!(true));
+    assert_eq!(ocs["health_url"], serde_json::Value::Null);
+
+    // --read-write puts it back, editing the one key in place.
+    sandbox
+        .components(&["enable", "ocs", "--read-write"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("read_only: false"));
+    assert_eq!(
+        read(&dir.join("ocs/climate-service.yaml")),
+        config.replace("read_only: true", "read_only: false")
+    );
+    assert_eq!(
+        yaml(&dir.join(".chaps/components.yaml"))["ocs"]["read_only"],
+        Yaml::Bool(false)
+    );
+
+    // A port again, and the address is the address: it is where this machine
+    // reaches it, whatever the proxy is called.
+    sandbox
+        .components(&["enable", "ocs", "--port", "9010"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("http://localhost:9010"));
+    assert_eq!(
+        yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"]["ports"][0].as_str(),
+        Some("9010:9000")
+    );
+}
+
+/// The directory is the whole declaration: a project that has one gets the
+/// mount and the `plugins_dir` key, and one that does not gets neither.
+#[test]
+fn an_ocs_plugin_directory_is_mounted_and_configured_by_sync() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "ocs",
+            "--ocs-name",
+            "Malawi",
+            "--ocs-country",
+            "MWI",
+        ])
+        .assert()
+        .success();
+    assert!(!read(&dir.join("compose.ocs.yml")).contains("/app/plugins"));
+    assert!(!read(&dir.join("ocs/climate-service.yaml")).contains("plugins_dir"));
+
+    std::fs::create_dir_all(dir.join("ocs/plugins/datasets")).unwrap();
+    std::fs::write(dir.join("ocs/plugins/datasets/clms_gpp.py"), "# a plugin\n").unwrap();
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("sync")
+        .assert()
+        .success();
+
+    assert_eq!(
+        yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"]["volumes"][1].as_str(),
+        Some("./ocs/plugins:/app/plugins:ro")
+    );
+    let config = read(&dir.join("ocs/climate-service.yaml"));
+    assert!(config.ends_with("plugins_dir: /app/plugins\n"), "{config}");
+    assert!(config.contains("malawi-climate-service"), "{config}");
+
+    // `doctor` reports the count, and it is not a problem.
+    let checks = json_of(
+        sandbox
+            .chap()
+            .arg("-C")
+            .arg(&dir)
+            .args(["doctor", "--json"]),
+    );
+    let line = checks["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "components")
+        .expect("a components line")
+        .clone();
+    assert_eq!(line["status"].as_str(), Some("ok"));
+    assert!(
+        line["detail"]
+            .as_str()
+            .unwrap()
+            .ends_with("plugins/: 1 file"),
+        "{line}"
+    );
+    assert!(
+        line["detail"]
+            .as_str()
+            .unwrap()
+            .contains("ERA5-Land: credentials unset (WorldPop and CHIRPS3 work without them)"),
+        "{line}"
+    );
+
+    // A second sync changes nothing.
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .args(["sync", "--check"])
+        .assert()
+        .success();
+}
+
+/// The block is about third-party accounts rather than this deployment's own
+/// secret, so it is masked whatever `--reveal` asked for.
+#[test]
+fn auth_show_lists_the_ocs_data_sources_as_set_or_unset() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs"])
+        .assert()
+        .success();
+
+    let shown = sandbox.auth(&["show"]).assert().success();
+    let text = String::from_utf8_lossy(&shown.get_output().stdout).into_owned();
+    assert!(text.contains("OCS data sources"), "{text}");
+    assert!(text.contains("ECMWF_DATASTORES_KEY"), "{text}");
+    assert!(text.contains("unset"), "{text}");
+
+    // Fill two in, exactly as an operator would.
+    let env = dir.join(".env");
+    let body = read(&env)
+        .replace("# ECMWF_DATASTORES_URL=", "ECMWF_DATASTORES_URL=")
+        .replace(
+            "# ECMWF_DATASTORES_KEY=",
+            "ECMWF_DATASTORES_KEY=0123456789abcdef",
+        );
+    std::fs::write(&env, body).unwrap();
+
+    for args in [vec!["show"], vec!["show", "--reveal"]] {
+        let shown = sandbox.auth(&args).assert().success();
+        let text = String::from_utf8_lossy(&shown.get_output().stdout).into_owned();
+        assert!(
+            text.contains("ECMWF_DATASTORES_KEY  set 012345..."),
+            "{args:?}: {text}"
+        );
+        assert!(
+            !text.contains("0123456789abcdef"),
+            "a third-party credential leaked with {args:?}: {text}"
+        );
+        assert!(text.contains("EDH_API_KEY           unset"), "{text}");
+    }
+
+    let value = json_of(&mut sandbox.auth(&["show", "--json"]));
+    let sources = value["ocs_data_sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 5);
+    assert_eq!(
+        sources[1]["variable"].as_str(),
+        Some("ECMWF_DATASTORES_KEY")
+    );
+    assert_eq!(sources[1]["set"], serde_json::json!(true));
+    assert_eq!(sources[1]["masked"].as_str(), Some("012345..."));
+    assert_eq!(sources[2]["set"], serde_json::json!(false));
+    assert_eq!(sources[2]["masked"], serde_json::Value::Null);
+
+    // A deployment without the component has no block at all.
+    sandbox.components(&["disable", "ocs"]).assert().success();
+    assert!(
+        json_of(&mut sandbox.auth(&["show", "--json"]))["ocs_data_sources"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

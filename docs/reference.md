@@ -51,6 +51,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--source <PATH>` | Build chap-core from a local checkout (not supported yet). |
 | `--with <LIST>` | Components to add: ocs, s3. |
 | `--without <LIST>` | Components to leave out: chap-core, ocs, s3. |
+| `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
@@ -220,7 +221,10 @@ Usage: chaps components enable [OPTIONS] <NAME>
 | Argument | Description |
 | --- | --- |
 | `<NAME>` | Component name: ocs, s3 or chap-core. |
-| `--port <PORT>` | Host port to publish this component on. |
+| `--port <PORT\|none>` | Host port to publish on, or none to keep it internal. |
+| `--base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
+| `--read-only` | Refuse ingestion over HTTP on this OCS instance. |
+| `--read-write` | Allow ingestion over HTTP again. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |

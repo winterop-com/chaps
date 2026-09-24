@@ -42,6 +42,12 @@ pub struct ChangeReport {
     pub name: String,
     pub enabled: bool,
     pub port: Option<u16>,
+    /// The public origin OCS builds its links from, `null` for every other
+    /// component and for an OCS instance that has none.
+    pub base_url: Option<String>,
+    /// Whether the OCS instance config refuses ingestion over HTTP, `null` for
+    /// every other component.
+    pub read_only: Option<bool>,
     /// Whether the component was already in this state.
     pub unchanged: bool,
     pub written: Vec<PathBuf>,
@@ -94,10 +100,25 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     let before = project.state.components.clone();
 
     if let Some(port) = args.port {
-        set_port(&mut project.state.components, component, port)?;
+        set_port(&mut project.state.components, component, port.0)?;
+    }
+    if let Some(base_url) = base_url(args)? {
+        if component != Component::Ocs {
+            return Err(anyhow::anyhow!(
+                "--base-url is an OCS setting: it names the public origin OCS builds its \
+                 links from, and no other component composes any"
+            ));
+        }
+        project.state.components.ocs.base_url = base_url;
+    }
+    if (args.read_only || args.read_write) && component != Component::Ocs {
+        return Err(anyhow::anyhow!(
+            "--read-only and --read-write are OCS settings: they turn ingestion over HTTP \
+             off and on in ocs/{}",
+            crate::components::OCS_CONFIG_FILE
+        ));
     }
     project.state.components.set_enabled(component, true);
-    let after = project.state.components.clone();
 
     let mut notes = Vec::new();
     // The scaffold goes in before the sync, so the `--ocs-*` values reach the
@@ -119,7 +140,13 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
             )),
             None => {}
         }
+        // And the read-only switch after it, so a component enabled and set
+        // read-only in one command edits the file this run just scaffolded.
+        if let Some(note) = set_read_only(&mut project, args)? {
+            notes.push(note);
+        }
     }
+    let after = project.state.components.clone();
     if component == Component::Ocs && !after.s3.enabled {
         notes.push(S3_SOON_NOTE.to_string());
     }
@@ -132,6 +159,8 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         name: component.name().to_string(),
         enabled: true,
         port: after.port_of(component),
+        base_url: ocs_only(component, after.ocs.base_url.clone()),
+        read_only: ocs_only(component, Some(after.ocs.read_only)),
         unchanged: before == after,
         written: synced.written,
         removed: synced.removed,
@@ -223,6 +252,8 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         name: component.name().to_string(),
         enabled: false,
         port: None,
+        base_url: None,
+        read_only: None,
         unchanged: before == after,
         written: synced.written,
         removed: synced.removed,
@@ -266,6 +297,13 @@ fn owns(component: Component) -> impl Fn(&str) -> bool {
     }
 }
 
+/// An OCS-only field of the change report, `None` for any other component: the
+/// report is one shape for all three, and a base URL on the `s3` line would
+/// read as a setting the object store has.
+fn ocs_only<T>(component: Component, value: Option<T>) -> Option<T> {
+    value.filter(|_| component == Component::Ocs)
+}
+
 /// The scaffold values the `--ocs-*` flags carry.
 pub fn request(args: &OcsConfigArgs) -> OcsConfigRequest {
     OcsConfigRequest {
@@ -275,20 +313,93 @@ pub fn request(args: &OcsConfigArgs) -> OcsConfigRequest {
     }
 }
 
-/// Record a host port for a component that can publish one.
-fn set_port(components: &mut Components, component: Component, port: u16) -> Result<()> {
+/// Record a host port for a component that can publish one, or `None` to take
+/// the published port away and leave it on the compose network.
+fn set_port(components: &mut Components, component: Component, port: Option<u16>) -> Result<()> {
     match component {
         Component::Ocs => components.ocs.port = port,
-        Component::S3 => components.s3.port = Some(port),
+        Component::S3 => components.s3.port = port,
         Component::ChapCore => {
             return Err(anyhow::anyhow!(
                 "chap-core's host port is the API port; set it with \
-                 `chaps init --api-port {port} --force` or CHAP_API_PORT in .env"
+                 `chaps init --api-port {} --force` or CHAP_API_PORT in .env",
+                port.map(|p| p.to_string())
+                    .unwrap_or_else(|| "PORT".to_string())
             ));
         }
     }
     Ok(())
 }
+
+/// The base URL `--base-url` asks for: `Some(None)` when it was given an empty
+/// value, which is how the setting is cleared again.
+///
+/// `Ok(None)` means the flag was absent and the recorded value stands.
+fn base_url(args: &ComponentsEnableArgs) -> Result<Option<Option<String>>> {
+    let Some(given) = args.base_url.as_deref().map(str::trim) else {
+        return Ok(None);
+    };
+    if given.is_empty() {
+        return Ok(Some(None));
+    }
+    // A value with no scheme would make OCS log a warning and go on building
+    // links from the request, which is the setting silently not working.
+    if !given.starts_with("http://") && !given.starts_with("https://") {
+        return Err(anyhow::anyhow!(
+            "--base-url has to be an absolute URL, so `{given}` will not do: OCS builds its \
+             STAC and openEO links by appending a path to this value"
+        ));
+    }
+    Ok(Some(Some(given.trim_end_matches('/').to_string())))
+}
+
+/// Apply `--read-only` or `--read-write` to `ocs/climate-service.yaml` and to
+/// the component record, and say what changed.
+///
+/// The file is what OCS reads and the record is only a record of it, so the
+/// file is edited first and the record follows. `None` when neither flag was
+/// given.
+fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<Option<String>> {
+    if !args.read_only && !args.read_write {
+        return Ok(None);
+    }
+    let wanted = args.read_only;
+    let config = format!(
+        "{}/{}",
+        crate::components::OCS_DIR,
+        crate::components::OCS_CONFIG_FILE
+    );
+    let Some(edit) = crate::compose::sync::set_read_only(&project.dir, wanted)? else {
+        return Err(anyhow::anyhow!(
+            "there is no {config} to set {} in; run `chaps sync` to scaffold it first",
+            crate::components::OCS_READ_ONLY_KEY
+        ));
+    };
+    project.state.components.ocs.read_only = wanted;
+    let key = crate::components::OCS_READ_ONLY_KEY;
+    Ok(Some(match edit {
+        crate::compose::sync::KeyEdit::Unchanged => {
+            format!("{config} already has {key}: {wanted}")
+        }
+        crate::compose::sync::KeyEdit::Rewritten => {
+            format!("set {key}: {wanted} in {config}; {READ_ONLY_APPLY}")
+        }
+        crate::compose::sync::KeyEdit::Appended => {
+            format!("added {key}: {wanted} to {config}; {READ_ONLY_APPLY}")
+        }
+    }))
+}
+
+/// How a change to `ocs/climate-service.yaml` reaches the running instance.
+///
+/// `chaps restart` on its own is `docker compose up -d`, and compose recreates
+/// only what no longer matches the compose files. The instance config is a bind
+/// mount, so editing it changes nothing compose compares - the new text is
+/// already visible inside the container, and OCS simply read the old one at
+/// startup. `--all` with the service named is the force-recreate that makes it
+/// read the file again, and it leaves chap-core and the models alone.
+const READ_ONLY_APPLY: &str = "`chaps restart --all ocs` applies it (a plain `chaps restart` does not: \
+     the config is a bind mount, so compose sees nothing to recreate)";
 
 fn human_list(report: &ComponentsReport, out: &Out) -> String {
     let rows: Vec<Vec<String>> = report
@@ -338,13 +449,24 @@ fn human_change(report: &ChangeReport, project: &Project, out: &Out) -> String {
             report.name,
             out.value(&format!("http://localhost:{port}"))
         ),
+        // A component with no host port is reached somewhere else rather than
+        // not at all, so the proxy that reaches it is named where the address
+        // would have been.
         (true, None) => format!(
             "{painted} {} {}\n",
             report.name,
-            out.dim("(no host port; it is reached inside the compose network)")
+            match &report.base_url {
+                Some(base) => out.dim(&format!(
+                    "(no host port; reached through the proxy at {base})"
+                )),
+                None => out.dim("(no host port; it is reached inside the compose network)"),
+            }
         ),
         (false, _) => format!("{painted} {}\n", report.name),
     };
+    if report.read_only == Some(true) {
+        text.push_str(&out.dim("read-only: ingestion over HTTP is refused\n"));
+    }
     if report.unchanged {
         text.push_str(&out.dim("(that is what it was already)"));
         text.push('\n');
@@ -420,14 +542,49 @@ mod tests {
     #[test]
     fn a_port_is_recorded_on_the_component_that_can_take_one() {
         let mut components = Components::default();
-        set_port(&mut components, Component::Ocs, 9010).unwrap();
-        assert_eq!(components.ocs.port, 9010);
-        set_port(&mut components, Component::S3, 9011).unwrap();
+        set_port(&mut components, Component::Ocs, Some(9010)).unwrap();
+        assert_eq!(components.ocs.port, Some(9010));
+        set_port(&mut components, Component::S3, Some(9011)).unwrap();
         assert_eq!(components.s3.port, Some(9011));
 
-        let err = set_port(&mut components, Component::ChapCore, 8123)
+        // `--port none` is how a published component becomes an internal one,
+        // and it reads the same on both.
+        set_port(&mut components, Component::Ocs, None).unwrap();
+        assert_eq!(components.ocs.port, None);
+        set_port(&mut components, Component::S3, None).unwrap();
+        assert_eq!(components.s3.port, None);
+
+        let err = set_port(&mut components, Component::ChapCore, Some(8123))
             .expect_err("chap-core's port is the API port");
         assert!(err.to_string().contains("--api-port 8123"), "{err}");
+    }
+
+    /// `--base-url` has to be a URL OCS can append a path to, and clearing it
+    /// has to be possible: an instance that came out from behind a proxy should
+    /// not keep advertising the proxy's address.
+    #[test]
+    fn the_base_url_is_absolute_or_refused() {
+        let args = |value: Option<&str>| ComponentsEnableArgs {
+            name: "ocs".to_string(),
+            port: None,
+            base_url: value.map(str::to_string),
+            read_only: false,
+            read_write: false,
+            ocs: OcsConfigArgs::default(),
+        };
+        assert_eq!(base_url(&args(None)).unwrap(), None, "the flag was absent");
+        assert_eq!(
+            base_url(&args(Some("https://ocs.example.org/"))).unwrap(),
+            Some(Some("https://ocs.example.org".to_string())),
+            "the trailing slash goes: OCS appends a path to this"
+        );
+        assert_eq!(
+            base_url(&args(Some("  "))).unwrap(),
+            Some(None),
+            "an empty value clears it"
+        );
+        let err = base_url(&args(Some("ocs.example.org"))).expect_err("no scheme");
+        assert!(err.to_string().contains("absolute URL"), "{err}");
     }
 
     /// What `disable` stops before the definition goes away. The one-shot

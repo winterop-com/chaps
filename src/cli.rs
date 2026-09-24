@@ -37,6 +37,33 @@ impl std::str::FromStr for PortArg {
     }
 }
 
+/// The value of `components enable --port`: a number, or `none` for a component
+/// that is only reached inside the compose network.
+///
+/// `none` rather than a second subcommand, because `enable` is already how a
+/// component's settings change and a port that can be moved should be
+/// removable the same way. `Option<ComponentPortArg>` then has three states -
+/// flag absent, `--port none`, `--port 9010` - which is exactly the three
+/// things an operator can mean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComponentPortArg(pub Option<u16>);
+
+impl std::str::FromStr for ComponentPortArg {
+    type Err = String;
+
+    fn from_str(text: &str) -> std::result::Result<ComponentPortArg, String> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("none") {
+            return Ok(ComponentPortArg(None));
+        }
+        match text.parse::<u16>() {
+            Ok(0) => Err("0 is not a host port; pass a number or `none`".to_string()),
+            Ok(port) => Ok(ComponentPortArg(Some(port))),
+            Err(_) => Err(format!("`{text}` is neither a port number nor `none`")),
+        }
+    }
+}
+
 /// The one-liner both `chaps -h` and `chaps --help` open with. There is no
 /// `long_about`: the two spellings of help say the same thing.
 const ABOUT: &str = "deploy and manage CHAP, the Climate Health Analytics Platform";
@@ -213,6 +240,10 @@ pub struct InitArgs {
     #[arg(long = "without", value_name = "LIST")]
     pub without: Option<String>,
 
+    /// Public URL OCS is reached at, for a proxied instance
+    #[arg(long = "ocs-base-url", value_name = "URL")]
+    pub ocs_base_url: Option<String>,
+
     #[command(flatten)]
     pub ocs: OcsConfigArgs,
 }
@@ -231,8 +262,14 @@ pub struct OcsConfigArgs {
     #[arg(long = "ocs-country", value_name = "CODE")]
     pub ocs_country: Option<String>,
 
+    // `allow_hyphen_values`: a western or southern extent starts with a minus
+    // sign, and without it clap reads `--ocs-bbox -13.5,6.9,-10.1,10.0` as a
+    // flag it does not know rather than as this flag's value. Only the
+    // `--ocs-bbox=...` spelling would work then, which is not the spelling
+    // anyone types first. `allow_negative_numbers` is the narrower version of
+    // the same setting and does not help: the value is a list, not a number.
     /// OCS extent as xmin,ymin,xmax,ymax in degrees
-    #[arg(long = "ocs-bbox", value_name = "BBOX")]
+    #[arg(long = "ocs-bbox", value_name = "BBOX", allow_hyphen_values = true)]
     pub ocs_bbox: Option<String>,
 }
 
@@ -267,9 +304,21 @@ pub struct ComponentsEnableArgs {
     #[arg(value_name = "NAME")]
     pub name: String,
 
-    /// Host port to publish this component on
-    #[arg(long, value_name = "PORT")]
-    pub port: Option<u16>,
+    /// Host port to publish on, or none to keep it internal
+    #[arg(long, value_name = "PORT|none")]
+    pub port: Option<ComponentPortArg>,
+
+    /// Public URL OCS is reached at, for a proxied instance
+    #[arg(long = "base-url", value_name = "URL")]
+    pub base_url: Option<String>,
+
+    /// Refuse ingestion over HTTP on this OCS instance
+    #[arg(long = "read-only", conflicts_with = "read_write")]
+    pub read_only: bool,
+
+    /// Allow ingestion over HTTP again
+    #[arg(long = "read-write")]
+    pub read_write: bool,
 
     #[command(flatten)]
     pub ocs: OcsConfigArgs,
@@ -1207,6 +1256,129 @@ mod tests {
 
         // And clap rejects it next to the flag rather than later.
         assert!(Cli::try_parse_from(["chap", "models", "enable", "x", "--port", "nope"]).is_err());
+    }
+
+    /// Both spellings, because `--ocs-bbox -13.5,...` is the one anyone types
+    /// first and a western or southern extent starts with a minus sign.
+    #[test]
+    fn a_negative_bbox_parses_with_and_without_the_equals_sign() {
+        const BBOX: &str = "-13.5,6.9,-10.1,10.0";
+
+        for argv in [
+            vec![
+                "--with".to_string(),
+                "ocs".into(),
+                "--ocs-bbox".into(),
+                BBOX.into(),
+            ],
+            vec![
+                "--with".to_string(),
+                "ocs".into(),
+                format!("--ocs-bbox={BBOX}"),
+            ],
+        ] {
+            let args = init_args(&argv.iter().map(String::as_str).collect::<Vec<_>>());
+            assert_eq!(args.ocs.ocs_bbox.as_deref(), Some(BBOX), "{argv:?}");
+        }
+
+        // The same on `components enable`, which shares the flag group.
+        for argv in [
+            vec![
+                "enable".to_string(),
+                "ocs".into(),
+                "--ocs-bbox".into(),
+                BBOX.into(),
+            ],
+            vec![
+                "enable".to_string(),
+                "ocs".into(),
+                format!("--ocs-bbox={BBOX}"),
+            ],
+        ] {
+            let ComponentsCmd::Enable(args) =
+                components_cmd(&argv.iter().map(String::as_str).collect::<Vec<_>>())
+            else {
+                panic!("expected enable");
+            };
+            assert_eq!(args.ocs.ocs_bbox.as_deref(), Some(BBOX), "{argv:?}");
+        }
+
+        // The flag still needs a value: `allow_hyphen_values` does not let it
+        // swallow the next flag.
+        assert!(
+            Cli::try_parse_from(["chap", "init", "x", "--ocs-bbox"]).is_err(),
+            "a value is required"
+        );
+    }
+
+    /// The three ways to spell a component's host port, and the one that takes
+    /// it away again.
+    #[test]
+    fn a_component_port_is_a_number_or_none() {
+        use std::str::FromStr;
+
+        assert_eq!(
+            ComponentPortArg::from_str("9010").unwrap(),
+            ComponentPortArg(Some(9010))
+        );
+        for spelling in ["none", "NONE", " none "] {
+            assert_eq!(
+                ComponentPortArg::from_str(spelling).unwrap(),
+                ComponentPortArg(None),
+                "{spelling}"
+            );
+        }
+        for bad in ["", "auto", "0", "70000", "90a0"] {
+            assert!(
+                ComponentPortArg::from_str(bad).is_err(),
+                "{bad} should not parse"
+            );
+        }
+
+        let ComponentsCmd::Enable(args) = components_cmd(&["enable", "ocs"]) else {
+            panic!("expected enable");
+        };
+        assert_eq!(args.port, None, "the flag was absent: the record stands");
+        assert!(!args.read_only && !args.read_write);
+
+        let ComponentsCmd::Enable(args) = components_cmd(&[
+            "enable",
+            "ocs",
+            "--port",
+            "none",
+            "--base-url",
+            "https://ocs.example.org",
+            "--read-only",
+        ]) else {
+            panic!("expected enable");
+        };
+        assert_eq!(args.port, Some(ComponentPortArg(None)));
+        assert_eq!(args.base_url.as_deref(), Some("https://ocs.example.org"));
+        assert!(args.read_only);
+
+        // The two switches are opposites, so asking for both is a clap error.
+        assert!(
+            Cli::try_parse_from([
+                "chap",
+                "components",
+                "enable",
+                "ocs",
+                "--read-only",
+                "--read-write"
+            ])
+            .is_err()
+        );
+    }
+
+    /// The `ComponentsCmd` behind `chap components <argv..>`.
+    fn components_cmd(argv: &[&str]) -> ComponentsCmd {
+        let mut args = vec!["chap", "components"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Command::Components(c) = cli.command else {
+            panic!("expected components");
+        };
+        c.command
     }
 
     #[test]

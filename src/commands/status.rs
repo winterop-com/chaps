@@ -195,7 +195,7 @@ fn human(report: &StatusReport, out: &Out) -> String {
     // rendered into the compose files.
     for component in &report.components {
         text.push_str(&format!(
-            "{}{}   {}   {}\n",
+            "{}{}   {}   {}",
             out.heading(&component.name),
             pad(&component.name),
             component_cell(out, component.state),
@@ -204,6 +204,13 @@ fn human(report: &StatusReport, out: &Out) -> String {
                 _ => out.value(&component.reach),
             }
         ));
+        // Last on the line, like chap-core's `auth:`: an instance that refuses
+        // every write over HTTP is something an operator has to be able to see
+        // without opening a file.
+        if component.read_only {
+            text.push_str(&format!("   {}", out.dim("read-only")));
+        }
+        text.push('\n');
     }
 
     if !report.models.is_empty() {
@@ -369,6 +376,42 @@ mod tests {
             components: Vec::new(),
             unhealthy: Vec::new(),
         }
+    }
+
+    /// The component line carries the two things that are not in the address:
+    /// where an unpublished instance is actually reached, and whether it
+    /// refuses every write.
+    #[test]
+    fn a_component_line_says_read_only_and_names_the_proxy() {
+        use crate::status::{ComponentState, ComponentStatus};
+
+        let mut report = up(Vec::new(), &[], &["chap", "ocs"]);
+        report.components = vec![ComponentStatus {
+            name: "ocs".to_string(),
+            state: ComponentState::Up,
+            reach: "internal (proxy: https://ocs.example.org)".to_string(),
+            health_url: None,
+            read_only: true,
+        }];
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
+             ocs         up   internal (proxy: https://ocs.example.org)   read-only\n\
+             \n\
+             no models enabled; run `chaps models enable ID` to add one\n"
+        );
+
+        // A writable instance says nothing, rather than `read-write`: the
+        // default is not news.
+        report.components[0].read_only = false;
+        report.components[0].reach = "http://localhost:9000".to_string();
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains("ocs         up   http://localhost:9000\n"),
+            "{text}"
+        );
+        assert!(!text.contains("read-only"), "{text}");
     }
 
     #[test]
