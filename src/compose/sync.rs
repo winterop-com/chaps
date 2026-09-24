@@ -493,37 +493,29 @@ pub fn set_env_chap_tag(dir: &Path, old: &str, new: &str) -> Result<EnvTag> {
     let Ok(body) = std::fs::read_to_string(&path) else {
         return Ok(EnvTag::NoFile);
     };
-    let assignment = format!("{CHAP_TAG_ENV_VAR}=");
-
-    let mut out = String::with_capacity(body.len());
-    let mut outcome = None;
-    for line in body.lines() {
-        let trimmed = line.trim();
-        let value = trimmed.strip_prefix(&assignment).map(str::trim);
-        match value {
-            Some(value) if outcome.is_none() && (value == old || value == new) => {
-                out.push_str(&format!("{CHAP_TAG_ENV_VAR}={new}"));
-                outcome = Some(EnvTag::Updated);
-            }
-            Some(value) if outcome.is_none() => {
-                out.push_str(line);
-                outcome = Some(EnvTag::Foreign(value.to_string()));
-            }
-            _ => out.push_str(line),
-        }
-        out.push('\n');
+    // What the deployment is actually running, by compose's rules: the last
+    // active assignment, `export ` and quotes included. Reading the first one
+    // would let this rewrite a line the deployment is not using and report
+    // that the tag had moved. See [`crate::dotenv`].
+    let Some(value) = crate::dotenv::value(&body, CHAP_TAG_ENV_VAR) else {
+        return Ok(if mentions_var(&body, CHAP_TAG_ENV_VAR) {
+            EnvTag::Commented
+        } else {
+            EnvTag::Absent
+        });
+    };
+    if value != old && value != new {
+        return Ok(EnvTag::Foreign(value));
     }
-
-    let outcome = outcome.unwrap_or(if mentions_var(&body, CHAP_TAG_ENV_VAR) {
-        EnvTag::Commented
-    } else {
-        EnvTag::Absent
-    });
-    if outcome == EnvTag::Updated && out != body {
-        std::fs::write(&path, out)
+    // The same rules writing: one active line survives, holding the new tag.
+    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
+    crate::dotenv::set(&mut lines, CHAP_TAG_ENV_VAR, new);
+    let out = crate::dotenv::join(&lines);
+    if out != body {
+        std::fs::write(&path, &out)
             .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
     }
-    Ok(outcome)
+    Ok(EnvTag::Updated)
 }
 
 /// Whether any line, commented or not, assigns `var`.
@@ -1178,6 +1170,47 @@ mod tests {
             EnvTag::Updated
         );
         assert!(read(&env).contains("CHAP_IMAGE_TAG=v2.3.1\n"));
+    }
+
+    /// The tag the deployment runs is the one on the last active line, so that
+    /// is the one `chaps update` compares against and the one it moves - and
+    /// the duplicate that made the answer ambiguous does not survive the
+    /// write.
+    #[test]
+    fn set_env_chap_tag_follows_the_line_compose_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = dir.path().join(ENV_FILE);
+
+        // Two active lines: compose runs the second, so the first is not what
+        // "the recorded tag" means.
+        std::fs::write(
+            &env,
+            "CHAP_IMAGE_TAG=v1.0.0\nPOSTGRES_DB=chap_core\nCHAP_IMAGE_TAG=v2.3.0\n",
+        )
+        .unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Updated
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=v2.3.1\nPOSTGRES_DB=chap_core\n");
+
+        // And the other way round: the last line is the operator's own value,
+        // whatever an earlier line says, so nothing is touched.
+        std::fs::write(&env, "CHAP_IMAGE_TAG=v2.3.0\nCHAP_IMAGE_TAG=v1.0.0\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Foreign("v1.0.0".to_string())
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=v2.3.0\nCHAP_IMAGE_TAG=v1.0.0\n");
+
+        // The shapes compose accepts are the shapes this reads, and an
+        // `export ` prefix is the operator's to keep.
+        std::fs::write(&env, "export CHAP_IMAGE_TAG=\"v2.3.0\"\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.0", "v2.3.1").unwrap(),
+            EnvTag::Updated
+        );
+        assert_eq!(read(&env), "export CHAP_IMAGE_TAG=v2.3.1\n");
     }
 
     #[test]

@@ -89,35 +89,27 @@ pub fn weak_token_warning(length: usize) -> String {
     )
 }
 
-/// The value of the first active (uncommented) `var=` line of a `.env` body.
+/// The value of the last active (uncommented) `var=` line of a `.env` body.
+///
+/// The last, because that is the one compose reads: see [`crate::dotenv`],
+/// which is where the rules live and which every other reader of `.env` goes
+/// through too.
 ///
 /// An empty assignment is not a secret: chap-core reads the variable as
 /// `os.getenv(...) or None`, so `CHAP_API_TOKEN=` disables authentication
 /// exactly like a commented line does.
 pub fn active_value(body: &str, var: &str) -> Option<String> {
-    body.lines()
-        .filter_map(|line| assignment(line, var))
-        .map(str::to_string)
-        .find(|value| !value.is_empty())
+    crate::dotenv::non_empty(body, var)
 }
 
-/// The value of the first commented `# var=` line that still carries one.
+/// The value of the last commented `# var=` line that still carries one.
 ///
 /// [`comment_out`] keeps the value behind the `#`, so this is how
 /// `chaps auth enable` hands a deployment back the very token its clients are
 /// already configured with, rather than a new one nobody has yet. The empty
 /// placeholder the generated `.env` ships carries no value and is skipped.
 pub fn commented_value(body: &str, var: &str) -> Option<String> {
-    body.lines()
-        .filter(|line| is_commented(line, var))
-        .filter_map(|line| {
-            line.trim_start()
-                .trim_start_matches('#')
-                .trim_start()
-                .strip_prefix(&format!("{var}="))
-        })
-        .map(|value| value.trim().to_string())
-        .find(|value| !value.is_empty())
+    crate::dotenv::commented_value(body, var)
 }
 
 /// Which of the two secrets a `.env` body actually sets.
@@ -138,27 +130,21 @@ pub fn token_in(dir: &Path) -> Option<String> {
     active_value(&body, API_TOKEN_ENV_VAR)
 }
 
-/// Write each `(var, value)` pair into a `.env` body as an active line.
+/// Write each `(var, value)` pair into a `.env` body as the one active line
+/// that assigns it.
 ///
-/// One line per variable changes and nothing else. In order: the first active
-/// `VAR=` line is rewritten, else the commented placeholder the generated
-/// `.env` ships is uncommented in place, else the assignment is appended under
-/// [`APPENDED_HEADING`]. Comments, blank lines, ordering and every other
-/// variable survive byte for byte.
+/// [`crate::dotenv::set`] does the writing, so the line left behind is exactly
+/// the line [`active_value`] reads back: the first active `VAR=` line is
+/// rewritten and every later duplicate of it removed, else the commented
+/// placeholder the generated `.env` ships is uncommented in place, else the
+/// assignment is appended under [`APPENDED_HEADING`]. Comments, blank lines,
+/// ordering and every other variable survive byte for byte.
 pub fn write_secrets(body: &str, secrets: &[(&str, &str)]) -> String {
     let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
     let mut appended = Vec::new();
     for (var, value) in secrets {
-        let wanted = format!("{var}={value}");
-        if let Some(at) = lines
-            .iter()
-            .position(|line| assignment(line, var).is_some())
-        {
-            lines[at] = wanted;
-        } else if let Some(at) = lines.iter().position(|line| is_commented(line, var)) {
-            lines[at] = wanted;
-        } else {
-            appended.push(wanted);
+        if crate::dotenv::set(&mut lines, var, value) == crate::dotenv::Wrote::Absent {
+            appended.push(format!("{var}={value}"));
         }
     }
     if !appended.is_empty() {
@@ -170,7 +156,7 @@ pub fn write_secrets(body: &str, secrets: &[(&str, &str)]) -> String {
         lines.push(APPENDED_HEADING.to_string());
         lines.extend(appended);
     }
-    join(&lines)
+    crate::dotenv::join(&lines)
 }
 
 /// Comment out every active `var=` line of a `.env` body, keeping the value
@@ -180,38 +166,7 @@ pub fn write_secrets(body: &str, secrets: &[(&str, &str)]) -> String {
 /// who turned authentication off by mistake still has the token their clients
 /// were configured with.
 pub fn comment_out(body: &str, var: &str) -> String {
-    let lines: Vec<String> = body
-        .lines()
-        .map(|line| match assignment(line, var) {
-            Some(_) => format!("# {line}"),
-            None => line.to_string(),
-        })
-        .collect();
-    join(&lines)
-}
-
-/// The value an active `var=` line assigns, trimmed; `None` for any other
-/// line, a comment included.
-fn assignment<'a>(line: &'a str, var: &str) -> Option<&'a str> {
-    line.trim_start()
-        .strip_prefix(&format!("{var}="))
-        .map(str::trim)
-}
-
-/// `# VAR=...`, with any amount of whitespace around the `#`.
-fn is_commented(line: &str, var: &str) -> bool {
-    let rest = line.trim_start().strip_prefix('#');
-    rest.is_some_and(|rest| rest.trim_start().starts_with(&format!("{var}=")))
-}
-
-/// Lines back into a file body, one newline each.
-fn join(lines: &[String]) -> String {
-    let mut out = String::new();
-    for line in lines {
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
+    crate::dotenv::comment_out(body, var)
 }
 
 #[cfg(test)]
@@ -294,15 +249,45 @@ CHAP_API_PORT=8000
             active_value("X_CHAP_API_TOKEN=abc\n", API_TOKEN_ENV_VAR),
             None
         );
-        // The first usable value wins, the way compose reads the file.
+        // The last usable value wins, the way compose reads the file.
         assert_eq!(
             active_value(
                 "CHAP_API_TOKEN=one\nCHAP_API_TOKEN=two\n",
                 API_TOKEN_ENV_VAR
             )
             .as_deref(),
-            Some("one")
+            Some("two")
         );
+        // Including the shapes compose accepts and this file used not to.
+        assert_eq!(
+            active_value("export CHAP_API_TOKEN=\"abc\"\n", API_TOKEN_ENV_VAR).as_deref(),
+            Some("abc")
+        );
+    }
+
+    /// The rotation bug: `rotate` reported success while compose went on
+    /// reading a second, untouched `CHAP_API_TOKEN=` line further down.
+    #[test]
+    fn rotating_over_a_duplicated_line_leaves_one_active_assignment() {
+        let body =
+            "CHAP_API_TOKEN=old\n# a comment\nCHAP_API_TOKEN=also-old\nPOSTGRES_DB=chap_core\n";
+        let out = write_secrets(body, &[(API_TOKEN_ENV_VAR, "new")]);
+        assert_eq!(
+            out,
+            "CHAP_API_TOKEN=new\n# a comment\nPOSTGRES_DB=chap_core\n"
+        );
+        assert_eq!(
+            active_value(&out, API_TOKEN_ENV_VAR).as_deref(),
+            Some("new")
+        );
+        assert_eq!(
+            out.lines()
+                .filter(|line| line.starts_with("CHAP_API_TOKEN="))
+                .count(),
+            1
+        );
+        // And nothing of the old token is left anywhere in the file.
+        assert!(!out.contains("old"), "{out}");
     }
 
     #[test]

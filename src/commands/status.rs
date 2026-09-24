@@ -349,6 +349,8 @@ mod tests {
         StatusReport {
             project: Some("chapx-1ab2c3".to_string()),
             api_url: "http://localhost:8000".to_string(),
+            api_port: 8000,
+            api_port_source: crate::project::ApiPortSource::Project,
             api: ApiHealth::Up {
                 status: "success".to_string(),
                 message: "healthy".to_string(),

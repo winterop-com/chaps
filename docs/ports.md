@@ -61,16 +61,32 @@ services:
       - "${CHAP_API_PORT:-8000}:8000"
 ```
 
-`!override` (Compose 2.24+) replaces chap's own mapping rather than adding to
-it, which is why the API ends up on exactly one port; a file listed in
-`include:` could not do that at all, which is why `compose.chaps.yml` is a
-separate `-f` entry rather than part of the umbrella.
+`!override` (Compose 2.24.4+, which is why that is the supported minimum)
+replaces chap's own mapping rather than adding to it, which is why the API ends
+up on exactly one port; a file listed in `include:` could not do that at all,
+which is why `compose.chaps.yml` is a separate `-f` entry rather than part of
+the umbrella.
 
 The port comes from `api_port` in `.chaps/project.yaml`, and `CHAP_API_PORT` in
 `.env` overrides it without touching `.chaps/`.
 
-Because Compose reads `.env` last, that line wins. `init` never rewrites a
-`.env` it finds, since the database password in it outlives the rest, so
+Because Compose reads `.env` last, that line wins - and `chaps` follows it, so
+the CLI and Compose always talk about the same port. It is the port
+`chaps status` probes (unless `--url` names another), the port `chaps up`'s
+preflight reserves, and the port `chaps doctor` checks - and the checklist names
+the file it came from when the two disagree:
+
+```text
+ok    api port                   18000 is free (from .env, over the 8000 recorded in .chaps/project.yaml)
+```
+
+`chaps status --json` carries the same answer as two fields, `api_port` and
+`api_port_source` (`env` or `project`). A `CHAP_API_PORT=` line that is
+commented out, empty or not a port is not an override, and the recorded value
+stands.
+
+`init` never rewrites a `.env` it finds, since the database password in it
+outlives the rest, so
 
 ```sh
 chaps init --api-port 9000 --force

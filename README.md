@@ -73,7 +73,7 @@ release, `chaps self version` says which build this is, and `chaps completions
 <bash|zsh|fish|powershell|elvish>` prints a completion script.
 
 Or, from a checkout, `cargo install --path .` or `make install`. Requires
-Docker with Compose v2.20 or newer. See
+Docker with Compose v2.24.4 or newer. See
 [Install](https://winterop-com.github.io/chaps/install.html).
 
 ## Quickstart

@@ -251,16 +251,20 @@ Seeing this error means the pin is missing: a hand-edited overlay, or a compose
 file not written by `chaps`. Run `chaps sync` to render the overlays again, and
 check `chaps docker config` for the service that has no `platform`.
 
-## Compose is older than 2.20
+## Compose is older than 2.24.4
 
 ```text
-warning: docker compose 2.18.1 is older than 2.20.0; compose.marketplace.yml uses `include:`, which needs 2.20.0 or newer
+warning: docker compose 2.18.1 is older than 2.24.4; compose.chaps.yml uses `!override`, which needs 2.24.4 or newer, and compose.marketplace.yml uses `include:`, which needs 2.20.0
 ```
 
-`compose.marketplace.yml` uses `include:`, which arrived in Compose 2.20, and
-`compose.chaps.yml` uses `!override`, which arrived in 2.24. `chaps` warns
-rather than failing, because the base services still run, but the model overlays
-are the part that will not load. Upgrade Docker Compose.
+`compose.chaps.yml` uses `!override`, which arrived in Compose 2.24.4, and
+`compose.marketplace.yml` uses `include:`, which arrived in 2.20. `chaps` warns
+rather than failing, because the base services still run.
+
+What an older Compose loses, in order: below 2.24.4 the API port override is
+merged into chap-core's own `ports:` instead of replacing it, so the API is
+published on two host ports; below 2.20 the model overlays do not load at all.
+Upgrade Docker Compose.
 
 ## A hand edit disappeared
 

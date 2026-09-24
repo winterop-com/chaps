@@ -119,6 +119,15 @@ All four only ever touch those two `.env` lines. The database password, the
 image pins, the comments and the blank lines come out byte for byte as they
 went in, which is what makes them safe on a file an operator has edited.
 
+They read and write the file by Compose's rules, which is what makes the answer
+they report the answer Compose will act on: the **last** active assignment of a
+variable is the live one, `export KEY=` and quoted values are read as Compose
+reads them, and a write rewrites the variable's first active assignment and
+removes every later duplicate of it. So a `.env` that somehow carries two
+`CHAP_API_TOKEN=` lines comes out of `chaps auth rotate` with one, holding the
+new token - rather than with the old, lower line still deciding what chap-core
+enforces. See [the `.env` contract](./concepts.md#the-env-contract).
+
 ```sh
 chaps auth enable
 ```

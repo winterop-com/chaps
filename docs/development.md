@@ -163,9 +163,11 @@ from the committed file, which is the same check `cargo test` makes, then runs
 
 The macOS archives are signed with an Apple Developer ID certificate and
 notarized, which needs six repository secrets. `scripts/github-secrets.sh`
-sets them, reading each value from 1Password and piping it into `gh secret
-set` on a file descriptor, so no secret is written to disk or shown in a
-process list:
+sets them, reading each value from 1Password and piping it into `gh secret set`
+on stdin, so no secret is written to disk or shown in a process list. All six
+are read before any of them is uploaded, and a read that fails or comes back
+empty aborts the run before it has set anything: a half-replaced set of signing
+secrets fails the next tagged build with a mix of old and new values.
 
 ```sh
 OP_VAULT="Private" OP_ITEM="Apple Developer ID" scripts/github-secrets.sh

@@ -72,16 +72,19 @@ pub fn first_free(lo: u16, hi: u16, busy: &dyn Fn(u16) -> bool) -> Option<u16> {
 /// Every `(service, host port)` pair `chaps up` is about to ask Docker to
 /// publish.
 ///
-/// chap-core's port comes from `.chaps/project.yaml` rather than from the
-/// files: `compose.chaps.yml` publishes it as `${CHAP_API_PORT:-<port>}`,
-/// which only Docker expands. Everything else is read out of the files this
-/// project renders, so a model with no host port contributes nothing.
+/// chap-core's port comes from `.env` or `.chaps/project.yaml` rather than
+/// from the files: `compose.chaps.yml` publishes it as
+/// `${CHAP_API_PORT:-<port>}`, which only Docker expands, so reading the files
+/// would give the recorded default and not the port the stack will actually
+/// ask for. [`Project::api_port_in_effect`] is what Docker will resolve that
+/// to. Everything else is read out of the files this project renders, so a
+/// model with no host port contributes nothing.
 pub fn claims(project: &Project) -> Vec<PortClaim> {
     let mut claims = Vec::new();
     if project.state.components.chap_core.enabled {
         claims.push(PortClaim {
             service: crate::compose::API_SERVICE.to_string(),
-            port: project.state.api_port,
+            port: project.effective_api_port(),
         });
     }
     // The components are read from `.chaps/components.yaml` rather than from
@@ -330,6 +333,30 @@ mod tests {
             ],
             "an internal model publishes nothing, and a stray compose file is not ours"
         );
+    }
+
+    /// The preflight has to reserve the port the stack will really publish,
+    /// which is the one `.env` names: checking the recorded port instead lets
+    /// `chaps up` sail past a conflict and hand it to Docker.
+    #[test]
+    fn the_api_claim_follows_the_env_override() {
+        let (dir, project) = project();
+        std::fs::write(dir.path().join(".env"), "CHAP_API_PORT=18000\n").unwrap();
+        assert!(claims(&project).contains(&PortClaim {
+            service: "chap".into(),
+            port: 18000
+        }));
+        assert!(
+            !claims(&project).iter().any(|c| c.port == 8123),
+            "the recorded port is not published any more"
+        );
+
+        // A commented line is not an override, and the recorded port stands.
+        std::fs::write(dir.path().join(".env"), "# CHAP_API_PORT=18000\n").unwrap();
+        assert!(claims(&project).contains(&PortClaim {
+            service: "chap".into(),
+            port: 8123
+        }));
     }
 
     #[test]

@@ -28,8 +28,8 @@ use crate::error::Result;
 use crate::output::Out;
 use crate::ports::{self, PortClaim};
 use crate::project::{
-    BASE_COMPOSE, CHAP_TAG_ENV_VAR, CHAPS_COMPOSE, CHAPS_DIR, ENV_FILE, MARKETPLACE_COMPOSE,
-    MODELS_FILE, PROJECT_FILE, Project,
+    ApiPortSource, BASE_COMPOSE, CHAP_TAG_ENV_VAR, CHAPS_COMPOSE, CHAPS_DIR, ENV_FILE,
+    MARKETPLACE_COMPOSE, MODELS_FILE, PROJECT_FILE, Project,
 };
 use crate::registry;
 use crate::selfupdate::{self, TARGET, VERSION};
@@ -425,8 +425,20 @@ fn project_checks(
         .and_then(|claim| {
             ports::first_free(claim.port.saturating_add(1), u16::MAX, &ports::is_busy)
         });
+    // Only the API port has two files that could have set it, so only it ever
+    // has a note.
+    let api_note = api_port_note(project);
     for claim in &claims {
-        checks.push(port_check(claim, &running, &ports::is_busy, suggestion));
+        let note = (claim.service == API_SERVICE)
+            .then_some(api_note.as_deref())
+            .flatten();
+        checks.push(port_check(
+            claim,
+            &running,
+            &ports::is_busy,
+            suggestion,
+            note,
+        ));
     }
 
     // The chap-core release feed says nothing about a deployment that does not
@@ -572,8 +584,8 @@ pub fn compose_verdict(found: Option<(u32, u32, u32)>) -> (Status, String, Optio
             Status::Warn,
             format!("v{a}.{b}.{c}, older than {wa}.{wb}.{wc}"),
             Some(format!(
-                "upgrade Docker Compose: compose.marketplace.yml uses `include:`, which needs \
-                 {wa}.{wb}.{wc} or newer"
+                "upgrade Docker Compose: compose.chaps.yml uses `!override`, which needs \
+                 {wa}.{wb}.{wc} or newer, and compose.marketplace.yml uses `include:`"
             )),
         );
     }
@@ -1355,11 +1367,16 @@ pub fn env_check(body: Option<&str>, chaps_overlay: Option<&str>) -> Check {
 /// `busy` is injected so the verdict can be tested without binding anything,
 /// and the fix is the very sentence `chaps up`'s preflight would have failed
 /// with, so the two never drift apart.
+///
+/// `note` is appended in parentheses to whatever the line says about the port:
+/// [`api_port_note`] uses it to name the file that moved the API port, without
+/// which the number looks wrong against `.chaps/project.yaml`.
 pub fn port_check(
     claim: &PortClaim,
     running: &BTreeSet<String>,
     busy: &dyn Fn(u16) -> bool,
     suggestion: Option<u16>,
+    note: Option<&str>,
 ) -> Check {
     let is_api = claim.service == API_SERVICE;
     let id = if is_api {
@@ -1372,22 +1389,41 @@ pub fn port_check(
     } else {
         format!("port {}", claim.service)
     };
+    let detail = |what: &str| match note {
+        Some(note) => format!("{} {what} ({note})", claim.port),
+        None => format!("{} {what}", claim.port),
+    };
     if running.contains(&claim.service) {
-        return Check::ok(
-            id,
-            name,
-            format!("{} is held by this project's own container", claim.port),
-        );
+        return Check::ok(id, name, detail("is held by this project's own container"));
     }
     if busy(claim.port) {
         return Check::fail(
             id,
             name,
-            format!("{} is in use by something else", claim.port),
+            detail("is in use by something else"),
             ports::busy_line(claim, suggestion),
         );
     }
-    Check::ok(id, name, format!("{} is free", claim.port))
+    Check::ok(id, name, detail("is free"))
+}
+
+/// What the `api port` line says about where its number came from, when that
+/// is not what `.chaps/project.yaml` records.
+///
+/// compose reads `.env` last, so a `CHAP_API_PORT=` line there moves the
+/// published port. The checklist has to name the file that did it: `18000 is
+/// free` next to a recorded `api_port: 8000` otherwise reads as a bug in
+/// `chaps` rather than as a deliberate override. The ordinary case, where the
+/// two agree, says nothing.
+pub fn api_port_note(project: &Project) -> Option<String> {
+    let (port, source) = project.api_port_in_effect();
+    (source == ApiPortSource::Env && port != project.state.api_port).then(|| {
+        format!(
+            "{}, over the {} recorded in .chaps/project.yaml",
+            source.label(),
+            project.state.api_port
+        )
+    })
 }
 
 /// Whether the chap-core tag this deployment pins is still the newest one.
@@ -2119,25 +2155,42 @@ mod tests {
         );
     }
 
+    /// The line follows [`docker::MIN_COMPOSE_VERSION`], which is the release
+    /// `!override` arrived in: 2.24.3 has `include:` and still cannot run the
+    /// port override every deployment gets, so it is a warning and 2.24.4 is
+    /// not.
     #[test]
-    fn compose_warns_below_the_version_include_needs() {
-        assert_eq!(compose_verdict(Some((2, 24, 0))).0, Status::Ok);
-        assert_eq!(compose_verdict(Some((2, 20, 0))).0, Status::Ok);
+    fn compose_warns_below_the_version_the_override_tag_needs() {
+        let (status, detail, fix) = compose_verdict(Some((2, 24, 3)));
+        assert_eq!(status, Status::Warn);
+        assert_eq!(detail, "v2.24.3, older than 2.24.4");
+        let fix = fix.expect("a warning says what to do");
+        assert!(fix.contains("`!override`"), "{fix}");
+        assert!(fix.contains("include:"), "{fix}");
+
+        let (status, detail, fix) = compose_verdict(Some((2, 24, 4)));
+        assert_eq!(status, Status::Ok);
+        assert_eq!(detail, "v2.24.4");
+        assert_eq!(fix, None);
+
         assert_eq!(compose_verdict(Some((5, 5, 1))).0, Status::Ok);
+        assert_eq!(compose_verdict(Some((5, 5, 1))).1, "v5.5.1");
+        // Old enough to lose the model overlays as well as the port override.
+        assert_eq!(compose_verdict(Some((2, 20, 0))).0, Status::Warn);
 
         let (status, detail, fix) = compose_verdict(Some((2, 19, 9)));
         assert_eq!(status, Status::Warn);
-        assert_eq!(detail, "v2.19.9, older than 2.20.0");
+        assert_eq!(detail, "v2.19.9, older than 2.24.4");
         assert!(fix.unwrap().contains("include:"));
 
         let (status, detail, fix) = compose_verdict(None);
         assert_eq!(status, Status::Fail);
         assert_eq!(detail, "docker compose is not installed");
-        assert!(fix.unwrap().contains("2.20.0 or newer"));
+        assert!(fix.unwrap().contains("2.24.4 or newer"));
 
         // And with no docker at all there is nothing to report.
         assert_eq!(compose_check(false, None).status, Status::Skip);
-        assert_eq!(compose_check(true, Some((2, 24, 0))).status, Status::Ok);
+        assert_eq!(compose_check(true, Some((2, 24, 6))).status, Status::Ok);
     }
 
     #[test]
@@ -2691,13 +2744,13 @@ mod tests {
         let taken = |_: u16| true;
 
         let api = claim(API_SERVICE, 8000);
-        let check = port_check(&api, &nothing, &free, None);
+        let check = port_check(&api, &nothing, &free, None, None);
         assert_eq!(check.status, Status::Ok);
         assert_eq!(check.id, "api-port");
         assert_eq!(check.name, "api port");
         assert_eq!(check.detail, "8000 is free");
 
-        let check = port_check(&api, &nothing, &taken, Some(8001));
+        let check = port_check(&api, &nothing, &taken, Some(8001), None);
         assert_eq!(check.status, Status::Fail);
         assert_eq!(check.detail, "8000 is in use by something else");
         assert_eq!(
@@ -2709,15 +2762,48 @@ mod tests {
         // A port this project's own container publishes is ours, exactly as
         // the `up` preflight treats it.
         let running: BTreeSet<String> = [API_SERVICE.to_string()].into_iter().collect();
-        let check = port_check(&api, &running, &taken, None);
+        let check = port_check(&api, &running, &taken, None, None);
         assert_eq!(check.status, Status::Ok);
         assert!(check.detail.contains("this project's own container"));
 
         let model = claim("chapkit-ewars-model", 5001);
-        let check = port_check(&model, &nothing, &taken, None);
+        let check = port_check(&model, &nothing, &taken, None, None);
         assert_eq!(check.id, "port-chapkit-ewars-model");
         assert_eq!(check.name, "port chapkit-ewars-model");
         assert!(check.fix.unwrap().contains("chaps models unexpose"));
+    }
+
+    /// `.env` moving the API port is the operator's doing, so the line names
+    /// the file rather than looking like a number out of nowhere.
+    #[test]
+    fn the_api_port_line_names_the_file_that_moved_the_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut project = Project {
+            dir: dir.path().to_path_buf(),
+            state: crate::project::ProjectState::default(),
+        };
+        project.state.api_port = 8000;
+
+        // Nothing in .env: the recorded port stands, and there is nothing to
+        // explain.
+        assert_eq!(api_port_note(&project), None);
+        // The line compose reads agrees with the recorded one: still nothing.
+        std::fs::write(dir.path().join(ENV_FILE), "CHAP_API_PORT=8000\n").unwrap();
+        assert_eq!(api_port_note(&project), None);
+
+        std::fs::write(dir.path().join(ENV_FILE), "CHAP_API_PORT=18000\n").unwrap();
+        let note = api_port_note(&project).expect("an override is worth a word");
+        assert_eq!(
+            note,
+            "from .env, over the 8000 recorded in .chaps/project.yaml"
+        );
+
+        let claim = claim(API_SERVICE, project.effective_api_port());
+        let check = port_check(&claim, &BTreeSet::new(), &|_| false, None, Some(&note));
+        assert_eq!(
+            check.detail,
+            "18000 is free (from .env, over the 8000 recorded in .chaps/project.yaml)"
+        );
     }
 
     #[test]
@@ -2870,6 +2956,8 @@ mod tests {
         StatusReport {
             project: Some("mychap-1ab2c3".to_string()),
             api_url: "http://localhost:8000".to_string(),
+            api_port: 8000,
+            api_port_source: ApiPortSource::Project,
             api,
             version: ApiVersion {
                 value: "v2.3.1".to_string(),

@@ -11,8 +11,22 @@ use crate::project::Project;
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::{Command, ExitStatus, Stdio};
 
-/// Minimum compose version that understands `include:`.
-pub const MIN_COMPOSE_VERSION: (u32, u32, u32) = (2, 20, 0);
+/// Minimum compose version that understands everything `chaps sync` renders.
+///
+/// 2.24.4 is the release the `!override` YAML tag arrived in, and every
+/// `compose.chaps.yml` uses it to replace chap's own port mapping rather than
+/// add to it. `include:`, which the marketplace umbrella needs, is older:
+/// [`INCLUDE_COMPOSE_VERSION`]. So a Compose between the two loads the model
+/// overlays and then publishes the API on two ports, which is the more
+/// confusing of the two failures.
+pub const MIN_COMPOSE_VERSION: (u32, u32, u32) = (2, 24, 4);
+
+/// Compose version `include:` arrived in.
+///
+/// Named alongside [`MIN_COMPOSE_VERSION`] in the warning because it is the
+/// older of the two requirements, and an operator on something older again
+/// loses the model overlays entirely rather than just the port override.
+pub const INCLUDE_COMPOSE_VERSION: (u32, u32, u32) = (2, 20, 0);
 
 /// Exit code used when the `docker` binary itself cannot be run, mirroring the
 /// shell's "command not found".
@@ -958,9 +972,11 @@ pub fn check_compose_version() -> Result<Option<String>> {
     }
     let (fa, fb, fc) = found;
     let (wa, wb, wc) = MIN_COMPOSE_VERSION;
+    let (ia, ib, ic) = INCLUDE_COMPOSE_VERSION;
     Ok(Some(format!(
         "docker compose {fa}.{fb}.{fc} is older than {wa}.{wb}.{wc}; \
-         compose.marketplace.yml uses `include:`, which needs {wa}.{wb}.{wc} or newer"
+         compose.chaps.yml uses `!override`, which needs {wa}.{wb}.{wc} or newer, and \
+         compose.marketplace.yml uses `include:`, which needs {ia}.{ib}.{ic}"
     )))
 }
 
@@ -1259,11 +1275,21 @@ mod tests {
         }
     }
 
+    /// The supported minimum is the release `!override` arrived in, not the
+    /// older one `include:` did: every `compose.chaps.yml` this CLI renders
+    /// uses the tag, so 2.24.3 cannot run what `chaps sync` writes.
     #[test]
     fn min_version_ordering_is_what_the_warning_uses() {
+        assert_eq!(MIN_COMPOSE_VERSION, (2, 24, 4));
         assert!(parse_version("2.19.1").unwrap() < MIN_COMPOSE_VERSION);
-        assert!(parse_version("2.20.0").unwrap() >= MIN_COMPOSE_VERSION);
+        assert!(parse_version("2.20.0").unwrap() < MIN_COMPOSE_VERSION);
+        assert!(parse_version("2.24.3").unwrap() < MIN_COMPOSE_VERSION);
+        assert!(parse_version("2.24.4").unwrap() >= MIN_COMPOSE_VERSION);
+        assert!(parse_version("2.24.4-desktop.1").unwrap() >= MIN_COMPOSE_VERSION);
         assert!(parse_version("v5.5.1").unwrap() >= MIN_COMPOSE_VERSION);
+        // `include:` is the older requirement, and still a real one.
+        assert!(INCLUDE_COMPOSE_VERSION < MIN_COMPOSE_VERSION);
+        assert!(parse_version("2.19.1").unwrap() < INCLUDE_COMPOSE_VERSION);
     }
 
     #[test]

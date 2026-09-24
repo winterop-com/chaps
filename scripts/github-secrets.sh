@@ -2,9 +2,12 @@
 # Push the six Apple signing secrets from 1Password into GitHub, for the
 # macOS signing and notarization steps in .github/workflows/release.yml.
 #
-# The values are piped straight from `op read` into `gh secret set` through a
-# process substitution, so they never touch disk, never appear in the process
-# list, and are never echoed. Only the secret names are printed.
+# Every value is read from 1Password first and only then uploaded: a run that
+# cannot read one of the six aborts before it has set any of them, rather than
+# leaving half the secrets replaced. The values are held in shell variables for
+# the length of the run and piped into `gh secret set`, so they never touch
+# disk, never appear in the process list, and are never echoed. Only the secret
+# names are printed.
 #
 # Two scopes, chosen with --scope:
 #
@@ -131,35 +134,63 @@ fi
 echo "reading values from op://${OP_VAULT}/${OP_ITEM}/<field>"
 echo
 
-for entry in "${SECRETS[@]}"; do
-  name="${entry%%:*}"
-  field="${entry#*:}"
-  reference="op://${OP_VAULT}/${OP_ITEM}/${field}"
-
-  if [ "$dry_run" -eq 1 ]; then
+if [ "$dry_run" -eq 1 ]; then
+  for entry in "${SECRETS[@]}"; do
+    name="${entry%%:*}"
+    field="${entry#*:}"
     if [ "$scope" = "org" ]; then
-      echo "would set ${name} on ${ORG} from ${reference}"
+      echo "would set ${name} on ${ORG} from op://${OP_VAULT}/${OP_ITEM}/${field}"
     else
-      echo "would set ${name} on ${REPO} from ${reference}"
+      echo "would set ${name} on ${REPO} from op://${OP_VAULT}/${OP_ITEM}/${field}"
     fi
-    continue
-  fi
+  done
+else
+  # Read every value before setting any of them. `op read` fails for a field
+  # that does not exist, for a vault this account cannot see and for a session
+  # that has expired, and a half-uploaded set of signing secrets is worse than
+  # none: the next tagged build would fail with a mix of old and new values.
+  # The check is explicit rather than left to the exit status of a pipeline,
+  # because the shell reports a pipeline's status for its *last* command.
+  values=()
+  for entry in "${SECRETS[@]}"; do
+    name="${entry%%:*}"
+    field="${entry#*:}"
+    reference="op://${OP_VAULT}/${OP_ITEM}/${field}"
 
-  # The value travels from op to gh on a file descriptor. It is never assigned
-  # to a shell variable, written to a file, or passed as an argument.
-  if [ "$scope" = "org" ]; then
-    gh secret set "$name" \
-      --org "$ORG" \
-      --visibility selected \
-      --repos "$REPO_NAME" \
-      < <(op read "$reference")
-  else
-    gh secret set "$name" \
-      --repo "$REPO" \
-      < <(op read "$reference")
-  fi
-  echo "set ${name}"
-done
+    # `if !` rather than a bare assignment: under `set -e` a failing command
+    # substitution in an assignment exits before this can say which field it
+    # was. op writes its own reason to stderr; the value is never echoed.
+    if ! value="$(op read "$reference")"; then
+      echo "error: could not read ${reference}; nothing was set" >&2
+      exit 1
+    fi
+    if [ -z "$value" ]; then
+      echo "error: ${reference} is empty; nothing was set" >&2
+      exit 1
+    fi
+    values+=("$value")
+    echo "read ${name}"
+  done
+  unset value
+
+  # A pipeline, so `pipefail` fails the run if either end does. The trailing
+  # newline is the one `op read` used to write, kept so the uploaded bytes are
+  # unchanged.
+  for index in "${!SECRETS[@]}"; do
+    name="${SECRETS[$index]%%:*}"
+    if [ "$scope" = "org" ]; then
+      printf '%s\n' "${values[$index]}" | gh secret set "$name" \
+        --org "$ORG" \
+        --visibility selected \
+        --repos "$REPO_NAME"
+    else
+      printf '%s\n' "${values[$index]}" | gh secret set "$name" \
+        --repo "$REPO"
+    fi
+    echo "set ${name}"
+  done
+  unset values
+fi
 
 echo
 if [ "$dry_run" -eq 1 ]; then

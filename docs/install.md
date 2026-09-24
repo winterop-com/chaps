@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh 
 ```
 
 Then run `chaps doctor`: it checks in one pass that this machine has everything
-a deployment needs - Docker, Compose 2.20 or newer, disk, and a route to the
+a deployment needs - Docker, Compose 2.24.4 or newer, disk, and a route to the
 hosts CHAP pulls from - and says what to do about anything it did not find. See
 [Doctor](./doctor.md).
 
@@ -294,18 +294,20 @@ binary. See [Development](./development.md) for the rest of the targets.
 
 ## Requirements
 
-On the machine that runs CHAP: Docker, with Compose v2.20 or newer. That
-version is where `include:` arrived, and `chaps` uses `include:` for the
-umbrella file that names one overlay per enabled model. A single published
-override also uses `!override`, which needs Compose 2.24 or newer; see
-[Ports](./ports.md).
+On the machine that runs CHAP: Docker, with Compose v2.24.4 or newer. That
+version is where the `!override` YAML tag arrived, and every `compose.chaps.yml`
+`chaps sync` writes uses it to replace chap-core's own port mapping rather than
+add to it; see [Ports](./ports.md). The other requirement is older: `include:`,
+which `chaps` uses for the umbrella file that names one overlay per enabled
+model, arrived in 2.20.
 
 Nothing else is required. No Python, no `uv`, no checkout of chap-core.
 
 `chaps` checks the installed Compose version and warns on stderr when it is
-older than 2.20 rather than failing, because an older Compose still runs most
-of CHAP. If `include:` is not supported, the model overlays are the part
-that will not load.
+older than 2.24.4 rather than failing, because an older Compose still runs most
+of CHAP. Between 2.20 and 2.24.4 the model overlays load and the API ends up
+published on two ports, its own and the override's; below 2.20 the model
+overlays are the part that will not load at all.
 
 ## A note on the name
 

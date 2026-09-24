@@ -9,7 +9,7 @@
 //! that the deployment works, not that the port is taken.
 
 use crate::output;
-use crate::project::Project;
+use crate::project::{ApiPortSource, Project};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -31,6 +31,14 @@ pub struct StatusReport {
     /// directory name compose can make no project name out of.
     pub project: Option<String>,
     pub api_url: String,
+    /// The host port this deployment publishes chap-core's API on. `--url`
+    /// does not change it: it says which port the deployment uses, not which
+    /// one this run happened to ask.
+    pub api_port: u16,
+    /// Which file [`StatusReport::api_port`] came from. `.env` wins, as it
+    /// does for compose, so a deployment whose `.env` moved the port reports
+    /// `env` and the port `.chaps/project.yaml` records is not the one in use.
+    pub api_port_source: ApiPortSource,
     pub api: ApiHealth,
     /// Which chap-core this is, and whether the API said so itself.
     pub version: ApiVersion,
@@ -331,9 +339,12 @@ pub fn status(
         .map(|m| m.id.clone())
         .collect();
     let components = component_rows(project, &agent, running);
+    let (api_port, api_port_source) = project.api_port_in_effect();
     StatusReport {
         project: project.compose_project_name(),
         api_url: base,
+        api_port,
+        api_port_source,
         api,
         version,
         registered,
@@ -1537,6 +1548,8 @@ mod tests {
         let report = StatusReport {
             project: Some("chapx-1ab2c3".into()),
             api_url: URL.into(),
+            api_port: 8000,
+            api_port_source: ApiPortSource::Project,
             api: ApiHealth::Down {
                 error: "connection refused".into(),
             },

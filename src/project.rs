@@ -71,6 +71,32 @@ fn default_api_port() -> u16 {
     DEFAULT_API_PORT
 }
 
+/// Which file decided the host port chap-core's API is published on.
+///
+/// Two files can, and they do not always agree: `chaps init --api-port`
+/// records one in `.chaps/project.yaml` and writes the same number into
+/// `.env`, but `.env` belongs to the operator afterwards and compose reads it
+/// last. So the answer has to come with its source, or a report naming a port
+/// the recorded state does not mention looks like a bug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiPortSource {
+    /// An active `CHAP_API_PORT=` line in `.env`, which is what compose reads.
+    Env,
+    /// `api_port` in `.chaps/project.yaml`, because `.env` sets no usable one.
+    Project,
+}
+
+impl ApiPortSource {
+    /// How the source reads in a sentence: which file the number came from.
+    pub fn label(self) -> &'static str {
+        match self {
+            ApiPortSource::Env => "from .env",
+            ApiPortSource::Project => "from .chaps/project.yaml",
+        }
+    }
+}
+
 /// How many random hex characters a generated compose project name ends in.
 ///
 /// Three bytes: short enough to keep a container name readable, and 16 million
@@ -566,9 +592,47 @@ impl Project {
             .join(crate::components::OCS_CONFIG_FILE)
     }
 
+    /// The host port chap-core's API is actually published on, and which file
+    /// decided that.
+    ///
+    /// `.env` wins, because compose reads it last and it is compose that does
+    /// the publishing: an operator who wrote `CHAP_API_PORT=18000` there moved
+    /// the port, whatever `.chaps/project.yaml` still records. Everything in
+    /// this CLI that has to reach or reserve the API goes through here, so
+    /// `status`, `doctor` and the `up` preflight all talk about the port the
+    /// deployment really uses.
+    ///
+    /// A line that is commented out, empty or not a port is not an answer, and
+    /// the recorded value stands.
+    pub fn api_port_in_effect(&self) -> (u16, ApiPortSource) {
+        match self.env_api_port() {
+            Some(port) => (port, ApiPortSource::Env),
+            None => (self.state.api_port, ApiPortSource::Project),
+        }
+    }
+
+    /// [`Project::api_port_in_effect`] without the provenance.
+    pub fn effective_api_port(&self) -> u16 {
+        self.api_port_in_effect().0
+    }
+
+    /// A usable `CHAP_API_PORT` from this project's `.env`.
+    ///
+    /// Best-effort by design, like every other read of that file: a project
+    /// written with `init --no-env` has none to read. Port 0 means "any free
+    /// port" to the kernel and nothing at all to compose, so it is not a
+    /// valid override either.
+    fn env_api_port(&self) -> Option<u16> {
+        let body = std::fs::read_to_string(self.dir.join(ENV_FILE)).ok()?;
+        crate::dotenv::non_empty(&body, API_PORT_ENV_VAR)?
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0)
+    }
+
     /// Base URL of chap-core's API on this machine.
     pub fn api_url(&self) -> String {
-        format!("http://localhost:{}", self.state.api_port)
+        format!("http://localhost:{}", self.effective_api_port())
     }
 
     /// chap-core's read-only proxy to one model service, the way to reach a
@@ -748,6 +812,86 @@ mod tests {
         assert_eq!(
             project.proxy_url("chapkit-ewars-model"),
             "http://localhost:8123/v2/services/chapkit-ewars-model/run/"
+        );
+    }
+
+    /// `.env` is what compose reads, so it is what every URL and every port
+    /// reservation in this CLI has to follow. The recorded value is the
+    /// fallback, not the answer.
+    #[test]
+    fn the_api_port_in_effect_comes_from_env_before_the_recorded_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                api_port: 8123,
+                ..ProjectState::default()
+            },
+        };
+
+        // No `.env` at all: a project written with `init --no-env`.
+        assert_eq!(project.api_port_in_effect(), (8123, ApiPortSource::Project));
+
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "CHAP_API_PORT=18000\n").unwrap();
+        assert_eq!(project.api_port_in_effect(), (18000, ApiPortSource::Env));
+        assert_eq!(project.effective_api_port(), 18000);
+        assert_eq!(project.api_url(), "http://localhost:18000");
+        assert_eq!(
+            project.proxy_url("chapkit-ewars-model"),
+            "http://localhost:18000/v2/services/chapkit-ewars-model/run/"
+        );
+
+        // The shapes compose accepts are the shapes this reads.
+        for body in [
+            "export CHAP_API_PORT=18000\n",
+            "CHAP_API_PORT=\"18000\"\n",
+            "CHAP_API_PORT=8000\nCHAP_API_PORT=18000\n",
+            "CHAP_API_PORT = 18000\n",
+        ] {
+            std::fs::write(&env, body).unwrap();
+            assert_eq!(
+                project.api_port_in_effect(),
+                (18000, ApiPortSource::Env),
+                "{body:?}"
+            );
+        }
+
+        // And anything that is not a usable port leaves the recorded one in
+        // place: a commented line, an empty assignment, a number no port can
+        // hold, 0 (which means "any port" to the kernel and nothing to
+        // compose) and plain nonsense.
+        for body in [
+            "# CHAP_API_PORT=18000\n",
+            "CHAP_API_PORT=\n",
+            "CHAP_API_PORT=70000\n",
+            "CHAP_API_PORT=0\n",
+            "CHAP_API_PORT=eight thousand\n",
+            "POSTGRES_DB=chap_core\n",
+            "",
+        ] {
+            std::fs::write(&env, body).unwrap();
+            assert_eq!(
+                project.api_port_in_effect(),
+                (8123, ApiPortSource::Project),
+                "{body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_api_port_source_names_its_file() {
+        assert_eq!(ApiPortSource::Env.label(), "from .env");
+        assert_eq!(ApiPortSource::Project.label(), "from .chaps/project.yaml");
+        // It is a field of `status --json`, so the spelling is part of that
+        // document.
+        assert_eq!(
+            serde_json::to_value(ApiPortSource::Env).unwrap(),
+            serde_json::json!("env")
+        );
+        assert_eq!(
+            serde_json::to_value(ApiPortSource::Project).unwrap(),
+            serde_json::json!("project")
         );
     }
 
