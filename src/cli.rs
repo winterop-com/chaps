@@ -756,13 +756,15 @@ pub struct BackupArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum BackupSub {
-    /// Write a tar.gz of the database, the model data and the project files.
+    /// Write a tar.gz of the database, the model data, the component data and
+    /// the project files.
     ///
     /// The database part needs a running postgres (`chaps up`); each model's
     /// data is read straight from its volume by the overlay's one-shot init
     /// container, so it works whether or not the model itself is running. A
     /// model that has never started has no volume yet and is skipped with a
-    /// warning.
+    /// warning. A service that is running is paused for the seconds its
+    /// volume takes to read, so nothing writes into a half-read tar.
     Create(BackupCreateArgs),
 
     /// Put a deployment back from an archive `chaps backup create` wrote.
@@ -770,7 +772,11 @@ pub enum BackupSub {
     /// Prints what it is about to overwrite and asks before touching
     /// anything. Then: stop `chap`, `worker` and the model services, write the
     /// files back and sync, `pg_restore --clean` the database, refill each
-    /// model's data volume, and start the stack again.
+    /// model and component data volume, and start the stack again.
+    ///
+    /// The deployment keeps its own compose project name unless
+    /// `--adopt-identity` says to take the archive's over, so restoring into
+    /// a second deployment is a copy and not a takeover.
     Restore(RestoreArgs),
 }
 
@@ -790,6 +796,10 @@ pub struct BackupCreateArgs {
     /// Leave the model data volumes out of the archive.
     #[arg(long)]
     pub no_models: bool,
+
+    /// Leave the component data volumes (ocs, s3) out of the archive.
+    #[arg(long)]
+    pub no_components: bool,
 }
 
 /// Put a deployment back from an archive `chaps backup create` wrote.
@@ -803,17 +813,32 @@ pub struct RestoreArgs {
     #[arg(long)]
     pub yes: bool,
 
-    /// Restore only `.env`, `.chaps/` and the compose files. Needs no Docker.
-    #[arg(long, conflicts_with_all = ["db_only", "no_models", "no_start"])]
+    /// Restore only `.env`, `.chaps/`, `ocs/` and the compose files. Needs no
+    /// Docker.
+    #[arg(long, conflicts_with_all = ["db_only", "no_models", "no_components", "no_start"])]
     pub files_only: bool,
 
     /// Restore only the chap-core database.
-    #[arg(long, conflicts_with = "no_models")]
+    #[arg(long, conflicts_with_all = ["no_models", "no_components"])]
     pub db_only: bool,
 
     /// Leave the model data volumes as they are.
     #[arg(long)]
     pub no_models: bool,
+
+    /// Leave the component data volumes (ocs, s3) as they are.
+    #[arg(long)]
+    pub no_components: bool,
+
+    /// Take over the compose project name the archive was taken under.
+    ///
+    /// Without this the deployment keeps its own name, so restoring an
+    /// archive into a second deployment refills that deployment's containers
+    /// and volumes rather than the ones the backup came from. Pass it when
+    /// this deployment *is* the one in the archive, moved to another
+    /// directory or another machine, and should answer to its name again.
+    #[arg(long, conflicts_with = "db_only")]
+    pub adopt_identity: bool,
 
     /// Do not run `docker compose up -d` at the end.
     #[arg(long)]

@@ -441,9 +441,9 @@ Subcommands: [`chaps backup create`](#chaps-backup-create), [`chaps backup resto
 
 ## chaps backup create
 
-Write a tar.gz of the database, the model data and the project files.
+Write a tar.gz of the database, the model data, the component data and the project files.
 
-The database part needs a running postgres (`chaps up`); each model's data is read straight from its volume by the overlay's one-shot init container, so it works whether or not the model itself is running. A model that has never started has no volume yet and is skipped with a warning.
+The database part needs a running postgres (`chaps up`); each model's data is read straight from its volume by the overlay's one-shot init container, so it works whether or not the model itself is running. A model that has never started has no volume yet and is skipped with a warning. A service that is running is paused for the seconds its volume takes to read, so nothing writes into a half-read tar.
 
 ```text
 Usage: chaps backup create [OPTIONS]
@@ -454,12 +454,15 @@ Usage: chaps backup create [OPTIONS]
 | `--out <PATH>` | Where to write the archive: a file, or a directory to name it in. Default: `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` in the current directory. |
 | `--no-db` | Leave the chap-core database out of the archive. |
 | `--no-models` | Leave the model data volumes out of the archive. |
+| `--no-components` | Leave the component data volumes (ocs, s3) out of the archive. |
 
 ## chaps backup restore
 
 Put a deployment back from an archive `chaps backup create` wrote.
 
-Prints what it is about to overwrite and asks before touching anything. Then: stop `chap`, `worker` and the model services, write the files back and sync, `pg_restore --clean` the database, refill each model's data volume, and start the stack again.
+Prints what it is about to overwrite and asks before touching anything. Then: stop `chap`, `worker` and the model services, write the files back and sync, `pg_restore --clean` the database, refill each model and component data volume, and start the stack again.
+
+The deployment keeps its own compose project name unless `--adopt-identity` says to take the archive's over, so restoring into a second deployment is a copy and not a takeover.
 
 ```text
 Usage: chaps backup restore [OPTIONS] <ARCHIVE>
@@ -469,9 +472,11 @@ Usage: chaps backup restore [OPTIONS] <ARCHIVE>
 | --- | --- |
 | `<ARCHIVE>` | The `tar.gz` written by `chaps backup create`. |
 | `--yes` | Skip the confirmation. Required when there is no terminal to ask at. |
-| `--files-only` | Restore only `.env`, `.chaps/` and the compose files. Needs no Docker. |
+| `--files-only` | Restore only `.env`, `.chaps/`, `ocs/` and the compose files. Needs no Docker. |
 | `--db-only` | Restore only the chap-core database. |
 | `--no-models` | Leave the model data volumes as they are. |
+| `--no-components` | Leave the component data volumes (ocs, s3) as they are. |
+| `--adopt-identity` | Take over the compose project name the archive was taken under. Without this the deployment keeps its own name, so restoring an archive into a second deployment refills that deployment's containers and volumes rather than the ones the backup came from. Pass it when this deployment *is* the one in the archive, moved to another directory or another machine, and should answer to its name again. |
 | `--no-start` | Do not run `docker compose up -d` at the end. |
 
 ## chaps status

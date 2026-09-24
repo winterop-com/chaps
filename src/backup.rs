@@ -1,14 +1,15 @@
 //! The backup archive: its layout, its manifest, and the pure helpers
 //! `chaps backup create` and `chaps backup restore` share.
 //!
-//! An archive is a plain `tar.gz` with four members, all optional but the
+//! An archive is a plain `tar.gz` with five members, all optional but the
 //! first:
 //!
 //! ```text
 //! manifest.yaml            what this archive is and what it holds
-//! files/                   .env, .chaps/** and every compose*.yml
+//! files/                   .env, .chaps/**, ocs/** and every compose*.yml
 //! db/chap_core.dump        pg_dump -Fc of the chap-core database
 //! models/<service_id>.tar  one model data volume, as tar saw it
+//! components/<name>.tar    one component data volume (ocs, s3), likewise
 //! ```
 //!
 //! Nothing in here is chaps-specific magic: `tar`, `pg_restore` and a busybox
@@ -34,14 +35,29 @@ pub const FILES_MEMBER: &str = "files";
 pub const DB_MEMBER: &str = "db/chap_core.dump";
 /// Archive member holding the model data tars.
 pub const MODELS_MEMBER: &str = "models";
+/// Archive member holding the component data tars.
+pub const COMPONENTS_MEMBER: &str = "components";
 /// Scratch directory inside `.chaps/`, never part of a backup.
 pub const TMP_DIR: &str = "tmp";
 /// Where `backup restore` parks the `.env` it is about to replace.
 pub const ENV_BACKUP_FILE: &str = ".env.before-restore";
 
+/// Image the component volumes are read and written through.
+///
+/// The model services carry a one-shot `<service>-init` container that mounts
+/// the same volume, but `ocs` and `s3` do not, so their volumes are reached by
+/// mounting them into a throwaway container of their own. Pinned rather than
+/// `latest`: what reads a backup a year from now should be what wrote it.
+pub const BUSYBOX_IMAGE: &str = "busybox:1.37";
+
 /// Archive member holding one model's data directory.
 pub fn model_member(service_id: &str) -> String {
     format!("{MODELS_MEMBER}/{service_id}.tar")
+}
+
+/// Archive member holding one component's data volume.
+pub fn component_member(name: &str) -> String {
+    format!("{COMPONENTS_MEMBER}/{name}.tar")
 }
 
 /// What one backup is and what it holds.
@@ -64,6 +80,11 @@ pub struct Manifest {
     /// Every model the project had enabled, captured or not.
     #[serde(default)]
     pub models: Vec<ManifestModel>,
+    /// Every component with persistent state the project had enabled,
+    /// captured or not. Absent in an archive written before components were
+    /// backed up, which is what an empty list says.
+    #[serde(default)]
+    pub components: Vec<ManifestComponent>,
 }
 
 impl Manifest {
@@ -72,10 +93,16 @@ impl Manifest {
         self.models.iter().filter(|m| m.path.is_some())
     }
 
+    /// Components whose data volume is actually in the archive.
+    pub fn captured_components(&self) -> impl Iterator<Item = &ManifestComponent> {
+        self.components.iter().filter(|c| c.path.is_some())
+    }
+
     /// Bytes the archive holds before compression.
     pub fn content_bytes(&self) -> u64 {
         self.database.as_ref().map_or(0, |d| d.size_bytes)
             + self.models.iter().map(|m| m.size_bytes).sum::<u64>()
+            + self.components.iter().map(|c| c.size_bytes).sum::<u64>()
     }
 }
 
@@ -120,6 +147,40 @@ pub struct ManifestModel {
     /// Why the data was not captured, when it was not.
     #[serde(default)]
     pub skipped: Option<String>,
+    /// How the service was held still while its volume was read, and for how
+    /// long: `paused for 1.4 s`. `None` when it was not running, so there was
+    /// nothing that could write while tar read.
+    #[serde(default)]
+    pub quiesce: Option<String>,
+}
+
+/// One component with persistent state, as the backup found it.
+///
+/// `ocs` and `s3` keep theirs in a named volume like a model does, but they
+/// have no init container of their own, so the volume is read through a
+/// throwaway [`BUSYBOX_IMAGE`] container instead.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ManifestComponent {
+    /// Component name: `ocs` or `s3`.
+    pub name: String,
+    /// Compose service the volume belongs to.
+    pub service: String,
+    /// Named volume, without the compose project prefix.
+    pub volume: String,
+    /// Where the service mounts it.
+    pub data_dir: String,
+    /// Archive member holding the data, or `None` when it was not captured.
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub size_bytes: u64,
+    /// Why the data was not captured, when it was not.
+    #[serde(default)]
+    pub skipped: Option<String>,
+    /// How the service was held still while its volume was read. See
+    /// [`ManifestModel::quiesce`].
+    #[serde(default)]
+    pub quiesce: Option<String>,
 }
 
 /// Parse a manifest, saying which archive it came from when it does not parse.
@@ -199,6 +260,22 @@ pub fn resolve_out_path(
 fn ends_with_separator(path: &Path) -> bool {
     let text = path.to_string_lossy();
     text.ends_with('/') || (cfg!(windows) && text.ends_with('\\'))
+}
+
+/// Where an archive is written before it is renamed into place:
+/// `.<name>.tmp`, beside the destination.
+///
+/// tar writes straight into the file it is given, so writing to the
+/// destination would truncate whatever is there the moment it starts - and a
+/// failure halfway (a full disk, a model volume that cannot be read) would
+/// leave last night's backup destroyed and today's half written. A sibling
+/// keeps the rename cheap: same directory, therefore same filesystem.
+pub fn temp_archive_path(out: &Path) -> PathBuf {
+    let name = out
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "archive".to_string());
+    out.with_file_name(format!(".{name}.tmp"))
 }
 
 // ------------------------------------------------------------------ time ---
@@ -332,12 +409,19 @@ pub fn keep_env_copy(current: Option<&[u8]>, incoming: Option<&[u8]>) -> bool {
 // ------------------------------------------------------------ file lists ---
 
 /// The project files a backup holds, relative to the project directory and in
-/// a stable order: `.env`, then `.chaps/**`, then the root `compose*.yml`.
+/// a stable order: `.env`, then `.chaps/**`, then `ocs/**`, then the root
+/// `compose*.yml`.
 ///
 /// `.chaps/tmp/` is scratch space (this is where the archive is staged) and
 /// half-written `.tmp` state files are transient, so neither is included.
 /// Compose files are taken from the project root only; a `compose.yml` in a
 /// subdirectory belongs to something else.
+///
+/// `ocs/` is in here because `ocs/climate-service.yaml` is the operator's own
+/// file, not a rendered artifact: `chaps sync` only ever creates a missing
+/// one, so nothing can rebuild the edits made to it. It is taken whether or
+/// not the `ocs` component is enabled right now - a file that exists is one
+/// somebody wrote.
 pub fn project_files(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if dir.join(crate::project::ENV_FILE).is_file() {
@@ -349,6 +433,12 @@ pub fn project_files(dir: &Path) -> Vec<String> {
     collect_under(&chaps, crate::project::CHAPS_DIR, &mut state);
     state.sort();
     out.extend(state);
+
+    let ocs_dir = crate::components::OCS_DIR;
+    let mut ocs = Vec::new();
+    collect_under(&dir.join(ocs_dir), ocs_dir, &mut ocs);
+    ocs.sort();
+    out.extend(ocs);
 
     let mut compose = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -554,6 +644,172 @@ fn tar_spawn_error(err: &std::io::Error) -> anyhow::Error {
     }
 }
 
+// ---------------------------------------------------- component volumes ---
+
+/// One component that keeps state in a named volume of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComponentVolume {
+    /// Component name, as `components.yaml` and `--with` spell it.
+    pub name: &'static str,
+    /// Compose service the volume belongs to, and the one to hold still while
+    /// it is read.
+    pub service: &'static str,
+    /// Named volume, without the compose project prefix.
+    pub volume: &'static str,
+    /// Where the service mounts it. Recorded for the operator who restores by
+    /// hand; the tar itself is taken relative to the volume root.
+    pub data_dir: &'static str,
+}
+
+/// Every component with state of its own, in [`crate::components::Component`]
+/// order.
+///
+/// chap-core's state is the database and the model volumes, each captured in
+/// its own right. `ocs` keeps a data directory and `s3` its object store, and
+/// the `data_dir`s here are the `target:` of the volume mount in
+/// `compose.ocs.yml` and `compose.s3.yml`.
+pub const COMPONENT_VOLUMES: &[ComponentVolume] = &[
+    ComponentVolume {
+        name: "ocs",
+        service: crate::compose::OCS_SERVICE,
+        volume: crate::compose::render::OCS_VOLUME,
+        data_dir: "/app/data",
+    },
+    ComponentVolume {
+        name: "s3",
+        service: crate::compose::S3_SERVICE,
+        volume: crate::compose::render::S3_VOLUME,
+        data_dir: "/data",
+    },
+];
+
+/// The [`COMPONENT_VOLUMES`] this deployment has enabled.
+pub fn component_volumes(
+    components: &crate::components::Components,
+) -> Vec<&'static ComponentVolume> {
+    COMPONENT_VOLUMES
+        .iter()
+        .filter(|part| {
+            crate::components::Component::from_name(part.name)
+                .is_ok_and(|component| components.is_enabled(component))
+        })
+        .collect()
+}
+
+// ------------------------------------------------------ volume contents ---
+
+/// `docker run` arguments that read a named volume as a tar on stdout.
+///
+/// The model services carry a `<service>-init` container that mounts their
+/// volume, so compose can read those without help; `ocs` and `s3` have none,
+/// and a container of their own is the only way in. The volume is mounted at
+/// `/v` and nothing else is, so an operator can run the same line by hand.
+pub fn volume_read_args(volume: &str) -> Vec<String> {
+    let mut args = docker_run_args(volume, false);
+    args.extend(
+        ["tar", "-C", "/v", "-cf", "-", "."]
+            .iter()
+            .map(|s| s.to_string()),
+    );
+    args
+}
+
+/// `docker run` arguments that empty a named volume and refill it from a tar
+/// on stdin.
+///
+/// The three globs are what it takes to clear a directory with `sh`: `*`
+/// misses dotfiles, `.[!.]*` catches them, and `..?*` catches the `..foo`
+/// names neither of the others match, while none of them can ever match `.`
+/// or `..` themselves. `rm` complains about the patterns that match nothing,
+/// which is why only its stderr is dropped; tar's is the exit code that
+/// counts.
+pub fn volume_write_args(volume: &str) -> Vec<String> {
+    let mut args = docker_run_args(volume, true);
+    args.extend(
+        [
+            "sh",
+            "-c",
+            "rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -",
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
+    args
+}
+
+fn docker_run_args(volume: &str, stdin: bool) -> Vec<String> {
+    let mut args = vec!["run".to_string(), "--rm".to_string()];
+    if stdin {
+        args.push("-i".to_string());
+    }
+    args.push("-v".to_string());
+    args.push(format!("{volume}:/v"));
+    args.push(BUSYBOX_IMAGE.to_string());
+    args
+}
+
+/// Read the named volume `volume` into the file `dest`.
+pub fn read_volume(volume: &str, dest: &Path) -> Result<crate::docker::Piped> {
+    run_docker(&volume_read_args(volume), None, Some(dest))
+}
+
+/// Empty the named volume `volume` and unpack the tar `src` into it.
+pub fn write_volume(volume: &str, src: &Path) -> Result<crate::docker::Piped> {
+    run_docker(&volume_write_args(volume), Some(src), None)
+}
+
+/// Run `docker <args>` with its payload streams wired to files.
+///
+/// The same shape as [`crate::docker::run_compose_piped`] and for the same
+/// reason: a volume tar is arbitrarily large, so it may not travel through a
+/// pipe this process would have to drain. Only stderr is a pipe.
+fn run_docker(
+    args: &[String],
+    stdin: Option<&Path>,
+    stdout: Option<&Path>,
+) -> Result<crate::docker::Piped> {
+    crate::output::verbose(&format!("$ docker {}", args.join(" ")));
+    let mut cmd = Command::new("docker");
+    cmd.args(args);
+    match stdin {
+        Some(path) => {
+            let file =
+                File::open(path).map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
+            cmd.stdin(Stdio::from(file));
+        }
+        None => {
+            cmd.stdin(Stdio::null());
+        }
+    }
+    match stdout {
+        Some(path) => {
+            let file = File::create(path)
+                .map_err(|e| anyhow::anyhow!("creating {}: {e}", path.display()))?;
+            cmd.stdout(Stdio::from(file));
+        }
+        None => {
+            cmd.stdout(Stdio::null());
+        }
+    }
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("`docker` was not found on PATH")
+        } else {
+            anyhow::anyhow!("could not run `docker`: {e}")
+        }
+    })?;
+    let stderr = read_all(child.stderr.take());
+    let status = child
+        .wait()
+        .map_err(|e| anyhow::anyhow!("waiting for docker: {e}"))?;
+    Ok(crate::docker::Piped {
+        code: status.code().unwrap_or(1),
+        stderr,
+    })
+}
+
 fn read_all(stream: Option<impl Read>) -> String {
     let mut text = String::new();
     if let Some(mut stream) = stream {
@@ -573,11 +829,17 @@ pub fn first_line(text: &str) -> String {
 
 // ------------------------------------------------------------ pg_restore ---
 
-/// How a `pg_restore` exit code should be read.
+/// How a `pg_restore` run should be read: its exit code together with what it
+/// said.
 ///
-/// `pg_restore` exits 1 when it finished but something it did not need
-/// succeeded - dropping an object `--if-exists` never found, most of all - so
-/// treating 1 as failure would make every `--clean` restore look broken.
+/// The exit code alone is not enough. `pg_restore` exits 1 both when it
+/// finished and only complained about objects `--clean --if-exists` could not
+/// avoid complaining about, and when it restored nothing at all - a refused
+/// connection is exit 1 too. Reading every 1 as "restored, with warnings" is
+/// how a failed restore comes to be reported as a success, so exit 1 is only
+/// read that way when `pg_restore` also said it ignored those errors and
+/// carried on, and when every error it printed is one of
+/// [`PG_RESTORE_IGNORABLE`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PgRestore {
     /// Clean run.
@@ -588,13 +850,69 @@ pub enum PgRestore {
     Failed,
 }
 
-/// Read a `pg_restore` exit code.
-pub fn pg_restore_outcome(code: i32) -> PgRestore {
-    match code {
-        0 => PgRestore::Ok,
-        1 => PgRestore::Warnings,
-        _ => PgRestore::Failed,
+/// The `pg_restore: error:` lines a `--clean --if-exists --no-owner` restore
+/// prints while losing nothing.
+///
+/// `--clean` drops what the dump is about to create, `--if-exists` makes the
+/// drops conditional at the SQL level but PostgreSQL still reports the objects
+/// inside them that were never there (`does not exist`); a dump reloaded into
+/// a database that kept an extension or a schema reports `already exists`; and
+/// `--no-owner` leaves objects to the restoring role, which may not own what
+/// it is asked to re-own (`must be owner of`). Everything else - a refused
+/// connection, a missing role, a disk that filled up - is a failure.
+pub const PG_RESTORE_IGNORABLE: &[&str] = &["already exists", "does not exist", "must be owner of"];
+
+/// Read a `pg_restore` run: the exit code, and the stderr it explained itself
+/// on. See [`PgRestore`].
+pub fn pg_restore_outcome(code: i32, stderr: &str) -> PgRestore {
+    if code == 0 {
+        return PgRestore::Ok;
     }
+    if code != 1 {
+        return PgRestore::Failed;
+    }
+    // Exit 1 without the closing count is not "finished with complaints": it
+    // is pg_restore stopping, and the reason is on stderr.
+    if pg_restore_ignored_count(stderr).is_none() {
+        return PgRestore::Failed;
+    }
+    if pg_restore_errors(stderr)
+        .iter()
+        .any(|line| !pg_restore_error_is_ignorable(line))
+    {
+        return PgRestore::Failed;
+    }
+    PgRestore::Warnings
+}
+
+/// The `N` of `pg_restore`'s closing `errors ignored on restore: N`, which it
+/// prints when it finished in spite of them. `None` when it never got there.
+pub fn pg_restore_ignored_count(stderr: &str) -> Option<u64> {
+    const MARKER: &str = "errors ignored on restore:";
+    stderr.lines().rev().find_map(|line| {
+        let (_, count) = line.trim().split_once(MARKER)?;
+        count.trim().parse::<u64>().ok()
+    })
+}
+
+/// The `pg_restore: error:` lines of a run, without that prefix.
+///
+/// PostgreSQL continues a long diagnostic on indented lines of its own
+/// (`Command was: ...`); those carry no verdict and are left out.
+pub fn pg_restore_errors(stderr: &str) -> Vec<String> {
+    stderr
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("pg_restore: error:"))
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+/// Whether one `pg_restore` error line is one of [`PG_RESTORE_IGNORABLE`].
+pub fn pg_restore_error_is_ignorable(line: &str) -> bool {
+    let line = line.to_ascii_lowercase();
+    PG_RESTORE_IGNORABLE
+        .iter()
+        .any(|ignorable| line.contains(ignorable))
 }
 
 /// The warning lines of a `pg_restore` run, without the noise.
@@ -611,12 +929,73 @@ pub fn pg_restore_warnings(stderr: &str) -> Vec<String> {
         .collect()
 }
 
+/// The last `count` non-empty lines of what a child printed, trimmed.
+///
+/// What a failed `pg_restore` has to say is at the end of its stderr, and the
+/// first line of it is usually `connection to server ... failed` with the
+/// reason after it, so an error that quotes one line quotes the wrong one.
+pub fn tail_lines(text: &str, count: usize) -> Vec<String> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines[lines.len().saturating_sub(count)..]
+        .iter()
+        .map(|l| (*l).to_string())
+        .collect()
+}
+
+// -------------------------------------------------------------- identity ---
+
+/// The compose project name a restore leaves the deployment with.
+///
+/// The destination keeps its own: the compose project name is what every
+/// container and named volume of a deployment is prefixed with, so taking the
+/// archive's would point this deployment at the volumes of the one the backup
+/// came from - and leave its own behind, running, under no name anything still
+/// refers to. Restoring into a second deployment is a normal thing to do (a
+/// staging copy of production, a rebuild beside the original), and it must not
+/// be a takeover.
+///
+/// `adopt` is `--adopt-identity`: the archive's name is taken over, which is
+/// what a deployment restoring itself onto a new machine wants. An empty
+/// destination name is one `project.yaml` never recorded; it stays empty, so
+/// compose keeps deriving it from the directory the way it always has.
+pub fn restored_compose_project(destination: &str, archived: &str, adopt: bool) -> String {
+    if adopt {
+        archived.trim().to_string()
+    } else {
+        destination.trim().to_string()
+    }
+}
+
+/// The `compose_project` an archived `.chaps/project.yaml` records, if any.
+///
+/// Read as plain YAML rather than through `ProjectState`, because this has to
+/// work on a `project.yaml` from any version of chaps, including one this
+/// binary would refuse to deserialise.
+pub fn archived_compose_project(body: &str) -> Option<String> {
+    let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(body).ok()?;
+    let name = value.get("compose_project")?.as_str()?.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 // ------------------------------------------------------------------ plan ---
 
 /// One model a restore will overwrite.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlannedModel {
     pub service_id: String,
+    pub data_dir: String,
+    pub volume: String,
+}
+
+/// One component data volume a restore will overwrite.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlannedComponent {
+    pub name: String,
+    pub service: String,
     pub data_dir: String,
     pub volume: String,
 }
@@ -633,17 +1012,61 @@ pub struct RestorePlan {
     pub database: bool,
     /// Model data volumes that will be emptied and refilled.
     pub models: Vec<PlannedModel>,
+    /// Component data volumes that will be emptied and refilled.
+    pub components: Vec<PlannedComponent>,
     /// Running services that will be stopped first.
     pub stop: Vec<String>,
     /// Whether CHAP is brought back up at the end.
     pub start: bool,
+    /// The compose project name the deployment is left with. See
+    /// [`restored_compose_project`].
+    pub compose_project: String,
+    /// The compose project name the archive was taken under, when it recorded
+    /// one.
+    pub archived_compose_project: Option<String>,
+    /// Whether `--adopt-identity` was passed.
+    pub adopt_identity: bool,
 }
 
 impl RestorePlan {
     /// Whether the plan would change anything at all.
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && !self.database && self.models.is_empty()
+        self.files.is_empty()
+            && !self.database
+            && self.models.is_empty()
+            && self.components.is_empty()
     }
+}
+
+/// What the plan says about the compose project name, when there is anything
+/// to say: nothing when the archive records none, and nothing when it records
+/// the one this deployment already has.
+///
+/// Worth a line of its own whenever the two differ, because it is the one
+/// thing a restore deliberately does not take from the archive. See
+/// [`restored_compose_project`].
+pub fn identity_line(plan: &RestorePlan) -> String {
+    let Some(archived) = plan.archived_compose_project.as_deref() else {
+        return String::new();
+    };
+    let kept = if plan.compose_project.is_empty() {
+        "the name compose derives from this directory"
+    } else {
+        &plan.compose_project
+    };
+    if plan.adopt_identity {
+        return format!(
+            "  identity  compose project {archived}, taken over from the archive \
+             (--adopt-identity)\n"
+        );
+    }
+    if archived == plan.compose_project {
+        return String::new();
+    }
+    format!(
+        "  identity  {kept} is kept; the archive's own ({archived}) is not adopted, so this \
+         deployment keeps its containers and volumes\n"
+    )
 }
 
 /// The plan as an operator reads it before answering the confirmation.
@@ -697,6 +1120,18 @@ pub fn plan_text(plan: &RestorePlan) -> String {
             ));
         }
     }
+    if plan.components.is_empty() {
+        text.push_str("  parts     nothing\n");
+    } else {
+        for (i, part) in plan.components.iter().enumerate() {
+            let label = if i == 0 { "  parts   " } else { "          " };
+            text.push_str(&format!(
+                "{label}  {} {} emptied and refilled (volume {})\n",
+                part.service, part.data_dir, part.volume
+            ));
+        }
+    }
+    text.push_str(&identity_line(plan));
 
     text.push('\n');
     if plan.stop.is_empty() {
@@ -743,6 +1178,17 @@ mod tests {
                 path: Some(model_member("chapkit-ewars-model")),
                 size_bytes: 40960,
                 skipped: None,
+                quiesce: Some("paused for 1.4 s".into()),
+            }],
+            components: vec![ManifestComponent {
+                name: "ocs".into(),
+                service: "ocs".into(),
+                volume: "ocs_data".into(),
+                data_dir: "/app/data".into(),
+                path: Some(component_member("ocs")),
+                size_bytes: 4096,
+                skipped: None,
+                quiesce: None,
             }],
         }
     }
@@ -753,10 +1199,13 @@ mod tests {
         assert!(body.starts_with("# chaps backup manifest"));
         assert!(body.contains("schema_version: 1"));
         assert!(body.contains("service_id: chapkit-ewars-model"));
+        assert!(body.contains("quiesce: paused for 1.4 s"));
+        assert!(body.contains("path: components/ocs.tar"));
         let back = parse_manifest(&body, Path::new("/tmp/a.tar.gz")).unwrap();
         assert_eq!(back, manifest());
         assert_eq!(back.captured_models().count(), 1);
-        assert_eq!(back.content_bytes(), 2048 + 40960);
+        assert_eq!(back.captured_components().count(), 1);
+        assert_eq!(back.content_bytes(), 2048 + 40960 + 4096);
     }
 
     #[test]
@@ -770,6 +1219,9 @@ mod tests {
         assert!(parsed.files.is_empty());
         assert!(parsed.database.is_none());
         assert!(parsed.models.is_empty());
+        // An archive written before components were captured says so by
+        // holding none, rather than failing to parse.
+        assert!(parsed.components.is_empty());
         assert_eq!(parsed.content_bytes(), 0);
     }
 
@@ -825,6 +1277,17 @@ mod tests {
             resolve_out_path(Some(Path::new("nightly/")), false, cwd, name),
             PathBuf::from("nightly").join(name)
         );
+    }
+
+    #[test]
+    fn an_archive_is_written_to_a_hidden_sibling_first() {
+        assert_eq!(
+            temp_archive_path(Path::new("/backups/nightly.tar.gz")),
+            PathBuf::from("/backups/.nightly.tar.gz.tmp")
+        );
+        // Same directory, so the rename that follows stays on one filesystem.
+        let tmp = temp_archive_path(Path::new("/backups/nightly.tar.gz"));
+        assert_eq!(tmp.parent(), Some(Path::new("/backups")));
     }
 
     #[test]
@@ -907,6 +1370,8 @@ mod tests {
         write(".chaps/compose.chap-core.v2.3.1.yml", "services: {}\n");
         write(".chaps/.models.yaml.tmp", "half written");
         write(".chaps/tmp/backup-1/manifest.yaml", "staged");
+        write("ocs/climate-service.yaml", "sources: []\n");
+        write("ocs/extra/regions.csv", "id,name\n");
         write("compose.yml", "services: {}\n");
         write("compose.marketplace.yml", "include: []\n");
         write("compose.chapkit-ewars-model.yml", "services: {}\n");
@@ -922,6 +1387,10 @@ mod tests {
                 ".chaps/compose.chap-core.v2.3.1.yml",
                 ".chaps/models.yaml",
                 ".chaps/project.yaml",
+                // The OCS instance config is the operator's own file, so it is
+                // in the archive like .chaps/ is.
+                "ocs/climate-service.yaml",
+                "ocs/extra/regions.csv",
                 "compose.chapkit-ewars-model.yml",
                 "compose.marketplace.yml",
                 "compose.override.yml",
@@ -940,13 +1409,69 @@ mod tests {
         assert!(!is_compose_file("docker-compose.yml"));
     }
 
-    #[test]
-    fn pg_restore_exit_one_is_warnings_not_failure() {
-        assert_eq!(pg_restore_outcome(0), PgRestore::Ok);
-        assert_eq!(pg_restore_outcome(1), PgRestore::Warnings);
-        assert_eq!(pg_restore_outcome(2), PgRestore::Failed);
-        assert_eq!(pg_restore_outcome(127), PgRestore::Failed);
+    /// What `pg_restore --clean --if-exists` prints on a restore that lost
+    /// nothing: drops of objects a fresh database never had, and the count it
+    /// finished with.
+    const IGNORABLE_STDERR: &str = "pg_restore: error: could not execute query: ERROR:  schema \"public\" does not exist\n\
+         \x20   Command was: DROP SCHEMA public;\n\
+         pg_restore: error: could not execute query: ERROR:  extension \"postgis\" already exists\n\
+         pg_restore: warning: errors ignored on restore: 2\n";
 
+    /// A restore that never connected. Exit 1 as well, and the reason even
+    /// carries "does not exist" - which is why the ignored count has to be
+    /// there before exit 1 is read as success.
+    const CONNECTION_STDERR: &str = "pg_restore: error: connection to server at \"postgres\" (172.18.0.3), port 5432 failed: \
+         FATAL:  role \"nosuchrole\" does not exist\n";
+
+    #[test]
+    fn a_pg_restore_verdict_reads_the_stderr_as_well_as_the_code() {
+        // A clean run, whatever it printed.
+        assert_eq!(pg_restore_outcome(0, ""), PgRestore::Ok);
+        assert_eq!(pg_restore_outcome(0, IGNORABLE_STDERR), PgRestore::Ok);
+
+        // Exit 1 with nothing but the complaints --clean --if-exists cannot
+        // avoid, and the count that says it carried on: restored.
+        assert_eq!(
+            pg_restore_outcome(1, IGNORABLE_STDERR),
+            PgRestore::Warnings,
+            "the drops of objects a fresh database never had are not a failure"
+        );
+
+        // Exit 1 because it never connected: a failure, not a warning.
+        assert_eq!(pg_restore_outcome(1, CONNECTION_STDERR), PgRestore::Failed);
+        // Exit 1 with an error that is nobody's --if-exists: a failure too,
+        // even though it finished and counted.
+        let real = "pg_restore: error: could not execute query: ERROR:  out of shared memory\n\
+                    pg_restore: warning: errors ignored on restore: 1\n";
+        assert_eq!(pg_restore_outcome(1, real), PgRestore::Failed);
+        // Exit 1 and silent: still a failure; success has a count.
+        assert_eq!(pg_restore_outcome(1, ""), PgRestore::Failed);
+
+        // Anything above 1 is pg_restore refusing outright.
+        assert_eq!(pg_restore_outcome(2, IGNORABLE_STDERR), PgRestore::Failed);
+        assert_eq!(pg_restore_outcome(127, ""), PgRestore::Failed);
+    }
+
+    #[test]
+    fn the_ignored_count_and_the_error_lines_are_read_off_the_stderr() {
+        assert_eq!(pg_restore_ignored_count(IGNORABLE_STDERR), Some(2));
+        assert_eq!(pg_restore_ignored_count(CONNECTION_STDERR), None);
+        assert_eq!(
+            pg_restore_ignored_count("errors ignored on restore: x"),
+            None
+        );
+
+        let errors = pg_restore_errors(IGNORABLE_STDERR);
+        assert_eq!(errors.len(), 2, "the `Command was:` line is not a verdict");
+        assert!(errors.iter().all(|l| pg_restore_error_is_ignorable(l)));
+        assert!(pg_restore_error_is_ignorable(
+            "role \"chap\" must be owner of table x"
+        ));
+        assert!(!pg_restore_error_is_ignorable("out of shared memory"));
+    }
+
+    #[test]
+    fn warnings_and_tails_quote_what_postgres_said() {
         let warnings = pg_restore_warnings(
             "pg_restore: warning: errors ignored on restore: 2\n\
              \n\
@@ -960,6 +1485,45 @@ mod tests {
             ]
         );
         assert!(pg_restore_warnings("   \n\n").is_empty());
+
+        // The reason a restore failed is at the end, not at the start.
+        assert_eq!(
+            tail_lines("one\n\ntwo\nthree\n", 2),
+            vec!["two".to_string(), "three".to_string()]
+        );
+        assert_eq!(tail_lines("only\n", 5), vec!["only".to_string()]);
+        assert!(tail_lines("\n \n", 3).is_empty());
+    }
+
+    #[test]
+    fn a_restore_keeps_the_destinations_identity_unless_it_is_told_not_to() {
+        // The normal case: restoring an archive into another deployment leaves
+        // that deployment's containers and volumes where they are.
+        assert_eq!(
+            restored_compose_project("chapy-ab12cd", "chapx-9f01bc", false),
+            "chapy-ab12cd"
+        );
+        // --adopt-identity is the takeover, for a deployment moving machines.
+        assert_eq!(
+            restored_compose_project("chapy-ab12cd", "chapx-9f01bc", true),
+            "chapx-9f01bc"
+        );
+        // A deployment that never recorded a name keeps deriving one from its
+        // directory, which is what the empty string means.
+        assert_eq!(restored_compose_project("", "chapx-9f01bc", false), "");
+        assert_eq!(
+            restored_compose_project(" chapy-ab12cd ", "", false),
+            "chapy-ab12cd"
+        );
+
+        let body = "schema_version: 1\ncompose_project: chapx-9f01bc\napi_port: 8000\n";
+        assert_eq!(
+            archived_compose_project(body).as_deref(),
+            Some("chapx-9f01bc")
+        );
+        assert_eq!(archived_compose_project("compose_project: ''\n"), None);
+        assert_eq!(archived_compose_project("schema_version: 1\n"), None);
+        assert_eq!(archived_compose_project("not: [yaml"), None);
     }
 
     fn plan(start: bool, stop: Vec<&str>) -> RestorePlan {
@@ -974,8 +1538,17 @@ mod tests {
                 data_dir: "/app/data".into(),
                 volume: "ck_chapkit_ewars_model_data".into(),
             }],
+            components: vec![PlannedComponent {
+                name: "ocs".into(),
+                service: "ocs".into(),
+                data_dir: "/app/data".into(),
+                volume: "ocs_data".into(),
+            }],
             stop: stop.into_iter().map(str::to_string).collect(),
             start,
+            compose_project: "e2e-ab12cd".into(),
+            archived_compose_project: Some("e2e-ab12cd".into()),
+            adopt_identity: false,
         }
     }
 
@@ -990,9 +1563,48 @@ mod tests {
         );
         assert!(text.contains("database  chap_core on postgres, dropped and reloaded"));
         assert!(text.contains("chapkit-ewars-model /app/data emptied and refilled"));
+        assert!(text.contains("parts     ocs /app/data emptied and refilled (volume ocs_data)"));
         assert!(text.contains("stops first  chap, worker"));
         assert!(text.contains("then runs    docker compose up -d"));
+        // The archive was taken from this same deployment, so there is nothing
+        // to say about its identity.
+        assert!(!text.contains("identity"), "{text}");
         assert!(!plan(true, vec![]).is_empty());
+    }
+
+    #[test]
+    fn the_plan_says_whose_identity_the_deployment_keeps() {
+        let mut restore = plan(true, vec![]);
+        restore.archived_compose_project = Some("chapx-9f01bc".into());
+        let text = plan_text(&restore);
+        assert!(
+            text.contains(
+                "identity  e2e-ab12cd is kept; the archive's own (chapx-9f01bc) is not adopted"
+            ),
+            "{text}"
+        );
+
+        restore.adopt_identity = true;
+        restore.compose_project = "chapx-9f01bc".into();
+        let text = plan_text(&restore);
+        assert!(
+            text.contains("identity  compose project chapx-9f01bc, taken over from the archive"),
+            "{text}"
+        );
+
+        // A deployment that records no name of its own says so rather than
+        // printing an empty cell.
+        restore.adopt_identity = false;
+        restore.compose_project = String::new();
+        let text = plan_text(&restore);
+        assert!(
+            text.contains("the name compose derives from this directory is kept"),
+            "{text}"
+        );
+
+        // Nothing to say when the archive recorded no name at all.
+        restore.archived_compose_project = None;
+        assert!(!plan_text(&restore).contains("identity"));
     }
 
     #[test]
@@ -1008,11 +1620,13 @@ mod tests {
         plan.files.clear();
         plan.database = false;
         plan.models.clear();
+        plan.components.clear();
         assert!(plan.is_empty());
         let text = plan_text(&plan);
         assert!(text.contains("files     nothing"));
         assert!(text.contains("database  nothing"));
         assert!(text.contains("models    nothing"));
+        assert!(text.contains("parts     nothing"));
     }
 
     #[test]
@@ -1074,6 +1688,79 @@ mod tests {
 
         let err = tar_read_member(&archive, "db/chap_core.dump").unwrap_err();
         assert!(err.to_string().contains("reading db/chap_core.dump"));
+    }
+
+    #[test]
+    fn only_the_enabled_components_with_state_are_captured() {
+        use crate::components::{Components, OcsComponent, S3Component};
+
+        // chap-core alone: the database and the model volumes are its state,
+        // and both are captured in their own right.
+        assert!(component_volumes(&Components::default()).is_empty());
+
+        let mut components = Components {
+            ocs: OcsComponent {
+                enabled: true,
+                ..OcsComponent::default()
+            },
+            ..Components::default()
+        };
+        assert_eq!(
+            component_volumes(&components)
+                .iter()
+                .map(|p| p.volume)
+                .collect::<Vec<_>>(),
+            vec!["ocs_data"]
+        );
+
+        components.s3 = S3Component {
+            enabled: true,
+            port: None,
+        };
+        assert_eq!(
+            component_volumes(&components)
+                .iter()
+                .map(|p| p.name)
+                .collect::<Vec<_>>(),
+            vec!["ocs", "s3"]
+        );
+
+        let parts = component_volumes(&components);
+        assert_eq!(parts[0].service, "ocs");
+        assert_eq!(parts[0].data_dir, "/app/data");
+        assert_eq!(parts[1].data_dir, "/data");
+    }
+
+    #[test]
+    fn a_component_volume_is_read_and_written_through_one_busybox_mount() {
+        assert_eq!(
+            volume_read_args("chapx-ab12cd_ocs_data"),
+            vec![
+                "run",
+                "--rm",
+                "-v",
+                "chapx-ab12cd_ocs_data:/v",
+                BUSYBOX_IMAGE,
+                "tar",
+                "-C",
+                "/v",
+                "-cf",
+                "-",
+                "."
+            ]
+        );
+        let write = volume_write_args("chapx-ab12cd_s3_data");
+        // Only the writing side keeps stdin open; the reading side would
+        // otherwise wait on a terminal that is not there.
+        assert_eq!(write[..3], ["run", "--rm", "-i"]);
+        assert_eq!(write[3..5], ["-v", "chapx-ab12cd_s3_data:/v"]);
+        assert_eq!(write[5], BUSYBOX_IMAGE);
+        let script = write.last().expect("the shell script");
+        assert!(script.contains("rm -rf /v/* /v/.[!.]* /v/..?*"));
+        assert!(script.ends_with("tar -C /v -xf -"));
+        // rm's complaints about patterns that match nothing are dropped; tar's
+        // are not.
+        assert!(!script.contains("tar -C /v -xf - 2>/dev/null"));
     }
 
     #[test]
