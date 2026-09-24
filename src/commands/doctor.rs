@@ -2081,8 +2081,8 @@ fn stack_check(
     containers: Option<&[docker::Container]>,
     running: &BTreeSet<String>,
 ) -> Check {
-    const ID: &str = "stack";
-    const NAME: &str = "stack";
+    const ID: &str = "health";
+    const NAME: &str = "health";
     if running.is_empty() {
         return Check::skip_with(
             ID,

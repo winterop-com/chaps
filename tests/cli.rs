@@ -3403,9 +3403,9 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
     // authentication off, which is a complete `.env` and not a warning.
     assert_eq!(doctor_status(&report, "env"), "ok", "{report}");
     // Nothing has ever been started here.
-    assert_eq!(doctor_status(&report, "stack"), "skip", "{report}");
+    assert_eq!(doctor_status(&report, "health"), "skip", "{report}");
     assert!(
-        doctor_check(&report, "stack")["fix"]
+        doctor_check(&report, "health")["fix"]
             .as_str()
             .unwrap()
             .contains("chaps up"),

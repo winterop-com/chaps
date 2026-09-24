@@ -102,7 +102,7 @@ Something moved and there is nothing running for it to be ahead of:
 updated chap-core v2.3.0 -> v2.3.1; CHAP is not running, the new versions start with `chaps up`
 ```
 
-Something moved, the stack is up, and none of it was affected:
+Something moved, CHAP is up, and none of it was affected:
 
 ```text
 updated 1 model pin; nothing needs a restart

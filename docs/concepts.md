@@ -251,7 +251,7 @@ already carry.
 
 | Variable | What it does |
 | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | The database the stack creates. The password is 32 random hex characters, generated once. It has to be URL-safe, because the connection URL is composed from it. |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | The database CHAP creates. The password is 32 random hex characters, generated once. It has to be URL-safe, because the connection URL is composed from it. |
 | `CHAP_DATABASE_URL` | A full percent-encoded URL that replaces the one composed from `POSTGRES_*`. The way to use a password that is not URL-safe. |
 | `CHAP_IMAGE_TAG` | Tag for both chap-core images: a release tag such as `v2.3.1` pins one, `latest` is the newest release and `master` the branch. |
 | `CHAP_API_PORT` | Host port chap-core's API is published on, and the only port CHAP publishes by default. See [Ports](./ports.md). |

@@ -2,7 +2,7 @@
 
 Start with `chaps doctor`. It runs the whole checklist in one pass - Docker,
 Compose, the architecture, free disk, the hosts CHAP pulls from, and, inside a
-deployment, the files, the ports, the pins, the images and the running stack -
+deployment, the files, the ports, the pins, the images and whether CHAP is up -
 and prints what to do about every line that is not `ok`. Most of the sections
 below are one of its lines with the reasoning spelled out. See
 [Doctor](./doctor.md).
@@ -186,7 +186,7 @@ why chap is unhealthy:
   `chaps down --volumes` if this deployment's data can go
 ```
 
-The same lines close `chaps status` and `chaps doctor`'s `stack` check, and
+The same lines close `chaps status` and `chaps doctor`'s `health` check, and
 the chap-core line reads `down (container unhealthy)` rather than plain `down`:
 the container is there, and it is the container that is wrong.
 
