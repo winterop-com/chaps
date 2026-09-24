@@ -363,11 +363,7 @@ pub fn stderr_hint(text: &str) -> Option<String> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect();
-    let useful = |line: &&str| !is_warning(line) && !is_terminator(line);
-    let at = lines
-        .iter()
-        .rposition(|line| useful(line) && looks_like_error(line))
-        .or_else(|| lines.iter().rposition(useful))?;
+    let at = error_line(&lines)?;
     let mut hint = lines[at].to_string();
     // R writes `Error in f() :` and puts the message on the next line, so a
     // hint that ends on the colon would be the half without the reason in it.
@@ -377,6 +373,20 @@ pub fn stderr_hint(text: &str) -> Option<String> {
         hint = format!("{hint} {next}");
     }
     Some(cut(&hint, MAX_HINT))
+}
+
+/// The index of the line of `lines` most likely to say why something failed.
+///
+/// The last line that names an error, else the last line that is neither a
+/// warning nor a runtime announcing that it stopped. Shared with
+/// [`crate::modeltest`], which applies it to the `stderr tail:` chapkit puts
+/// on one line of its own rather than to a log with sections in it.
+pub fn error_line(lines: &[&str]) -> Option<usize> {
+    let useful = |line: &&str| !is_warning(line) && !is_terminator(line);
+    lines
+        .iter()
+        .rposition(|line| useful(line) && looks_like_error(line))
+        .or_else(|| lines.iter().rposition(useful))
 }
 
 /// Whether a stderr line is a warning rather than the failure.
@@ -415,7 +425,7 @@ fn looks_like_error(line: &str) -> bool {
 }
 
 /// `text` cut to `max` characters, with an ellipsis when it had to be.
-fn cut(text: &str, max: usize) -> String {
+pub fn cut(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
     }

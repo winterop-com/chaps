@@ -766,7 +766,8 @@ fn a_template_needs_allow_template() {
             .is_file()
     );
     // The template's image is built from /work, unlike ewars, and it runs as
-    // root - so its overlay hands it no user and no init container.
+    // root - so its overlay hands it no user, and its init container chowns
+    // the volume to root rather than to an account the image does not use.
     let model = &state(&dir)["models"]["chapkit_minimalist_example_py"];
     assert_eq!(model["data_dir"], "/work/data");
     assert_eq!(model["user"], "root");
@@ -776,10 +777,9 @@ fn a_template_needs_allow_template() {
             .get("user")
             .is_none()
     );
-    assert!(
-        overlay["services"]
-            .get("chapkit-minimalist-example-py-init")
-            .is_none()
+    assert_eq!(
+        overlay["services"]["chapkit-minimalist-example-py-init"]["command"][2].as_str(),
+        Some("chown -R 0:0 /work/data")
     );
 }
 
@@ -4994,11 +4994,22 @@ fn enable_reads_the_user_from_the_image_config() {
     assert_eq!(model["user_from"], "image-config");
     assert_eq!(model["data_dir"], "/work/data", "from its WorkingDir");
 
-    // And the overlay leaves a root image alone: no user, no chown.
-    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
-    assert!(!overlay.contains("user:"), "{overlay}");
-    assert!(!overlay.contains("chown"), "{overlay}");
-    assert!(!overlay.contains("busybox"), "{overlay}");
+    // The overlay overrides nothing on a root image, and hands its volume to
+    // root: docker creates a fresh one root-owned already, but a volume
+    // carried over from a deployment that ran this model as an account is
+    // owned by that account, and root cannot write to it with every
+    // capability dropped.
+    let overlay = yaml(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        overlay["services"]["chapkit-ewars-model"]
+            .get("user")
+            .is_none(),
+        "the model service overrides nothing"
+    );
+    assert_eq!(
+        overlay["services"]["chapkit-ewars-model-init"]["command"][2].as_str(),
+        Some("chown -R 0:0 /work/data")
+    );
 
     // `models info` says where the answer came from.
     sandbox
@@ -5025,7 +5036,10 @@ fn enable_reads_the_user_from_the_image_config() {
     assert_eq!(model["data_dir"], "/app/data");
     let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
     assert!(overlay.contains("    user: 1000:1000\n"), "{overlay}");
-    assert!(overlay.contains("chown 1000:1000 /app/data"), "{overlay}");
+    assert!(
+        overlay.contains("chown -R 1000:1000 /app/data"),
+        "{overlay}"
+    );
 }
 
 /// An `--offline` enable has no image to read, and says which answer it fell
@@ -5054,9 +5068,16 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
     let model = &state(&dir)["models"]["chapkit_rwanda_malaria_bym_model"];
     assert_eq!(model["user"], "root");
     assert_eq!(model["user_from"], "table");
-    let overlay = read(&dir.join("compose.chapkit-rwanda-malaria-bym-model.yml"));
-    assert!(!overlay.contains("user:"), "{overlay}");
-    assert!(!overlay.contains("chown"), "{overlay}");
+    let overlay = yaml(&dir.join("compose.chapkit-rwanda-malaria-bym-model.yml"));
+    let service = &overlay["services"]["chapkit-rwanda-malaria-bym-model"];
+    assert!(
+        service.get("user").is_none(),
+        "the model service overrides nothing"
+    );
+    assert_eq!(
+        overlay["services"]["chapkit-rwanda-malaria-bym-model-init"]["command"][2].as_str(),
+        Some("chown -R 0:0 /work/data")
+    );
 }
 
 #[test]
@@ -5114,7 +5135,7 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
         "{overlay}"
     );
     assert!(
-        overlay.contains("chown 10001:10001 /work/data"),
+        overlay.contains("chown -R 10001:10001 /work/data"),
         "{overlay}"
     );
     assert!(overlay.contains("user: 10001:10001"), "{overlay}");
@@ -5314,7 +5335,10 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
 
     let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
     assert!(overlay.contains("user: app"), "{overlay}");
-    assert!(overlay.contains("chown 1000:1000 /work/data"), "{overlay}");
+    assert!(
+        overlay.contains("chown -R 1000:1000 /work/data"),
+        "{overlay}"
+    );
 
     // And `--user` is what settles it.
     sandbox
@@ -5336,7 +5360,7 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
             "user      10001:10001  (given on the command line)",
         ));
     assert!(
-        read(&dir.join("compose.ghr-two.yml")).contains("chown 10001:10001 /work/data"),
+        read(&dir.join("compose.ghr-two.yml")).contains("chown -R 10001:10001 /work/data"),
         "the flag reaches the init container"
     );
 }
@@ -5556,17 +5580,18 @@ fn job_list() -> String {
 /// `detail` object for a 404, a `message` for a cancel - because those are
 /// what the commands render. The thread lives as long as the test process.
 fn chap_core_server(port: u16) {
-    use std::io::{Read, Write};
+    use std::io::Write;
 
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("a free port");
     std::thread::spawn(move || {
+        // What this server was asked to do, for the tests that check the
+        // cleanup: one server per port, so the record is this thread's own.
+        let mut recorded = Recorded::default();
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             // The request has to be read before the answer, or the client
             // sees a reset instead of the response.
-            let mut buffer = [0u8; 8192];
-            let read = stream.read(&mut buffer).unwrap_or(0);
-            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let request = read_request(&mut stream);
             let mut head = request.lines().next().unwrap_or("").split_whitespace();
             let method = head.next().unwrap_or("GET").to_string();
             let path = head.next().unwrap_or("/").to_string();
@@ -5576,7 +5601,8 @@ fn chap_core_server(port: u16) {
                 .map(|(_, rest)| rest.to_string())
                 .unwrap_or_default();
 
-            let (status, content_type, payload) = chap_core_route(&method, &path, authed, &body);
+            let (status, content_type, payload) =
+                chap_core_route(&method, &path, authed, &body, &mut recorded);
             let reason = match status {
                 200 => "OK",
                 400 => "Bad Request",
@@ -5594,12 +5620,274 @@ fn chap_core_server(port: u16) {
     });
 }
 
+/// The three models the `models test` stand-in knows, and what each one is
+/// there to cover: a model that backtests cleanly, one whose prediction
+/// crashes, and one whose chapkit predates `$generate-sample-data`.
+const PASSING_MODEL: &str = "chapkit-ewars-model";
+const FAILING_MODEL: &str = "chapkit-rwanda-malaria-bym-model";
+const OLD_CHAPKIT_MODEL: &str = "auto-arima-chapkit";
+
+/// The dataset and backtest rows the stand-in says the jobs wrote, which are
+/// the two rows the cleanup has to delete and nothing else.
+const TEST_DATASET: i64 = 41;
+const TEST_BACKTEST: i64 = 7;
+
+/// The config and the artifact `chapkit test` leaves in a model service's own
+/// database, which the model level has to find and delete.
+const TEST_CONFIG: &str = "01M3A4TSB2YHRPFBEFCT4TMX4A";
+const TEST_ARTIFACT: &str = "01M3A4TSB9WZ8V5XN0A4F4Y1M6";
+
+/// `GET /v1/crud/backtests/7`, cut to the field `models test` reads.
+const BACKTEST_ROW: &str = r#"{"id":7,"datasetId":41,"modelId":"chapkit-ewars-model",
+  "aggregateMetrics":{"ratio_above_truth":0.45,"crps":20.04,"mae":28.96,"rmse":34.88,
+  "mape":12.98,"coverage_10_90":0.6}}"#;
+
+/// `GET /v2/services/...` and everything under its proxy.
+fn services_route(
+    method: &str,
+    route: &str,
+    recorded: &mut Recorded,
+) -> Option<(u16, &'static str, String)> {
+    let json = "application/json";
+    let missing = || Some((404, json, r#"{"detail":"Not Found"}"#.to_string()));
+    let rest = route.strip_prefix("/v2/services/")?;
+    if method != "GET" {
+        return missing();
+    }
+    let (service, tail) = match rest.split_once('/') {
+        Some(parts) => parts,
+        None => (rest, ""),
+    };
+    if ![PASSING_MODEL, FAILING_MODEL, OLD_CHAPKIT_MODEL].contains(&service) {
+        return Some((
+            404,
+            json,
+            format!(r#"{{"detail":"Service '{service}' not found"}}"#),
+        ));
+    }
+    if tail.is_empty() {
+        // The `info` block a chapkit service registers with, cut to the three
+        // fields `models test` reads off it.
+        let chapkit = if service == OLD_CHAPKIT_MODEL {
+            "1.0.0"
+        } else {
+            "2.0.0"
+        };
+        let geo = service == FAILING_MODEL;
+        return Some((
+            200,
+            json,
+            format!(
+                r#"{{"id":"{service}","url":"http://{service}:8000","info":{{"id":"{service}",
+                   "period_type":"monthly","required_covariates":["population"],
+                   "requires_geo":{geo},"chapkit_version":"{chapkit}"}}}}"#
+            ),
+        ));
+    }
+    if tail.contains("generate-sample-data") {
+        recorded.sampled.push(service.to_string());
+        if service == OLD_CHAPKIT_MODEL {
+            return missing();
+        }
+        // The passing model stands in for a chapkit that answered without a
+        // `geo` at all, which is what the null-geometry fallback is for.
+        return Some((200, json, sample_payload(service == FAILING_MODEL)));
+    }
+    // The model level lists these before the run and again after it, and
+    // deletes the difference; the second listing is therefore the one that
+    // has to carry what `chapkit test` left behind.
+    if tail.ends_with("api/v1/configs") {
+        recorded.config_lists += 1;
+        let body = if recorded.config_lists == 2 {
+            format!(
+                r#"[{{"id":"{TEST_CONFIG}","created_at":"2026-09-24T16:43:57",
+                   "name":"test_config_{TEST_CONFIG}","data":{{}}}}]"#
+            )
+        } else {
+            "[]".to_string()
+        };
+        return Some((200, json, body));
+    }
+    if tail.ends_with("api/v1/artifacts") {
+        recorded.artifact_lists += 1;
+        // Gone again on the third listing: chapkit cascades a config delete
+        // to the artifact trees linked to it.
+        let body = if recorded.artifact_lists == 2 {
+            format!(r#"[{{"id":"{TEST_ARTIFACT}","data":{{"type":"ml_training_workspace"}}}}]"#)
+        } else {
+            "[]".to_string()
+        };
+        return Some((200, json, body));
+    }
+    missing()
+}
+
+/// What `$generate-sample-data?kind=train` answers with.
+///
+/// The shape rather than the size: a column-oriented frame, and - for a model
+/// that needs geometry - a `geo` whose features carry their location id in
+/// `properties` and nothing at the top level, which is exactly the thing the
+/// CLI has to fix before chap-core will match an org unit to one.
+fn sample_payload(with_geo: bool) -> String {
+    let mut columns = vec![
+        "time_period",
+        "location",
+        "disease_cases",
+        "population",
+        "rainfall",
+        "mean_temperature",
+    ];
+    if with_geo {
+        columns.push("relative_humidity");
+    }
+    let mut rows: Vec<Json> = Vec::new();
+    for period in ["2020-01", "2020-02", "2020-03"] {
+        for (at, location) in ["location_0", "location_1"].iter().enumerate() {
+            let mut row = vec![Json::from(period), Json::from(*location)];
+            for n in 0..columns.len() - 2 {
+                row.push(Json::from((at + n + 1) as f64 * 1.5));
+            }
+            rows.push(Json::Array(row));
+        }
+    }
+    let mut payload = serde_json::json!({"data": {"columns": columns, "data": rows}});
+    if with_geo {
+        payload["geo"] = serde_json::json!({
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+                 "properties": {"id": "location_0"}},
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1.0, 1.0]},
+                 "properties": {"id": "location_1"}},
+            ],
+        });
+    }
+    payload.to_string()
+}
+
+/// `make-dataset`, `create-backtest`, the CRUD rows and the deletes.
+fn analytics_route(
+    method: &str,
+    route: &str,
+    body: &str,
+    recorded: &mut Recorded,
+) -> Option<(u16, &'static str, String)> {
+    let json = "application/json";
+    match (method, route) {
+        ("POST", "/v1/analytics/make-dataset") => {
+            let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
+            recorded.observations = sent["providedData"].as_array().map(Vec::len).unwrap_or(0);
+            let name = sent["name"].as_str().unwrap_or_default().to_string();
+            // chap-core drops every org unit whose feature has no top-level
+            // `id`, so a geojson without them imports nothing at all - which
+            // is what makes this the check that the CLI sets them.
+            let imported = sent["geojson"]["features"]
+                .as_array()
+                .map(|features| features.iter().filter(|f| f["id"].is_string()).count())
+                .unwrap_or(0);
+            let service = dataset_service(&name);
+            recorded.datasets.push(name);
+            Some((
+                200,
+                json,
+                format!(r#"{{"id":"ds-{service}","importedCount":{imported},"rejected":[]}}"#),
+            ))
+        }
+        ("POST", "/v1/analytics/create-backtest") => {
+            let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
+            recorded.backtests.push(sent.clone());
+            let service = sent["modelId"].as_str().unwrap_or_default();
+            Some((200, json, format!(r#"{{"id":"bt-{service}"}}"#)))
+        }
+        // Not chap-core's: how a test asks this server what it was asked.
+        ("GET", "/v1/recorded") => Some((
+            200,
+            json,
+            serde_json::json!({
+                "deleted": recorded.deleted,
+                "observations": recorded.observations,
+                "datasets": recorded.datasets,
+                "sampled": recorded.sampled,
+                "backtests": recorded.backtests,
+            })
+            .to_string(),
+        )),
+        ("DELETE", _) if route.starts_with("/v1/crud/") => {
+            recorded.deleted.push(route.to_string());
+            Some((200, json, r#"{"message":"deleted"}"#.to_string()))
+        }
+        ("GET", _) if route == format!("/v1/crud/backtests/{TEST_BACKTEST}") => {
+            Some((200, json, BACKTEST_ROW.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// The service a `chaps-test-<service>-<stamp>` dataset name is about.
+fn dataset_service(name: &str) -> String {
+    let rest = name.strip_prefix("chaps-test-").unwrap_or(name);
+    // The stamp is the last two hyphen-separated parts: `20260924-181500`.
+    let parts: Vec<&str> = rest.rsplitn(3, '-').collect();
+    parts.get(2).copied().unwrap_or(rest).to_string()
+}
+
+/// One whole HTTP request, headers and body.
+///
+/// A single `read` is enough for the requests `chaps jobs` makes and nowhere
+/// near enough for `make-dataset`, which is a few thousand observations, so
+/// the headers are read first and then exactly as much body as
+/// `Content-Length` promises.
+fn read_request(stream: &mut std::net::TcpStream) -> String {
+    use std::io::Read;
+    let mut raw: Vec<u8> = Vec::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        if let Some(at) = raw.windows(4).position(|window| window == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&raw[..at]).to_lowercase();
+            let want: usize = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse().ok())
+                .unwrap_or(0);
+            if raw.len() >= at + 4 + want {
+                break;
+            }
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => raw.extend_from_slice(&buffer[..read]),
+        }
+    }
+    String::from_utf8_lossy(&raw).into_owned()
+}
+
+/// What one stand-in chap-core was asked to do, so a test can check that the
+/// cleanup happened and that what went out was the right shape.
+#[derive(Debug, Default)]
+struct Recorded {
+    /// Every path a `DELETE` reached, in order.
+    deleted: Vec<String>,
+    /// Observations in the last `make-dataset` body.
+    observations: usize,
+    /// The `name` of every dataset that was asked for.
+    datasets: Vec<String>,
+    /// The services whose sample data was fetched.
+    sampled: Vec<String>,
+    /// Every `create-backtest` body, whole.
+    backtests: Vec<Json>,
+    /// How many times the configs and the artifacts have been listed, so the
+    /// second listing can be the one with the test's leftovers in it.
+    config_lists: usize,
+    artifact_lists: usize,
+}
+
 /// The answer one request gets: `(status, content type, body)`.
 fn chap_core_route(
     method: &str,
     path: &str,
     authed: bool,
     body: &str,
+    recorded: &mut Recorded,
 ) -> (u16, &'static str, String) {
     let json = "application/json";
     let (route, query) = path.split_once('?').unwrap_or((path, ""));
@@ -5607,8 +5895,18 @@ fn chap_core_route(
         DONE_ID => Some("SUCCESS"),
         FAILED_ID => Some("FAILURE"),
         RUNNING_ID => Some("STARTED"),
+        // The backtest of the model whose prediction crashes is the one job
+        // `chaps models test --backtest` has to report a reason for.
+        id if id == format!("bt-{FAILING_MODEL}") => Some("FAILURE"),
+        id if id.starts_with("ds-") || id.starts_with("bt-") => Some("SUCCESS"),
         _ => None,
     };
+    if let Some(answer) = services_route(method, route, recorded) {
+        return answer;
+    }
+    if let Some(answer) = analytics_route(method, route, body, recorded) {
+        return answer;
+    }
 
     if route == "/v1/jobs" && method == "GET" {
         // The `status` query parameter is the one filter the CLI sends.
@@ -5650,7 +5948,14 @@ fn chap_core_route(
                 serde_json::to_string(JOB_LOG).expect("a JSON string"),
             ),
             ("GET", "database_result") if status == "SUCCESS" => {
-                (200, json, r#"{"id":4}"#.to_string())
+                let row = if id.starts_with("ds-") {
+                    TEST_DATASET
+                } else if id.starts_with("bt-") {
+                    TEST_BACKTEST
+                } else {
+                    4
+                };
+                (200, json, format!(r#"{{"id":{row}}}"#))
             }
             ("GET", "database_result") => {
                 (400, json, r#"{"detail":"Job is not finished"}"#.to_string())
@@ -6174,4 +6479,418 @@ fn auth_token_prints_the_token_and_nothing_else() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("not a chaps project"));
+}
+
+// ------------------------------------------------------------ models test ---
+
+/// A project with the three stand-in models enabled, pointed at a chap-core
+/// that answers the `models test --backtest` path.
+fn tested_project(sandbox: &Sandbox) -> (PathBuf, u16) {
+    let port = free_port();
+    sandbox
+        .init(&[
+            "--models",
+            "chapkit_ewars_model,chapkit_rwanda_malaria_bym_model,auto_arima_chapkit",
+            "--api-port",
+            &port.to_string(),
+        ])
+        .assert()
+        .success();
+    chap_core_server(port);
+    (sandbox.project(), port)
+}
+
+/// What the stand-in was asked to do, read back through `chaps api`.
+fn recorded(sandbox: &Sandbox, dir: &Path) -> Json {
+    json_of(&mut chap_in(
+        sandbox,
+        dir,
+        &["--json", "api", "GET", "/v1/recorded"],
+    ))
+}
+
+#[test]
+fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+
+    let out = chap_in(&sandbox, &dir, &["models", "test", "--all", "--backtest"])
+        .assert()
+        // One model failed, so the run did.
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("the rows are text");
+
+    // The header says which of the two levels this was.
+    assert!(
+        text.starts_with("testing 3 models (through chap-core:"),
+        "{text}"
+    );
+    // A model that backtested: the three scores, in chap-core's own numbers.
+    assert!(
+        text.contains("chapkit-ewars-model                 pass"),
+        "{text}"
+    );
+    assert!(text.contains("crps 20.0  mae 29.0  rmse 34.9"), "{text}");
+    // A model whose prediction crashed: the reason out of the job log, and
+    // the command that shows the whole of it.
+    assert!(
+        text.contains("chapkit-rwanda-malaria-bym-model    FAIL"),
+        "{text}"
+    );
+    assert!(
+        text.contains("the inla program crashed"),
+        "the stderr hint is the reason:\n{text}"
+    );
+    assert!(
+        text.contains(&format!("run `chaps jobs logs bt-{FAILING_MODEL}`")),
+        "{text}"
+    );
+    // A model whose chapkit predates the route: a skip that names the version
+    // it needs and the one the service reports.
+    assert!(
+        text.contains("auto-arima-chapkit                  skip"),
+        "{text}"
+    );
+    assert!(
+        text.contains("needs chapkit 1.1.0, this one reports 1.0.0"),
+        "{text}"
+    );
+    // And the line the run adds up to, with the failing model named.
+    assert!(
+        text.contains(
+            "1 pass, 1 fail, 1 skipped; run \
+             `chaps models test chapkit_rwanda_malaria_bym_model -v` for the full output"
+        ),
+        "{text}"
+    );
+
+    let recorded = recorded(&sandbox, &dir);
+    // The dataset is named after the service and the moment, and the org
+    // units arrived: `importedCount` is the count of features with a
+    // top-level id, so a zero here would mean chaps forgot to set them.
+    let names: Vec<&str> = recorded["datasets"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|name| name.as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        names.len(),
+        2,
+        "the skipped model posted nothing: {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|name| name.starts_with("chaps-test-chapkit-ewars-model-")),
+        "{names:?}"
+    );
+    // The backtest asked for is the small rolling one, against the dataset
+    // the job wrote.
+    let backtest = &recorded["backtests"][0];
+    assert_eq!(backtest["modelId"], Json::from(PASSING_MODEL));
+    assert_eq!(backtest["datasetId"], Json::from(TEST_DATASET));
+    assert_eq!(backtest["nPeriods"], Json::from(3));
+    assert_eq!(backtest["nSplits"], Json::from(2));
+    assert_eq!(backtest["stride"], Json::from(1));
+    // Everything this run made is gone again, and nothing else was touched.
+    let deleted: Vec<&str> = recorded["deleted"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|path| path.as_str().unwrap_or_default())
+        .collect();
+    assert!(
+        deleted.contains(&format!("/v1/crud/backtests/{TEST_BACKTEST}").as_str()),
+        "{deleted:?}"
+    );
+    assert!(
+        deleted.contains(&format!("/v1/crud/datasets/{TEST_DATASET}").as_str()),
+        "{deleted:?}"
+    );
+    assert!(
+        deleted.iter().all(|path| path.starts_with("/v1/crud/")),
+        "only its own rows: {deleted:?}"
+    );
+}
+
+#[test]
+fn models_test_keep_leaves_the_dataset_and_says_so() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+
+    let out = chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "models",
+            "test",
+            "chapkit_ewars_model",
+            "--backtest",
+            "--keep",
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .clone();
+    let text = String::from_utf8(out.stdout).expect("text");
+    let notes = String::from_utf8(out.stderr).expect("text");
+    assert!(text.contains("1 of 1 model pass"), "{text}");
+    // A single row is not padded past its own name.
+    assert!(text.contains("chapkit-ewars-model    pass"), "{text}");
+    assert!(
+        notes.contains(&format!(
+            "kept backtest {TEST_BACKTEST} and dataset {TEST_DATASET}; remove them with \
+             `chaps api DELETE /v1/crud/backtests/{TEST_BACKTEST}` then \
+             `chaps api DELETE /v1/crud/datasets/{TEST_DATASET}`"
+        )),
+        "{notes}"
+    );
+
+    let recorded = recorded(&sandbox, &dir);
+    assert_eq!(recorded["deleted"], Json::Array(Vec::new()));
+    // One observation per value, and neither index column became one: three
+    // periods times two locations times four feature columns.
+    assert_eq!(recorded["observations"], Json::from(24));
+    assert_eq!(recorded["sampled"], serde_json::json!([PASSING_MODEL]));
+}
+
+#[test]
+fn models_test_json_is_one_object_per_model() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+
+    let list = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "--json",
+            "models",
+            "test",
+            "chapkit_ewars_model",
+            "--backtest",
+        ],
+    ));
+    let row = &list[0];
+    assert_eq!(row["id"], Json::from("chapkit_ewars_model"));
+    assert_eq!(row["service_id"], Json::from(PASSING_MODEL));
+    assert_eq!(row["level"], Json::from("backtest"));
+    assert_eq!(row["result"], Json::from("pass"));
+    assert!(row["seconds"].is_number(), "{row}");
+    assert_eq!(row["summary"], Json::from("crps 20.0  mae 29.0  rmse 34.9"));
+    assert_eq!(row["backtest_id"], Json::from(TEST_BACKTEST));
+    assert_eq!(row["job_id"], Json::from(format!("bt-{PASSING_MODEL}")));
+    // The scores are handed back whole, not just the three the row prints.
+    assert_eq!(row["metrics"]["mape"], Json::from(12.98));
+}
+
+#[test]
+fn models_test_needs_an_id_or_all_and_the_model_has_to_be_enabled() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    // Neither an id nor --all: a usage error that names both.
+    chap_in(&sandbox, &dir, &["models", "test"])
+        .assert()
+        .code(2)
+        .stderr(
+            predicates::str::contains("name a model to test")
+                .and(predicates::str::contains("--all")),
+        );
+
+    // An id the catalogue has never heard of.
+    chap_in(&sandbox, &dir, &["models", "test", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("unknown model `nope`"));
+
+    // An id that is a model, but not one this deployment enables.
+    chap_in(&sandbox, &dir, &["models", "test", "auto_arima_chapkit"])
+        .assert()
+        .failure()
+        .stderr(
+            predicates::str::contains("auto_arima_chapkit is not enabled in this project").and(
+                predicates::str::contains("chaps models enable auto_arima_chapkit"),
+            ),
+        );
+
+    // And the two ways of saying which models cannot be combined.
+    chap_in(
+        &sandbox,
+        &dir,
+        &["models", "test", "chapkit_ewars_model", "--all"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("cannot be used with"));
+}
+
+/// A `docker` on PATH that answers the three questions the model level asks.
+///
+/// The model level is `docker compose exec` and nothing else, so there is no
+/// way to cover it without either a Docker with the marketplace images pulled
+/// or a stand-in. This is the stand-in: it reports one running service, prints
+/// whatever `CHAPKIT_OUT` holds for `chapkit test`, and records every
+/// invocation so a test can check what was asked and that the cleanup
+/// happened.
+#[cfg(unix)]
+fn fake_docker(out: &str, code: i32) -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let chapkit = temp.path().join("chapkit.out");
+    std::fs::write(&chapkit, out).expect("the chapkit output");
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> {log}\n\
+         case \"$*\" in\n\
+         *' ps --format json'*) \
+           printf '{{\"Service\":\"{PASSING_MODEL}\",\"State\":\"running\"}}\\n'; exit 0;;\n\
+         *'chapkit test'*) cat {chapkit}; exit {code};;\n\
+         *'-X DELETE'*) exit 0;;\n\
+         *curl*) printf '[]'; exit 0;;\n\
+         esac\n\
+         exit 1\n",
+        log = log.display(),
+        chapkit = chapkit.display(),
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, log)
+}
+
+/// `chaps <args>` with the fake docker ahead of the real one on PATH.
+#[cfg(unix)]
+fn chap_with_docker(sandbox: &Sandbox, cwd: &Path, bin: &Path, args: &[&str]) -> Command {
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut cmd = chap_in(sandbox, cwd, args);
+    cmd.env("PATH", path);
+    cmd
+}
+
+#[cfg(unix)]
+#[test]
+fn models_test_runs_chapkit_test_in_the_container_and_cleans_up_after_it() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+    let passed = "\
+==================================================
+TEST SUMMARY
+==================================================
+Elapsed time:          16.85s
+Configs created:       1
+Trainings completed:   1
+Trainings failed:      0
+Predictions completed: 1
+Predictions failed:    0
+Validations run:       2
+Validations failed:    0
+
+Result: ALL TESTS PASSED
+";
+    let (fake, log) = fake_docker(passed, 0);
+    let bin = fake.path().join("bin");
+
+    let out = chap_with_docker(&sandbox, &dir, &bin, &["models", "test", "--all"])
+        .assert()
+        // A skip is not a failure: two containers were not up, and that is a
+        // question this run could not ask rather than a bad answer.
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("the rows are text");
+
+    assert!(
+        text.starts_with("testing 3 models (model level; add --backtest"),
+        "{text}"
+    );
+    assert!(
+        text.contains("chapkit-ewars-model                 pass    0s   1 training, 1 prediction"),
+        "{text}"
+    );
+    // The two that are not up say so, and say the way out.
+    assert!(
+        text.contains(
+            "auto-arima-chapkit                  skip    0s   its container is not running"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("run `chaps up`"), "{text}");
+    assert!(text.contains("1 pass, 2 skipped"), "{text}");
+
+    let calls = read(&log);
+    // The invocation is the documented one, non-interactive, with the
+    // deadline handed to chapkit as well as kept here.
+    assert!(
+        calls.contains(&format!(
+            "exec -T {PASSING_MODEL} chapkit test --url http://127.0.0.1:8000 --timeout 300"
+        )),
+        "{calls}"
+    );
+    // The config `chapkit test` left behind is gone, deleted through the
+    // service's own API because chap-core's proxy is read-only.
+    assert!(
+        calls.contains(&format!(
+            "exec -T {PASSING_MODEL} curl -fsS -X DELETE \
+             http://127.0.0.1:8000/api/v1/configs/{TEST_CONFIG}"
+        )),
+        "{calls}"
+    );
+    // The artifact went with it - chapkit cascades - so nothing asked for it.
+    assert!(!calls.contains(TEST_ARTIFACT), "{calls}");
+}
+
+#[cfg(unix)]
+#[test]
+fn models_test_skips_an_image_that_has_no_chapkit_test() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+    let (fake, _) = fake_docker(
+        "OCI runtime exec failed: exec failed: unable to start container process: \
+         exec: \"chapkit\": executable file not found in $PATH: unknown\n",
+        1,
+    );
+    let bin = fake.path().join("bin");
+
+    let out = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["models", "test", "chapkit_ewars_model"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(
+        text.contains("skip") && text.contains("the image has no `chapkit test`"),
+        "{text}"
+    );
+    // Which chapkit the service reports is the fact that says whether an
+    // update would fix it.
+    assert!(text.contains("the service reports chapkit 2.0.0"), "{text}");
+    assert!(text.contains("--backtest"), "{text}");
+    assert!(text.contains("0 pass, 1 skipped"), "{text}");
 }

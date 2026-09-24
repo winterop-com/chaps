@@ -360,6 +360,9 @@ pub enum ModelsCmd {
     /// Show everything known about one model
     Info(ModelsInfoArgs),
 
+    /// Make a model train and predict, and say whether it could
+    Test(ModelsTestArgs),
+
     /// Add a model the marketplace does not list
     Add(ModelsAddArgs),
 
@@ -409,6 +412,34 @@ pub struct ModelsInfoArgs {
     /// Marketplace id or service id
     #[arg(value_name = "ID")]
     pub id: String,
+}
+
+/// Make a model train and predict, and say whether it could
+#[derive(Debug, Clone, Args)]
+pub struct ModelsTestArgs {
+    /// Marketplace ids or service ids of the models to test
+    #[arg(value_name = "ID", conflicts_with = "all")]
+    pub ids: Vec<String>,
+
+    /// Test every model this project has enabled
+    #[arg(long)]
+    pub all: bool,
+
+    /// Also run each model through chap-core as a backtest
+    #[arg(long)]
+    pub backtest: bool,
+
+    /// Seed for the generated data, so a run can be repeated
+    #[arg(long, value_name = "N")]
+    pub seed: Option<i64>,
+
+    /// Give up on one model after this many seconds
+    #[arg(long, value_name = "SECONDS")]
+    pub timeout: Option<u64>,
+
+    /// Keep what the test created instead of deleting it
+    #[arg(long)]
+    pub keep: bool,
 }
 
 /// Add a model the marketplace does not list

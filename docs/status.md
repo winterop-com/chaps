@@ -23,6 +23,10 @@ internal models are reachable through chap-core at http://localhost:8000/v2/serv
   auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
+There is one hint per row that needs doing something about, and - when no row
+does - a single hint pointing at the one check `status` cannot make itself. See
+[When everything registered](#when-everything-registered) below.
+
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
 build.
@@ -84,6 +88,23 @@ what its hint says. The hint asks for `chaps restart --all <id>` rather than a
 plain `chaps restart`: nothing about the service has changed, so there is
 nothing a restart would recreate on its own, and `--all` is what recreates it
 anyway.
+
+### When everything registered
+
+When every model is registered there is nothing to fix and still one thing to
+do, on its own indented line under the closing line:
+
+```text
+all 5 models registered
+  run `chaps models test --all` to check they can run
+```
+
+Registration is a heartbeat. It says the service is alive and talking to
+chap-core, not that it can train or predict - a model whose runtime is broken,
+or whose account cannot write, registers exactly like a working one and fails
+on the first real job. `chaps status` cannot settle that without running the
+models, which takes minutes; `chaps models test` does, at two levels. See
+[Testing a model](./models.md#testing-a-model).
 
 ## What `up` means
 
@@ -158,6 +179,11 @@ when there is one; empty output is a bug.
 - `chaps docker pull` says how many images it pulled.
 - `chaps docker ps` on a project with no containers says
   `nothing is running for this project` rather than printing a bare header.
+
+- `chaps models test` prints a header saying which level is being run, one row
+  per model with the verdict, the time and what happened, and a closing line
+  that counts the three buckets; a model that could not be tested says why and
+  what to do about it rather than being left out.
 
 Output that reads as status verifies what it claims rather than assuming it.
 Where something is wrong there is one summary line and one hint per problem,

@@ -17,6 +17,7 @@ mod dotenv;
 mod error;
 mod jobs;
 mod manual;
+mod modeltest;
 mod output;
 mod paths;
 mod ports;
@@ -55,7 +56,9 @@ const PROJECT_ONLY: &[&str] = &[
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
 /// anywhere, changing a project's model set does not.
-const PROJECT_ONLY_MODELS: &[&str] = &["add", "remove", "enable", "disable", "expose", "unexpose"];
+const PROJECT_ONLY_MODELS: &[&str] = &[
+    "add", "remove", "enable", "disable", "expose", "unexpose", "test",
+];
 
 fn main() {
     // Windows cannot rename over a running image, so `chaps self update`
@@ -106,6 +109,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::List(args) => commands::models::list(ctx, args),
             ModelsCmd::Search(args) => commands::models::search(ctx, args),
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
+            ModelsCmd::Test(args) => commands::modeltest::run(ctx, args),
             ModelsCmd::Add(args) => commands::manual_models::add(ctx, args),
             ModelsCmd::Remove(args) => commands::manual_models::remove(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),

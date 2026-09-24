@@ -578,6 +578,10 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// deployment: chap-core rejects a registration that carries no key, and a
 /// chap-core created before `compose.chaps.yml` passed the key through never
 /// had one to check against.
+/// The line under a clean status: registration is a heartbeat, and the only
+/// way to know a model can work is to make it work.
+pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run";
+
 pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
     let registration_key = if auth {
         concat!(
@@ -587,7 +591,12 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
     } else {
         ""
     };
-    rows.iter()
+    let mine: Vec<&ModelStatus> = rows
+        .iter()
+        .filter(|row| row.state != ModelState::Unmanaged)
+        .collect();
+    let hints: Vec<String> = mine
+        .iter()
         .filter_map(|row| match row.state {
             ModelState::RunningNotRegistered => Some(format!(
                 "{}: restart it with `chaps restart --all {}`{registration_key}",
@@ -599,7 +608,13 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
             )),
             ModelState::Registered | ModelState::Unmanaged => None,
         })
-        .collect()
+        .collect();
+    // Nothing to fix is not nothing to do: every model answered its
+    // heartbeat, which is as far as `chaps status` can see.
+    if hints.is_empty() && !mine.is_empty() {
+        return vec![TEST_HINT.to_string()];
+    }
+    hints
 }
 
 /// Where a human reaches one model service from this machine.
@@ -1537,18 +1552,28 @@ mod tests {
             ]
         );
 
-        // Nothing wrong, nothing to say.
+        // Nothing wrong: the one line left is the check `status` cannot make
+        // itself, and it does not depend on whether the API is protected.
         let rows = model_rows(
             &enabled()[..1],
             &[registered("chapkit-ewars-model", 12)],
             &BTreeSet::new(),
             NOW,
         );
-        assert!(hints(&rows, false).is_empty());
-        assert!(
-            hints(&rows, true).is_empty(),
-            "nothing wrong, nothing to say"
+        assert_eq!(hints(&rows, false), vec![TEST_HINT.to_string()]);
+        assert_eq!(hints(&rows, true), vec![TEST_HINT.to_string()]);
+        assert!(TEST_HINT.contains("chaps models test --all"));
+
+        // Nothing enabled at all has nothing to test either, and a
+        // registration this project does not manage is not a model of ours.
+        assert!(hints(&[], false).is_empty());
+        let stranger = model_rows(
+            &[],
+            &[registered("some-other-service", 3)],
+            &BTreeSet::new(),
+            NOW,
         );
+        assert!(hints(&stranger, false).is_empty());
     }
 
     #[test]

@@ -64,7 +64,7 @@ Browse and manage marketplace models.
 Usage: chaps models [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps models list`](#chaps-models-list), [`chaps models search`](#chaps-models-search), [`chaps models info`](#chaps-models-info), [`chaps models add`](#chaps-models-add), [`chaps models remove`](#chaps-models-remove), [`chaps models enable`](#chaps-models-enable), [`chaps models disable`](#chaps-models-disable), [`chaps models expose`](#chaps-models-expose), [`chaps models unexpose`](#chaps-models-unexpose)
+Subcommands: [`chaps models list`](#chaps-models-list), [`chaps models search`](#chaps-models-search), [`chaps models info`](#chaps-models-info), [`chaps models test`](#chaps-models-test), [`chaps models add`](#chaps-models-add), [`chaps models remove`](#chaps-models-remove), [`chaps models enable`](#chaps-models-enable), [`chaps models disable`](#chaps-models-disable), [`chaps models expose`](#chaps-models-expose), [`chaps models unexpose`](#chaps-models-unexpose)
 
 ## chaps models list
 
@@ -103,6 +103,23 @@ Usage: chaps models info [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+
+## chaps models test
+
+Make a model train and predict, and say whether it could.
+
+```text
+Usage: chaps models test [OPTIONS] [ID]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>...` | Marketplace ids or service ids of the models to test. |
+| `--all` | Test every model this project has enabled. |
+| `--backtest` | Also run each model through chap-core as a backtest. |
+| `--seed <N>` | Seed for the generated data, so a run can be repeated. |
+| `--timeout <SECONDS>` | Give up on one model after this many seconds. |
+| `--keep` | Keep what the test created instead of deleting it. |
 
 ## chaps models add
 

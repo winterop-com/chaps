@@ -2133,7 +2133,11 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                 report.expected.len(),
                 report.expected.len()
             ),
-            None,
+            // Registration is a heartbeat, so a green line here is not proof
+            // that any of these models can produce a prediction. There is a
+            // check that settles it, and `doctor` cannot make it: it runs the
+            // models, which takes minutes.
+            (!report.expected.is_empty()).then(|| crate::status::TEST_HINT.to_string()),
         ),
         ApiHealth::Up { .. } => (
             Status::Warn,
@@ -3780,6 +3784,12 @@ mod tests {
             detail,
             "chap-core up at http://localhost:8000, 2 of 2 models registered"
         );
+        // Green, and still with something to do: registration is a heartbeat.
+        assert_eq!(fix.as_deref(), Some(crate::status::TEST_HINT));
+
+        // A deployment with no models has nothing to test.
+        let (status, _, fix) = stack_verdict(&status_report(up(), &[], &[]));
+        assert_eq!(status, Status::Ok);
         assert_eq!(fix, None);
 
         let (status, detail, fix) = stack_verdict(&status_report(up(), &["a", "b"], &["b"]));

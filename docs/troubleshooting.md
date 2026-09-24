@@ -74,6 +74,63 @@ authentication on, see
 [the models stopped registering](#the-models-stopped-registering-after-i-turned-authentication-on)
 below.
 
+## `chaps models test` says a model failed
+
+```text
+chapkit-rwanda-malaria-bym-model    FAIL   14s   predict: Error in file(file, "rb") : cannot open file 'model.rds': Permission denied
+```
+
+The row is one clause out of the model's own error stream, which is as much as
+a row has room for. Three places have more, in the order worth reading them:
+
+```sh
+chaps models test chapkit_rwanda_malaria_bym_model -v   # the whole run, as it happens
+chaps logs chapkit-rwanda-malaria-bym-model             # what the service itself said
+```
+
+`-v` streams everything `chapkit test` printed, which includes the phase that
+failed, the diagnostic artifact it stored and the last lines of the model's
+stderr. `chaps logs <service>` is the other half: a model that cannot open a
+file usually said so on startup too.
+
+With `--backtest` the work happened inside chap-core, so the log is a job's:
+
+```sh
+chaps jobs                          # the backtest that failed, newest first
+chaps jobs logs <id>                # the traceback and the model's own output
+```
+
+The failure row already names that command with the id filled in. See
+[Jobs and the API](./jobs.md).
+
+The two levels fail for different reasons, which is what makes running both
+worth it:
+
+- Model level fails, `--backtest` not tried: the model itself is broken.
+  Permission denied on its own files is the common one - see
+  [`Permission denied` from a model's own binaries](#permission-denied-from-a-models-own-binaries)
+  - followed by a missing runtime library, which is a fault in the image and
+  needs a newer pin (`chaps update`).
+- Model level passes, `--backtest` fails: the model works and the round trip
+  does not. The usual cause is a covariate the model reads and does not
+  declare, which shows up as a `KeyError` from chap-core rather than as
+  anything the model said:
+
+  ```text
+  chapkit-simple-multistep-model    FAIL    8s   KeyError: "['mean_relative_humidity'] not in index"
+  ```
+
+  The sample data is generated from the covariates the service declares
+  (`chaps models info <id>`, or
+  `chaps api GET /v2/services/<service_id>`), so a model whose configured model
+  in chap-core asks for more than that gets a frame without it. That is a fault
+  in the model's own declaration, not in the deployment.
+- Both fail the same way: the model, again. Fix it at the model level, where
+  the loop is seconds rather than minutes.
+
+A `--seed N` makes the generated data the same on every run, which is what to
+add when a failure only happens sometimes.
+
 ## 401 from the Modeling App
 
 ```text
@@ -152,11 +209,9 @@ Docker seeds a fresh named volume from whatever the image has at the mount
 point, ownership included, so an image that never creates its data directory
 yields a root-owned volume the unprivileged model cannot write to.
 
-The overlay of a model that runs as an unprivileged account ships a one-shot
-`<service_id>-init` container that chowns the volume to its numeric uid:gid
-before the model starts, so this is fixed by construction. (A model that runs
-as root needs no such container: root can write the volume as docker seeded
-it.) If you see it anyway:
+Every model overlay ships a one-shot `<service_id>-init` container that chowns
+the volume to the model's numeric uid:gid before the model starts (`0:0` for a
+root image), so this is fixed by construction. If you see it anyway:
 
 - the overlay was hand-edited, or the init container was removed. Run
   `chaps sync` to render it again.
@@ -193,15 +248,48 @@ $ chaps models enable chapkit_rwanda_malaria_bym_model
 $ chaps up
 ```
 
-The rendered overlay should then carry no `user:` line and no
-`<service_id>-init` container at all for a root image. `chaps models info <id>`
-shows what was recorded and where it came from, and `chaps doctor` has one
-`user <service>` line per enabled model that compares the two whenever the
-image is pulled here.
+The rendered overlay should then carry no `user:` line for a root image, and
+its `<service_id>-init` container should chown the volume to `0:0`.
+`chaps models info <id>` shows what was recorded and where it came from, and
+`chaps doctor` has one `user <service>` line per enabled model that compares
+the two whenever the image is pulled here.
 
 `--user <uid>:<gid>` overrides the image, for the rare case where the image is
 wrong about itself. See
 [Data directories and users](./models.md#data-directories-and-users).
+
+### `attempt to write a readonly database` after upgrading chaps
+
+```text
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) attempt to write a readonly database
+```
+
+An older `chaps` ran some models as `1000:1000` that this one resolves as
+root, so their `ck_<id>_data` volumes - and the `chapkit.db` in them - are
+owned by uid 1000 while the model now runs as root. Root would normally ignore
+the permission bits, but the overlay drops every capability (`cap_drop: ALL`),
+and `CAP_DAC_OVERRIDE` is the one that lets root do that.
+
+The overlay's own init container is what fixes it, so upgrading is two
+commands:
+
+```sh
+chaps sync     # re-render the overlays
+chaps up       # the init container chowns the volume, then the model starts
+```
+
+`chaps sync` reports the overlays it rewrote, and `chaps up` recreates those
+models; the one-shot chown runs before each one and hands the volume over.
+`chaps status` should then show the model registered.
+
+Only a deployment brought up by hand - `docker compose up` on the rendered
+files, or `chaps up --no-preflight` on files that were never re-rendered -
+needs the chown done by hand:
+
+```sh
+docker run --rm -v <project>_ck_<id>_data:/v busybox:1.37 chown -R 0:0 /v
+chaps restart --all <service_id>
+```
 
 ## `dependency failed to start: container ... is unhealthy`
 

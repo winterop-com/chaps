@@ -60,6 +60,7 @@ that reaches the passthrough (`chaps down -- -v`) is refused and told to use
 | `chaps models list` | List marketplace models (`--all`, `--templates`, `--enabled`). |
 | `chaps models search QUERY` | Search id, name and summary. |
 | `chaps models info ID` | Everything known about one model. |
+| `chaps models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--seed`, `--timeout`, `--keep`). |
 | `chaps models add SOURCE` | Add a model the marketplace does not list, from a GitHub repository URL or a ghcr image reference, and enable it (`--id`, `--service-id`, `--name`, `--port`, `--data-dir`, `--user`, `--runtime-amd64`). |
 | `chaps models remove ID [--purge]` | Disable such a model if it is on, then drop its definition from `.chaps/models-manual.yaml`; `--purge` removes its data volume too. |
 | `chaps models enable ID` | Record the model in `.chaps/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--data-dir`, `--user`, `--allow-template`). |
@@ -69,7 +70,10 @@ that reaches the passthrough (`chaps down -- -v`) is refused and told to use
 | `chaps ui` | The model browser. |
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
-rest write to a project. `add` is the only one that needs the network for
+rest need a project; `test` is the only one of them that changes nothing.
+Registration is a heartbeat, so `chaps status` and `chaps doctor` can be green
+while a model cannot predict at all - `chaps models test` is the check that
+settles it. See [Testing a model](./models.md#testing-a-model). `add` is the only one that needs the network for
 something other than the catalogue: it reads GitHub and ghcr to resolve what it
 was given. See [Models and the marketplace](./models.md).
 

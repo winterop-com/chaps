@@ -198,6 +198,163 @@ written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
 
+## Testing a model
+
+`chaps status` and `chaps doctor` can both be entirely green while a model
+cannot produce a single prediction. Registration is a heartbeat: it says the
+service is alive and talking to chap-core, not that its runtime works, that the
+account it runs as can write, or that the covariates it declares are the ones
+it reads. `chaps models test` is the check neither of them can make, because it
+is the only one that makes the model do the work.
+
+```sh
+chaps models test ID..                 # one or more, by marketplace id or service id
+chaps models test --all                # every model this deployment enables
+chaps models test --all --backtest     # the whole way round, through chap-core
+```
+
+Models are tested one after another, and the exit code is non-zero only when
+one of them **failed**: a model that could not be tested at all is a skip, and
+a skip is counted rather than treated as a bad answer.
+
+### The model level
+
+The default. For each model, `chaps` runs chapkit's own end-to-end test inside
+that model's container:
+
+```text
+docker compose exec -T <service> chapkit test --url http://127.0.0.1:8000 --timeout 300
+```
+
+chapkit reads the service's own configuration schema, creates a config from it,
+generates data matching the covariates, period type and geometry the service
+declares, and then validates, trains and predicts against it.
+
+```text
+testing 5 models (model level; add --backtest to run them through chap-core)
+auto-arima-chapkit                  pass   12s   1 training, 1 prediction
+chapkit-ewars-model                 pass   18s   1 training, 1 prediction
+chapkit-ghr-model                   pass   24s   1 training, 1 prediction
+chapkit-rwanda-malaria-bym-model    pass   22s   1 training, 1 prediction
+chapkit-simple-multistep-model      pass    5s   1 training, 1 prediction
+
+5 of 5 models pass
+```
+
+**What it proves:** the image runs, the service answers, the account the
+container runs as can write to its data directory and its workspace, the
+runtime has the libraries the model needs, and the model can turn a config and
+a frame into a prediction. **What it does not touch:** chap-core. This is
+therefore the level to reach for when chap-core is the thing that is broken,
+and the level that answers in seconds rather than minutes.
+
+A failure names the phase and the first sentence of the model's own error, out
+of the stderr chapkit quotes back:
+
+```text
+chapkit-rwanda-malaria-bym-model    FAIL   14s   predict: Error in file(file, "rb") : cannot open file 'model.rds': Permission denied
+  run `chaps models test chapkit_rwanda_malaria_bym_model -v` for the full output, and `chaps logs chapkit-rwanda-malaria-bym-model` for the service's own
+```
+
+A model that could not be tested is skipped, with the reason and the way out:
+
+| Skip | What to do |
+| --- | --- |
+| `its container is not running` | `chaps up`. |
+| ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `chaps update` moves the pin; `--backtest` tests it through chap-core instead. |
+| `no answer in 5m` | The model is wedged or genuinely slow. `--timeout SECONDS` raises the limit; the same number is handed to chapkit as its per-job deadline. |
+
+### The backtest level
+
+`--backtest` goes the whole way round, the path the Modeling App takes. For
+each model, `chaps` fetches sample data from the model itself through
+chap-core's proxy (`GET .../api/v1/ml/$generate-sample-data?kind=train`,
+36 periods over 5 org units, in the period type the service declares),
+transposes that frame into chap-core observations, posts it as a dataset,
+waits for the dataset job, runs a small rolling backtest over it (3 periods, 2
+splits, stride 1) and reads the scores off the result.
+
+Geometry is asked for whatever the service declares (`include_geo=true`).
+chap-core's dataset always carries a GeoJSON collection, so a model that says
+it needs no geometry would otherwise be handed features with none in them - and
+a model that builds a neighbour graph fails on an empty polygon where it would
+have been perfectly happy with no geometry at all. Real polygons are never
+worse: a model that ignores geometry ignores these too. chapkit puts each
+location's id in `properties.id` and nothing at the top level, and chap-core
+matches org units on the feature's top-level `id` and silently drops the ones
+it cannot match, so `chaps` sets it before posting.
+
+```text
+testing 2 models (through chap-core: a dataset, a backtest and its scores)
+chapkit-rwanda-malaria-bym-model    pass   38s   crps 15.5  mae 23.8  rmse 26.9
+chapkit-ewars-model                 pass   33s   crps 4.6  mae 6.6  rmse 9.7
+
+2 of 2 models pass
+```
+
+**What it proves:** everything the model level does, plus that chap-core can
+reach the model, that the covariates and period type the model declares are the
+ones chap-core builds a dataset from, that the org units survive the round trip,
+and that a real forecast comes back with scores on it. The three printed are
+chap-core's `crps`, `mae` and `rmse`; `--json` hands back all fourteen.
+
+A job that fails prints chap-core's own reason - the same line
+[`chaps jobs logs`](./jobs.md) digs out of the `--- stderr ---` section - and
+the command that shows the whole log:
+
+```text
+chapkit-ghr-model    FAIL   1m 12s   Error in predict_chap() : the inla program crashed
+  run `chaps jobs logs 9a84e02f-6a0e-4a3b-9a63-1f2b5a1f3f21`
+```
+
+Scores are not a verdict on the model: a two-split backtest over generated data
+says the pipeline works, not that the model is any good.
+
+### What it leaves behind, and what it cleans up
+
+Both levels put something in a database, and both delete it again unless
+`--keep` says not to.
+
+| Level | What it creates | What is deleted |
+| --- | --- | --- |
+| model | one config named `test_config_<ulid>` and a few artifacts, in the **model service's own** database | The service's configs and artifacts are listed before the run and again after it, and exactly what appeared is deleted. Deleting a config cascades to the artifacts linked to it. |
+| `--backtest` | one dataset and one backtest row in **chap-core's** database, plus the jobs that made them | The backtest first, then the dataset, and nothing else. The jobs stay, because that is the record of what was run; they show up in [`chaps jobs`](./jobs.md). |
+
+chap-core's model proxy is read-only by design, so a delete cannot go through
+it: the model level lists through the proxy and deletes with the `curl` every
+chapkit image carries for its healthcheck (`docker compose exec -T <service>
+curl -X DELETE ...`). If a delete does not work, the command says so and names
+what was left, so it can be removed by hand.
+
+`--keep` keeps it, and says what was kept:
+
+```text
+kept backtest 8 and dataset 7; remove them with `chaps api DELETE /v1/crud/backtests/8` then `chaps api DELETE /v1/crud/datasets/7`
+```
+
+A backtest chap-core ran also leaves a configuration in the model service's own
+database, the way any backtest started from the Modeling App does. That one is
+chap-core's, not the test's, so it is left alone.
+
+### What each level needs
+
+| Level | Requirement |
+| --- | --- |
+| model | The model's container running, and an image with the `chapkit` CLI in it. Every chapkit-built image has one; the marketplace images ship chapkit 2.0 or 2.1. chap-core need not be up at all - it is only asked for the model's declared period type, and for which chapkit the service reports when there is none to run. |
+| `--backtest` | chap-core up, the model registered with it, and chapkit **1.1.0 or newer** in the image, which is where `$generate-sample-data` arrived. An older one is skipped with the version it reports. |
+
+### Flags
+
+| Flag | What it does |
+| --- | --- |
+| `--all` | Test every model in `.chaps/models.yaml`. Cannot be combined with an id. |
+| `--backtest` | Run the backtest level instead of the model level. |
+| `--seed N` | Seed the generated data, so two runs compare. Without it every run is fresh data. |
+| `--timeout SECONDS` | How long one model gets: 300 at the model level, 900 with `--backtest`. At the model level the same number is chapkit's per-job deadline. |
+| `--keep` | Do not delete what the run created. |
+| `-v` | Stream `chapkit test`'s whole output as it runs, and narrate every request. This is what to add to a failure. |
+| `--json` | One object per model: `id`, `service_id`, `level`, `result`, `seconds`, `summary`, `detail`, and - for a backtest - `job_id`, `backtest_id` and the whole `metrics` object. |
+
 ## Models outside the marketplace
 
 A model the catalogue does not list - a new one, a private one, a fork of your
@@ -426,7 +583,7 @@ services:
   chapkit-ewars-model-init:
     # One-shot: chowns the data volume so the model can write to it, then exits.
     image: busybox:1.37
-    command: ["sh", "-c", "chown 1000:1000 /app/data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
     user: "0:0"
     volumes:
       - type: volume
@@ -486,22 +643,27 @@ dies on `sqlite3.OperationalError: unable to open database file`.
 
 Compose cannot `chown` a volume, so the overlay of a model that runs as an
 unprivileged account ships a one-shot `<service_id>-init` container (busybox,
-as root, `restart: "no"`) that chowns the mount point to the model's
-**numeric** uid:gid before the model starts. Busybox resolves no `chapkit`
+as root, `restart: "no"`) that chowns the mount point, recursively, to the
+model's **numeric** uid:gid before the model starts. Busybox resolves no `chapkit`
 account, which is why the numbers matter, and why the `user:` line above
 carries the same two numbers rather than the name. It is the one service in a
 deployment that is deliberately not `restart: unless-stopped` (the `"no"` is
 quoted because bare `no` is YAML's `false`).
 
-A model that runs as **root** has no such container: docker seeds the volume
-root-owned, which is exactly what that model needs, and there is nothing to
-hand over.
+**Every** model overlay gets one, root included, where the chown is to `0:0`.
+A volume docker has just created is root-owned already, so on a fresh
+deployment a root model's init container does nothing - but a volume that
+already exists carries whoever owned it last. A deployment whose `chaps` said
+`1000:1000` for a model that a newer `chaps` resolves as root has a volume
+owned by 1000, and the model cannot write to it: the overlay drops every
+capability, and `CAP_DAC_OVERRIDE` is the one that lets root ignore the
+permission bits. One busybox one-shot costs a second on `chaps up` and makes
+that upgrade heal itself, which is worth more than the line it saves.
 
-Where there is one, it has a second job: because it mounts the same named
-volume at the same path as the model itself, `chaps backup` reads and writes
-model data through it, whether the model is running, stopped, or brought down
-entirely. See [Backup and restore](./backup.md). A root model's data is read
-through the model's own container instead.
+The container has a second job: because it mounts the same named volume at the
+same path as the model itself, `chaps backup` reads and writes model data
+through it, whether the model is running, stopped, or brought down entirely.
+See [Backup and restore](./backup.md).
 
 ## Data directories and users
 
@@ -529,11 +691,12 @@ What the marketplace images declare today:
 | The simple multistep model | `/app/data` | `chap`, rendered as `1001:1001` |
 | Everything else | `/work/data` | `root` |
 
-**An image that runs as root gets no `user:` line and no init container.** Four
-of the six marketplace images end their Dockerfile on `USER root`, and forcing
-an unprivileged uid on one of them takes away a permission its own binaries
-need: the Rwanda BYM model's INLA binaries are root-owned and mode 744, so
-every prediction fails with `inla.run: Permission denied`. See
+**An image that runs as root gets no `user:` line**; its init container is
+rendered like any other model's and chowns the volume to `0:0`. Four of the six
+marketplace images end their Dockerfile on `USER root`, and forcing an
+unprivileged uid on one of them takes away a permission its own binaries need:
+the Rwanda BYM model's INLA binaries are root-owned and mode 744, so every
+prediction fails with `inla.run: Permission denied`. See
 [`Permission denied` from a model's own binaries](./troubleshooting.md#permission-denied-from-a-models-own-binaries).
 
 The init container needs an account name as numbers: `chapkit` is uid/gid 1000
