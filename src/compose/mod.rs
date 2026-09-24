@@ -44,6 +44,22 @@ pub fn tag_env_var(id: &str) -> String {
     out
 }
 
+/// The separator between a tagless image and the pin that follows it.
+///
+/// A tag is joined with `:`; a digest already carries its own `@`, so it is
+/// appended with nothing in between. Everything that builds an image
+/// reference goes through here, because a `ghcr.io/x:@sha256:...` is not a
+/// reference docker will pull.
+pub fn tag_separator(tag: &str) -> &'static str {
+    if tag.starts_with('@') { "" } else { ":" }
+}
+
+/// A fully qualified image reference: `image:tag`, or `image@sha256:...` when
+/// the pin is a digest.
+pub fn image_ref(image: &str, tag: &str) -> String {
+    format!("{image}{}{tag}", tag_separator(tag))
+}
+
 /// Named volume holding a model's data directory: `ck_<id>_data`.
 pub fn volume_name(id: &str) -> String {
     format!("ck_{id}_data")
@@ -98,6 +114,21 @@ mod tests {
                 .chars()
                 .all(|c| c.is_ascii_uppercase() || c == '_')
         );
+    }
+
+    #[test]
+    fn an_image_reference_joins_a_tag_with_a_colon_and_a_digest_with_nothing() {
+        assert_eq!(
+            image_ref("ghcr.io/chap-models/m", "sha-b1d6c31"),
+            "ghcr.io/chap-models/m:sha-b1d6c31"
+        );
+        let digest = format!("@sha256:{}", "a".repeat(64));
+        assert_eq!(
+            image_ref("ghcr.io/chap-models/m", &digest),
+            format!("ghcr.io/chap-models/m@sha256:{}", "a".repeat(64))
+        );
+        assert_eq!(tag_separator("sha-b1d6c31"), ":");
+        assert_eq!(tag_separator(&digest), "");
     }
 
     #[test]

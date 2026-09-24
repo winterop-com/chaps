@@ -158,10 +158,13 @@ fn row_line<'a>(app: &App, row: &Row, width: u16, theme: &Theme) -> Line<'a> {
         Span::styled(format!("{mark} "), mark_style),
         Span::raw(fit(&model.display_name, 22)),
     ];
-    // The marker comes before the optional columns: a template must be
-    // recognisable even in a pane too narrow for anything else.
+    // The marker comes before the optional columns: a template, or a model
+    // this deployment added itself, must be recognisable even in a pane too
+    // narrow for anything else. An entry is one or the other, never both.
     if model.is_template() {
         spans.push(Span::styled(" [template]", theme.dim_style()));
+    } else if model.manual {
+        spans.push(Span::styled(" [manual]", theme.dim_style()));
     }
     if show_id {
         spans.push(Span::styled(
@@ -177,9 +180,14 @@ fn row_line<'a>(app: &App, row: &Row, width: u16, theme: &Theme) -> Line<'a> {
         ));
     }
     if show_version {
+        // A manual entry's version is its image tag, so `v` in front of it
+        // would read as a version number it does not have.
         let version = app
             .resolved(row)
-            .map(|v| format!("v{}", v.version))
+            .map(|v| match model.manual {
+                true => v.version.clone(),
+                false => format!("v{}", v.version),
+            })
             .unwrap_or_else(|| "-".to_string());
         spans.push(Span::styled(
             format!(" {}", fit(&version, 8)),
@@ -246,7 +254,12 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         lines.push(field(
             theme,
             "pinned",
-            &format!("{} ({})", recorded.version, recorded.image_tag),
+            // The version and the tag are the same thing for a manually
+            // added model; printing it twice says nothing twice.
+            &match recorded.version == recorded.image_tag {
+                true => recorded.image_tag.clone(),
+                false => format!("{} ({})", recorded.version, recorded.image_tag),
+            },
         ));
         lines.push(field(theme, "data dir", &recorded.data_dir));
         lines.push(field(theme, "user", &recorded.user));
@@ -265,6 +278,8 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 "template (scaffolding, not a forecasting model)",
                 theme.template_style(),
             )
+        } else if model.manual {
+            Span::styled("manual (added with `chaps models add`)", theme.dim_style())
         } else {
             Span::raw("model")
         },
@@ -283,7 +298,7 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             lines.push(field(
                 theme,
                 "image",
-                &format!("{}:{}", model.source.image, version.image_tag),
+                &crate::compose::image_ref(&model.source.image, &version.image_tag),
             ));
             lines.push(field(
                 theme,
@@ -742,6 +757,51 @@ mod tests {
         assert!(!render(&app, 100, 30).contains("[template]"));
         app.reduce(Action::ToggleTemplates);
         assert!(render(&app, 100, 30).contains("[template]"));
+    }
+
+    /// A model the deployment added itself is marked in the list and named
+    /// as such in the details, so the browser never presents a local
+    /// definition as a reviewed marketplace entry.
+    #[test]
+    fn a_manually_added_model_is_marked_and_named() {
+        let mut state = ProjectState::default();
+        state.manual.insert(
+            "chapkit_ghr_model".to_string(),
+            crate::project::ManualModel {
+                service_id: "chapkit-ghr-model".into(),
+                display_name: "chapkit_ghr_model".into(),
+                repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
+                image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+                tag: "sha-b1d6c31".into(),
+                commit: None,
+                follow: Some("main".into()),
+                data_dir: Some("/work/data".into()),
+                user: Some("10001:10001".into()),
+                runtime_amd64: true,
+                added: "2026-09-24".into(),
+            },
+        );
+        let mut registry = registry();
+        assert!(registry.with_manual(&state.manual).is_empty());
+
+        let mut app = App::new(&registry, &state);
+        let screen = render(&app, 100, 30);
+        assert!(screen.contains("[manual]"), "{screen}");
+        assert!(!screen.contains("[template]"), "{screen}");
+
+        // The details pane of that row says what kind of entry it is.
+        while app.selected().map(|row| app.model(row).id.as_str()) != Some("chapkit_ghr_model") {
+            app.reduce(Action::Down);
+        }
+        let screen = render(&app, 100, 30);
+        assert!(screen.contains("manual (added with `chaps"), "{screen}");
+        // The row shows the tag as the tag, not as a version number.
+        assert!(screen.contains("sha-b1"), "{screen}");
+        assert!(!screen.contains("vsha-"), "{screen}");
+        assert!(
+            screen.contains("ghcr.io/chap-models/chapkit_ghr_model:sha-"),
+            "{screen}"
+        );
     }
 
     #[test]

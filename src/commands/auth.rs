@@ -19,7 +19,6 @@ use crate::compose::sync::sync;
 use crate::error::Result;
 use crate::output::{self, Out};
 use crate::project::{AuthState, ENV_FILE, Project};
-use crate::registry;
 use std::path::{Path, PathBuf};
 
 /// What every `chaps up` reminder says, because neither chap-core nor a model
@@ -232,7 +231,7 @@ fn recover(body: &str, var: &str) -> Option<String> {
 
 /// Re-render the compose files from the new state; `sync` saves `.chaps/`.
 fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport> {
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(project))?;
     let report = sync(project, &registry, ctx.cli_version, false)?;
     for warning in &report.warnings {
         output::warn(warning);

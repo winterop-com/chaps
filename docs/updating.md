@@ -38,7 +38,8 @@ or `--version`) and `chaps update`. Nothing else, `up`, `restart`, `expose` and
 | `chaps models expose`, `chaps models unexpose` | No. Only the `ports:` of one overlay. |
 | `chaps models enable ID --channel C` | Yes, for that one model. |
 | `chaps models enable ID --version X` | Yes, to exactly `X`. |
-| `chaps update` | Yes: every channel-following model, and chap-core. |
+| `chaps models add SOURCE` | Yes, for the model it adds: to the newest published build of the branch, or to the tag or digest it was given. |
+| `chaps update` | Yes: every channel-following model, every model added from a repository URL, and chap-core. |
 
 ## `chaps update`
 
@@ -58,6 +59,21 @@ A run is four steps, printed in that order:
    pin that moved is recorded in `.chaps/models.yaml` and its
    `# <ID>_IMAGE_TAG=` comment in `.env` is updated. Models enabled with
    `--version` are listed as pinned and skipped.
+
+   A model added with `chaps models add` is resolved against its own
+   repository rather than the catalogue, so its row reads in image tags:
+
+   ```text
+     chapkit_ghr_model  sha-1eb8cf1 -> sha-b1d6c31
+   ```
+
+   One added from a repository URL follows that repository's default branch:
+   the row moves when a newer commit has a published `sha-` build, and the new
+   pin is written to `.chaps/models-manual.yaml` as well, so a later
+   `models enable` brings back what is running now. One added from an image
+   reference is `pinned, skipped`. A repository or registry that will not
+   answer is a warning and a row reading `unchanged (could not check)`: the
+   pin stays where it is, and the rest of the update goes ahead.
 2. **The sync**, which renders the compose files from `.chaps/`.
 3. **The pull**: `docker compose pull`, with docker's own output.
 4. **One closing line**, below.

@@ -198,6 +198,149 @@ written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
 
+## Models outside the marketplace
+
+A model the catalogue does not list - a new one, a private one, a fork of your
+own - is added to one deployment with `chaps models add`:
+
+```sh
+chaps models add https://github.com/chap-models/chapkit_ghr_model
+chaps models add ghcr.io/chap-models/chapkit_ghr_model:sha-1eb8cf1
+chaps models add ghcr.io/chap-models/chapkit_ghr_model@sha256:31163f6a...
+```
+
+The two forms differ in one thing, and it is the important one:
+
+- A **repository URL** follows the default branch. `chaps models add` asks
+  GitHub for that branch and its newest commits, and ghcr for the newest of
+  those commits that has a published `sha-<short commit>` build - which is the
+  tag the model repositories' publish workflow writes. `chaps update` moves the
+  pin to whatever the newest published build is then.
+- An **image reference** pins exactly what it names, tag or `@sha256:` digest,
+  and `chaps update` reports it as pinned and leaves it alone.
+
+Either way the entry is a full definition, so everything else treats it like a
+marketplace model: it is enabled by the same write path, rendered into the same
+kind of overlay, listed by `models list`, described by `models info`, moved (or
+not) by `chaps update`, seen by `chaps doctor` and shown in the browser.
+
+```text
+added chapkit_ghr_model (chapkit-ghr-model)
+  source    https://github.com/chap-models/chapkit_ghr_model
+  image     ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31
+  pin       sha-b1d6c31  (commit b1d6c31)
+  follows   main  (`chaps update` moves the pin)
+  data dir  /work/data  (from the image config)
+  user      10001:10001  (from a docker probe)
+enabled chapkit_ghr_model sha-b1d6c31 on http://localhost:5001 (compose.chapkit-ghr-model.yml)
+note: the service must register with chap-core as `chapkit-ghr-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - re-add it with `--service-id <that id>`
+run `chaps up` to apply
+```
+
+Every line says where its answer came from, because none of them came from a
+reviewed catalogue entry:
+
+| Value | Where it comes from |
+| --- | --- |
+| id | `--id`, else the repository or image name in snake_case. |
+| service | `--service-id`, else the id with hyphens. |
+| name | `--name`, else the repository or image name. |
+| pin | The newest published `sha-` build of the branch, or the tag or digest that was named. |
+| data dir | `--data-dir`, else `<WORKDIR>/data` from the image config, else `/work/data`. |
+| user | `--user`, else the image's own `User` when it is numeric or an account `chaps` knows, else the numbers a `docker run ... id -u` probe reads out of the image, else the name with a warning. |
+| amd64 | Whether ghcr publishes the image for amd64 alone; `--runtime-amd64` records it either way. |
+
+`--port N|auto` publishes a host port, exactly as on `models enable`, and is
+the one flag that is about the deployment rather than about the model.
+
+The **service id has to match the id the service registers with chap-core**
+(chapkit's `MLServiceInfo.id`). It is the Compose service name, the DNS name
+and the name the registration resolves to, all at once. Where a model's own id
+differs from its repository name, pass `--service-id`; `chaps status` shows the
+mismatch as a registered service nobody manages next to a model that never
+arrived.
+
+The uid probe is the one step that needs Docker: an image that runs as an
+account name (`USER app`) says nothing about what that name resolves to, and
+the overlay's init container chowns the data volume from busybox, which
+resolves no names at all. So `chaps models add` pulls the image once and asks
+it. Pass `--user <uid>:<gid>` to skip that.
+
+### Where it is recorded
+
+The definition goes in `.chaps/models-manual.yaml`, beside the enabled set:
+
+```yaml
+chapkit_ghr_model:
+  service_id: chapkit-ghr-model
+  display_name: chapkit_ghr_model
+  repository: https://github.com/chap-models/chapkit_ghr_model
+  image: ghcr.io/chap-models/chapkit_ghr_model
+  tag: sha-b1d6c31
+  commit: b1d6c312a83f07aa1a4e66fce05ae7f4eccb8188
+  follow: main
+  data_dir: /work/data
+  user: 10001:10001
+  runtime_amd64: true
+  added: 2026-09-24
+```
+
+That file is the definition; `.chaps/models.yaml` still says which models are
+on. So `chaps models disable chapkit_ghr_model` keeps the definition and
+`chaps models enable chapkit_ghr_model` brings the model back at the recorded
+tag, data directory and user, without asking the network anything. It is
+carried over by `chaps init --force` and included in `chaps backup create`.
+A deployment that has added nothing has no such file.
+
+Both listings mark these entries, because a local definition is not a reviewed
+catalogue entry:
+
+```text
+ID                   SERVICE            NAME               STATUS  STABLE       LATEST       ENABLED  KIND
+chapkit_ewars_model  chapkit-ewars-...  CHAP-EWARS         orange  1.0.0        1.0.0        -        model
+chapkit_ghr_model    chapkit-ghr-model  chapkit_ghr_model  gray    sha-b1d6c31  sha-b1d6c31  5001     manual
+```
+
+`chaps models info chapkit_ghr_model` says the same in its own words - a
+`kind` of `manual`, a `source` line naming `chaps models add` and the day it
+was added, and a `follows` line naming the branch or reading
+`nothing (pinned)` - and leaves out every field a
+marketplace entry would have filled in (the horizon, the covariates, the
+period types, the assessment) rather than reporting them as zeroes. The
+browser marks the row `[manual]`.
+
+### Removing one
+
+```sh
+chaps models remove ID [--purge]
+```
+
+`remove` is the way back: it disables the model if it is enabled - stopping its
+container and removing its overlay, exactly as `models disable` does - and then
+drops the definition. `--purge` takes the data volume as well, and means the
+same thing here as it does there. A marketplace model has no local definition
+to remove, and says so:
+
+```text
+error: chapkit_ewars_model is a marketplace model, so there is no local definition to remove; run `chaps models disable chapkit_ewars_model`
+```
+
+### What it needs, and what it refuses
+
+`chaps models add` reads GitHub's REST API and ghcr anonymously; both are
+public for the CHAP model repositories, and neither needs a token. The
+repository form cannot work under `--offline` and says so, naming the image
+reference to pass instead. The image form works offline as long as the image is
+on the machine, because then `docker image inspect` can answer what the
+registry would have.
+
+Refused rather than guessed at: a bare image name (`chapkit_ghr_model`), an
+image on a registry other than ghcr, an image reference with no tag or digest,
+an id or service name the marketplace already uses, and an id this deployment
+has already added. The marketplace always wins a collision, so an id it
+publishes later shadows nothing: the local entry is reported and ignored until
+it is removed or renamed.
+
 ## The model browser
 
 `chaps ui` opens a two-pane browser: the catalogue on the left, the details of
@@ -367,6 +510,10 @@ The init container needs those names as numbers: `chapkit` is uid/gid 1000 and
 `chap` is 1001. A `--user` that is already numeric is passed through, and a
 name `chaps` does not know falls back to `1000:1000` with a warning from
 `chaps sync`.
+
+A model added with `chaps models add` cannot be in that table, so it carries
+its own answers in `.chaps/models-manual.yaml`, read off the image itself. See
+[Models outside the marketplace](#models-outside-the-marketplace).
 
 ## The amd64 pin, and why
 

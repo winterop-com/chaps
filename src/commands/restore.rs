@@ -32,7 +32,6 @@ use crate::docker;
 use crate::error::Result;
 use crate::output::{self, Out};
 use crate::project::{CHAPS_DIR, ENV_FILE, PROJECT_FILE, Project};
-use crate::registry;
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal, Write};
@@ -374,7 +373,7 @@ fn restore_files(
         }
     }
 
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&restored))?;
     let sync_report = sync(&mut restored, &registry, ctx.cli_version, false)?;
     for warning in &sync_report.warnings {
         output::warn(warning);

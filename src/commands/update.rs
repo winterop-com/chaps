@@ -28,9 +28,10 @@ use crate::compose::sync::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::compose::{sync, tag_env_var};
 use crate::docker;
 use crate::error::{ChapError, Result};
+use crate::manual;
 use crate::output::{self, Out};
-use crate::project::{CHAP_TAG_ENV_VAR, ComposeSource, Project, cached_compose_file};
-use crate::registry::{self, Provenance, Registry, VersionSelector};
+use crate::project::{CHAP_TAG_ENV_VAR, ComposeSource, ManualModel, Project, cached_compose_file};
+use crate::registry::{Provenance, Registry, VersionSelector};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -207,8 +208,39 @@ pub struct ModelUpdate {
     pub new_version: String,
     pub new_tag: String,
     pub changed: bool,
-    /// Pinned to an exact version, so the channel was not consulted.
+    /// Pinned to an exact version, so nothing was consulted.
     pub pinned: bool,
+    /// A model this deployment added itself, whose pin comes from a
+    /// repository rather than from the marketplace.
+    pub manual: bool,
+    /// The branch a manual entry follows, `null` for every other row.
+    pub follow: Option<String>,
+    /// Whether the lookup behind this row could be made at all. False is a
+    /// manual entry whose repository or registry would not answer, which is
+    /// "unchanged" without the claim that nothing has moved.
+    pub checked: bool,
+    /// The commit the new tag was built from, where the lookup said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_commit: Option<String>,
+}
+
+impl ModelUpdate {
+    /// The row this entry starts as: unchanged, and checked.
+    fn unchanged(id: &str, entry: &crate::project::EnabledModel) -> ModelUpdate {
+        ModelUpdate {
+            id: id.to_string(),
+            old_version: entry.version.clone(),
+            old_tag: entry.image_tag.clone(),
+            new_version: entry.version.clone(),
+            new_tag: entry.image_tag.clone(),
+            changed: false,
+            pinned: entry.channel.is_none(),
+            manual: false,
+            follow: None,
+            checked: true,
+            new_commit: None,
+        }
+    }
 }
 
 impl UpdateReport {
@@ -222,9 +254,14 @@ impl UpdateReport {
 pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let mut project = ctx.project()?;
     // No fallback on purpose: an update from a stale catalogue is not an update.
-    let registry = registry::update(&ctx.registry)?;
+    let registry = super::refreshed_registry_for(ctx, Some(&project))?;
 
-    let models = plan(&project, &registry)?;
+    // The manual entries are resolved against their own repositories, which
+    // is the one lookup the registry refresh above cannot make.
+    let endpoints = manual::Endpoints::from_env(ctx.registry.offline);
+    let models = plan(&project, &registry, &|id, entry| {
+        newest_published(id, entry, &endpoints)
+    })?;
     let latest = lookup_latest(
         &project.state.chap_image_tag,
         args.pin_chap_core,
@@ -261,6 +298,15 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         apply_chap_core(&mut project, &mut report.chap_core, ctx.registry.timeout)?;
     }
     for change in report.models.iter().filter(|m| m.changed) {
+        // A manual entry's definition carries the pin as well: the recorded
+        // model says what runs, and `models-manual.yaml` says what the next
+        // `models enable` would bring back.
+        if let Some(manual) = project.state.manual.get_mut(&change.id) {
+            manual.tag = change.new_tag.clone();
+            if let Some(commit) = &change.new_commit {
+                manual.commit = Some(commit.clone());
+            }
+        }
         let entry = project
             .state
             .models
@@ -375,20 +421,43 @@ pub fn pulled_new(
         .collect()
 }
 
-/// Resolve every enabled model against the fresh registry without changing
-/// anything.
-fn plan(project: &Project, registry: &Registry) -> Result<Vec<ModelUpdate>> {
+/// What a manually added model's branch resolves to today: `(commit, tag)`,
+/// or `None` when the lookup could not be made.
+pub type FollowFn<'a> = &'a dyn Fn(&str, &ManualModel) -> Option<(String, String)>;
+
+/// Resolve every enabled model without changing anything: the marketplace
+/// ones against the fresh registry, the manual ones against `follow`.
+///
+/// `follow` is what a manually added model's branch resolves to today -
+/// `(commit, tag)` - or `None` when the lookup could not be made. A manual
+/// entry is never an [`ChapError::UnknownModel`]: the deployment is where its
+/// definition lives, so there is nothing for the catalogue to have dropped.
+fn plan(project: &Project, registry: &Registry, follow: FollowFn) -> Result<Vec<ModelUpdate>> {
     let mut out = Vec::with_capacity(project.state.models.len());
     for (id, entry) in &project.state.models {
-        let mut update = ModelUpdate {
-            id: id.clone(),
-            old_version: entry.version.clone(),
-            old_tag: entry.image_tag.clone(),
-            new_version: entry.version.clone(),
-            new_tag: entry.image_tag.clone(),
-            changed: false,
-            pinned: entry.channel.is_none(),
-        };
+        let mut update = ModelUpdate::unchanged(id, entry);
+        if let Some(manual) = project.state.manual.get(id) {
+            update.manual = true;
+            update.follow = manual.follow.clone();
+            // A manual entry follows a branch or it is pinned; the channel
+            // `.chaps/models.yaml` records only says which of the two.
+            update.pinned = manual.follow.is_none();
+            if manual.follow.is_some() {
+                match follow(id, manual) {
+                    Some((commit, tag)) => {
+                        update.changed = tag != update.old_tag;
+                        update.new_commit = Some(commit);
+                        // The version of a manual entry is its tag: there is
+                        // no version number to carry.
+                        update.new_version = tag.clone();
+                        update.new_tag = tag;
+                    }
+                    None => update.checked = false,
+                }
+            }
+            out.push(update);
+            continue;
+        }
         if let Some(channel) = entry.channel {
             let model = registry
                 .get(id)
@@ -402,6 +471,42 @@ fn plan(project: &Project, registry: &Registry) -> Result<Vec<ModelUpdate>> {
         out.push(update);
     }
     Ok(out)
+}
+
+/// The newest published build of a manually added model's branch, as
+/// `chaps update` asks for it.
+///
+/// Every failure is a warning and a `None`: a repository that will not answer
+/// must not stop the marketplace half of the update, and leaving the pin
+/// where it is is the safe half of that bargain.
+fn newest_published(
+    id: &str,
+    entry: &ManualModel,
+    endpoints: &manual::Endpoints,
+) -> Option<(String, String)> {
+    let (Some(repository), Some(branch)) = (&entry.repository, &entry.follow) else {
+        output::warn(&format!(
+            "{id} follows a branch but records no repository, so its pin cannot be checked"
+        ));
+        return None;
+    };
+    match manual::newest_published(repository, branch, endpoints) {
+        Ok(Some(found)) => Some(found),
+        Ok(None) => {
+            output::warn(&format!(
+                "{repository} has no published `sha-` build on {branch}, so {id} keeps the pin it has"
+            ));
+            None
+        }
+        Err(err) => {
+            output::warn(&format!(
+                "could not check {repository} for a newer build of {id} ({err:#}); \
+                 the pin stays at {}",
+                entry.tag
+            ));
+            None
+        }
+    }
 }
 
 /// Ask GitHub for the newest chap-core release, when its answer can matter.
@@ -653,27 +758,16 @@ fn plan_text(report: &UpdateReport, out: &Out) -> String {
     for m in &report.models {
         // The new version is the only thing on the line that changed, so it is
         // the only thing that is coloured.
-        let line = if m.pinned {
-            format!(
-                "  {}  {}  {}",
-                m.id,
-                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
-                out.dim("pinned, skipped")
-            )
-        } else if m.changed {
+        let old = version_cell(m, &m.old_version, &m.old_tag);
+        let line = if m.changed {
             format!(
                 "  {}  {} -> {}",
                 m.id,
-                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
-                out.ok(&format!("v{} ({})", m.new_version, m.new_tag))
+                out.dim(&old),
+                out.ok(&version_cell(m, &m.new_version, &m.new_tag))
             )
         } else {
-            format!(
-                "  {}  {}  {}",
-                m.id,
-                out.dim(&format!("v{} ({})", m.old_version, m.old_tag)),
-                out.dim("unchanged")
-            )
+            format!("  {}  {}  {}", m.id, out.dim(&old), out.dim(state_of(m)))
         };
         text.push_str(&line);
         text.push('\n');
@@ -683,6 +777,26 @@ fn plan_text(report: &UpdateReport, out: &Out) -> String {
         text.push_str(&format!("  {}\n", out.dim(&component_line(component))));
     }
     text
+}
+
+/// How one row's pin reads: `v1.0.0 (sha-fa880a1)` for a marketplace model,
+/// and the tag alone for a manual one, whose version is its tag.
+fn version_cell(m: &ModelUpdate, version: &str, tag: &str) -> String {
+    if m.manual {
+        return tag.to_string();
+    }
+    format!("v{version} ({tag})")
+}
+
+/// What a row that did not move says for itself.
+fn state_of(m: &ModelUpdate) -> &'static str {
+    if m.pinned {
+        return "pinned, skipped";
+    }
+    if !m.checked {
+        return "unchanged (could not check)";
+    }
+    "unchanged"
 }
 
 /// The chap-core row, with the new tag coloured the way a model row's is.
@@ -719,10 +833,16 @@ mod tests {
         (dir, project, registry)
     }
 
+    /// A lookup nobody is expected to make: every test that plans only
+    /// marketplace models passes this, so a manual row would be obvious.
+    fn no_lookup(id: &str, _: &ManualModel) -> Option<(String, String)> {
+        panic!("{id} is not a manual model");
+    }
+
     #[test]
     fn plan_reports_unchanged_when_the_channel_still_points_at_the_pin() {
         let (_dir, project, registry) = project_with(&["chapkit_ewars_model"]);
-        let plan = plan(&project, &registry).unwrap();
+        let plan = plan(&project, &registry, &no_lookup).unwrap();
         assert_eq!(plan.len(), 1);
         assert!(!plan[0].changed && !plan[0].pinned);
         assert_eq!(plan[0].old_tag, plan[0].new_tag);
@@ -750,7 +870,7 @@ mod tests {
             .unwrap();
         arima.versions[0].image_tag = "sha-2222222".into();
 
-        let plan = plan(&project, &registry).unwrap();
+        let plan = plan(&project, &registry, &no_lookup).unwrap();
         let ewars = plan.iter().find(|m| m.id == "chapkit_ewars_model").unwrap();
         assert!(ewars.changed);
         assert_eq!(ewars.old_version, "0.9.0");
@@ -762,12 +882,143 @@ mod tests {
         assert_eq!(arima.new_tag, "sha-1111111");
     }
 
+    /// A project with one manually added model, enabled.
+    fn project_with_manual(follow: Option<&str>) -> (tempfile::TempDir, Project, Registry) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState::default(),
+        };
+        project.state.manual.insert(
+            "chapkit_ghr_model".to_string(),
+            ManualModel {
+                service_id: "chapkit-ghr-model".into(),
+                display_name: "chapkit_ghr_model".into(),
+                repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
+                image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+                tag: "sha-1eb8cf1".into(),
+                commit: None,
+                follow: follow.map(str::to_string),
+                data_dir: Some("/work/data".into()),
+                user: Some("10001:10001".into()),
+                runtime_amd64: true,
+                added: "2026-09-24".into(),
+            },
+        );
+        let mut registry = load_embedded().unwrap();
+        assert!(registry.with_manual(&project.state.manual).is_empty());
+        let mut request = EnableRequest::new("chapkit_ghr_model");
+        request.selector = match follow {
+            Some(_) => VersionSelector::Channel(Channel::Latest),
+            None => VersionSelector::Exact("sha-1eb8cf1".into()),
+        };
+        let sel = Selection {
+            enable: vec![request],
+            disable: Vec::new(),
+        };
+        apply(&mut project, &registry, &sel, "0.1.0").unwrap();
+        (dir, project, registry)
+    }
+
+    #[test]
+    fn a_following_manual_model_moves_when_its_branch_has_a_newer_build() {
+        let (_dir, project, registry) = project_with_manual(Some("main"));
+        let plan = plan(&project, &registry, &|id, entry| {
+            assert_eq!(id, "chapkit_ghr_model");
+            assert_eq!(entry.follow.as_deref(), Some("main"));
+            Some(("b1d6c31deadbeef".to_string(), "sha-b1d6c31".to_string()))
+        })
+        .unwrap();
+        assert_eq!(plan.len(), 1);
+        let row = &plan[0];
+        assert!(row.manual && row.changed && row.checked && !row.pinned);
+        assert_eq!(row.follow.as_deref(), Some("main"));
+        assert_eq!(row.old_tag, "sha-1eb8cf1");
+        assert_eq!(row.new_tag, "sha-b1d6c31");
+        // The version of a manual entry is its tag, which is what the line
+        // prints in place of a version number.
+        assert_eq!(row.new_version, "sha-b1d6c31");
+        assert_eq!(row.new_commit.as_deref(), Some("b1d6c31deadbeef"));
+        let text = plan_text(
+            &UpdateReport {
+                registry: RegistryInfo {
+                    url: "https://example.test/registry.yaml".into(),
+                    provenance: Provenance::Network,
+                },
+                models: plan,
+                chap_core: chap_core("latest", "latest", None),
+                components: Vec::new(),
+                pulled: false,
+                pulled_new: Vec::new(),
+                restart_needed: Vec::new(),
+                stack_running: Some(false),
+                dry_run: true,
+            },
+            &Out::default(),
+        );
+        assert!(
+            text.contains("  chapkit_ghr_model  sha-1eb8cf1 -> sha-b1d6c31\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_following_manual_model_that_has_not_moved_is_unchanged() {
+        let (_dir, project, registry) = project_with_manual(Some("main"));
+        let plan = plan(&project, &registry, &|_, _| {
+            Some(("1eb8cf1".to_string(), "sha-1eb8cf1".to_string()))
+        })
+        .unwrap();
+        assert!(plan[0].manual && !plan[0].changed && plan[0].checked);
+        assert_eq!(state_of(&plan[0]), "unchanged");
+    }
+
+    /// A repository that would not answer leaves the pin alone, and the row
+    /// says that nothing was established rather than that nothing moved.
+    #[test]
+    fn a_manual_model_whose_lookup_failed_says_it_could_not_check() {
+        let (_dir, project, registry) = project_with_manual(Some("main"));
+        let plan = plan(&project, &registry, &|_, _| None).unwrap();
+        assert!(plan[0].manual && !plan[0].changed && !plan[0].checked);
+        assert_eq!(state_of(&plan[0]), "unchanged (could not check)");
+        assert_eq!(plan[0].new_tag, "sha-1eb8cf1");
+    }
+
+    #[test]
+    fn a_pinned_manual_model_is_never_looked_up() {
+        let (_dir, project, registry) = project_with_manual(None);
+        let plan = plan(&project, &registry, &|id, _| {
+            panic!("{id} is pinned and must not be checked")
+        })
+        .unwrap();
+        assert!(plan[0].manual && plan[0].pinned && !plan[0].changed);
+        assert_eq!(state_of(&plan[0]), "pinned, skipped");
+        assert_eq!(
+            version_cell(&plan[0], "sha-1eb8cf1", "sha-1eb8cf1"),
+            "sha-1eb8cf1"
+        );
+    }
+
+    /// A manual entry is never an unknown model: the deployment is where its
+    /// definition lives, so there is nothing the catalogue could have dropped.
+    #[test]
+    fn a_manual_model_the_marketplace_never_had_is_not_an_unknown_model() {
+        let (_dir, project, _) = project_with_manual(Some("main"));
+        // The catalogue without the manual entry folded in, which is what a
+        // registry refresh hands back before `with_manual` runs.
+        let registry = load_embedded().unwrap();
+        assert!(registry.get("chapkit_ghr_model").is_none());
+        let plan = plan(&project, &registry, &|_, _| None).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert!(plan[0].manual);
+    }
+
     #[test]
     fn plan_fails_when_a_channel_model_left_the_registry() {
         let (_dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
         let entry = project.state.models.remove("chapkit_ewars_model").unwrap();
         project.state.models.insert("vanished".into(), entry);
-        let err = plan(&project, &registry).expect_err("unknown model");
+        let err = plan(&project, &registry, &no_lookup).expect_err("unknown model");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownModel(id)) if id == "vanished"
@@ -790,6 +1041,7 @@ mod tests {
                     new_tag: "sha-2222222".into(),
                     changed: true,
                     pinned: false,
+                    ..row("a")
                 },
                 ModelUpdate {
                     id: "b".into(),
@@ -799,6 +1051,7 @@ mod tests {
                     new_tag: "sha-3333333".into(),
                     changed: false,
                     pinned: true,
+                    ..row("b")
                 },
             ],
             chap_core: chap_core("latest", "latest", None),
@@ -836,6 +1089,26 @@ mod tests {
         assert_eq!(value["chap_core"]["changed"], false);
         assert_eq!(value["chap_core"]["moving"], true);
         assert_eq!(value["chap_core"]["compose_source"]["kind"], "embedded");
+    }
+
+    /// A row with everything a marketplace model's is, for the fields a test
+    /// does not care about.
+    fn row(id: &str) -> ModelUpdate {
+        ModelUpdate::unchanged(
+            id,
+            &crate::project::EnabledModel {
+                service_id: id.to_string(),
+                image: format!("ghcr.io/chap-models/{id}"),
+                image_tag: "sha-0000000".into(),
+                version: "1.0.0".into(),
+                channel: Some(Channel::Stable),
+                host_port: None,
+                data_dir: "/work/data".into(),
+                user: "chapkit:chapkit".into(),
+                platform: None,
+                compose_file: format!("compose.{id}.yml"),
+            },
+        )
     }
 
     /// A [`ServiceCheck`] as `service_checks` would have built it.

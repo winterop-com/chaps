@@ -149,6 +149,44 @@ impl Registry {
         })
     }
 
+    /// Append a deployment's own model definitions to the catalogue.
+    ///
+    /// This is what makes `chaps models add` cost so little everywhere else:
+    /// from here on a manually added model is a [`Model`] like any other, so
+    /// `enable`, `sync`, `update`, `list`, `info`, `doctor` and the browser
+    /// need no branch for it. The marketplace wins a collision - the
+    /// catalogue is the shared truth, and an id it has since published is a
+    /// reason to rename the local one, not to shadow it - and every collision
+    /// is returned as a warning to show.
+    pub fn with_manual(&mut self, manual: &crate::project::ManualModels) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for (id, entry) in manual {
+            if let Some(existing) = self.models.iter().find(|m| m.id == *id) {
+                warnings.push(format!(
+                    "{id} is in .chaps/models-manual.yaml and in the marketplace; \
+                     the marketplace entry ({}) is the one being used - \
+                     `chaps models remove {id}` drops the local one",
+                    existing.display_name
+                ));
+                continue;
+            }
+            if let Some(existing) = self
+                .models
+                .iter()
+                .find(|m| m.service_id == entry.service_id)
+            {
+                warnings.push(format!(
+                    "{id} and {} both want the compose service `{}`; \
+                     the marketplace entry keeps it",
+                    existing.id, entry.service_id
+                ));
+                continue;
+            }
+            self.models.push(entry.to_model(id));
+        }
+        warnings
+    }
+
     /// Look a model up by `id` or by `service_id`.
     pub fn get(&self, id: &str) -> Option<&Model> {
         self.models
@@ -344,6 +382,81 @@ mod tests {
             "chapkit_ewars_model"
         );
         assert!(r.get("nope").is_none());
+    }
+
+    /// A manual definition as `.chaps/models-manual.yaml` holds one.
+    fn manual(id: &str, service_id: &str) -> crate::project::ManualModel {
+        crate::project::ManualModel {
+            service_id: service_id.to_string(),
+            display_name: id.to_string(),
+            repository: Some(format!("https://github.com/chap-models/{id}")),
+            image: format!("ghcr.io/chap-models/{id}"),
+            tag: "sha-b1d6c31".into(),
+            commit: None,
+            follow: Some("main".into()),
+            data_dir: Some("/work/data".into()),
+            user: Some("10001:10001".into()),
+            runtime_amd64: true,
+            added: "2026-09-24".into(),
+        }
+    }
+
+    #[test]
+    fn with_manual_appends_the_deployments_own_models() {
+        let mut r = registry();
+        let before = r.models.len();
+        let manual = crate::project::ManualModels::from([(
+            "chapkit_ghr_model".to_string(),
+            manual("chapkit_ghr_model", "chapkit-ghr-model"),
+        )]);
+        assert!(r.with_manual(&manual).is_empty(), "nothing collides");
+        assert_eq!(r.models.len(), before + 1);
+
+        // Found by id and by service id, like any other entry, and marked as
+        // this deployment's own.
+        for wanted in ["chapkit_ghr_model", "chapkit-ghr-model"] {
+            let found = r.get(wanted).unwrap_or_else(|| panic!("{wanted}"));
+            assert_eq!(found.id, "chapkit_ghr_model");
+            assert!(found.manual, "{wanted}");
+        }
+        assert!(r.search("ghr").iter().any(|m| m.manual));
+        // And the marketplace entries are untouched.
+        assert!(!r.get("chapkit_ewars_model").unwrap().manual);
+    }
+
+    #[test]
+    fn the_marketplace_wins_a_collision_and_says_so() {
+        let mut r = registry();
+        let before = r.models.len();
+        let manual = crate::project::ManualModels::from([
+            // An id the marketplace has since published.
+            (
+                "chapkit_ewars_model".to_string(),
+                manual("chapkit_ewars_model", "my-ewars"),
+            ),
+            // And a service name it already uses.
+            (
+                "my_arima".to_string(),
+                manual("my_arima", "auto-arima-chapkit"),
+            ),
+        ]);
+        let warnings = r.with_manual(&manual);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("chapkit_ewars_model") && w.contains("models remove")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("auto-arima-chapkit") && w.contains("keeps it")),
+            "{warnings:?}"
+        );
+        assert_eq!(r.models.len(), before, "neither was appended");
+        assert!(!r.get("chapkit_ewars_model").unwrap().manual);
+        assert!(r.get("my_arima").is_none());
     }
 
     #[test]

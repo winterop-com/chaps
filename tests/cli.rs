@@ -76,6 +76,30 @@ impl Sandbox {
     fn env(&self) -> String {
         read(&self.project().join(".env"))
     }
+
+    /// `chaps -C <project> ...` with the network pointed at a local
+    /// stand-in rather than switched off.
+    ///
+    /// `chaps models add` resolves a repository over HTTP, so it is the one
+    /// command these tests cannot run with `--offline`. Everything it would
+    /// reach - GitHub, ghcr and the marketplace index - is answered by
+    /// [`Hub`] on `port`, and the docker probe is turned off because a `pull`
+    /// aimed at the real registry is exactly what must not happen here.
+    fn online(&self, port: u16) -> Command {
+        let base = format!("http://127.0.0.1:{port}");
+        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
+        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            .env("CHAPS_NO_UPDATE_CHECK", "1")
+            .env("CHAPS_GITHUB_API", &base)
+            .env("CHAPS_GHCR_URL", &base)
+            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .current_dir(self.home.path())
+            .arg("--registry-url")
+            .arg(format!("{base}/registry.yaml"))
+            .arg("-C")
+            .arg(self.project());
+        cmd
+    }
 }
 
 fn read(path: &Path) -> String {
@@ -126,6 +150,16 @@ fn is_generated_secret(value: &str) -> bool {
 
 fn yaml(path: &Path) -> Yaml {
     serde_yaml_ng::from_str(&read(path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// `.chaps/models-manual.yaml` as JSON, or `Json::Null` when the deployment
+/// has added no model of its own.
+fn manual_models(dir: &Path) -> Json {
+    let path = dir.join(".chaps").join("models-manual.yaml");
+    if !path.is_file() {
+        return Json::Null;
+    }
+    serde_json::to_value(yaml(&path)).expect("models-manual.yaml maps to JSON")
 }
 
 /// `.chaps/project.yaml` with `.chaps/models.yaml` folded in under `models`,
@@ -4238,4 +4272,687 @@ fn down_volumes_removes_the_database_volume_docker_holds() {
         docker_volumes(&format!("{project}_")).is_empty(),
         "docker volume ls still lists {volume}"
     );
+}
+
+// ------------------------------------------------- models add and remove ---
+
+/// The newest commit on the example repository's default branch.
+const NEW_SHA: &str = "b1d6c31f4b2f0d8a0f4c6e2a5e9d3c7b8a1f0e2d";
+/// The commit before it, and the only one this hub publishes by default.
+const OLD_SHA: &str = "1eb8cf1a2b3c4d5e6f708192a3b4c5d6e7f80910";
+/// The tags those two commits are built as.
+const NEW_TAG: &str = "sha-b1d6c31";
+const OLD_TAG: &str = "sha-1eb8cf1";
+/// The repository `models add` is pointed at.
+const REPO_URL: &str = "https://github.com/chap-models/chapkit_ghr_model";
+/// The image that repository publishes to.
+const IMAGE: &str = "ghcr.io/chap-models/chapkit_ghr_model";
+
+/// A local stand-in for GitHub, ghcr and the marketplace, routed by path.
+///
+/// One listener answers every request one `chaps models add` makes: the
+/// repository's default branch, its commits, a ghcr pull token, the OCI index
+/// of a tag, the amd64 manifest inside it, the config blob that manifest
+/// points at, and the registry index `--registry-url` names. Nothing in these
+/// tests touches the real network.
+#[derive(Clone)]
+struct Hub {
+    /// Commits on the default branch, newest first.
+    commits: Vec<String>,
+    /// The `sha-` tags the registry has an image for.
+    published: Vec<String>,
+    /// What the image's config says it runs as.
+    user: String,
+    /// Its `WorkingDir`, which is what the data directory is derived from.
+    working_dir: String,
+}
+
+/// The digest of the amd64 manifest inside the index.
+const AMD64_DIGEST: &str =
+    "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+/// The digest of the config blob that manifest points at.
+const CONFIG_DIGEST: &str =
+    "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+
+impl Hub {
+    /// The example repository as it stands: two commits on `main`, only the
+    /// older of them published, and an image that runs as 10001:10001 out of
+    /// `/work`.
+    ///
+    /// Publishing only the older commit is the case that matters: the pin has
+    /// to land on the newest build there *is*, not on the newest commit.
+    fn new() -> Hub {
+        Hub {
+            commits: vec![NEW_SHA.to_string(), OLD_SHA.to_string()],
+            published: vec![OLD_TAG.to_string()],
+            user: "10001:10001".to_string(),
+            working_dir: "/work".to_string(),
+        }
+    }
+
+    /// The same hub once the newer commit has been published too, which is
+    /// what `chaps update` is meant to notice.
+    fn advanced(self) -> Hub {
+        Hub {
+            published: vec![NEW_TAG.to_string(), OLD_TAG.to_string()],
+            ..self
+        }
+    }
+
+    /// The same, for an image that runs as an account name nothing here can
+    /// turn into numbers.
+    fn running_as(self, user: &str) -> Hub {
+        Hub {
+            user: user.to_string(),
+            ..self
+        }
+    }
+
+    /// Serve this hub on a port of its own; the thread lives as long as the
+    /// test process.
+    fn start(self) -> u16 {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+        let port = listener.local_addr().expect("a local address").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                // The request has to be read before the answer, or the client
+                // sees a reset instead of the response.
+                let mut buffer = [0u8; 2048];
+                let read = stream.read(&mut buffer).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/")
+                    .to_string();
+                let (status, content_type, body) = self.respond(&path);
+                let reason = if status == 200 { "OK" } else { "Not Found" };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        port
+    }
+
+    /// The answer one request path gets: `(status, content type, body)`.
+    fn respond(&self, path: &str) -> (u16, &'static str, String) {
+        let json = "application/json";
+        if path.starts_with("/registry.yaml") {
+            return (200, "text/plain", REGISTRY_INDEX.to_string());
+        }
+        if path.starts_with("/models/chapkit_ewars_model.yaml") {
+            return (200, "text/plain", MARKETPLACE_MODEL.to_string());
+        }
+        if path.starts_with("/token") {
+            return (200, json, r#"{"token":"anonymous"}"#.to_string());
+        }
+        if path.starts_with("/repos/") && path.contains("/commits") {
+            let entries: Vec<String> = self
+                .commits
+                .iter()
+                .map(|sha| format!(r#"{{"sha":"{sha}","commit":{{"message":"x"}}}}"#))
+                .collect();
+            return (200, json, format!("[{}]", entries.join(",")));
+        }
+        if path.starts_with("/repos/") {
+            return (
+                200,
+                json,
+                r#"{"name":"chapkit_ghr_model","default_branch":"main"}"#.to_string(),
+            );
+        }
+        if let Some((_, reference)) = path.split_once("/manifests/") {
+            if reference == AMD64_DIGEST {
+                return (200, json, manifest());
+            }
+            // A digest pin asks for the index by digest; a tag pin asks for
+            // it by tag, and an unpublished tag is a 404.
+            if reference.starts_with("sha256:") || self.published.iter().any(|t| t == reference) {
+                return (200, json, index());
+            }
+            return (
+                404,
+                json,
+                r#"{"errors":[{"code":"MANIFEST_UNKNOWN"}]}"#.to_string(),
+            );
+        }
+        if path.contains("/blobs/") {
+            return (
+                200,
+                json,
+                format!(
+                    r#"{{"architecture":"amd64","os":"linux","config":{{"User":"{}","WorkingDir":"{}"}}}}"#,
+                    self.user, self.working_dir
+                ),
+            );
+        }
+        (404, json, "{}".to_string())
+    }
+}
+
+/// An OCI index with the attestation entry ghcr adds to every one of them.
+fn index() -> String {
+    format!(
+        r#"{{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[
+          {{"digest":"{AMD64_DIGEST}","platform":{{"architecture":"amd64","os":"linux"}}}},
+          {{"digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "platform":{{"architecture":"unknown","os":"unknown"}}}}]}}"#
+    )
+}
+
+/// The amd64 manifest inside that index.
+fn manifest() -> String {
+    format!(r#"{{"schemaVersion":2,"config":{{"digest":"{CONFIG_DIGEST}","size":1}},"layers":[]}}"#)
+}
+
+/// A one-model marketplace, so a collision with the catalogue can be told
+/// from a collision with something the deployment added itself.
+const REGISTRY_INDEX: &str = "\
+schema_version: 2
+marketplace:
+  name: test marketplace
+  description: served by the CLI tests
+  repository: https://example.test/marketplace
+review_policy:
+  required_approvals: 3
+models:
+  - models/chapkit_ewars_model.yaml
+";
+
+const MARKETPLACE_MODEL: &str = "\
+schema_version: 2
+id: chapkit_ewars_model
+service_id: chapkit-ewars-model
+display_name: CHAP-EWARS
+kind: model
+assessed_status: orange
+summary: stands in for the marketplace entry
+source:
+  repository: https://github.com/chap-models/chapkit_ewars_model
+  image: ghcr.io/chap-models/chapkit_ewars_model
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
+attribution:
+  author: nobody
+compatibility:
+  period_types:
+    - month
+  min_prediction_periods: 1
+  max_prediction_periods: 6
+covariates: {}
+channels:
+  stable: 1.0.0
+  latest: 1.0.0
+versions:
+  - version: 1.0.0
+    commit: fa880a1
+    image_tag: sha-fa880a1
+    chapkit: '>=2,<3'
+    status: verified
+configurations: {}
+";
+
+/// A deployment with nothing enabled, plus a hub to add against.
+fn added_sandbox(hub: Hub) -> (Sandbox, PathBuf, u16) {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+    (sandbox, dir, hub.start())
+}
+
+#[test]
+fn models_add_from_a_repository_pins_the_newest_published_build() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "added chapkit_ghr_model (chapkit-ghr-model)",
+        ))
+        // The newest commit has no published build, so the pin lands on the
+        // newest build there is.
+        .stdout(predicates::str::contains(format!("pin       {OLD_TAG}")))
+        .stdout(predicates::str::contains("follows   main"))
+        .stdout(predicates::str::contains(
+            "data dir  /work/data  (from the image config)",
+        ))
+        .stdout(predicates::str::contains(
+            "user      10001:10001  (from the image config)",
+        ))
+        .stdout(predicates::str::contains("must register with chap-core as"))
+        .stdout(predicates::str::contains("run `chaps up` to apply"));
+
+    // The definition, in a file of its own.
+    let manual = manual_models(&dir);
+    let entry = &manual["chapkit_ghr_model"];
+    assert_eq!(entry["service_id"], "chapkit-ghr-model");
+    assert_eq!(entry["image"], IMAGE);
+    assert_eq!(entry["tag"], OLD_TAG);
+    assert_eq!(entry["commit"], OLD_SHA);
+    assert_eq!(entry["follow"], "main");
+    assert_eq!(entry["repository"], REPO_URL);
+    assert_eq!(entry["runtime_amd64"], true);
+    assert_eq!(entry["added"].as_str().map(str::len), Some(10));
+
+    // And the enablement, in the file every other model uses.
+    let enabled = &state(&dir)["models"]["chapkit_ghr_model"];
+    assert_eq!(enabled["image_tag"], OLD_TAG);
+    assert_eq!(enabled["version"], OLD_TAG);
+    assert_eq!(enabled["channel"], "latest");
+    assert_eq!(enabled["host_port"], Json::Null);
+    assert_eq!(enabled["data_dir"], "/work/data");
+    assert_eq!(enabled["user"], "10001:10001");
+    assert_eq!(enabled["compose_file"], "compose.chapkit-ghr-model.yml");
+
+    // The overlay is rendered like any other model's, chown and all.
+    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    assert!(
+        overlay.contains(&format!(
+            "image: {IMAGE}:${{CHAPKIT_GHR_MODEL_IMAGE_TAG:-{OLD_TAG}}}"
+        )),
+        "{overlay}"
+    );
+    assert!(
+        overlay.contains("chown 10001:10001 /work/data"),
+        "{overlay}"
+    );
+    assert!(overlay.contains("user: 10001:10001"), "{overlay}");
+    assert_eq!(includes(&dir), vec!["compose.chapkit-ghr-model.yml"]);
+    assert!(
+        sandbox
+            .env()
+            .contains(&format!("# CHAPKIT_GHR_MODEL_IMAGE_TAG={OLD_TAG}")),
+        "{}",
+        sandbox.env()
+    );
+}
+
+#[test]
+fn a_manually_added_model_is_marked_in_the_list_and_on_its_page() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success();
+
+    // The kind column appears because there is something to tell apart, and
+    // the marketplace row keeps its own word for what it is.
+    sandbox
+        .online(port)
+        .args(["models", "list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("KIND"))
+        .stdout(predicates::str::contains("manual"))
+        .stdout(predicates::str::contains("chapkit_ewars_model"));
+
+    let out = sandbox
+        .online(port)
+        .args(["--json", "models", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rows: Json = serde_json::from_slice(&out).expect("models list --json is one document");
+    let manual = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|row| row["id"] == "chapkit_ghr_model")
+        .expect("the added model is listed");
+    assert_eq!(manual["manual"], true);
+    assert_eq!(manual["enabled"], true);
+
+    // The page says where it came from and what it follows.
+    let date = manual_models(&dir)["chapkit_ghr_model"]["added"]
+        .as_str()
+        .expect("a date")
+        .to_string();
+    sandbox
+        .online(port)
+        .args(["models", "info", "chapkit_ghr_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("kind        manual"))
+        .stdout(predicates::str::contains(format!(
+            "source      manual (`chaps models add`, {date})"
+        )))
+        .stdout(predicates::str::contains("follows     main"))
+        .stdout(predicates::str::contains(format!(
+            "image       {IMAGE}:{OLD_TAG}"
+        )));
+}
+
+#[test]
+fn update_moves_a_following_manual_model_when_a_newer_build_appears() {
+    let (sandbox, _dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success();
+
+    // The same hub: the branch has published nothing new.
+    sandbox
+        .online(port)
+        .args(["update", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "chapkit_ghr_model  {OLD_TAG}  unchanged"
+        )))
+        .stdout(predicates::str::contains("already up to date"));
+
+    // And once the newer commit is published, the pin would move to it.
+    let advanced = Hub::new().advanced().start();
+    sandbox
+        .online(advanced)
+        .args(["update", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "chapkit_ghr_model  {OLD_TAG} -> {NEW_TAG}"
+        )))
+        .stdout(predicates::str::contains("would update 1 model pin"));
+
+    // A repository that will not answer leaves the pin alone and says that
+    // nothing was established, rather than that nothing moved. The registry
+    // itself still answers: `update` has no fallback for that one.
+    sandbox
+        .online(port)
+        .env(
+            "CHAPS_GITHUB_API",
+            format!("http://127.0.0.1:{}", free_port()),
+        )
+        .args(["update", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "chapkit_ghr_model  {OLD_TAG}  unchanged (could not check)"
+        )))
+        .stderr(predicates::str::contains("could not check"));
+}
+
+#[test]
+fn models_add_from_an_image_reference_is_pinned() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", &format!("{IMAGE}:{NEW_TAG}")])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!("pin       {NEW_TAG}")))
+        .stdout(predicates::str::contains("follows   nothing (pinned)"));
+
+    let entry = &manual_models(&dir)["chapkit_ghr_model"];
+    assert_eq!(entry["tag"], NEW_TAG);
+    assert_eq!(entry["follow"], Json::Null);
+    assert_eq!(entry["repository"], Json::Null);
+    assert_eq!(entry["commit"], Json::Null);
+    // An exact pin follows no channel, and `update` says so.
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ghr_model"]["channel"],
+        Json::Null
+    );
+    sandbox
+        .online(Hub::new().advanced().start())
+        .args(["update", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "chapkit_ghr_model  {NEW_TAG}  pinned, skipped"
+        )))
+        .stdout(predicates::str::contains("already up to date"));
+}
+
+#[test]
+fn models_add_accepts_a_digest_and_renders_a_digest_reference() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    let digest = format!("sha256:{}", "a".repeat(64));
+    sandbox
+        .online(port)
+        .args(["models", "add", &format!("{IMAGE}@{digest}")])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!("pin       @{digest}")));
+
+    assert_eq!(
+        manual_models(&dir)["chapkit_ghr_model"]["tag"],
+        format!("@{digest}")
+    );
+    // A digest carries its own separator, so the rendered reference has no
+    // colon in front of it.
+    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    assert!(
+        overlay.contains(&format!(
+            "image: {IMAGE}${{CHAPKIT_GHR_MODEL_IMAGE_TAG:-@{digest}}}"
+        )),
+        "{overlay}"
+    );
+    assert!(!overlay.contains(&format!("{IMAGE}:@")), "{overlay}");
+}
+
+#[test]
+fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new().running_as("app"));
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "user      app  (from the image config)",
+        ))
+        // The note says what the init container will do instead, and how to
+        // decide it properly.
+        .stdout(predicates::str::contains("`app` has no uid this CLI knows"))
+        .stdout(predicates::str::contains("--user <uid>:<gid>"))
+        .stdout(predicates::str::contains("chown 1000:1000").not());
+
+    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    assert!(overlay.contains("user: app"), "{overlay}");
+    assert!(overlay.contains("chown 1000:1000 /work/data"), "{overlay}");
+
+    // And `--user` is what settles it.
+    sandbox
+        .online(port)
+        .args([
+            "models",
+            "add",
+            REPO_URL,
+            "--id",
+            "ghr_two",
+            "--service-id",
+            "ghr-two",
+            "--user",
+            "10001:10001",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "user      10001:10001  (given on the command line)",
+        ));
+    assert!(
+        read(&dir.join("compose.ghr-two.yml")).contains("chown 10001:10001 /work/data"),
+        "the flag reaches the init container"
+    );
+}
+
+#[test]
+fn models_add_from_a_repository_refuses_to_run_offline() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox
+        .models(&["add", REPO_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--offline"))
+        .stderr(predicates::str::contains(IMAGE));
+    assert_eq!(manual_models(&sandbox.project()), Json::Null);
+}
+
+#[test]
+fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    // An id the catalogue lists is a model to enable, not one to add.
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL, "--id", "chapkit_ewars_model"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "the marketplace already lists chapkit_ewars_model",
+        ))
+        .stderr(predicates::str::contains("chaps models enable"));
+    // And a compose service it already uses would be two overlays fighting.
+    sandbox
+        .online(port)
+        .args([
+            "models",
+            "add",
+            REPO_URL,
+            "--service-id",
+            "chapkit-ewars-model",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--service-id"));
+    assert_eq!(manual_models(&dir), Json::Null, "nothing was written");
+
+    // Adding the same source twice needs a name of its own.
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success();
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("was already added"))
+        .stderr(predicates::str::contains("chaps models remove"));
+
+    // A bare image name is neither form.
+    sandbox
+        .online(port)
+        .args(["models", "add", "chapkit_ghr_model"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("neither a repository URL"));
+}
+
+#[test]
+fn models_remove_takes_the_definition_and_the_overlay_with_it() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success();
+    assert!(dir.join("compose.chapkit-ghr-model.yml").is_file());
+
+    // Offline: the definition is the deployment's own, so removing it needs
+    // nothing from the network.
+    sandbox
+        .models(&["remove", "chapkit-ghr-model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "removed chapkit_ghr_model (models-manual.yaml)",
+        ))
+        .stdout(predicates::str::contains("disabled chapkit_ghr_model"))
+        .stdout(predicates::str::contains(
+            "removed compose.chapkit-ghr-model.yml",
+        ));
+
+    assert!(!dir.join("compose.chapkit-ghr-model.yml").exists());
+    assert!(includes(&dir).is_empty());
+    let manual = read(&dir.join(".chaps").join("models-manual.yaml"));
+    assert!(!manual.contains("chapkit_ghr_model"), "{manual}");
+    assert_eq!(state(&dir)["models"], serde_json::json!({}));
+
+    // A marketplace model has no local definition to remove.
+    sandbox
+        .online(port)
+        .args(["models", "remove", "chapkit_ewars_model"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("is a marketplace model"))
+        .stderr(predicates::str::contains("chaps models disable"));
+    // And a name nothing answers to is the typo it looks like.
+    sandbox
+        .models(&["remove", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("unknown model `nope`"));
+}
+
+#[test]
+fn a_manual_model_can_be_disabled_and_enabled_again_at_the_recorded_tag() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .success();
+
+    // Disabling keeps the definition, which is what makes it reversible.
+    sandbox
+        .models(&["disable", "chapkit_ghr_model"])
+        .assert()
+        .success();
+    assert_eq!(state(&dir)["models"], serde_json::json!({}));
+    assert_eq!(
+        manual_models(&dir)["chapkit_ghr_model"]["tag"],
+        OLD_TAG,
+        "the definition outlives the enablement"
+    );
+
+    // And enabling it again needs no network at all: the deployment is where
+    // its definition lives.
+    sandbox
+        .models(&["enable", "chapkit_ghr_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("enabled chapkit_ghr_model"));
+    let enabled = &state(&dir)["models"]["chapkit_ghr_model"];
+    assert_eq!(enabled["image_tag"], OLD_TAG);
+    assert_eq!(enabled["data_dir"], "/work/data");
+    assert_eq!(enabled["user"], "10001:10001");
+    assert!(dir.join("compose.chapkit-ghr-model.yml").is_file());
+
+    // A forced re-init carries the definition over rather than dropping it.
+    sandbox
+        .init(&["--models", "none", "--force"])
+        .assert()
+        .success();
+    assert_eq!(manual_models(&dir)["chapkit_ghr_model"]["tag"], OLD_TAG);
+}
+
+#[test]
+fn models_add_outside_a_project_says_so() {
+    let sandbox = Sandbox::new();
+    let port = Hub::new().start();
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
 }

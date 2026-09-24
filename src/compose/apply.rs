@@ -243,16 +243,22 @@ pub fn apply_with(
         };
 
         let known = known_override(&model.id);
+        // A manually added model carries its own answers: the built-in table
+        // is a list of images this CLI shipped knowing about, and cannot
+        // have an entry for one it has never seen.
+        let manual = project.state.manual.get(&model.id).cloned();
         let data_dir = req
             .data_dir
             .clone()
             .or_else(|| existing.as_ref().map(|e| e.data_dir.clone()))
+            .or_else(|| manual.as_ref().and_then(|m| m.data_dir.clone()))
             .or_else(|| known.map(|k| k.data_dir.to_string()))
             .unwrap_or_else(|| DEFAULT_DATA_DIR.to_string());
         let user = req
             .user
             .clone()
             .or_else(|| existing.as_ref().map(|e| e.user.clone()))
+            .or_else(|| manual.as_ref().and_then(|m| m.user.clone()))
             .or_else(|| known.map(|k| k.user.to_string()))
             .unwrap_or_else(|| DEFAULT_USER.to_string());
 

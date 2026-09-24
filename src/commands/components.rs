@@ -14,7 +14,6 @@ use crate::compose::sync::{sync, write_ocs_config};
 use crate::error::Result;
 use crate::output::Out;
 use crate::project::Project;
-use crate::registry;
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -125,7 +124,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         notes.push(S3_SOON_NOTE.to_string());
     }
 
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
     notes.extend(synced.warnings);
 
@@ -204,7 +203,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     project.state.components.set_enabled(component, false);
     let after = project.state.components.clone();
 
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
 
     let mut notes = synced.warnings.clone();

@@ -6,14 +6,13 @@ use crate::compose::{SyncReport, sync};
 use crate::error::{ChapError, Result};
 use crate::output::Out;
 use crate::project::Project;
-use crate::registry;
 use std::path::Path;
 
 /// Render `.chaps/models.yaml` into the compose files, or with `--check`
 /// report whether they are up to date and fail if they are not.
 pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
     let mut project = ctx.project()?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
     let report = sync(&mut project, &registry, ctx.cli_version, args.check)?;
 
     ctx.out

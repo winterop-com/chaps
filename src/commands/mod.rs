@@ -9,6 +9,7 @@ pub mod docs;
 pub mod doctor;
 pub mod enable;
 pub mod init;
+pub mod manual_models;
 pub mod models;
 pub mod registry;
 pub mod restore;
@@ -19,9 +20,44 @@ pub mod tui;
 pub mod update;
 
 use crate::cli::Cli;
+use crate::error::Result;
 use crate::output::Out;
-use crate::registry::{DEFAULT_TIMEOUT, RegistryOptions};
+use crate::project::Project;
+use crate::registry::{DEFAULT_TIMEOUT, Registry, RegistryOptions};
 use std::path::PathBuf;
+
+/// The catalogue a command works against: the marketplace, plus the models
+/// this deployment defines itself.
+///
+/// Every command that resolves a model goes through here rather than through
+/// [`crate::registry::load`], which is what lets `chaps models add` be a
+/// change to one file and nothing else. `project` is `None` for a command
+/// that ran outside a deployment, where there are no local definitions to
+/// add.
+pub fn registry_for(ctx: &Ctx, project: Option<&Project>) -> Result<Registry> {
+    let mut registry = crate::registry::load(&ctx.registry)?;
+    add_manual(&mut registry, project);
+    Ok(registry)
+}
+
+/// [`registry_for`] with the network refresh `chaps update` needs: no
+/// fallback to a cached catalogue, because an update from a stale one is not
+/// an update.
+pub fn refreshed_registry_for(ctx: &Ctx, project: Option<&Project>) -> Result<Registry> {
+    let mut registry = crate::registry::update(&ctx.registry)?;
+    add_manual(&mut registry, project);
+    Ok(registry)
+}
+
+/// Fold a project's manual definitions in, showing whatever they collide with.
+fn add_manual(registry: &mut Registry, project: Option<&Project>) {
+    let Some(project) = project else {
+        return;
+    };
+    for warning in registry.with_manual(&project.state.manual) {
+        crate::output::warn(&warning);
+    }
+}
 
 /// Everything a command needs that came from the global flags.
 #[derive(Debug, Clone)]

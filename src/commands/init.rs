@@ -53,7 +53,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         ));
     }
 
-    let registry = registry::load(&ctx.registry)?;
+    let mut registry = registry::load(&ctx.registry)?;
     // What the deployment is made of is settled first: it decides which
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
@@ -70,6 +70,10 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         api_port: args.api_port,
         port_range: (args.port_base, DEFAULT_PORT_RANGE.1.max(args.port_base)),
         components: components.clone(),
+        // A re-init keeps the deployment's own model definitions: `--force`
+        // rewrites the directory, and dropping them would leave `--models`
+        // naming models nothing has heard of.
+        manual: carried_manual(&dir),
         ..ProjectState::default()
     };
     // The ports the deployment publishes, and a busy one is only a problem at
@@ -82,6 +86,11 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         dir: dir.clone(),
         state,
     };
+    // The carried-over definitions are part of the catalogue from here on,
+    // so `--models` and the browser see them like any marketplace entry.
+    for warning in registry.with_manual(&project.state.manual) {
+        crate::output::warn(&warning);
+    }
 
     // Decide what to enable before writing anything, so a cancelled browser
     // or a typo in --models leaves no half-written directory behind.
@@ -277,6 +286,14 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
             secrets.as_ref(),
         )
     })
+}
+
+/// The model definitions a re-init carries over, which is all of them: they
+/// are the deployment's own, and nothing else records them.
+fn carried_manual(dir: &Path) -> crate::project::ManualModels {
+    Project::load(dir)
+        .map(|existing| existing.state.manual)
+        .unwrap_or_default()
 }
 
 /// The compose project name this deployment gets: the prefix every container

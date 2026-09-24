@@ -15,6 +15,9 @@ mychap/
     models.yaml                intent: the enabled models (image, pinned version,
                                channel, host port or none, data dir, user,
                                platform, overlay name)
+    models-manual.yaml         intent: the models this deployment defines itself,
+                               added by `chaps models add`; only present when it
+                               has added one
     components.yaml            intent: which components this deployment is made of
                                (chap-core, ocs, s3) and their settings
     compose.chap-core.<tag>.yml
@@ -45,6 +48,7 @@ mychap/
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. It carries the project `name:` as well, because it is the one file that is always in the `-f` list. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with a comment saying which commands manage them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
+| `.chaps/models-manual.yaml` | The definitions of the models this deployment added itself, one entry per `chaps models add`: what a marketplace file would have said about each. It is intent like the rest, and it is a definition rather than an enablement - `models.yaml` still says which models are on. Absent in a deployment that has added none. See [Models outside the marketplace](./models.md#models-outside-the-marketplace). |
 
 ## Intent and artifacts
 

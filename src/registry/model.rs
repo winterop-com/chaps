@@ -55,6 +55,15 @@ pub struct Model {
     pub versions: Vec<Version>,
     #[serde(default)]
     pub configurations: BTreeMap<String, Configuration>,
+    /// Whether this entry is one the deployment defines itself
+    /// ([`crate::project::ManualModel`]) rather than one the marketplace
+    /// lists.
+    ///
+    /// Never read from a model file: a catalogue that started publishing a
+    /// `manual:` key must not be able to make one of its own entries claim it
+    /// is local. It is written to `--json`, which is where a caller reads it.
+    #[serde(default, skip_deserializing)]
+    pub manual: bool,
 }
 
 /// Whether an entry is deployable or only scaffolding to copy.
@@ -233,7 +242,7 @@ impl Model {
 
     /// Fully qualified image reference for a version.
     pub fn image_ref(&self, v: &Version) -> String {
-        format!("{}:{}", self.source.image, v.image_tag)
+        crate::compose::image_ref(&self.source.image, &v.image_tag)
     }
 
     /// Whether the service needs `platform: linux/amd64`, i.e. whether it is

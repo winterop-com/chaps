@@ -305,6 +305,12 @@ pub enum ModelsCmd {
     /// Show everything known about one model
     Info(ModelsInfoArgs),
 
+    /// Add a model the marketplace does not list
+    Add(ModelsAddArgs),
+
+    /// Remove a model that was added with models add
+    Remove(ModelsRemoveArgs),
+
     /// Enable a model and write its compose overlay
     Enable(ModelsEnableArgs),
 
@@ -348,6 +354,54 @@ pub struct ModelsInfoArgs {
     /// Marketplace id or service id
     #[arg(value_name = "ID")]
     pub id: String,
+}
+
+/// Add a model the marketplace does not list
+#[derive(Debug, Clone, Args)]
+pub struct ModelsAddArgs {
+    /// GitHub repository URL, or a ghcr image reference
+    #[arg(value_name = "SOURCE")]
+    pub source: String,
+
+    /// Identifier to record the model under
+    #[arg(long, value_name = "ID")]
+    pub id: Option<String>,
+
+    /// Compose service name, which must match the service's own id
+    #[arg(long, value_name = "ID")]
+    pub service_id: Option<String>,
+
+    /// Name to show in the listings
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+
+    /// Host port to publish the model on, or auto for a free one
+    #[arg(long, value_name = "PORT|auto")]
+    pub port: Option<PortArg>,
+
+    /// Data directory inside the container
+    #[arg(long, value_name = "PATH")]
+    pub data_dir: Option<String>,
+
+    /// User the container runs as, as user:group
+    #[arg(long, value_name = "USER")]
+    pub user: Option<String>,
+
+    /// Record the image as published for amd64 only
+    #[arg(long)]
+    pub runtime_amd64: bool,
+}
+
+/// Remove a model that was added with models add
+#[derive(Debug, Clone, Args)]
+pub struct ModelsRemoveArgs {
+    /// Id of a model added with models add
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Delete the model's data volume as well
+    #[arg(long)]
+    pub purge: bool,
 }
 
 /// Enable a model and write its compose overlay

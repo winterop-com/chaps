@@ -407,6 +407,7 @@ fn project_checks(
         ),
         volumes_check(project),
     ];
+    checks.extend(manual_checks(ctx, project));
 
     // The containers are asked for once: the ports they hold are not
     // conflicts, and whether any of them is up decides the `stack` check.
@@ -1099,6 +1100,90 @@ pub fn components_check(project: &Project) -> Check {
     )
 }
 
+/// One line per model this deployment added itself that follows a branch:
+/// is the build it runs still the newest one that branch has published.
+///
+/// Nothing here is a failure. A model added from an image reference is pinned
+/// on purpose and only reported as such, and a repository that will not
+/// answer is a check that was not made rather than a problem with the
+/// deployment.
+fn manual_checks(ctx: &Ctx, project: &Project) -> Vec<Check> {
+    let endpoints = crate::manual::Endpoints {
+        timeout: NET_TIMEOUT,
+        ..crate::manual::Endpoints::from_env(ctx.registry.offline)
+    };
+    project
+        .state
+        .manual
+        .iter()
+        .map(|(id, entry)| {
+            // The lookup is only made for an entry that has a branch to
+            // compare against, and only when this run may use the network.
+            let newest = match (&entry.repository, &entry.follow, endpoints.offline) {
+                (Some(repository), Some(branch), false) => {
+                    crate::manual::newest_published(repository, branch, &endpoints)
+                        .ok()
+                        .flatten()
+                        .map(|(_, tag)| tag)
+                }
+                _ => None,
+            };
+            manual_check(id, entry, newest.as_deref(), endpoints.offline)
+        })
+        .collect()
+}
+
+/// The verdict for one manually added model, given what its branch publishes
+/// now.
+fn manual_check(
+    id: &str,
+    entry: &crate::project::ManualModel,
+    newest: Option<&str>,
+    offline: bool,
+) -> Check {
+    let check_id = format!("manual-{id}");
+    let name = format!("manual {id}");
+    let Some(branch) = &entry.follow else {
+        return Check::skip(
+            check_id,
+            name,
+            format!("pinned to {}, so nothing moves it", entry.tag),
+        );
+    };
+    if offline {
+        return Check::skip(
+            check_id,
+            name,
+            format!("--offline, so {branch} was not asked about a newer build"),
+        );
+    }
+    match newest {
+        None => Check::skip_with(
+            check_id,
+            name,
+            format!(
+                "could not ask {} for the newest build on {branch}",
+                entry
+                    .repository
+                    .clone()
+                    .unwrap_or_else(|| entry.image.clone())
+            ),
+            "run `chaps update --dry-run` to see the error in full",
+        ),
+        Some(tag) if tag == entry.tag => Check::ok(
+            check_id,
+            name,
+            format!("{tag}, the newest published build on {branch}"),
+        ),
+        Some(tag) => Check::warn(
+            check_id,
+            name,
+            format!("running {}, and {branch} has published {tag}", entry.tag),
+            "run `chaps update` to move the pin",
+        ),
+    }
+}
+
 /// Whether the rendered compose files still match `.chaps/`.
 ///
 /// This is `chaps sync --check` with its own exit code taken away: the same
@@ -1114,7 +1199,13 @@ fn sync_check(ctx: &Ctx, project: &Project) -> Check {
         ..ctx.registry.clone()
     };
     let registry = match registry::load(&options) {
-        Ok(registry) => registry,
+        Ok(mut registry) => {
+            // The deployment's own definitions too, or a manually added model
+            // would look like one the catalogue dropped. A collision is
+            // reported by every command that writes; this one only reads.
+            let _ = registry.with_manual(&project.state.manual);
+            registry
+        }
         Err(err) => {
             return Check::skip(ID, NAME, format!("no catalogue to compare against: {err}"));
         }
@@ -1695,7 +1786,7 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
             (
                 id.clone(),
                 model.service_id.clone(),
-                format!("{}:{}", model.image, model.image_tag),
+                crate::compose::image_ref(&model.image, &model.image_tag),
             )
         })
         .collect();
@@ -2011,6 +2102,73 @@ mod tests {
             checks,
             project: project.map(PathBuf::from),
         }
+    }
+
+    /// A model this deployment added itself, following `main` at `tag`.
+    fn manual_entry(tag: &str, follow: Option<&str>) -> crate::project::ManualModel {
+        crate::project::ManualModel {
+            service_id: "chapkit-ghr-model".into(),
+            display_name: "chapkit_ghr_model".into(),
+            repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
+            image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+            tag: tag.to_string(),
+            commit: None,
+            follow: follow.map(str::to_string),
+            data_dir: Some("/work/data".into()),
+            user: Some("10001:10001".into()),
+            runtime_amd64: true,
+            added: "2026-09-24".into(),
+        }
+    }
+
+    /// The `manual <id>` line: a warning only when the branch has moved on,
+    /// and never a failure.
+    #[test]
+    fn a_manual_model_is_checked_against_the_branch_it_follows() {
+        let entry = manual_entry("sha-1eb8cf1", Some("main"));
+
+        let ok = manual_check("chapkit_ghr_model", &entry, Some("sha-1eb8cf1"), false);
+        assert_eq!(ok.status, Status::Ok);
+        assert_eq!(ok.id, "manual-chapkit_ghr_model");
+        assert_eq!(ok.name, "manual chapkit_ghr_model");
+        assert!(ok.detail.contains("the newest published build on main"));
+        assert_eq!(ok.fix, None);
+
+        let behind = manual_check("chapkit_ghr_model", &entry, Some("sha-b1d6c31"), false);
+        assert_eq!(behind.status, Status::Warn);
+        assert!(behind.detail.contains("running sha-1eb8cf1"), "{behind:?}");
+        assert!(
+            behind.detail.contains("published sha-b1d6c31"),
+            "{behind:?}"
+        );
+        assert_eq!(
+            behind.fix.as_deref(),
+            Some("run `chaps update` to move the pin")
+        );
+
+        // A repository that would not answer is a check that was not made.
+        let unknown = manual_check("chapkit_ghr_model", &entry, None, false);
+        assert_eq!(unknown.status, Status::Skip);
+        assert!(unknown.detail.contains("could not ask"), "{unknown:?}");
+        assert!(unknown.fix.is_some());
+
+        // `--offline` asks nothing, and an entry with no branch has nothing
+        // to be behind.
+        let offline = manual_check("chapkit_ghr_model", &entry, None, true);
+        assert_eq!(offline.status, Status::Skip);
+        assert!(offline.detail.contains("--offline"), "{offline:?}");
+
+        let pinned = manual_check(
+            "chapkit_ghr_model",
+            &manual_entry("sha-1eb8cf1", None),
+            Some("sha-b1d6c31"),
+            false,
+        );
+        assert_eq!(pinned.status, Status::Skip);
+        assert!(
+            pinned.detail.contains("pinned to sha-1eb8cf1"),
+            "{pinned:?}"
+        );
     }
 
     /// What `docker version` prints when it worked.

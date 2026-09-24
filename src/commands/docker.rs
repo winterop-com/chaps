@@ -14,7 +14,6 @@ use crate::error::{ChapError, Result};
 use crate::output::{Out, PanelKind};
 use crate::ports;
 use crate::project::Project;
-use crate::registry;
 use std::io::{BufRead, IsTerminal, Write};
 
 /// The command run inside the container when `chaps docker exec` is given none.
@@ -92,7 +91,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     }
     let mut project = ctx.project()?;
     if let DockerCmd::Up(args) = cmd {
-        let registry = registry::load(&ctx.registry)?;
+        let registry = super::registry_for(ctx, Some(&project))?;
         let report = sync(&mut project, &registry, ctx.cli_version, false)?;
         super::sync::announce(ctx, &report, &project);
         // After the sync, because the files it just wrote are the ones whose

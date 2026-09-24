@@ -360,6 +360,9 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("TAG_VAR", &spec.tag_env_var),
             ("IMAGE_TAG", &spec.image_tag),
             ("IMAGE", &spec.image),
+            // A digest carries its own `@`, so the reference is joined with
+            // nothing rather than with a colon.
+            ("TAG_SEP", crate::compose::tag_separator(&spec.image_tag)),
             ("PLATFORM_LINE", &platform_line),
             ("PORT_LINES", &port_lines),
             ("REGISTRATION_KEY_LINES", &registration_key_lines),
@@ -721,6 +724,28 @@ mod tests {
             service(&parse(&text), "auto-arima-chapkit")["user"].as_str(),
             Some("nobody")
         );
+    }
+
+    #[test]
+    fn an_overlay_pinned_to_a_digest_renders_a_digest_reference() {
+        let mut spec = overlay_spec("auto_arima_chapkit");
+        let digest = format!("@sha256:{}", "b".repeat(64));
+        spec.image_tag = digest.clone();
+        spec.version = digest.clone();
+        let text = render_overlay(&spec);
+        assert_no_tokens(&text);
+        assert!(
+            text.contains(&format!(
+                "    image: ghcr.io/chap-models/auto_arima_chapkit${{AUTO_ARIMA_CHAPKIT_IMAGE_TAG:-{digest}}}\n"
+            )),
+            "{text}"
+        );
+        // Compose reads it as one reference, digest and all.
+        let image = parse(&text)["services"]["auto-arima-chapkit"]["image"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(image.contains(":-@sha256:"), "{image}");
     }
 
     #[test]

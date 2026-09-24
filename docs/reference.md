@@ -63,7 +63,7 @@ Browse and manage marketplace models.
 Usage: chaps models [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps models list`](#chaps-models-list), [`chaps models search`](#chaps-models-search), [`chaps models info`](#chaps-models-info), [`chaps models enable`](#chaps-models-enable), [`chaps models disable`](#chaps-models-disable), [`chaps models expose`](#chaps-models-expose), [`chaps models unexpose`](#chaps-models-unexpose)
+Subcommands: [`chaps models list`](#chaps-models-list), [`chaps models search`](#chaps-models-search), [`chaps models info`](#chaps-models-info), [`chaps models add`](#chaps-models-add), [`chaps models remove`](#chaps-models-remove), [`chaps models enable`](#chaps-models-enable), [`chaps models disable`](#chaps-models-disable), [`chaps models expose`](#chaps-models-expose), [`chaps models unexpose`](#chaps-models-unexpose)
 
 ## chaps models list
 
@@ -102,6 +102,38 @@ Usage: chaps models info [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+
+## chaps models add
+
+Add a model the marketplace does not list.
+
+```text
+Usage: chaps models add [OPTIONS] <SOURCE>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<SOURCE>` | GitHub repository URL, or a ghcr image reference. |
+| `--id <ID>` | Identifier to record the model under. |
+| `--service-id <ID>` | Compose service name, which must match the service's own id. |
+| `--name <NAME>` | Name to show in the listings. |
+| `--port <PORT\|auto>` | Host port to publish the model on, or auto for a free one. |
+| `--data-dir <PATH>` | Data directory inside the container. |
+| `--user <USER>` | User the container runs as, as user:group. |
+| `--runtime-amd64` | Record the image as published for amd64 only. |
+
+## chaps models remove
+
+Remove a model that was added with models add.
+
+```text
+Usage: chaps models remove [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Id of a model added with models add. |
+| `--purge` | Delete the model's data volume as well. |
 
 ## chaps models enable
 

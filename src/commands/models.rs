@@ -7,8 +7,8 @@ use crate::cli::{ModelsInfoArgs, ModelsListArgs, ModelsSearchArgs};
 use crate::commands::Ctx;
 use crate::error::{ChapError, Result};
 use crate::output::{self, Out};
-use crate::project::{EnabledModel, Project};
-use crate::registry::{self, AssessedStatus, Channel, Kind, Model, VersionStatus};
+use crate::project::{EnabledModel, ManualModel, Project};
+use crate::registry::{AssessedStatus, Channel, Kind, Model, VersionStatus};
 
 /// One line of `models list` / `models search`, and one element of their
 /// `--json` array.
@@ -31,6 +31,9 @@ struct ModelRow {
     /// Deployable image reference for the stable channel.
     image: String,
     requires_geo: bool,
+    /// Whether the entry is this deployment's own rather than the
+    /// marketplace's.
+    manual: bool,
 }
 
 /// `models info`, and the shape of its `--json`: the whole marketplace entry
@@ -41,6 +44,10 @@ struct ModelDetail<'a> {
     model: &'a Model,
     /// This project's entry for the model, when it is enabled.
     enabled: Option<&'a EnabledModel>,
+    /// The definition behind a manually added model, which is where its date
+    /// and its branch are recorded.
+    #[serde(skip_serializing)]
+    manual: Option<&'a ManualModel>,
     /// Whether this ran inside a deployment directory at all, which is what
     /// tells "not enabled here" from "there is no here yet".
     in_project: bool,
@@ -58,9 +65,8 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
     // The project is opened before the registry so `--enabled` outside a
     // project fails immediately instead of after a network fetch.
     let project = open_project(ctx, args.enabled)?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, project.as_ref())?;
 
-    let with_kind = args.all || args.templates;
     let rows: Vec<ModelRow> = registry
         .models
         .iter()
@@ -81,6 +87,9 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
             }
         })
         .collect();
+    // The kind column is what tells a manually added model from a
+    // marketplace one, so it appears whenever there is one to tell apart.
+    let with_kind = args.all || args.templates || rows.iter().any(|r| r.manual);
 
     ctx.out.emit(&rows, || {
         if rows.is_empty() {
@@ -104,7 +113,7 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
 /// Search the catalogue by id, display name or summary.
 pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
     let project = open_project(ctx, false)?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, project.as_ref())?;
 
     let rows: Vec<ModelRow> = registry
         .search(&args.query)
@@ -159,7 +168,7 @@ fn enabled_clause(rows: &[ModelRow], in_project: bool) -> String {
 /// Show one model in full.
 pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
     let project = open_project(ctx, false)?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, project.as_ref())?;
 
     let model = registry
         .get(&args.id)
@@ -168,6 +177,7 @@ pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
     let detail = ModelDetail {
         model,
         enabled,
+        manual: project.as_ref().and_then(|p| p.state.manual.get(&model.id)),
         in_project: project.is_some(),
         reach: enabled
             .zip(project.as_ref())
@@ -213,6 +223,7 @@ fn row(model: &Model, enabled: Option<&EnabledModel>) -> ModelRow {
         // if a channel points at a version the file no longer lists.
         image: channel_image(model, Channel::Stable).unwrap_or_else(|| model.source.image.clone()),
         requires_geo: model.compatibility.requires_geo,
+        manual: model.manual,
     }
 }
 
@@ -236,7 +247,7 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
                 enabled_cell(out, r),
             ];
             if with_kind {
-                cells.push(out.dim(kind_label(r.kind)));
+                cells.push(out.dim(row_kind(r)));
             }
             cells
         })
@@ -299,6 +310,24 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         attribution.push_str(&format!("\n{citation}"));
     }
 
+    // A manually added entry has no marketplace metadata to show, and a
+    // column of zeroes and `no`s would read as facts nobody established.
+    // What it does have is where it came from and what it follows.
+    let (source, follows) = match detail.manual {
+        Some(manual) => (
+            format!("{MANUAL_KIND} (`chaps models add`, {})", manual.added),
+            match &manual.follow {
+                Some(branch) => branch.clone(),
+                None => "nothing (pinned)".to_string(),
+            },
+        ),
+        None => (String::new(), String::new()),
+    };
+    let marketplace = |text: String| match detail.manual {
+        Some(_) => String::new(),
+        None => text,
+    };
+
     let mut covariates = Vec::new();
     if !m.covariates.required.is_empty() {
         covariates.push(format!("required: {}", m.covariates.required.join(", ")));
@@ -316,8 +345,19 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         &[
             ("id", m.id.clone()),
             ("service", m.service_id.clone()),
-            ("kind", kind_label(m.kind).to_string()),
-            ("status", status_label(m.assessed_status).to_string()),
+            (
+                "kind",
+                match detail.manual {
+                    Some(_) => MANUAL_KIND.to_string(),
+                    None => kind_label(m.kind).to_string(),
+                },
+            ),
+            ("source", source),
+            ("follows", follows),
+            (
+                "status",
+                marketplace(status_label(m.assessed_status).to_string()),
+            ),
             ("summary", output::wrapped(&m.summary, DETAIL_WRAP)),
             ("repository", m.source.repository.clone()),
             (
@@ -332,19 +372,22 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
             ("period types", m.compatibility.period_types.join(", ")),
             (
                 "horizon",
-                format!(
+                marketplace(format!(
                     "{}-{} prediction periods",
                     m.compatibility.min_prediction_periods, m.compatibility.max_prediction_periods
-                ),
+                )),
             ),
             (
                 "requires geo",
-                yes_no(m.compatibility.requires_geo).to_string(),
+                marketplace(yes_no(m.compatibility.requires_geo).to_string()),
             ),
-            ("covariates", covariates.join("\n")),
+            ("covariates", marketplace(covariates.join("\n"))),
             (
                 "channels",
-                format!("stable {}, latest {}", m.channels.stable, m.channels.latest),
+                marketplace(format!(
+                    "stable {}, latest {}",
+                    m.channels.stable, m.channels.latest
+                )),
             ),
             ("maintainers", m.maintainers.join(", ")),
             ("attribution", attribution),
@@ -415,7 +458,10 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
                         None => format!("{} (pinned)", enabled.version),
                     },
                 ),
-                ("image", format!("{}:{}", enabled.image, enabled.image_tag)),
+                (
+                    "image",
+                    crate::compose::image_ref(&enabled.image, &enabled.image_tag),
+                ),
                 ("overlay", enabled.compose_file.clone()),
             ],
             &|label| out.dim(label),
@@ -506,6 +552,18 @@ fn version_status_label(status: VersionStatus) -> &'static str {
     }
 }
 
+/// The KIND cell: `manual` for a model this deployment defines itself, and
+/// otherwise what the marketplace calls the entry.
+fn row_kind(row: &ModelRow) -> &'static str {
+    if row.manual {
+        return MANUAL_KIND;
+    }
+    kind_label(row.kind)
+}
+
+/// What the KIND cell and the `info` page call a manually added model.
+const MANUAL_KIND: &str = "manual";
+
 fn kind_label(kind: Kind) -> &'static str {
     match kind {
         Kind::Model => "model",
@@ -522,7 +580,7 @@ mod tests {
     use super::*;
 
     fn registry() -> crate::registry::Registry {
-        registry::load_embedded().expect("the embedded snapshot parses")
+        crate::registry::load_embedded().expect("the embedded snapshot parses")
     }
 
     fn model(id: &str) -> Model {
@@ -602,6 +660,129 @@ mod tests {
         assert!(with_kind.lines().all(|l| !l.ends_with(' ')));
     }
 
+    /// A model this deployment added itself, synthesised the way
+    /// `with_manual` does.
+    fn manual_entry() -> ManualModel {
+        ManualModel {
+            service_id: "chapkit-ghr-model".into(),
+            display_name: "chapkit_ghr_model".into(),
+            repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
+            image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+            tag: "sha-b1d6c31".into(),
+            commit: Some("b1d6c31f4b2f".into()),
+            follow: Some("main".into()),
+            data_dir: Some("/work/data".into()),
+            user: Some("10001:10001".into()),
+            runtime_amd64: true,
+            added: "2026-09-24".into(),
+        }
+    }
+
+    #[test]
+    fn the_kind_cell_marks_a_manually_added_model() {
+        let out = Out::default();
+        let manual = manual_entry().to_model("chapkit_ghr_model");
+        let rows = vec![row(&manual, None), row(&model("chapkit_ewars_model"), None)];
+        assert!(rows[0].manual && !rows[1].manual);
+        assert_eq!(row_kind(&rows[0]), "manual");
+        assert_eq!(row_kind(&rows[1]), "model");
+
+        // The column carries it, and the marketplace row keeps its own word.
+        let text = table(&out, &rows, true);
+        assert!(text.lines().nth(1).unwrap().ends_with("manual"), "{text}");
+        assert!(text.lines().nth(2).unwrap().ends_with("model"), "{text}");
+        assert!(text.lines().all(|l| !l.ends_with(' ')));
+
+        // And `--json` says so per row.
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&rows).unwrap()).unwrap();
+        assert_eq!(value[0]["manual"], true);
+        assert_eq!(value[1]["manual"], false);
+    }
+
+    #[test]
+    fn info_names_the_source_and_the_branch_of_a_manual_model() {
+        let entry = manual_entry();
+        let manual = entry.to_model("chapkit_ghr_model");
+        let text = detail_with(&manual, None, Some(&entry));
+        assert!(text.contains("kind        manual"), "{text}");
+        assert!(
+            text.contains("source      manual (`chaps models add`, 2026-09-24)"),
+            "{text}"
+        );
+        assert!(text.contains("follows     main"), "{text}");
+        assert!(
+            text.contains("image       ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31"),
+            "{text}"
+        );
+        // Nothing the marketplace would have established is claimed.
+        for absent in [
+            "horizon",
+            "requires geo",
+            "covariates",
+            "channels",
+            "status ",
+        ] {
+            assert!(!text.contains(absent), "{absent} in:\n{text}");
+        }
+        assert!(text.contains("(amd64 only)"), "{text}");
+
+        // A pinned entry says so where the branch would have been.
+        let pinned = ManualModel {
+            follow: None,
+            ..entry
+        };
+        let text = detail_with(&pinned.to_model("chapkit_ghr_model"), None, Some(&pinned));
+        assert!(text.contains("follows     nothing (pinned)"), "{text}");
+
+        // A marketplace model is unchanged: no source line, and every
+        // marketplace field still there.
+        let text = detail_of(&model("chapkit_ewars_model"), None);
+        assert!(!text.contains("source  "), "{text}");
+        assert!(text.contains("horizon"), "{text}");
+    }
+
+    #[test]
+    fn info_json_carries_the_manual_flag() {
+        let manual = manual_entry().to_model("chapkit_ghr_model");
+        let detail = ModelDetail {
+            model: &manual,
+            enabled: None,
+            manual: None,
+            in_project: true,
+            reach: None,
+            image_stable: channel_image(&manual, Channel::Stable),
+            image_latest: channel_image(&manual, Channel::Latest),
+            needs_amd64: manual.needs_amd64(),
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&detail).unwrap()).unwrap();
+        assert_eq!(value["manual"], true);
+        assert_eq!(value["id"], "chapkit_ghr_model");
+        // Both channels resolve to the one published build.
+        assert_eq!(
+            value["image_stable"],
+            "ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31"
+        );
+        assert_eq!(value["image_stable"], value["image_latest"]);
+
+        // A marketplace entry says so too, rather than leaving the field out.
+        let ewars = model("chapkit_ewars_model");
+        let detail = ModelDetail {
+            model: &ewars,
+            enabled: None,
+            manual: None,
+            in_project: false,
+            reach: None,
+            image_stable: None,
+            image_latest: None,
+            needs_amd64: false,
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&detail).unwrap()).unwrap();
+        assert_eq!(value["manual"], false);
+    }
+
     #[test]
     fn an_unenabled_model_shows_a_dash() {
         let out = Out::default();
@@ -611,6 +792,15 @@ mod tests {
     }
 
     fn detail_of(m: &Model, enabled: Option<&EnabledModel>) -> String {
+        detail_with(m, enabled, None)
+    }
+
+    /// The same, for a model the deployment defines itself.
+    fn detail_with(
+        m: &Model,
+        enabled: Option<&EnabledModel>,
+        manual: Option<&ManualModel>,
+    ) -> String {
         let project = Project {
             dir: std::path::PathBuf::from("/tmp/chapx"),
             state: Default::default(),
@@ -618,6 +808,7 @@ mod tests {
         let detail = ModelDetail {
             model: m,
             enabled,
+            manual,
             // Every `info` test below runs as if inside a deployment.
             in_project: true,
             reach: enabled.map(|e| crate::status::reach(&project, e.host_port, &e.service_id)),
@@ -716,6 +907,7 @@ mod tests {
         let detail = ModelDetail {
             model: &m,
             enabled: None,
+            manual: None,
             in_project: true,
             reach: None,
             image_stable: channel_image(&m, Channel::Stable),

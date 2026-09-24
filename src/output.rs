@@ -634,12 +634,19 @@ fn terminal_width() -> usize {
 fn push_row<'a>(out: &mut String, cells: impl Iterator<Item = &'a str>, widths: &[usize]) {
     let cells: Vec<&str> = cells.collect();
     let last = cells.len().saturating_sub(1);
+    let start = out.len();
     for (i, cell) in cells.iter().enumerate() {
         out.push_str(cell);
         if i != last {
             let pad = widths[i].saturating_sub(display_width(cell)) + 2;
             out.push_str(&" ".repeat(pad));
         }
+    }
+    // A row whose last cells are empty would otherwise end in the padding of
+    // the columns before them, and no line of this CLI's output ends in
+    // whitespace. Only spaces this function itself added can be here.
+    while out.len() > start && out.ends_with(' ') {
+        out.pop();
     }
     out.push('\n');
 }
@@ -687,6 +694,19 @@ mod tests {
         assert_eq!(lines[2], "auto_arima_chapkit   5002");
         assert!(lines.iter().all(|l| !l.ends_with(' ')));
         assert!(text.ends_with('\n'));
+
+        // A row whose last cells are empty ends after its last word, not in
+        // the padding of the columns before them.
+        let text = out.table(
+            &["VERSION", "STATUS", "CHAPKIT", "CHANGELOG"],
+            &[vec![
+                "sha-b1d6c31".into(),
+                "unstable".into(),
+                String::new(),
+                String::new(),
+            ]],
+        );
+        assert_eq!(text.lines().nth(1), Some("sha-b1d6c31  unstable"));
     }
 
     #[test]

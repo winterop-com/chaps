@@ -11,7 +11,7 @@ use crate::compose::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 use crate::error::{ChapError, Result};
 use crate::output::Out;
 use crate::project::Project;
-use crate::registry::{self, Channel, Registry, VersionSelector};
+use crate::registry::{Channel, Registry, VersionSelector};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -22,7 +22,7 @@ use std::path::PathBuf;
 /// over the compose network, which is the URL the service registers.
 pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     let mut project = ctx.project()?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
 
     // --version and --channel conflict in the parser, so at most one is set.
     let selector = match (&args.version, args.channel) {
@@ -62,7 +62,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 /// with the model.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     let mut project = ctx.project()?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
 
     // Accept either identifier, but only for a model this project enabled:
     // disabling something that was never on is a typo, not a no-op. With
@@ -74,6 +74,28 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         }
         return Err(ChapError::UnknownModel(args.id.clone()).into());
     };
+    let (report, notes) = disable_enabled(ctx, &mut project, &registry, &id, args.purge)?;
+    ctx.out.emit(&report, || {
+        summary(&report.apply, &notes, &project, &ctx.out)
+    })
+}
+
+/// Disable a model this project has enabled: stop its container, remove its
+/// overlay and take it out of `.chaps/models.yaml`, then deal with its data
+/// volume.
+///
+/// The half of [`disable`] that `chaps models remove` needs too: removing a
+/// manually added model has to disable it first, and doing that by any other
+/// path would leave the container running and the volume unnamed. Returns
+/// what was done plus the notes that belong in the closing lines.
+pub(crate) fn disable_enabled(
+    ctx: &Ctx,
+    project: &mut Project,
+    registry: &Registry,
+    id: &str,
+    purge: bool,
+) -> Result<(DisableReport, Vec<String>)> {
+    let id = id.to_string();
     let service_id = project.state.models[&id].service_id.clone();
     let selection = Selection {
         enable: Vec::new(),
@@ -81,13 +103,13 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     };
     // Nothing is written before this passes, so the container is only touched
     // for a disable that is going through.
-    crate::compose::apply::validate(&project, &registry, &selection)?;
+    crate::compose::apply::validate(project, registry, &selection)?;
 
     // The container goes now, while compose still has the overlay that
     // defines it: a service whose definition has just been deleted cannot be
     // stopped by name, and one left running keeps its host port published
     // long after the model was disabled.
-    let stopped = super::docker::stop_and_remove(&project, &|service| {
+    let stopped = super::docker::stop_and_remove(project, &|service| {
         // The model's own container, and the exited one-shot companion that
         // handed its volume over before it started.
         service.strip_suffix("-init").unwrap_or(service) == service_id
@@ -100,7 +122,7 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     let volume = project.prefixed_volume(&crate::compose::volume_name(&id));
     let mut purged = Vec::new();
     let mut kept_volumes = Vec::new();
-    match (&volume, args.purge) {
+    match (&volume, purge) {
         (Some(name), true) => {
             let (removed, line) = super::docker::purge_volume(name);
             purged.extend(removed);
@@ -118,14 +140,12 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     }
 
     let report = DisableReport {
-        apply: apply(&mut project, &registry, &selection, ctx.cli_version)?,
+        apply: apply(project, registry, &selection, ctx.cli_version)?,
         stopped,
         purged,
         kept_volumes,
     };
-    ctx.out.emit(&report, || {
-        summary(&report.apply, &notes, &project, &ctx.out)
-    })
+    Ok((report, notes))
 }
 
 /// `--purge` for a model this project does not have enabled.
@@ -184,19 +204,19 @@ fn purge_id(listed: Option<&str>, wanted: &str) -> String {
 /// What `models disable` did: the state edit, what became of the container
 /// that was running the model, and what became of its data volume.
 #[derive(Debug, serde::Serialize)]
-struct DisableReport {
+pub(crate) struct DisableReport {
     #[serde(flatten)]
-    apply: ApplyReport,
+    pub(crate) apply: ApplyReport,
     /// What was done about the container, when there was one to do anything
     /// about.
     #[serde(skip_serializing_if = "Option::is_none")]
-    stopped: Option<String>,
+    pub(crate) stopped: Option<String>,
     /// Data volumes this run removed: the model's own, when `--purge` asked
     /// for it and it was there to remove.
-    purged: Vec<String>,
+    pub(crate) purged: Vec<String>,
     /// Data volumes it left in place, which is what a disable without
     /// `--purge` does.
-    kept_volumes: Vec<String>,
+    pub(crate) kept_volumes: Vec<String>,
 }
 
 /// Publish a host port for a model that is already enabled.
@@ -236,7 +256,7 @@ struct PortChange {
 /// the request it is not making.
 fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
     let mut project = ctx.project()?;
-    let registry = registry::load(&ctx.registry)?;
+    let registry = super::registry_for(ctx, Some(&project))?;
     let id = enabled_id(&project, wanted).ok_or_else(|| ChapError::UnknownModel(wanted.into()))?;
     let previous = project.state.models[&id].host_port;
 
@@ -322,7 +342,7 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], out
 }
 
 /// The state key for a marketplace id or a compose service id.
-fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
+pub(crate) fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
     if project.state.models.contains_key(wanted) {
         return Some(wanted.to_string());
     }
@@ -339,7 +359,12 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
 /// `notes` is what `disable` did beyond the state edit: the container that
 /// was running the model, and the data volume it kept or removed. They belong
 /// in the closing lines, next to the files that were removed.
-fn summary(report: &ApplyReport, notes: &[String], project: &Project, out: &Out) -> String {
+pub(crate) fn summary(
+    report: &ApplyReport,
+    notes: &[String],
+    project: &Project,
+    out: &Out,
+) -> String {
     let mut text = String::new();
     for (id, model) in report.touched() {
         let verb = if report.enabled.iter().any(|(e, _)| e == id) {
@@ -350,7 +375,12 @@ fn summary(report: &ApplyReport, notes: &[String], project: &Project, out: &Out)
         text.push_str(&format!(
             "{} {id} {} {} {}\n",
             out.ok(verb),
-            out.dim(&format!("v{}", model.version)),
+            // A manually added model's version is its image tag, so `v` in
+            // front of it would read as a version number it does not have.
+            out.dim(&match model.version == model.image_tag {
+                true => model.image_tag.clone(),
+                false => format!("v{}", model.version),
+            }),
             match model.host_port {
                 Some(port) => format!("on {}", out.value(&format!("http://localhost:{port}"))),
                 None => format!("at {}", out.value(&project.proxy_url(&model.service_id))),
@@ -426,7 +456,7 @@ mod tests {
     /// and therefore which volume it removes.
     #[test]
     fn a_purge_names_the_volume_by_the_marketplace_id() {
-        let registry = registry::load_embedded().expect("the embedded snapshot parses");
+        let registry = crate::registry::load_embedded().expect("the embedded snapshot parses");
         for typed in ["chapkit_ewars_model", "chapkit-ewars-model"] {
             let listed = registry.get(typed).map(|model| model.id.as_str());
             assert_eq!(purge_id(listed, typed), "chapkit_ewars_model");
@@ -487,6 +517,26 @@ mod tests {
             ),
             "{text}"
         );
+    }
+
+    /// A manually added model's version is its image tag; printing `v` in
+    /// front of it would claim a version number it does not have.
+    #[test]
+    fn a_manual_models_line_names_its_tag_rather_than_a_version() {
+        let mut project = project_with_ewars(None);
+        let entry = project
+            .state
+            .models
+            .get_mut("chapkit_ewars_model")
+            .expect("just built");
+        entry.version = "sha-b1d6c31".into();
+        entry.image_tag = "sha-b1d6c31".into();
+        let text = summary(&enabled_report(&project), &[], &project, &Out::default());
+        assert!(
+            text.contains("enabled chapkit_ewars_model sha-b1d6c31 at "),
+            "{text}"
+        );
+        assert!(!text.contains("vsha-"), "{text}");
     }
 
     #[test]

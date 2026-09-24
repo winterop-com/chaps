@@ -18,6 +18,12 @@ pub const CHAPS_DIR: &str = ".chaps";
 pub const PROJECT_FILE: &str = "project.yaml";
 /// The enabled model set, inside [`CHAPS_DIR`].
 pub const MODELS_FILE: &str = "models.yaml";
+/// Models added with `chaps models add`, inside [`CHAPS_DIR`].
+///
+/// The marketplace's answer for a model it does not list: the definition the
+/// catalogue would have carried, recorded per deployment. It is a definition,
+/// not an enablement - [`MODELS_FILE`] still says which models are on.
+pub const MANUAL_MODELS_FILE: &str = "models-manual.yaml";
 /// Base compose file: chap-core, worker, valkey, postgres.
 pub const BASE_COMPOSE: &str = "compose.yml";
 /// chaps-owned overrides that sit on top of [`BASE_COMPOSE`]: the API's host
@@ -214,6 +220,14 @@ const MODELS_HEADER: &str = "\
 # `chaps sync` renders one compose.<service_id>.yml per entry plus compose.marketplace.yml.
 ";
 
+const MANUAL_MODELS_HEADER: &str = "\
+# .chaps/models-manual.yaml - managed by chaps. Models that are not in the marketplace,
+# added by `chaps models add` and removed by `chaps models remove`. Each entry stands in
+# for a marketplace file: `chaps models enable|list|info|update` treat these like any other
+# model. An entry with `follow:` moves to the newest published build on that branch when
+# `chaps update` runs; one without it is pinned.
+";
+
 const COMPONENTS_HEADER: &str = "\
 # .chaps/components.yaml - managed by chaps. What this deployment is made of, edited by
 # `chaps init --with|--without` and `chaps components enable|disable`.
@@ -336,6 +350,10 @@ pub struct ProjectState {
     /// Enabled models, keyed by marketplace `id`. Lives in `models.yaml`.
     #[serde(skip)]
     pub models: BTreeMap<String, EnabledModel>,
+    /// Models this deployment defines itself, keyed by id. Lives in
+    /// `models-manual.yaml`; a project that has added none has no such file.
+    #[serde(skip)]
+    pub manual: ManualModels,
     /// What the deployment is made of. Lives in `components.yaml`; a project
     /// written before that file existed loads as chap-core alone, which is
     /// what it was.
@@ -358,6 +376,7 @@ impl Default for ProjectState {
             port_range: DEFAULT_PORT_RANGE,
             rendered_files: Vec::new(),
             models: BTreeMap::new(),
+            manual: ManualModels::new(),
             components: Components::default(),
         }
     }
@@ -390,6 +409,130 @@ pub struct EnabledModel {
     pub platform: Option<String>,
     /// Overlay file name, relative to the project directory.
     pub compose_file: String,
+}
+
+/// The manual model definitions of a deployment, keyed by id.
+pub type ManualModels = BTreeMap<String, ManualModel>;
+
+/// One model added with `chaps models add`, as recorded in
+/// `models-manual.yaml`.
+///
+/// Everything a marketplace file would have said about it, and nothing about
+/// whether it is enabled: that stays in `models.yaml`, so a manually added
+/// model can be disabled and enabled again like any other.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ManualModel {
+    /// Compose service name and DNS name. It has to match the id the service
+    /// registers with chap-core under, or `chaps status` sees an unmanaged
+    /// service next to a model that never arrived.
+    pub service_id: String,
+    pub display_name: String,
+    /// The GitHub repository it was added from, when it was added from one.
+    #[serde(default)]
+    pub repository: Option<String>,
+    /// Tagless image reference, lowercase.
+    pub image: String,
+    /// The pin: a `sha-<short commit>` tag, or `@sha256:...` for a digest.
+    pub tag: String,
+    /// The commit the tag was built from, where it is known.
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// The branch `chaps update` follows, or `None` for a pinned entry.
+    #[serde(default)]
+    pub follow: Option<String>,
+    /// The data directory the image writes to, as `models add` resolved it.
+    ///
+    /// The marketplace's equivalent is [`crate::compose::overrides`], which
+    /// is a table of images this CLI ships with and cannot grow an entry for
+    /// a model it has never seen. Recording it here is what makes `models
+    /// disable` followed by `models enable` bring the model back as it was,
+    /// rather than on the chapkit defaults.
+    #[serde(default)]
+    pub data_dir: Option<String>,
+    /// The `user:group` the container runs as, likewise.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Whether the image is published for amd64 only, which is what the
+    /// synthesised entry reports as the R-INLA runtime.
+    #[serde(default)]
+    pub runtime_amd64: bool,
+    /// `YYYY-MM-DD`, the day it was added.
+    pub added: String,
+}
+
+impl ManualModel {
+    /// The marketplace entry this definition stands in for.
+    ///
+    /// One version, which both channels point at, so every path that resolves
+    /// a model - `enable`, `sync`, `update`, the browser - reaches the
+    /// recorded pin without a special case. The status is gray and the
+    /// summary says where it came from, because nothing here was reviewed by
+    /// the marketplace.
+    pub fn to_model(&self, id: &str) -> crate::registry::Model {
+        use crate::registry::model::{
+            Attribution, Channels, Compatibility, Covariates, Kind, Source, Version, VersionStatus,
+        };
+        let origin = self
+            .repository
+            .clone()
+            .unwrap_or_else(|| crate::compose::image_ref(&self.image, &self.tag));
+        crate::registry::Model {
+            schema_version: 2,
+            id: id.to_string(),
+            service_id: self.service_id.clone(),
+            display_name: self.display_name.clone(),
+            kind: Kind::Model,
+            assessed_status: crate::registry::AssessedStatus::Gray,
+            summary: format!("added manually from {origin}"),
+            source: Source {
+                repository: origin,
+                image: self.image.clone(),
+                runtime_image: match self.runtime_amd64 {
+                    true => crate::registry::model::R_INLA_RUNTIME.to_string(),
+                    false => String::new(),
+                },
+            },
+            attribution: Attribution {
+                author: String::new(),
+                organization: None,
+                contact: None,
+                citation: None,
+            },
+            maintainers: Vec::new(),
+            compatibility: Compatibility {
+                period_types: Vec::new(),
+                min_prediction_periods: 0,
+                max_prediction_periods: 0,
+                requires_geo: false,
+            },
+            covariates: Covariates {
+                required: Vec::new(),
+                defaults: Vec::new(),
+                allow_free_additional: false,
+            },
+            channels: Channels {
+                stable: self.tag.clone(),
+                latest: self.tag.clone(),
+            },
+            versions: vec![Version {
+                version: self.tag.clone(),
+                commit: self.commit.clone().unwrap_or_default(),
+                image_tag: self.tag.clone(),
+                chapkit: String::new(),
+                status: VersionStatus::Unstable,
+                verified_by: Vec::new(),
+                changelog: None,
+                notes: None,
+            }],
+            configurations: BTreeMap::new(),
+            manual: true,
+        }
+    }
+
+    /// The image reference this entry pins.
+    pub fn image_ref(&self) -> String {
+        crate::compose::image_ref(&self.image, &self.tag)
+    }
 }
 
 /// A project directory plus its parsed state.
@@ -469,6 +612,22 @@ impl Project {
             }
         };
 
+        // Definitions, not enablements: a deployment that has added no model
+        // of its own has no such file, which is not a state to migrate.
+        let manual_path = chaps.join(MANUAL_MODELS_FILE);
+        state.manual = match std::fs::read_to_string(&manual_path) {
+            Ok(body) if is_blank_yaml(&body) => ManualModels::new(),
+            Ok(body) => serde_yaml_ng::from_str(&body).map_err(|e| {
+                anyhow::anyhow!("{}: invalid models-manual.yaml: {e}", manual_path.display())
+            })?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ManualModels::new(),
+            Err(e) => {
+                return Err(
+                    anyhow::Error::new(e).context(format!("reading {}", manual_path.display()))
+                );
+            }
+        };
+
         // Every field of `Components` defaults, so a missing or comment-only
         // file is "chap-core and nothing else" rather than an error.
         let components_path = chaps.join(COMPONENTS_FILE);
@@ -510,6 +669,19 @@ impl Project {
             serde_yaml_ng::to_string(&self.state.models)?
         );
         write_atomically(&chaps.join(MODELS_FILE), &models_body)?;
+
+        // Written only by a deployment that has one: an empty file in every
+        // other project would be a file to explain, and `chaps models remove`
+        // leaves the (now empty) one it emptied rather than deleting a file
+        // the operator can see.
+        let manual_path = chaps.join(MANUAL_MODELS_FILE);
+        if !self.state.manual.is_empty() || manual_path.is_file() {
+            let manual_body = format!(
+                "{MANUAL_MODELS_HEADER}{}",
+                serde_yaml_ng::to_string(&self.state.manual)?
+            );
+            write_atomically(&manual_path, &manual_body)?;
+        }
 
         let components_body = format!(
             "{COMPONENTS_HEADER}{}",
@@ -689,6 +861,138 @@ mod tests {
             platform: Some("linux/amd64".into()),
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         }
+    }
+
+    /// The definition `chaps models add https://github.com/chap-models/\
+    /// chapkit_ghr_model` records.
+    fn manual() -> ManualModel {
+        ManualModel {
+            service_id: "chapkit-ghr-model".into(),
+            display_name: "chapkit_ghr_model".into(),
+            repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
+            image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+            tag: "sha-b1d6c31".into(),
+            commit: Some("b1d6c31f4b2f0d8a0f4c6e2a5e9d3c7b8a1f0e2d".into()),
+            follow: Some("main".into()),
+            data_dir: Some("/work/data".into()),
+            user: Some("10001:10001".into()),
+            runtime_amd64: true,
+            added: "2026-09-24".into(),
+        }
+    }
+
+    #[test]
+    fn a_manual_definition_round_trips_in_a_file_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                manual: ManualModels::from([("chapkit_ghr_model".to_string(), manual())]),
+                ..ProjectState::default()
+            },
+        };
+        project.save().unwrap();
+
+        let path = dir.path().join(CHAPS_DIR).join(MANUAL_MODELS_FILE);
+        let body = std::fs::read_to_string(&path).expect("models-manual.yaml is written");
+        assert!(body.starts_with("# .chaps/models-manual.yaml - managed by chaps"));
+        assert!(body.contains("\nchapkit_ghr_model:\n"), "{body}");
+        assert!(body.contains("  follow: main\n"), "{body}");
+        assert!(body.contains("  added: 2026-09-24\n"), "{body}");
+        // A definition is not an enablement: models.yaml stays empty.
+        let models = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(MODELS_FILE)).unwrap();
+        assert!(!models.contains("chapkit_ghr_model"), "{models}");
+
+        let loaded = Project::load(dir.path()).unwrap();
+        assert_eq!(loaded.state.manual["chapkit_ghr_model"], manual());
+        assert!(loaded.state.models.is_empty());
+    }
+
+    #[test]
+    fn a_project_that_added_no_model_of_its_own_has_no_such_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState::default(),
+        };
+        project.save().unwrap();
+        let path = dir.path().join(CHAPS_DIR).join(MANUAL_MODELS_FILE);
+        assert!(!path.exists(), "an empty file would be one to explain");
+        assert!(Project::load(dir.path()).unwrap().state.manual.is_empty());
+
+        // A file that exists keeps being written, even once it is empty: the
+        // operator can see it, so it must not turn stale.
+        std::fs::write(&path, "# nothing added\n").unwrap();
+        assert!(Project::load(dir.path()).unwrap().state.manual.is_empty());
+        project.save().unwrap();
+        assert!(path.is_file());
+    }
+
+    /// Every path that resolves a model - `enable`, `sync`, `update`, the
+    /// browser - asks a channel or an exact version for a [`Version`]. A
+    /// manual entry has one version, so both answers are it.
+    #[test]
+    fn the_synthesised_entry_resolves_every_selector_to_the_recorded_tag() {
+        use crate::registry::{AssessedStatus, Channel as C, Kind, VersionSelector};
+
+        let model = manual().to_model("chapkit_ghr_model");
+        assert!(model.manual);
+        assert_eq!(model.id, "chapkit_ghr_model");
+        assert_eq!(model.service_id, "chapkit-ghr-model");
+        assert_eq!(model.kind, Kind::Model);
+        assert!(!model.is_template());
+        assert_eq!(model.assessed_status, AssessedStatus::Gray);
+        assert_eq!(
+            model.summary,
+            "added manually from https://github.com/chap-models/chapkit_ghr_model"
+        );
+        for channel in [C::Stable, C::Latest] {
+            let version = model.resolve(&VersionSelector::Channel(channel)).unwrap();
+            assert_eq!(version.image_tag, "sha-b1d6c31", "{channel:?}");
+            assert_eq!(version.version, "sha-b1d6c31", "{channel:?}");
+        }
+        let exact = model
+            .resolve(&VersionSelector::Exact("sha-b1d6c31".into()))
+            .unwrap();
+        assert_eq!(model.image_ref(exact), manual().image_ref());
+        // amd64 only, so it reports the R-INLA runtime the overlays pin for.
+        assert!(model.needs_amd64());
+
+        // An entry added from an image names the image where a repository
+        // would have been, and says nothing about the runtime.
+        let model = ManualModel {
+            repository: None,
+            runtime_amd64: false,
+            ..manual()
+        }
+        .to_model("chapkit_ghr_model");
+        assert_eq!(
+            model.summary,
+            "added manually from ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31"
+        );
+        assert_eq!(
+            model.source.repository,
+            model.source.image.clone() + ":sha-b1d6c31"
+        );
+        assert!(!model.needs_amd64());
+    }
+
+    #[test]
+    fn a_digest_pin_synthesises_a_digest_reference() {
+        let entry = ManualModel {
+            tag: format!("@sha256:{}", "c".repeat(64)),
+            follow: None,
+            ..manual()
+        };
+        assert_eq!(
+            entry.image_ref(),
+            format!(
+                "ghcr.io/chap-models/chapkit_ghr_model@sha256:{}",
+                "c".repeat(64)
+            )
+        );
+        let model = entry.to_model("chapkit_ghr_model");
+        assert_eq!(model.versions[0].image_tag, entry.tag);
     }
 
     #[test]

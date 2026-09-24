@@ -522,6 +522,82 @@ fn image_id(reference: &str) -> Option<String> {
     (!id.is_empty()).then_some(id)
 }
 
+/// What one image on this machine says about how it runs: `(user, working
+/// directory)`, or `None` when this machine does not have the image.
+///
+/// The same two fields the registry's config blob carries, which is what
+/// makes this the fallback for `chaps models add` when ghcr cannot be
+/// reached: a tab-separated `docker image inspect`, so an empty field stays
+/// an empty field.
+pub fn image_config(reference: &str) -> Option<(String, String)> {
+    let args = vec![
+        "image".to_string(),
+        "inspect".to_string(),
+        "--format".to_string(),
+        "{{.Config.User}}\t{{.Config.WorkingDir}}".to_string(),
+        reference.to_string(),
+    ];
+    let text = docker_capture(&args)?;
+    let line = text.lines().next()?;
+    let (user, working_dir) = line.split_once('\t')?;
+    Some((user.trim().to_string(), working_dir.trim().to_string()))
+}
+
+/// Pull one image, showing docker's own progress, and say whether it worked.
+///
+/// The platform is pinned for the same reason every model overlay pins it:
+/// the model images are published for amd64 only, and an Apple Silicon host
+/// asked for its own architecture is told there is no matching manifest.
+pub fn pull_image(reference: &str) -> bool {
+    let args = [
+        "pull".to_string(),
+        "--platform".to_string(),
+        crate::compose::AMD64_PLATFORM.to_string(),
+        reference.to_string(),
+    ];
+    trace_command(&args);
+    Command::new("docker")
+        .args(&args)
+        .stdin(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// The numeric `uid:gid` of an account name inside an image, by asking the
+/// image itself.
+///
+/// The last resort of `chaps models add`: an image that runs as a name this
+/// CLI has never heard of still has to be chowned to something, and only the
+/// image knows what that name resolves to. `sh` and `id` are in every
+/// chapkit base; an image with neither yields `None` and the caller falls
+/// back to the name plus a `--user` hint.
+pub fn uid_gid_in_image(reference: &str, name: &str) -> Option<(u32, u32)> {
+    let args = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "--platform".to_string(),
+        crate::compose::AMD64_PLATFORM.to_string(),
+        "--entrypoint".to_string(),
+        "sh".to_string(),
+        reference.to_string(),
+        "-c".to_string(),
+        format!("id -u {name}; id -g {name}"),
+    ];
+    let text = docker_capture(&args)?;
+    parse_uid_gid(&text)
+}
+
+/// The two numbers `id -u NAME; id -g NAME` prints.
+pub fn parse_uid_gid(text: &str) -> Option<(u32, u32)> {
+    let mut numbers = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| line.parse::<u32>().ok());
+    Some((numbers.next()?, numbers.next()?))
+}
+
 /// Run a plain `docker` command (no `compose`, no project) and return its
 /// stdout, or `None` when it could not be run or answered non-zero.
 ///
@@ -1096,6 +1172,19 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_uid_probe_reads_the_two_numbers_the_image_printed() {
+        assert_eq!(parse_uid_gid("10001\n10001\n"), Some((10001, 10001)));
+        assert_eq!(parse_uid_gid("  1000 \n 1000 \n"), Some((1000, 1000)));
+        assert_eq!(parse_uid_gid("0\n0"), Some((0, 0)));
+        // A busybox that says `id: unknown user app` on stderr prints
+        // nothing here, and an image with no `id` at all prints nothing
+        // either: both are "the image could not be asked".
+        for text in ["", "\n\n", "10001", "nope\nnope"] {
+            assert_eq!(parse_uid_gid(text), None, "{text:?}");
+        }
+    }
     use crate::project::{MARKETPLACE_COMPOSE, ProjectState};
     use std::path::PathBuf;
 
