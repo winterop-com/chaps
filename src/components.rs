@@ -255,6 +255,15 @@ impl Components {
 pub const S3_SOON_NOTE: &str = "OCS will soon need an S3-compatible object store; `chaps components enable s3` \
      adds one, and the OCS service then gets the S3_* variables it will read";
 
+/// Why a model cannot be enabled while `chap-core` is off.
+///
+/// The mirror image of [`models_need_chap_core`]: the same dependency, seen
+/// from the model's side. [`crate::compose::apply::validate`] raises it, so
+/// `models enable`, the browser and every other caller of the shared apply
+/// path all say the same thing.
+pub const MODELS_NEED_CHAP_CORE: &str =
+    "models need the chap-core component; run `chaps components enable chap-core`";
+
 /// Why `chap-core` cannot be turned off while models are enabled.
 pub fn models_need_chap_core(models: &[String]) -> String {
     format!(

@@ -2,6 +2,7 @@
 //! TUI. It updates `.chaps/models.yaml` in memory and then hands over to
 //! [`crate::compose::sync`], which renders the compose files and saves.
 
+use crate::components::{Component, MODELS_NEED_CHAP_CORE};
 use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
 use crate::compose::ports::allocator_for;
@@ -44,6 +45,17 @@ pub struct EnableRequest {
     pub data_dir: Option<String>,
     pub user: Option<String>,
     pub allow_template: bool,
+    /// Leave the version the project recorded exactly as it is, [`selector`]
+    /// included.
+    ///
+    /// This is what a request that changes something *around* an enabled model
+    /// carries: publishing a host port is no reason to move the pin a running
+    /// deployment follows, and re-resolving the channel here would upgrade it
+    /// as a side effect. Ignored for a model that is not enabled yet, which
+    /// has no version to keep.
+    ///
+    /// [`selector`]: EnableRequest::selector
+    pub keep_version: bool,
 }
 
 impl EnableRequest {
@@ -56,6 +68,7 @@ impl EnableRequest {
             data_dir: None,
             user: None,
             allow_template: false,
+            keep_version: false,
         }
     }
 }
@@ -101,6 +114,44 @@ impl ApplyReport {
     }
 }
 
+/// Check a whole selection against the registry and the project state,
+/// changing nothing.
+///
+/// [`apply`] starts here, so every caller gets these answers before a file is
+/// written. `chaps init --force` calls it directly as well: it deletes the
+/// previous deployment's overlays before handing over to [`apply`], and a
+/// selection that was never going to work must not take them with it.
+pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Result<()> {
+    for wanted in &sel.disable {
+        if enabled_id(project, wanted).is_none() {
+            return Err(ChapError::UnknownModel(wanted.clone()).into());
+        }
+    }
+    // A model service registers with chap-core and is reached through it, so a
+    // deployment with models and no chap-core would start and do nothing.
+    // `init` and `components disable` each say this in their own words, about
+    // the flag or the component the caller named; this is the one that catches
+    // `models enable` and the browser.
+    if !sel.enable.is_empty() && !project.state.components.is_enabled(Component::ChapCore) {
+        return Err(anyhow::anyhow!(MODELS_NEED_CHAP_CORE));
+    }
+    for req in &sel.enable {
+        let model = registry
+            .get(&req.id)
+            .ok_or_else(|| ChapError::UnknownModel(req.id.clone()))?;
+        if model.is_template() && !req.allow_template {
+            return Err(ChapError::IsTemplate(req.id.clone()).into());
+        }
+        // A request that keeps the recorded version asks the registry for
+        // nothing; every other one needs a version that exists and is not
+        // yanked.
+        if !(req.keep_version && project.state.models.contains_key(&model.id)) {
+            model.resolve(&req.selector)?;
+        }
+    }
+    Ok(())
+}
+
 /// Apply a selection: disable first, then enable, then sync the compose
 /// files and `.chaps/` from the new state.
 ///
@@ -124,6 +175,7 @@ pub fn apply_with(
     cli_version: &str,
     busy: &dyn Fn(u16) -> bool,
 ) -> Result<ApplyReport> {
+    validate(project, registry, sel)?;
     let mut report = ApplyReport::default();
 
     // Disable first: a model can be removed and another put on its port in
@@ -157,17 +209,19 @@ pub fn apply_with(
         let model = registry
             .get(&req.id)
             .ok_or_else(|| ChapError::UnknownModel(req.id.clone()))?;
+        // A template nobody allowed was refused by validate() above; what is
+        // left is to say out loud that this one was allowed.
         if model.is_template() {
-            if !req.allow_template {
-                return Err(ChapError::IsTemplate(req.id.clone()).into());
-            }
             report.warnings.push(format!(
                 "{} is a template, not a deployable model; it is scaffolding to copy",
                 model.id
             ));
         }
-        let version = model.resolve(&req.selector)?;
         let existing = project.state.models.get(&model.id).cloned();
+        // What a `keep_version` request stands on: the entry as the project
+        // recorded it, pin and all. A model that is not enabled yet has
+        // nothing to keep, so it resolves like any other.
+        let pinned = existing.clone().filter(|_| req.keep_version);
 
         let host_port = match req.port {
             // No decision made: keep whatever the model has, which for a new
@@ -202,28 +256,41 @@ pub fn apply_with(
             .or_else(|| known.map(|k| k.user.to_string()))
             .unwrap_or_else(|| DEFAULT_USER.to_string());
 
-        let spec = OverlaySpec::from_model(
-            model,
-            version,
-            host_port,
-            Some(&data_dir),
-            Some(&user),
-            cli_version,
-        );
-        let entry = EnabledModel {
-            service_id: model.service_id.clone(),
-            image: model.source.image.clone(),
-            image_tag: version.image_tag.clone(),
-            version: version.version.clone(),
-            channel: match &req.selector {
-                VersionSelector::Channel(c) => Some(*c),
-                VersionSelector::Exact(_) => None,
+        let entry = match pinned {
+            // A port change, and nothing about the image: the recorded pin,
+            // the channel it follows and the platform all stay as they are.
+            Some(previous) => EnabledModel {
+                host_port,
+                data_dir,
+                user,
+                ..previous
             },
-            host_port,
-            data_dir,
-            user,
-            platform: spec.platform.clone(),
-            compose_file: overlay_filename(&model.service_id),
+            None => {
+                let version = model.resolve(&req.selector)?;
+                let spec = OverlaySpec::from_model(
+                    model,
+                    version,
+                    host_port,
+                    Some(&data_dir),
+                    Some(&user),
+                    cli_version,
+                );
+                EnabledModel {
+                    service_id: model.service_id.clone(),
+                    image: model.source.image.clone(),
+                    image_tag: version.image_tag.clone(),
+                    version: version.version.clone(),
+                    channel: match &req.selector {
+                        VersionSelector::Channel(c) => Some(*c),
+                        VersionSelector::Exact(_) => None,
+                    },
+                    host_port,
+                    data_dir,
+                    user,
+                    platform: spec.platform.clone(),
+                    compose_file: overlay_filename(&model.service_id),
+                }
+            }
         };
         if existing.is_some() {
             report.updated.push((model.id.clone(), entry.clone()));
@@ -607,6 +674,153 @@ mod tests {
         assert_eq!(report.enabled.len(), 1);
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("template"));
+    }
+
+    /// A model service registers with chap-core and is reached through it, so
+    /// a model in a deployment that has no chap-core would start and talk to
+    /// nothing. `init` and `components disable` guard their own side of this;
+    /// the shared path is what catches `models enable` and the browser.
+    #[test]
+    fn a_model_cannot_be_enabled_without_the_chap_core_component() {
+        let registry = load_embedded().unwrap();
+        let (dir, mut project) = project();
+        project
+            .state
+            .components
+            .set_enabled(Component::ChapCore, false);
+
+        let err = apply(
+            &mut project,
+            &registry,
+            &enable(&["chapkit_ewars_model"]),
+            VERSION,
+        )
+        .expect_err("a model has nowhere to register");
+        assert_eq!(
+            err.to_string(),
+            "models need the chap-core component; run `chaps components enable chap-core`"
+        );
+        assert!(project.state.models.is_empty());
+        assert!(!dir.path().join(".chaps").exists());
+        assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
+
+        // A selection that enables no model is not about models at all.
+        apply(&mut project, &registry, &Selection::default(), VERSION).unwrap();
+    }
+
+    /// Publishing a host port is no reason to move the version a deployment
+    /// runs: that is what the browser's port-only change carries
+    /// `keep_version` for.
+    #[test]
+    fn keep_version_leaves_the_recorded_pin_exactly_where_it_is() {
+        let registry = load_embedded().unwrap();
+        let (dir, mut project) = project();
+        apply(
+            &mut project,
+            &registry,
+            &enable(&["chapkit_ewars_model"]),
+            VERSION,
+        )
+        .unwrap();
+
+        // A deployment running a version pinned exactly, which is what the
+        // marketplace moving on looks like from here.
+        let entry = project
+            .state
+            .models
+            .get_mut("chapkit_ewars_model")
+            .expect("just enabled");
+        entry.version = "0.9.0".to_string();
+        entry.image_tag = "sha-older".to_string();
+        entry.channel = None;
+
+        let mut sel = publish(&["chapkit_ewars_model"]);
+        sel.enable[0].keep_version = true;
+        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let entry = &report.updated[0].1;
+        assert_eq!(entry.host_port, Some(5001), "the port change went through");
+        assert_eq!(entry.version, "0.9.0");
+        assert_eq!(entry.image_tag, "sha-older");
+        assert_eq!(entry.channel, None, "an exact pin follows no channel");
+        let overlay = std::fs::read_to_string(dir.path().join("compose.chapkit-ewars-model.yml"))
+            .expect("the overlay was rewritten");
+        assert!(overlay.contains("sha-older"), "{overlay}");
+
+        // The same request without it is what asks the registry again.
+        let report = apply(
+            &mut project,
+            &registry,
+            &publish(&["chapkit_ewars_model"]),
+            VERSION,
+        )
+        .unwrap();
+        let entry = &report.updated[0].1;
+        assert_eq!(entry.version, "1.0.0");
+        assert_eq!(entry.image_tag, "sha-fa880a1");
+        assert_eq!(entry.channel, Some(Channel::Stable));
+
+        // A model that is not enabled has no version to keep, so it resolves.
+        let mut sel = enable(&["auto_arima_chapkit"]);
+        sel.enable[0].keep_version = true;
+        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        assert_eq!(report.enabled[0].1.version, "1.0.0");
+    }
+
+    /// `init --force` deletes the previous deployment's overlays before
+    /// handing over to `apply`, so it asks first. Every answer has to be
+    /// available while all of it is still on disk.
+    #[test]
+    fn validate_answers_for_the_whole_selection_and_touches_nothing() {
+        let registry = load_embedded().unwrap();
+        let (dir, mut project) = project();
+
+        let err = validate(
+            &project,
+            &registry,
+            &enable(&["chapkit_minimalist_example_py"]),
+        )
+        .expect_err("templates are not deployable");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::IsTemplate(_))
+        ));
+        let err = validate(&project, &registry, &enable(&["nope"])).expect_err("unknown");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::UnknownModel(id)) if id == "nope"
+        ));
+        let sel = Selection {
+            enable: Vec::new(),
+            disable: vec!["auto_arima_chapkit".into()],
+        };
+        let err = validate(&project, &registry, &sel).expect_err("not enabled");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::UnknownModel(_))
+        ));
+        let mut sel = enable(&["chapkit_ewars_model"]);
+        sel.enable[0].selector = VersionSelector::Exact("9.9.9".into());
+        let err = validate(&project, &registry, &sel).expect_err("no such version");
+        assert!(matches!(
+            err.downcast_ref::<ChapError>(),
+            Some(ChapError::UnknownVersion { .. })
+        ));
+
+        // A selection that would apply says nothing, and none of these
+        // questions wrote anything.
+        validate(&project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
+        assert!(!dir.path().join(".chaps").exists());
+        assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+
+        // And what it allows, apply() goes on to do.
+        apply(
+            &mut project,
+            &registry,
+            &enable(&["chapkit_ewars_model"]),
+            VERSION,
+        )
+        .unwrap();
     }
 
     #[test]

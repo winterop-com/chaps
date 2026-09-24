@@ -312,7 +312,15 @@ impl<'a> App<'a> {
                     let channel_moved = row.channel != previous.channel.unwrap_or(Channel::Stable);
                     let port = port_change(row.publish, previous.host_port);
                     if channel_moved || port.is_some() {
-                        selection.enable.push(request(model, row, port));
+                        // Pressing `p` asks for a host port, not for a new
+                        // version: only a toggle or a new channel resolves the
+                        // registry again. Without this, publishing a port
+                        // would move a model that follows `latest` onto
+                        // whatever that points at today, and take an exact pin
+                        // off its version altogether.
+                        let mut req = request(model, row, port);
+                        req.keep_version = !channel_moved;
+                        selection.enable.push(req);
                     }
                 }
             }
@@ -431,6 +439,9 @@ fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest
         data_dir: None,
         user: None,
         allow_template: model.is_template(),
+        // The caller decides: a row the user toggled or re-channelled resolves
+        // the registry again, a row that only changed its port does not.
+        keep_version: false,
     }
 }
 
@@ -600,6 +611,10 @@ mod tests {
             VersionSelector::Channel(Channel::Stable),
             "the pin does not move because a port did"
         );
+        assert!(
+            selection.enable[0].keep_version,
+            "and the version the project recorded is kept, not re-resolved"
+        );
 
         // Pressing it again is back where we started, so nothing to apply.
         app.reduce(Action::TogglePublish);
@@ -617,6 +632,46 @@ mod tests {
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(selection.enable[0].port, Some(PortRequest::None));
         assert!(selection.disable.is_empty());
+    }
+
+    /// A port change and a channel change are two different requests. The
+    /// first has to keep the version the deployment is running - `state_with`
+    /// records an exact pin as `channel: None`, which is what re-resolving
+    /// would silently turn into "whatever stable points at today" - and the
+    /// second is asking for a new one.
+    #[test]
+    fn a_port_only_change_keeps_the_version_and_a_channel_change_does_not() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, None, None);
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+
+        app.reduce(Action::TogglePublish);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
+        assert!(
+            selection.enable[0].keep_version,
+            "`p` asks for a port, not for an upgrade"
+        );
+
+        // Cycling the channel is a request about the version, port and all.
+        app.reduce(Action::CycleChannel);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert_eq!(
+            selection.enable[0].selector,
+            VersionSelector::Channel(Channel::Latest)
+        );
+        assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
+        assert!(!selection.enable[0].keep_version);
+
+        // A row this session enabled has no recorded version to keep.
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        app.reduce(Action::TogglePublish);
+        assert!(!app.selection().enable[0].keep_version);
     }
 
     #[test]

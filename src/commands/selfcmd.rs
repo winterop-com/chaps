@@ -129,15 +129,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     } else {
         selfupdate::is_newer_than_current(&release.tag)
     };
-    // A dev build already on that commit is where the release would put it,
-    // with or without --version. A stable build asking for `--version dev` is
-    // crossing channels and is never "already there", even in the one case
-    // where the tag and the rolling build sit on the same commit.
-    let same = if rolling {
-        channel == Channel::Dev && !newer
-    } else {
-        release.tag.trim_start_matches('v') == VERSION
-    };
+    let same = already_running(channel, &release.tag, VERSION, newer);
 
     let asset = selfupdate::pick_asset(&release, TARGET);
     let path = std::env::current_exe().ok();
@@ -249,6 +241,29 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             )
         )
     })
+}
+
+/// Whether the release that was looked up is the build already running, and
+/// there is therefore nothing to install.
+///
+/// Crossing channels never counts as "already up to date", in either
+/// direction: a dev build and the stable release that carries the same number
+/// are different binaries, built from different commits, so `chaps self update
+/// --version v1.2.3` from a `v1.2.3` dev build has to install, and so does
+/// `--version dev` from a stable build. Only a build that is already on the
+/// exact thing the release would put there is up to date - which on the
+/// rolling channel is a question about the commit, since the `dev` tag is the
+/// same string every time, and `dev_newer` is that answer.
+fn already_running(
+    channel: Channel,
+    release_tag: &str,
+    running_version: &str,
+    dev_newer: bool,
+) -> bool {
+    if release_tag == selfupdate::DEV_TAG {
+        return channel == Channel::Dev && !dev_newer;
+    }
+    channel == Channel::Stable && release_tag.trim_start_matches('v') == running_version
 }
 
 /// How this build names itself in a sentence: the version, and for a rolling
@@ -561,6 +576,44 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(describe_release(&vague), "dev (2026-09-23)");
+    }
+
+    /// Crossing channels is never "already up to date", in either direction:
+    /// a dev build and the stable release carrying the same number are two
+    /// different binaries, built from two different commits.
+    #[test]
+    fn crossing_channels_is_never_already_up_to_date() {
+        // The one the review found: a dev build asking for the stable release
+        // of its own number has to install it.
+        assert!(!already_running(Channel::Dev, "v1.2.3", "1.2.3", false));
+        assert!(!already_running(Channel::Dev, "1.2.3", "1.2.3", false));
+        // And the other way round: a stable build asking for the rolling tag,
+        // even when the rolling release sits on no newer commit.
+        assert!(!already_running(
+            Channel::Stable,
+            selfupdate::DEV_TAG,
+            "1.2.3",
+            false
+        ));
+
+        // Inside one channel the answer is the plain one. A stable build on
+        // the release it looked up has nothing to do.
+        assert!(already_running(Channel::Stable, "v1.2.3", "1.2.3", false));
+        assert!(!already_running(Channel::Stable, "v1.3.0", "1.2.3", false));
+        // A dev build is up to date when the rolling release is the commit it
+        // already runs, which is the question `dev_newer` answers.
+        assert!(already_running(
+            Channel::Dev,
+            selfupdate::DEV_TAG,
+            "1.2.3",
+            false
+        ));
+        assert!(!already_running(
+            Channel::Dev,
+            selfupdate::DEV_TAG,
+            "1.2.3",
+            true
+        ));
     }
 
     /// A lookup that failed still records the attempt, so a machine with no

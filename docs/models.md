@@ -126,7 +126,22 @@ chaps up                            # apply any of them
 `enable` and `disable` edit `.chaps/models.yaml` and then re-render the compose
 files; `expose` and `unexpose` only rewrite the overlay's `ports:`, so they
 never re-resolve the version and are safe on a deployment running a build you
-do not want moved.
+do not want moved. The browser is the same: moving a port there keeps the
+version the model is pinned to, and only a toggle or a new channel resolves the
+marketplace again.
+
+`disable` also stops and removes the model's container when one is running,
+before the definition goes away, and says so:
+
+```text
+disabled chapkit_ewars_model
+removed compose.chapkit-ewars-model.yml
+note: stopped and removed the chapkit-ewars-model container; the host port it published is free again
+run `chaps up` to apply
+```
+
+The port is therefore free straight away, rather than at the next `chaps up`,
+which would have removed the container as an orphan but only once it was run.
 
 ```text
 exposed chapkit-ewars-model on http://localhost:5001

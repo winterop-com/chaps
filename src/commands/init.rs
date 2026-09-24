@@ -108,6 +108,13 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         ));
     }
 
+    // The whole selection is checked against the registry here, before a file
+    // is deleted or written: a template id, a model the marketplace does not
+    // list or a version that was yanked must leave an existing deployment
+    // exactly as it was, rather than taking its overlays with it on the way
+    // out. apply() checks again; this is the run that has something to lose.
+    crate::compose::apply::validate(&project, &registry, &selection)?;
+
     // --force starts the state over, so overlays the previous project owned
     // would otherwise linger: unreferenced by the umbrella, but still holding
     // their host port against the allocator.

@@ -465,6 +465,78 @@ pub fn unknown_service_message(unknown: &[String], services: &[String]) -> Strin
     )
 }
 
+/// `--remove-orphans`, unless the caller already passed it.
+///
+/// `chaps` owns the whole `-f` list, so a container of this project whose
+/// service no longer appears anywhere in it is genuinely an orphan: a model or
+/// a component that was disabled, whose definition `sync` then removed.
+/// Without this, following the closing line of `models disable` and running
+/// `chaps up` would leave that container running and its host port published,
+/// which is the opposite of what disabling something means.
+///
+/// The list is rendered from `.chaps/`, so a service of the operator's own is
+/// only at risk when they started it under this deployment's compose project
+/// name; run from a project of its own it is another project's container and
+/// none of ours. `docs/concepts.md` says so where people will look for it.
+fn remove_orphans(extra: &[String]) -> Option<String> {
+    let already = extra.iter().any(|arg| arg == "--remove-orphans");
+    (!already).then(|| "--remove-orphans".to_string())
+}
+
+/// Stop and remove the containers of services that are losing their
+/// definition, and say in one line what happened.
+///
+/// `losing` picks them out of this project's containers: the model service
+/// `models disable` just took out of the state, or the services of a component
+/// `components disable` turned off.
+///
+/// Called before the compose files are rewritten, while compose still knows
+/// those services: afterwards `docker compose stop ocs` is `no such service`,
+/// and the container would keep running - and keep its host port published -
+/// until the next `chaps up` removed it as an orphan.
+///
+/// Best-effort in every direction. A docker that cannot be asked, a stop that
+/// failed or a project that was never started all yield a line or nothing at
+/// all, never an error: the state edit is what the command is for, and
+/// `chaps up` cleans up whatever is left.
+pub fn stop_and_remove(project: &Project, losing: &dyn Fn(&str) -> bool) -> Option<String> {
+    let containers = docker::all_containers(project)?;
+    let services: Vec<String> = docker::service_names(&containers)
+        .into_iter()
+        .filter(|service| losing(service))
+        .collect();
+    if services.is_empty() {
+        return None;
+    }
+    let ran = |verb: &[&str]| {
+        let mut args: Vec<String> = verb.iter().map(|s| s.to_string()).collect();
+        args.extend(services.iter().cloned());
+        matches!(docker::compose_output(project, &args), Ok((0, _, _)))
+    };
+    // Stop first: that is what frees the port, and `rm` refuses a running
+    // container without it.
+    let what = match services.len() {
+        1 => format!("the {} container", services[0]),
+        count => format!("{count} containers ({})", services.join(", ")),
+    };
+    if ran(&["stop"]) && ran(&["rm", "-f"]) {
+        let ports = if services.len() == 1 {
+            "the host port it published is"
+        } else {
+            "the host ports they published are"
+        };
+        return Some(format!("stopped and removed {what}; {ports} free again"));
+    }
+    let orphans = if services.len() == 1 {
+        "it as an orphan"
+    } else {
+        "them as orphans"
+    };
+    Some(format!(
+        "{what} could not be stopped; `chaps up` removes {orphans}"
+    ))
+}
+
 /// The arguments appended after `compose -f ... -f ...`.
 ///
 /// The global `--json` flag only reaches `ps` and `config`, the two wrappers
@@ -476,6 +548,7 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
             if !args.attach {
                 out.push("-d".to_string());
             }
+            out.extend(remove_orphans(&args.extra));
             if args.pull {
                 out.push("--pull".to_string());
                 out.push("always".to_string());
@@ -502,6 +575,9 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
         // matches and leaves the rest alone.
         DockerCmd::Restart(args) => {
             let mut out = vec!["up".to_string(), "-d".to_string()];
+            // `restart` passes nothing through, so there is no caller's
+            // `--remove-orphans` to avoid repeating.
+            out.extend(remove_orphans(&[]));
             if args.all {
                 out.push("--force-recreate".to_string());
             }
@@ -668,8 +744,40 @@ mod tests {
 
     #[test]
     fn up_detaches_unless_attach_is_asked_for() {
-        assert_eq!(args_for(&up(false, &[]), TERM), vec!["up", "-d"]);
-        assert_eq!(args_for(&up(true, &[]), TERM), vec!["up"]);
+        assert_eq!(
+            args_for(&up(false, &[]), TERM),
+            vec!["up", "-d", "--remove-orphans"]
+        );
+        assert_eq!(
+            args_for(&up(true, &[]), TERM),
+            vec!["up", "--remove-orphans"]
+        );
+    }
+
+    /// `chaps` renders every file in the `-f` list, so a container whose
+    /// service is in none of them belongs to something that was disabled.
+    /// Leaving it running would keep its host port published after a
+    /// `models disable` said it was gone.
+    #[test]
+    fn up_and_restart_take_the_orphans_of_a_disabled_service_with_them() {
+        for cmd in [up(false, &[]), up(true, &[]), restart(false, &[])] {
+            assert!(
+                args_for(&cmd, TERM).iter().any(|a| a == "--remove-orphans"),
+                "{cmd:?}"
+            );
+        }
+        // Once, even when the caller asked for it as well: `chaps up
+        // --remove-orphans` is a thing people type.
+        let asked = args_for(&up(false, &["--remove-orphans"]), TERM);
+        assert_eq!(asked.iter().filter(|a| *a == "--remove-orphans").count(), 1);
+        assert_eq!(asked, vec!["up", "-d", "--remove-orphans"]);
+        // Every other wrapper is docker's own command, untouched.
+        for cmd in [
+            DockerCmd::Down(DownArgs { extra: vec![] }),
+            exec("chap", &[]),
+        ] {
+            assert!(!args_for(&cmd, TERM).iter().any(|a| a == "--remove-orphans"));
+        }
     }
 
     #[test]
@@ -682,7 +790,7 @@ mod tests {
         });
         assert_eq!(
             args_for(&cmd, TERM),
-            vec!["up", "-d", "--pull", "always", "chap"]
+            vec!["up", "-d", "--remove-orphans", "--pull", "always", "chap"]
         );
         let cmd = DockerCmd::Up(UpArgs {
             attach: true,
@@ -690,18 +798,21 @@ mod tests {
             no_preflight: true,
             extra: vec![],
         });
-        assert_eq!(args_for(&cmd, TERM), vec!["up", "--pull", "always"]);
+        assert_eq!(
+            args_for(&cmd, TERM),
+            vec!["up", "--remove-orphans", "--pull", "always"]
+        );
     }
 
     #[test]
     fn up_passes_extra_arguments_through_after_the_flags() {
         assert_eq!(
             args_for(&up(false, &["--build", "chap"]), TERM),
-            vec!["up", "-d", "--build", "chap"]
+            vec!["up", "-d", "--remove-orphans", "--build", "chap"]
         );
         assert_eq!(
             args_for(&up(true, &["chap"]), TERM),
-            vec!["up", "chap"],
+            vec!["up", "--remove-orphans", "chap"],
             "--attach must not inject -d before the service name"
         );
     }
@@ -739,29 +850,43 @@ mod tests {
     #[test]
     fn restart_is_an_up_that_recreates_only_what_moved() {
         // The whole project: compose decides, service by service.
-        assert_eq!(args_for(&restart(false, &[]), TERM), vec!["up", "-d"]);
+        assert_eq!(
+            args_for(&restart(false, &[]), TERM),
+            vec!["up", "-d", "--remove-orphans"]
+        );
         // Named services are recreated on their own.
         assert_eq!(
             args_for(&restart(false, &["chap", "worker"]), TERM),
-            vec!["up", "-d", "--no-deps", "chap", "worker"]
+            vec![
+                "up",
+                "-d",
+                "--remove-orphans",
+                "--no-deps",
+                "chap",
+                "worker"
+            ]
         );
         // --all is what turns a restart into an unconditional one.
         assert_eq!(
             args_for(&restart(true, &[]), TERM),
-            vec!["up", "-d", "--force-recreate"]
+            vec!["up", "-d", "--remove-orphans", "--force-recreate"]
         );
         assert_eq!(
             args_for(&restart(true, &["chapkit-ewars-model"]), TERM),
             vec![
                 "up",
                 "-d",
+                "--remove-orphans",
                 "--force-recreate",
                 "--no-deps",
                 "chapkit-ewars-model"
             ]
         );
         // Nothing about it depends on --json.
-        assert_eq!(args_for(&restart(false, &[]), JSON), vec!["up", "-d"]);
+        assert_eq!(
+            args_for(&restart(false, &[]), JSON),
+            vec!["up", "-d", "--remove-orphans"]
+        );
     }
 
     #[test]

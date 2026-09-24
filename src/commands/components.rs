@@ -150,6 +150,13 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         let ids: Vec<String> = project.state.models.keys().cloned().collect();
         return Err(anyhow::anyhow!(models_need_chap_core(&ids)));
     }
+
+    // The containers go now, while compose still has the files that define
+    // them: a service whose definition has just been removed cannot be
+    // stopped by name, and one left running keeps its host port published
+    // long after the component was disabled.
+    let stopped = super::docker::stop_and_remove(&project, &owns(component));
+
     project.state.components.set_enabled(component, false);
     let after = project.state.components.clone();
 
@@ -157,6 +164,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
 
     let mut notes = synced.warnings.clone();
+    notes.extend(stopped);
     if component == Component::Ocs {
         notes.push(
             "the ocs/ directory and the ocs_data volume are left alone; \
@@ -175,6 +183,28 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     };
     ctx.out
         .emit(&report, || human_change(&report, &project, &ctx.out))
+}
+
+/// Whether a compose service belongs to a component, for the purpose of
+/// stopping its containers when that component is disabled.
+///
+/// `ocs` and `s3` are the services `sync` renders for them, each with the
+/// exited one-shot `-init` companion that prepared it. chap-core's are
+/// upstream's - `chap`, its worker, Valkey, PostgreSQL - named in a file this
+/// CLI does not write, so they are everything else: `disable` has already
+/// refused while any model is enabled, and `ocs` and `s3` are the only other
+/// components there are.
+fn owns(component: Component) -> impl Fn(&str) -> bool {
+    move |service: &str| {
+        let base = service.strip_suffix("-init").unwrap_or(service);
+        match component {
+            Component::Ocs => base == crate::compose::OCS_SERVICE,
+            Component::S3 => base == crate::compose::S3_SERVICE,
+            Component::ChapCore => {
+                base != crate::compose::OCS_SERVICE && base != crate::compose::S3_SERVICE
+            }
+        }
+    }
 }
 
 /// The scaffold values the `--ocs-*` flags carry.
@@ -339,6 +369,25 @@ mod tests {
         let err = set_port(&mut components, Component::ChapCore, 8123)
             .expect_err("chap-core's port is the API port");
         assert!(err.to_string().contains("--api-port 8123"), "{err}");
+    }
+
+    /// What `disable` stops before the definition goes away. The one-shot
+    /// `-init` companions belong to whatever they prepared, and chap-core's
+    /// services are upstream's, so they are everything else.
+    #[test]
+    fn a_component_owns_its_own_services_and_their_one_shot_companions() {
+        let ocs = owns(Component::Ocs);
+        assert!(ocs("ocs"));
+        assert!(!ocs("s3") && !ocs("chap") && !ocs("chapkit-ewars-model"));
+
+        let s3 = owns(Component::S3);
+        assert!(s3("s3"));
+        assert!(s3("s3-init"), "the bucket creator goes with it");
+        assert!(!s3("ocs"));
+
+        let core = owns(Component::ChapCore);
+        assert!(core("chap") && core("chap-worker") && core("postgres"));
+        assert!(!core("ocs") && !core("s3") && !core("s3-init"));
     }
 
     #[test]

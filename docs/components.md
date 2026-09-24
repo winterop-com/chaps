@@ -40,7 +40,10 @@ chaps components disable ocs
 ```
 
 Both commands edit `.chaps/components.yaml` and then run `chaps sync`, so the
-compose files on disk always match. `chaps up` applies them.
+compose files on disk always match. `chaps up` applies them. `disable` also
+stops and removes the containers of the component it is taking away, while
+compose still has the definition to name them by, and says so in a `note:`
+line - so the host port it published is free straight away.
 
 Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, and nothing else is touched.

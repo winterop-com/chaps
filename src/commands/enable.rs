@@ -38,17 +38,21 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
             data_dir: args.data_dir.clone(),
             user: args.user.clone(),
             allow_template: args.allow_template,
+            // `models enable` is where a version is decided, so it always
+            // resolves: that is what `--version` and `--channel` are for, and
+            // a bare run follows the stable channel.
+            keep_version: false,
         }],
         disable: Vec::new(),
     };
 
     let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
     ctx.out
-        .emit(&report, || summary(&report, &project, &ctx.out))
+        .emit(&report, || summary(&report, None, &project, &ctx.out))
 }
 
-/// Disable one model: remove its overlay, regenerate the umbrella file and
-/// update .chaps/models.yaml.
+/// Disable one model: stop its container, remove its overlay, regenerate the
+/// umbrella file and update .chaps/models.yaml.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = registry::load(&ctx.registry)?;
@@ -57,14 +61,44 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     // disabling something that was never on is a typo, not a no-op.
     let id =
         enabled_id(&project, &args.id).ok_or_else(|| ChapError::UnknownModel(args.id.clone()))?;
+    let service_id = project.state.models[&id].service_id.clone();
     let selection = Selection {
         enable: Vec::new(),
         disable: vec![id],
     };
+    // Nothing is written before this passes, so the container is only touched
+    // for a disable that is going through.
+    crate::compose::apply::validate(&project, &registry, &selection)?;
 
-    let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
-    ctx.out
-        .emit(&report, || summary(&report, &project, &ctx.out))
+    // The container goes now, while compose still has the overlay that
+    // defines it: a service whose definition has just been deleted cannot be
+    // stopped by name, and one left running keeps its host port published
+    // long after the model was disabled.
+    let stopped = super::docker::stop_and_remove(&project, &|service| {
+        // The model's own container, and the exited one-shot companion that
+        // handed its volume over before it started.
+        service.strip_suffix("-init").unwrap_or(service) == service_id
+    });
+
+    let report = DisableReport {
+        apply: apply(&mut project, &registry, &selection, ctx.cli_version)?,
+        stopped,
+    };
+    ctx.out.emit(&report, || {
+        summary(&report.apply, report.stopped.as_deref(), &project, &ctx.out)
+    })
+}
+
+/// What `models disable` did: the state edit, plus what became of the
+/// container that was running the model.
+#[derive(Debug, serde::Serialize)]
+struct DisableReport {
+    #[serde(flatten)]
+    apply: ApplyReport,
+    /// What was done about the container, when there was one to do anything
+    /// about.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped: Option<String>,
 }
 
 /// Publish a host port for a model that is already enabled.
@@ -97,9 +131,11 @@ struct PortChange {
 
 /// Move one enabled model's host port, then re-render the compose files.
 ///
-/// Deliberately not a [`Selection`]: `apply` re-resolves the version from the
-/// model's channel, and publishing a port is no reason to move a pin on a
-/// deployment that is already running one.
+/// Deliberately not a [`Selection`]: this command is about the port and
+/// nothing else, and its report says so in its own words. A selection can ask
+/// for the same thing with `keep_version`, which is what the browser's
+/// port-only change carries, but it would still have to resolve the rest of
+/// the request it is not making.
 fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = registry::load(&ctx.registry)?;
@@ -200,7 +236,12 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
         .map(|(id, _)| id.clone())
 }
 
-fn summary(report: &ApplyReport, project: &Project, out: &Out) -> String {
+/// The human rendering of one enable or disable.
+///
+/// `stopped` is what `disable` did about the container that was running the
+/// model, when there was one; it belongs in the closing lines, next to the
+/// files that were removed.
+fn summary(report: &ApplyReport, stopped: Option<&str>, project: &Project, out: &Out) -> String {
     let mut text = String::new();
     for (id, model) in report.touched() {
         let verb = if report.enabled.iter().any(|(e, _)| e == id) {
@@ -237,6 +278,9 @@ fn summary(report: &ApplyReport, project: &Project, out: &Out) -> String {
     }
     for warning in &report.warnings {
         text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
+    }
+    if let Some(note) = stopped {
+        text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
     }
     text.push_str(&out.backticks("run `chaps up` to apply"));
     text
@@ -298,7 +342,7 @@ mod tests {
     #[test]
     fn the_summary_ends_with_the_next_step() {
         let project = project_with_ewars(Some(5001));
-        let text = summary(&enabled_report(&project), &project, &Out::default());
+        let text = summary(&enabled_report(&project), None, &project, &Out::default());
         assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001"));
         assert!(text.ends_with("run `chaps up` to apply"));
     }
@@ -306,7 +350,7 @@ mod tests {
     #[test]
     fn a_model_with_no_host_port_is_summarised_with_the_proxy_url() {
         let project = project_with_ewars(None);
-        let text = summary(&enabled_report(&project), &project, &Out::default());
+        let text = summary(&enabled_report(&project), None, &project, &Out::default());
         assert!(
             text.contains(
                 "enabled chapkit_ewars_model v1.0.0 at \
@@ -324,7 +368,7 @@ mod tests {
             removed: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
             ..ApplyReport::default()
         };
-        let text = summary(&report, &project, &Out::default());
+        let text = summary(&report, None, &project, &Out::default());
         assert!(text.contains("disabled chapkit_ewars_model"));
         assert!(text.contains("removed compose.chapkit-ewars-model.yml"));
     }

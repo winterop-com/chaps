@@ -12,6 +12,7 @@ mod components;
 mod compose;
 mod diagnose;
 mod docker;
+mod dotenv;
 mod error;
 mod output;
 mod paths;

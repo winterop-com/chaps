@@ -99,6 +99,36 @@ unchanged.
   list. A hand-written `compose.custom.yml` next to them is left alone. Add it
   to the umbrella by hand if you want it included.
 
+### Orphans
+
+Removing a definition does not stop a container: compose only knows about the
+services the `-f` list names, and a container it no longer finds a definition
+for is an **orphan**. `chaps` owns the whole `-f` list, so an orphan in one of
+its projects is exactly that - the container of a model or a component that was
+disabled, still running and still publishing its host port.
+
+So `chaps up` and `chaps restart` both pass `--remove-orphans`, and `models
+disable` and `components disable` go further: they stop and remove the
+container of the service they are taking away there and then, while compose
+still has the definition to name it by, and say so in their closing line. The
+port is free the moment the command returns, rather than at the next `chaps
+up`.
+
+The flip side is the rule for hand-written compose files. A container is only
+an orphan of the compose project it belongs to, and `chaps` renders its `-f`
+list from `.chaps/`, so a service of your own is only at risk if you started it
+**under this deployment's project name** - which is what
+
+```sh
+docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml \
+               -f compose.custom.yml up -d
+```
+
+does, because the `name:` comes from the `chaps` files in that list. The next
+`chaps up` does not have `compose.custom.yml` in its own list, so it takes
+those containers with it. Run a hand-written file as a compose project of its
+own (its own directory, or `-p`) and nothing `chaps` does touches it.
+
 ## The compose project name
 
 Compose puts a project name in front of every container and every named volume
@@ -214,6 +244,24 @@ per-model `${<ID>_IMAGE_TAG:-sha-xxxxxxx}` pins can be overridden there without
 regenerating anything. Because Compose reads `.env` last, a line in it wins
 over what `.chaps/` records; `CHAP_API_PORT` is the case that matters most, and
 [Ports](./ports.md) covers it.
+
+### How `chaps` reads it
+
+By Compose's rules, because Compose is the only thing that acts on the file:
+
+- the **last** active assignment of a variable wins, so a file carrying two
+  `CHAP_API_TOKEN=` lines is protected by the second one;
+- `export KEY=value` assigns the same thing as `KEY=value`;
+- a value wrapped in matching single or double quotes does not include them;
+- a line whose first non-blank character is `#` assigns nothing, and an empty
+  `KEY=` sets nothing (which is how a commented-out token and `CHAP_API_TOKEN=`
+  both mean "no authentication").
+
+Writing follows the same rules, so the line `chaps` writes is always the line
+Compose reads back: `chaps auth enable`, `disable` and `rotate` rewrite the
+variable's first active assignment and **remove every later duplicate of it**,
+leaving exactly one active line. A file with two `CHAP_API_TOKEN=` lines comes
+out of `chaps auth rotate` with one, holding the new token.
 
 ## Context-sensitive help
 
