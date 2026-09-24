@@ -377,15 +377,12 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // The init container chowns the data volume from busybox, which knows none
     // of the images' account names; an unresolvable one falls back to the
     // chapkit ids (`chaps sync` warns about it).
-    let uid_gid = overrides::numeric_pair(&spec.user)
-        .unwrap_or_else(|| overrides::FALLBACK_UID_GID.to_string());
-    // A `user:` line only exists to override what the image declares. For an
-    // image that already runs as root it would override root with root, and
-    // the init container behind it would chown a root-owned volume to root -
-    // two lines that do nothing, and one of them (a `user:` that later moves
-    // off root by hand) able to take away a permission the image needs.
-    let root = overrides::is_root(&spec.user);
-    let user_line = match root {
+    let uid_gid = overrides::chown_pair(&spec.user);
+    // A `user:` line only exists to override what the image declares, so an
+    // image that already runs as root gets none: overriding root with root
+    // says nothing, and a `user:` that later moves off root by hand is able to
+    // take away a permission the image needs.
+    let user_line = match overrides::is_root(&spec.user) {
         true => String::new(),
         // The numeric form, so this line and the chown below are the same two
         // numbers; a name nothing could resolve is kept as it is, which is
@@ -395,28 +392,37 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             overrides::numeric_pair(&spec.user).unwrap_or_else(|| spec.user.clone())
         ),
     };
-    let init_depends = match root {
-        true => String::new(),
-        false => format!(
-            "      {}-init:\n        condition: service_completed_successfully\n",
-            spec.service_id
-        ),
-    };
-    let init_service = match root {
-        true => "\n".to_string(),
-        false => format!(
-            "\n{}\n",
-            fill(
-                &OVERLAY_INIT_TEMPLATE,
-                &[
-                    ("SERVICE_ID", &spec.service_id),
-                    ("UID_GID", &uid_gid),
-                    ("DATA_DIR", &spec.data_dir),
-                    ("VOLUME", &spec.volume_name),
-                ],
-            )
-        ),
-    };
+    // The init container is rendered for every model, root included, and that
+    // is deliberate rather than tidy. A volume docker creates is root-owned,
+    // so a root image needs no chown on a fresh one - but a volume that
+    // already exists carries whoever owned it last. A deployment rendered by
+    // a `chaps` whose table said `1000:1000` for this model has a volume
+    // chowned to 1000, and the same model re-rendered as root cannot write to
+    // it: the overlay drops every capability, and `CAP_DAC_OVERRIDE` is the
+    // one that lets root ignore the permission bits. One busybox one-shot
+    // costs a second on `chaps up` and makes that upgrade heal itself.
+    //
+    // The chown is recursive for the same reason. Handing over the directory
+    // alone is enough for a volume docker has just created, because there is
+    // nothing in it; on one that already holds a `chapkit.db` owned by
+    // somebody else, the model can create files beside it and still not open
+    // it, which is a service that starts, registers and fails its first job.
+    let init_depends = format!(
+        "      {}-init:\n        condition: service_completed_successfully\n",
+        spec.service_id
+    );
+    let init_service = format!(
+        "\n{}\n",
+        fill(
+            &OVERLAY_INIT_TEMPLATE,
+            &[
+                ("SERVICE_ID", &spec.service_id),
+                ("UID_GID", &uid_gid),
+                ("DATA_DIR", &spec.data_dir),
+                ("VOLUME", &spec.volume_name),
+            ],
+        )
+    );
     fill(
         &OVERLAY_TEMPLATE,
         &[
@@ -559,8 +565,7 @@ mod tests {
     }
 
     /// The other shape an overlay has: an image that runs as root, which gets
-    /// neither a `user:` line nor the init container that would chown its
-    /// volume to an account it does not use.
+    /// no `user:` line and an init container that chowns its volume to `0:0`.
     #[test]
     fn a_root_overlay_matches_its_own_golden_fixture() {
         let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
@@ -573,28 +578,38 @@ mod tests {
     /// What the two shapes differ in, said as assertions rather than as a
     /// diff of two files.
     #[test]
-    fn a_root_image_gets_no_user_line_and_no_init_container() {
+    fn a_root_image_gets_no_user_line_and_an_init_container_that_chowns_to_zero() {
         let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
         assert_no_tokens(&text);
         let doc = parse(&text);
         let svc = service(&doc, "chapkit-rwanda-malaria-bym-model");
+        // The one line a root image does not get: the image's own user
+        // applies, and a `user:` here could only take a permission away.
         assert!(svc.get("user").is_none(), "root needs no override");
-        assert!(!text.contains("chown"), "{text}");
-        assert!(
-            doc["services"]
-                .get("chapkit-rwanda-malaria-bym-model-init")
-                .is_none(),
+
+        // The one it does. A volume docker has just created is root-owned and
+        // needs no chown, but one carried over from a deployment that ran
+        // this model as 1000:1000 is owned by 1000 - and the overlay drops
+        // `CAP_DAC_OVERRIDE` with every other capability, so root cannot
+        // write to it. This is what makes that upgrade heal itself.
+        let init = service(&doc, "chapkit-rwanda-malaria-bym-model-init");
+        assert_eq!(
+            init["command"][2].as_str(),
+            Some("chown -R 0:0 /work/data"),
             "{text}"
         );
-        // The model still waits for chap-core, and still gets its volume.
+        assert_eq!(init["user"].as_str(), Some("0:0"));
+        assert_eq!(init["restart"].as_str(), Some("no"));
+        assert_eq!(init["volumes"][0]["target"].as_str(), Some("/work/data"));
+
+        // The model waits for it, and still waits for chap-core.
+        assert_eq!(
+            svc["depends_on"]["chapkit-rwanda-malaria-bym-model-init"]["condition"].as_str(),
+            Some("service_completed_successfully")
+        );
         assert_eq!(
             svc["depends_on"]["chap"]["condition"].as_str(),
             Some("service_healthy")
-        );
-        assert!(
-            svc["depends_on"]
-                .get("chapkit-rwanda-malaria-bym-model-init")
-                .is_none()
         );
         assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/work/data"));
         assert!(doc["volumes"]["ck_chapkit_rwanda_malaria_bym_model_data"].is_mapping());
@@ -602,7 +617,7 @@ mod tests {
         assert_eq!(svc["read_only"].as_bool(), Some(true));
         assert_eq!(svc["init"].as_bool(), Some(true));
 
-        // Every spelling of root renders the same file.
+        // Every spelling of root renders the same file, chown included.
         let mut spec = overlay_spec("chapkit_rwanda_malaria_bym_model");
         for user in ["root", "0", "0:0", "root:root", ""] {
             spec.user = user.to_string();
@@ -784,7 +799,7 @@ mod tests {
             Value::Sequence(vec![
                 "sh".into(),
                 "-c".into(),
-                "chown 1000:1000 /app/data".into()
+                "chown -R 1000:1000 /app/data".into()
             ])
         );
         assert!(!text.contains("chown chapkit"));
@@ -812,19 +827,19 @@ mod tests {
     fn overlay_chowns_to_the_ids_of_the_user_the_model_runs_as() {
         // The simple multistep image runs as `chap`, which is uid/gid 1001.
         let text = render_overlay(&overlay_spec("chapkit_simple_multistep_model"));
-        assert!(text.contains("chown 1001:1001 /app/data"), "{text}");
+        assert!(text.contains("chown -R 1001:1001 /app/data"), "{text}");
 
         // A numeric --user is passed through, and the data dir follows it.
         let mut spec = overlay_spec("auto_arima_chapkit");
         spec.user = "1500:1600".into();
         spec.data_dir = "/srv/data".into();
-        assert!(render_overlay(&spec).contains("chown 1500:1600 /srv/data"));
+        assert!(render_overlay(&spec).contains("chown -R 1500:1600 /srv/data"));
 
         // An account no image of ours creates falls back to the chapkit ids
         // rather than rendering a chown busybox would reject.
         spec.user = "nobody".into();
         let text = render_overlay(&spec);
-        assert!(text.contains("chown 1000:1000 /srv/data"), "{text}");
+        assert!(text.contains("chown -R 1000:1000 /srv/data"), "{text}");
         assert_eq!(
             service(&parse(&text), "auto-arima-chapkit")["user"].as_str(),
             Some("nobody")

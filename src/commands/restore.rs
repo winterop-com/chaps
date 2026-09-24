@@ -536,26 +536,6 @@ fn restore_models(
         let tar = stage.path(&format!("{}.tar", model.service_id))?;
         backup::tar_extract_member_to(archive, &member, &tar)?;
 
-        // A model that runs as root has no init container - it needs no chown,
-        // so the overlay ships none - and its volume is refilled the way a
-        // component's is, through a throwaway busybox. The tar then carries
-        // the root ownership it was taken with, which is what that model
-        // wants, so there is no chown to redo either.
-        if crate::compose::overrides::is_root(&model.user) {
-            let volume = format!("{}_{}", model_prefix(project)?, model.volume);
-            let piped = backup::write_volume(&volume, &tar)?;
-            if piped.code != 0 {
-                return Err(anyhow::anyhow!(
-                    "restoring {} into {volume} failed (exit {}): {}",
-                    model.service_id,
-                    piped.code,
-                    backup::first_line(&piped.stderr)
-                ));
-            }
-            report.models.push(model.service_id.clone());
-            continue;
-        }
-
         let init = format!("{}-init", model.service_id);
         let script = format!(
             "rm -rf {}/* && tar xf - -C {}",
@@ -577,8 +557,7 @@ fn restore_models(
         // that ran as root; busybox resolves no account names, so the model's
         // user has to go back on as numbers - exactly what the overlay's init
         // container does on a fresh volume.
-        let owner = overrides::numeric_pair(&model.user)
-            .unwrap_or_else(|| overrides::FALLBACK_UID_GID.to_string());
+        let owner = overrides::chown_pair(&model.user);
         let args = run_args(
             &init,
             &[
@@ -601,16 +580,6 @@ fn restore_models(
         report.models.push(model.service_id.clone());
     }
     Ok(())
-}
-
-/// The compose project name every named volume of this deployment carries.
-fn model_prefix(project: &Project) -> Result<String> {
-    docker::compose_project_name(project).ok_or_else(|| {
-        anyhow::anyhow!(
-            "the compose project name could not be read, so the model volumes cannot \
-             be named; is Docker running?"
-        )
-    })
 }
 
 /// Empty and refill each component data volume the archive holds.

@@ -432,22 +432,6 @@ fn capture_models(
             continue;
         }
 
-        // A model that runs as root has no init container to read through: it
-        // needs no chown, so the overlay ships none, and its volume is reached
-        // the way a component's is - mounted into a throwaway busybox. Both
-        // read the same bytes; the prefixed volume name is the only thing this
-        // way needs that the compose way does not.
-        let root = crate::compose::overrides::is_root(&model.user);
-        if root && prefix.is_none() {
-            entry.skipped = Some(
-                "the compose project name could not be read, so the volume cannot be \
-                 named; is Docker running?"
-                    .to_string(),
-            );
-            out.push(entry);
-            continue;
-        }
-
         let member = backup::model_member(&model.service_id);
         let dest = stage.path(&member)?;
         // The init service mounts the same volume at the same path as the model
@@ -461,10 +445,7 @@ fn capture_models(
         // keeps a live SQLite database in its data directory, and a tar taken
         // while something writes to one is a tar of a torn database.
         let mut quiesce = Quiesce::hold(project, &model.service_id, running.has(&model.service_id));
-        let piped = match &prefix {
-            Some(prefix) if root => backup::read_volume(&format!("{prefix}_{volume}"), &dest),
-            _ => docker::run_compose_piped(project, &args, None, Some(&dest)),
-        };
+        let piped = docker::run_compose_piped(project, &args, None, Some(&dest));
         entry.quiesce = quiesce.release();
         let piped = piped?;
         if piped.code != 0 {

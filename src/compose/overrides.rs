@@ -107,7 +107,8 @@ pub fn numeric_pair(user: &str) -> Option<String> {
 }
 
 /// Whether this `user:` value is root, which is the one value that needs no
-/// `user:` line and no init container: root can write a fresh volume as it is.
+/// `user:` line: the image's own account already is root, and overriding it
+/// could only take a permission away.
 ///
 /// An empty value counts, because an image config with no `User` is an image
 /// that runs as root.
@@ -117,6 +118,24 @@ pub fn is_root(user: &str) -> bool {
         return true;
     }
     matches!(numeric_pair(user).as_deref(), Some("0") | Some("0:0"))
+}
+
+/// The pair a `chown` hands the data volume to.
+///
+/// [`numeric_pair`] leaves a bare number bare, because nothing here knows
+/// which group uid 1500 is in and `chown 1500` is compose's and chown's own
+/// "leave the group alone". Root is the one case where the group is not a
+/// guess, so it is always written as the pair: a volume carried over from a
+/// deployment that ran this model as `1000:1000` has group 1000 too, and a
+/// bare `chown 0` would leave it there.
+///
+/// An account name nothing could turn into numbers falls back to the chapkit
+/// ids, which is what `chaps sync` warns about.
+pub fn chown_pair(user: &str) -> String {
+    if is_root(user) {
+        return "0:0".to_string();
+    }
+    numeric_pair(user).unwrap_or_else(|| FALLBACK_UID_GID.to_string())
 }
 
 /// Data dir and user per marketplace id, as each image's own config declares
@@ -338,6 +357,15 @@ mod tests {
         );
         assert_eq!(numeric_pair("chap").as_deref(), Some("1001:1001"));
         assert_eq!(numeric_pair("root").as_deref(), Some("0:0"));
+        // A chown always gets a pair for root, whatever spelling it arrived
+        // in, because root's group is not a guess.
+        for spelling in ["root", "root:root", "0", "0:0", ""] {
+            assert_eq!(chown_pair(spelling), "0:0", "{spelling:?}");
+        }
+        assert_eq!(chown_pair("chapkit"), "1000:1000");
+        assert_eq!(chown_pair("1500"), "1500", "nothing knows uid 1500's group");
+        assert_eq!(chown_pair("1500:1600"), "1500:1600");
+        assert_eq!(chown_pair("nobody-in-particular"), FALLBACK_UID_GID);
         // A bare number names no group this CLI can look up, so it is left
         // exactly as it was given.
         assert_eq!(numeric_pair("1500").as_deref(), Some("1500"));

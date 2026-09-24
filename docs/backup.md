@@ -60,11 +60,9 @@ start CHAP or pass `--no-db`.
 Model data is read through the overlay's one-shot `<service_id>-init`
 container, which mounts the same named volume at the same path as the model
 itself, so it works whether the model is running, stopped, or was brought down
-entirely. A model that runs as root has no such container - it needs no chown,
-so the overlay ships none - and its volume is mounted into a throwaway
-`busybox` container instead; the bytes are the same either way. A model that
-has never started has no volume yet; it is skipped with a warning and recorded
-as such in the manifest.
+entirely. Every model overlay has one, root included. A model that has never
+started has no volume yet; it is skipped with a warning and recorded as such
+in the manifest.
 
 Component data (`ocs_data`, `s3_data`) is read the second way for the same
 reason: neither service has an init container. `--no-components` leaves both
@@ -211,8 +209,7 @@ defaulting to `chap` and `chap_core`.
 | load the database | `docker compose exec -T postgres pg_restore -U $PGU -d $PGDB --clean --if-exists --no-owner < chap_core.dump` |
 | read a model's data | `docker compose run --rm --no-deps -T <service>-init tar cf - -C <data_dir> . > <service>.tar` |
 | write it back | `docker compose run --rm --no-deps -T <service>-init sh -c 'rm -rf <data_dir>/* && tar xf - -C <data_dir>' < <service>.tar` |
-| hand it to the model | `docker compose run --rm --no-deps -T <service>-init chown -R 1000:1000 <data_dir>` |
-| the same for a root model | the two `busybox` lines below, with `<project>_ck_<id>_data` as the volume; there is no init container and no chown |
+| hand it to the model | `docker compose run --rm --no-deps -T <service>-init chown -R 1000:1000 <data_dir>` (`0:0` for a root model) |
 | check the connection | `docker compose exec -T postgres psql -U $PGU -d $PGDB -tAc 'select 1'` |
 | hold a service still | `docker compose pause <service>`, and `unpause` afterwards |
 | read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.37 tar -C /v -cf - . > ocs.tar` |

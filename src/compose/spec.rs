@@ -223,7 +223,8 @@ pub struct OverlaySpec {
     pub data_dir: String,
     /// What the service runs as: `root`, a numeric `uid:gid`, or an account
     /// name nothing could turn into numbers. `root` is the one value that
-    /// renders no `user:` line and no init container; see
+    /// renders no `user:` line - the init container is rendered either way,
+    /// chowning to `0:0`; see
     /// [`crate::compose::render::render_overlay`].
     pub user: String,
     /// See [`crate::compose::volume_name`].

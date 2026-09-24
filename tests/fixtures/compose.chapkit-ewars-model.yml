@@ -37,7 +37,7 @@ services:
   chapkit-ewars-model-init:
     # One-shot: chowns the data volume so the model can write to it, then exits.
     image: busybox:1.37
-    command: ["sh", "-c", "chown 1000:1000 /app/data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
     user: "0:0"
     volumes:
       - type: volume

@@ -981,7 +981,7 @@ mod tests {
         // The overlay still renders, with the fallback ids in the chown.
         let body =
             std::fs::read_to_string(dir.path().join("compose.chapkit-ewars-model.yml")).unwrap();
-        assert!(body.contains("chown 1000:1000 /app/data"), "{body}");
+        assert!(body.contains("chown -R 1000:1000 /app/data"), "{body}");
         assert!(body.contains("    user: nobody\n"));
 
         // A numeric user is understood and warns about nothing.

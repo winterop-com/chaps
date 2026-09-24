@@ -1,7 +1,7 @@
   @SERVICE_ID@-init:
     # One-shot: chowns the data volume so the model can write to it, then exits.
     image: busybox:1.37
-    command: ["sh", "-c", "chown @UID_GID@ @DATA_DIR@"]
+    command: ["sh", "-c", "chown -R @UID_GID@ @DATA_DIR@"]
     user: "0:0"
     volumes:
       - type: volume
