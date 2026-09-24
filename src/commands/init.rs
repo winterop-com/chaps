@@ -189,7 +189,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
             crate::output::warn(
                 "--fresh-env rewrote .env with a new POSTGRES_PASSWORD; a database volume \
                  from an earlier `chaps up` still holds the old one - drop it with \
-                 `chaps docker run -- down -v` or change the role with ALTER USER",
+                 `chaps down --volumes` or change the role with ALTER USER",
             );
         }
         std::fs::write(

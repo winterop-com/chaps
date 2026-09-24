@@ -64,8 +64,7 @@ run `chaps up` to apply
 
 `ocs` keeps `ocs_data` and `s3` keeps `s3_data`, each prefixed with the compose
 project name. Naming it is the whole point: the compose file that declared the
-volume has just been removed, so `chaps docker run -- down -v` no longer
-reaches it. `--purge` removes it with the component, after the containers, and
+volume has just been removed, so `chaps down --volumes` no longer reaches it. `--purge` removes it with the component, after the containers, and
 reports `removed volume <name>` or `volume <name> not found`; `--json` carries
 `purged` and `kept_volumes`. `--purge` works on a component that is already
 off, so a volume that was forgotten can still be removed by name.
@@ -73,8 +72,8 @@ off, so a volume that was forgotten can still be removed by name.
 `chaps components disable chap-core --purge` is refused: chap-core's volumes -
 the database and its own data - are declared by upstream's compose file, which
 this CLI renders but does not author, so there is no one volume `--purge` could
-mean. `chaps docker run -- down -v` removes every volume of the deployment, and
-is the honest way to ask for that.
+mean. `chaps down --volumes` removes every volume of the deployment, and is the
+honest way to ask for that.
 
 `chaps doctor` reports a component volume whose component is off as a leftover;
 see [Doctor](./doctor.md).

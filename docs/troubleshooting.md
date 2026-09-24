@@ -183,7 +183,7 @@ why chap is unhealthy:
   ERROR:    Application startup failed. Exiting.
   the database volume holds a different password than .env (a previous deployment with the
   same name, or --fresh-env); run `chaps doctor`, or remove the volume with
-  `chaps docker run -- down -v` if this deployment's data can go
+  `chaps down --volumes` if this deployment's data can go
 ```
 
 The same lines close `chaps status` and `chaps doctor`'s `stack` check, and
@@ -211,8 +211,8 @@ warn  project   compose project name is the directory name; volumes can collide 
       already uses, so nothing is renamed
 warn  volumes   the database volume demo_chap-db predates this deployment; if chap-core cannot
                 log in, it belongs to an earlier deployment with the same name
-      remove it with `chaps docker run -- down -v` if this deployment's data can go, or keep
-      both by giving one of them a name of its own
+      remove it with `chaps down --volumes` if this deployment's data can go, or keep both
+      by giving one of them a name of its own
 ```
 
 A deployment created by this version of `chaps` has a name of its own
@@ -226,7 +226,7 @@ existing volume was created with the old one.
 Either way: drop the volume and start over,
 
 ```sh
-chaps docker run -- down -v
+chaps down --volumes
 chaps up
 ```
 

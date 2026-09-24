@@ -111,8 +111,8 @@ impl Component {
     /// `chaps sync` renders declares it.
     ///
     /// `None` for chap-core: its volumes are upstream's own, declared in a
-    /// compose file this CLI does not write, and `chaps docker run -- down -v`
-    /// is what removes them.
+    /// compose file this CLI does not write, and `chaps down --volumes` is
+    /// what removes them.
     pub fn volume(self) -> Option<&'static str> {
         match self {
             Component::Ocs => Some(crate::compose::render::OCS_VOLUME),

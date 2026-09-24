@@ -174,7 +174,7 @@ fn a_model_cannot_be_enabled_into_a_deployment_without_chap_core() {
 
 /// Disabling a model keeps its data, and the only thing that still knows
 /// where that data is is this line: the overlay that declared the volume has
-/// just been removed, so `chaps docker run -- down -v` no longer reaches it.
+/// just been removed, so `chaps down --volumes` no longer reaches it.
 #[test]
 fn disabling_a_model_names_the_data_volume_it_keeps() {
     let sandbox = Sandbox::new();
@@ -326,7 +326,7 @@ fn disabling_a_component_names_its_volume_and_chap_core_has_none_to_purge() {
         .stderr(predicates::str::contains(
             "chap-core keeps no volume of its own that chaps names",
         ))
-        .stderr(predicates::str::contains("down -v"));
+        .stderr(predicates::str::contains("chaps down --volumes"));
     // Refused before anything was written: chap-core is still on.
     assert!(dir.join("compose.yml").is_file());
 }

@@ -98,7 +98,7 @@ why chap is unhealthy:
   failed for user "chap"
   the database volume holds a different password than .env (a previous deployment with the
   same name, or --fresh-env); run `chaps doctor`, or remove the volume with
-  `chaps docker run -- down -v` if this deployment's data can go
+  `chaps down --volumes` if this deployment's data can go
 ```
 
 The lines are the tail of the container's own log, filtered to the ones that
@@ -134,7 +134,8 @@ when there is one; empty output is a bug.
   and exits 0.
 - `chaps logs SERVICE` lists the services when `SERVICE` is not one of them.
 - `chaps down` reports how many containers it stopped, and that the volumes are
-  still there, under the compose project name they are prefixed with.
+  still there, under the compose project name they are prefixed with;
+  `chaps down --volumes` reports the volumes it removed, by name.
 - `chaps up` ends with which services it started or recreated and which it left
   alone.
 - `chaps docker pull` says how many images it pulled.

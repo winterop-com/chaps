@@ -148,8 +148,8 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
 ///
 /// The component's data volume is kept, exactly as a disabled model's is, and
 /// named either way: once the compose file is gone nothing else declares that
-/// volume, so `chaps docker run -- down -v` no longer reaches it. `--purge`
-/// removes it with the component.
+/// volume, so `chaps down --volumes` no longer reaches it. `--purge` removes
+/// it with the component.
 pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
     let mut project = ctx.project()?;
@@ -213,7 +213,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     if component == Component::ChapCore {
         notes.push(
             "chap-core's own volumes are left alone; \
-             `chaps docker run -- down -v` removes them"
+             `chaps down --volumes` removes them"
                 .to_string(),
         );
     }
@@ -243,7 +243,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
 /// removes them names the whole deployment's volumes and is the honest way to
 /// ask for that.
 const CORE_HAS_NO_CHAPS_VOLUME: &str = "chap-core keeps no volume of its own that chaps names, so --purge has nothing to remove; \
-     `chaps docker run -- down -v` removes every volume of this deployment";
+     `chaps down --volumes` removes every volume of this deployment";
 
 /// Whether a compose service belongs to a component, for the purpose of
 /// stopping its containers when that component is disabled.

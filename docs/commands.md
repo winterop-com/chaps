@@ -15,7 +15,7 @@ lists every command, every flag and every default.
 | `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--with ocs[,s3]` adds optional components. |
 | `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d --remove-orphans`, and end with what started or was recreated. The orphans are the containers of models and components that were disabled; see [Orphans](./concepts.md#orphans) for what that means for a compose file of your own. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
-| `chaps down [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there, naming the compose project they are prefixed with. |
+| `chaps down [--volumes] [-y] [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there, naming the compose project they are prefixed with. `--volumes` removes them too, and the data in them: it names the volumes first and asks, unless `-y`/`--yes` says it was meant. |
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
 | `chaps restart [SERVICE..] [--all]` | Recreate the running services whose image or configuration changed (`docker compose up -d --remove-orphans`), and say which ones that was. Changes no file and no pin; `--all` recreates the named services anyway. |
 | `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
@@ -31,6 +31,18 @@ time. See [Updating](./updating.md).
 before, and first again when something is wrong: it asks in one pass what the
 other commands assume. It exits non-zero only when a check failed. See
 [Doctor](./doctor.md).
+
+`chaps down --volumes` is the reset that takes the data with it
+(`docker compose down -v --remove-orphans`): it lists the volumes docker holds
+under this deployment's name, asks before removing them and ends with the ones
+that are gone, by name. `-y` (`--yes`) is how a script says it meant it, and is
+required where there is nothing to ask at - a stdin that is not a terminal, or
+`--json` - rather than the question being skipped. Compose removes the volumes
+its files still declare, so a volume left over from a disabled model survives;
+`chaps doctor` finds those, and `chaps models disable <id> --purge` removes
+them. There is no `-v` for this: `-v` is the global `--verbose` flag, so a `-v`
+that reaches the passthrough (`chaps down -- -v`) is refused and told to use
+`--volumes`, rather than being passed on to compose or quietly dropped.
 
 ## Models
 

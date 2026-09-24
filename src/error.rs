@@ -50,6 +50,11 @@ pub enum ChapError {
     #[error("docker compose exited with status {0}")]
     DockerFailed(i32),
 
+    /// A mistake about `chaps`'s own command line that clap cannot catch,
+    /// such as a `-v` meant for compose reaching `chaps down`'s passthrough.
+    #[error("{0}")]
+    Usage(String),
+
     #[error("HTTP {status} from {url}")]
     Http { url: String, status: u16 },
 }

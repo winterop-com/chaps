@@ -150,8 +150,8 @@ What `disable` does not take is the model's data: the named volume
 `<compose project>_ck_<id>_data` stays exactly as it was, so enabling the model
 again finds everything it had. That is why the line above names it. Nothing
 else does any more - the overlay that declared the volume has just been
-removed, so `chaps docker run -- down -v` no longer knows about it, and a
-volume nobody names again is kept for as long as the machine lasts.
+removed, so `chaps down --volumes` no longer knows about it, and a volume
+nobody names again is kept for as long as the machine lasts.
 
 `--purge` is how the data goes with the model:
 

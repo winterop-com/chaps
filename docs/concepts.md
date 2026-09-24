@@ -233,7 +233,7 @@ with them.
 password, so an existing volume has to be dropped with
 
 ```sh
-chaps docker run -- down -v
+chaps down --volumes
 ```
 
 (or the role changed with `ALTER USER`) before CHAP will start again.

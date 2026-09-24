@@ -1232,7 +1232,7 @@ pub fn volume_verdict(
                 crate::backup::timestamp(created.unwrap_or_default())
             ),
             Some(
-                "remove it with `chaps docker run -- down -v` if this deployment's data can go, \
+                "remove it with `chaps down --volumes` if this deployment's data can go, \
                  or keep both by giving one of them a name of its own"
                     .to_string(),
             ),
@@ -1253,8 +1253,9 @@ pub fn volume_verdict(
 
 /// What to do about the leftover volumes the check found.
 ///
-/// `down -v` is not among the answers on purpose: it only removes the volumes
-/// the compose files still declare, which is exactly the set these are not in.
+/// `down --volumes` is not among the answers on purpose: it only removes the
+/// volumes the compose files still declare, which is exactly the set these are
+/// not in.
 const LEFTOVER_FIX: &str = "remove each with `chaps models disable <id> --purge` or `chaps components disable <name> \
      --purge`, or `docker volume rm <name>`; keep them to have the data back when the model or \
      component is enabled again";
@@ -2741,7 +2742,7 @@ mod tests {
             ),
             "{detail}"
         );
-        assert!(fix.unwrap().contains("chaps docker run -- down -v"));
+        assert!(fix.unwrap().contains("chaps down --volumes"));
 
         // Neither time is guaranteed: a filesystem that records no creation
         // time, and a docker that did not say, each cost the comparison only.
@@ -2764,7 +2765,8 @@ mod tests {
 
     /// The volume of a model or a component this deployment no longer enables
     /// is data nothing will ever mount again, and nothing else names it: the
-    /// overlay that declared it is gone, so `down -v` cannot reach it either.
+    /// overlay that declared it is gone, so `down --volumes` cannot reach it
+    /// either.
     #[test]
     fn a_volume_of_something_no_longer_enabled_is_a_warning_naming_it() {
         let prefix = "demo-1ab2c3_";
@@ -2792,8 +2794,8 @@ mod tests {
             "{fix}"
         );
         assert!(fix.contains("docker volume rm <name>"), "{fix}");
-        // `down -v` is the one answer that does not work here.
-        assert!(!fix.contains("down -v"), "{fix}");
+        // `down --volumes` is the one answer that does not work here.
+        assert!(!fix.contains("--volumes"), "{fix}");
 
         // A database volume older than the deployment is the worse of the two
         // findings, and the one the line reports.
@@ -2882,7 +2884,7 @@ mod tests {
             "{detail}"
         );
         assert_eq!(detail.lines().count(), 1, "one line per check: {detail}");
-        assert!(fix.unwrap().contains("down -v"));
+        assert!(fix.unwrap().contains("chaps down --volumes"));
     }
 
     /// The claims a two-model deployment would make.

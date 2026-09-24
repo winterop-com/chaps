@@ -1117,7 +1117,7 @@ fn fresh_env_rewrites_the_env_file_and_warns() {
         .assert()
         .success()
         .stderr(predicates::str::contains("POSTGRES_PASSWORD"))
-        .stderr(predicates::str::contains("down -v"))
+        .stderr(predicates::str::contains("chaps down --volumes"))
         .get_output()
         .stdout
         .clone();
@@ -3942,8 +3942,8 @@ impl Drop for Volume {
 /// `chaps models disable --purge` removes the volume docker really holds.
 ///
 /// Which is the whole reason the flag exists: the overlay that declared the
-/// volume is gone by then, so `down -v` cannot reach it and only its name
-/// can. The volume is created here rather than by `chaps up`, which would
+/// volume is gone by then, so `down --volumes` cannot reach it and only its
+/// name can. The volume is created here rather than by `chaps up`, which would
 /// pull the entire stack for one `docker volume rm`; compose creates it under
 /// exactly this name, and `live_up_then_purge_removes_the_model_volume`
 /// below is the same thing through a real deployment.
@@ -4078,8 +4078,8 @@ fn live_up_then_purge_removes_the_model_volume() {
     /// Whatever this test does next, the stack it started goes away with it,
     /// volumes and all.
     ///
-    /// `chaps down -v` would not do it: `-v` is the global `--verbose` flag,
-    /// so the way to reach compose's own `-v` is the passthrough wrapper.
+    /// `--yes` because nothing here is watching a prompt: this is the drop
+    /// that has to happen whether or not the assertions above it held.
     struct Started {
         dir: PathBuf,
         cache: PathBuf,
@@ -4090,7 +4090,7 @@ fn live_up_then_purge_removes_the_model_volume() {
             let _ = down
                 .env("CHAPS_CACHE_DIR", &self.cache)
                 .current_dir(&self.dir)
-                .args(["--offline", "docker", "run", "--", "down", "-v"])
+                .args(["--offline", "down", "--volumes", "--yes"])
                 .output();
         }
     }
@@ -4123,6 +4123,119 @@ fn live_up_then_purge_removes_the_model_volume() {
 
     assert!(
         !docker_volumes(&format!("{project}_")).contains(&volume),
+        "docker volume ls still lists {volume}"
+    );
+}
+
+// ---------------------------------------------------- down --volumes ---
+
+/// `-v` after `down` is refused, in whichever way it was typed.
+///
+/// It is the global `--verbose` flag, so compose never sees it: passing it
+/// through would have been a lie either way round, and a `down` that quietly
+/// kept the data of someone who asked for it to go is exactly the failure
+/// `--volumes` exists to prevent. Refused before the project is loaded and
+/// before docker is asked anything, so the answer is the same on a machine
+/// with no daemon.
+#[test]
+fn a_volume_flag_after_down_says_which_flag_to_use() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    for argv in [
+        vec!["down", "-v"],
+        vec!["down", "--", "-v"],
+        vec!["down", "--", "--volumes"],
+    ] {
+        chap_in(&sandbox, &dir, &argv)
+            .assert()
+            // Clap's own code for a usage error, because that is what it is.
+            .code(2)
+            .stderr(predicates::str::contains("chaps's own --verbose flag"))
+            .stderr(predicates::str::contains("`chaps down --volumes`"))
+            .stderr(predicates::str::contains("`chaps -v down`"));
+    }
+
+    // And the verbose stop it could have meant is still a verbose stop: the
+    // flag before the subcommand is unambiguous, so it runs (and fails on
+    // whatever docker says, if anything).
+    chap_in(&sandbox, &dir, &["-v", "down"])
+        .assert()
+        .stderr(predicates::str::contains("--verbose flag").not());
+}
+
+/// `down --volumes` destroys data, so a run nobody can answer refuses.
+///
+/// No terminal on stdin here, which is every script and every CI job: the
+/// prompt would be a hang, and going ahead unasked would take the database of
+/// whatever deployment the script was standing in.
+#[test]
+fn down_volumes_refuses_to_destroy_data_nobody_confirmed() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    chap_in(&sandbox, &dir, &["down", "--volumes"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("pass --yes"));
+
+    // `--json` is the same kind of run: nobody is watching it either.
+    chap_in(&sandbox, &dir, &["--json", "down", "--volumes"])
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains("pass --yes"));
+}
+
+/// `chaps down --volumes --yes` removes the volumes docker holds, and names
+/// them.
+///
+/// The volume is created here rather than by `chaps up`, which would pull the
+/// whole stack for one `docker volume rm`; compose declares the database
+/// under exactly this name, and `chap-db` is the one whose loss is the point
+/// of the flag.
+#[test]
+fn down_volumes_removes_the_database_volume_docker_holds() {
+    if !docker_ready() {
+        return;
+    }
+    let sandbox = Sandbox::new();
+    // A directory of its own: the volumes carry the compose project name,
+    // which is derived from the directory the deployment lives in.
+    let dir = sandbox.project().with_file_name("chaps-down-volumes");
+    let mut init = sandbox.chap();
+    init.arg("init")
+        .arg(&dir)
+        .args(["--models", "none", "--api-port"])
+        .arg(free_port().to_string());
+    init.assert().success();
+
+    let project = state(&dir)["compose_project"]
+        .as_str()
+        .expect("init records a compose project name")
+        .to_string();
+    let volume = format!("{project}_chap-db");
+    let _created = Volume::create(&volume);
+    assert_eq!(
+        docker_volumes(&format!("{project}_")),
+        std::slice::from_ref(&volume)
+    );
+
+    chap_in(&sandbox, &dir, &["down", "--volumes", "--yes"])
+        .assert()
+        .success()
+        // Named before it goes, and again once it is gone.
+        .stdout(predicates::str::contains(format!(
+            "docker holds 1 volume under {project}_*, data and all: {volume}"
+        )))
+        .stdout(predicates::str::contains(format!(
+            "removed 1 volume ({volume})"
+        )))
+        .stdout(predicates::str::contains("volumes kept").not());
+
+    assert!(
+        docker_volumes(&format!("{project}_")).is_empty(),
         "docker volume ls still lists {volume}"
     );
 }

@@ -489,6 +489,17 @@ pub struct UpArgs {
 /// Stop CHAP (docker compose down)
 #[derive(Debug, Clone, Args)]
 pub struct DownArgs {
+    // Long spelling only: `-v` is the global `--verbose` flag, and a `down`
+    // that kept or dropped the data depending on which of the two clap
+    // resolved it to would be the worst of both.
+    /// Also remove this deployment's volumes, destroying its data
+    #[arg(long)]
+    pub volumes: bool,
+
+    /// Skip the confirmation
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+
     /// Extra arguments passed through to docker compose down
     #[arg(
         value_name = "EXTRA",
@@ -1290,6 +1301,52 @@ mod tests {
             panic!("expected up");
         };
         assert!(args.no_preflight);
+    }
+
+    /// The `DownArgs` behind `chap down <argv..>`, with the global
+    /// `--verbose` flag as that same command line left it.
+    fn down_args(argv: &[&str]) -> (bool, DownArgs) {
+        let mut args = vec!["chap", "down"];
+        args.extend_from_slice(argv);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let verbose = cli.verbose;
+        let Command::Down(args) = cli.command else {
+            panic!("expected down");
+        };
+        (verbose, args)
+    }
+
+    /// `-v` is the global `--verbose` flag, which is the whole reason
+    /// `--volumes` has no short spelling: compose's `-v` destroys data, and a
+    /// flag that means one thing on the way in and another on the way out is
+    /// not a flag anyone can trust.
+    #[test]
+    fn down_takes_volumes_and_yes_while_v_stays_verbose() {
+        let (verbose, args) = down_args(&[]);
+        assert!(!args.volumes && !args.yes && args.extra.is_empty());
+        assert!(!verbose);
+
+        let (_, args) = down_args(&["--volumes", "--yes"]);
+        assert!(args.volumes && args.yes && args.extra.is_empty());
+
+        let (_, args) = down_args(&["-y", "--volumes"]);
+        assert!(args.volumes && args.yes);
+
+        // The bug this exists for: `-v` is chaps's own flag, so compose never
+        // sees it and the volumes stay.
+        let (verbose, args) = down_args(&["-v"]);
+        assert!(verbose);
+        assert!(!args.volumes && args.extra.is_empty());
+
+        // Past a `--` it reaches the passthrough, where the command refuses
+        // it rather than guess which `-v` was meant.
+        let (_, args) = down_args(&["--", "-v"]);
+        assert_eq!(args.extra, vec!["-v"]);
+
+        // And compose's own flags still go through.
+        let (_, args) = down_args(&["--volumes", "--", "--timeout", "30"]);
+        assert!(args.volumes);
+        assert_eq!(args.extra, vec!["--timeout", "30"]);
     }
 
     #[test]

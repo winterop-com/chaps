@@ -56,8 +56,8 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 ///
 /// The model's data volume is kept, which is what makes disabling a model a
 /// reversible thing to do. It is named either way, because once the overlay
-/// is gone nothing else knows it: `chaps docker run -- down -v` removes the
-/// volumes the compose files still declare, so a volume nobody names again
+/// is gone nothing else knows it: `chaps down --volumes` removes the volumes
+/// the compose files still declare, so a volume nobody names again
 /// lingers for as long as the machine does. `--purge` is how the data goes
 /// with the model.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {

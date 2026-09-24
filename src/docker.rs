@@ -851,13 +851,13 @@ pub struct Volume {
     pub created_at: String,
 }
 
-/// The named volumes whose names start with `prefix`
-/// (`docker volume ls --filter name=<prefix>`), each with its creation time.
+/// The names of the volumes docker holds whose names start with `prefix`
+/// (`docker volume ls --filter name=<prefix>`).
 ///
 /// Best-effort like every other query here: an empty list when docker could
 /// not be asked. The filter is a substring match, so the names are checked
 /// again out here - `demo_` must not answer for `olddemo_chap-db`.
-pub fn volumes_with_prefix(prefix: &str) -> Vec<Volume> {
+pub fn volume_names_with_prefix(prefix: &str) -> Vec<String> {
     let args = vec![
         "volume".to_string(),
         "ls".to_string(),
@@ -869,12 +869,16 @@ pub fn volumes_with_prefix(prefix: &str) -> Vec<Volume> {
     let Some(text) = docker_capture(&args) else {
         return Vec::new();
     };
-    let names: Vec<String> = text
-        .lines()
+    text.lines()
         .map(str::trim)
         .filter(|name| name.starts_with(prefix))
         .map(str::to_string)
-        .collect();
+        .collect()
+}
+
+/// The same volumes, each with the time docker created it.
+pub fn volumes_with_prefix(prefix: &str) -> Vec<Volume> {
+    let names = volume_names_with_prefix(prefix);
     if names.is_empty() {
         return Vec::new();
     }

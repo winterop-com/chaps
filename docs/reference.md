@@ -290,6 +290,8 @@ Usage: chaps down [OPTIONS] [EXTRA]...
 
 | Argument | Description |
 | --- | --- |
+| `--volumes` | Also remove this deployment's volumes, destroying its data. |
+| `-y, --yes` | Skip the confirmation. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose down. |
 
 ## chaps logs

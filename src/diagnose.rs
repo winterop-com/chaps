@@ -273,7 +273,7 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
         return Some(
             "the database volume holds a different password than .env (a previous deployment \
              with the same name, or --fresh-env); run `chaps doctor`, or remove the volume with \
-             `chaps docker run -- down -v` if this deployment's data can go"
+             `chaps down --volumes` if this deployment's data can go"
                 .to_string(),
         );
     }
@@ -494,7 +494,7 @@ mod tests {
             hint.contains("the database volume holds a different password"),
             "{hint}"
         );
-        assert!(hint.contains("chaps docker run -- down -v"), "{hint}");
+        assert!(hint.contains("chaps down --volumes"), "{hint}");
         assert!(hint.contains("chaps doctor"), "{hint}");
 
         // The bare line chap-core prints, without the traceback around it.

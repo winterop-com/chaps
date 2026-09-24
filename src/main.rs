@@ -231,6 +231,9 @@ fn run_ui(ctx: &Ctx, args: &cli::UiArgs) -> error::Result<()> {
 fn exit_code(err: &anyhow::Error) -> i32 {
     match err.downcast_ref::<ChapError>() {
         Some(ChapError::DockerFailed(code)) if *code != 0 => *code,
+        // The code clap exits with for a usage error, because that is what
+        // this is: a usage error clap could not catch.
+        Some(ChapError::Usage(_)) => 2,
         _ => 1,
     }
 }
@@ -248,6 +251,15 @@ mod tests {
     fn docker_failures_keep_their_exit_code() {
         let err = anyhow::Error::new(ChapError::DockerFailed(137));
         assert_eq!(exit_code(&err), 137);
+    }
+
+    /// A usage error clap could not catch exits the way clap's own do, so a
+    /// script can tell "you typed it wrong" from "it did not work".
+    #[test]
+    fn a_usage_error_exits_two() {
+        let err = anyhow::Error::new(ChapError::Usage("`-v` is --verbose".to_string()));
+        assert_eq!(exit_code(&err), 2);
+        assert_eq!(err.to_string(), "`-v` is --verbose");
     }
 
     #[test]

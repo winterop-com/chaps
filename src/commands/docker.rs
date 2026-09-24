@@ -6,7 +6,7 @@
 //! behaviour. `up` syncs the compose files from `.chaps/` first; the others,
 //! `restart` included, run against whatever is on disk.
 
-use crate::cli::DockerCmd;
+use crate::cli::{DockerCmd, DownArgs};
 use crate::commands::Ctx;
 use crate::compose::sync;
 use crate::docker;
@@ -15,7 +15,7 @@ use crate::output::{Out, PanelKind};
 use crate::ports;
 use crate::project::Project;
 use crate::registry;
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal, Write};
 
 /// The command run inside the container when `chaps docker exec` is given none.
 const DEFAULT_EXEC_CMD: &str = "sh";
@@ -31,6 +31,21 @@ const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
 
 /// The hint that closes a detached `up`.
 const AFTER_UP: &str = "run `chaps status` to check chap-core and the models";
+
+/// What `down --volumes` says when there is nobody to confirm to.
+///
+/// A prompt nobody can answer is a hang, and going ahead unasked would
+/// destroy the data of whatever deployment the script happened to be in, so
+/// the flag that cannot be undone is the one place `chaps` refuses instead.
+const NO_TERMINAL: &str = "this destroys this deployment's data and there is no terminal to \
+     confirm at; pass --yes";
+
+/// The same under `--json`, which is a run nobody is watching either.
+const NO_JSON_ANSWER: &str =
+    "--json cannot ask before destroying this deployment's data; pass --yes";
+
+/// What `down --volumes` asks before it runs.
+const REMOVE_THEM: &str = "remove this deployment's volumes? [y/N] ";
 
 /// What the caller's terminal adds to the argument list.
 ///
@@ -64,6 +79,17 @@ impl Shell {
 /// Around the child run sit the two things docker will not say: what there was
 /// to work with before it ran, and what changed by the time it finished.
 pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
+    // Ahead of the project and of docker: a `-v` meant for compose is a
+    // mistake about this CLI's own flags, and the answer to it is the same in
+    // any directory and on a machine with no daemon at all.
+    if let DockerCmd::Down(args) = cmd {
+        let argv: Vec<String> = std::env::args().collect();
+        if let Some(token) = misused_volumes_flag(&argv, &args.extra) {
+            return Err(anyhow::Error::new(ChapError::Usage(volumes_flag_message(
+                token,
+            ))));
+        }
+    }
     let mut project = ctx.project()?;
     if let DockerCmd::Up(args) = cmd {
         let registry = registry::load(&ctx.registry)?;
@@ -76,6 +102,14 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         }
     }
     warn_about_old_compose();
+
+    // `down --volumes` is the only wrapper that destroys data, so it names
+    // what will go and asks first. The list is the closing line's too: what
+    // docker no longer holds afterwards is what this run removed.
+    let volumes = match cmd {
+        DockerCmd::Down(args) if args.volumes => confirm_volumes(ctx, &project, args)?,
+        _ => Vec::new(),
+    };
 
     let (before, unasked) = match prepare(ctx, &project, cmd)? {
         Pre::Run { before, unasked } => (before, unasked),
@@ -102,8 +136,128 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     if code != 0 {
         return Err(docker_failed(code, unasked));
     }
-    report_what_changed(ctx, &project, cmd, &before);
+    report_what_changed(ctx, &project, cmd, &before, &volumes);
     Ok(())
+}
+
+/// The `-v`-shaped token an operator meant for compose's `--volumes`, if
+/// `down` was given one.
+///
+/// Two ways in, and neither can be passed on. `chaps down -v` is taken by
+/// clap as the global `--verbose` flag, so compose never sees it: the volumes
+/// stay while the person who typed it believes they went, which is the whole
+/// reason `--volumes` exists. Nothing in the parsed command line can tell
+/// that apart from a deliberately verbose stop, so the raw arguments answer
+/// it, and only the ones after `down` count - `chaps -v down` is a verbose
+/// stop and stays one. Past a `--` the token reaches `EXTRA` instead, where
+/// passing it through would destroy the data of an operator who only asked
+/// for a louder `down`.
+///
+/// `chaps docker run -- down -v` is not this: it is the passthrough asking
+/// for compose's own command line, where `-v` means what compose says it
+/// means.
+pub fn misused_volumes_flag<'a>(argv: &'a [String], extra: &'a [String]) -> Option<&'a str> {
+    let typed = argv
+        .iter()
+        .position(|arg| arg == "down")
+        .map_or(&[][..], |at| &argv[at + 1..]);
+    typed
+        .iter()
+        .map(String::as_str)
+        .find(|arg| *arg == "-v")
+        .or_else(|| {
+            extra
+                .iter()
+                .map(String::as_str)
+                .find(|arg| matches!(*arg, "-v" | "--volumes" | "--volume"))
+        })
+}
+
+/// What that refusal says: which flag it was, which flag does the job, and
+/// how to ask for the verbose `down` the other reading would have given.
+pub fn volumes_flag_message(token: &str) -> String {
+    format!(
+        "`{token}` after `down` is not passed on to compose (`-v` there is chaps's own \
+         --verbose flag); `chaps down --volumes` removes this deployment's volumes and the \
+         data in them, and `chaps -v down` is the verbose stop"
+    )
+}
+
+/// Name the volumes `down --volumes` is about to destroy, and get a yes.
+///
+/// Returns the volumes docker holds under this deployment's prefix, which is
+/// also what the closing line is measured against: compose removes the
+/// volumes its files declare, so a leftover under the same prefix may well
+/// outlive the run, and only docker can say which ones actually went.
+///
+/// `--yes` is how a script says it meant it. A run that cannot be asked - no
+/// terminal on stdin, or `--json`, which nobody is watching - refuses rather
+/// than assume, because there is no undoing this one.
+fn confirm_volumes(ctx: &Ctx, project: &Project, args: &DownArgs) -> Result<Vec<String>> {
+    let prefix = project.volume_prefix();
+    let volumes = match prefix.as_deref() {
+        Some(prefix) => docker::volume_names_with_prefix(prefix),
+        None => Vec::new(),
+    };
+    note(
+        ctx,
+        &volumes_at_stake(&ctx.out, &volumes, prefix.as_deref()),
+    );
+    if args.yes {
+        return Ok(volumes);
+    }
+    if ctx.out.json {
+        return Err(anyhow::anyhow!(NO_JSON_ANSWER));
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow::anyhow!(NO_TERMINAL));
+    }
+    eprint!("\n{REMOVE_THEM}");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut answer)
+        .map_err(|e| anyhow::anyhow!("reading the answer: {e}"))?;
+    if matches!(answer.trim(), "y" | "Y" | "yes" | "Yes") {
+        return Ok(volumes);
+    }
+    Err(anyhow::anyhow!("cancelled; nothing was stopped"))
+}
+
+/// The line that names what is at stake, before `down --volumes` is let near
+/// it.
+///
+/// Every volume under the deployment's prefix, because that is the set at
+/// risk as docker sees it - and a statement of what docker holds rather than
+/// a promise about what will go, since compose removes the volumes its files
+/// still declare and a leftover under the same prefix may well outlive the
+/// run. What did go is the closing line's to report.
+///
+/// An empty list is a line of its own rather than a silence: a deployment
+/// that was never started has nothing to lose, and a docker that could not be
+/// asked answers the same way, which is worth seeing before saying yes.
+pub fn volumes_at_stake(out: &Out, volumes: &[String], prefix: Option<&str>) -> String {
+    let under = match prefix {
+        Some(prefix) => format!("under {prefix}*"),
+        None => "under this deployment's name".to_string(),
+    };
+    if volumes.is_empty() {
+        return out.dim(&format!("docker holds no volumes {under}"));
+    }
+    format!(
+        "{} {}",
+        out.warn(&format!(
+            "docker holds {} {under}, data and all:",
+            volume_count(volumes.len())
+        )),
+        out.value(&volumes.join(", "))
+    )
+}
+
+/// `1 volume` or `N volumes`.
+fn volume_count(count: usize) -> String {
+    format!("{count} volume{}", if count == 1 { "" } else { "s" })
 }
 
 /// Whether this wrapper is one whose stderr is worth reading: a detached `up`
@@ -274,11 +428,15 @@ fn reject_unknown_services(project: &Project, names: &[String]) -> Result<()> {
 }
 
 /// Say what the wrapper did, now that docker has finished.
+///
+/// `volumes` are the ones docker held before a `down --volumes`, and empty
+/// for every other wrapper.
 fn report_what_changed(
     ctx: &Ctx,
     project: &Project,
     cmd: &DockerCmd,
     before: &[docker::Container],
+    volumes: &[String],
 ) {
     match cmd {
         // An attached `up` has just streamed the logs and been interrupted;
@@ -291,15 +449,21 @@ fn report_what_changed(
             let after = docker::running_containers(project).unwrap_or_default();
             note(ctx, &restart_summary(&ctx.out, before, &after));
         }
-        DockerCmd::Down(args) => note(
-            ctx,
-            &down_summary(
-                &ctx.out,
-                &docker::service_names(before),
-                &args.extra,
-                project.compose_project_name().as_deref(),
-            ),
-        ),
+        DockerCmd::Down(args) => {
+            let removed = args.volumes.then(|| removed_volumes(project, volumes));
+            note(
+                ctx,
+                &down_summary(
+                    &ctx.out,
+                    &docker::service_names(before),
+                    match &removed {
+                        Some(names) => DownVolumes::Removed(names),
+                        None => DownVolumes::Kept,
+                    },
+                    project.compose_project_name().as_deref(),
+                ),
+            )
+        }
         DockerCmd::Pull(_) => note(
             ctx,
             &ctx.out.ok(&pull_summary(docker::image_count(project))),
@@ -375,43 +539,81 @@ pub fn restart_summary(
     )
 }
 
-/// What `down` stopped, and what it left behind.
+/// What `down` did about the volumes, for the second half of its line.
+#[derive(Debug, Clone, Copy)]
+pub enum DownVolumes<'a> {
+    /// A plain `down`: the data is all still there.
+    Kept,
+    /// `down --volumes`: the volumes docker no longer holds, which is what
+    /// the run actually removed rather than what it set out to.
+    Removed(&'a [String]),
+}
+
+/// The volumes of `before` that docker no longer holds.
+///
+/// Compose removes the volumes its own files declare, so a leftover from a
+/// disabled model under the same prefix survives a `down --volumes`; asking
+/// docker again is the only way to say which ones went.
+fn removed_volumes(project: &Project, before: &[String]) -> Vec<String> {
+    let left = match project.volume_prefix() {
+        Some(prefix) => docker::volume_names_with_prefix(&prefix),
+        None => Vec::new(),
+    };
+    before
+        .iter()
+        .filter(|name| !left.contains(name))
+        .cloned()
+        .collect()
+}
+
+/// What `down` stopped, and what became of the volumes.
 ///
 /// The volumes are the point of the second half: `down` is the command people
 /// reach for to "reset" a deployment, and it keeps the database. The compose
 /// project name goes with them, because it is the prefix those volumes carry
-/// and therefore what `docker volume ls` has to be asked about.
+/// and therefore what `docker volume ls` has to be asked about. A
+/// `--volumes` run names what it removed instead, by name: the deployment
+/// whose data is gone is not the place for a count alone.
 pub fn down_summary(
     out: &Out,
     stopped: &[String],
-    extra: &[String],
+    volumes: DownVolumes,
     project_name: Option<&str>,
 ) -> String {
-    if stopped.is_empty() {
-        return out.dim("nothing was running");
-    }
-    let kept = match project_name {
-        Some(name) => {
-            format!("volumes kept: {name}_* (`chaps docker run -- down -v` removes them)")
-        }
-        None => "volumes kept (`chaps docker run -- down -v` removes them)".to_string(),
-    };
-    let volumes = if extra.iter().any(|a| a == "-v" || a == "--volumes") {
-        "volumes removed too (-v)".to_string()
+    let head = if stopped.is_empty() {
+        out.dim("nothing was running")
     } else {
-        kept
+        format!(
+            "{} {}",
+            out.warn("stopped CHAP:"),
+            out.dim(&format!(
+                "{} ({} container{})",
+                stopped.join(", "),
+                stopped.len(),
+                if stopped.len() == 1 { "" } else { "s" }
+            ))
+        )
     };
-    format!(
-        "{} {}; {}",
-        out.warn("stopped CHAP:"),
-        out.dim(&format!(
-            "{} ({} container{})",
-            stopped.join(", "),
-            stopped.len(),
-            if stopped.len() == 1 { "" } else { "s" }
-        )),
-        out.backticks(&volumes)
-    )
+    match volumes {
+        // Nothing ran and nothing was asked about the volumes: one clause
+        // says everything there is to say.
+        DownVolumes::Kept if stopped.is_empty() => head,
+        DownVolumes::Kept => {
+            let kept = match project_name {
+                Some(name) => {
+                    format!("volumes kept: {name}_* (`chaps down --volumes` removes them)")
+                }
+                None => "volumes kept (`chaps down --volumes` removes them)".to_string(),
+            };
+            format!("{head}; {}", out.backticks(&kept))
+        }
+        DownVolumes::Removed([]) => format!("{head}; {}", out.dim("no volumes were removed")),
+        DownVolumes::Removed(names) => format!(
+            "{head}; {} {}",
+            out.warn(&format!("removed {}", volume_count(names.len()))),
+            out.value(&format!("({})", names.join(", ")))
+        ),
+    }
 }
 
 /// The "there is nothing here" answer `logs` and `ps` give a project whose
@@ -603,6 +805,13 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
         }
         DockerCmd::Down(args) => {
             let mut out = vec!["down".to_string()];
+            // With the volumes go the containers of services this project no
+            // longer declares: a `down --volumes` that left an orphan running
+            // would leave it holding the data it was asked to destroy.
+            if args.volumes {
+                out.push("-v".to_string());
+                out.extend(remove_orphans(&args.extra));
+            }
             out.extend(args.extra.iter().cloned());
             out
         }
@@ -813,6 +1022,15 @@ mod tests {
         })
     }
 
+    /// The `DockerCmd` behind `chaps down`, with its two flags.
+    fn down(volumes: bool, extra: &[&str]) -> DockerCmd {
+        DockerCmd::Down(DownArgs {
+            volumes,
+            yes: true,
+            extra: extra.iter().map(|s| s.to_string()).collect(),
+        })
+    }
+
     fn exec(service: &str, cmd: &[&str]) -> DockerCmd {
         DockerCmd::Exec(ExecArgs {
             service: service.to_string(),
@@ -850,10 +1068,7 @@ mod tests {
         assert_eq!(asked.iter().filter(|a| *a == "--remove-orphans").count(), 1);
         assert_eq!(asked, vec!["up", "-d", "--remove-orphans"]);
         // Every other wrapper is docker's own command, untouched.
-        for cmd in [
-            DockerCmd::Down(DownArgs { extra: vec![] }),
-            exec("chap", &[]),
-        ] {
+        for cmd in [down(false, &[]), exec("chap", &[])] {
             assert!(!args_for(&cmd, TERM).iter().any(|a| a == "--remove-orphans"));
         }
     }
@@ -897,18 +1112,10 @@ mod tests {
 
     #[test]
     fn down_and_pull_are_bare_commands() {
+        assert_eq!(args_for(&down(false, &[]), TERM), vec!["down"]);
         assert_eq!(
-            args_for(&DockerCmd::Down(DownArgs { extra: vec![] }), TERM),
-            vec!["down"]
-        );
-        assert_eq!(
-            args_for(
-                &DockerCmd::Down(DownArgs {
-                    extra: vec!["-v".to_string()],
-                }),
-                TERM
-            ),
-            vec!["down", "-v"]
+            args_for(&down(false, &["--timeout", "30"]), TERM),
+            vec!["down", "--timeout", "30"]
         );
         assert_eq!(
             args_for(&DockerCmd::Pull(PullArgs {}), JSON),
@@ -1157,34 +1364,161 @@ mod tests {
     fn down_reports_what_it_stopped_and_what_it_kept() {
         let stopped = vec!["chap".to_string(), "worker".to_string()];
         let name = Some("mychap-1ab2c3");
+        let kept = |stopped: &[String], name| {
+            down_summary(&Out::default(), stopped, DownVolumes::Kept, name)
+        };
         // The volumes that stay behind are named after the compose project,
-        // so the line says which prefix to look for them under.
+        // so the line says which prefix to look for them under - and the
+        // command that would take them, spelled as it is typed.
         assert_eq!(
-            down_summary(&Out::default(), &stopped, &[], name),
+            kept(&stopped, name),
             "stopped CHAP: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
-             (`chaps docker run -- down -v` removes them)"
+             (`chaps down --volumes` removes them)"
         );
-        assert!(
-            down_summary(&Out::default(), &stopped[..1], &[], name)
-                .starts_with("stopped CHAP: chap (1 container);")
-        );
+        assert!(kept(&stopped[..1], name).starts_with("stopped CHAP: chap (1 container);"));
         // A deployment whose name could not be worked out still gets the line.
         assert!(
-            down_summary(&Out::default(), &stopped, &[], None)
-                .ends_with("volumes kept (`chaps docker run -- down -v` removes them)"),
+            kept(&stopped, None).ends_with("volumes kept (`chaps down --volumes` removes them)"),
             "{}",
-            down_summary(&Out::default(), &stopped, &[], None)
+            kept(&stopped, None)
         );
-        // `down -v` did take the volumes, so it must not claim otherwise.
-        assert!(
-            down_summary(&Out::default(), &stopped, &["-v".to_string()], name)
-                .ends_with("volumes removed too (-v)"),
-            "{}",
-            down_summary(&Out::default(), &stopped, &["-v".to_string()], name)
+        assert_eq!(kept(&[], name), "nothing was running");
+    }
+
+    #[test]
+    fn down_volumes_names_the_volumes_it_removed() {
+        let stopped = vec!["chap".to_string(), "worker".to_string()];
+        let name = Some("mychap-1ab2c3");
+        let removed = |stopped: &[String], gone: &[String]| {
+            down_summary(&Out::default(), stopped, DownVolumes::Removed(gone), name)
+        };
+        let gone = vec![
+            "mychap-1ab2c3_chap-db".to_string(),
+            "mychap-1ab2c3_chap-data".to_string(),
+        ];
+        assert_eq!(
+            removed(&stopped, &gone),
+            "stopped CHAP: chap, worker (2 containers); removed 2 volumes \
+             (mychap-1ab2c3_chap-db, mychap-1ab2c3_chap-data)"
         );
         assert_eq!(
-            down_summary(&Out::default(), &[], &[], name),
-            "nothing was running"
+            removed(&stopped, &gone[..1]),
+            "stopped CHAP: chap, worker (2 containers); removed 1 volume \
+             (mychap-1ab2c3_chap-db)"
+        );
+        // A deployment that was not running still had volumes to remove, and
+        // that is the half worth reporting.
+        assert_eq!(
+            removed(&[], &gone[..1]),
+            "nothing was running; removed 1 volume (mychap-1ab2c3_chap-db)"
+        );
+        // Compose removes the volumes its files declare, so a run that
+        // reached none of them says so rather than claiming a removal.
+        assert_eq!(
+            removed(&stopped, &[]),
+            "stopped CHAP: chap, worker (2 containers); no volumes were removed"
+        );
+    }
+
+    /// The command line as the process received it.
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_volume_flag_after_down_is_refused_by_name() {
+        // Clap resolves this one to --verbose, so only the raw arguments can
+        // still say it was typed - and it has to be said, because compose
+        // never saw it and the volumes are all still there.
+        assert_eq!(
+            misused_volumes_flag(&argv(&["chaps", "down", "-v"]), &[]),
+            Some("-v")
+        );
+        assert_eq!(
+            misused_volumes_flag(&argv(&["chaps", "-C", "/srv/chap", "down", "-v"]), &[]),
+            Some("-v")
+        );
+        // Past a `--` it reaches EXTRA, where passing it through would
+        // destroy the data of an operator who only asked for a louder `down`.
+        for token in ["-v", "--volumes", "--volume"] {
+            let extra = vec!["--timeout".to_string(), "5".to_string(), token.to_string()];
+            let line = argv(&["chaps", "down", "--", "--timeout", "5", token]);
+            assert_eq!(misused_volumes_flag(&line, &extra), Some(token), "{token}");
+        }
+
+        // `chaps -v down` asked for a verbose stop and gets one.
+        assert_eq!(
+            misused_volumes_flag(&argv(&["chaps", "-v", "down"]), &[]),
+            None
+        );
+        // And the flag that does the job is not the mistake it replaces.
+        assert_eq!(
+            misused_volumes_flag(&argv(&["chaps", "down", "--volumes", "--yes"]), &[]),
+            None
+        );
+        // Everything compose takes goes through untouched.
+        assert_eq!(
+            misused_volumes_flag(
+                &argv(&["chaps", "down", "--", "--rmi", "local"]),
+                &["--rmi".to_string(), "local".to_string()]
+            ),
+            None
+        );
+        assert_eq!(misused_volumes_flag(&[], &[]), None);
+    }
+
+    #[test]
+    fn the_refusal_names_both_flags_and_the_verbose_spelling() {
+        for token in ["-v", "--volumes"] {
+            let message = volumes_flag_message(token);
+            assert!(
+                message.starts_with(&format!("`{token}` after `down`")),
+                "{message}"
+            );
+            assert!(message.contains("--verbose"), "{message}");
+            assert!(message.contains("`chaps down --volumes`"), "{message}");
+            assert!(message.contains("`chaps -v down`"), "{message}");
+        }
+    }
+
+    #[test]
+    fn down_volumes_asks_compose_for_the_volumes_and_the_orphans() {
+        assert_eq!(
+            args_for(&down(true, &[]), TERM),
+            vec!["down", "-v", "--remove-orphans"]
+        );
+        // Once, even when the caller asked for the orphans as well.
+        assert_eq!(
+            args_for(&down(true, &["--remove-orphans"]), TERM),
+            vec!["down", "-v", "--remove-orphans"]
+        );
+    }
+
+    #[test]
+    fn the_volumes_at_stake_are_named_before_they_are_removed() {
+        let volumes = vec![
+            "mychap-1ab2c3_chap-db".to_string(),
+            "mychap-1ab2c3_ocs_data".to_string(),
+        ];
+        let prefix = Some("mychap-1ab2c3_");
+        assert_eq!(
+            volumes_at_stake(&Out::default(), &volumes, prefix),
+            "docker holds 2 volumes under mychap-1ab2c3_*, data and all: \
+             mychap-1ab2c3_chap-db, mychap-1ab2c3_ocs_data"
+        );
+        assert_eq!(
+            volumes_at_stake(&Out::default(), &volumes[..1], prefix),
+            "docker holds 1 volume under mychap-1ab2c3_*, data and all: mychap-1ab2c3_chap-db"
+        );
+        // A deployment that was never started, or a docker that could not be
+        // asked: either way the prompt says what is known before it asks.
+        assert_eq!(
+            volumes_at_stake(&Out::default(), &[], prefix),
+            "docker holds no volumes under mychap-1ab2c3_*"
+        );
+        assert_eq!(
+            volumes_at_stake(&Out::default(), &[], None),
+            "docker holds no volumes under this deployment's name"
         );
     }
 
@@ -1196,7 +1530,7 @@ mod tests {
         assert!(reads_stderr(&restart(false, &[])));
         // An attached `up` is streaming logs; its streams stay docker's own.
         assert!(!reads_stderr(&up(true, &[])));
-        assert!(!reads_stderr(&DockerCmd::Down(DownArgs { extra: vec![] })));
+        assert!(!reads_stderr(&down(false, &[])));
         assert!(!reads_stderr(&exec("chap", &[])));
     }
 
