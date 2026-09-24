@@ -612,6 +612,18 @@ fn docker_accepts_the_stack_with_the_chaps_override() {
             .is_some(),
         "adding to environment must not replace upstream's own variables"
     );
+    // And gunicorn's control socket lands on the tmpfs rather than on the
+    // read-only root, which it otherwise logs an error about on every start.
+    assert_eq!(
+        merged["services"]["chap"]["environment"]["XDG_RUNTIME_DIR"].as_str(),
+        Some("/tmp")
+    );
+    assert!(
+        merged["services"]["worker"]["environment"]
+            .get("XDG_RUNTIME_DIR")
+            .is_none(),
+        "the worker runs celery, not gunicorn"
+    );
     let ports = merged["services"]["chap"]["ports"]
         .as_sequence()
         .expect("chap publishes a port");

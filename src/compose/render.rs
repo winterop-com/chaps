@@ -125,6 +125,14 @@ pub fn render_base(spec: &BaseSpec) -> String {
 /// this adds the one variable without touching upstream's file. It is
 /// rendered whether or not the deployment has a key: with none in `.env` the
 /// variable arrives empty, which is what chap-core reads as "not set".
+///
+/// The same block sets `XDG_RUNTIME_DIR`. chap-core runs gunicorn 26, which
+/// opens a control socket at `$XDG_RUNTIME_DIR/gunicorn.ctl` and falls back to
+/// `$HOME/.gunicorn/` - a path the service's read-only root filesystem
+/// refuses, so every start logs `Control server error: [Errno 30] Read-only
+/// file system: '/home/chap'`. The server comes up either way; pointing the
+/// socket at the writable `/tmp` tmpfs keeps that line out of the log. Only
+/// the `chap` service needs it: the worker runs celery, not gunicorn.
 pub fn render_chaps_overlay(api_port: u16, project_name: Option<&str>) -> String {
     format!(
         "{GENERATED_HEADER}\n\
@@ -134,7 +142,9 @@ pub fn render_chaps_overlay(api_port: u16, project_name: Option<&str>) -> String
          \x20   ports: !override\n\
          \x20     - \"${{{API_PORT_ENV_VAR}:-{api_port}}}:8000\"\n\
          \x20   environment:\n\
-         \x20     {REGISTRATION_KEY_ENV_VAR}: ${{{REGISTRATION_KEY_ENV_VAR}:-}}\n",
+         \x20     {REGISTRATION_KEY_ENV_VAR}: ${{{REGISTRATION_KEY_ENV_VAR}:-}}\n\
+         \x20     # Keeps gunicorn's control socket off the read-only root; drop it once chap-core disables that socket.\n\
+         \x20     XDG_RUNTIME_DIR: /tmp\n",
         project_name_block(project_name)
     )
 }
@@ -573,6 +583,25 @@ mod tests {
         // Rendered whether or not the deployment has a key: compose
         // substitutes an empty value, which chap-core reads as no key.
         assert!(render_chaps_overlay(8000, None).contains("SERVICEKIT_REGISTRATION_KEY:"));
+    }
+
+    #[test]
+    fn the_chaps_overlay_points_gunicorns_control_socket_at_the_tmpfs() {
+        // gunicorn 26 falls back to $HOME/.gunicorn/, which the service's
+        // read-only root refuses, and logs an error on every start; /tmp is
+        // the tmpfs upstream already mounts.
+        let text = render_chaps_overlay(8000, None);
+        assert_eq!(
+            parse(&text)["services"]["chap"]["environment"]["XDG_RUNTIME_DIR"].as_str(),
+            Some("/tmp")
+        );
+        // With a one-line note saying why it is there and when it can go.
+        assert!(
+            text.contains("\n      # Keeps gunicorn's control socket"),
+            "{text}"
+        );
+        // The worker runs celery, not gunicorn, so it is left alone.
+        assert_eq!(parse(&text)["services"].as_mapping().unwrap().len(), 1);
     }
 
     #[test]

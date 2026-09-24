@@ -240,6 +240,28 @@ chaps docker exec postgres psql -U chap -d chap_core
 This is why `init` never rewrites a `.env` it finds, `--force` included. See
 the [`.env` contract](./concepts.md#the-env-contract).
 
+## `Control server error: [Errno 30] Read-only file system: '/home/chap'`
+
+```text
+[ERROR] [gunicorn.error] Control server error: [Errno 30] Read-only file system: '/home/chap'
+```
+
+A log line and nothing more: the API starts and serves. chap-core's image runs
+gunicorn 26, which opens a control socket at `$XDG_RUNTIME_DIR/gunicorn.ctl` and
+falls back to `$HOME/.gunicorn/` when that variable is unset. The `chap` service
+runs on a read-only root filesystem as a user with no home directory, so the
+fallback path cannot be created and gunicorn reports it once per start.
+
+A deployment rendered by this version of `chaps` sets `XDG_RUNTIME_DIR: /tmp` in
+the `chap` service's environment in `compose.chaps.yml`, which puts the socket on
+the tmpfs the service already mounts, so the line does not appear. An older
+deployment has the override without it; re-render and recreate the container:
+
+```sh
+chaps sync
+chaps restart
+```
+
 ## `no matching manifest for linux/arm64`
 
 The marketplace images and chap-core are published for amd64 only. Every
