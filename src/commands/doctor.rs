@@ -18,7 +18,7 @@ use crate::chapcore;
 use crate::cli::DoctorArgs;
 use crate::commands::Ctx;
 use crate::components::{
-    COMPONENTS_FILE, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
+    COMPONENTS_FILE, Component, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_TAG_ENV_VAR,
     S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
 };
 use crate::compose::render::OCS_EXAMPLE_MARKER;
@@ -1202,6 +1202,7 @@ pub fn volume_verdict(
     db_volume: &str,
     volumes: &[(String, Option<u64>)],
     created: Option<u64>,
+    leftover: &[String],
 ) -> (Status, String, Option<String>) {
     if volumes.is_empty() {
         return (
@@ -1218,9 +1219,10 @@ pub fn volume_verdict(
     let older = volumes.iter().find(|(name, at)| {
         name == db_volume && matches!((at, created), (Some(a), Some(c)) if *a < c)
     });
-    match older {
-        None => (Status::Ok, count, None),
-        Some((name, at)) => (
+    // The database one first: a deployment that cannot log in is a stack that
+    // does not come up, where a volume nobody reads any more costs disk.
+    if let Some((name, at)) = older {
+        return (
             Status::Warn,
             format!(
                 "the database volume {name} predates this deployment; if chap-core cannot log \
@@ -1234,8 +1236,61 @@ pub fn volume_verdict(
                  or keep both by giving one of them a name of its own"
                     .to_string(),
             ),
-        ),
+        );
     }
+    if !leftover.is_empty() {
+        return (
+            Status::Warn,
+            format!(
+                "leftover volumes from disabled models or components: {}",
+                leftover.join(", ")
+            ),
+            Some(LEFTOVER_FIX.to_string()),
+        );
+    }
+    (Status::Ok, count, None)
+}
+
+/// What to do about the leftover volumes the check found.
+///
+/// `down -v` is not among the answers on purpose: it only removes the volumes
+/// the compose files still declare, which is exactly the set these are not in.
+const LEFTOVER_FIX: &str = "remove each with `chaps models disable <id> --purge` or `chaps components disable <name> \
+     --purge`, or `docker volume rm <name>`; keep them to have the data back when the model or \
+     component is enabled again";
+
+/// The volumes under this deployment's prefix that belong to nothing it still
+/// enables.
+///
+/// A model's volume is `ck_<id>_data`, so a name of that shape whose id is no
+/// longer in `.chaps/models.yaml` is a disabled model's data; the component
+/// ones are named outright, and are leftovers while the component is off.
+/// Every other name - the database, chap-core's own - belongs to the base
+/// stack, which is nobody's leftover.
+///
+/// Pure, and injected with both lists: the verdict is decided here and the
+/// docker call that gathers the names is [`volumes_check`]'s.
+pub fn leftover_volumes(
+    prefix: &str,
+    volumes: &[String],
+    models: &[String],
+    components: &Components,
+) -> Vec<String> {
+    volumes
+        .iter()
+        .filter(|name| {
+            let Some(bare) = name.strip_prefix(prefix) else {
+                return false;
+            };
+            if let Some(id) = crate::compose::volume_model_id(bare) {
+                return !models.iter().any(|enabled| enabled == id);
+            }
+            Component::ALL.iter().any(|component| {
+                component.volume() == Some(bare) && !components.is_enabled(*component)
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 /// The `volumes` line: what docker holds under this deployment's name.
@@ -1250,10 +1305,19 @@ fn volumes_check(project: &Project) -> Check {
         .map(|v| (v.name, crate::status::parse_rfc3339(&v.created_at)))
         .collect();
     let created = deployment_created_at(project);
+    let names: Vec<String> = volumes.iter().map(|(name, _)| name.clone()).collect();
+    let models: Vec<String> = project.state.models.keys().cloned().collect();
+    let leftover = leftover_volumes(&prefix, &names, &models, &project.state.components);
     Check::from_verdict(
         ID,
         NAME,
-        volume_verdict(&prefix, &format!("{prefix}chap-db"), &volumes, created),
+        volume_verdict(
+            &prefix,
+            &format!("{prefix}chap-db"),
+            &volumes,
+            created,
+            &leftover,
+        ),
     )
 }
 
@@ -2653,13 +2717,13 @@ mod tests {
         let db = "demo-1ab2c3_chap-db";
 
         // Nothing started yet: nothing to be suspicious of.
-        let (status, detail, _) = volume_verdict(prefix, db, &[], Some(CREATED));
+        let (status, detail, _) = volume_verdict(prefix, db, &[], Some(CREATED), &[]);
         assert_eq!(status, Status::Ok);
         assert!(detail.contains("no demo-1ab2c3_* volume yet"), "{detail}");
 
         // Volumes this deployment made itself.
         let mine = volumes(&[(db, CREATED + 60), ("demo-1ab2c3_logs", CREATED + 60)]);
-        let (status, detail, fix) = volume_verdict(prefix, db, &mine, Some(CREATED));
+        let (status, detail, fix) = volume_verdict(prefix, db, &mine, Some(CREATED), &[]);
         assert_eq!(status, Status::Ok);
         assert_eq!(detail, "2 volumes named demo-1ab2c3_*");
         assert_eq!(fix, None);
@@ -2667,7 +2731,7 @@ mod tests {
         // A database volume that predates the directory it belongs to came
         // from somewhere else, and still holds that deployment's password.
         let inherited = volumes(&[(db, CREATED - 86_400), ("demo-1ab2c3_logs", CREATED + 60)]);
-        let (status, detail, fix) = volume_verdict(prefix, db, &inherited, Some(CREATED));
+        let (status, detail, fix) = volume_verdict(prefix, db, &inherited, Some(CREATED), &[]);
         assert_eq!(status, Status::Warn);
         assert!(
             detail.starts_with(
@@ -2681,18 +2745,110 @@ mod tests {
 
         // Neither time is guaranteed: a filesystem that records no creation
         // time, and a docker that did not say, each cost the comparison only.
-        assert_eq!(volume_verdict(prefix, db, &inherited, None).0, Status::Ok);
+        assert_eq!(
+            volume_verdict(prefix, db, &inherited, None, &[]).0,
+            Status::Ok
+        );
         let undated = vec![(db.to_string(), None)];
         assert_eq!(
-            volume_verdict(prefix, db, &undated, Some(CREATED)).0,
+            volume_verdict(prefix, db, &undated, Some(CREATED), &[]).0,
             Status::Ok
         );
         // And an old volume that is not the database is not this warning.
         let other = volumes(&[("demo-1ab2c3_logs", CREATED - 86_400)]);
         assert_eq!(
-            volume_verdict(prefix, db, &other, Some(CREATED)).0,
+            volume_verdict(prefix, db, &other, Some(CREATED), &[]).0,
             Status::Ok
         );
+    }
+
+    /// The volume of a model or a component this deployment no longer enables
+    /// is data nothing will ever mount again, and nothing else names it: the
+    /// overlay that declared it is gone, so `down -v` cannot reach it either.
+    #[test]
+    fn a_volume_of_something_no_longer_enabled_is_a_warning_naming_it() {
+        let prefix = "demo-1ab2c3_";
+        let db = "demo-1ab2c3_chap-db";
+        let ewars = "demo-1ab2c3_ck_chapkit_ewars_model_data";
+
+        let held = volumes(&[(db, CREATED + 60), (ewars, CREATED + 60)]);
+        let (status, detail, fix) = volume_verdict(
+            prefix,
+            db,
+            &held,
+            Some(CREATED),
+            &[ewars.to_string(), "demo-1ab2c3_ocs_data".to_string()],
+        );
+        assert_eq!(status, Status::Warn);
+        assert_eq!(
+            detail,
+            "leftover volumes from disabled models or components: \
+             demo-1ab2c3_ck_chapkit_ewars_model_data, demo-1ab2c3_ocs_data"
+        );
+        let fix = fix.expect("a leftover volume has something to do about it");
+        assert!(fix.contains("chaps models disable <id> --purge"), "{fix}");
+        assert!(
+            fix.contains("chaps components disable <name> --purge"),
+            "{fix}"
+        );
+        assert!(fix.contains("docker volume rm <name>"), "{fix}");
+        // `down -v` is the one answer that does not work here.
+        assert!(!fix.contains("down -v"), "{fix}");
+
+        // A database volume older than the deployment is the worse of the two
+        // findings, and the one the line reports.
+        let inherited = volumes(&[(db, CREATED - 86_400), (ewars, CREATED + 60)]);
+        let (status, detail, _) =
+            volume_verdict(prefix, db, &inherited, Some(CREATED), &[ewars.to_string()]);
+        assert_eq!(status, Status::Warn);
+        assert!(detail.starts_with("the database volume"), "{detail}");
+    }
+
+    /// Which of a deployment's volumes belong to nothing it still enables.
+    #[test]
+    fn the_leftovers_are_the_volumes_of_disabled_models_and_components() {
+        let prefix = "demo-1ab2c3_";
+        let names: Vec<String> = [
+            "demo-1ab2c3_chap-db",
+            "demo-1ab2c3_ck_chapkit_ewars_model_data",
+            "demo-1ab2c3_ck_auto_arima_chapkit_data",
+            "demo-1ab2c3_ocs_data",
+            "demo-1ab2c3_s3_data",
+            "otherdemo_ck_chapkit_ewars_model_data",
+        ]
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+
+        // One model enabled, no component but chap-core: everything else
+        // under this prefix is a leftover, and the other deployment's volume
+        // is not this deployment's business.
+        let models = vec!["chapkit_ewars_model".to_string()];
+        let mut components = Components::default();
+        assert_eq!(
+            leftover_volumes(prefix, &names, &models, &components),
+            [
+                "demo-1ab2c3_ck_auto_arima_chapkit_data",
+                "demo-1ab2c3_ocs_data",
+                "demo-1ab2c3_s3_data"
+            ]
+        );
+
+        // Turning the components on leaves only the disabled model's.
+        components.set_enabled(Component::Ocs, true);
+        components.set_enabled(Component::S3, true);
+        assert_eq!(
+            leftover_volumes(prefix, &names, &models, &components),
+            ["demo-1ab2c3_ck_auto_arima_chapkit_data"]
+        );
+
+        // And with both models enabled there is nothing left over: the
+        // database and chap-core's own volumes are the base stack's.
+        let both = vec![
+            "chapkit_ewars_model".to_string(),
+            "auto_arima_chapkit".to_string(),
+        ];
+        assert!(leftover_volumes(prefix, &names, &both, &components).is_empty());
     }
 
     #[test]

@@ -560,6 +560,18 @@ impl Project {
         self.compose_project_name().map(|name| format!("{name}_"))
     }
 
+    /// The name docker holds one of this deployment's named volumes under:
+    /// the compose project name, then the name the compose file declares.
+    ///
+    /// Answered without asking docker, like [`Project::volume_prefix`] it is
+    /// built on, so the commands that remove a volume can name it whether or
+    /// not a daemon is reachable. `None` where this directory has no compose
+    /// project name at all, and then there is no volume to name either.
+    pub fn prefixed_volume(&self, volume: &str) -> Option<String> {
+        self.volume_prefix()
+            .map(|prefix| format!("{prefix}{volume}"))
+    }
+
     /// Absolute paths of the ordered `-f` list.
     pub fn compose_file_paths(&self) -> Vec<PathBuf> {
         self.state
@@ -1027,6 +1039,16 @@ mod tests {
             Some("mychap-1ab2c3")
         );
         assert_eq!(loaded.volume_prefix().as_deref(), Some("mychap-1ab2c3_"));
+        assert_eq!(
+            loaded
+                .prefixed_volume(&crate::compose::volume_name("chapkit_ewars_model"))
+                .as_deref(),
+            Some("mychap-1ab2c3_ck_chapkit_ewars_model_data")
+        );
+        assert_eq!(
+            loaded.prefixed_volume("ocs_data").as_deref(),
+            Some("mychap-1ab2c3_ocs_data")
+        );
 
         // A file written before the field existed loads as "not recorded",
         // and the name it has is the one compose derives from the directory.

@@ -49,6 +49,18 @@ pub fn volume_name(id: &str) -> String {
     format!("ck_{id}_data")
 }
 
+/// The marketplace id inside a `ck_<id>_data` volume name, or `None` for a
+/// name that is not one.
+///
+/// The inverse of [`volume_name`], and the only way back: a volume left
+/// behind by a disabled model is a name and nothing else, so `chaps doctor`
+/// reads the id out of it to ask whether that model is still enabled. The
+/// name is the bare one, with the compose project prefix already stripped.
+pub fn volume_model_id(volume: &str) -> Option<&str> {
+    let id = volume.strip_prefix("ck_")?.strip_suffix("_data")?;
+    (!id.is_empty()).then_some(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +110,17 @@ mod tests {
             volume_name("auto_arima_chapkit"),
             "ck_auto_arima_chapkit_data"
         );
+    }
+
+    #[test]
+    fn a_model_volume_name_reads_back_as_the_id_that_made_it() {
+        for id in ["chapkit_ewars_model", "auto_arima_chapkit", "a-b"] {
+            assert_eq!(volume_model_id(&volume_name(id)), Some(id));
+        }
+        // Every other volume of a deployment belongs to someone else.
+        assert_eq!(volume_model_id("chap-db"), None);
+        assert_eq!(volume_model_id("ocs_data"), None);
+        assert_eq!(volume_model_id("ck__data"), None);
+        assert_eq!(volume_model_id("ck_ewars"), None);
     }
 }

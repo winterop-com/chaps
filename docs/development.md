@@ -37,6 +37,14 @@ test touches the network or the developer's real cache.
 The tests that need Docker check for it first and skip with a note on stderr
 when it is not there, so the suite is green on a machine without a daemon.
 
+One test is `#[ignore]`d as well: `live_up_then_purge_removes_the_model_volume`
+starts a real deployment, which pulls the whole stack. Run it by hand on a
+machine with Docker when the volume handling changes:
+
+```sh
+cargo test --test cli -- --ignored live_up_then_purge
+```
+
 ## The build script
 
 `build.rs` produces four things the compiler cannot work out on its own.

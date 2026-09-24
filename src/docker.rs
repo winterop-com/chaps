@@ -933,6 +933,51 @@ pub fn volume_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// What became of one `docker volume rm`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Removal {
+    /// The volume was there, and is gone.
+    Removed,
+    /// No volume of that name existed: either it was never created, or it has
+    /// already been removed.
+    NotFound,
+    /// Docker refused, with its own first words. A volume still attached to a
+    /// container is the one that happens.
+    Refused(String),
+}
+
+/// Remove a named docker volume, best-effort.
+///
+/// Existence is asked first rather than read out of the failure: docker says
+/// "no such volume" in whatever language it was started in, and the
+/// difference between "there was nothing to remove" and "it would not go" is
+/// the whole of what the caller reports.
+///
+/// [`Removal::Refused`] where docker could not be run at all, so a machine
+/// with no daemon is told why rather than told the volume is gone.
+pub fn remove_volume(name: &str) -> Removal {
+    if !volume_exists(name) {
+        return Removal::NotFound;
+    }
+    let args = ["volume".to_string(), "rm".to_string(), name.to_string()];
+    trace_command(&args);
+    let out = Command::new("docker")
+        .args(&args)
+        .stdin(Stdio::null())
+        .output();
+    let out = match out {
+        Ok(out) => out,
+        Err(e) => return Removal::Refused(e.to_string()),
+    };
+    if out.status.success() {
+        return Removal::Removed;
+    }
+    Removal::Refused(
+        first_stderr_line(&String::from_utf8_lossy(&out.stderr))
+            .unwrap_or_else(|| "docker said nothing about why".to_string()),
+    )
+}
+
 /// The installed `docker compose` version, from `docker compose version --short`.
 pub fn compose_version() -> Result<(u32, u32, u32)> {
     trace_command(&[

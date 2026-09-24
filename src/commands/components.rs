@@ -50,6 +50,11 @@ pub struct ChangeReport {
     /// Everything worth saying that is not a failure: the S3 heads-up, a
     /// scaffolded config file.
     pub notes: Vec<String>,
+    /// Data volumes `disable --purge` removed.
+    pub purged: Vec<String>,
+    /// Data volumes `disable` left in place, which is what it does without
+    /// `--purge`.
+    pub kept_volumes: Vec<String>,
 }
 
 /// List every component and whether this deployment has it.
@@ -132,12 +137,19 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         written: synced.written,
         removed: synced.removed,
         notes,
+        purged: Vec::new(),
+        kept_volumes: Vec::new(),
     };
     ctx.out
         .emit(&report, || human_change(&report, &project, &ctx.out))
 }
 
 /// Turn a component off and remove what `sync` rendered for it.
+///
+/// The component's data volume is kept, exactly as a disabled model's is, and
+/// named either way: once the compose file is gone nothing else declares that
+/// volume, so `chaps docker run -- down -v` no longer reaches it. `--purge`
+/// removes it with the component.
 pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
     let mut project = ctx.project()?;
@@ -150,12 +162,44 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         let ids: Vec<String> = project.state.models.keys().cloned().collect();
         return Err(anyhow::anyhow!(models_need_chap_core(&ids)));
     }
+    // Said before anything is stopped: a `--purge` that cannot do the one
+    // thing it was asked for is a refusal, not a disable with a note.
+    if args.purge && component.volume().is_none() {
+        return Err(anyhow::anyhow!(CORE_HAS_NO_CHAPS_VOLUME));
+    }
 
     // The containers go now, while compose still has the files that define
     // them: a service whose definition has just been removed cannot be
     // stopped by name, and one left running keeps its host port published
     // long after the component was disabled.
     let stopped = super::docker::stop_and_remove(&project, &owns(component));
+
+    // And the volume after them, because docker refuses to remove one a
+    // container still has mounted.
+    let volume = component
+        .volume()
+        .and_then(|volume| project.prefixed_volume(volume));
+    let mut volume_notes = Vec::new();
+    let mut purged = Vec::new();
+    let mut kept_volumes = Vec::new();
+    match (&volume, args.purge) {
+        (Some(name), true) => {
+            let (removed, line) = super::docker::purge_volume(name);
+            purged.extend(removed);
+            volume_notes.push(line);
+        }
+        (Some(name), false) => {
+            volume_notes.push(super::docker::kept_volume_line(
+                name,
+                &format!("chaps components disable {}", component.name()),
+            ));
+            kept_volumes.push(name.clone());
+        }
+        // chap-core keeps its volumes either way, and `--purge` was refused
+        // above; a deployment with no compose project name can name none.
+        (None, true) => volume_notes.push(super::docker::UNNAMEABLE_VOLUME.to_string()),
+        (None, false) => {}
+    }
 
     project.state.components.set_enabled(component, false);
     let after = project.state.components.clone();
@@ -165,12 +209,16 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
 
     let mut notes = synced.warnings.clone();
     notes.extend(stopped);
-    if component == Component::Ocs {
+    notes.extend(volume_notes);
+    if component == Component::ChapCore {
         notes.push(
-            "the ocs/ directory and the ocs_data volume are left alone; \
-             `chaps docker run -- down -v` removes the volume"
+            "chap-core's own volumes are left alone; \
+             `chaps docker run -- down -v` removes them"
                 .to_string(),
         );
+    }
+    if component == Component::Ocs {
+        notes.push("the ocs/ directory is left alone; it is yours".to_string());
     }
     let report = ChangeReport {
         name: component.name().to_string(),
@@ -180,10 +228,22 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         written: synced.written,
         removed: synced.removed,
         notes,
+        purged,
+        kept_volumes,
     };
     ctx.out
         .emit(&report, || human_change(&report, &project, &ctx.out))
 }
+
+/// Why `components disable chap-core --purge` is refused.
+///
+/// chap-core's volumes - the database, its own data directory - are declared
+/// by upstream's `compose.yml`, which this CLI renders but does not author, so
+/// there is no one volume `--purge` could mean. The compose command that
+/// removes them names the whole deployment's volumes and is the honest way to
+/// ask for that.
+const CORE_HAS_NO_CHAPS_VOLUME: &str = "chap-core keeps no volume of its own that chaps names, so --purge has nothing to remove; \
+     `chaps docker run -- down -v` removes every volume of this deployment";
 
 /// Whether a compose service belongs to a component, for the purpose of
 /// stopping its containers when that component is disabled.

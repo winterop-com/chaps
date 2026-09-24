@@ -11,7 +11,7 @@ use crate::compose::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 use crate::error::{ChapError, Result};
 use crate::output::Out;
 use crate::project::Project;
-use crate::registry::{self, Channel, VersionSelector};
+use crate::registry::{self, Channel, Registry, VersionSelector};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -48,23 +48,36 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 
     let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
     ctx.out
-        .emit(&report, || summary(&report, None, &project, &ctx.out))
+        .emit(&report, || summary(&report, &[], &project, &ctx.out))
 }
 
 /// Disable one model: stop its container, remove its overlay, regenerate the
 /// umbrella file and update .chaps/models.yaml.
+///
+/// The model's data volume is kept, which is what makes disabling a model a
+/// reversible thing to do. It is named either way, because once the overlay
+/// is gone nothing else knows it: `chaps docker run -- down -v` removes the
+/// volumes the compose files still declare, so a volume nobody names again
+/// lingers for as long as the machine does. `--purge` is how the data goes
+/// with the model.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = registry::load(&ctx.registry)?;
 
     // Accept either identifier, but only for a model this project enabled:
-    // disabling something that was never on is a typo, not a no-op.
-    let id =
-        enabled_id(&project, &args.id).ok_or_else(|| ChapError::UnknownModel(args.id.clone()))?;
+    // disabling something that was never on is a typo, not a no-op. With
+    // `--purge` it is neither, because the volume outlives the model it
+    // belonged to and removing it is what the flag is for.
+    let Some(id) = enabled_id(&project, &args.id) else {
+        if args.purge {
+            return purge_only(ctx, &project, &registry, &args.id);
+        }
+        return Err(ChapError::UnknownModel(args.id.clone()).into());
+    };
     let service_id = project.state.models[&id].service_id.clone();
     let selection = Selection {
         enable: Vec::new(),
-        disable: vec![id],
+        disable: vec![id.clone()],
     };
     // Nothing is written before this passes, so the container is only touched
     // for a disable that is going through.
@@ -80,17 +93,96 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         service.strip_suffix("-init").unwrap_or(service) == service_id
     });
 
+    // And the volume after them: docker refuses to remove one a container
+    // still has mounted, so the order here is the difference between a purge
+    // that works and one that reports "volume is in use".
+    let mut notes: Vec<String> = stopped.iter().cloned().collect();
+    let volume = project.prefixed_volume(&crate::compose::volume_name(&id));
+    let mut purged = Vec::new();
+    let mut kept_volumes = Vec::new();
+    match (&volume, args.purge) {
+        (Some(name), true) => {
+            let (removed, line) = super::docker::purge_volume(name);
+            purged.extend(removed);
+            notes.push(line);
+        }
+        (Some(name), false) => {
+            notes.push(super::docker::kept_volume_line(
+                name,
+                &format!("chaps models disable {id}"),
+            ));
+            kept_volumes.push(name.clone());
+        }
+        (None, true) => notes.push(super::docker::UNNAMEABLE_VOLUME.to_string()),
+        (None, false) => {}
+    }
+
     let report = DisableReport {
         apply: apply(&mut project, &registry, &selection, ctx.cli_version)?,
         stopped,
+        purged,
+        kept_volumes,
     };
     ctx.out.emit(&report, || {
-        summary(&report.apply, report.stopped.as_deref(), &project, &ctx.out)
+        summary(&report.apply, &notes, &project, &ctx.out)
     })
 }
 
-/// What `models disable` did: the state edit, plus what became of the
-/// container that was running the model.
+/// `--purge` for a model this project does not have enabled.
+///
+/// The volume is all that is left of such a model, so removing it is the whole
+/// command. Refusing instead would put the one thing `--purge` exists for out
+/// of reach: the line a plain `disable` closes with names this very command,
+/// and by then the model is already gone from `.chaps/models.yaml`.
+///
+/// A name the marketplace does not list and that no volume answers to either
+/// is still the typo it would be without the flag.
+fn purge_only(ctx: &Ctx, project: &Project, registry: &Registry, wanted: &str) -> Result<()> {
+    let listed = registry.get(wanted);
+    let id = purge_id(listed.map(|model| model.id.as_str()), wanted);
+    let volume = project.prefixed_volume(&crate::compose::volume_name(&id));
+    if listed.is_none() && !volume.as_deref().is_some_and(crate::docker::volume_exists) {
+        return Err(ChapError::UnknownModel(wanted.to_string()).into());
+    }
+
+    let mut notes = vec![format!(
+        "{id} is not enabled here, so only its data volume was looked for"
+    )];
+    let mut purged = Vec::new();
+    match volume {
+        Some(name) => {
+            let (removed, line) = super::docker::purge_volume(&name);
+            purged.extend(removed);
+            notes.push(line);
+        }
+        None => notes.push(super::docker::UNNAMEABLE_VOLUME.to_string()),
+    }
+    let report = DisableReport {
+        apply: ApplyReport::default(),
+        stopped: None,
+        purged,
+        kept_volumes: Vec::new(),
+    };
+    ctx.out.emit(&report, || purge_summary(&notes, &ctx.out))
+}
+
+/// The marketplace id a `--purge` on a model that is not enabled is about.
+///
+/// `listed` is the id the marketplace holds for whichever identifier was
+/// typed, which is what every other command accepts. For an entry the
+/// marketplace no longer lists there is nothing to ask: a service id is the
+/// marketplace id with its underscores written as hyphens, so folding them
+/// back is the one guess worth making, and the volume of that name either
+/// exists or the run says the model is unknown.
+fn purge_id(listed: Option<&str>, wanted: &str) -> String {
+    match listed {
+        Some(id) => id.to_string(),
+        None => wanted.replace('-', "_"),
+    }
+}
+
+/// What `models disable` did: the state edit, what became of the container
+/// that was running the model, and what became of its data volume.
 #[derive(Debug, serde::Serialize)]
 struct DisableReport {
     #[serde(flatten)]
@@ -99,6 +191,12 @@ struct DisableReport {
     /// about.
     #[serde(skip_serializing_if = "Option::is_none")]
     stopped: Option<String>,
+    /// Data volumes this run removed: the model's own, when `--purge` asked
+    /// for it and it was there to remove.
+    purged: Vec<String>,
+    /// Data volumes it left in place, which is what a disable without
+    /// `--purge` does.
+    kept_volumes: Vec<String>,
 }
 
 /// Publish a host port for a model that is already enabled.
@@ -238,10 +336,10 @@ fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
 
 /// The human rendering of one enable or disable.
 ///
-/// `stopped` is what `disable` did about the container that was running the
-/// model, when there was one; it belongs in the closing lines, next to the
-/// files that were removed.
-fn summary(report: &ApplyReport, stopped: Option<&str>, project: &Project, out: &Out) -> String {
+/// `notes` is what `disable` did beyond the state edit: the container that
+/// was running the model, and the data volume it kept or removed. They belong
+/// in the closing lines, next to the files that were removed.
+fn summary(report: &ApplyReport, notes: &[String], project: &Project, out: &Out) -> String {
     let mut text = String::new();
     for (id, model) in report.touched() {
         let verb = if report.enabled.iter().any(|(e, _)| e == id) {
@@ -279,11 +377,21 @@ fn summary(report: &ApplyReport, stopped: Option<&str>, project: &Project, out: 
     for warning in &report.warnings {
         text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
     }
-    if let Some(note) = stopped {
+    for note in notes {
         text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
     }
     text.push_str(&out.backticks("run `chaps up` to apply"));
     text
+}
+
+/// The human rendering of a `--purge` that had only a volume to remove.
+///
+/// No closing `chaps up`: nothing was written, so there is nothing to apply.
+fn purge_summary(notes: &[String], out: &Out) -> String {
+    notes
+        .iter()
+        .map(|note| format!("{} {}\n", out.dim("note:"), out.backticks(note)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -314,6 +422,27 @@ mod tests {
         }
     }
 
+    /// What `--purge` calls a model that `.chaps/models.yaml` no longer holds,
+    /// and therefore which volume it removes.
+    #[test]
+    fn a_purge_names_the_volume_by_the_marketplace_id() {
+        let registry = registry::load_embedded().expect("the embedded snapshot parses");
+        for typed in ["chapkit_ewars_model", "chapkit-ewars-model"] {
+            let listed = registry.get(typed).map(|model| model.id.as_str());
+            assert_eq!(purge_id(listed, typed), "chapkit_ewars_model");
+            assert_eq!(
+                crate::compose::volume_name(&purge_id(listed, typed)),
+                "ck_chapkit_ewars_model_data"
+            );
+        }
+
+        // An entry the marketplace no longer lists is only the name that was
+        // typed: a service id folds back to the id that named the volume, and
+        // a marketplace id is already it.
+        assert_eq!(purge_id(None, "left-the-market"), "left_the_market");
+        assert_eq!(purge_id(None, "left_the_market"), "left_the_market");
+    }
+
     #[test]
     fn enabled_id_accepts_both_identifiers() {
         let project = project_with_ewars(None);
@@ -342,7 +471,7 @@ mod tests {
     #[test]
     fn the_summary_ends_with_the_next_step() {
         let project = project_with_ewars(Some(5001));
-        let text = summary(&enabled_report(&project), None, &project, &Out::default());
+        let text = summary(&enabled_report(&project), &[], &project, &Out::default());
         assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001"));
         assert!(text.ends_with("run `chaps up` to apply"));
     }
@@ -350,7 +479,7 @@ mod tests {
     #[test]
     fn a_model_with_no_host_port_is_summarised_with_the_proxy_url() {
         let project = project_with_ewars(None);
-        let text = summary(&enabled_report(&project), None, &project, &Out::default());
+        let text = summary(&enabled_report(&project), &[], &project, &Out::default());
         assert!(
             text.contains(
                 "enabled chapkit_ewars_model v1.0.0 at \
@@ -368,7 +497,7 @@ mod tests {
             removed: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
             ..ApplyReport::default()
         };
-        let text = summary(&report, None, &project, &Out::default());
+        let text = summary(&report, &[], &project, &Out::default());
         assert!(text.contains("disabled chapkit_ewars_model"));
         assert!(text.contains("removed compose.chapkit-ewars-model.yml"));
     }

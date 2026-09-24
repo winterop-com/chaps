@@ -37,6 +37,7 @@ chaps components enable ocs           # publishes it on 9000
 chaps components enable ocs --port 9010
 chaps components enable s3            # internal only
 chaps components disable ocs
+chaps components disable ocs --purge  # and its data
 ```
 
 Both commands edit `.chaps/components.yaml` and then run `chaps sync`, so the
@@ -47,6 +48,36 @@ line - so the host port it published is free straight away.
 
 Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, and nothing else is touched.
+
+### The data volume
+
+`disable` keeps the component's data, exactly as it keeps a disabled model's,
+and names the volume it kept:
+
+```text
+disabled ocs
+removed compose.ocs.yml
+note: kept volume mychap-1ab2c3_ocs_data; remove it with `chaps components disable ocs --purge` or `docker volume rm mychap-1ab2c3_ocs_data`
+note: the ocs/ directory is left alone; it is yours
+run `chaps up` to apply
+```
+
+`ocs` keeps `ocs_data` and `s3` keeps `s3_data`, each prefixed with the compose
+project name. Naming it is the whole point: the compose file that declared the
+volume has just been removed, so `chaps docker run -- down -v` no longer
+reaches it. `--purge` removes it with the component, after the containers, and
+reports `removed volume <name>` or `volume <name> not found`; `--json` carries
+`purged` and `kept_volumes`. `--purge` works on a component that is already
+off, so a volume that was forgotten can still be removed by name.
+
+`chaps components disable chap-core --purge` is refused: chap-core's volumes -
+the database and its own data - are declared by upstream's compose file, which
+this CLI renders but does not author, so there is no one volume `--purge` could
+mean. `chaps docker run -- down -v` removes every volume of the deployment, and
+is the honest way to ask for that.
+
+`chaps doctor` reports a component volume whose component is off as a leftover;
+see [Doctor](./doctor.md).
 
 ## The files
 

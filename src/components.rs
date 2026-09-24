@@ -106,6 +106,20 @@ impl Component {
     pub fn takes_port(self) -> bool {
         matches!(self, Component::Ocs | Component::S3)
     }
+
+    /// The named volume this component keeps its data in, as the compose file
+    /// `chaps sync` renders declares it.
+    ///
+    /// `None` for chap-core: its volumes are upstream's own, declared in a
+    /// compose file this CLI does not write, and `chaps docker run -- down -v`
+    /// is what removes them.
+    pub fn volume(self) -> Option<&'static str> {
+        match self {
+            Component::Ocs => Some(crate::compose::render::OCS_VOLUME),
+            Component::S3 => Some(crate::compose::render::S3_VOLUME),
+            Component::ChapCore => None,
+        }
+    }
 }
 
 /// `true`, for the `serde` default of a flag that is on unless said otherwise.

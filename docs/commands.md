@@ -40,7 +40,7 @@ other commands assume. It exits non-zero only when a check failed. See
 | `chaps models search QUERY` | Search id, name and summary. |
 | `chaps models info ID` | Everything known about one model. |
 | `chaps models enable ID` | Record the model in `.chaps/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--data-dir`, `--user`, `--allow-template`). |
-| `chaps models disable ID` | Drop the model from `.chaps/models.yaml` and remove its overlay. |
+| `chaps models disable ID [--purge]` | Drop the model from `.chaps/models.yaml` and remove its overlay, keeping its data volume and naming it; `--purge` removes that volume too. |
 | `chaps models expose ID [--port N\|auto]` | Publish a host port for an enabled model, without touching the version it is pinned to. |
 | `chaps models unexpose ID` | Take that host port away again. |
 | `chaps ui` | The model browser. |
@@ -54,7 +54,7 @@ rest write to a project. See [Models and the marketplace](./models.md).
 | --- | --- |
 | `chaps components list` | Every component, whether this deployment has it and where it is reached. |
 | `chaps components enable NAME [--port N]` | Turn a component on, or change the settings of one that already is, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds. |
-| `chaps components disable NAME` | Turn it off, remove its compose file and sync. |
+| `chaps components disable NAME [--purge]` | Turn it off, remove its compose file and sync, keeping its data volume and naming it; `--purge` removes that volume too, and is refused for chap-core. |
 
 A component is a service (or a small group) that `chaps sync` renders one
 compose file for: `chap-core`, which is CHAP itself and is on unless you turn it

@@ -537,6 +537,51 @@ pub fn stop_and_remove(project: &Project, losing: &dyn Fn(&str) -> bool) -> Opti
     ))
 }
 
+/// What a `disable` says when the data volume cannot be named at all.
+///
+/// [`crate::project::Project::prefixed_volume`] answers `None` only for a
+/// directory that records no compose project name and whose own name
+/// normalises to nothing, which `chaps sync` fixes by writing one down.
+pub const UNNAMEABLE_VOLUME: &str = "this directory has no compose project name, so its data volume \
+     cannot be named; `chaps sync` records one";
+
+/// What became of one data volume a `--purge` asked for, and the line that
+/// reports it.
+///
+/// The name is returned only when the volume was there and is gone, which is
+/// what the `purged` list of a `--json` report holds. Everything else - never
+/// created, already removed, a docker that could not be asked - is a line and
+/// no name, because nothing was removed.
+///
+/// Best-effort like [`stop_and_remove`], and for the same reason: the state
+/// edit is what `disable` is for, and a volume that would not go is a thing
+/// to say rather than a thing to fail over.
+pub fn purge_volume(name: &str) -> (Option<String>, String) {
+    let outcome = docker::remove_volume(name);
+    let removed = matches!(outcome, docker::Removal::Removed).then(|| name.to_string());
+    (removed, removal_line(name, &outcome))
+}
+
+/// The line one attempted volume removal is reported with.
+pub fn removal_line(name: &str, outcome: &docker::Removal) -> String {
+    match outcome {
+        docker::Removal::Removed => format!("removed volume {name}"),
+        docker::Removal::NotFound => format!("volume {name} not found"),
+        docker::Removal::Refused(why) => format!("volume {name} could not be removed: {why}"),
+    }
+}
+
+/// The line a `disable` without `--purge` closes with: the data volume it
+/// kept, and the two ways to remove it.
+///
+/// `purge` is the command that would have taken it, typed as the reader would
+/// type it again (`chaps models disable ewars`, `chaps components disable
+/// ocs`). Both ways are given because the second works from any directory and
+/// after the deployment itself is gone.
+pub fn kept_volume_line(name: &str, purge: &str) -> String {
+    format!("kept volume {name}; remove it with `{purge} --purge` or `docker volume rm {name}`")
+}
+
 /// The arguments appended after `compose -f ... -f ...`.
 ///
 /// The global `--json` flag only reaches `ps` and `config`, the two wrappers
@@ -700,6 +745,39 @@ mod tests {
         assert_eq!(
             err.chain().nth(1).map(|c| c.to_string()),
             Some("docker compose exited with status 1".to_string())
+        );
+    }
+
+    /// The three lines a `--purge` can print, and the one a disable without it
+    /// prints instead.
+    #[test]
+    fn a_volume_is_reported_by_name_whatever_became_of_it() {
+        let volume = "mychap-1ab2c3_ck_chapkit_ewars_model_data";
+        assert_eq!(
+            removal_line(volume, &docker::Removal::Removed),
+            format!("removed volume {volume}")
+        );
+        assert_eq!(
+            removal_line(volume, &docker::Removal::NotFound),
+            format!("volume {volume} not found")
+        );
+        assert_eq!(
+            removal_line(
+                volume,
+                &docker::Removal::Refused("volume is in use".to_string())
+            ),
+            format!("volume {volume} could not be removed: volume is in use")
+        );
+
+        // The kept line names both ways out, because the second one still
+        // works once the deployment directory is gone.
+        assert_eq!(
+            kept_volume_line(volume, "chaps models disable chapkit_ewars_model"),
+            format!(
+                "kept volume {volume}; remove it with \
+                 `chaps models disable chapkit_ewars_model --purge` or \
+                 `docker volume rm {volume}`"
+            )
         );
     }
 

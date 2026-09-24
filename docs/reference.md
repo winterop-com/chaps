@@ -132,6 +132,7 @@ Usage: chaps models disable [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+| `--purge` | Delete the model's data volume as well. |
 
 ## chaps models expose
 
@@ -203,6 +204,7 @@ Usage: chaps components disable [OPTIONS] <NAME>
 | Argument | Description |
 | --- | --- |
 | `<NAME>` | Component name: ocs, s3 or chap-core. |
+| `--purge` | Delete the component's data volume as well. |
 
 ## chaps ui
 

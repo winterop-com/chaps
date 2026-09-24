@@ -281,6 +281,10 @@ pub struct ComponentsDisableArgs {
     /// Component name: ocs, s3 or chap-core
     #[arg(value_name = "NAME")]
     pub name: String,
+
+    /// Delete the component's data volume as well
+    #[arg(long)]
+    pub purge: bool,
 }
 
 /// Browse and manage marketplace models
@@ -384,6 +388,10 @@ pub struct ModelsDisableArgs {
     /// Marketplace id or service id
     #[arg(value_name = "ID")]
     pub id: String,
+
+    /// Delete the model's data volume as well
+    #[arg(long)]
+    pub purge: bool,
 }
 
 /// Publish a host port for an enabled model

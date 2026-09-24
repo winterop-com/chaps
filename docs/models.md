@@ -117,7 +117,7 @@ and the DNS name).
 chaps models enable ID [--channel stable|latest | --version X]
                        [--port N|auto] [--data-dir PATH] [--user USER:GROUP]
                        [--allow-template]
-chaps models disable ID
+chaps models disable ID [--purge]
 chaps models expose ID [--port N|auto]
 chaps models unexpose ID
 chaps up                            # apply any of them
@@ -137,11 +137,54 @@ before the definition goes away, and says so:
 disabled chapkit_ewars_model
 removed compose.chapkit-ewars-model.yml
 note: stopped and removed the chapkit-ewars-model container; the host port it published is free again
+note: kept volume mychap-1ab2c3_ck_chapkit_ewars_model_data; remove it with `chaps models disable chapkit_ewars_model --purge` or `docker volume rm mychap-1ab2c3_ck_chapkit_ewars_model_data`
 run `chaps up` to apply
 ```
 
 The port is therefore free straight away, rather than at the next `chaps up`,
 which would have removed the container as an orphan but only once it was run.
+
+### The data volume
+
+What `disable` does not take is the model's data: the named volume
+`<compose project>_ck_<id>_data` stays exactly as it was, so enabling the model
+again finds everything it had. That is why the line above names it. Nothing
+else does any more - the overlay that declared the volume has just been
+removed, so `chaps docker run -- down -v` no longer knows about it, and a
+volume nobody names again is kept for as long as the machine lasts.
+
+`--purge` is how the data goes with the model:
+
+```sh
+chaps models disable chapkit_ewars_model --purge
+```
+
+```text
+disabled chapkit_ewars_model
+removed compose.chapkit-ewars-model.yml
+note: removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
+run `chaps up` to apply
+```
+
+The volume is removed after the container, which is the only order docker
+allows: a volume a container still has mounted cannot be removed. Everything
+about it is best-effort and reported rather than fatal - `volume <name> not
+found` for a deployment that was never started, and `volume <name> could not
+be removed: <docker's own words>` for anything else. `--json` carries the same
+answer as two lists, `purged` and `kept_volumes`.
+
+`--purge` also works on a model that is not enabled any more, which is the
+state the kept-volume line leaves you in:
+
+```text
+note: chapkit_ewars_model is not enabled here, so only its data volume was looked for
+note: removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
+```
+
+`chaps doctor`'s `volumes` line finds the ones that were forgotten: a volume
+under this deployment's name that belongs to no enabled model and no enabled
+component is reported as a leftover, with the same two ways to remove it. See
+[Doctor](./doctor.md).
 
 ```text
 exposed chapkit-ewars-model on http://localhost:5001
