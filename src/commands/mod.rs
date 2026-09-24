@@ -1,5 +1,6 @@
 //! One module per command, plus the [`Ctx`] every command receives.
 
+pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod completions;
@@ -9,6 +10,7 @@ pub mod docs;
 pub mod doctor;
 pub mod enable;
 pub mod init;
+pub mod jobs;
 pub mod manual_models;
 pub mod models;
 pub mod registry;

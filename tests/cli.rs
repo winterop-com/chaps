@@ -36,6 +36,10 @@ impl Sandbox {
     fn chap(&self) -> Command {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            // An `--offline` enable reads the user off a locally pulled image
+            // before it falls back to the table, and what this machine has
+            // pulled is not something a test may depend on.
+            .env("CHAPS_NO_DOCKER_PROBE", "1")
             .current_dir(self.home.path())
             .arg("--offline");
         cmd
@@ -323,7 +327,10 @@ fn init_writes_every_file_of_a_deployment() {
     assert_eq!(model["service_id"], "chapkit-ewars-model");
     assert_eq!(model["image_tag"], "sha-fa880a1");
     assert_eq!(model["data_dir"], "/app/data");
-    assert_eq!(model["user"], "chapkit:chapkit");
+    // `--offline` with no local image: the built-in table, whose `chapkit` is
+    // recorded as the numbers the overlay renders.
+    assert_eq!(model["user"], "1000:1000");
+    assert_eq!(model["user_from"], "table");
     assert_eq!(model["platform"], "linux/amd64");
 
     assert_eq!(includes(&dir), vec!["compose.chapkit-ewars-model.yml"]);
@@ -758,10 +765,22 @@ fn a_template_needs_allow_template() {
         dir.join("compose.chapkit-minimalist-example-py.yml")
             .is_file()
     );
-    // The template's image is built from /work, unlike ewars.
+    // The template's image is built from /work, unlike ewars, and it runs as
+    // root - so its overlay hands it no user and no init container.
     let model = &state(&dir)["models"]["chapkit_minimalist_example_py"];
     assert_eq!(model["data_dir"], "/work/data");
-    assert_eq!(model["user"], "chapkit:chapkit");
+    assert_eq!(model["user"], "root");
+    let overlay = yaml(&dir.join("compose.chapkit-minimalist-example-py.yml"));
+    assert!(
+        overlay["services"]["chapkit-minimalist-example-py"]
+            .get("user")
+            .is_none()
+    );
+    assert!(
+        overlay["services"]
+            .get("chapkit-minimalist-example-py-init")
+            .is_none()
+    );
 }
 
 #[test]
@@ -926,7 +945,7 @@ fn models_list_and_info_say_internal_until_a_port_is_published() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "reach    internal (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)",
+            "reach     internal (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)",
         ));
 
     sandbox
@@ -950,7 +969,7 @@ fn models_list_and_info_say_internal_until_a_port_is_published() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "reach    http://localhost:{base}"
+            "reach     http://localhost:{base}"
         )));
 }
 
@@ -4768,6 +4787,22 @@ impl Hub {
         }
     }
 
+    /// The same hub, also publishing the tag the served marketplace entry
+    /// pins - which is what `models enable` reads the user from.
+    fn publishing(self, tag: &str) -> Hub {
+        let mut published = self.published.clone();
+        published.push(tag.to_string());
+        Hub { published, ..self }
+    }
+
+    /// `WorkingDir` of the image, which the data directory follows.
+    fn working_in(self, working_dir: &str) -> Hub {
+        Hub {
+            working_dir: working_dir.to_string(),
+            ..self
+        }
+    }
+
     /// Serve this hub on a port of its own; the thread lives as long as the
     /// test process.
     fn start(self) -> u16 {
@@ -4929,6 +4964,99 @@ fn added_sandbox(hub: Hub) -> (Sandbox, PathBuf, u16) {
         .assert()
         .success();
     (sandbox, dir, hub.start())
+}
+
+/// The tag the served marketplace entry pins, which is the image
+/// `models enable` asks about.
+const MARKETPLACE_TAG: &str = "sha-fa880a1";
+
+/// `models enable` reads the user off the image's own config, not off the
+/// table compiled into the binary.
+#[test]
+fn enable_reads_the_user_from_the_image_config() {
+    let (sandbox, dir, port) = added_sandbox(
+        Hub::new()
+            .publishing(MARKETPLACE_TAG)
+            .running_as("root")
+            .working_in("/work"),
+    );
+    sandbox
+        .online(port)
+        .args(["models", "enable", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("enabled chapkit_ewars_model"))
+        // Nothing was guessed at, so nothing is reported as guessed at.
+        .stdout(predicates::str::contains("built-in table").not());
+
+    let model = &state(&dir)["models"]["chapkit_ewars_model"];
+    assert_eq!(model["user"], "root", "the image config says root");
+    assert_eq!(model["user_from"], "image-config");
+    assert_eq!(model["data_dir"], "/work/data", "from its WorkingDir");
+
+    // And the overlay leaves a root image alone: no user, no chown.
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(!overlay.contains("user:"), "{overlay}");
+    assert!(!overlay.contains("chown"), "{overlay}");
+    assert!(!overlay.contains("busybox"), "{overlay}");
+
+    // `models info` says where the answer came from.
+    sandbox
+        .models(&["info", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("user      root  (image config)"));
+
+    // An image that runs as an account gets the numeric pair in both places.
+    let (sandbox, dir, port) = added_sandbox(
+        Hub::new()
+            .publishing(MARKETPLACE_TAG)
+            .running_as("chapkit")
+            .working_in("/app"),
+    );
+    sandbox
+        .online(port)
+        .args(["models", "enable", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let model = &state(&dir)["models"]["chapkit_ewars_model"];
+    assert_eq!(model["user"], "1000:1000");
+    assert_eq!(model["user_from"], "image-config");
+    assert_eq!(model["data_dir"], "/app/data");
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(overlay.contains("    user: 1000:1000\n"), "{overlay}");
+    assert!(overlay.contains("chown 1000:1000 /app/data"), "{overlay}");
+}
+
+/// An `--offline` enable has no image to read, and says which answer it fell
+/// back to rather than passing the table off as the image's word.
+#[test]
+fn an_offline_enable_falls_back_to_the_table_and_says_so() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+
+    sandbox
+        .models(&["enable", "chapkit_rwanda_malaria_bym_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "warning: nothing could say what \
+             ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-028bb5a runs as",
+        ))
+        .stdout(predicates::str::contains("the built-in table"))
+        .stdout(predicates::str::contains("chaps models enable"));
+
+    // The table's own answer for that image: root, which is the whole point.
+    let model = &state(&dir)["models"]["chapkit_rwanda_malaria_bym_model"];
+    assert_eq!(model["user"], "root");
+    assert_eq!(model["user_from"], "table");
+    let overlay = read(&dir.join("compose.chapkit-rwanda-malaria-bym-model.yml"));
+    assert!(!overlay.contains("user:"), "{overlay}");
+    assert!(!overlay.contains("chown"), "{overlay}");
 }
 
 #[test]
@@ -5372,6 +5500,677 @@ fn models_add_outside_a_project_says_so() {
     sandbox
         .online(port)
         .args(["models", "add", REPO_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
+}
+
+// --------------------------------------------------------------- jobs/api ---
+
+/// The three jobs the stand-in chap-core reports, in the order it sends them:
+/// chap-core answers newest first already, and `chaps jobs` is what decides
+/// the order the table is in.
+const DONE_ID: &str = "11111111-aaaa-4aaa-8aaa-000000000001";
+const FAILED_ID: &str = "22222222-bbbb-4bbb-8bbb-000000000002";
+const RUNNING_ID: &str = "33333333-cccc-4ccc-8ccc-000000000003";
+
+/// A job log shaped like the real one: chap-core's own lines, then the model's
+/// output, then the `--- stderr ---` section where the reason is.
+const JOB_LOG: &str = "\
+2026-09-24 16:28:19,440 [INFO] chap_status: Starting backtest for model '15'
+Fitting INLA model...
+
+--- stderr ---
+Loading required package: Matrix
+Error in predict_chap() : the inla program crashed
+In addition: Warning messages:
+1: In poly2nb(polygons, queen = FALSE) :
+  some observations have no neighbours
+Execution halted
+";
+
+/// The `/v1/jobs` payload, in chap-core's snake_case with its unquoted
+/// timestamps.
+fn job_list() -> String {
+    format!(
+        r#"[
+  {{"id":"{RUNNING_ID}","type":"create_prediction","name":"eval-live",
+    "status":"STARTED","start_time":"2026-09-24T16:34:12.911182",
+    "end_time":null,"result":null,"prediction_setup_id":1}},
+  {{"id":"{FAILED_ID}","type":"create_backtest","name":"eval-bym",
+    "status":"FAILURE","start_time":"2026-09-24T16:28:19.437116",
+    "end_time":"2026-09-24T16:28:29.686103","result":null,
+    "prediction_setup_id":null}},
+  {{"id":"{DONE_ID}","type":"create_backtest","name":"eval-ewars",
+    "status":"SUCCESS","start_time":"2026-09-24T16:25:17.007503",
+    "end_time":"2026-09-24T16:25:58.351174","result":"3",
+    "prediction_setup_id":null}}
+]"#
+    )
+}
+
+/// A stand-in for chap-core's job and CRUD endpoints, on `port`.
+///
+/// Answers the paths `chaps jobs` and `chaps api` reach, and nothing else:
+/// the point is the shapes - a bare JSON string for a status and for a log, a
+/// `detail` object for a 404, a `message` for a cancel - because those are
+/// what the commands render. The thread lives as long as the test process.
+fn chap_core_server(port: u16) {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("a free port");
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            // The request has to be read before the answer, or the client
+            // sees a reset instead of the response.
+            let mut buffer = [0u8; 8192];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let mut head = request.lines().next().unwrap_or("").split_whitespace();
+            let method = head.next().unwrap_or("GET").to_string();
+            let path = head.next().unwrap_or("/").to_string();
+            let authed = request.to_lowercase().contains("authorization: bearer ");
+            let body = request
+                .split_once("\r\n\r\n")
+                .map(|(_, rest)| rest.to_string())
+                .unwrap_or_default();
+
+            let (status, content_type, payload) = chap_core_route(&method, &path, authed, &body);
+            let reason = match status {
+                200 => "OK",
+                400 => "Bad Request",
+                401 => "Unauthorized",
+                _ => "Not Found",
+            };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                payload.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+}
+
+/// The answer one request gets: `(status, content type, body)`.
+fn chap_core_route(
+    method: &str,
+    path: &str,
+    authed: bool,
+    body: &str,
+) -> (u16, &'static str, String) {
+    let json = "application/json";
+    let (route, query) = path.split_once('?').unwrap_or((path, ""));
+    let status_of = |id: &str| match id {
+        DONE_ID => Some("SUCCESS"),
+        FAILED_ID => Some("FAILURE"),
+        RUNNING_ID => Some("STARTED"),
+        _ => None,
+    };
+
+    if route == "/v1/jobs" && method == "GET" {
+        // The `status` query parameter is the one filter the CLI sends.
+        let wanted: Vec<&str> = query
+            .split('&')
+            .filter_map(|pair| pair.strip_prefix("status="))
+            .collect();
+        if wanted.is_empty() {
+            return (200, json, job_list());
+        }
+        let list: Json = serde_json::from_str(&job_list()).expect("the list is JSON");
+        let kept: Vec<Json> = list
+            .as_array()
+            .expect("a list")
+            .iter()
+            .filter(|job| {
+                let status = job["status"].as_str().unwrap_or_default();
+                wanted.iter().any(|w| w.eq_ignore_ascii_case(status))
+            })
+            .cloned()
+            .collect();
+        return (200, json, serde_json::to_string(&kept).expect("JSON"));
+    }
+    if let Some(rest) = route.strip_prefix("/v1/jobs/") {
+        let (id, tail) = match rest.split_once('/') {
+            Some((id, tail)) => (id, tail),
+            None => (rest, ""),
+        };
+        let Some(status) = status_of(id) else {
+            return (404, json, format!(r#"{{"detail":"Job '{id}' not found"}}"#));
+        };
+        return match (method, tail) {
+            ("GET", "") => (200, json, format!(r#""{status}""#)),
+            // The log is one JSON string, which is what makes reading it a
+            // question of rendering rather than of parsing.
+            ("GET", "logs") => (
+                200,
+                json,
+                serde_json::to_string(JOB_LOG).expect("a JSON string"),
+            ),
+            ("GET", "database_result") if status == "SUCCESS" => {
+                (200, json, r#"{"id":4}"#.to_string())
+            }
+            ("GET", "database_result") => {
+                (400, json, r#"{"detail":"Job is not finished"}"#.to_string())
+            }
+            ("POST", "cancel") => (200, json, r#"{"message":"Job cancelled"}"#.to_string()),
+            ("DELETE", "") if status == "STARTED" => (
+                400,
+                json,
+                r#"{"detail":"Cannot delete a running job"}"#.to_string(),
+            ),
+            ("DELETE", "") => (200, json, r#"{"message":"Job deleted"}"#.to_string()),
+            _ => (404, json, r#"{"detail":"Not Found"}"#.to_string()),
+        };
+    }
+    // A handful of paths for `chaps api` itself: an echo for a body, a
+    // non-JSON body, and one that reports whether a token arrived.
+    match (method, route) {
+        ("POST", "/v1/echo") | ("PUT", "/v1/echo") | ("PATCH", "/v1/echo") => {
+            (200, json, format!(r#"{{"received":{body}}}"#))
+        }
+        ("GET", "/v1/text") => (200, "text/plain", "plain text, not JSON\n".to_string()),
+        ("GET", "/v1/whoami") => (200, json, format!(r#"{{"auth":{authed}}}"#)),
+        ("GET", "/v1/empty") => (200, json, String::new()),
+        _ => (404, json, r#"{"detail":"Not Found"}"#.to_string()),
+    }
+}
+
+/// A project whose API port is the one the stand-in chap-core listens on.
+fn served_project(sandbox: &Sandbox) -> PathBuf {
+    let port = free_port();
+    sandbox
+        .init(&["--models", "none", "--api-port", &port.to_string()])
+        .assert()
+        .success();
+    chap_core_server(port);
+    sandbox.project()
+}
+
+#[test]
+fn jobs_lists_what_chap_core_has_run_newest_first() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    let out = chap_in(&sandbox, &dir, &["jobs"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("the table is text");
+
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("ID  "), "{text}");
+    for header in ["TYPE", "NAME", "STATUS", "STARTED", "DURATION"] {
+        assert!(lines[0].contains(header), "{header} is missing:\n{text}");
+    }
+    // Newest first, and the ids are short because eight characters tell these
+    // three apart.
+    assert!(lines[1].starts_with("33333333..."), "{text}");
+    assert!(lines[2].starts_with("22222222..."), "{text}");
+    assert!(lines[3].starts_with("11111111..."), "{text}");
+    assert!(
+        !text.contains(RUNNING_ID),
+        "the full id is not needed:\n{text}"
+    );
+
+    // A running job has no duration; a finished one has the time it took.
+    assert!(lines[1].trim_end().ends_with('-'), "{text}");
+    assert!(lines[2].trim_end().ends_with("10s"), "{text}");
+    assert!(lines[3].trim_end().ends_with("41s"), "{text}");
+    // And the STARTED column is a relative time.
+    let ago = regex::Regex::new(r"\d+[smhd] ago").expect("a valid pattern");
+    assert!(ago.is_match(lines[1]), "{text}");
+
+    // The line it adds up to, and the one thing to do about it.
+    assert!(
+        text.contains("3 jobs: 1 running, 1 done, 1 failed"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("run `chaps jobs logs {FAILED_ID}` to see why")),
+        "{text}"
+    );
+}
+
+#[test]
+fn jobs_filters_limits_and_hands_back_the_raw_list_as_json() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    // `--status` is a query parameter chap-core applies, and the closing line
+    // counts what came back.
+    let text = chap_in(&sandbox, &dir, &["jobs", "list", "--status", "success"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(text).expect("text");
+    assert!(text.contains("eval-ewars"), "{text}");
+    assert!(!text.contains("eval-bym"), "{text}");
+    assert!(text.contains("1 job: 1 done"), "{text}");
+
+    // `--limit` is applied after the ordering, so it is the newest N.
+    let text = chap_in(&sandbox, &dir, &["jobs", "--limit", "1"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(text).expect("text");
+    assert!(text.contains("eval-live"), "{text}");
+    assert!(!text.contains("eval-ewars"), "{text}");
+
+    // `--json` is chap-core's own documents, in the table's order.
+    let list = json_of(&mut chap_in(&sandbox, &dir, &["--json", "jobs"]));
+    assert_eq!(list[0]["id"], RUNNING_ID);
+    assert_eq!(list[1]["id"], FAILED_ID);
+    assert_eq!(list[2]["id"], DONE_ID);
+    // Fields this CLI never renders survive the round trip.
+    assert_eq!(list[0]["prediction_setup_id"], 1);
+    assert_eq!(list[2]["result"], "3");
+}
+
+#[test]
+fn jobs_says_where_a_job_would_come_from_when_there_are_none() {
+    let sandbox = Sandbox::new();
+    // A chap-core that has run nothing answers with an empty list, and the
+    // deployment is pointed at the port it answers on.
+    let empty = server("application/json", "[]");
+    let dir = sandbox.home.path().join("chaps-empty");
+    let mut init = sandbox.chap();
+    init.arg("init")
+        .arg(&dir)
+        .args(["--models", "none", "--api-port", &empty.to_string()]);
+    init.assert().success();
+
+    chap_in(&sandbox, &dir, &["jobs"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "no jobs yet; a backtest or prediction started from the Modeling App",
+        ));
+}
+
+#[test]
+fn jobs_logs_prints_the_log_on_stdout_and_the_reason_on_stderr() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    let assert = chap_in(&sandbox, &dir, &["jobs", "logs", FAILED_ID])
+        .assert()
+        .success();
+    let out = assert.get_output();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // stdout is the log and nothing else, so it can be piped.
+    assert!(stdout.contains("Starting backtest for model"), "{stdout}");
+    assert!(stdout.contains("--- stderr ---"), "{stdout}");
+    assert!(!stdout.contains("job 22222222"), "{stdout}");
+
+    // stderr says which job it is, and what the stderr section blames.
+    assert!(
+        stderr.contains(&format!(
+            "job {FAILED_ID} FAILURE (create_backtest eval-bym)"
+        )),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("stderr: Error in predict_chap() : the inla program crashed"),
+        "{stderr}"
+    );
+
+    // `--tail` cuts the log from the end, and keeps the hint.
+    let assert = chap_in(&sandbox, &dir, &["jobs", "logs", FAILED_ID, "--tail", "2"])
+        .assert()
+        .success();
+    let out = assert.get_output();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout.lines().count(), 2, "{stdout}");
+    assert!(stdout.contains("Execution halted"), "{stdout}");
+    assert!(!stdout.contains("Starting backtest"), "{stdout}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("stderr: Error in predict_chap()"),
+        "the hint is read from the whole log, not from the tail"
+    );
+
+    // A job that worked gets no hint at all.
+    let assert = chap_in(&sandbox, &dir, &["jobs", "logs", DONE_ID])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(stderr.contains("SUCCESS"), "{stderr}");
+    assert!(!stderr.contains("stderr:"), "{stderr}");
+}
+
+#[test]
+fn jobs_takes_an_id_prefix_and_says_when_it_matches_nothing() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    // Eight characters is what the table printed, so eight characters work.
+    chap_in(&sandbox, &dir, &["jobs", "show", "11111111"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(DONE_ID))
+        .stdout(predicates::str::contains("Database result  4"))
+        .stdout(predicates::str::contains("row 4 in chap-core's database"));
+
+    // `-v` says which job the prefix landed on.
+    chap_in(&sandbox, &dir, &["-v", "jobs", "show", "11111111"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!("matched {DONE_ID}")));
+
+    // An id that names nothing is an error with the way back in it.
+    chap_in(&sandbox, &dir, &["jobs", "show", "zzzz"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains(
+            "job zzzz not found; run `chaps jobs` to list them",
+        ));
+
+    // And one that names several says so rather than picking one.
+    chap_in(&sandbox, &dir, &["jobs", "logs", ""])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains("not found"));
+}
+
+#[test]
+fn jobs_cancel_and_delete_report_what_chap_core_said() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    chap_in(&sandbox, &dir, &["jobs", "cancel", RUNNING_ID])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Job cancelled"))
+        .stdout(predicates::str::contains("run `chaps jobs`"));
+
+    chap_in(&sandbox, &dir, &["jobs", "delete", DONE_ID])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Job deleted"));
+
+    // chap-core refuses to forget a job it is still working on; the verb that
+    // does apply is named.
+    chap_in(&sandbox, &dir, &["jobs", "delete", RUNNING_ID])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains(format!(
+            "job {RUNNING_ID} is still running; cancel it first"
+        )));
+}
+
+#[test]
+fn api_pretty_prints_json_and_reads_a_json_string_as_text() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+    let url = read(&dir.join(".env"));
+    let port = url
+        .lines()
+        .find_map(|line| line.strip_prefix("CHAP_API_PORT="))
+        .expect("the api port is in .env")
+        .trim()
+        .to_string();
+    let url = format!("http://127.0.0.1:{port}");
+
+    // An object comes back indented with two spaces.
+    let text = chap_in(&sandbox, &dir, &["api", "get", "/v1/whoami"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        String::from_utf8(text).expect("text"),
+        "{\n  \"auth\": false\n}\n"
+    );
+
+    // A JSON string is its text, which is what makes a log readable.
+    let text = chap_in(
+        &sandbox,
+        &dir,
+        &["api", "GET", &format!("/v1/jobs/{DONE_ID}")],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    assert_eq!(String::from_utf8(text).expect("text"), "SUCCESS\n");
+
+    // `--raw` is the bytes as they arrived, quotes and all.
+    let text = chap_in(
+        &sandbox,
+        &dir,
+        &["api", "GET", &format!("/v1/jobs/{DONE_ID}"), "--raw"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    assert_eq!(String::from_utf8(text).expect("text"), "\"SUCCESS\"");
+
+    // A body that is not JSON is printed as it came.
+    chap_in(&sandbox, &dir, &["api", "GET", "/v1/text"])
+        .assert()
+        .success()
+        .stdout("plain text, not JSON\n");
+
+    // Outside a project `--url` is the address, and it works there.
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &["api", "GET", "/v1/whoami", "--url", &url],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("\"auth\": false"));
+
+    // Without one there is nothing to aim at, and the error says both ways out.
+    chap_in(&sandbox, sandbox.home.path(), &["api", "GET", "/v1/whoami"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--url"));
+}
+
+#[test]
+fn api_sends_a_body_from_a_file_from_stdin_and_inline() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    let body = sandbox.home.path().join("dataset.json");
+    std::fs::write(&body, "{\"name\": \"eval\"}").unwrap();
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "api",
+            "POST",
+            "/v1/echo",
+            "--data",
+            &format!("@{}", body.display()),
+        ],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("\"name\": \"eval\""));
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &["api", "PUT", "/v1/echo", "--data", r#"{"n":1}"#],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("\"n\": 1"));
+
+    chap_in(&sandbox, &dir, &["api", "POST", "/v1/echo", "--data", "-"])
+        .write_stdin("{\"from\":\"stdin\"}")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"from\": \"stdin\""));
+
+    // A body that is not JSON is caught here rather than at the other end.
+    chap_in(
+        &sandbox,
+        &dir,
+        &["api", "POST", "/v1/echo", "--data", "{n:1}"],
+    )
+    .assert()
+    .failure()
+    .code(2)
+    .stderr(predicates::str::contains("not valid JSON"));
+
+    // So is a method chaps does not send, and a path with no leading slash.
+    chap_in(&sandbox, &dir, &["api", "BREW", "/v1/echo"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains("GET, POST, PUT, PATCH, DELETE"));
+    chap_in(&sandbox, &dir, &["api", "GET", "v1/echo"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains("starts with `/`"));
+}
+
+#[test]
+fn api_exits_one_on_an_http_error_and_two_when_chap_core_is_not_there() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    // The status line is on stderr and the body is still on stdout: a 404
+    // from chap-core says what it did not find.
+    let assert = chap_in(&sandbox, &dir, &["api", "GET", "/v1/jobs/nope"])
+        .assert()
+        .failure()
+        .code(1);
+    let out = assert.get_output();
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("Job 'nope' not found"),
+        "the body is the answer"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr).trim(),
+        "HTTP 404 Not Found"
+    );
+
+    // Nothing listening at all is a different exit code, with the sentence
+    // `chaps status` uses.
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "api",
+            "GET",
+            "/v1/jobs",
+            "--url",
+            "http://127.0.0.1:9",
+            "--timeout",
+            "2",
+        ],
+    )
+    .assert()
+    .failure()
+    .code(2)
+    .stderr(predicates::str::contains("is not responding"))
+    .stderr(predicates::str::contains("run `chaps status`"));
+}
+
+#[test]
+fn api_and_jobs_send_the_token_this_deployment_holds() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+
+    // Nothing is protected yet, so nothing is sent.
+    chap_in(&sandbox, &dir, &["api", "GET", "/v1/whoami"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"auth\": false"));
+
+    sandbox.auth(&["enable"]).assert().success();
+    chap_in(&sandbox, &dir, &["api", "GET", "/v1/whoami"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"auth\": true"));
+
+    // And `-v` narrates the header without the value in it.
+    let token = env_value(&sandbox.env(), "CHAP_API_TOKEN")
+        .expect("a token")
+        .to_string();
+    let assert = chap_in(&sandbox, &dir, &["-v", "api", "GET", "/v1/whoami"])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(stderr.contains("Authorization: Bearer <token>"), "{stderr}");
+    assert!(!stderr.contains(&token), "the token leaked:\n{stderr}");
+}
+
+#[test]
+fn auth_token_prints_the_token_and_nothing_else() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    // Authentication is off to begin with: stdout stays empty, the sentence
+    // is on stderr, and the exit code stops a script.
+    let assert = chap_in(&sandbox, &sandbox.project(), &["auth", "token"])
+        .assert()
+        .failure()
+        .code(1);
+    let out = assert.get_output();
+    assert!(out.stdout.is_empty(), "stdout has to stay empty");
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains("API authentication is off in this deployment; run `chaps auth enable`"),
+        "{:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    sandbox.auth(&["enable"]).assert().success();
+    let token = env_value(&sandbox.env(), "CHAP_API_TOKEN")
+        .expect("a token")
+        .to_string();
+
+    // On, and stdout is the token with one newline after it: nothing a
+    // `$(...)` would have to strip.
+    let out = chap_in(&sandbox, &sandbox.project(), &["auth", "token"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(String::from_utf8(out).expect("text"), format!("{token}\n"));
+
+    // `--json` says the same thing as a document, either way.
+    let value = json_of(&mut chap_in(
+        &sandbox,
+        &sandbox.project(),
+        &["--json", "auth", "token"],
+    ));
+    assert_eq!(value["token"], token);
+
+    sandbox.auth(&["disable"]).assert().success();
+    let value = json_of(&mut chap_in(
+        &sandbox,
+        &sandbox.project(),
+        &["--json", "auth", "token"],
+    ));
+    assert_eq!(value["token"], Json::Null);
+
+    // And outside a deployment it says which one it could not find.
+    chap_in(&sandbox, sandbox.home.path(), &["auth", "token"])
         .assert()
         .failure()
         .stderr(predicates::str::contains("not a chaps project"));

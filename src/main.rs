@@ -3,6 +3,7 @@
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
 
+mod api;
 mod auth;
 mod backup;
 mod chapcore;
@@ -14,6 +15,7 @@ mod diagnose;
 mod docker;
 mod dotenv;
 mod error;
+mod jobs;
 mod manual;
 mod output;
 mod paths;
@@ -25,7 +27,9 @@ mod status;
 mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
-use cli::{AuthSub, BackupSub, Cli, Command, ComponentsCmd, DockerCmd, ModelsCmd, SelfSub};
+use cli::{
+    AuthSub, BackupSub, Cli, Command, ComponentsCmd, DockerCmd, JobsCmd, ModelsCmd, SelfSub,
+};
 use commands::Ctx;
 use error::ChapError;
 use project::Project;
@@ -41,6 +45,7 @@ const PROJECT_ONLY: &[&str] = &[
     "docker",
     "backup",
     "status",
+    "jobs",
     "sync",
     "update",
     "ui",
@@ -134,10 +139,24 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
 
         Command::Status(args) => commands::status::run(ctx, args),
 
+        // No subcommand is `list`: "what has this deployment been doing" is
+        // the question `chaps jobs` is typed to answer.
+        Command::Jobs(j) => match &j.command {
+            None => commands::jobs::list(ctx, &j.list),
+            Some(JobsCmd::List(args)) => commands::jobs::list(ctx, args),
+            Some(JobsCmd::Show(args)) => commands::jobs::show(ctx, args),
+            Some(JobsCmd::Logs(args)) => commands::jobs::logs(ctx, args),
+            Some(JobsCmd::Cancel(args)) => commands::jobs::cancel(ctx, args),
+            Some(JobsCmd::Delete(args)) => commands::jobs::delete(ctx, args),
+        },
+
+        Command::Api(args) => commands::api::run(ctx, args),
+
         Command::Doctor(args) => commands::doctor::run(ctx, args),
 
         Command::Auth(a) => match &a.command {
             AuthSub::Show(args) => commands::auth::show(ctx, args),
+            AuthSub::Token(args) => commands::auth::token(ctx, args),
             AuthSub::Enable(args) => commands::auth::enable(ctx, args),
             AuthSub::Disable(args) => commands::auth::disable(ctx, args),
             AuthSub::Rotate(args) => commands::auth::rotate(ctx, args),
@@ -229,6 +248,9 @@ fn exit_code(err: &anyhow::Error) -> i32 {
         // The code clap exits with for a usage error, because that is what
         // this is: a usage error clap could not catch.
         Some(ChapError::Usage(_)) => 2,
+        // "CHAP is not up" is a different answer from "CHAP said no", and a
+        // script driving `chaps api` has to be able to tell them apart.
+        Some(ChapError::Unreachable { .. }) => 2,
         _ => 1,
     }
 }

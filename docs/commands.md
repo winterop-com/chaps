@@ -19,6 +19,8 @@ lists every command, every flag and every default.
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
 | `chaps restart [SERVICE..] [--all]` | Recreate the running services whose image or configuration changed (`docker compose up -d --remove-orphans`), and say which ones that was. Changes no file and no pin; `--all` recreates the named services anyway. |
 | `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
+| `chaps jobs [list] [--status S].. [--type T] [--limit N]` | The backtests, predictions and datasets chap-core has run, newest first, with what each one cost and which of them failed. `show`, `logs`, `cancel` and `delete` take one job id, or enough of its start to name one. |
+| `chaps api METHOD PATH [--data JSON\|@FILE\|-] [--url URL] [--raw]` | One authenticated request to chap-core's API, with this deployment's base URL and token filled in. JSON comes back pretty-printed; the exit code is 0 for a 2xx, 1 for a 4xx/5xx and 2 when chap-core is not answering. |
 | `chaps update [--dry-run] [--pin-chap-core]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. |
 | `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts CHAP pulls from, and - inside a project - the files, the ports, the pins, the images and whether CHAP is up. Works anywhere. |
 
@@ -26,6 +28,12 @@ lists every command, every flag and every default.
 `chaps restart` applies them to the services that are running. That is the
 whole distinction, and it is why `up` and `update` are both safe to run at any
 time. See [Updating](./updating.md).
+
+`chaps jobs` and `chaps api` are the two that talk to the API rather than to
+Docker. A job is one unit of slow work chap-core handed to its worker, and a
+failed one says why in `chaps jobs logs <id>` and nowhere else; `chaps api` is
+what starts a job from a terminal in the first place. See
+[Jobs and the API](./jobs.md).
 
 `chaps doctor` is the one to run first on a machine you have not deployed on
 before, and first again when something is wrong: it asks in one pass what the
@@ -84,6 +92,7 @@ set lives in `.chaps/components.yaml`. `chaps init --with ocs,s3` and
 | Command | What it does |
 | --- | --- |
 | `chaps auth show [--reveal]` | Whether the API token and the registration key are set, and the token itself, abbreviated unless `--reveal`. |
+| `chaps auth token` | The token alone on stdout, for `TOKEN=$(chaps auth token)`; nothing on stdout and exit 1 when authentication is off. |
 | `chaps auth enable [--token VALUE]` | Write both secrets to `.env`, record them in `.chaps/project.yaml` and re-render the overlays. |
 | `chaps auth disable` | Comment both `.env` lines out, keeping their values, and re-render. |
 | `chaps auth rotate` | Replace both secrets with freshly generated ones. |

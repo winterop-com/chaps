@@ -206,6 +206,21 @@ chaps status
 chap-core   up   http://localhost:8000   v2.3.1   auth: on
 ```
 
+
+For a script rather than a screen, `chaps auth token` prints the token and
+nothing else:
+
+```sh
+TOKEN=$(chaps auth token)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v2/services
+```
+
+On a deployment with authentication off it prints nothing on stdout, says so on
+stderr and exits 1, so a caller that captured an empty string stops rather than
+sending an empty header. `chaps api` needs none of this - it reads `.env`
+itself - and `chaps auth show --reveal` is the spelling for reading the value
+rather than capturing it. See [Jobs and the API](./jobs.md).
+
 `chaps status` reads the token out of `.env` and sends it on every request, so
 it keeps working on a protected deployment, and the last cell of the chap-core
 line says which mode the deployment is in. A 401 is reported as a token problem

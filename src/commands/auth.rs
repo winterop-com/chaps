@@ -69,6 +69,36 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
     })
 }
 
+/// What `chaps auth token` says when there is no token to print.
+///
+/// On stderr, so stdout holds the token and nothing else: `TOKEN=$(chaps auth
+/// token)` has to come back empty rather than with a sentence in it.
+const NO_TOKEN: &str =
+    "API authentication is off in this deployment; run `chaps auth enable` to turn it on";
+
+/// `chaps auth token`: the token alone, for a script to capture.
+///
+/// `chaps auth show --reveal` prints the token inside a report meant to be
+/// read; this prints the value and nothing else, which is the difference
+/// between a command a person runs and one a shell substitutes. A deployment
+/// with authentication off has no token, so stdout stays empty and the exit
+/// code is 1: a script that captured an empty string should stop, not carry on
+/// sending an empty header.
+pub fn token(ctx: &Ctx, _args: &crate::cli::AuthTokenArgs) -> Result<()> {
+    let project = ctx.project()?;
+    // Best-effort, like every other read of `.env`: a project written with
+    // `init --no-env` has no file, which is the same answer as a deployment
+    // with the line commented out.
+    let token = auth::token_in(&project.dir);
+    let value = serde_json::json!({ "token": token });
+    ctx.out.emit(&value, || token.clone().unwrap_or_default())?;
+    if token.is_none() {
+        eprintln!("{NO_TOKEN}");
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
 /// Which of the OCS data source variables `.env` sets, and their values.
 ///
 /// Empty for a deployment without the `ocs` component: the variables mean

@@ -167,6 +167,12 @@ pub enum Command {
     /// Show chap-core health and which models registered
     Status(StatusArgs),
 
+    /// List the backtests and predictions chap-core has run
+    Jobs(JobsArgs),
+
+    /// Send one authenticated request to chap-core's API
+    Api(ApiArgs),
+
     /// Run a checklist over this machine and this deployment
     Doctor(DoctorArgs),
 
@@ -803,6 +809,122 @@ pub struct StatusArgs {
     pub timeout: u64,
 }
 
+/// List the backtests and predictions chap-core has run
+///
+/// `args_conflicts_with_subcommands`: the filters below are `list`'s, repeated
+/// here so `chaps jobs --status FAILURE` works without the verb. Only one side
+/// may carry them, so `chaps jobs --limit 5 show ID` is a usage error rather
+/// than a flag that silently does nothing.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct JobsArgs {
+    /// Absent is `list`: the bare command is the one that answers "what has
+    /// this deployment been doing", and that is the question people type.
+    #[command(subcommand)]
+    pub command: Option<JobsCmd>,
+
+    #[command(flatten)]
+    pub list: JobsListArgs,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum JobsCmd {
+    /// List the jobs chap-core knows about, newest first
+    List(JobsListArgs),
+
+    /// Show everything chap-core records about one job
+    Show(JobsShowArgs),
+
+    /// Print one job's log, which is where a failure says why
+    Logs(JobsLogsArgs),
+
+    /// Ask chap-core to stop a job that is still running
+    Cancel(JobsCancelArgs),
+
+    /// Remove a finished job from chap-core's list
+    Delete(JobsDeleteArgs),
+}
+
+/// List the jobs chap-core knows about, newest first
+#[derive(Debug, Clone, Default, Args)]
+pub struct JobsListArgs {
+    /// Only jobs in this status; repeat for more than one
+    #[arg(long, value_name = "STATUS")]
+    pub status: Vec<String>,
+
+    /// Only jobs of this type, such as create_backtest
+    #[arg(long = "type", value_name = "TYPE")]
+    pub kind: Option<String>,
+
+    /// Show at most this many jobs
+    #[arg(long, value_name = "N")]
+    pub limit: Option<usize>,
+}
+
+/// Show everything chap-core records about one job
+#[derive(Debug, Clone, Args)]
+pub struct JobsShowArgs {
+    /// Job id, or enough of its start to name one job
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
+
+/// Print one job's log, which is where a failure says why
+#[derive(Debug, Clone, Args)]
+pub struct JobsLogsArgs {
+    /// Job id, or enough of its start to name one job
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Print only the last N lines of the log
+    #[arg(long, value_name = "N")]
+    pub tail: Option<usize>,
+}
+
+/// Ask chap-core to stop a job that is still running
+#[derive(Debug, Clone, Args)]
+pub struct JobsCancelArgs {
+    /// Job id, or enough of its start to name one job
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
+
+/// Remove a finished job from chap-core's list
+#[derive(Debug, Clone, Args)]
+pub struct JobsDeleteArgs {
+    /// Job id, or enough of its start to name one job
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
+
+/// Send one authenticated request to chap-core's API
+#[derive(Debug, Clone, Args)]
+pub struct ApiArgs {
+    /// GET, POST, PUT, PATCH or DELETE; case does not matter
+    #[arg(value_name = "METHOD")]
+    pub method: String,
+
+    /// Request path starting with /, query string and all
+    #[arg(value_name = "PATH")]
+    pub path: String,
+
+    /// JSON body: inline, @file, or - to read stdin
+    #[arg(long, value_name = "JSON|@FILE|-", allow_hyphen_values = true)]
+    pub data: Option<String>,
+
+    /// Base URL of the chap-core API
+    #[arg(long, value_name = "URL")]
+    pub url: Option<String>,
+
+    /// Print the body exactly as it arrived
+    #[arg(long)]
+    pub raw: bool,
+
+    /// Request timeout in seconds
+    #[arg(long, value_name = "SECONDS", default_value_t = 30)]
+    pub timeout: u64,
+}
+
 /// Run a checklist over this machine and this deployment
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {}
@@ -819,6 +941,9 @@ pub struct AuthArgs {
 pub enum AuthSub {
     /// Say whether the API is protected, and by which token
     Show(AuthShowArgs),
+
+    /// Print the API token alone, for a script to capture
+    Token(AuthTokenArgs),
 
     /// Turn authentication on: write both secrets and sync
     Enable(AuthEnableArgs),
@@ -837,6 +962,10 @@ pub struct AuthShowArgs {
     #[arg(long)]
     pub reveal: bool,
 }
+
+/// Print the API token alone, for a script to capture
+#[derive(Debug, Clone, Args)]
+pub struct AuthTokenArgs {}
 
 /// Turn authentication on: write both secrets and sync
 #[derive(Debug, Clone, Args)]
@@ -960,7 +1089,12 @@ mod tests {
     #[test]
     fn no_help_is_longer_than_a_screen_and_no_option_longer_than_a_clause() {
         /// One screen of `--help`, and one clause of option help.
-        const MAX_LINES: usize = 40;
+        ///
+        /// The root listing is the only thing near the line: it grows by one
+        /// row per top-level command, and there are now twenty-one of them.
+        /// Outside a deployment the listing is shorter still, because the
+        /// commands that need a project are hidden from it.
+        const MAX_LINES: usize = 42;
         const MAX_CHARS: usize = 90;
 
         fn check(command: &mut clap::Command, path: &str) {

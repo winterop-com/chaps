@@ -57,6 +57,12 @@ pub enum ChapError {
 
     #[error("HTTP {status} from {url}")]
     Http { url: String, status: u16 },
+
+    /// chap-core could not be reached at all, as opposed to answering with
+    /// something the caller did not want. Its own exit code, so a script can
+    /// tell "CHAP is not up" from "CHAP said no".
+    #[error("chap-core at {url} is not responding: {reason}; run `chaps status`")]
+    Unreachable { url: String, reason: String },
 }
 
 /// Who holds a host port that was asked for, so the error can say where to

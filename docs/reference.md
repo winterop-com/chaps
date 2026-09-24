@@ -26,7 +26,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -480,6 +480,103 @@ Usage: chaps status [OPTIONS]
 | `--url <URL>` | Base URL of the chap-core API. |
 | `--timeout <SECONDS>` | Request timeout in seconds. Default: `5`. |
 
+## chaps jobs
+
+List the backtests and predictions chap-core has run.
+
+```text
+Usage: chaps jobs [OPTIONS]
+       chaps jobs <COMMAND>
+```
+
+| Argument | Description |
+| --- | --- |
+| `--status <STATUS>` | Only jobs in this status; repeat for more than one. |
+| `--type <TYPE>` | Only jobs of this type, such as create_backtest. |
+| `--limit <N>` | Show at most this many jobs. |
+
+Subcommands: [`chaps jobs list`](#chaps-jobs-list), [`chaps jobs show`](#chaps-jobs-show), [`chaps jobs logs`](#chaps-jobs-logs), [`chaps jobs cancel`](#chaps-jobs-cancel), [`chaps jobs delete`](#chaps-jobs-delete)
+
+## chaps jobs list
+
+List the jobs chap-core knows about, newest first.
+
+```text
+Usage: chaps jobs list [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--status <STATUS>` | Only jobs in this status; repeat for more than one. |
+| `--type <TYPE>` | Only jobs of this type, such as create_backtest. |
+| `--limit <N>` | Show at most this many jobs. |
+
+## chaps jobs show
+
+Show everything chap-core records about one job.
+
+```text
+Usage: chaps jobs show [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Job id, or enough of its start to name one job. |
+
+## chaps jobs logs
+
+Print one job's log, which is where a failure says why.
+
+```text
+Usage: chaps jobs logs [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Job id, or enough of its start to name one job. |
+| `--tail <N>` | Print only the last N lines of the log. |
+
+## chaps jobs cancel
+
+Ask chap-core to stop a job that is still running.
+
+```text
+Usage: chaps jobs cancel [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Job id, or enough of its start to name one job. |
+
+## chaps jobs delete
+
+Remove a finished job from chap-core's list.
+
+```text
+Usage: chaps jobs delete [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Job id, or enough of its start to name one job. |
+
+## chaps api
+
+Send one authenticated request to chap-core's API.
+
+```text
+Usage: chaps api [OPTIONS] <METHOD> <PATH>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<METHOD>` | GET, POST, PUT, PATCH or DELETE; case does not matter. |
+| `<PATH>` | Request path starting with /, query string and all. |
+| `--data <JSON\|@FILE\|->` | JSON body: inline, @file, or - to read stdin. |
+| `--url <URL>` | Base URL of the chap-core API. |
+| `--raw` | Print the body exactly as it arrived. |
+| `--timeout <SECONDS>` | Request timeout in seconds. Default: `30`. |
+
 ## chaps doctor
 
 Run a checklist over this machine and this deployment.
@@ -496,7 +593,7 @@ Turn API authentication on or off, and show the token.
 Usage: chaps auth [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps auth show`](#chaps-auth-show), [`chaps auth enable`](#chaps-auth-enable), [`chaps auth disable`](#chaps-auth-disable), [`chaps auth rotate`](#chaps-auth-rotate)
+Subcommands: [`chaps auth show`](#chaps-auth-show), [`chaps auth token`](#chaps-auth-token), [`chaps auth enable`](#chaps-auth-enable), [`chaps auth disable`](#chaps-auth-disable), [`chaps auth rotate`](#chaps-auth-rotate)
 
 ## chaps auth show
 
@@ -509,6 +606,14 @@ Usage: chaps auth show [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--reveal` | Print the API token in full. |
+
+## chaps auth token
+
+Print the API token alone, for a script to capture.
+
+```text
+Usage: chaps auth token [OPTIONS]
+```
 
 ## chaps auth enable
 
