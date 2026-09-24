@@ -46,7 +46,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
         disable: Vec::new(),
     };
 
-    let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
+    let report = apply(&mut project, &registry, &selection)?;
     ctx.out
         .emit(&report, || summary(&report, &[], &project, &ctx.out))
 }
@@ -74,7 +74,7 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         }
         return Err(ChapError::UnknownModel(args.id.clone()).into());
     };
-    let (report, notes) = disable_enabled(ctx, &mut project, &registry, &id, args.purge)?;
+    let (report, notes) = disable_enabled(&mut project, &registry, &id, args.purge)?;
     ctx.out.emit(&report, || {
         summary(&report.apply, &notes, &project, &ctx.out)
     })
@@ -89,7 +89,6 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
 /// path would leave the container running and the volume unnamed. Returns
 /// what was done plus the notes that belong in the closing lines.
 pub(crate) fn disable_enabled(
-    ctx: &Ctx,
     project: &mut Project,
     registry: &Registry,
     id: &str,
@@ -140,7 +139,7 @@ pub(crate) fn disable_enabled(
     }
 
     let report = DisableReport {
-        apply: apply(project, registry, &selection, ctx.cli_version)?,
+        apply: apply(project, registry, &selection)?,
         stopped,
         purged,
         kept_volumes,
@@ -284,7 +283,7 @@ fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
     entry.host_port = host_port;
     let service_id = entry.service_id.clone();
 
-    let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
+    let synced = sync(&mut project, &registry, false)?;
     let change = PortChange {
         id,
         url: match host_port {

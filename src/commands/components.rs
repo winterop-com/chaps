@@ -125,7 +125,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     }
 
     let registry = super::registry_for(ctx, Some(&project))?;
-    let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
+    let synced = sync(&mut project, &registry, false)?;
     notes.extend(synced.warnings);
 
     let report = ChangeReport {
@@ -204,7 +204,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let after = project.state.components.clone();
 
     let registry = super::registry_for(ctx, Some(&project))?;
-    let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
+    let synced = sync(&mut project, &registry, false)?;
 
     let mut notes = synced.warnings.clone();
     notes.extend(stopped);

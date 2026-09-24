@@ -74,12 +74,7 @@ impl SyncReport {
 /// With `check` nothing is written or removed and the state is left alone;
 /// the report says what a real run would do. Otherwise
 /// `state.rendered_files` is updated and `.chaps/` is saved.
-pub fn sync(
-    project: &mut Project,
-    registry: &Registry,
-    cli_version: &str,
-    check: bool,
-) -> Result<SyncReport> {
+pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<SyncReport> {
     let mut report = SyncReport {
         check,
         ..SyncReport::default()
@@ -108,7 +103,7 @@ pub fn sync(
     // stack nor the chaps-owned override belongs to this deployment, and both
     // are removed below.
     if components.chap_core.enabled {
-        let (base, base_warnings) = base_compose(project, cli_version);
+        let (base, base_warnings) = base_compose(project);
         report.warnings.extend(base_warnings);
         if let Some(base) = base {
             desired.push((BASE_COMPOSE.to_string(), base));
@@ -127,13 +122,13 @@ pub fn sync(
     if components.ocs.enabled {
         desired.push((
             OCS_COMPOSE.to_string(),
-            render_ocs(&OcsSpec::from_components(&components, cli_version)),
+            render_ocs(&OcsSpec::from_components(&components)),
         ));
     }
     if components.s3.enabled {
         desired.push((
             S3_COMPOSE.to_string(),
-            render_s3(&S3Spec::from_components(&components, cli_version)),
+            render_s3(&S3Spec::from_components(&components)),
         ));
     }
     // Every overlay carries the registration key line when the deployment has
@@ -143,13 +138,13 @@ pub fn sync(
     let registration_key = project.state.auth.registration_key;
     for (id, model) in &project.state.models {
         let mut spec = match registry.get(id) {
-            Some(m) => OverlaySpec::from_enabled(id, model, m, cli_version),
+            Some(m) => OverlaySpec::from_enabled(id, model, m),
             None => {
                 report.warnings.push(format!(
                     "{id} is enabled but not in the registry; its overlay header \
-                     carries no display name or repository"
+                     names the image in place of the repository"
                 ));
-                OverlaySpec::from_enabled_without_registry(id, model, cli_version)
+                OverlaySpec::from_enabled_without_registry(id, model)
             }
         };
         spec.registration_key = registration_key;
@@ -260,13 +255,8 @@ pub fn sync(
 /// chap-core's `compose.ghcr.yml` is gone - in which case the file on disk is
 /// left exactly as it is: a base stack we cannot reproduce is not one to
 /// overwrite with a guess.
-fn base_compose(project: &Project, cli_version: &str) -> (Option<String>, Vec<String>) {
-    let embedded = || {
-        render_base(&BaseSpec {
-            cli_version: cli_version.to_string(),
-            upstream: None,
-        })
-    };
+fn base_compose(project: &Project) -> (Option<String>, Vec<String>) {
+    let embedded = || render_base(&BaseSpec { upstream: None });
     let ComposeSource::Fetched { tag, sha256, .. } = &project.state.chap_compose_source else {
         return (Some(embedded()), Vec::new());
     };
@@ -296,7 +286,6 @@ fn base_compose(project: &Project, cli_version: &str) -> (Option<String>, Vec<St
         ));
     }
     let text = render_base(&BaseSpec {
-        cli_version: cli_version.to_string(),
         upstream: Some(UpstreamCompose {
             tag: tag.clone(),
             body,
@@ -373,8 +362,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     let mut sections = Vec::new();
     if components.ocs.enabled && !mentions_var(body, OCS_TAG_ENV_VAR) {
         sections.push(format!(
-            "# OCS (component). It publishes no release tags yet, so the compose file follows\n\
-             # the moving `main` tag; uncomment to pin a build of your own.\n\
+            "# OCS (component). Uncomment to pin a build; the default follows `main`.\n\
              # {OCS_TAG_ENV_VAR}={}\n",
             components.ocs.image_tag
         ));
@@ -383,8 +371,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
         && !(mentions_var(body, S3_ACCESS_KEY_ENV_VAR) || mentions_var(body, S3_SECRET_KEY_ENV_VAR))
     {
         sections.push(format!(
-            "# S3 (component). Root credentials for the object store, generated once. The volume\n\
-             # is created with them, so changing them later locks the store's own data away.\n\
+            "# S3 (component). Root credentials, generated once; see the docs before changing them.\n\
              {S3_ACCESS_KEY_ENV_VAR}={}\n\
              {S3_SECRET_KEY_ENV_VAR}={}\n\
              # {S3_TAG_ENV_VAR}={}\n",
@@ -543,8 +530,6 @@ mod tests {
     use crate::registry::load_embedded;
     use tempfile::TempDir;
 
-    const VERSION: &str = "0.1.0";
-
     fn project_with(ids: &[&str]) -> (TempDir, Project, Registry) {
         let dir = tempfile::tempdir().unwrap();
         let registry = load_embedded().unwrap();
@@ -556,7 +541,7 @@ mod tests {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel, VERSION).unwrap();
+        apply(&mut project, &registry, &sel).unwrap();
         (dir, project, registry)
     }
 
@@ -587,7 +572,7 @@ mod tests {
     #[test]
     fn a_second_sync_changes_nothing() {
         let (_dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(!report.drift, "{report:?}");
         assert!(report.written.is_empty() && report.removed.is_empty());
         assert_eq!(
@@ -629,7 +614,7 @@ mod tests {
 
         // The API port lives in .chaps/project.yaml, so moving it is drift.
         project.state.api_port = 8123;
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
         assert!(
@@ -637,14 +622,14 @@ mod tests {
             "--check writes nothing"
         );
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
         assert!(read(&overlay).contains("${CHAP_API_PORT:-8123}:8000"));
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
 
         // It is never removed as if it were a model overlay.
         project.state.models.clear();
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         assert!(overlay.is_file());
     }
 
@@ -657,7 +642,7 @@ mod tests {
             vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()];
         project.state.rendered_files.retain(|f| f != CHAPS_COMPOSE);
 
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift, "the new file is missing");
         assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
         assert!(
@@ -665,7 +650,7 @@ mod tests {
             "--check writes nothing"
         );
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
         assert!(dir.path().join(CHAPS_COMPOSE).is_file());
         assert_eq!(project.state.compose_files, default_compose_files());
@@ -675,7 +660,7 @@ mod tests {
                 .rendered_files
                 .contains(&CHAPS_COMPOSE.to_string())
         );
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -684,7 +669,7 @@ mod tests {
         let overlay = dir.path().join("compose.chapkit-ewars-model.yml");
         std::fs::remove_file(&overlay).unwrap();
 
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert!(report.check);
         assert_eq!(
@@ -694,10 +679,10 @@ mod tests {
         assert!(!overlay.exists(), "--check writes nothing");
         assert_eq!(report.summary(), "1 to write, 3 unchanged, 0 to remove");
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(report.drift);
         assert!(overlay.is_file(), "a real sync re-creates the overlay");
-        let again = sync(&mut project, &registry, VERSION, true).unwrap();
+        let again = sync(&mut project, &registry, true).unwrap();
         assert!(!again.drift);
     }
 
@@ -710,7 +695,7 @@ mod tests {
 
         // Simulate a hand edit of .chaps/models.yaml.
         project.state.models.remove("auto_arima_chapkit");
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(
             names(&report.removed),
             vec!["compose.auto-arima-chapkit.yml"]
@@ -722,7 +707,7 @@ mod tests {
         // A listed name that is not an overlay shape is never removed either.
         std::fs::write(dir.path().join("notes.yml"), "x: 1\n").unwrap();
         project.state.rendered_files.push("notes.yml".into());
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(report.removed.is_empty(), "{report:?}");
         assert!(dir.path().join("notes.yml").is_file());
     }
@@ -735,13 +720,17 @@ mod tests {
         entry.compose_file = "compose.gone-model.yml".into();
         project.state.models.insert("gone_model".into(), entry);
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("gone_model"));
         let body = std::fs::read_to_string(dir.path().join("compose.gone-model.yml")).unwrap();
         assert!(body.contains("  gone-model:\n"));
-        assert!(body.contains("(gone_model)"));
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        // The header names the id, and the image where the repository would be.
+        assert!(
+            body.contains("# gone_model 1.0.0 (ghcr.io/chap-models/chapkit_ewars_model)"),
+            "{body}"
+        );
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -764,7 +753,7 @@ mod tests {
 
         // Turning it on in `.chaps/project.yaml` is drift in every overlay.
         project.state.auth.registration_key = true;
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert_eq!(
             names(&report.written),
@@ -774,7 +763,7 @@ mod tests {
             ]
         );
 
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         for path in &overlays {
             let body = read(path);
             assert!(
@@ -785,11 +774,11 @@ mod tests {
             );
             assert!(!body.contains("# SERVICEKIT_REGISTRATION_KEY:"), "{body}");
         }
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
 
         // And off again returns every overlay to the commented form.
         project.state.auth.registration_key = false;
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         for path in &overlays {
             assert!(read(path).contains("      # SERVICEKIT_REGISTRATION_KEY:"));
         }
@@ -798,7 +787,7 @@ mod tests {
     #[test]
     fn a_user_with_no_known_ids_renders_with_a_warning() {
         let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(report.warnings.is_empty(), "{report:?}");
 
         project
@@ -807,7 +796,7 @@ mod tests {
             .get_mut("chapkit_ewars_model")
             .unwrap()
             .user = "nobody".into();
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(report.warnings.len(), 1, "{report:?}");
         assert!(report.warnings[0].contains("chapkit_ewars_model runs as `nobody`"));
         assert!(report.warnings[0].contains("1000:1000"));
@@ -825,7 +814,7 @@ mod tests {
             .get_mut("chapkit_ewars_model")
             .unwrap()
             .user = "1000:1000".into();
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(report.warnings.is_empty(), "{report:?}");
     }
 
@@ -833,7 +822,7 @@ mod tests {
     fn project_with_components(components: Components) -> (TempDir, Project, Registry) {
         let (dir, mut project, registry) = project_with(&[]);
         project.state.components = components;
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         (dir, project, registry)
     }
 
@@ -863,11 +852,11 @@ mod tests {
         );
         // The scaffold went in too, and a second sync leaves everything alone.
         assert!(project.ocs_config_path().is_file());
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
 
         // Turning it off removes the file and takes it out of both lists.
         project.state.components.ocs.enabled = false;
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(names(&report.removed), vec![OCS_COMPOSE]);
         assert!(!ocs.exists());
         assert_eq!(project.state.compose_files, default_compose_files());
@@ -879,7 +868,7 @@ mod tests {
         );
         // The operator's own config file is not ours to delete.
         assert!(project.ocs_config_path().is_file());
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -904,7 +893,7 @@ mod tests {
 
         // Taking the store away rewrites the OCS file without those lines.
         project.state.components.s3.enabled = false;
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(names(&report.removed), vec![S3_COMPOSE]);
         assert!(names(&report.written).contains(&OCS_COMPOSE.to_string()));
         assert!(!read(&dir.path().join(OCS_COMPOSE)).contains("S3_ENDPOINT"));
@@ -918,7 +907,7 @@ mod tests {
         assert!(dir.path().join(BASE_COMPOSE).is_file());
 
         project.state.components.chap_core.enabled = false;
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         let removed = names(&report.removed);
         assert!(removed.contains(&BASE_COMPOSE.to_string()), "{removed:?}");
         assert!(removed.contains(&CHAPS_COMPOSE.to_string()), "{removed:?}");
@@ -928,7 +917,7 @@ mod tests {
             project.state.compose_files,
             vec!["compose.ocs.yml", "compose.marketplace.yml"]
         );
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -944,7 +933,7 @@ mod tests {
 
         project.state.components.ocs.enabled = true;
         project.state.components.s3.enabled = true;
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift, "the missing lines are drift");
         assert_eq!(
             std::fs::read_to_string(&env).unwrap(),
@@ -952,7 +941,7 @@ mod tests {
             "--check writes nothing"
         );
 
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         let body = std::fs::read_to_string(&env).unwrap();
         assert!(body.starts_with("POSTGRES_PASSWORD=secret\n"));
         assert!(body.contains("\n# OCS_IMAGE_TAG=main\n"), "{body}");
@@ -965,8 +954,8 @@ mod tests {
 
         // A second sync adds nothing, and never rewrites the credentials: the
         // volume was created with them.
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+        sync(&mut project, &registry, false).unwrap();
         let again = std::fs::read_to_string(&env).unwrap();
         assert_eq!(again, body);
         assert_eq!(again.matches("OCS_IMAGE_TAG").count(), 1);
@@ -988,15 +977,15 @@ mod tests {
         assert_eq!(read(&path), "id: mine\n");
 
         project.state.components.ocs.enabled = true;
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         assert_eq!(read(&path), "id: mine\n", "sync leaves it alone too");
 
         // A component enabled with no file at all gets the example.
         std::fs::remove_file(&path).unwrap();
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert!(!path.exists(), "--check writes nothing");
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         assert!(read(&path).contains("sierra-leone-climate-service"));
     }
 
@@ -1040,7 +1029,7 @@ mod tests {
         let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
         let env = dir.path().join(ENV_FILE);
         std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert_eq!(names(&report.written), vec![".env"]);
         assert_eq!(
@@ -1048,13 +1037,13 @@ mod tests {
             "POSTGRES_PASSWORD=secret\n"
         );
 
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
         assert!(
             std::fs::read_to_string(&env)
                 .unwrap()
                 .contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n")
         );
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -1063,21 +1052,23 @@ mod tests {
         let base = dir.path().join(BASE_COMPOSE);
         let original = read(&base);
         assert!(
-            original
-                .starts_with("# Generated by chaps init (0.1.0) from chap-core compose.ghcr.yml.")
+            original.starts_with(
+                "# Generated by chaps from .chaps/; edit there and run `chaps sync`.\nservices:\n"
+            ),
+            "{original}"
         );
 
         // A hand edit of compose.yml is drift, and a real sync restores it.
         std::fs::write(&base, "services: {}\n").unwrap();
-        let report = sync(&mut project, &registry, VERSION, true).unwrap();
+        let report = sync(&mut project, &registry, true).unwrap();
         assert!(report.drift);
         assert_eq!(names(&report.written), vec!["compose.yml"]);
         assert_eq!(read(&base), "services: {}\n", "--check writes nothing");
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(names(&report.written), vec!["compose.yml"]);
         assert_eq!(read(&base), original);
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -1086,19 +1077,19 @@ mod tests {
         let body = "services:\n  chap:\n    image: ghcr.io/x:${CHAP_IMAGE_TAG:-latest}\n";
         cache(&mut project, "v2.3.1", body);
 
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert!(report.warnings.is_empty(), "{report:?}");
         assert_eq!(names(&report.written), vec!["compose.yml"]);
         let base = read(&dir.path().join(BASE_COMPOSE));
         assert_eq!(
             base,
             format!(
-                "# Generated by chaps init (0.1.0) from chap-core compose.ghcr.yml at v2.3.1.\n\
-                 # Model services live in compose.<service>.yml overlays included by compose.marketplace.yml.\n\
+                "# Generated by chaps from .chaps/; edit there and run `chaps sync`.\n\
+                 # chap-core compose.ghcr.yml at v2.3.1\n\
                  {body}"
             )
         );
-        assert!(!sync(&mut project, &registry, VERSION, true).unwrap().drift);
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }
 
     #[test]
@@ -1109,7 +1100,7 @@ mod tests {
             "v2.3.1",
             "services:\n  chap:\n    image: x:${CHAP_IMAGE_TAG:-latest}\n",
         );
-        sync(&mut project, &registry, VERSION, false).unwrap();
+        sync(&mut project, &registry, false).unwrap();
 
         // The recorded checksum no longer matches, but the file on disk is
         // what the operator has: follow it, and say so.
@@ -1119,7 +1110,7 @@ mod tests {
             "services:\n  chap:\n    image: y:${CHAP_IMAGE_TAG:-latest}\n",
         )
         .unwrap();
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(report.warnings.len(), 1, "{report:?}");
         assert!(report.warnings[0].contains("compose.chap-core.v2.3.1.yml"));
         assert!(report.warnings[0].contains("checksum"));
@@ -1128,7 +1119,7 @@ mod tests {
         // And a cached copy that is gone leaves compose.yml alone.
         let before = read(&dir.path().join(BASE_COMPOSE));
         std::fs::remove_file(&cached).unwrap();
-        let report = sync(&mut project, &registry, VERSION, false).unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
         assert_eq!(report.warnings.len(), 1, "{report:?}");
         assert!(report.warnings[0].contains("is missing"));
         assert!(!names(&report.written).contains(&"compose.yml".to_string()));

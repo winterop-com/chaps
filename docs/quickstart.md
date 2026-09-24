@@ -55,6 +55,10 @@ Next:
 explicit list of marketplace ids. `--interactive` opens the model browser
 instead of reading `--models`.
 
+A model the marketplace does not list yet is added from its repository or
+image: `chaps models add https://github.com/chap-models/chapkit_ghr_model` (see
+[Models outside the marketplace](./models.md#models-outside-the-marketplace)).
+
 chap-core itself is pinned to the newest release, `v2.3.1` in the run above,
 and `init` takes the `compose.ghcr.yml` that release publishes as the base
 of the deployment. `--chap-tag` picks another tag; see [Updating](./updating.md).

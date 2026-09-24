@@ -232,7 +232,7 @@ fn recover(body: &str, var: &str) -> Option<String> {
 /// Re-render the compose files from the new state; `sync` saves `.chaps/`.
 fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport> {
     let registry = super::registry_for(ctx, Some(project))?;
-    let report = sync(project, &registry, ctx.cli_version, false)?;
+    let report = sync(project, &registry, false)?;
     for warning in &report.warnings {
         output::warn(warning);
     }

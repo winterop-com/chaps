@@ -213,7 +213,6 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
                 registration_key: secrets.as_ref().map(|s| s.registration_key.clone()),
                 // apply() appends one commented pin per enabled model.
                 model_tag_pins: Vec::new(),
-                cli_version: ctx.cli_version.to_string(),
             }),
         )
         .map_err(|e| anyhow::anyhow!("writing {}: {e}", env_path.display()))?;
@@ -241,7 +240,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
     // models) and .chaps/.
-    let mut report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
+    let mut report = apply(&mut project, &registry, &selection)?;
     report.removed.extend(stale);
     written.extend(report.written.iter().cloned());
     written.push(dir.join(CHAPS_DIR).join(PROJECT_FILE));

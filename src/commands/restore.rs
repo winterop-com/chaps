@@ -374,7 +374,7 @@ fn restore_files(
     }
 
     let registry = super::registry_for(ctx, Some(&restored))?;
-    let sync_report = sync(&mut restored, &registry, ctx.cli_version, false)?;
+    let sync_report = sync(&mut restored, &registry, false)?;
     for warning in &sync_report.warnings {
         output::warn(warning);
     }

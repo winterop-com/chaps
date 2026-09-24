@@ -208,32 +208,13 @@ pub fn cached_compose_file(tag: &str) -> String {
     format!("compose.chap-core.{safe}.yml")
 }
 
-const PROJECT_HEADER: &str = "\
-# .chaps/project.yaml - managed by chaps. Written by `chaps init`; `rendered_files` is
-# updated by `chaps sync` (which `chaps up` runs first). Compose files at the project
-# root are rendered from this directory; edit here, then run `chaps sync`.
-";
-
-const MODELS_HEADER: &str = "\
-# .chaps/models.yaml - managed by chaps. The enabled model set, edited by
-# `chaps models enable|disable`, `chaps ui` and `chaps update`.
-# `chaps sync` renders one compose.<service_id>.yml per entry plus compose.marketplace.yml.
-";
-
-const MANUAL_MODELS_HEADER: &str = "\
-# .chaps/models-manual.yaml - managed by chaps. Models that are not in the marketplace,
-# added by `chaps models add` and removed by `chaps models remove`. Each entry stands in
-# for a marketplace file: `chaps models enable|list|info|update` treat these like any other
-# model. An entry with `follow:` moves to the newest published build on that branch when
-# `chaps update` runs; one without it is pinned.
-";
-
-const COMPONENTS_HEADER: &str = "\
-# .chaps/components.yaml - managed by chaps. What this deployment is made of, edited by
-# `chaps init --with|--without` and `chaps components enable|disable`.
-# chap-core is on unless it was turned off; `chaps sync` renders one compose file per
-# enabled component. A file that does not mention a component leaves it at its default.
-";
+/// The first line of every file in `.chaps/`.
+///
+/// One line, the same in each of them: what each file holds and which command
+/// edits it is documented, and a generated file that carries the explanation
+/// too is one more copy to keep in step.
+const MANAGED_HEADER: &str =
+    "# Managed by chaps; change it with the chaps commands, not by hand.\n";
 
 /// Where the base `compose.yml` is rendered from.
 ///
@@ -661,11 +642,11 @@ impl Project {
         std::fs::create_dir_all(&chaps)
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
 
-        let project_body = format!("{PROJECT_HEADER}{}", serde_yaml_ng::to_string(&self.state)?);
+        let project_body = format!("{MANAGED_HEADER}{}", serde_yaml_ng::to_string(&self.state)?);
         write_atomically(&chaps.join(PROJECT_FILE), &project_body)?;
 
         let models_body = format!(
-            "{MODELS_HEADER}{}",
+            "{MANAGED_HEADER}{}",
             serde_yaml_ng::to_string(&self.state.models)?
         );
         write_atomically(&chaps.join(MODELS_FILE), &models_body)?;
@@ -677,14 +658,14 @@ impl Project {
         let manual_path = chaps.join(MANUAL_MODELS_FILE);
         if !self.state.manual.is_empty() || manual_path.is_file() {
             let manual_body = format!(
-                "{MANUAL_MODELS_HEADER}{}",
+                "{MANAGED_HEADER}{}",
                 serde_yaml_ng::to_string(&self.state.manual)?
             );
             write_atomically(&manual_path, &manual_body)?;
         }
 
         let components_body = format!(
-            "{COMPONENTS_HEADER}{}",
+            "{MANAGED_HEADER}{}",
             serde_yaml_ng::to_string(&self.state.components)?
         );
         write_atomically(&chaps.join(COMPONENTS_FILE), &components_body)
@@ -895,7 +876,7 @@ mod tests {
 
         let path = dir.path().join(CHAPS_DIR).join(MANUAL_MODELS_FILE);
         let body = std::fs::read_to_string(&path).expect("models-manual.yaml is written");
-        assert!(body.starts_with("# .chaps/models-manual.yaml - managed by chaps"));
+        assert!(body.starts_with(MANAGED_HEADER), "{body}");
         assert!(body.contains("\nchapkit_ghr_model:\n"), "{body}");
         assert!(body.contains("  follow: main\n"), "{body}");
         assert!(body.contains("  added: 2026-09-24\n"), "{body}");
@@ -1012,7 +993,7 @@ mod tests {
 
         let chaps = dir.path().join(CHAPS_DIR);
         let project_body = std::fs::read_to_string(chaps.join(PROJECT_FILE)).unwrap();
-        assert!(project_body.starts_with("# .chaps/project.yaml - managed by chaps"));
+        assert!(project_body.starts_with(MANAGED_HEADER), "{project_body}");
         assert!(project_body.contains("\nschema_version: 1\n"));
         assert!(project_body.contains("chap_image_tag: v1.2.3"));
         assert!(project_body.contains("\napi_port: 8000\n"));
@@ -1021,7 +1002,7 @@ mod tests {
             "models live in their own file"
         );
         let models_body = std::fs::read_to_string(chaps.join(MODELS_FILE)).unwrap();
-        assert!(models_body.starts_with("# .chaps/models.yaml - managed by chaps"));
+        assert!(models_body.starts_with(MANAGED_HEADER), "{models_body}");
         assert!(models_body.contains("\nchapkit_ewars_model:\n"));
         assert!(models_body.contains("host_port: 5001"));
         assert!(models_body.contains("channel: stable"));
@@ -1512,7 +1493,7 @@ mod tests {
 
         let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(COMPONENTS_FILE))
             .expect("components.yaml is written beside the others");
-        assert!(body.starts_with("# .chaps/components.yaml - managed by chaps"));
+        assert!(body.starts_with(MANAGED_HEADER), "{body}");
         assert!(body.contains("\nchap-core:\n"), "{body}");
         assert!(body.contains("  port: 9010\n"), "{body}");
 

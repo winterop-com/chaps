@@ -316,7 +316,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         entry.image_tag = change.new_tag.clone();
         refresh_env_pin(&project.dir, &tag_env_var(&change.id), &change.new_tag)?;
     }
-    let synced = sync(&mut project, &registry, ctx.cli_version, false)?;
+    let synced = sync(&mut project, &registry, false)?;
     for warning in &synced.warnings {
         output::warn(warning);
     }
@@ -829,7 +829,7 @@ mod tests {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel, "0.1.0").unwrap();
+        apply(&mut project, &registry, &sel).unwrap();
         (dir, project, registry)
     }
 
@@ -916,7 +916,7 @@ mod tests {
             enable: vec![request],
             disable: Vec::new(),
         };
-        apply(&mut project, &registry, &sel, "0.1.0").unwrap();
+        apply(&mut project, &registry, &sel).unwrap();
         (dir, project, registry)
     }
 

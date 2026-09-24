@@ -92,7 +92,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     let mut project = ctx.project()?;
     if let DockerCmd::Up(args) = cmd {
         let registry = super::registry_for(ctx, Some(&project))?;
-        let report = sync(&mut project, &registry, ctx.cli_version, false)?;
+        let report = sync(&mut project, &registry, false)?;
         super::sync::announce(ctx, &report, &project);
         // After the sync, because the files it just wrote are the ones whose
         // ports we are about to probe.

@@ -86,6 +86,7 @@ chaps up                             # sync the compose files, docker compose up
 chaps status                         # chap-core health and registered models
 chaps ui                             # browse the marketplace, toggle models
 chaps up                             # apply what the browser changed
+chaps models add https://github.com/<org>/<model>   # a model not in the marketplace
 ```
 
 chap-core's API is on <http://localhost:8000>; model services are reached

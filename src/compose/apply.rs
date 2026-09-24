@@ -157,13 +157,8 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
 ///
 /// Nothing is written until the whole selection has resolved, so an unknown
 /// model or a port clash leaves the directory as it was.
-pub fn apply(
-    project: &mut Project,
-    registry: &Registry,
-    sel: &Selection,
-    cli_version: &str,
-) -> Result<ApplyReport> {
-    apply_with(project, registry, sel, cli_version, &crate::ports::is_busy)
+pub fn apply(project: &mut Project, registry: &Registry, sel: &Selection) -> Result<ApplyReport> {
+    apply_with(project, registry, sel, &crate::ports::is_busy)
 }
 
 /// [`apply`] with the host port probe injected, so tests can decide what the
@@ -172,7 +167,6 @@ pub fn apply_with(
     project: &mut Project,
     registry: &Registry,
     sel: &Selection,
-    cli_version: &str,
     busy: &dyn Fn(u16) -> bool,
 ) -> Result<ApplyReport> {
     validate(project, registry, sel)?;
@@ -279,7 +273,6 @@ pub fn apply_with(
                     host_port,
                     Some(&data_dir),
                     Some(&user),
-                    cli_version,
                 );
                 EnabledModel {
                     service_id: model.service_id.clone(),
@@ -308,7 +301,7 @@ pub fn apply_with(
 
     // One rendering path: sync writes the overlays, the umbrella and the .env
     // pins, removes the overlays of disabled models, and saves .chaps/.
-    let synced = sync(project, registry, cli_version, false)?;
+    let synced = sync(project, registry, false)?;
     report.written = synced.written;
     report.removed = synced.removed;
     report.warnings.extend(synced.warnings);
@@ -341,8 +334,6 @@ mod tests {
     use serde_yaml_ng::Value;
     use tempfile::TempDir;
 
-    const VERSION: &str = "0.1.0";
-
     /// Nothing is listening on this machine, as far as these tests care.
     fn all_free(_: u16) -> bool {
         false
@@ -350,13 +341,8 @@ mod tests {
 
     /// [`apply`] with the host probe stubbed out, which is how every test here
     /// runs: a real probe would make the result depend on the machine.
-    fn apply(
-        project: &mut Project,
-        registry: &Registry,
-        sel: &Selection,
-        cli_version: &str,
-    ) -> Result<ApplyReport> {
-        apply_with(project, registry, sel, cli_version, &all_free)
+    fn apply(project: &mut Project, registry: &Registry, sel: &Selection) -> Result<ApplyReport> {
+        apply_with(project, registry, sel, &all_free)
     }
 
     fn project() -> (TempDir, Project) {
@@ -397,13 +383,7 @@ mod tests {
     fn apply_writes_the_overlay_the_umbrella_and_the_state() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        let report = apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
 
         assert_eq!(report.enabled.len(), 1);
         assert!(report.updated.is_empty() && report.disabled.is_empty());
@@ -436,22 +416,10 @@ mod tests {
     fn auto_hands_out_the_lowest_free_port_and_none_publishes_nothing() {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5001));
 
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["auto_arima_chapkit"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["auto_arima_chapkit"])).unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5002));
 
         // A third one, left internal, takes no port at all.
@@ -459,7 +427,6 @@ mod tests {
             &mut project,
             &registry,
             &enable(&["chapkit_simple_multistep_model"]),
-            VERSION,
         )
         .unwrap();
         assert_eq!(report.enabled[0].1.host_port, None);
@@ -485,7 +452,6 @@ mod tests {
             &mut project,
             &registry,
             &publish(&["chapkit_ewars_model"]),
-            VERSION,
             &busy,
         )
         .unwrap();
@@ -498,7 +464,7 @@ mod tests {
         let (_dir, mut project) = project();
         let mut sel = enable(&["chapkit_ewars_model"]);
         sel.enable[0].port = Some(PortRequest::Fixed(5100));
-        apply(&mut project, &registry, &sel, VERSION).unwrap();
+        apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(
             project.state.models["chapkit_ewars_model"].host_port,
             Some(5100)
@@ -506,7 +472,7 @@ mod tests {
 
         let mut clash = enable(&["auto_arima_chapkit"]);
         clash.enable[0].port = Some(PortRequest::Fixed(5100));
-        let err = apply(&mut project, &registry, &clash, VERSION).expect_err("5100 is taken");
+        let err = apply(&mut project, &registry, &clash).expect_err("5100 is taken");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::PortInUse {
@@ -518,10 +484,8 @@ mod tests {
         // A port nothing in the project claims, but that the machine does.
         let mut listening = enable(&["auto_arima_chapkit"]);
         listening.enable[0].port = Some(PortRequest::Fixed(5200));
-        let err = apply_with(&mut project, &registry, &listening, VERSION, &|port| {
-            port == 5200
-        })
-        .expect_err("something is listening on 5200");
+        let err = apply_with(&mut project, &registry, &listening, &|port| port == 5200)
+            .expect_err("something is listening on 5200");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::PortInUse {
@@ -533,7 +497,7 @@ mod tests {
 
         let mut out_of_range = enable(&["auto_arima_chapkit"]);
         out_of_range.enable[0].port = Some(PortRequest::Fixed(80));
-        let err = apply(&mut project, &registry, &out_of_range, VERSION).expect_err("out of range");
+        let err = apply(&mut project, &registry, &out_of_range).expect_err("out of range");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::PortOutOfRange(80))
@@ -544,25 +508,13 @@ mod tests {
     fn re_enabling_keeps_the_port_and_reports_an_update() {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
-        apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
-        apply(
-            &mut project,
-            &registry,
-            &publish(&["auto_arima_chapkit"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
+        apply(&mut project, &registry, &publish(&["auto_arima_chapkit"])).unwrap();
 
         let mut sel = enable(&["chapkit_ewars_model"]);
         sel.enable[0].selector = VersionSelector::Exact("1.0.0".into());
         sel.enable[0].user = Some("1000:1000".into());
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         assert!(report.enabled.is_empty());
         assert_eq!(report.updated.len(), 1);
         let entry = &report.updated[0].1;
@@ -578,18 +530,12 @@ mod tests {
         // An explicit request is what takes the port away again, and frees it.
         let mut sel = enable(&["chapkit_ewars_model"]);
         sel.enable[0].port = Some(PortRequest::None);
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(report.updated[0].1.host_port, None);
         assert_eq!(project.used_ports(), BTreeSet::from([5002]));
 
         // And asking for it back lands on 5001 once more.
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         assert_eq!(report.updated[0].1.host_port, Some(5001));
     }
 
@@ -601,7 +547,6 @@ mod tests {
             &mut project,
             &registry,
             &publish(&["chapkit_ewars_model", "auto_arima_chapkit"]),
-            VERSION,
         )
         .unwrap();
 
@@ -610,7 +555,7 @@ mod tests {
             enable: Vec::new(),
             disable: vec!["chapkit-ewars-model".into()],
         };
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(report.disabled, vec!["chapkit_ewars_model"]);
         assert_eq!(report.removed.len(), 1);
         assert!(!dir.path().join("compose.chapkit-ewars-model.yml").exists());
@@ -624,7 +569,6 @@ mod tests {
             &mut project,
             &registry,
             &publish(&["chapkit_simple_multistep_model"]),
-            VERSION,
         )
         .unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5001));
@@ -638,7 +582,7 @@ mod tests {
             enable: Vec::new(),
             disable: vec!["auto_arima_chapkit".into()],
         };
-        let err = apply(&mut project, &registry, &sel, VERSION).expect_err("not enabled");
+        let err = apply(&mut project, &registry, &sel).expect_err("not enabled");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownModel(id)) if id == "auto_arima_chapkit"
@@ -649,7 +593,7 @@ mod tests {
     fn an_unknown_model_is_rejected_before_anything_is_written() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        let err = apply(&mut project, &registry, &enable(&["nope"]), VERSION).expect_err("unknown");
+        let err = apply(&mut project, &registry, &enable(&["nope"])).expect_err("unknown");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownModel(id)) if id == "nope"
@@ -666,7 +610,6 @@ mod tests {
             &mut project,
             &registry,
             &enable(&["chapkit_minimalist_example_py"]),
-            VERSION,
         )
         .expect_err("templates are not deployable");
         assert!(matches!(
@@ -676,7 +619,7 @@ mod tests {
 
         let mut sel = enable(&["chapkit_minimalist_example_py"]);
         sel.enable[0].allow_template = true;
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(report.enabled.len(), 1);
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("template"));
@@ -695,13 +638,8 @@ mod tests {
             .components
             .set_enabled(Component::ChapCore, false);
 
-        let err = apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .expect_err("a model has nowhere to register");
+        let err = apply(&mut project, &registry, &enable(&["chapkit_ewars_model"]))
+            .expect_err("a model has nowhere to register");
         assert_eq!(
             err.to_string(),
             "models need the chap-core component; run `chaps components enable chap-core`"
@@ -711,7 +649,7 @@ mod tests {
         assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
 
         // A selection that enables no model is not about models at all.
-        apply(&mut project, &registry, &Selection::default(), VERSION).unwrap();
+        apply(&mut project, &registry, &Selection::default()).unwrap();
     }
 
     /// Publishing a host port is no reason to move the version a deployment
@@ -721,13 +659,7 @@ mod tests {
     fn keep_version_leaves_the_recorded_pin_exactly_where_it_is() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
 
         // A deployment running a version pinned exactly, which is what the
         // marketplace moving on looks like from here.
@@ -742,7 +674,7 @@ mod tests {
 
         let mut sel = publish(&["chapkit_ewars_model"]);
         sel.enable[0].keep_version = true;
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         let entry = &report.updated[0].1;
         assert_eq!(entry.host_port, Some(5001), "the port change went through");
         assert_eq!(entry.version, "0.9.0");
@@ -753,13 +685,7 @@ mod tests {
         assert!(overlay.contains("sha-older"), "{overlay}");
 
         // The same request without it is what asks the registry again.
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         let entry = &report.updated[0].1;
         assert_eq!(entry.version, "1.0.0");
         assert_eq!(entry.image_tag, "sha-fa880a1");
@@ -768,7 +694,7 @@ mod tests {
         // A model that is not enabled has no version to keep, so it resolves.
         let mut sel = enable(&["auto_arima_chapkit"]);
         sel.enable[0].keep_version = true;
-        let report = apply(&mut project, &registry, &sel, VERSION).unwrap();
+        let report = apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(report.enabled[0].1.version, "1.0.0");
     }
 
@@ -820,20 +746,14 @@ mod tests {
         assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 
         // And what it allows, apply() goes on to do.
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
     }
 
     #[test]
     fn the_umbrella_is_written_even_with_no_models() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        let report = apply(&mut project, &registry, &Selection::default(), VERSION).unwrap();
+        let report = apply(&mut project, &registry, &Selection::default()).unwrap();
         assert!(!report.is_empty(), "the umbrella was written");
         let body = std::fs::read_to_string(dir.path().join(MARKETPLACE_COMPOSE)).unwrap();
         assert!(body.contains("services: {}"));
@@ -849,13 +769,7 @@ mod tests {
             "services:\n  mine:\n    ports:\n      - \"5001:8000\"\n",
         )
         .unwrap();
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5002));
     }
 
@@ -870,25 +784,13 @@ mod tests {
         )
         .unwrap();
 
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
         let body = std::fs::read_to_string(&env).unwrap();
         assert!(body.starts_with("POSTGRES_PASSWORD=secret\n"));
         assert!(body.contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n"));
 
         // A second run adds nothing; only the new model's pin appears.
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["auto_arima_chapkit"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &enable(&["auto_arima_chapkit"])).unwrap();
         let body = std::fs::read_to_string(&env).unwrap();
         assert_eq!(body.matches("CHAPKIT_EWARS_MODEL_IMAGE_TAG").count(), 1);
         assert!(body.contains("\n# AUTO_ARIMA_CHAPKIT_IMAGE_TAG=sha-70c07a9\n"));
@@ -902,13 +804,7 @@ mod tests {
     fn without_an_env_file_nothing_is_created() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        apply(
-            &mut project,
-            &registry,
-            &enable(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
         assert!(!dir.path().join(ENV_FILE).exists());
     }
 
@@ -917,13 +813,7 @@ mod tests {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
         project.state.port_range = (5500, DEFAULT_PORT_RANGE.1);
-        let report = apply(
-            &mut project,
-            &registry,
-            &publish(&["chapkit_ewars_model"]),
-            VERSION,
-        )
-        .unwrap();
+        let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         assert_eq!(report.enabled[0].1.host_port, Some(5500));
     }
 }

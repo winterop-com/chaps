@@ -351,10 +351,8 @@ mod tests {
 
     #[test]
     fn the_vendored_compose_file_validates() {
-        let embedded = crate::compose::render::render_base(&crate::compose::spec::BaseSpec {
-            cli_version: "0.1.0".to_string(),
-            upstream: None,
-        });
+        let embedded =
+            crate::compose::render::render_base(&crate::compose::spec::BaseSpec { upstream: None });
         validate_compose(&embedded).expect("the copy we ship is usable");
     }
 

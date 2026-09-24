@@ -28,7 +28,7 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         return Ok(());
     }
 
-    let report = apply(&mut project, &registry, &selection, ctx.cli_version)?;
+    let report = apply(&mut project, &registry, &selection)?;
     ctx.out.emit(&report, || human(&report))?;
     Ok(())
 }
@@ -151,7 +151,7 @@ mod tests {
 
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
-        let report = apply(&mut project, &registry, &selection, "0.0.0-test")
+        let report = apply(&mut project, &registry, &selection)
             .expect("the browser's selection is applicable");
 
         assert_eq!(report.enabled.len(), 1);

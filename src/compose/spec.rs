@@ -10,7 +10,6 @@ use crate::registry::{Model, Version};
 /// Values for the base `compose.yml`.
 #[derive(Debug, Clone)]
 pub struct BaseSpec {
-    pub cli_version: String,
     /// chap-core's own `compose.ghcr.yml`, when the project records a tag it
     /// was downloaded from; `None` renders the copy compiled into the binary.
     pub upstream: Option<UpstreamCompose>,
@@ -20,7 +19,7 @@ pub struct BaseSpec {
 ///
 /// The body is used verbatim - upstream is the source of truth for the base
 /// stack, and the recorded SHA-256 only means something if nothing rewrites
-/// it. `chaps` adds its own two header lines in front and nothing else.
+/// it. `chaps` adds two header lines in front and nothing else.
 #[derive(Debug, Clone)]
 pub struct UpstreamCompose {
     pub tag: String,
@@ -48,7 +47,6 @@ pub struct EnvSpec {
     pub registration_key: Option<String>,
     /// `(<ID>_IMAGE_TAG, tag)` pairs written as commented-out pins.
     pub model_tag_pins: Vec<(String, String)>,
-    pub cli_version: String,
 }
 
 /// Values for `compose.ocs.yml`.
@@ -61,17 +59,15 @@ pub struct OcsSpec {
     /// Whether the `s3` component is on, which is what decides if the service
     /// gets the (forward-looking) `S3_*` variables.
     pub s3: bool,
-    pub cli_version: String,
 }
 
 impl OcsSpec {
     /// The spec a project's components describe.
-    pub fn from_components(components: &Components, cli_version: &str) -> OcsSpec {
+    pub fn from_components(components: &Components) -> OcsSpec {
         OcsSpec {
             host_port: components.ocs.port,
             image_tag: components.ocs.image_tag.clone(),
             s3: components.s3.enabled,
-            cli_version: cli_version.to_string(),
         }
     }
 }
@@ -83,16 +79,14 @@ pub struct S3Spec {
     /// reachable only inside the compose network, which is where OCS is.
     pub host_port: Option<u16>,
     pub image_tag: String,
-    pub cli_version: String,
 }
 
 impl S3Spec {
     /// The spec a project's components describe.
-    pub fn from_components(components: &Components, cli_version: &str) -> S3Spec {
+    pub fn from_components(components: &Components) -> S3Spec {
         S3Spec {
             host_port: components.s3.port,
             image_tag: crate::components::S3_DEFAULT_TAG.to_string(),
-            cli_version: cli_version.to_string(),
         }
     }
 }
@@ -204,7 +198,6 @@ fn slug(text: &str) -> String {
 pub struct OverlaySpec {
     pub id: String,
     pub service_id: String,
-    pub display_name: String,
     pub version: String,
     pub repository: String,
     /// Tagless image reference.
@@ -223,7 +216,6 @@ pub struct OverlaySpec {
     pub volume_name: String,
     /// Whether to emit an active `SERVICEKIT_REGISTRATION_KEY` line.
     pub registration_key: bool,
-    pub cli_version: String,
 }
 
 impl OverlaySpec {
@@ -239,13 +231,11 @@ impl OverlaySpec {
         host_port: Option<u16>,
         data_dir: Option<&str>,
         user: Option<&str>,
-        cli_version: &str,
     ) -> OverlaySpec {
         let known = overrides::known_override(&m.id);
         OverlaySpec {
             id: m.id.clone(),
             service_id: m.service_id.clone(),
-            display_name: m.display_name.clone(),
             version: v.version.clone(),
             repository: m.source.repository.clone(),
             image: m.source.image.clone(),
@@ -271,34 +261,26 @@ impl OverlaySpec {
             // chap-core only enforces a registration key when it has one
             // configured, so the generated overlay leaves the line commented.
             registration_key: false,
-            cli_version: cli_version.to_string(),
         }
     }
 
     /// Rebuild a spec from recorded state, as `chaps sync` does.
     ///
     /// Everything that affects the running service comes from the recorded
-    /// entry; the marketplace only supplies the labels in the header.
-    pub fn from_enabled(id: &str, e: &EnabledModel, m: &Model, cli_version: &str) -> OverlaySpec {
+    /// entry; the marketplace only supplies the repository the header names.
+    pub fn from_enabled(id: &str, e: &EnabledModel, m: &Model) -> OverlaySpec {
         OverlaySpec {
-            display_name: m.display_name.clone(),
             repository: m.source.repository.clone(),
-            ..OverlaySpec::from_enabled_without_registry(id, e, cli_version)
+            ..OverlaySpec::from_enabled_without_registry(id, e)
         }
     }
 
     /// [`OverlaySpec::from_enabled`] for a model the registry no longer lists:
-    /// the header names the id in place of the display name and the image in
-    /// place of the repository.
-    pub fn from_enabled_without_registry(
-        id: &str,
-        e: &EnabledModel,
-        cli_version: &str,
-    ) -> OverlaySpec {
+    /// the header names the image in place of the repository.
+    pub fn from_enabled_without_registry(id: &str, e: &EnabledModel) -> OverlaySpec {
         OverlaySpec {
             id: id.to_string(),
             service_id: e.service_id.clone(),
-            display_name: id.to_string(),
             version: e.version.clone(),
             repository: e.image.clone(),
             image: e.image.clone(),
@@ -310,7 +292,6 @@ impl OverlaySpec {
             user: e.user.clone(),
             volume_name: volume_name(id),
             registration_key: false,
-            cli_version: cli_version.to_string(),
         }
     }
 }
@@ -329,7 +310,7 @@ mod tests {
         let v = m
             .resolve(&VersionSelector::Channel(Channel::Stable))
             .unwrap();
-        OverlaySpec::from_model(m, v, Some(5001), data_dir, user, "0.1.0")
+        OverlaySpec::from_model(m, v, Some(5001), data_dir, user)
     }
 
     #[test]
@@ -338,7 +319,6 @@ mod tests {
         let spec = spec_for(&r, "chapkit_ewars_model", None, None);
         assert_eq!(spec.id, "chapkit_ewars_model");
         assert_eq!(spec.service_id, "chapkit-ewars-model");
-        assert_eq!(spec.display_name, "CHAP-EWARS");
         assert_eq!(spec.version, "1.0.0");
         assert_eq!(spec.image, "ghcr.io/chap-models/chapkit_ewars_model");
         assert_eq!(spec.image_tag, "sha-fa880a1");
@@ -346,7 +326,6 @@ mod tests {
         assert_eq!(spec.volume_name, "ck_chapkit_ewars_model_data");
         assert_eq!(spec.host_port, Some(5001));
         assert!(!spec.registration_key);
-        assert_eq!(spec.cli_version, "0.1.0");
     }
 
     #[test]
@@ -401,7 +380,7 @@ mod tests {
             platform: None,
             compose_file: "compose.chapkit-ewars-model.yml".into(),
         };
-        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m, "0.1.0");
+        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m);
         assert_eq!(spec.host_port, Some(5007));
 
         // A model that publishes nothing replays as such.
@@ -409,19 +388,18 @@ mod tests {
             host_port: None,
             ..enabled.clone()
         };
-        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &internal, m, "0.1.0");
+        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &internal, m);
         assert_eq!(spec.host_port, None);
-        let spec = OverlaySpec::from_enabled_without_registry("gone", &internal, "0.1.0");
+        let spec = OverlaySpec::from_enabled_without_registry("gone", &internal);
         assert_eq!(spec.host_port, None);
-        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m, "0.1.0");
-        // Recorded values win; the marketplace only supplies the labels.
+        let spec = OverlaySpec::from_enabled("chapkit_ewars_model", &enabled, m);
+        // Recorded values win; the marketplace only supplies the repository.
         assert_eq!(spec.image_tag, "sha-0000000");
         assert_eq!(spec.version, "0.9.0");
         assert_eq!(spec.host_port, Some(5007));
         assert_eq!(spec.data_dir, "/srv/data");
         assert_eq!(spec.user, "1000:1000");
         assert_eq!(spec.platform, None);
-        assert_eq!(spec.display_name, "CHAP-EWARS");
         assert_eq!(spec.repository, m.source.repository);
         assert_eq!(spec.tag_env_var, "CHAPKIT_EWARS_MODEL_IMAGE_TAG");
     }

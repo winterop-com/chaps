@@ -1214,7 +1214,7 @@ fn sync_check(ctx: &Ctx, project: &Project) -> Check {
     // rendered-file list; in check mode it writes nothing, and this copy is
     // thrown away either way.
     let mut project = project.clone();
-    match sync(&mut project, &registry, ctx.cli_version, true) {
+    match sync(&mut project, &registry, true) {
         Err(err) => Check::fail(
             ID,
             NAME,

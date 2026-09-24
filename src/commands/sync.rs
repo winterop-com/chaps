@@ -13,7 +13,7 @@ use std::path::Path;
 pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let registry = super::registry_for(ctx, Some(&project))?;
-    let report = sync(&mut project, &registry, ctx.cli_version, args.check)?;
+    let report = sync(&mut project, &registry, args.check)?;
 
     ctx.out
         .emit(&report, || human(&report, &project.dir, &ctx.out))?;

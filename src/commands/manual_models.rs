@@ -115,7 +115,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
         }],
         disable: Vec::new(),
     };
-    let applied = apply(&mut project, &registry, &selection, ctx.cli_version)?;
+    let applied = apply(&mut project, &registry, &selection)?;
 
     let mut notes = resolved.notes.clone();
     notes.push(format!(
@@ -175,7 +175,7 @@ pub fn remove(ctx: &Ctx, args: &ModelsRemoveArgs) -> Result<()> {
     let (mut applied, mut notes, mut purged) = (ApplyReport::default(), Vec::new(), Vec::new());
     if was_enabled {
         let (report, disable_notes) =
-            super::enable::disable_enabled(ctx, &mut project, &registry, &id, args.purge)?;
+            super::enable::disable_enabled(&mut project, &registry, &id, args.purge)?;
         applied = report.apply;
         purged = report.purged;
         notes = disable_notes;

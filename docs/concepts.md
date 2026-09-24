@@ -47,7 +47,7 @@ mychap/
 | `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `chaps` never rewrites it, and only re-creates it if it goes missing. |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. It carries the project `name:` as well, because it is the one file that is always in the `-f` list. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
-| `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with a comment saying which commands manage them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
+| `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with one line saying `chaps` manages them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
 | `.chaps/models-manual.yaml` | The definitions of the models this deployment added itself, one entry per `chaps models add`: what a marketplace file would have said about each. It is intent like the rest, and it is a definition rather than an enablement - `models.yaml` still says which models are on. Absent in a deployment that has added none. See [Models outside the marketplace](./models.md#models-outside-the-marketplace). |
 
 ## Intent and artifacts
@@ -242,6 +242,25 @@ chaps down --volumes
 
 (or the role changed with `ALTER USER`) before CHAP will start again.
 `init --no-env` writes no `.env` at all.
+
+### What `.env` holds
+
+Every line is optional except the ones `init` writes as active assignments; a
+commented placeholder means "not set", which is the default the compose files
+already carry.
+
+| Variable | What it does |
+| --- | --- |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | The database the stack creates. The password is 32 random hex characters, generated once. It has to be URL-safe, because the connection URL is composed from it. |
+| `CHAP_DATABASE_URL` | A full percent-encoded URL that replaces the one composed from `POSTGRES_*`. The way to use a password that is not URL-safe. |
+| `CHAP_IMAGE_TAG` | Tag for both chap-core images: a release tag such as `v2.3.1` pins one, `latest` is the newest release and `master` the branch. |
+| `CHAP_API_PORT` | Host port chap-core's API is published on, and the only port CHAP publishes by default. See [Ports](./ports.md). |
+| `CHAP_API_TOKEN` | API token. Commented out means no authentication at all. See [Authentication](./auth.md). |
+| `SERVICEKIT_REGISTRATION_KEY` | Shared secret each model sends when it registers, and the one chap-core checks. It travels with the API token. |
+| `CHAP_ROOT_PATH` | Path prefix, for serving the API behind a reverse proxy. Not written by `init`; add it when you need it. |
+| `<ID>_IMAGE_TAG` | Per-model pin, one commented line per enabled model. Uncomment to run a different build of that model. |
+| `OCS_IMAGE_TAG`, `S3_IMAGE_TAG` | The same for the components. See [Components](./components.md). |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Root credentials for the object store, generated once when `s3` is enabled. The volume is created with them, so changing them later locks the store's own data away. |
 
 Compose reads `.env` automatically, so `${CHAP_IMAGE_TAG:-latest}` and the
 per-model `${<ID>_IMAGE_TAG:-sha-xxxxxxx}` pins can be overridden there without
