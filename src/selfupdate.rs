@@ -1263,10 +1263,11 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
     /// The commit is read out of notes this repository writes, so the reader
     /// and the writer are checked against each other rather than only
     /// against a fixture: first that `scripts/release-notes.sh` still writes
-    /// the line, then, where git can run, that `release_commit` reads the
-    /// real script's output back as the commit this checkout is on. A
+    /// the line, then, where the script can run, that `release_commit` reads
+    /// the real script's output back as the commit this checkout is on. A
     /// packaged crate without the script has nothing to check and says
-    /// nothing.
+    /// nothing, and neither does Windows or a checkout too shallow for the
+    /// script to walk, where the first half is the whole test.
     #[test]
     fn the_notes_script_writes_the_line_the_commit_is_read_from() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -1300,45 +1301,72 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
              release_commit reads"
         );
 
+        // Git Bash on the windows-latest runner cannot run the script
+        // reliably, so there the static check above is the guard.
+        #[cfg(windows)]
+        return;
+
         // The writer itself, where it can run: the notes the script prints
         // for the rolling build name the commit HEAD is on, and that is what
         // comes back out. No git, or no shell to run the script with, and
         // the line above is all that was checked.
-        let Some(head) = git(root, &["rev-parse", "HEAD"]) else {
-            return;
-        };
-        let Ok(printed) = std::process::Command::new("bash")
-            .arg(&script)
-            .arg("dev")
-            // GITHUB_SHA is what the workflow builds from; here the commit is
-            // whatever this checkout has, which is what HEAD was read as.
-            .env_remove("GITHUB_SHA")
-            .output()
-        else {
-            return;
-        };
-        assert!(
-            printed.status.success(),
-            "scripts/release-notes.sh dev failed: {}",
-            String::from_utf8_lossy(&printed.stderr)
-        );
+        #[cfg(not(windows))]
+        {
+            let Some(head) = git(root, &["rev-parse", "HEAD"]) else {
+                return;
+            };
 
-        let notes = Release {
-            tag: DEV_TAG.to_string(),
-            body: String::from_utf8_lossy(&printed.stdout).into_owned(),
-            ..Default::default()
-        };
-        assert_eq!(
-            release_commit(&notes).as_deref(),
-            Some(head.to_ascii_lowercase().as_str()),
-            "release_commit did not read HEAD out of the notes the script \
-             printed:\n{}",
-            notes.body
-        );
+            // The notes are the commits since the previous version tag, so a
+            // checkout without one, a shallow CI clone among them, has no
+            // history for the script to read and nothing to check here.
+            if git(root, &["tag", "-l", "v*"]).is_none() {
+                return;
+            }
+
+            let Ok(printed) = std::process::Command::new("bash")
+                .arg(&script)
+                .arg("dev")
+                // GITHUB_SHA is what the workflow builds from; here the
+                // commit is whatever this checkout has, which is what HEAD
+                // was read as.
+                .env_remove("GITHUB_SHA")
+                .output()
+            else {
+                return;
+            };
+            if !printed.status.success() {
+                let stderr = String::from_utf8_lossy(&printed.stderr);
+                let shallow = git(root, &["rev-parse", "--is-shallow-repository"])
+                    .is_some_and(|answer| answer == "true");
+                // A failure with nothing to say, in a clone whose history is
+                // cut short, is the missing history rather than the script.
+                // Anything else is the script, and is a failure.
+                assert!(
+                    stderr.trim().is_empty() && shallow,
+                    "scripts/release-notes.sh dev failed: {stderr}"
+                );
+                return;
+            }
+
+            let notes = Release {
+                tag: DEV_TAG.to_string(),
+                body: String::from_utf8_lossy(&printed.stdout).into_owned(),
+                ..Default::default()
+            };
+            assert_eq!(
+                release_commit(&notes).as_deref(),
+                Some(head.to_ascii_lowercase().as_str()),
+                "release_commit did not read HEAD out of the notes the script \
+                 printed:\n{}",
+                notes.body
+            );
+        }
     }
 
     /// One git command in this checkout, or `None` where git cannot answer,
-    /// which is a test that skips rather than one that fails.
+    /// which is a test that skips rather than one that fails. Only the live
+    /// half asks git anything, and that half does not run on Windows.
+    #[cfg(not(windows))]
     fn git(root: &str, args: &[&str]) -> Option<String> {
         let out = std::process::Command::new("git")
             .arg("-C")
