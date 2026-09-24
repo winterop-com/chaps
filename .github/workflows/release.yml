@@ -304,6 +304,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # `fetch-depth: 0` because the notes list the commits since the previous
+      # tag: the whole history and every tag have to be there, not the single
+      # commit a default checkout brings.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -320,57 +327,13 @@ jobs:
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
 
+      # The notes themselves live in a script so they can be read before the
+      # tag is pushed: `scripts/release-notes.sh v0.2.4` on a checkout prints
+      # exactly what the release will say.
       - name: Write the release notes
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
-          repo="$GITHUB_REPOSITORY"
-          base="https://github.com/${repo}/releases/download/${tag}"
-          cat > notes.md <<NOTES
-          ### Downloads
-
-          | Platform | File | Notes |
-          | --- | --- | --- |
-          | Linux x86_64 | [\`chaps-x86_64-unknown-linux-musl.tar.gz\`](${base}/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
-          | macOS | [\`chaps-universal-apple-darwin.tar.gz\`](${base}/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-          | Windows x86_64 | [\`chaps-x86_64-pc-windows-msvc.zip\`](${base}/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
-
-          <details>
-          <summary>Other platforms</summary>
-
-          | Platform | File | Notes |
-          | --- | --- | --- |
-          | Linux arm64 | [\`chaps-aarch64-unknown-linux-musl.tar.gz\`](${base}/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
-          | macOS, Apple silicon | [\`chaps-aarch64-apple-darwin.tar.gz\`](${base}/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
-          | macOS, Intel | [\`chaps-x86_64-apple-darwin.tar.gz\`](${base}/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
-          | Windows arm64 | [\`chaps-aarch64-pc-windows-msvc.zip\`](${base}/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
-
-          </details>
-
-          Every archive holds the binary, \`README.md\`, \`LICENSE\` and shell
-          completions under \`completions/\`.
-
-          ### Install
-
-          \`\`\`sh
-          curl -fsSL https://raw.githubusercontent.com/${repo}/main/install.sh | sh
-          \`\`\`
-
-          An installed \`chaps\` updates itself with \`chaps self update\`.
-
-          ### Verify
-
-          \`\`\`sh
-          curl -fsSLO ${base}/SHA256SUMS
-          shasum -a 256 -c SHA256SUMS --ignore-missing
-          \`\`\`
-
-          On macOS, check the signature of the extracted binary:
-
-          \`\`\`sh
-          codesign -dv --verbose=4 chaps
-          \`\`\`
-          NOTES
+          scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
           cat notes.md
 
       - uses: softprops/action-gh-release@v3
@@ -379,7 +342,10 @@ jobs:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           body_path: notes.md
-          generate_release_notes: true
+          # The notes above list the commits themselves. GitHub's generated
+          # notes list merged pull requests, and this repository pushes to
+          # `main`, so they only ever added a "Full changelog" link.
+          generate_release_notes: false
           fail_on_unmatched_files: true
 
   publish-dev:
@@ -396,8 +362,12 @@ jobs:
       DEV_TAG: dev
     steps:
       # Checked out for Cargo.toml, which the notes quote, and for the git
-      # remote the tag is pushed to.
+      # remote the tag is pushed to. `fetch-depth: 0` because the notes also
+      # list the commits since the last version tag, so the whole history and
+      # every tag have to be there.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
@@ -429,65 +399,14 @@ jobs:
           git tag -f "$DEV_TAG" "$GITHUB_SHA"
           git push -f origin "refs/tags/$DEV_TAG"
 
+      # The same script the tag path uses, in its `dev` shape:
+      # `scripts/release-notes.sh dev` on a checkout prints what this release
+      # will say. `chaps self update` reads the commit back out of the notes,
+      # from the "Built from commit" line the script writes.
       - name: Write the release notes
         run: |
           set -euo pipefail
-          repo="$GITHUB_REPOSITORY"
-          base="https://github.com/${repo}/releases/download/${DEV_TAG}"
-          script="https://raw.githubusercontent.com/${repo}/main/install.sh"
-          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          built="$(date -u '+%Y-%m-%d %H:%M UTC')"
-          # `chaps self update` reads the commit back out of these notes, from
-          # the line below: the word `commit` followed by the sha. Keep the
-          # two together if this text is ever reworded.
-          cat > notes.md <<NOTES
-          ### Unstable
-
-          This is the rolling build of \`main\`. It is rebuilt and replaced on
-          every push, and it is not a release: it reports the version of the
-          last tag, \`v${version}\`, with \`channel dev\`, and anything in it
-          may change or break. The numbered releases are the stable ones.
-
-          Built from commit \`${GITHUB_SHA}\` on ${built}.
-
-          ### Install
-
-          \`\`\`sh
-          curl -fsSL ${script} | sh -s -- --version dev
-          \`\`\`
-
-          Or into the current directory alone, as \`./chaps\`, touching
-          nothing else:
-
-          \`\`\`sh
-          curl -fsSL ${script} | sh -s -- --version dev --here
-          \`\`\`
-
-          A dev build follows this release from then on: \`chaps self update\`
-          moves it to the newest build of \`main\`, comparing commits rather
-          than version numbers, and \`chaps self version\` says
-          \`channel dev\`. To go back to the stable release:
-
-          \`\`\`sh
-          chaps self update --version v${version}
-          \`\`\`
-
-          ### Downloads
-
-          | Platform | File | Notes |
-          | --- | --- | --- |
-          | Linux x86_64 | [\`chaps-x86_64-unknown-linux-musl.tar.gz\`](${base}/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
-          | macOS | [\`chaps-universal-apple-darwin.tar.gz\`](${base}/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-          | Windows x86_64 | [\`chaps-x86_64-pc-windows-msvc.zip\`](${base}/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
-
-          The arm64 Linux, per-architecture macOS and arm64 Windows archives
-          are attached as well, and \`SHA256SUMS\` covers all seven:
-
-          \`\`\`sh
-          curl -fsSLO ${base}/SHA256SUMS
-          shasum -a 256 -c SHA256SUMS --ignore-missing
-          \`\`\`
-          NOTES
+          scripts/release-notes.sh "$DEV_TAG" > notes.md
           cat notes.md
 
       # softprops/action-gh-release documents `overwrite_files` as defaulting
