@@ -1,6 +1,6 @@
 [package]
 name = "chaps-cli"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 description = "Deploy and manage CHAP, the Climate Health Analytics Platform, with Docker Compose"
 license = "AGPL-3.0-only"
