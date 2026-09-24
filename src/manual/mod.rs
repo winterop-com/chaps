@@ -388,8 +388,9 @@ fn image_config(
             amd64_only: false,
         })),
         None if endpoints.offline => Err(anyhow::anyhow!(
-            "{reference} is not on this machine and this run is --offline; \
-             pull it first, or drop --offline"
+            "the amd64 variant of {reference} is not in the local image store and this \
+             run is --offline; run `docker pull --platform linux/amd64 {reference}` \
+             first, or drop --offline"
         )),
         None => {
             notes.push(format!(

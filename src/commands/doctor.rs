@@ -1909,7 +1909,8 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
 /// `user: 1000:1000` starts fine and then fails on its own binaries - the
 /// Rwanda BYM model's `inla.run: Permission denied`. Only a locally pulled
 /// image can be asked without a network round trip per model, so a model whose
-/// image is not on this machine is skipped rather than guessed at.
+/// amd64 image is not in this machine's image store is skipped rather than
+/// guessed at.
 fn user_checks(project: &Project, have_cli: bool) -> Vec<Check> {
     user_checks_with(project, have_cli, &crate::docker::image_config)
 }
@@ -1930,23 +1931,37 @@ fn user_checks_with(
                 .then(|| declared(&reference))
                 .flatten()
                 .map(|(user, _)| user);
-            user_check(id, &model.service_id, &model.user, found.as_deref())
+            let asked = have_cli.then_some(reference.as_str());
+            user_check(id, &model.service_id, asked, &model.user, found.as_deref())
         })
         .collect()
 }
 
 /// The verdict for one model, given what its image declares.
 ///
-/// `None` is "the image is not on this machine", which is the usual state
-/// before the first `chaps up` and no reason to say anything is wrong.
-pub fn user_check(id: &str, service_id: &str, recorded: &str, declared: Option<&str>) -> Check {
+/// `declared` is `None` when the image the overlay pins is not in this
+/// machine's image store as the `linux/amd64` variant every overlay runs -
+/// the usual state before the first `chaps up`, and no reason to say anything
+/// is wrong. `reference` is the tag that was asked about, or `None` when
+/// there was no docker CLI to ask through.
+pub fn user_check(
+    id: &str,
+    service_id: &str,
+    reference: Option<&str>,
+    recorded: &str,
+    declared: Option<&str>,
+) -> Check {
     let check_id = format!("user-{service_id}");
     let name = format!("user {service_id}");
     let Some(declared) = declared else {
-        return Check::skip(
+        let Some(reference) = reference else {
+            return Check::skip(check_id, name, format!("{recorded}; no docker CLI to ask"));
+        };
+        return Check::skip_with(
             check_id,
             name,
-            format!("{recorded}; the image is not pulled here, so it was not asked"),
+            format!("{recorded}; the amd64 variant of {reference} is not in the local image store"),
+            format!("run `chaps docker pull`, or `docker pull --platform linux/amd64 {reference}`"),
         );
     };
     let wanted = crate::compose::resolve::normalize(declared);
@@ -2295,6 +2310,9 @@ mod tests {
     use crate::status::{ApiVersion, ModelStatus};
     use std::collections::BTreeMap;
 
+    /// The tag the `user` checks are asked about in these tests.
+    const IMAGE_REF: &str = "ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1";
+
     /// A finished report, so the rendering and the counting can be driven
     /// without anything having been probed.
     fn report(checks: Vec<Check>, project: Option<&str>) -> Report {
@@ -2381,6 +2399,7 @@ mod tests {
         let ok = user_check(
             "chapkit_ewars_model",
             "chapkit-ewars-model",
+            Some(IMAGE_REF),
             "1000:1000",
             Some("chapkit"),
         );
@@ -2390,9 +2409,11 @@ mod tests {
         assert!(ok.detail.contains("as the image declares"), "{ok:?}");
         assert_eq!(ok.fix, None);
 
-        // Root, however it is spelled on either side.
+        // Root, however it is spelled on either side. An empty `User` is one
+        // of those spellings: the parser has already ruled out the empty
+        // config that only looks like root.
         for declared in ["root", "", "0:0"] {
-            let check = user_check("m", "m", "root", Some(declared));
+            let check = user_check("m", "m", Some(IMAGE_REF), "root", Some(declared));
             assert_eq!(check.status, Status::Ok, "{declared:?} {check:?}");
         }
 
@@ -2401,6 +2422,7 @@ mod tests {
         let wrong = user_check(
             "chapkit_rwanda_malaria_bym_model",
             "chapkit-rwanda-malaria-bym-model",
+            Some(IMAGE_REF),
             "1000:1000",
             Some("root"),
         );
@@ -2419,15 +2441,34 @@ mod tests {
             )
         );
 
-        // Nothing to ask: the image is not on this machine.
-        let absent = user_check("m", "m", "1000:1000", None);
+        // Nothing to ask: the amd64 variant is not in the image store, which
+        // is also what an arm64 host that has pulled nothing yet looks like.
+        let absent = user_check("m", "m", Some(IMAGE_REF), "1000:1000", None);
         assert_eq!(absent.status, Status::Skip);
-        assert!(absent.detail.contains("not pulled here"), "{absent:?}");
-        assert_eq!(absent.fix, None);
+        assert!(
+            absent
+                .detail
+                .contains(&format!("the amd64 variant of {IMAGE_REF} is not in the")),
+            "{absent:?}"
+        );
+        assert_eq!(
+            absent.fix.as_deref(),
+            Some(
+                "run `chaps docker pull`, or `docker pull --platform linux/amd64 \
+                 ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1`"
+            )
+        );
+
+        // No docker CLI at all is a different reason, and no pull would fix
+        // it.
+        let no_cli = user_check("m", "m", None, "1000:1000", None);
+        assert_eq!(no_cli.status, Status::Skip);
+        assert!(no_cli.detail.contains("no docker CLI"), "{no_cli:?}");
+        assert_eq!(no_cli.fix, None);
 
         // And an account name only the image can resolve proves nothing about
         // the numbers recorded beside it.
-        let opaque = user_check("m", "m", "10001:10001", Some("app"));
+        let opaque = user_check("m", "m", Some(IMAGE_REF), "10001:10001", Some("app"));
         assert_eq!(opaque.status, Status::Skip);
         assert!(opaque.detail.contains("`app`"), "{opaque:?}");
     }
@@ -2471,6 +2512,26 @@ mod tests {
         // Without a docker CLI nothing is asked, but the line is still there.
         let skipped = user_checks_with(&project, false, &|_| panic!("no CLI, no question"));
         assert_eq!(skipped[0].status, Status::Skip);
+        assert!(skipped[0].detail.contains("no docker CLI"), "{skipped:?}");
+
+        // A daemon that cannot answer for the amd64 variant - an arm64 host
+        // that has pulled nothing, or has pulled only its own architecture -
+        // names the pull that would let the line be answered.
+        let unknown = user_checks_with(&project, true, &|_| None);
+        assert_eq!(unknown[0].status, Status::Skip);
+        assert!(
+            unknown[0].detail.contains(
+                "the amd64 variant of ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1"
+            ),
+            "{unknown:?}"
+        );
+        assert!(
+            unknown[0]
+                .fix
+                .as_deref()
+                .is_some_and(|fix| fix.contains("chaps docker pull")),
+            "{unknown:?}"
+        );
 
         // A deployment with no models has no such lines.
         project.state.models.clear();

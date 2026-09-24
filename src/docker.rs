@@ -525,25 +525,104 @@ fn image_id(reference: &str) -> Option<String> {
     (!id.is_empty()).then_some(id)
 }
 
+/// The `--format` [`image_config`] asks for: the two fields the overlay is
+/// rendered from, followed by the two that say whether a config was answered
+/// at all.
+///
+/// An image store that does not hold the platform being asked about answers
+/// with an empty config rather than an error, and an empty `User` reads as
+/// root - so `Entrypoint` and `Cmd` are fetched as the evidence that the
+/// blank `User` is the image's own. `{{json}}` for those two: they are
+/// arrays, and `null` is how a config that has neither prints.
+const IMAGE_CONFIG_FORMAT: &str = "{{.Config.User}}\t{{.Config.WorkingDir}}\t\
+     {{json .Config.Entrypoint}}\t{{json .Config.Cmd}}";
+
 /// What one image on this machine says about how it runs: `(user, working
-/// directory)`, or `None` when this machine does not have the image.
+/// directory)`, or `None` when this machine's image store cannot answer for
+/// it as `linux/amd64`.
 ///
 /// The same two fields the registry's config blob carries, which is what
 /// makes this the fallback for `chaps models add` when ghcr cannot be
 /// reached: a tab-separated `docker image inspect`, so an empty field stays
 /// an empty field.
+///
+/// The platform is pinned to [`crate::compose::AMD64_PLATFORM`], the one
+/// every overlay runs the model images as. Without it, a daemon on the
+/// containerd image store answers for the host's own architecture, and an
+/// arm64 host that has pulled only the amd64 variant is handed an empty
+/// config - which used to read as "runs as root". A docker that will not take
+/// the flag at all is asked again without it, because that answer is still
+/// better than none: [`is_flag_unsupported`].
 pub fn image_config(reference: &str) -> Option<(String, String)> {
-    let args = vec![
+    image_config_with(reference, &docker_run)
+}
+
+/// [`image_config`] with the docker run injected, so the platform pin and its
+/// fallback can be tested without a daemon.
+pub fn image_config_with(reference: &str, run: RunFn) -> Option<(String, String)> {
+    let mut args = vec![
         "image".to_string(),
         "inspect".to_string(),
+        "--platform".to_string(),
+        crate::compose::AMD64_PLATFORM.to_string(),
         "--format".to_string(),
-        "{{.Config.User}}\t{{.Config.WorkingDir}}".to_string(),
+        IMAGE_CONFIG_FORMAT.to_string(),
         reference.to_string(),
     ];
-    let text = docker_capture(&args)?;
+    let mut run_out = run(&args)?;
+    if !run_out.ok && is_flag_unsupported(&run_out.stderr) {
+        crate::output::verbose(
+            "  this docker has no `--platform` for `image inspect`; asking without it",
+        );
+        args.drain(2..4);
+        run_out = run(&args)?;
+    }
+    if !run_out.ok {
+        verbose_exit(&args, run_out.code);
+        return None;
+    }
+    parse_image_config(&run_out.stdout)
+}
+
+/// Parse the [`IMAGE_CONFIG_FORMAT`] line into `(user, working_dir)`, or
+/// `None` when the whole config came back blank.
+///
+/// A config with no `User`, no `WorkingDir`, no `Entrypoint` and no `Cmd` is
+/// not an image that runs as root in `/`: it is an image store answering
+/// about a platform it does not hold. A real root image has a working
+/// directory or a command, so "empty throughout" is the one safe reading of
+/// "we do not have it".
+pub fn parse_image_config(text: &str) -> Option<(String, String)> {
     let line = text.lines().next()?;
-    let (user, working_dir) = line.split_once('\t')?;
-    Some((user.trim().to_string(), working_dir.trim().to_string()))
+    let mut fields = line.split('\t');
+    let user = fields.next()?.trim();
+    let working_dir = fields.next()?.trim();
+    let rest_blank = fields.all(is_blank_field);
+    if user.is_empty() && working_dir.is_empty() && rest_blank {
+        return None;
+    }
+    Some((user.to_string(), working_dir.to_string()))
+}
+
+/// Whether one `{{json}}` field carries nothing: what docker prints for a
+/// config field it has no value for.
+fn is_blank_field(field: &str) -> bool {
+    matches!(field.trim(), "" | "null" | "[]" | "{}")
+}
+
+/// Whether docker refused the command over the flag rather than the image: a
+/// CLI too old to know it (`image inspect` learnt `--platform` in Docker 25)
+/// or one talking to a daemon whose API is older than the flag needs.
+///
+/// Either way the answer without the flag is the one this module gave before
+/// it pinned anything, which is better than no answer. An image that is
+/// simply not held for that platform is a different refusal, and it is a real
+/// answer: `None`.
+fn is_flag_unsupported(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("unknown flag")
+        || lower.contains("unknown shorthand flag")
+        || lower.contains("requires api version")
 }
 
 /// Pull one image, showing docker's own progress, and say whether it worked.
@@ -607,21 +686,56 @@ pub fn parse_uid_gid(text: &str) -> Option<(u32, u32)> {
 /// Best-effort like [`compose_capture`]: every caller is sharpening an answer
 /// it can give without docker's help.
 fn docker_capture(args: &[String]) -> Option<String> {
+    let out = docker_run(args)?;
+    if !out.ok {
+        verbose_exit(args, out.code);
+        return None;
+    }
+    Some(out.stdout)
+}
+
+/// What one plain `docker` run said.
+///
+/// Both streams, not just stdout: a caller that has a second way of asking
+/// has to read the refusal to know whether to take it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DockerRun {
+    /// Whether docker exited zero.
+    pub ok: bool,
+    /// The exit code, or `None` when there was no status to read.
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// How [`image_config_with`] runs docker: the arguments as they would be
+/// typed, and `None` when the binary could not be run at all.
+pub type RunFn<'a> = &'a dyn Fn(&[String]) -> Option<DockerRun>;
+
+/// Run a plain `docker` command and return both its streams, whatever it
+/// exited with. `None` is "the binary could not be run".
+fn docker_run(args: &[String]) -> Option<DockerRun> {
     trace_command(args);
     let out = Command::new("docker")
         .args(args)
         .stdin(Stdio::null())
         .output()
         .ok()?;
-    if !out.status.success() {
-        crate::output::verbose(&format!(
-            "  `docker {}` exited with status {}",
-            args.first().map(String::as_str).unwrap_or_default(),
-            exit_code(out.status)
-        ));
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    Some(DockerRun {
+        ok: out.status.success(),
+        code: Some(exit_code(out.status)),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    })
+}
+
+/// The `-v` line for a `docker` run that answered non-zero.
+fn verbose_exit(args: &[String], code: Option<i32>) {
+    crate::output::verbose(&format!(
+        "  `docker {}` exited with status {}",
+        args.first().map(String::as_str).unwrap_or_default(),
+        code.unwrap_or(DOCKER_NOT_FOUND)
+    ));
 }
 
 /// Why a short `docker compose` query went unanswered.
@@ -1848,5 +1962,170 @@ mod tests {
         assert_eq!(odd[0].1.image_id, "sha256:ccc");
         assert_eq!(odd[0].1.config_hash, "");
         assert!(parse_container_builds("").is_empty());
+    }
+
+    /// One `docker image inspect` line, the way the real format prints it.
+    fn config_line(user: &str, working_dir: &str, entrypoint: &str, cmd: &str) -> String {
+        format!("{user}\t{working_dir}\t{entrypoint}\t{cmd}\n")
+    }
+
+    /// The whole point of asking for four fields: an empty config is an
+    /// answer about a platform this machine does not hold, not an image that
+    /// runs as root.
+    #[test]
+    fn an_empty_image_config_is_unknown_rather_than_root() {
+        // What Docker on the containerd image store prints for a multi-arch
+        // image whose amd64 variant is the only one pulled, asked about
+        // arm64.
+        assert_eq!(
+            parse_image_config(&config_line("", "", "null", "null")),
+            None
+        );
+        assert_eq!(parse_image_config("\t\t\t\n"), None);
+        assert_eq!(parse_image_config(&config_line("", "", "[]", "[]")), None);
+
+        // The same image asked about the platform it does hold.
+        assert_eq!(
+            parse_image_config(&config_line(
+                "chap",
+                "/app",
+                "[\"/usr/bin/tini\",\"--\"]",
+                "[\"python\",\"-m\",\"m\"]"
+            )),
+            Some(("chap".to_string(), "/app".to_string()))
+        );
+
+        // Root by omission is a real config: it has a working directory, or a
+        // command, or both.
+        assert_eq!(
+            parse_image_config(&config_line("", "/work", "null", "null")),
+            Some((String::new(), "/work".to_string()))
+        );
+        assert_eq!(
+            parse_image_config(&config_line("", "", "null", "[\"/bin/sh\"]")),
+            Some((String::new(), String::new()))
+        );
+
+        // A line with nothing on it at all is no answer either way.
+        assert_eq!(parse_image_config(""), None);
+        assert_eq!(parse_image_config("chap\n"), None, "no tab, no answer");
+    }
+
+    /// The platform is pinned, because the host's own architecture is the
+    /// wrong question for an amd64-only image - and a docker too old for the
+    /// flag is asked again without it.
+    #[test]
+    fn the_image_config_is_asked_for_amd64_and_retried_without_the_flag() {
+        let runs = std::cell::RefCell::new(Vec::new());
+        let answer = |args: &[String]| {
+            runs.borrow_mut().push(args.to_vec());
+            Some(DockerRun {
+                ok: true,
+                code: Some(0),
+                stdout: config_line("chap", "/app", "null", "null"),
+                stderr: String::new(),
+            })
+        };
+        assert_eq!(
+            image_config_with("img:tag", &answer),
+            Some(("chap".to_string(), "/app".to_string()))
+        );
+        let asked = runs.borrow().clone();
+        assert_eq!(asked.len(), 1, "one run when the flag is understood");
+        assert!(
+            asked[0].windows(2).any(|pair| pair
+                == [
+                    "--platform".to_string(),
+                    crate::compose::AMD64_PLATFORM.to_string()
+                ]),
+            "{asked:?}"
+        );
+        assert_eq!(asked[0].last().map(String::as_str), Some("img:tag"));
+
+        // A CLI older than `--platform` for `image inspect` (before Docker
+        // 25) refuses the whole command; the answer without the flag is
+        // still better than none.
+        let runs = std::cell::RefCell::new(Vec::new());
+        let old = |args: &[String]| {
+            runs.borrow_mut().push(args.to_vec());
+            let knows = !args.iter().any(|a| a == "--platform");
+            Some(DockerRun {
+                ok: knows,
+                code: Some(if knows { 0 } else { 125 }),
+                stdout: if knows {
+                    config_line("chap", "/app", "null", "null")
+                } else {
+                    String::new()
+                },
+                stderr: if knows {
+                    String::new()
+                } else {
+                    "unknown flag: --platform\nSee 'docker image inspect --help'.\n".to_string()
+                },
+            })
+        };
+        assert_eq!(
+            image_config_with("img:tag", &old),
+            Some(("chap".to_string(), "/app".to_string()))
+        );
+        let asked = runs.borrow().clone();
+        assert_eq!(asked.len(), 2, "the pinned ask, then the plain one");
+        assert!(!asked[1].iter().any(|a| a == "--platform"), "{asked:?}");
+        assert_eq!(asked[1].last().map(String::as_str), Some("img:tag"));
+
+        // A daemon whose API is older than the flag is the same case: the
+        // refusal is about the flag, not the image.
+        let runs = std::cell::RefCell::new(Vec::new());
+        let old_api = |args: &[String]| {
+            runs.borrow_mut().push(args.to_vec());
+            let knows = !args.iter().any(|a| a == "--platform");
+            Some(DockerRun {
+                ok: knows,
+                code: Some(if knows { 0 } else { 1 }),
+                stdout: if knows {
+                    config_line("chap", "/app", "null", "null")
+                } else {
+                    String::new()
+                },
+                stderr: if knows {
+                    String::new()
+                } else {
+                    "\"--platform\" requires API version 1.49, but the Docker daemon API \
+                     version is 1.43\n"
+                        .to_string()
+                },
+            })
+        };
+        assert_eq!(
+            image_config_with("img:tag", &old_api),
+            Some(("chap".to_string(), "/app".to_string()))
+        );
+        assert_eq!(runs.borrow().len(), 2);
+
+        // A refusal about the image itself is a real answer: no second ask,
+        // and the caller hears "we do not have it".
+        let runs = std::cell::RefCell::new(Vec::new());
+        let missing = |args: &[String]| {
+            runs.borrow_mut().push(args.to_vec());
+            Some(DockerRun {
+                ok: false,
+                code: Some(1),
+                stdout: String::new(),
+                stderr: "Error response from daemon: image with reference img:tag was found \
+                         but does not provide the specified platform (linux/amd64)\n"
+                    .to_string(),
+            })
+        };
+        assert_eq!(image_config_with("img:tag", &missing), None);
+        assert_eq!(runs.borrow().len(), 1);
+
+        // And no docker at all is one `None`, not a retry loop.
+        let runs = std::cell::RefCell::new(0usize);
+        let no_docker = |_: &[String]| {
+            *runs.borrow_mut() += 1;
+            None
+        };
+        assert_eq!(image_config_with("img:tag", &no_docker), None);
+        assert_eq!(*runs.borrow(), 1);
     }
 }

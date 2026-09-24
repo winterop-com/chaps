@@ -252,7 +252,7 @@ The rendered overlay should then carry no `user:` line for a root image, and
 its `<service_id>-init` container should chown the volume to `0:0`.
 `chaps models info <id>` shows what was recorded and where it came from, and
 `chaps doctor` has one `user <service>` line per enabled model that compares
-the two whenever the image is pulled here.
+the two whenever the image's amd64 variant is pulled here.
 
 `--user <uid>:<gid>` overrides the image, for the rare case where the image is
 wrong about itself. See

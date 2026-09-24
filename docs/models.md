@@ -493,9 +493,10 @@ error: chapkit_ewars_model is a marketplace model, so there is no local definiti
 `chaps models add` reads GitHub's REST API and ghcr anonymously; both are
 public for the CHAP model repositories, and neither needs a token. The
 repository form cannot work under `--offline` and says so, naming the image
-reference to pass instead. The image form works offline as long as the image is
-on the machine, because then `docker image inspect` can answer what the
-registry would have.
+reference to pass instead. The image form works offline as long as the image's
+`linux/amd64` variant is in the local image store, because then `docker image
+inspect` can answer what the registry would have; the error names the `docker
+pull --platform linux/amd64` that puts it there.
 
 Refused rather than guessed at: a bare image name (`chapkit_ghr_model`), an
 image on a registry other than ghcr, an image reference with no tag or digest,
@@ -676,7 +677,7 @@ renders the same bytes on any machine.
 | Value | Where it comes from, in order |
 | --- | --- |
 | data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else the built-in table, else `/work/data`. |
-| user | `--user`, else `config.User` from the image config on ghcr, else the same field from an image already pulled here (`docker image inspect`), else the built-in table. |
+| user | `--user`, else `config.User` from the image config on ghcr, else the same field from an image already pulled here (`docker image inspect --platform linux/amd64`), else the built-in table. |
 
 `chaps models info <id>` and the browser's details pane name which of those
 answered: `image config`, `docker probe`, `--user` or `table`. A run that could

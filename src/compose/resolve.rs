@@ -94,7 +94,9 @@ pub type ResolveFn<'a> = &'a dyn Fn(&Request) -> Resolution;
 /// `(repository, tag) -> config`, with `None` for a tag it does not publish.
 pub type RegistryFn<'a> = &'a dyn Fn(&str, &str) -> Result<Option<ghcr::ImageConfig>>;
 /// The same two fields from the local daemon: `reference -> (user,
-/// working_dir)`, with `None` when the image is not on this machine.
+/// working_dir)`, with `None` when this machine's image store cannot answer
+/// for the `linux/amd64` variant the overlay runs - which is not the same as
+/// "it runs as root", and is why an empty config falls through to the table.
 pub type LocalFn<'a> = &'a dyn Fn(&str) -> Option<(String, String)>;
 
 /// Resolve one model against the image it pins.
@@ -426,6 +428,34 @@ mod tests {
             table.notes[0].contains("built-in table"),
             "{:?}",
             table.notes
+        );
+    }
+
+    /// A local image store that cannot answer for the amd64 variant is not an
+    /// image that runs as root: [`crate::docker::image_config`] says "unknown"
+    /// for an empty config, and this is what that costs - the table, plus the
+    /// note that says nothing could be asked.
+    #[test]
+    fn a_local_image_store_that_cannot_answer_does_not_mean_root() {
+        let resolution = from_image_with(
+            &request("chapkit_ewars_model", None),
+            &Endpoints::default(),
+            &|_, _| Err(anyhow::anyhow!("no route to host")),
+            &|_| None,
+            &|_| true,
+            &|_, _| None,
+        );
+        assert_eq!(
+            resolution.user, "1000:1000",
+            "the table's `chapkit`, not root"
+        );
+        assert_eq!(resolution.user_from, UserSource::Table);
+        assert_eq!(resolution.data_dir, "/app/data");
+        assert_eq!(resolution.notes.len(), 2, "{:?}", resolution.notes);
+        assert!(
+            resolution.notes[1].contains("nothing could say what"),
+            "{:?}",
+            resolution.notes
         );
     }
 
