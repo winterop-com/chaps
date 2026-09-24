@@ -1603,6 +1603,65 @@ fn init_warns_when_something_is_already_listening_on_the_api_port() {
     drop(listener);
 }
 
+/// The gap the live probe cannot see: `chaps init a && chaps init b` with
+/// nothing running gives two deployments on one port, and nothing says so
+/// until the second `chaps up`.
+#[test]
+fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
+    let sandbox = Sandbox::new();
+    // A port high enough that the test says nothing about what this machine
+    // has on 8000, and nothing is listening on it either way.
+    let port = "18400";
+    sandbox
+        .chap()
+        .arg("init")
+        .arg("a")
+        .args(["--models", "none", "--api-port", port])
+        .assert()
+        .success();
+    // The CLI prints the path it walked to, which is the resolved one.
+    let first = std::fs::canonicalize(sandbox.home.path().join("a")).expect("the first deployment");
+
+    sandbox
+        .chap()
+        .arg("init")
+        .arg("b")
+        .args(["--models", "none", "--api-port", port])
+        .assert()
+        // A warning, not a refusal: two deployments on one port is a fine way
+        // to take turns, and the directory is worth writing either way.
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "port 18400 is also used by a ({}), which is not running; both cannot be up at \
+             once. Keep it, or run `chaps init --api-port 18401 --force` here / set \
+             CHAP_API_PORT=18401 in .env",
+            first.display()
+        )));
+
+    // Written all the same, at the port that was asked for.
+    assert_eq!(state(&sandbox.home.path().join("b"))["api_port"], 18400);
+}
+
+#[test]
+fn init_on_a_port_no_other_deployment_uses_warns_about_nothing() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .chap()
+        .arg("init")
+        .arg("a")
+        .args(["--models", "none", "--api-port", "18400"])
+        .assert()
+        .success();
+    sandbox
+        .chap()
+        .arg("init")
+        .arg("b")
+        .args(["--models", "none", "--api-port", "18401"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("is also used by").not());
+}
+
 #[test]
 fn enable_outside_a_project_says_so() {
     let sandbox = Sandbox::new();

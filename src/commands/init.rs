@@ -80,12 +80,14 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         manual: carried_manual(&dir),
         ..ProjectState::default()
     };
-    // The ports the deployment publishes, and a busy one is only a problem at
+    // The ports the deployment publishes, and a taken one is only a problem at
     // `chaps up`: the process holding one may well be a previous stack this
-    // deployment is meant to replace. So: a warning with a way out, not a
-    // refusal to write the directory.
-    let busy_ports = warn_about_busy_ports(&components, args.api_port, &crate::ports::is_busy);
-    let api_port_busy = busy_ports.iter().any(|c| c.service == API_SERVICE);
+    // deployment is meant to replace, and a deployment that is down is not
+    // holding anything yet. So: a warning with a way out, not a refusal to
+    // write the directory.
+    let others = crate::ports::other_deployments(&dir, &crate::docker::compose_ls_json);
+    let ports = warn_about_ports(&components, args.api_port, &crate::ports::is_busy, &others);
+    let api_port_busy = ports.busy.iter().any(|c| c.service == API_SERVICE);
     let mut project = Project {
         dir: dir.clone(),
         state,
@@ -269,7 +271,9 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "api_port": args.api_port,
         "api_url": project.api_url(),
         "api_port_busy": api_port_busy,
-        "busy_ports": busy_ports.iter().map(|c| c.port).collect::<Vec<u16>>(),
+        "busy_ports": ports.busy.iter().map(|c| c.port).collect::<Vec<u16>>(),
+        "claimed_ports": ports.claimed.iter().map(|c| c.port).collect::<Vec<u16>>(),
+        "port_warnings": ports.lines,
         "components": project.state.components,
         // Whether the deployment is protected, never the secrets themselves:
         // `--json` output is the kind of thing that ends up in a log.
@@ -337,17 +341,21 @@ fn env_api_port(body: &str) -> Option<u16> {
         .find_map(|value| value.trim().parse::<u16>().ok())
 }
 
-/// Warn about every host port the new deployment publishes that something is
-/// already listening on, and say what to do about each.
-///
-/// Returns the claims that were busy. Not an error: the process holding one may
-/// be a stack this deployment is meant to replace, and the directory is worth
-/// writing either way.
-fn warn_about_busy_ports(
-    components: &Components,
-    api_port: u16,
-    busy: &dyn Fn(u16) -> bool,
-) -> Vec<crate::ports::PortClaim> {
+/// What `init` found out about the host ports the new deployment wants, and
+/// warned about.
+#[derive(Debug, Default)]
+struct PortWarnings {
+    /// Ports something on this machine is listening on right now.
+    busy: Vec<crate::ports::PortClaim>,
+    /// Ports another deployment on this machine already publishes, and nothing
+    /// is listening on.
+    claimed: Vec<crate::ports::PortClaim>,
+    /// Every line that was printed, in the order it went out, for `--json`.
+    lines: Vec<String>,
+}
+
+/// The host ports the new deployment is going to publish.
+fn wanted_claims(components: &Components, api_port: u16) -> Vec<crate::ports::PortClaim> {
     let mut claims = Vec::new();
     if components.chap_core.enabled {
         claims.push(crate::ports::PortClaim {
@@ -366,16 +374,58 @@ fn warn_about_busy_ports(
             });
         }
     }
-    claims.retain(|claim| busy(claim.port));
-    // Upwards from the requested port: the next free number is the one least
-    // likely to collide with something else the operator has in mind.
-    let suggestion = claims
-        .first()
-        .and_then(|claim| crate::ports::first_free(claim.port.saturating_add(1), u16::MAX, busy));
-    for claim in &claims {
-        crate::output::warn(&crate::ports::busy_line(claim, suggestion));
-    }
     claims
+}
+
+/// Warn about every host port the new deployment publishes that is already
+/// spoken for, and say what to do about each.
+///
+/// Two ways a port can be spoken for, and one line either way: something is
+/// listening on it now, or one of `others` - a deployment that is down, so
+/// holding no socket at all - publishes it too. The second is the one nothing
+/// else catches until the `chaps up` that finds the other deployment there
+/// first.
+///
+/// Neither is an error. The listener may be a stack this deployment is meant
+/// to replace, two deployments on one port is a perfectly good way to take
+/// turns, and the directory is worth writing either way.
+fn warn_about_ports(
+    components: &Components,
+    api_port: u16,
+    busy: &dyn Fn(u16) -> bool,
+    others: &[crate::ports::Deployment],
+) -> PortWarnings {
+    // A port another deployment publishes is as good as taken when suggesting
+    // one: moving onto it would trade one collision for another.
+    let taken = |port: u16| busy(port) || others.iter().any(|other| other.holds(port));
+    let mut found = PortWarnings::default();
+    for claim in wanted_claims(components, api_port) {
+        // Upwards from the requested port: the next free number is the one
+        // least likely to collide with something else the operator has in
+        // mind.
+        let suggestion = crate::ports::first_free(claim.port.saturating_add(1), u16::MAX, &taken);
+        // A port that is both listening and claimed gets one line, and the
+        // listener is the half that is in the way today.
+        if busy(claim.port) {
+            let line = crate::ports::busy_line(&claim, suggestion);
+            crate::output::warn(&line);
+            found.lines.push(line);
+            found.busy.push(claim);
+            continue;
+        }
+        let holders: Vec<&crate::ports::Deployment> = others
+            .iter()
+            .filter(|other| other.holds(claim.port))
+            .collect();
+        if holders.is_empty() {
+            continue;
+        }
+        let line = crate::ports::claimed_line(&claim, &holders, suggestion);
+        crate::output::warn(&line);
+        found.lines.push(line);
+        found.claimed.push(claim);
+    }
+    found
 }
 
 /// Expand `--with`, `--without` and `--ocs-base-url` into a component set.
@@ -963,8 +1013,12 @@ mod tests {
         components.ocs.enabled = true;
         components.ocs.port = Some(9000);
 
-        assert!(warn_about_busy_ports(&components, 8000, &|_| false).is_empty());
-        let busy = warn_about_busy_ports(&components, 8000, &|port| port == 9000);
+        assert!(
+            warn_about_ports(&components, 8000, &|_| false, &[])
+                .busy
+                .is_empty()
+        );
+        let busy = warn_about_ports(&components, 8000, &|port| port == 9000, &[]).busy;
         assert_eq!(busy.len(), 1);
         assert_eq!(busy[0].service, "ocs");
         assert_eq!(busy[0].port, 9000);
@@ -972,7 +1026,9 @@ mod tests {
         // With chap-core off the API port is not one of this deployment's.
         components.chap_core.enabled = false;
         assert!(
-            warn_about_busy_ports(&components, 8000, &|port| port == 8000).is_empty(),
+            warn_about_ports(&components, 8000, &|port| port == 8000, &[])
+                .busy
+                .is_empty(),
             "no chap-core, no API port"
         );
     }
@@ -1104,23 +1160,34 @@ mod tests {
 
     #[test]
     fn a_free_api_port_warns_about_nothing() {
-        assert!(warn_about_busy_ports(&Components::default(), 8000, &|_| false).is_empty());
+        let quiet = warn_about_ports(&Components::default(), 8000, &|_| false, &[]);
+        assert!(quiet.busy.is_empty() && quiet.claimed.is_empty() && quiet.lines.is_empty());
     }
 
     #[test]
     fn a_busy_api_port_is_a_warning_not_a_refusal() {
         // 8000 and 8001 are taken, 8002 is not: init still writes the
         // directory and says which port to use instead.
-        assert_eq!(
-            warn_about_busy_ports(&Components::default(), 8000, &|port| (8000..=8001)
-                .contains(&port))
-            .len(),
-            1
+        let warned = warn_about_ports(
+            &Components::default(),
+            8000,
+            &|port| (8000..=8001).contains(&port),
+            &[],
+        );
+        assert_eq!(warned.busy.len(), 1);
+        assert_eq!(warned.lines.len(), 1);
+        assert!(
+            warned.lines[0].contains("--api-port 8002"),
+            "{:?}",
+            warned.lines
         );
         // Even with nothing free above it, the warning goes out.
-        assert_eq!(
-            warn_about_busy_ports(&Components::default(), 8000, &|_| true).len(),
-            1
+        let warned = warn_about_ports(&Components::default(), 8000, &|_| true, &[]);
+        assert_eq!(warned.busy.len(), 1);
+        assert!(
+            warned.lines[0].contains("--api-port <free>"),
+            "{:?}",
+            warned.lines
         );
     }
 

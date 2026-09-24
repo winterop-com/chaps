@@ -121,7 +121,16 @@ container rather than a port.
   `chaps up` on a running deployment stays a no-op.
 - `chaps up --no-preflight` hands the question back to Docker.
 - `chaps init` probes the API port too, but only warns: the process holding it
-  is often a previous deployment you are about to replace.
+  is often a previous deployment you are about to replace. It warns as well
+  when nothing is listening and another deployment already uses that port -
+  one in a directory beside the new one, or one Docker has started at least
+  once from anywhere - naming it and the first port above that neither a
+  listener nor another deployment holds. Both stay warnings, and 8000 stays
+  the default: `chaps init hello1 && chaps init hello2` writes two deployments
+  on one port that take turns, and `--api-port N` or `CHAP_API_PORT` in `.env`
+  moves either one. The same goes for a component's port, such as the one
+  `ocs` publishes. A deployment written somewhere else and never started is in
+  neither search, so that collision still waits for `chaps up`.
 
 The probe is a bind, not a connect, so it needs no privileges and leaves
 nothing behind: a listening socket has no `TIME_WAIT`. It takes four binds

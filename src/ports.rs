@@ -17,10 +17,18 @@
 //! a loopback-only listener and the other way round. Only the *same* address
 //! reliably collides, so every address the stack could be published on is
 //! tried in turn.
+//!
+//! A port nothing is listening on can still be spoken for: a deployment that
+//! is down holds no socket, and the collision only shows at the `chaps up`
+//! that finds the other one already there. [`other_deployments`] finds the
+//! ones that can be found without a registry, so `chaps init` can say so while
+//! the port is still easy to change.
 
 use crate::components::Component;
 use crate::project::{API_PORT_ENV_VAR, Project};
+use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::path::{Path, PathBuf};
 
 /// A host port the stack wants, and the compose service that publishes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,35 +152,182 @@ pub fn busy_claims(
 /// `None` leaves the placeholder in place rather than naming a port that may
 /// itself be busy.
 pub fn busy_line(claim: &PortClaim, suggestion: Option<u16>) -> String {
-    let head = format!(
-        "port {} is already in use on this machine (needed by {})",
-        claim.port, claim.service
-    );
+    format!(
+        "port {port} is already in use on this machine (needed by {service}); free it, or {}",
+        ways_out(claim, suggestion),
+        port = claim.port,
+        service = claim.service,
+    )
+}
+
+/// Where to move this deployment's port to, for the service that wants it.
+///
+/// Shared by [`busy_line`] and [`claimed_line`] so the two warnings `init` can
+/// print about one port end the same way.
+fn ways_out(claim: &PortClaim, suggestion: Option<u16>) -> String {
     if claim.service == crate::compose::API_SERVICE {
         let free = match suggestion {
             Some(port) => port.to_string(),
             None => "<free>".to_string(),
         };
         return format!(
-            "{head}; free it, or run `chaps init --api-port {free} --force` here / \
+            "run `chaps init --api-port {free} --force` here / \
              set {API_PORT_ENV_VAR}={free} in .env"
         );
     }
     // A component publishes its port from `.chaps/components.yaml`, so the
-    // way to move it is the command that wrote it there.
+    // way to move it is the command that wrote it there. The port is left as
+    // a placeholder: the caller's suggestion is the one free above the *first*
+    // conflict, which for a component is not always its own.
     if let Ok(component) = Component::from_name(&claim.service)
         && component.takes_port()
     {
         return format!(
-            "{head}; free it, or run `chaps components enable {name} --port <free>`",
+            "run `chaps components enable {name} --port <free>`",
             name = component.name()
         );
     }
     format!(
-        "{head}; free it, or run `chaps models unexpose {service}` (the model stays \
+        "run `chaps models unexpose {service}` (the model stays \
          reachable through chap-core) / `chaps models expose {service} --port auto`",
         service = claim.service
     )
+}
+
+/// How many other deployments one [`claimed_line`] names before it counts the
+/// rest.
+const NAMED_HOLDERS: usize = 3;
+
+/// One line of guidance for a port no listener holds, but another chaps
+/// deployment on this machine already publishes.
+///
+/// Not the same problem as a busy port: nothing is wrong today, and the
+/// collision only surfaces at the second `chaps up`. So the first way out is
+/// to keep the port and live with the two deployments taking turns.
+pub fn claimed_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Option<u16>) -> String {
+    let named: Vec<String> = holders
+        .iter()
+        .take(NAMED_HOLDERS)
+        .map(|held| format!("{} ({})", held.name(), held.dir.display()))
+        .collect();
+    let mut who = named.join(", ");
+    if holders.len() > named.len() {
+        who.push_str(&format!(" and {} more", holders.len() - named.len()));
+    }
+    let (verb, clash) = if holders.len() == 1 {
+        ("is", "both cannot be up at once")
+    } else {
+        ("are", "they cannot all be up at once")
+    };
+    format!(
+        "port {port} is also used by {who}, which {verb} not running; {clash}. Keep it, or {}",
+        ways_out(claim, suggestion),
+        port = claim.port,
+    )
+}
+
+/// Another chaps deployment on this machine: where it is, and the host ports
+/// it would publish were it up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deployment {
+    pub dir: PathBuf,
+    pub claims: Vec<PortClaim>,
+}
+
+impl Deployment {
+    /// What this deployment goes by: its directory name, which is what
+    /// `chaps init` was pointed at.
+    pub fn name(&self) -> String {
+        self.dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.dir.display().to_string())
+    }
+
+    /// Whether this deployment publishes `port`.
+    pub fn holds(&self, port: u16) -> bool {
+        self.claims.iter().any(|claim| claim.port == port)
+    }
+}
+
+/// Every other chaps deployment on this machine that can be found without
+/// anyone keeping a registry, given the directory one is about to be written
+/// in.
+///
+/// Two cheap searches, because a deployment is a directory and nothing else
+/// records where they are: the directories beside `dir`, which is where
+/// `chaps init a && chaps init b` puts them, and the compose projects docker
+/// remembers, which covers the ones that have been started at least once from
+/// anywhere. A deployment created somewhere else and never started is in
+/// neither, and is the case this cannot see.
+///
+/// `compose_ls` hands back the stdout of `docker compose ls -a --format json`,
+/// or `None` when docker is not there to ask; it is a parameter so the tests
+/// never need a daemon. Best-effort throughout: an unreadable parent, an
+/// unparseable `project.yaml` or no docker at all each contribute nothing
+/// rather than failing the command that asked.
+pub fn other_deployments(dir: &Path, compose_ls: &dyn Fn() -> Option<String>) -> Vec<Deployment> {
+    let mut dirs = sibling_dirs(dir);
+    if let Some(text) = compose_ls() {
+        dirs.extend(crate::docker::compose_ls_dirs(&text));
+    }
+    // The deployment being written is not another deployment - `--force` over
+    // one that is already there included, where its own old files are on disk
+    // and docker may well remember it.
+    let mut seen = BTreeSet::from([identity(dir)]);
+    let mut found = Vec::new();
+    for path in dirs {
+        // A sibling can be docker-known as well, and is one deployment either
+        // way.
+        if !seen.insert(identity(&path)) {
+            continue;
+        }
+        let Ok(project) = Project::load(&path) else {
+            continue;
+        };
+        found.push(Deployment {
+            claims: claims(&project),
+            dir: path,
+        });
+    }
+    found
+}
+
+/// The directories next to `dir` that hold a `.chaps/project.yaml`, in name
+/// order. `dir` itself is never one of them.
+fn sibling_dirs(dir: &Path) -> Vec<PathBuf> {
+    let Some(parent) = dir.parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path != dir && Project::exists(path))
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// A path in the one spelling two of them can be compared in.
+///
+/// `canonicalize` resolves the symlinks that make `/tmp` and `/private/tmp`
+/// the same directory on macOS, but it needs the path to exist - and the
+/// directory `init` is about to write does not yet. So the parent is resolved
+/// and the name put back on, which is enough for the two searches and the new
+/// deployment to agree on which directory is which.
+fn identity(path: &Path) -> PathBuf {
+    if let Ok(real) = path.canonicalize() {
+        return real;
+    }
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+        && let Ok(real) = parent.canonicalize()
+    {
+        return real.join(name);
+    }
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// The whole message `chaps up` fails with when a port it needs is taken.
@@ -502,5 +657,182 @@ mod tests {
         assert!(two.starts_with("2 host ports CHAP needs are already in use"));
         assert_eq!(two.lines().count(), 4);
         assert!(two.contains("\n  port 5001 is already in use"));
+    }
+
+    /// A deployment directory with nothing in it but the state files that
+    /// make it one: `api_port` recorded, and an optional `.env` line over it.
+    fn deployment(parent: &Path, name: &str, recorded: u16, env: Option<u16>) -> PathBuf {
+        let dir = parent.join(name);
+        std::fs::create_dir_all(dir.join(crate::project::CHAPS_DIR)).unwrap();
+        let state = ProjectState {
+            api_port: recorded,
+            ..ProjectState::default()
+        };
+        std::fs::write(
+            dir.join(crate::project::CHAPS_DIR)
+                .join(crate::project::PROJECT_FILE),
+            serde_yaml_ng::to_string(&state).unwrap(),
+        )
+        .unwrap();
+        if let Some(port) = env {
+            std::fs::write(
+                dir.join(crate::project::ENV_FILE),
+                format!("POSTGRES_DB=chap_core\n{API_PORT_ENV_VAR}={port}\n"),
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    /// No docker to ask.
+    fn no_docker() -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn the_deployments_beside_a_new_one_are_found_and_read_like_any_project() {
+        let home = tempfile::tempdir().unwrap();
+        // One claims the port in `.chaps/project.yaml`, the other overrides a
+        // different recorded port from `.env` - which is the port that would
+        // really be published, so it is the one that has to be found.
+        let recorded = deployment(home.path(), "hello1", 8000, None);
+        let overridden = deployment(home.path(), "hello2", 9999, Some(8000));
+        // Not a deployment, and not a directory: neither is ours.
+        std::fs::create_dir_all(home.path().join("notes")).unwrap();
+        std::fs::write(home.path().join("README"), "hi").unwrap();
+
+        let found = other_deployments(&home.path().join("hello3"), &no_docker);
+        let dirs: Vec<&PathBuf> = found.iter().map(|d| &d.dir).collect();
+        assert_eq!(dirs, vec![&recorded, &overridden], "{found:?}");
+        assert!(found.iter().all(|d| d.holds(8000)), "{found:?}");
+        assert_eq!(found[0].name(), "hello1");
+        assert!(!found[1].holds(9999), "the recorded port is not published");
+    }
+
+    #[test]
+    fn a_deployment_never_counts_as_another_one_of_itself() {
+        let home = tempfile::tempdir().unwrap();
+        let one = deployment(home.path(), "hello1", 8000, None);
+        // `init --force` over a deployment that is already there: its own old
+        // files are on disk, and docker remembers it too.
+        let json = format!(
+            r#"[{{"Name":"hello1","Status":"exited(0)","ConfigFiles":"{}/compose.yml,{}/compose.chaps.yml"}}]"#,
+            one.display(),
+            one.display()
+        );
+        let docker = || Some(json.clone());
+        assert!(
+            other_deployments(&one, &docker).is_empty(),
+            "the deployment being written is not another deployment"
+        );
+    }
+
+    #[test]
+    fn docker_known_deployments_are_found_and_deduplicated() {
+        let home = tempfile::tempdir().unwrap();
+        // Beside the new directory, so both searches find it.
+        let sibling = deployment(home.path(), "hello1", 8000, None);
+        // Somewhere else entirely: only docker knows about this one.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let far = deployment(elsewhere.path(), "hello2", 8000, None);
+        let json = format!(
+            r#"[
+              {{"Name":"hello1","ConfigFiles":"{sibling}/compose.yml,{sibling}/compose.chaps.yml"}},
+              {{"Name":"hello2","ConfigFiles":"{far}/compose.chaps.yml"}},
+              {{"Name":"something-else","ConfigFiles":"{home}/other/docker-compose.yml"}},
+              {{"Name":"deleted","ConfigFiles":"{home}/gone/compose.chaps.yml"}}
+            ]"#,
+            sibling = sibling.display(),
+            far = far.display(),
+            home = home.path().display(),
+        );
+        let found = other_deployments(&home.path().join("hello3"), &|| Some(json.clone()));
+        let names: Vec<String> = found.iter().map(Deployment::name).collect();
+        assert_eq!(
+            names,
+            vec!["hello1", "hello2"],
+            "a sibling docker also knows is one deployment; a compose project \
+             with no compose.chaps.yml is not ours, and a directory that is gone \
+             has nothing left to warn about"
+        );
+    }
+
+    #[test]
+    fn a_directory_that_is_not_a_project_contributes_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let empty = home.path().join("hello1");
+        std::fs::create_dir_all(empty.join(crate::project::CHAPS_DIR)).unwrap();
+        std::fs::write(
+            empty
+                .join(crate::project::CHAPS_DIR)
+                .join(crate::project::PROJECT_FILE),
+            "nonsense: [\n",
+        )
+        .unwrap();
+        assert!(
+            other_deployments(&home.path().join("hello2"), &no_docker).is_empty(),
+            "an unreadable project.yaml is not a claim on anything"
+        );
+    }
+
+    #[test]
+    fn a_claimed_port_names_the_deployment_and_the_way_out() {
+        let claim = PortClaim {
+            service: "chap".into(),
+            port: 8000,
+        };
+        let hello1 = Deployment {
+            dir: PathBuf::from("/Users/x/t/hello1"),
+            claims: vec![claim.clone()],
+        };
+        let line = claimed_line(&claim, &[&hello1], Some(8001));
+        assert_eq!(
+            line,
+            "port 8000 is also used by hello1 (/Users/x/t/hello1), which is not running; \
+             both cannot be up at once. Keep it, or run `chaps init --api-port 8001 --force` \
+             here / set CHAP_API_PORT=8001 in .env"
+        );
+        // The same ways out as the live-listener line, so the two read alike.
+        assert!(busy_line(&claim, Some(8001)).ends_with(
+            "run `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env"
+        ));
+    }
+
+    #[test]
+    fn several_deployments_are_named_three_at_a_time_and_then_counted() {
+        let claim = PortClaim {
+            service: "ocs".into(),
+            port: 9000,
+        };
+        let held: Vec<Deployment> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|name| Deployment {
+                dir: PathBuf::from("/t").join(name),
+                claims: vec![claim.clone()],
+            })
+            .collect();
+
+        let two: Vec<&Deployment> = held.iter().take(2).collect();
+        let line = claimed_line(&claim, &two, Some(9001));
+        assert!(
+            line.starts_with(
+                "port 9000 is also used by a (/t/a), b (/t/b), which are not \
+                 running; they cannot all be up at once."
+            ),
+            "{line}"
+        );
+        // A component's port moves with the command that set it, and the
+        // placeholder stays for the reason busy_line keeps it.
+        assert!(
+            line.ends_with("Keep it, or run `chaps components enable ocs --port <free>`"),
+            "{line}"
+        );
+
+        let all: Vec<&Deployment> = held.iter().collect();
+        let line = claimed_line(&claim, &all, None);
+        assert!(
+            line.contains("a (/t/a), b (/t/b), c (/t/c) and 2 more, which are not running"),
+            "{line}"
+        );
     }
 }

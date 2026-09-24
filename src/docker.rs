@@ -9,6 +9,8 @@
 use crate::error::{ChapError, Result};
 use crate::project::Project;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
@@ -917,6 +919,52 @@ pub fn compose_project_name(project: &Project) -> Option<String> {
         .and_then(|n| n.as_str())
         .filter(|n| !n.is_empty())
         .map(str::to_string)
+}
+
+/// Every compose project this docker has seen, running or not, as
+/// `docker compose ls -a --format json` prints it.
+///
+/// Best-effort like every other query here, and quiet about it: `None` when
+/// docker is not installed, the daemon is not up or it answered non-zero. The
+/// one caller only wants a hint, and `chaps init` has to work on a machine
+/// that has never run docker at all.
+pub fn compose_ls_json() -> Option<String> {
+    docker_capture(&[
+        "compose".to_string(),
+        "ls".to_string(),
+        "-a".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ])
+}
+
+/// The chaps deployment directories named by [`compose_ls_json`].
+///
+/// A compose project is one of ours when its `ConfigFiles` - a comma-separated
+/// list of absolute paths - names a [`crate::project::CHAPS_COMPOSE`]; that
+/// file's directory is the deployment. A project whose directory has since
+/// been deleted is left out, since there is nothing left to warn about, and so
+/// is anything that is not JSON at all.
+pub fn compose_ls_dirs(text: &str) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for value in ps_entries(text) {
+        let Some(files) = value.get("ConfigFiles").and_then(|f| f.as_str()) else {
+            continue;
+        };
+        for file in files.split(',') {
+            let path = Path::new(file.trim());
+            if path.file_name() != Some(OsStr::new(crate::project::CHAPS_COMPOSE)) {
+                continue;
+            }
+            let Some(dir) = path.parent().filter(|dir| dir.is_dir()) else {
+                continue;
+            };
+            if !dirs.iter().any(|seen| seen == dir) {
+                dirs.push(dir.to_path_buf());
+            }
+        }
+    }
+    dirs
 }
 
 /// One named volume of a deployment, and when docker created it.
