@@ -198,9 +198,24 @@ fn confirm_volumes(ctx: &Ctx, project: &Project, args: &DownArgs) -> Result<Vec<
         Some(prefix) => docker::volume_names_with_prefix(prefix),
         None => Vec::new(),
     };
+    // How much the one volume that is usually large holds, so the prompt says
+    // what is at stake and not only how many volumes there are. Only asked
+    // for when docker has already said the volume is there, and bounded like
+    // every other size: a `du` that will not finish costs the size and not
+    // the prompt.
+    let ocs_data = prefix
+        .as_deref()
+        .and_then(|prefix| ocs_data_at_stake(prefix, &volumes));
     note(
         ctx,
-        &volumes_at_stake(&ctx.out, &volumes, prefix.as_deref()),
+        &volumes_at_stake(
+            &ctx.out,
+            &volumes,
+            prefix.as_deref(),
+            ocs_data
+                .as_ref()
+                .map(|(name, bytes)| (name.as_str(), *bytes)),
+        ),
     );
     if args.yes {
         return Ok(volumes);
@@ -236,7 +251,12 @@ fn confirm_volumes(ctx: &Ctx, project: &Project, args: &DownArgs) -> Result<Vec<
 /// An empty list is a line of its own rather than a silence: a deployment
 /// that was never started has nothing to lose, and a docker that could not be
 /// asked answers the same way, which is worth seeing before saying yes.
-pub fn volumes_at_stake(out: &Out, volumes: &[String], prefix: Option<&str>) -> String {
+pub fn volumes_at_stake(
+    out: &Out,
+    volumes: &[String],
+    prefix: Option<&str>,
+    ocs_data: Option<(&str, u64)>,
+) -> String {
     let under = match prefix {
         Some(prefix) => format!("under {prefix}*"),
         None => "under this deployment's name".to_string(),
@@ -244,14 +264,41 @@ pub fn volumes_at_stake(out: &Out, volumes: &[String], prefix: Option<&str>) -> 
     if volumes.is_empty() {
         return out.dim(&format!("docker holds no volumes {under}"));
     }
-    format!(
+    let mut line = format!(
         "{} {}",
         out.warn(&format!(
             "docker holds {} {under}, data and all:",
             volume_count(volumes.len())
         )),
         out.value(&volumes.join(", "))
-    )
+    );
+    // The names say what would go; the size says how much of it matters.
+    if let Some((name, bytes)) = ocs_data {
+        line.push_str(&format!(
+            " {}",
+            out.dim(&format!(
+                "({name} holds {})",
+                crate::backup::human_size(bytes)
+            ))
+        ));
+    }
+    line
+}
+
+/// This deployment's OCS data volume and what it holds, when docker holds one.
+///
+/// The size is the OCS one and no other because it is the one that grows: a
+/// downloaded dataset store is gigabytes where the database and the model
+/// volumes are megabytes, and it is the number that decides whether a `down
+/// --volumes` is a keystroke or a mistake. `None` when there is no such
+/// volume, or when the `du` could not be had.
+fn ocs_data_at_stake(prefix: &str, volumes: &[String]) -> Option<(String, u64)> {
+    let name = format!("{prefix}{}", crate::compose::render::OCS_VOLUME);
+    if !volumes.contains(&name) {
+        return None;
+    }
+    let bytes = docker::volume_size_bytes(&name)?;
+    Some((name, bytes))
 }
 
 /// `1 volume` or `N volumes`.
@@ -1501,23 +1548,43 @@ mod tests {
         ];
         let prefix = Some("mychap-1ab2c3_");
         assert_eq!(
-            volumes_at_stake(&Out::default(), &volumes, prefix),
+            volumes_at_stake(&Out::default(), &volumes, prefix, None),
             "docker holds 2 volumes under mychap-1ab2c3_*, data and all: \
              mychap-1ab2c3_chap-db, mychap-1ab2c3_ocs_data"
         );
         assert_eq!(
-            volumes_at_stake(&Out::default(), &volumes[..1], prefix),
+            volumes_at_stake(&Out::default(), &volumes[..1], prefix, None),
             "docker holds 1 volume under mychap-1ab2c3_*, data and all: mychap-1ab2c3_chap-db"
         );
         // A deployment that was never started, or a docker that could not be
         // asked: either way the prompt says what is known before it asks.
         assert_eq!(
-            volumes_at_stake(&Out::default(), &[], prefix),
+            volumes_at_stake(&Out::default(), &[], prefix, None),
             "docker holds no volumes under mychap-1ab2c3_*"
         );
         assert_eq!(
-            volumes_at_stake(&Out::default(), &[], None),
+            volumes_at_stake(&Out::default(), &[], None, None),
             "docker holds no volumes under this deployment's name"
+        );
+
+        // What the OCS volume holds, when the `du` could be had: the number
+        // that decides whether this prompt gets a yes.
+        assert_eq!(
+            volumes_at_stake(
+                &Out::default(),
+                &volumes,
+                prefix,
+                Some(("mychap-1ab2c3_ocs_data", 3 * 1024 * 1024 * 1024))
+            ),
+            "docker holds 2 volumes under mychap-1ab2c3_*, data and all: \
+             mychap-1ab2c3_chap-db, mychap-1ab2c3_ocs_data \
+             (mychap-1ab2c3_ocs_data holds 3.0 GB)"
+        );
+        // A volume docker does not hold is nothing to size up.
+        assert_eq!(
+            ocs_data_at_stake("mychap-1ab2c3_", &volumes[..1]),
+            None,
+            "no ocs_data volume, no du"
         );
     }
 

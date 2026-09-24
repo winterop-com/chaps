@@ -23,6 +23,17 @@ pub const SERVICES_PATH: &str = "/v2/services";
 /// version falls back to the tag the project pins.
 pub const INFO_PATHS: &[&str] = &["/system/info", "/v2/info"];
 
+/// Path of the OCS dataset list. `f=json` because the same path serves the
+/// landing page as HTML, and the landing page is not something to count.
+pub const DATASETS_PATH: &str = "/datasets?f=json";
+
+/// How long the OCS dataset count may take.
+///
+/// Its own bound rather than `--timeout`: this is one extra fact on a line
+/// that is already complete without it, so it gets a short leash and gives up
+/// silently.
+pub const OCS_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// What `chaps status` reports.
 #[derive(Debug, Serialize)]
 pub struct StatusReport {
@@ -160,6 +171,16 @@ pub struct ComponentStatus {
     /// Whether this OCS instance refuses ingestion over HTTP. Always false for
     /// every other component, none of which has the setting.
     pub read_only: bool,
+    /// How many datasets this OCS instance holds, from its own JSON API.
+    /// `None` for every other component, and for an instance that was not
+    /// asked or did not answer.
+    pub datasets: Option<u32>,
+    /// How much its data directory holds, in bytes.
+    ///
+    /// Filled in by the caller, which is the half that has docker: it is read
+    /// from inside the running container, so it is `None` here and `None`
+    /// altogether for an instance that is not running.
+    pub data_bytes: Option<u64>,
 }
 
 /// The version `chaps status` puts next to the API URL.
@@ -386,6 +407,13 @@ fn component_rows(
             .ocs_url()
             .map(|url| (get(agent, &url, HEALTH_PATH, None).is_ok(), url));
         let up = running.contains(crate::compose::OCS_SERVICE);
+        // What the instance holds is only asked for when it has just
+        // answered: a second request to an instance that is down would spend
+        // another timeout to learn the same thing.
+        let datasets = probe
+            .as_ref()
+            .filter(|(answered, _)| *answered)
+            .and_then(|(_, url)| ocs_datasets(url));
         rows.push(ComponentStatus {
             name: crate::compose::OCS_SERVICE.to_string(),
             state: match &probe {
@@ -395,6 +423,8 @@ fn component_rows(
             reach: components.ocs_reach(),
             health_url: probe.map(|(_, url)| format!("{url}{HEALTH_PATH}")),
             read_only: components.ocs.read_only,
+            datasets,
+            data_bytes: None,
         });
     }
     if components.s3.enabled {
@@ -408,10 +438,39 @@ fn component_rows(
             },
             health_url: None,
             read_only: false,
+            datasets: None,
+            data_bytes: None,
         });
     }
     rows
 }
+
+/// How many datasets an OCS instance holds, from `GET /datasets?f=json`.
+///
+/// Best-effort and bounded by [`OCS_TIMEOUT`]: an instance that does not
+/// answer, answers something else, or is an older OCS without the JSON list
+/// yields `None`, and the line it would have decorated is printed unchanged.
+pub fn ocs_datasets(url: &str) -> Option<u32> {
+    let agent = agent(OCS_TIMEOUT);
+    let answer = get(&agent, url.trim_end_matches('/'), DATASETS_PATH, None).ok()?;
+    parse_dataset_count(&answer.body)
+}
+
+/// The number of entries in an OCS `DatasetList`.
+///
+/// Strict about the envelope, for the same reason [`parse_services`] is: the
+/// count goes on a line that says the instance is up, so a JSON body from
+/// something else on that port must not become a number next to its name.
+pub fn parse_dataset_count(body: &str) -> Option<u32> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    if value.get("kind")?.as_str()? != DATASET_LIST_KIND {
+        return None;
+    }
+    u32::try_from(value.get("items")?.as_array()?.len()).ok()
+}
+
+/// The `kind` OCS puts on its dataset list.
+const DATASET_LIST_KIND: &str = "DatasetList";
 
 /// Where one component stands, from whether it answered and whether its
 /// container is up.
@@ -1070,6 +1129,47 @@ mod tests {
             r#"{"detail":"Not Found"}"#,
         ] {
             assert!(parse_services(body).is_err(), "{body}");
+        }
+    }
+
+    /// OCS's dataset list, as `GET /datasets?f=json` answers it.
+    const DATASETS: &str = r#"{
+      "kind": "DatasetList",
+      "items": [
+        { "dataset_id": "worldpop", "dataset_name": "WorldPop", "period_type": "year" },
+        { "dataset_id": "chirps3", "dataset_name": "CHIRPS3", "period_type": "day" },
+        { "dataset_id": "era5-land", "dataset_name": "ERA5-Land", "period_type": "day",
+          "unknown_future_field": 42 }
+      ],
+      "links": []
+    }"#;
+
+    #[test]
+    fn the_dataset_list_is_counted_and_nothing_else_is() {
+        assert_eq!(parse_dataset_count(DATASETS), Some(3));
+        assert_eq!(
+            parse_dataset_count(r#"{"kind":"DatasetList","items":[]}"#),
+            Some(0)
+        );
+        assert_eq!(
+            parse_dataset_count(r#"{"kind":"DatasetList","items":[{"dataset_id":"a"}]}"#),
+            Some(1)
+        );
+
+        // Anything that is not OCS's own envelope is no count at all: the
+        // number sits on a line that says the instance is up.
+        for body in [
+            "",
+            "<html>nope</html>",
+            "{}",
+            r#"{"items":[]}"#,
+            r#"{"kind":"Dataset","items":[]}"#,
+            r#"{"kind":"DatasetList"}"#,
+            r#"{"kind":"DatasetList","items":{}}"#,
+            r#"[{"dataset_id":"a"}]"#,
+            r#"{"count":2,"services":[]}"#,
+        ] {
+            assert_eq!(parse_dataset_count(body), None, "{body}");
         }
     }
 

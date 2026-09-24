@@ -7,7 +7,7 @@ one line saying what it adds up to:
 
 ```text
 chap-core   up   http://localhost:8000   v2.3.1   auth: on
-ocs         up   http://localhost:9000
+ocs         up   http://localhost:9000   3 datasets   212.0 MB data
 s3          up   internal
 
 MODEL                             STATE                    REACH                  LAST PING
@@ -42,6 +42,23 @@ here is whether its container is up.
 | `up` | Answering its health endpoint, or - for a component with no endpoint to ask - running. |
 | `starting` | Its container is up but it is not answering yet. |
 | `not running` | No container, so nothing to answer. `chaps up` starts it. |
+
+An OCS line carries two more facts when they can be had, which are the two an
+operator would otherwise open its landing page for:
+
+| Cell | Where it comes from |
+| --- | --- |
+| `3 datasets` | `GET /datasets?f=json`, asked only when `/health` has just answered, with a three-second timeout of its own. |
+| `212.0 MB data` | `du -sk /app/data` inside the running container (`docker compose exec -T ocs`), bounded at ten seconds. |
+
+Both are silent when they could not be had - an instance that is down, an older
+OCS without the JSON dataset list, a docker that could not be asked - so the
+line is the one it has always been rather than one with holes in it. A size is
+only read from a container that is running; what the data volume holds while
+the container is down is [`chaps doctor`](./doctor.md)'s to report, where the
+question is how much data a `chaps down --volumes` would destroy. Under
+`--json` the two are `components[].datasets` and `components[].data_bytes`,
+both `null` where the line says nothing.
 
 A deployment with `chap-core` disabled has no chap-core line at all, and
 `status` does not exit non-zero over an API that is not meant to be there.

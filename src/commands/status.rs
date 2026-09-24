@@ -69,6 +69,19 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         &running,
         token.as_deref(),
     );
+    // How much data OCS holds is the caller's to fill in, as the unhealthy
+    // containers are: it is read from inside the running container, and this
+    // is the half that has docker. An instance that is not running is not
+    // measured here at all - `chaps doctor` reads its volume instead, where
+    // the question is what a `down --volumes` would destroy.
+    if running.contains(crate::compose::OCS_SERVICE)
+        && let Some(row) = report
+            .components
+            .iter_mut()
+            .find(|c| c.name == crate::compose::OCS_SERVICE)
+    {
+        row.data_bytes = docker::ocs_data_bytes(&project);
+    }
     // When the API does not answer, its container usually knows why and has
     // been saying so in its log. Only asked for when the API is down: a
     // healthy deployment has nothing to diagnose.
@@ -204,6 +217,11 @@ fn human(report: &StatusReport, out: &Out) -> String {
                 _ => out.value(&component.reach),
             }
         ));
+        // What the instance holds, when it could be had: a count and a size
+        // are the two questions an operator opens the OCS landing page for.
+        for fact in component_facts(component) {
+            text.push_str(&format!("   {}", out.dim(&fact)));
+        }
         // Last on the line, like chap-core's `auth:`: an instance that refuses
         // every write over HTTP is something an operator has to be able to see
         // without opening a file.
@@ -267,6 +285,26 @@ fn api_cell(out: &Out, up: bool, unhealthy: bool) -> String {
         (false, true) => out.bad("down (container unhealthy)"),
         (false, false) => out.bad("down"),
     }
+}
+
+/// The facts one component line carries beyond its address: how many datasets
+/// OCS holds and how much disk its data takes.
+///
+/// Both are silent when they could not be had - an instance that is down, a
+/// docker that could not be asked, an older OCS without the JSON list - so
+/// the line is the one it has always been rather than one with holes in it.
+pub fn component_facts(component: &crate::status::ComponentStatus) -> Vec<String> {
+    let mut facts = Vec::new();
+    if let Some(count) = component.datasets {
+        facts.push(format!(
+            "{count} dataset{}",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some(bytes) = component.data_bytes {
+        facts.push(format!("{} data", crate::backup::human_size(bytes)));
+    }
+    facts
 }
 
 /// The state cell of one component line, coloured the way the model rows are.
@@ -392,6 +430,8 @@ mod tests {
             reach: "internal (proxy: https://ocs.example.org)".to_string(),
             health_url: None,
             read_only: true,
+            datasets: None,
+            data_bytes: None,
         }];
         let text = human(&report, &Out::default());
         assert_eq!(
@@ -412,6 +452,57 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("read-only"), "{text}");
+    }
+
+    /// What OCS holds goes on its line when it could be had, and nothing takes
+    /// its place when it could not.
+    #[test]
+    fn the_ocs_line_carries_the_dataset_count_and_the_data_size_when_there_are_any() {
+        use crate::status::{ComponentState, ComponentStatus};
+
+        let mut report = up(Vec::new(), &[], &["ocs"]);
+        report.components = vec![ComponentStatus {
+            name: "ocs".to_string(),
+            state: ComponentState::Up,
+            reach: "http://localhost:9000".to_string(),
+            health_url: Some("http://localhost:9000/health".to_string()),
+            read_only: false,
+            datasets: Some(3),
+            data_bytes: Some(212 * 1024 * 1024),
+        }];
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains("ocs         up   http://localhost:9000   3 datasets   212.0 MB data\n"),
+            "{text}"
+        );
+
+        // One dataset is singular, and `read-only` stays last on the line.
+        report.components[0].datasets = Some(1);
+        report.components[0].read_only = true;
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains(
+                "ocs         up   http://localhost:9000   1 dataset   212.0 MB data   read-only\n"
+            ),
+            "{text}"
+        );
+
+        // Neither fact is guaranteed: an instance that did not answer, and a
+        // docker that could not be asked, each cost one cell and nothing else.
+        report.components[0].datasets = None;
+        report.components[0].read_only = false;
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains("ocs         up   http://localhost:9000   212.0 MB data\n"),
+            "{text}"
+        );
+        report.components[0].data_bytes = None;
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains("ocs         up   http://localhost:9000\n"),
+            "{text}"
+        );
+        assert!(!text.contains("dataset"), "{text}");
     }
 
     #[test]

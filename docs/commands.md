@@ -34,8 +34,9 @@ other commands assume. It exits non-zero only when a check failed. See
 
 `chaps down --volumes` is the reset that takes the data with it
 (`docker compose down -v --remove-orphans`): it lists the volumes docker holds
-under this deployment's name, asks before removing them and ends with the ones
-that are gone, by name. `-y` (`--yes`) is how a script says it meant it, and is
+under this deployment's name - with how much the OCS data volume holds next to
+it, when that can be measured - asks before removing them and ends with the
+ones that are gone, by name. `-y` (`--yes`) is how a script says it meant it, and is
 required where there is nothing to ask at - a stdin that is not a terminal, or
 `--json` - rather than the question being skipped. Compose removes the volumes
 its files still declare, so a volume left over from a disabled model survives;

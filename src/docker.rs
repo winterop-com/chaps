@@ -10,6 +10,7 @@ use crate::error::{ChapError, Result};
 use crate::project::Project;
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 /// Minimum compose version that understands everything `chaps sync` renders.
 ///
@@ -996,6 +997,104 @@ pub fn parse_volume_times(text: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// How long one size measurement may take before it is given up on.
+///
+/// `du` walks the whole tree, and an OCS data volume with a few thousand
+/// icechunk chunks in it takes a moment; ten seconds is long enough for that
+/// and short enough that a wedged daemon cannot hold `chaps status` open.
+pub const SIZE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How much a named volume holds, in bytes.
+///
+/// `docker volume inspect` reports no size at all and `docker system df -v`
+/// does not report one reliably, so the volume is mounted read-only into a
+/// throwaway busybox and measured with `du -sk`. The image is the one the init
+/// containers and `chaps backup` already use, so nothing new is pulled.
+///
+/// Best-effort and bounded, like every other query here: `None` when docker
+/// could not be run, refused, or overran [`SIZE_TIMEOUT`].
+///
+/// Existence is asked first, as it is before a removal: `docker run -v` on a
+/// name docker does not hold creates that volume rather than refusing, and a
+/// question about how much a volume holds must not leave an empty one behind.
+pub fn volume_size_bytes(name: &str) -> Option<u64> {
+    if !volume_exists(name) {
+        return None;
+    }
+    let mount = format!("{name}:/v:ro");
+    let args = [
+        "run",
+        "--rm",
+        "-v",
+        &mount,
+        crate::backup::BUSYBOX_IMAGE,
+        "du",
+        "-sk",
+        "/v",
+    ];
+    du_bytes(&args, &format!("volume {name}"))
+}
+
+/// How much `dir` holds inside a running service's container, in bytes
+/// (`docker compose exec -T SERVICE du -sk DIR`).
+///
+/// The cheaper half of [`volume_size_bytes`] for a component that is up:
+/// nothing has to be started to look inside a container that is already
+/// there. Same bound, and the same `None` for every failure - a service that
+/// is not running is one of them.
+pub fn exec_dir_size_bytes(project: &Project, service: &str, dir: &str) -> Option<u64> {
+    let mut args = compose_args(project);
+    args.extend(
+        ["exec", "-T", service, "du", "-sk", dir]
+            .iter()
+            .map(|a| a.to_string()),
+    );
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    du_bytes(&args, &format!("{service}:{dir}"))
+}
+
+/// How much data this deployment's OCS instance holds, in bytes, read from
+/// inside its running container.
+///
+/// The mount point comes from [`crate::backup::COMPONENT_VOLUMES`], which is
+/// where the data directory of every component is already written down, so
+/// this and the backup can never disagree about where OCS keeps its data.
+/// Only ever called while the container runs; a caller that has nothing
+/// running reads the volume with [`volume_size_bytes`] instead.
+pub fn ocs_data_bytes(project: &Project) -> Option<u64> {
+    let part = crate::backup::COMPONENT_VOLUMES
+        .iter()
+        .find(|part| part.service == crate::compose::OCS_SERVICE)?;
+    exec_dir_size_bytes(project, part.service, part.data_dir)
+}
+
+/// Run one bounded `docker ... du -sk ...` and read the size out of it.
+///
+/// `what` names the thing being measured, for the `-v` line a failure leaves
+/// behind: a size nobody can get is not worth a word on stdout, and it is
+/// worth one under `-v`.
+fn du_bytes(args: &[&str], what: &str) -> Option<u64> {
+    let outcome = crate::commands::doctor::run_bounded("docker", args, SIZE_TIMEOUT);
+    if !outcome.succeeded() {
+        crate::output::verbose(&format!("  no size for {what}: {}", outcome.stderr()));
+        return None;
+    }
+    parse_du_kilobytes(outcome.stdout())
+}
+
+/// The byte count in a `du -sk` line: `217088\t/v` is 212 MB.
+///
+/// `-k` because busybox `du` counts 512-byte blocks by default where GNU `du`
+/// counts kilobytes, and a size that is wrong by a factor of two is worse than
+/// no size at all. The last line with a number on it is the total, so a `du`
+/// that also complained about a directory it could not read still answers.
+pub fn parse_du_kilobytes(text: &str) -> Option<u64> {
+    text.lines()
+        .rev()
+        .find_map(|line| line.split_whitespace().next()?.parse::<u64>().ok())
+        .map(|kb| kb.saturating_mul(1024))
+}
+
 /// Whether a named docker volume exists.
 pub fn volume_exists(name: &str) -> bool {
     trace_command(&[
@@ -1172,6 +1271,34 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `du -sk` counts kilobytes, and the report counts bytes.
+    #[test]
+    fn a_du_total_is_read_as_kilobytes_and_reported_as_bytes() {
+        // What busybox prints for a mounted volume, tab and all.
+        assert_eq!(parse_du_kilobytes("217088\t/v\n"), Some(217_088 * 1024));
+        assert_eq!(
+            parse_du_kilobytes("212992      /app/data"),
+            Some(212_992 * 1024)
+        );
+        assert_eq!(parse_du_kilobytes("0\t/v"), Some(0));
+        // The total is the last line, so a `du` that complained about a
+        // directory it could not read on the way still answers. The
+        // complaint's own line carries no number to be mistaken for one.
+        assert_eq!(
+            parse_du_kilobytes("du: /v/lost+found: Permission denied\n4\t/v\n"),
+            Some(4096)
+        );
+        assert_eq!(
+            parse_du_kilobytes("4\t/v/downloads\n217088\t/v\n"),
+            Some(217_088 * 1024),
+            "the total is the last line, not the first"
+        );
+        // Nothing to read: a `du` that printed nothing, or something else.
+        for text in ["", "\n \n", "du: /v: No such file or directory", "-1\t/v"] {
+            assert_eq!(parse_du_kilobytes(text), None, "{text:?}");
+        }
+    }
 
     #[test]
     fn the_uid_probe_reads_the_two_numbers_the_image_printed() {

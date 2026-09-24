@@ -392,10 +392,21 @@ fn project_checks(
     probed: Option<&Probed>,
     have_cli: bool,
 ) -> Vec<Check> {
+    // The containers are asked for once, before the checks that need them:
+    // the ports they hold are not conflicts, whether any of them is up
+    // decides the `stack` check, and which of them is up decides where the
+    // `components` and `volumes` lines read what OCS holds - from inside the
+    // container, or from its volume.
+    let containers = docker::all_containers(project);
+    let running: BTreeSet<String> = containers
+        .as_deref()
+        .map(docker::running_of)
+        .unwrap_or_default();
+
     let mut checks = vec![
         project_check(project),
         files_check(&project.dir, &project.state.components),
-        components_check(project),
+        components_check(project, &running),
         sync_check(ctx, project),
         env_check(
             std::fs::read_to_string(project.dir.join(ENV_FILE))
@@ -405,17 +416,9 @@ fn project_checks(
                 .ok()
                 .as_deref(),
         ),
-        volumes_check(project),
+        volumes_check(project, &running),
     ];
     checks.extend(manual_checks(ctx, project));
-
-    // The containers are asked for once: the ports they hold are not
-    // conflicts, and whether any of them is up decides the `stack` check.
-    let containers = docker::all_containers(project);
-    let running: BTreeSet<String> = containers
-        .as_deref()
-        .map(docker::running_of)
-        .unwrap_or_default();
 
     let claims = ports::claims(project);
     let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
@@ -1065,6 +1068,14 @@ pub struct OcsFacts<'a> {
     /// How many files `ocs/plugins/` holds, or `None` when the project has no
     /// plugin directory at all.
     pub plugins: Option<usize>,
+    /// How many datasets the running instance holds, from its JSON API, or
+    /// `None` when it was not running or did not answer.
+    pub datasets: Option<u32>,
+    /// How much its data directory holds, in bytes, read from inside the
+    /// running container. `None` while it is not running: what the volume
+    /// holds is the `volumes` line's to report, where the question is what a
+    /// `down --volumes` would destroy.
+    pub data_bytes: Option<u64>,
 }
 
 /// `facts.config` is what is on disk at `ocs/climate-service.yaml`: `None` when
@@ -1125,19 +1136,40 @@ fn ocs_notes(facts: &OcsFacts) -> String {
             if count == 1 { "" } else { "s" }
         ));
     }
+    if let Some(count) = facts.datasets {
+        notes.push_str(&format!(
+            "; {count} dataset{}",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some(bytes) = facts.data_bytes {
+        notes.push_str(&format!("; {} data", crate::backup::human_size(bytes)));
+    }
     notes
 }
 
 /// The `components` line for a project on disk.
-pub fn components_check(project: &Project) -> Check {
+///
+/// `running` is the set of compose services that are up, which is what decides
+/// whether the instance is asked what it holds: a dataset count and a data
+/// size are read out of a container that is there, and neither is worth a
+/// timeout spent on one that is not.
+pub fn components_check(project: &Project, running: &BTreeSet<String>) -> Check {
     let body = std::fs::read_to_string(project.ocs_config_path()).ok();
     let env = std::fs::read_to_string(project.dir.join(ENV_FILE)).unwrap_or_default();
+    let live =
+        project.state.components.ocs.enabled && running.contains(crate::compose::OCS_SERVICE);
     let facts = OcsFacts {
         config: body.as_deref(),
         credentials: crate::components::OCS_DATA_SOURCE_ENV_VARS
             .iter()
             .any(|var| crate::dotenv::non_empty(&env, var).is_some()),
         plugins: plugin_count(&project.ocs_plugins_path()),
+        datasets: live
+            .then(|| project.state.components.ocs_url())
+            .flatten()
+            .and_then(|url| crate::status::ocs_datasets(&url)),
+        data_bytes: live.then(|| docker::ocs_data_bytes(project)).flatten(),
     };
     Check::from_verdict(
         "components",
@@ -1360,12 +1392,17 @@ pub fn project_check(project: &Project) -> Check {
 ///
 /// Both times are optional: a filesystem that does not record a creation time,
 /// and a docker that did not say, each cost the comparison and nothing else.
+///
+/// `ocs_data` is the OCS data volume and what it holds, when that could be
+/// measured: the one volume under this prefix whose size is usually worth
+/// knowing, because it is what a `chaps down --volumes` would destroy.
 pub fn volume_verdict(
     prefix: &str,
     db_volume: &str,
     volumes: &[(String, Option<u64>)],
     created: Option<u64>,
     leftover: &[String],
+    ocs_data: Option<(&str, u64)>,
 ) -> (Status, String, Option<String>) {
     if volumes.is_empty() {
         return (
@@ -1374,8 +1411,12 @@ pub fn volume_verdict(
             None,
         );
     }
+    let held = match ocs_data {
+        Some((name, bytes)) => format!("; {name} holds {}", crate::backup::human_size(bytes)),
+        None => String::new(),
+    };
     let count = format!(
-        "{} volume{} named {prefix}*",
+        "{} volume{} named {prefix}*{held}",
         volumes.len(),
         if volumes.len() == 1 { "" } else { "s" }
     );
@@ -1405,7 +1446,7 @@ pub fn volume_verdict(
         return (
             Status::Warn,
             format!(
-                "leftover volumes from disabled models or components: {}",
+                "leftover volumes from disabled models or components: {}{held}",
                 leftover.join(", ")
             ),
             Some(LEFTOVER_FIX.to_string()),
@@ -1458,7 +1499,13 @@ pub fn leftover_volumes(
 }
 
 /// The `volumes` line: what docker holds under this deployment's name.
-fn volumes_check(project: &Project) -> Check {
+///
+/// `running` decides whether the OCS data volume is measured here: while its
+/// container is up, the `components` line has the size from inside it, and
+/// starting a second container to measure what the first is writing to would
+/// be both slower and less true. While it is down, this is the line that says
+/// how much data a `chaps down --volumes` would destroy.
+fn volumes_check(project: &Project, running: &BTreeSet<String>) -> Check {
     const ID: &str = "volumes";
     const NAME: &str = "volumes";
     let Some(prefix) = project.volume_prefix() else {
@@ -1472,6 +1519,11 @@ fn volumes_check(project: &Project) -> Check {
     let names: Vec<String> = volumes.iter().map(|(name, _)| name.clone()).collect();
     let models: Vec<String> = project.state.models.keys().cloned().collect();
     let leftover = leftover_volumes(&prefix, &names, &models, &project.state.components);
+    let ocs_volume = format!("{prefix}{}", crate::compose::render::OCS_VOLUME);
+    let ocs_data = (!running.contains(crate::compose::OCS_SERVICE) && names.contains(&ocs_volume))
+        .then(|| docker::volume_size_bytes(&ocs_volume))
+        .flatten()
+        .map(|bytes| (ocs_volume.as_str(), bytes));
     Check::from_verdict(
         ID,
         NAME,
@@ -1481,6 +1533,7 @@ fn volumes_check(project: &Project) -> Check {
             &volumes,
             created,
             &leftover,
+            ocs_data,
         ),
     )
 }
@@ -2651,6 +2704,8 @@ mod tests {
             config,
             credentials: true,
             plugins: None,
+            datasets: None,
+            data_bytes: None,
         }
     }
 
@@ -2710,6 +2765,7 @@ mod tests {
                 config: Some("id: mine\n"),
                 credentials: false,
                 plugins: Some(2),
+                ..OcsFacts::default()
             },
         );
         assert_eq!(status, Status::Ok, "neither is a problem: {detail}");
@@ -2728,6 +2784,7 @@ mod tests {
                 config: Some("id: mine\n"),
                 credentials: true,
                 plugins: Some(1),
+                ..OcsFacts::default()
             },
         );
         assert!(!detail.contains("credentials unset"), "{detail}");
@@ -2744,10 +2801,58 @@ mod tests {
                 config: Some(&example),
                 credentials: false,
                 plugins: Some(3),
+                ..OcsFacts::default()
             },
         );
         assert_eq!(status, Status::Warn);
         assert!(!detail.contains("plugins/"), "{detail}");
+    }
+
+    /// The same two facts `chaps status` puts on the OCS line: what the
+    /// instance holds, reported and never judged.
+    #[test]
+    fn the_components_line_reports_what_a_running_ocs_holds() {
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
+
+        let (status, detail, fix) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: true,
+                datasets: Some(3),
+                data_bytes: Some(217_088 * 1024),
+                ..OcsFacts::default()
+            },
+        );
+        assert_eq!(status, Status::Ok, "neither is a problem: {detail}");
+        assert_eq!(fix, None);
+        assert_eq!(
+            detail,
+            "chap-core, ocs; ocs/climate-service.yaml present; 3 datasets; 212.0 MB data"
+        );
+
+        // One dataset is singular, and an instance that is not running, or
+        // did not answer, says neither thing rather than saying nothing.
+        let (_, detail, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: true,
+                datasets: Some(1),
+                ..OcsFacts::default()
+            },
+        );
+        assert!(detail.ends_with("; 1 dataset"), "{detail}");
+        let (_, detail, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: true,
+                ..OcsFacts::default()
+            },
+        );
+        assert!(detail.ends_with("present"), "{detail}");
     }
 
     /// Files at any depth, because OCS's own layout is `plugins/datasets/*.py`.
@@ -2830,6 +2935,8 @@ mod tests {
             reach: "http://localhost:9000".to_string(),
             health_url: None,
             read_only: false,
+            datasets: None,
+            data_bytes: None,
         };
         let mut report = status_report(ApiHealth::Off, &[], &[]);
         report.components = vec![component("ocs", ComponentState::Up)];
@@ -3028,21 +3135,38 @@ mod tests {
         let db = "demo-1ab2c3_chap-db";
 
         // Nothing started yet: nothing to be suspicious of.
-        let (status, detail, _) = volume_verdict(prefix, db, &[], Some(CREATED), &[]);
+        let (status, detail, _) = volume_verdict(prefix, db, &[], Some(CREATED), &[], None);
         assert_eq!(status, Status::Ok);
         assert!(detail.contains("no demo-1ab2c3_* volume yet"), "{detail}");
 
         // Volumes this deployment made itself.
         let mine = volumes(&[(db, CREATED + 60), ("demo-1ab2c3_logs", CREATED + 60)]);
-        let (status, detail, fix) = volume_verdict(prefix, db, &mine, Some(CREATED), &[]);
+        let (status, detail, fix) = volume_verdict(prefix, db, &mine, Some(CREATED), &[], None);
         assert_eq!(status, Status::Ok);
         assert_eq!(detail, "2 volumes named demo-1ab2c3_*");
         assert_eq!(fix, None);
 
+        // With a size for the OCS data volume, the line says how much data a
+        // `down --volumes` would destroy rather than only how many volumes.
+        let (status, detail, _) = volume_verdict(
+            prefix,
+            db,
+            &mine,
+            Some(CREATED),
+            &[],
+            Some(("demo-1ab2c3_ocs_data", 217_088 * 1024)),
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(
+            detail,
+            "2 volumes named demo-1ab2c3_*; demo-1ab2c3_ocs_data holds 212.0 MB"
+        );
+
         // A database volume that predates the directory it belongs to came
         // from somewhere else, and still holds that deployment's password.
         let inherited = volumes(&[(db, CREATED - 86_400), ("demo-1ab2c3_logs", CREATED + 60)]);
-        let (status, detail, fix) = volume_verdict(prefix, db, &inherited, Some(CREATED), &[]);
+        let (status, detail, fix) =
+            volume_verdict(prefix, db, &inherited, Some(CREATED), &[], None);
         assert_eq!(status, Status::Warn);
         assert!(
             detail.starts_with(
@@ -3057,18 +3181,18 @@ mod tests {
         // Neither time is guaranteed: a filesystem that records no creation
         // time, and a docker that did not say, each cost the comparison only.
         assert_eq!(
-            volume_verdict(prefix, db, &inherited, None, &[]).0,
+            volume_verdict(prefix, db, &inherited, None, &[], None).0,
             Status::Ok
         );
         let undated = vec![(db.to_string(), None)];
         assert_eq!(
-            volume_verdict(prefix, db, &undated, Some(CREATED), &[]).0,
+            volume_verdict(prefix, db, &undated, Some(CREATED), &[], None).0,
             Status::Ok
         );
         // And an old volume that is not the database is not this warning.
         let other = volumes(&[("demo-1ab2c3_logs", CREATED - 86_400)]);
         assert_eq!(
-            volume_verdict(prefix, db, &other, Some(CREATED), &[]).0,
+            volume_verdict(prefix, db, &other, Some(CREATED), &[], None).0,
             Status::Ok
         );
     }
@@ -3090,6 +3214,7 @@ mod tests {
             &held,
             Some(CREATED),
             &[ewars.to_string(), "demo-1ab2c3_ocs_data".to_string()],
+            None,
         );
         assert_eq!(status, Status::Warn);
         assert_eq!(
@@ -3110,10 +3235,32 @@ mod tests {
         // A database volume older than the deployment is the worse of the two
         // findings, and the one the line reports.
         let inherited = volumes(&[(db, CREATED - 86_400), (ewars, CREATED + 60)]);
-        let (status, detail, _) =
-            volume_verdict(prefix, db, &inherited, Some(CREATED), &[ewars.to_string()]);
+        let (status, detail, _) = volume_verdict(
+            prefix,
+            db,
+            &inherited,
+            Some(CREATED),
+            &[ewars.to_string()],
+            None,
+        );
         assert_eq!(status, Status::Warn);
         assert!(detail.starts_with("the database volume"), "{detail}");
+
+        // A leftover OCS volume is measured too: it is data nothing will
+        // mount again, and its size is what decides whether to keep it.
+        let (_, detail, _) = volume_verdict(
+            prefix,
+            db,
+            &held,
+            Some(CREATED),
+            &["demo-1ab2c3_ocs_data".to_string()],
+            Some(("demo-1ab2c3_ocs_data", 3 * 1024 * 1024 * 1024)),
+        );
+        assert_eq!(
+            detail,
+            "leftover volumes from disabled models or components: \
+             demo-1ab2c3_ocs_data; demo-1ab2c3_ocs_data holds 3.0 GB"
+        );
     }
 
     /// Which of a deployment's volumes belong to nothing it still enables.
