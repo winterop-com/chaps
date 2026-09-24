@@ -185,6 +185,28 @@ fn is_free(port: u16) -> bool {
         .all(|addr| std::net::TcpListener::bind((addr, port)).is_ok())
 }
 
+/// A port the kernel handed out, and that nothing is listening on.
+///
+/// A test that names a fixed port - 8000 for the API, 9000 for OCS - is asking
+/// about whatever the developer happens to be running, not about the
+/// deployment it wrote. The listener here is bound only long enough to learn
+/// which port is free and is dropped before the number is handed out, so a
+/// probe aimed at it finds nothing there. Ports already handed out are
+/// remembered, so two calls in one test never name the same one.
+fn free_port() -> u16 {
+    static TAKEN: std::sync::Mutex<Vec<u16>> = std::sync::Mutex::new(Vec::new());
+    loop {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+        let port = listener.local_addr().expect("a local address").port();
+        drop(listener);
+        let mut taken = TAKEN.lock().expect("the port list outlives its panics");
+        if !taken.contains(&port) {
+            taken.push(port);
+            return port;
+        }
+    }
+}
+
 fn includes(dir: &Path) -> Vec<String> {
     match yaml(&dir.join("compose.marketplace.yml")).get("include") {
         Some(Yaml::Sequence(items)) => items
@@ -314,7 +336,13 @@ fn compose_name(path: &Path) -> String {
 fn init_gives_the_deployment_a_compose_project_name_of_its_own() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
-    sandbox.init(&["--models", "none"]).assert().success();
+    // `status` below really calls the API port, so this deployment gets one
+    // nothing on this machine answers on rather than the default 8000.
+    let api_port = free_port();
+    sandbox
+        .init(&["--models", "none", "--api-port", &api_port.to_string()])
+        .assert()
+        .success();
 
     // Without it compose would name the project after the directory, and two
     // deployments in directories both called `chapx` would share every named
@@ -1397,18 +1425,23 @@ fn the_port_base_moves_the_whole_range() {
 fn the_api_port_reaches_the_env_file_the_state_and_status() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    // A port of this test's own: `status` below probes it for real, so a
+    // fixed number would be a question about the developer's machine.
+    let port = free_port();
     sandbox
-        .init(&["--models", "none", "--api-port", "8123"])
+        .init(&["--models", "none", "--api-port", &port.to_string()])
         .assert()
         .success()
-        .stdout(predicates::str::contains(
-            "API:       http://localhost:8123",
-        ));
+        .stdout(predicates::str::contains(format!(
+            "API:       http://localhost:{port}"
+        )));
 
-    assert_eq!(state(&dir)["api_port"], 8123);
+    assert_eq!(state(&dir)["api_port"], port);
     let env = read(&dir.join(".env"));
-    assert!(env.contains("\nCHAP_API_PORT=8123\n"), "{env}");
-    assert!(read(&dir.join("compose.chaps.yml")).contains("${CHAP_API_PORT:-8123}:8000"));
+    assert!(env.contains(&format!("\nCHAP_API_PORT={port}\n")), "{env}");
+    assert!(
+        read(&dir.join("compose.chaps.yml")).contains(&format!("${{CHAP_API_PORT:-{port}}}:8000"))
+    );
 
     // `status --url` defaults to the port the project records. The API is not
     // running, so the report is a down one - at the right URL.
@@ -1416,7 +1449,7 @@ fn the_api_port_reaches_the_env_file_the_state_and_status() {
     status.arg("-C").arg(&dir).args(["status", "--json"]);
     let out = status.assert().failure().get_output().stdout.clone();
     let value: Json = serde_json::from_slice(&out).expect("status --json is JSON");
-    assert_eq!(value["api_url"], "http://localhost:8123");
+    assert_eq!(value["api_url"], format!("http://localhost:{port}"));
     assert_eq!(value["api"]["state"], "down");
 }
 
@@ -1424,30 +1457,49 @@ fn the_api_port_reaches_the_env_file_the_state_and_status() {
 fn a_kept_env_file_that_pins_another_api_port_is_reported() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    // Two ports of this test's own: the last assertion is that nothing was
+    // said about CHAP_API_PORT, and `init` warns about a port something else
+    // on this machine is holding in those very words.
+    let pinned = free_port();
+    let moved = free_port();
     sandbox
-        .init(&["--models", "none", "--api-port", "8010"])
+        .init(&["--models", "none", "--api-port", &pinned.to_string()])
         .assert()
         .success();
 
     // `--force` keeps .env, and compose reads .env after the compose files, so
     // the line in it wins over the new --api-port. Say so.
     sandbox
-        .init(&["--models", "none", "--force", "--api-port", "8020"])
+        .init(&[
+            "--models",
+            "none",
+            "--force",
+            "--api-port",
+            &moved.to_string(),
+        ])
         .assert()
         .success()
         .stdout(predicates::str::contains("kept .env (already present)"))
-        .stderr(predicates::str::contains(
-            "warning: .env already sets CHAP_API_PORT=8010",
-        ))
-        .stderr(predicates::str::contains("the API stays on 8010"));
+        .stderr(predicates::str::contains(format!(
+            "warning: .env already sets CHAP_API_PORT={pinned}"
+        )))
+        .stderr(predicates::str::contains(format!(
+            "the API stays on {pinned}"
+        )));
     // The recorded intent did move, and so did the rendered override.
-    assert_eq!(state(&dir)["api_port"], 8020);
-    assert!(read(&dir.join("compose.chaps.yml")).contains("${CHAP_API_PORT:-8020}"));
-    assert!(read(&dir.join(".env")).contains("\nCHAP_API_PORT=8010\n"));
+    assert_eq!(state(&dir)["api_port"], moved);
+    assert!(read(&dir.join("compose.chaps.yml")).contains(&format!("${{CHAP_API_PORT:-{moved}}}")));
+    assert!(read(&dir.join(".env")).contains(&format!("\nCHAP_API_PORT={pinned}\n")));
 
     // Re-initialising at the port .env already holds says nothing.
     let out = sandbox
-        .init(&["--models", "none", "--force", "--api-port", "8010"])
+        .init(&[
+            "--models",
+            "none",
+            "--force",
+            "--api-port",
+            &pinned.to_string(),
+        ])
         .assert()
         .success()
         .get_output()
@@ -2230,17 +2282,14 @@ fn backup_outside_a_project_says_so() {
     .stderr(predicates::str::contains("not a chaps project"));
 }
 
-/// A server that answers every request with an HTML 200, on a port of its own.
-///
-/// Stands in for whatever else may hold chap-core's port: a dev server, a
-/// proxy, a static site. The thread lives as long as the test process.
-fn html_server() -> u16 {
+/// A server that answers every request with the same 200, on a port of its
+/// own. The thread lives as long as the test process.
+fn server(content_type: &'static str, body: &'static str) -> u16 {
     use std::io::{Read, Write};
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
     let port = listener.local_addr().expect("a local address").port();
     std::thread::spawn(move || {
-        const BODY: &str = "<!doctype html><html><body>a dev server</body></html>";
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             // The request has to be read before the answer, or the client
@@ -2248,15 +2297,36 @@ fn html_server() -> u16 {
             let mut buffer = [0u8; 1024];
             let _ = stream.read(&mut buffer);
             let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
-                 Content-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
-                BODY.len()
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
             );
             let _ = stream.write_all(response.as_bytes());
             let _ = stream.flush();
         }
     });
     port
+}
+
+/// A server that answers every request with an HTML 200, on a port of its own.
+///
+/// Stands in for whatever else may hold chap-core's port: a dev server, a
+/// proxy, a static site.
+fn html_server() -> u16 {
+    server(
+        "text/html; charset=utf-8",
+        "<!doctype html><html><body>a dev server</body></html>",
+    )
+}
+
+/// A server that answers a component's `/health` the way a running one does,
+/// on a port of its own.
+///
+/// Stands in for OCS, which `chaps status` calls up when `/health` answers at
+/// all. Nothing here needs docker, so the verdict is the same on every
+/// machine.
+fn health_server() -> u16 {
+    server("application/json", r#"{"status":"healthy"}"#)
 }
 
 #[test]
@@ -2320,10 +2390,15 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
     // A directory of its own: compose names the project after it, and these
     // wrappers ask docker about that name.
     let dir = sandbox.home.path().join("chaps-never-started");
+    // An API port of this test's own: `status` below has to find nothing
+    // answering for "CHAP is not running" to be the truth about it, and the
+    // default 8000 is a port a developer may well be serving something on.
+    let api_port = free_port();
     let mut init = sandbox.chap();
     init.arg("init")
         .arg(&dir)
-        .args(["--models", "chapkit_ewars_model"]);
+        .args(["--models", "chapkit_ewars_model", "--api-port"])
+        .arg(api_port.to_string());
     init.assert().success();
 
     // `docker compose logs` on a project with no containers prints nothing at
@@ -3599,10 +3674,22 @@ fn an_unknown_component_name_is_reported_before_anything_is_written() {
 #[test]
 fn status_reports_every_enabled_component() {
     let sandbox = Sandbox::new();
+    // Ports of this test's own, never the defaults: `status` really calls
+    // `/health`, and OCS's default 9000 is a port a developer running an OCS
+    // of their own would answer on.
+    let api_port = free_port().to_string();
+    let ocs_port = free_port();
     sandbox
-        .init(&["--models", "none", "--with", "ocs,s3", "--api-port", "8123"])
+        .init(&["--models", "none", "--api-port", &api_port])
         .assert()
         .success();
+    // Enabled here rather than with `init --with`, because this is where the
+    // host port can be named, and init would probe 9000 on the way.
+    sandbox
+        .components(&["enable", "ocs", "--port", &ocs_port.to_string()])
+        .assert()
+        .success();
+    sandbox.components(&["enable", "s3"]).assert().success();
 
     // Nothing is running, so this exits non-zero; the document is the point.
     let out = sandbox
@@ -3618,12 +3705,57 @@ fn status_reports_every_enabled_component() {
     let components = report["components"].as_array().expect("a component list");
     assert_eq!(components.len(), 2);
     assert_eq!(components[0]["name"], "ocs");
-    assert_eq!(components[0]["reach"], "http://localhost:9000");
-    assert_eq!(components[0]["health_url"], "http://localhost:9000/health");
+    assert_eq!(
+        components[0]["reach"],
+        format!("http://localhost:{ocs_port}")
+    );
+    assert_eq!(
+        components[0]["health_url"],
+        format!("http://localhost:{ocs_port}/health")
+    );
+    // The port was free when this test took it and nothing bound it since.
     assert_eq!(components[0]["state"], "not-running");
     assert_eq!(components[1]["name"], "s3");
     assert_eq!(components[1]["reach"], "internal");
     assert_eq!(components[1]["health_url"], Json::Null);
+}
+
+/// The other half of the same report: a component whose `/health` answers is
+/// `up`, without a container anywhere in it.
+#[test]
+fn status_calls_a_component_up_when_its_health_endpoint_answers() {
+    let sandbox = Sandbox::new();
+    let api_port = free_port().to_string();
+    // A stand-in OCS on a port of its own, answering for as long as this test
+    // runs.
+    let ocs_port = health_server();
+    sandbox
+        .init(&["--models", "none", "--api-port", &api_port])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "ocs", "--port", &ocs_port.to_string()])
+        .assert()
+        .success();
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["status", "--json", "--timeout", "5"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    let components = report["components"].as_array().expect("a component list");
+    assert_eq!(components.len(), 1, "{report}");
+    assert_eq!(components[0]["name"], "ocs");
+    assert_eq!(
+        components[0]["health_url"],
+        format!("http://localhost:{ocs_port}/health")
+    );
+    assert_eq!(components[0]["state"], "up", "{report}");
 }
 
 #[test]
