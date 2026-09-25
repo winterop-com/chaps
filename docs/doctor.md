@@ -23,6 +23,7 @@ ok    disk space                        633.1 GB free on /Users/you/mychap
 ok    network ghcr.io                   reachable (HTTP 401)
 ok    network marketplace               reachable (HTTP 200)
 ok    network releases                  reachable, newest chap-core is v2.3.1
+ok    github api                        reachable, 4990 of 5000 requests left this hour (token)
 ok    chaps                             v0.2.0, aarch64-apple-darwin, release archive
 ok    project                           mychap-1ab2c3 (recorded in .chaps/project.yaml)
 ok    project files                     all 7 present
@@ -38,7 +39,7 @@ ok    registry pin chapkit_ewars_model  sha-8d4a7ea is the newest build on main
 skip  health                            no container of this project is running
       run `chaps up` to start CHAP
 
-19 checks: 16 ok, 1 warn, 1 fail, 1 skipped
+20 checks: 17 ok, 1 warn, 1 fail, 1 skipped
 ```
 
 Four words carry the verdict, and only one of them is a problem:
@@ -75,11 +76,34 @@ These run everywhere, inside a deployment directory or not.
 | `network ghcr.io` | can this machine reach the image registry | Without it no image can be pulled. A warning, not a failure: `--offline` keeps `chaps` itself working from the cache or the catalogue built into the binary. |
 | `network marketplace` | can it reach `registry.yaml` | The catalogue falls back to the cache and then to the embedded snapshot, so this is a warning too. `chaps registry show` says which one is in use. |
 | `network releases` | can it reach the chap-core release list | `chaps update` needs it; everything else works without it. The answer doubles as the newest release, which `chap-core pin` below compares against. |
+| `github api` | how much of this address's hour is left on GitHub's REST API | `GET /rate_limit`, which GitHub documents as not counting against the limit it reports. Unauthenticated that limit is 60 requests an hour **per address**, which the release lookup, the `chap-core pin` line, every `registry pin <id>` line and every `chaps models add` all spend - a busy operator, or a CI runner sharing its egress address, runs out before lunch. The line says which of the two limits this is: `4990 of 5000 requests left this hour (token)`, or `43 of 60 requests left this hour (no token; set GITHUB_TOKEN for 5000)`. It warns when nothing is left, with the clock time the window resets at; it never fails, because every check that needs GitHub already degrades to a skip with the reason on its own line. See [a used-up rate limit](./troubleshooting.md#githubs-rate-limit-is-used-up). |
 | `chaps` | version, target, install method, newer release | Warns when a newer release exists: `chaps self update`. Under `--offline` the line still names the build, as a `skip`: whether there is an update is the one thing this run did not ask. |
 
 An anonymous request to `ghcr.io/v2/` answers `401`, which is the registry
 answering; any HTTP status counts as reachable, because a host that refuses us
 is still a host this machine can reach.
+
+### Raising the GitHub limit
+
+Set `GITHUB_TOKEN` (or `GH_TOKEN`, which is what the `gh` CLI uses) and every
+GitHub request `chaps` makes carries it, for 5000 requests an hour instead of
+60:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) chaps doctor
+```
+
+```text
+ok    github api                        reachable, 4990 of 5000 requests left this hour (token)
+ok    registry pin chapkit_ewars_model  sha-8d4a7ea is the newest build on main
+```
+
+A classic token with no scopes at all, or a fine-grained token with read
+access to public repositories, is enough: everything `chaps` asks GitHub is a
+public read. `chaps` never writes the token anywhere - not to `.chaps/`, not
+to `.env`, not to the cache - and never prints it: a `-v` trace says
+`Authorization: Bearer <token>` and nothing more. Nothing on the command line
+sets it, because a token on a command line is a token in the shell history.
 
 ## Project checks
 
@@ -157,6 +181,7 @@ Outside a deployment directory the project checks are simply absent from
 skip  network ghcr.io                   --offline: the image registry was not probed
 skip  network marketplace               --offline: the model catalogue was not probed
 skip  network releases                  --offline: the chap-core release list was not probed
+skip  github api                        --offline: the GitHub API rate limit was not asked
 skip  chaps                             v0.2.0, aarch64-apple-darwin, release archive; --offline: the release list was not asked
 skip  chap-core pin                     v2.3.1 pinned; --offline: the release list was not asked
 skip  image chapkit-ewars-model         --offline: the registry was not asked

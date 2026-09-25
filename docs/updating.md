@@ -320,6 +320,12 @@ chaps update --list-tags
 lists where this deployment can move chap-core to, newest first: the three
 moving tags, then the newest releases GitHub publishes.
 
+That list, and the release lookup behind every `chaps update`, come from
+GitHub's REST API, which allows 60 requests an hour to an address that sends
+no credential; set `GITHUB_TOKEN` (or `GH_TOKEN`) and `chaps` sends it, for
+5000 an hour instead. `chaps` never stores it and never prints it. See
+[a used-up rate limit](./troubleshooting.md#githubs-rate-limit-is-used-up).
+
 ```text
 TAG     KIND     PUBLISHED   NOTE
 dev     moving   2026-09-24  pinned (moving, running 7f3a1c2e9b4d)

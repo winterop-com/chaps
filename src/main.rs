@@ -15,6 +15,7 @@ mod diagnose;
 mod docker;
 mod dotenv;
 mod error;
+mod github;
 mod jobs;
 mod manual;
 mod modeltest;

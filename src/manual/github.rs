@@ -1,8 +1,10 @@
 //! The two GitHub questions `chaps models add` asks: which branch a
 //! repository publishes from, and which commits are on it.
 //!
-//! Unauthenticated reads, like [`crate::chapcore`]: 60 requests an hour per
-//! address, and two of them per `models add`.
+//! Reads, like [`crate::chapcore`]'s, and through the same door
+//! ([`crate::github`]): 60 requests an hour per address without a token and
+//! 5000 with one, two of them per `models add` and three per `registry pin`
+//! line of `chaps doctor`.
 
 use crate::error::Result;
 use crate::manual::source::Repo;
@@ -10,10 +12,7 @@ use serde::Deserialize;
 use std::time::Duration;
 
 /// Public GitHub, unless `CHAPS_GITHUB_API` points somewhere else.
-pub const DEFAULT_API: &str = "https://api.github.com";
-
-/// The media type the REST API answers best in.
-const ACCEPT: &str = "application/vnd.github+json";
+pub const DEFAULT_API: &str = crate::github::DEFAULT_API;
 
 /// How many commits are asked for when looking for a published build.
 ///
@@ -169,16 +168,13 @@ pub fn sha_tag(sha: &str) -> String {
 }
 
 /// GET `url` as text, failing on anything but a 2xx.
+///
+/// Every request here is a REST call, so all of them go through
+/// [`crate::github`]: the same headers, the token where this run has one, and
+/// a rate limit that has run out reported as what it is rather than as a bare
+/// `HTTP 403`.
 fn get(url: &str, timeout: Duration) -> Result<String> {
-    let (status, body) = super::get(url, timeout, &[("Accept", ACCEPT)])?;
-    if !(200..300).contains(&status) {
-        return Err(crate::error::ChapError::Http {
-            url: url.to_string(),
-            status,
-        }
-        .into());
-    }
-    Ok(body)
+    crate::github::get_ok(url, timeout)
 }
 
 #[cfg(test)]

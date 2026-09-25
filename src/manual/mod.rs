@@ -63,10 +63,7 @@ impl Endpoints {
     /// say otherwise.
     pub fn from_env(offline: bool) -> Endpoints {
         Endpoints {
-            github_api: std::env::var("CHAPS_GITHUB_API")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .unwrap_or_else(|| github::DEFAULT_API.to_string()),
+            github_api: crate::github::api_base(),
             ghcr_url: std::env::var("CHAPS_GHCR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty())

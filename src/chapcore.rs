@@ -14,9 +14,6 @@ use std::time::Duration;
 /// GitHub repository the chap-core images and the compose file come from.
 pub const REPO: &str = "dhis2-chap/chap-core";
 
-/// Public GitHub, unless `CHAPS_GITHUB_API` points somewhere else.
-pub const DEFAULT_API: &str = "https://api.github.com";
-
 /// Public raw.githubusercontent.com, unless `CHAPS_GITHUB_RAW` points
 /// somewhere else. Both are test hooks and nothing on the command line moves
 /// them; see `docs/development.md`.
@@ -35,38 +32,23 @@ pub const MOVING_TAGS: &[&str] = &["dev", "master", LATEST_TAG];
 /// How many releases `chaps update --list-tags` lists.
 pub const LIST_LIMIT: usize = 10;
 
-/// The media type the REST API answers best in.
-const ACCEPT_JSON: &str = "application/vnd.github+json";
-
 /// `User-Agent` sent with every request, matching the registry fetch.
 const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
 
 /// Base of the GitHub REST API this run talks to.
 pub fn api_base() -> String {
-    base("CHAPS_GITHUB_API", DEFAULT_API)
+    crate::github::api_base()
 }
 
 /// Base of the raw file host this run talks to.
 pub fn raw_base() -> String {
-    base("CHAPS_GITHUB_RAW", DEFAULT_RAW)
-}
-
-fn base(var: &str, default: &str) -> String {
-    base_of(std::env::var(var).ok(), default)
-}
-
-/// [`base`] with the variable already read, so the rule is testable without
-/// touching the environment of a process running tests in parallel.
-fn base_of(value: Option<String>, default: &str) -> String {
-    value
-        .map(|value| value.trim().trim_end_matches('/').to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default.to_string())
+    crate::github::base("CHAPS_GITHUB_RAW", DEFAULT_RAW)
 }
 
 /// Release endpoint for the newest final release; prereleases and drafts are
 /// excluded by GitHub itself, which is exactly what the `latest` image tag
-/// follows. Unauthenticated requests are allowed, at 60 per hour per address.
+/// follows. Unauthenticated requests are allowed, at 60 an hour per address;
+/// [`crate::github`] sends a token where this run has one.
 pub fn latest_release_url() -> String {
     format!("{}/repos/{REPO}/releases/{LATEST_TAG}", api_base())
 }
@@ -97,7 +79,7 @@ pub fn compose_url(tag: &str) -> String {
 /// The tag of the newest chap-core release, e.g. `v2.3.1`.
 pub fn latest_release(timeout: Duration) -> Result<String> {
     let url = latest_release_url();
-    let body = get(&url, timeout, Some(ACCEPT_JSON))?;
+    let body = crate::github::get_ok(&url, timeout)?;
     parse_release(&body).map_err(|e| anyhow::anyhow!("reading the release list at {url}: {e}"))
 }
 
@@ -120,7 +102,7 @@ pub fn releases(limit: usize, timeout: Duration) -> Result<Vec<Release>> {
     // prereleases and the tags that are not versions are dropped here, not by
     // GitHub, so a page of exactly `limit` entries could come back short.
     let url = releases_url((limit * 3).min(100));
-    let body = get(&url, timeout, Some(ACCEPT_JSON))?;
+    let body = crate::github::get_ok(&url, timeout)?;
     let mut list = parse_releases(&body)
         .map_err(|e| anyhow::anyhow!("reading the release list at {url}: {e}"))?;
     list.truncate(limit);
@@ -134,7 +116,7 @@ pub fn releases(limit: usize, timeout: Duration) -> Result<Vec<Release>> {
 /// caller treats it as one.
 pub fn release_exists(tag: &str, timeout: Duration) -> Result<bool> {
     let url = release_url(tag);
-    match get(&url, timeout, Some(ACCEPT_JSON)) {
+    match crate::github::get_ok(&url, timeout) {
         Ok(_) => Ok(true),
         Err(err) => match err.downcast_ref::<ChapError>() {
             Some(ChapError::Http { status: 404, .. }) => Ok(false),
@@ -149,7 +131,7 @@ pub fn release_exists(tag: &str, timeout: Duration) -> Result<bool> {
 /// `chaps update --list-tags`, and a branch GitHub will not talk about simply
 /// has no date to print.
 pub fn branch_updated(branch: &str, timeout: Duration) -> Option<String> {
-    let body = get(&branch_url(branch), timeout, Some(ACCEPT_JSON)).ok()?;
+    let body = crate::github::get_ok(&branch_url(branch), timeout).ok()?;
     parse_commit_date(&body)
 }
 
@@ -189,7 +171,7 @@ pub(crate) fn day_of(timestamp: &str) -> Option<String> {
 /// caller that gets an `Ok` has something it can write as `compose.yml`.
 pub fn fetch_compose(tag: &str, timeout: Duration) -> Result<String> {
     let url = compose_url(tag);
-    let body = get(&url, timeout, None)?;
+    let body = get(&url, timeout)?;
     validate_compose(&body).map_err(|e| anyhow::anyhow!("{url}: {e}"))?;
     Ok(body)
 }
@@ -438,17 +420,19 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 /// GET `url` as text, with the same timeout semantics as the registry fetch:
 /// one global deadline covering connect, send and receive.
-fn get(url: &str, timeout: Duration, accept: Option<&str>) -> Result<String> {
+///
+/// The raw file host only: every REST call goes through [`crate::github`], so
+/// that all of them carry the same headers and the same token. Raw files need
+/// neither - they count against no limit - and a credential sent to a file
+/// host is a credential sent somewhere it was not needed.
+fn get(url: &str, timeout: Duration) -> Result<String> {
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
             .user_agent(USER_AGENT)
             .build(),
     );
-    let mut request = agent.get(url);
-    if let Some(accept) = accept {
-        request = request.header("Accept", accept);
-    }
+    let request = agent.get(url);
     let started = std::time::Instant::now();
     let mut response = request.call().map_err(|e| {
         crate::output::verbose(&format!(
@@ -527,7 +511,7 @@ mod tests {
         );
         assert!(compose_url("master").ends_with("/master/compose.ghcr.yml"));
         assert!(latest_release_url().contains(REPO));
-        assert!(latest_release_url().starts_with(DEFAULT_API));
+        assert!(latest_release_url().starts_with(crate::github::DEFAULT_API));
         assert_eq!(
             release_url("v2.3.1"),
             "https://api.github.com/repos/dhis2-chap/chap-core/releases/tags/v2.3.1"
@@ -634,9 +618,8 @@ mod tests {
     #[test]
     fn an_unreachable_host_is_an_error_not_a_hang() {
         let err = get(
-            "http://127.0.0.1:9/releases/latest",
+            "http://127.0.0.1:9/compose.ghcr.yml",
             Duration::from_secs(2),
-            None,
         )
         .expect_err("nothing is listening on port 9");
         assert!(err.to_string().contains("127.0.0.1:9"), "{err}");
@@ -733,10 +716,11 @@ mod tests {
 
     #[test]
     fn the_hosts_follow_the_test_hooks() {
+        use crate::github::base_of;
         let hook = Some("http://127.0.0.1:18099/".to_string());
-        assert_eq!(base_of(hook, DEFAULT_API), "http://127.0.0.1:18099");
+        assert_eq!(base_of(hook, DEFAULT_RAW), "http://127.0.0.1:18099");
         // Unset, empty and whitespace all mean the public host.
-        assert_eq!(base_of(None, DEFAULT_API), DEFAULT_API);
+        assert_eq!(base_of(None, DEFAULT_RAW), DEFAULT_RAW);
         assert_eq!(base_of(Some(String::new()), DEFAULT_RAW), DEFAULT_RAW);
         assert_eq!(base_of(Some("  ".into()), DEFAULT_RAW), DEFAULT_RAW);
     }

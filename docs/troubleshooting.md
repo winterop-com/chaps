@@ -450,6 +450,56 @@ and no fallback, `--dry-run` included, because a plan made from a stale
 catalogue is not a plan. Every other command falls back to the cache and then
 to the snapshot compiled into the binary.
 
+## `GitHub's rate limit is used up`
+
+```text
+skip  registry pin chapkit_ewars_model  could not ask https://github.com/chap-models/chapkit_ewars_model
+      for its default branch: GitHub's rate limit is used up (unauthenticated, 60 requests an hour
+      per address); set GITHUB_TOKEN for 5000, or wait until 15:04
+```
+
+GitHub allows 60 REST requests an hour to an address that sends no
+credential, and `chaps` spends them on questions it has to ask somebody:
+chap-core's release list, the default branch and commits of every model
+repository behind a `registry pin <id>` line, and both lookups of a
+`chaps models add`. One `chaps doctor` on a deployment with five models is a
+dozen of them. On a shared egress address - an office, a VPN, a CI runner -
+the hour is gone before `chaps` asks for anything at all.
+
+Nothing is broken and nothing failed: every check that needs GitHub skips with
+this reason and the rest of the report is exactly as it was. Either wait until
+the clock time on the line, which is when the window resets, or hand `chaps` a
+token:
+
+```sh
+export GITHUB_TOKEN=$(gh auth token)   # or GH_TOKEN, whichever is already set
+chaps doctor
+```
+
+That is 5000 requests an hour instead of 60. A token with no scopes is enough,
+because every question `chaps` asks GitHub is a public read. `chaps doctor`'s
+`github api` line says which limit is in force and how much of it is left:
+
+```text
+ok    github api  reachable, 4990 of 5000 requests left this hour (token)
+```
+
+The token is read from the environment only. `chaps` never stores it and never
+prints it - a `-v` trace shows `Authorization: Bearer <token>` with nothing
+behind it - and no command-line flag sets one, because a token on a command
+line is a token in the shell history.
+
+A 403 that arrives *with* a token reads differently, because the advice to set
+one would be wrong:
+
+```text
+GitHub refused the request (HTTP 403 with a token; check GITHUB_TOKEN's scopes or the rate limit)
+```
+
+That is an expired, revoked or misspelled token, one whose fine-grained
+permissions do not include reading public repositories, or a token whose own
+5000 are gone. `gh auth status` says which.
+
 ## `Can't locate revision identified by` in `chaps logs chap`
 
 ```text

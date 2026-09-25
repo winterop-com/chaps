@@ -25,6 +25,7 @@ use crate::compose::render::OCS_EXAMPLE_MARKER;
 use crate::compose::{API_SERVICE, sync};
 use crate::docker;
 use crate::error::Result;
+use crate::github;
 use crate::output::Out;
 use crate::ports::{self, PortClaim};
 use crate::project::{
@@ -374,6 +375,7 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
 
         let probed = probes.map(Probes::join);
         checks.extend(network_checks(probed.as_ref()));
+        checks.push(github_check(probed.as_ref().map(|p| &p.github)));
         checks.push(chaps_check(ReleaseList::of(
             probed.as_ref().map(|p| &p.chaps),
         )));
@@ -831,15 +833,16 @@ pub fn chaps_check(latest: ReleaseList<'_>) -> Check {
 // Network
 // ---------------------------------------------------------------------------
 
-/// The four lookups that need the network, still running.
+/// The five lookups that need the network, still running.
 struct Probes<'s> {
     ghcr: std::thread::ScopedJoinHandle<'s, std::result::Result<u16, String>>,
     marketplace: std::thread::ScopedJoinHandle<'s, std::result::Result<u16, String>>,
     chap_core: std::thread::ScopedJoinHandle<'s, std::result::Result<String, String>>,
     chaps: std::thread::ScopedJoinHandle<'s, std::result::Result<String, String>>,
+    github: std::thread::ScopedJoinHandle<'s, std::result::Result<github::Quota, String>>,
 }
 
-/// The same four, answered.
+/// The same five, answered.
 ///
 /// Two of them do double duty: the release lookups are what tells the
 /// `net-releases` and `chaps` lines that the host answered, and the tags they
@@ -849,11 +852,14 @@ pub struct Probed {
     pub marketplace: std::result::Result<u16, String>,
     pub chap_core: std::result::Result<String, String>,
     pub chaps: std::result::Result<String, String>,
+    /// What is left of this address's hour on the GitHub API, which is what
+    /// the release, pin and `models add` lookups are all spending.
+    pub github: std::result::Result<github::Quota, String>,
 }
 
 impl<'s> Probes<'s> {
-    /// Start all four at once. Four sequential three-second timeouts would be
-    /// twelve seconds of a command that has to stay interactive.
+    /// Start all five at once. Five sequential three-second timeouts would be
+    /// fifteen seconds of a command that has to stay interactive.
     fn spawn(scope: &'s std::thread::Scope<'s, '_>, registry_url: &str) -> Probes<'s> {
         let registry_url = registry_url.to_string();
         Probes {
@@ -866,10 +872,13 @@ impl<'s> Probes<'s> {
                     .map(|release| release.tag)
                     .map_err(|e| format!("{e:#}"))
             }),
+            // `/rate_limit` is documented as not counting against the limit
+            // it reports, so asking cannot be what uses up the last request.
+            github: scope.spawn(|| github::quota(NET_TIMEOUT).map_err(|e| format!("{e:#}"))),
         }
     }
 
-    /// Wait for all four. A panicked probe reads as an unreachable host,
+    /// Wait for all five. A panicked probe reads as an unreachable host,
     /// which is the verdict it would have produced anyway.
     fn join(self) -> Probed {
         fn joined<T>(
@@ -884,6 +893,7 @@ impl<'s> Probes<'s> {
             marketplace: joined(self.marketplace),
             chap_core: joined(self.chap_core),
             chaps: joined(self.chaps),
+            github: joined(self.github),
         }
     }
 }
@@ -991,6 +1001,69 @@ pub fn network_checks(probed: Option<&Probed>) -> Vec<Check> {
             Err(why) => Check::warn(*id, *name, format!("{what} is unreachable: {why}"), *fix),
         })
         .collect()
+}
+
+/// The stable id and the printed name of the `github api` line.
+pub const GITHUB_ID: &str = "net-github";
+pub const GITHUB_NAME: &str = "github api";
+
+/// What the `github api` line says under `--offline`.
+pub const GITHUB_OFFLINE: &str = "--offline: the GitHub API rate limit was not asked";
+
+/// What every unreachable GitHub line offers, and what a quota that has run
+/// out offers when there is no token to blame.
+const GITHUB_FIX: &str = "`chaps update`, the pin checks and `chaps models add` need it; \
+     everything else works without it";
+
+/// The `github api` line: does the REST API answer, and how much of this
+/// address's hour is left on it.
+///
+/// Not a failure whatever it says. Every GitHub lookup this CLI makes already
+/// degrades to a skip with the reason on its own line; this one is here so an
+/// operator can see the quota before it runs out rather than after, and so a
+/// morning of skipped pin checks has an explanation at the top of the report.
+pub fn github_check(quota: Option<&std::result::Result<github::Quota, String>>) -> Check {
+    let Some(quota) = quota else {
+        return Check::skip(GITHUB_ID, GITHUB_NAME, GITHUB_OFFLINE);
+    };
+    let quota = match quota {
+        Ok(quota) => quota,
+        Err(why) => {
+            return Check::warn(
+                GITHUB_ID,
+                GITHUB_NAME,
+                format!("could not ask what is left of this hour: {why}"),
+                GITHUB_FIX,
+            );
+        }
+    };
+    // The parenthetical says which of the two limits this is, and where there
+    // is no token it says what setting one would buy.
+    let credential = match quota.token {
+        true => "token".to_string(),
+        false => format!("no token; set GITHUB_TOKEN for {}", github::TOKEN_LIMIT),
+    };
+    let left = format!(
+        "reachable, {} of {} requests left this hour ({credential})",
+        quota.remaining, quota.limit
+    );
+    if quota.remaining > 0 {
+        return Check::ok(GITHUB_ID, GITHUB_NAME, left);
+    }
+    let until = github::reset_clock(quota.reset);
+    Check::warn(
+        GITHUB_ID,
+        GITHUB_NAME,
+        format!("{left}, until {until}"),
+        match quota.token {
+            true => format!("wait until {until}; until then the release and pin checks skip"),
+            false => format!(
+                "set GITHUB_TOKEN or GH_TOKEN for {} requests an hour, or wait until {until}; \
+                 until then the release and pin checks skip",
+                github::TOKEN_LIMIT
+            ),
+        },
+    )
 }
 
 /// How a probe result reads on the line for its host.
@@ -3403,6 +3476,7 @@ mod tests {
             marketplace: Err("dns error".to_string()),
             chap_core: Ok("v2.3.1".to_string()),
             chaps: Ok("v0.2.0".to_string()),
+            github: Err("not asked here".to_string()),
         };
         let checks = network_checks(Some(&probed));
         assert_eq!(checks[0].status, Status::Ok);
@@ -3422,6 +3496,92 @@ mod tests {
         let checks = network_checks(Some(&probed));
         assert_eq!(checks[0].status, Status::Warn);
         assert!(checks[0].fix.as_ref().unwrap().contains("--offline"));
+    }
+
+    /// The `github api` line, from an answer handed in: the quota, which of
+    /// the two limits it is, and what to do when it has run out.
+    #[test]
+    fn the_github_line_reports_the_quota_and_which_limit_it_is() {
+        let quota = |remaining: u64, limit: u64, token: bool| github::Quota {
+            limit,
+            remaining,
+            // 2026-09-25T13:04:00Z, whatever this machine calls that hour.
+            reset: Some(1_758_805_440),
+            token,
+        };
+
+        // A token: the 5000 an hour, and nothing to advise.
+        let check = github_check(Some(&Ok(quota(4990, 5000, true))));
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(check.id, "net-github");
+        assert_eq!(check.name, "github api");
+        assert_eq!(
+            check.detail,
+            "reachable, 4990 of 5000 requests left this hour (token)"
+        );
+        assert!(check.fix.is_none());
+
+        // No token: the 60, and the line says what a token would buy.
+        let check = github_check(Some(&Ok(quota(43, 60, false))));
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(
+            check.detail,
+            "reachable, 43 of 60 requests left this hour (no token; set GITHUB_TOKEN for 5000)"
+        );
+
+        // Used up: a warning with the clock the window resets on, never a
+        // failure - every lookup that needs it degrades to a skip.
+        let until = github::reset_clock(Some(1_758_805_440));
+        let check = github_check(Some(&Ok(quota(0, 60, false))));
+        assert_eq!(check.status, Status::Warn);
+        assert_eq!(
+            check.detail,
+            format!(
+                "reachable, 0 of 60 requests left this hour \
+                 (no token; set GITHUB_TOKEN for 5000), until {until}"
+            )
+        );
+        assert!(check.fix.as_ref().unwrap().contains("GITHUB_TOKEN"));
+        assert!(check.fix.as_ref().unwrap().contains(&until));
+
+        // Used up with a token: setting one is no longer the advice.
+        let check = github_check(Some(&Ok(quota(0, 5000, true))));
+        assert_eq!(check.status, Status::Warn);
+        assert!(
+            check
+                .detail
+                .contains("0 of 5000 requests left this hour (token)")
+        );
+        assert_eq!(
+            check.fix.as_deref(),
+            Some(
+                format!("wait until {until}; until then the release and pin checks skip").as_str()
+            )
+        );
+
+        // No reset to name: the sentence still stands.
+        let check = github_check(Some(&Ok(github::Quota {
+            limit: 60,
+            remaining: 0,
+            reset: None,
+            token: false,
+        })));
+        assert!(check.detail.ends_with("until -"), "{}", check.detail);
+
+        // A lookup that did not arrive is a warning like every other host -
+        // the wording covers both a host that said nothing and one that
+        // refused, because a refused quota is not an unreachable GitHub.
+        let check = github_check(Some(&Err("dns error".to_string())));
+        assert_eq!(check.status, Status::Warn);
+        assert_eq!(
+            check.detail,
+            "could not ask what is left of this hour: dns error"
+        );
+        assert!(check.fix.is_some());
+
+        let check = github_check(None);
+        assert_eq!(check.status, Status::Skip);
+        assert!(check.detail.contains("--offline"), "{}", check.detail);
     }
 
     #[test]
@@ -4246,6 +4406,7 @@ mod tests {
             marketplace: Ok(200),
             chap_core: Ok("v2.3.1".to_string()),
             chaps: Ok("v0.2.0".to_string()),
+            github: Err("not asked here".to_string()),
         };
 
         // `--offline` outranks a missing docker CLI: the flag is the reason

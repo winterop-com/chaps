@@ -42,7 +42,7 @@ four hooks nothing on the command line can set:
 
 | Variable | What it moves |
 | --- | --- |
-| `CHAPS_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`: the repository lookups and chap-core's release feed. |
+| `CHAPS_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`: the repository lookups, chap-core's release feed, `chaps`' own, and `/rate_limit`. |
 | `CHAPS_GITHUB_RAW` | The raw file base URL, normally `https://raw.githubusercontent.com`: chap-core's `compose.ghcr.yml` at a ref. |
 | `CHAPS_GHCR_URL` | The registry base URL, normally `https://ghcr.io`. |
 | `CHAPS_NO_DOCKER_PROBE` | `1` turns off the uid probe, which would otherwise `docker pull` an image the test has not got. |
@@ -50,6 +50,14 @@ four hooks nothing on the command line can set:
 The registry itself moves with the ordinary `--registry-url` flag. The hooks
 exist for the tests: an operator who wants another registry wants another image
 reference, and one who wants another catalogue has the flag.
+
+`GITHUB_TOKEN` and `GH_TOKEN` are not hooks but the real thing: the first of
+the two with a value in it is sent as `Authorization: Bearer` on every
+`api.github.com` request, which is 5000 requests an hour instead of 60. Both
+are cleared for every end-to-end run, so a token in the developer's shell
+cannot change what a test sees, and set deliberately in the one test where the
+header itself is what is under test. Nothing on the command line sets a token
+and nothing writes one down. See [Doctor](./doctor.md#raising-the-github-limit).
 
 The tests that need Docker check for it first and skip with a note on stderr
 when it is not there, so the suite is green on a machine without a daemon.

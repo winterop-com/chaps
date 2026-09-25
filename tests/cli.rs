@@ -36,6 +36,11 @@ impl Sandbox {
     fn chap(&self) -> Command {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            // A token in the developer's own shell would otherwise be sent
+            // to whatever these tests point the API at, and would change what
+            // the `github api` line says from one machine to the next.
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
             // An `--offline` enable reads the user off a locally pulled image
             // before it falls back to the table, and what this machine has
             // pulled is not something a test may depend on.
@@ -94,6 +99,8 @@ impl Sandbox {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
             .env("CHAPS_NO_UPDATE_CHECK", "1")
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
             .env("CHAPS_GITHUB_API", &base)
             .env("CHAPS_GITHUB_RAW", &base)
             .env("CHAPS_GHCR_URL", &base)
@@ -114,6 +121,8 @@ impl Sandbox {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
             .env("CHAPS_NO_UPDATE_CHECK", "1")
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
             .env("CHAPS_GITHUB_API", &base)
             .env("CHAPS_GITHUB_RAW", &base)
             .env("CHAPS_GHCR_URL", &base)
@@ -212,6 +221,8 @@ fn json_of(cmd: &mut Command) -> Json {
 fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
         .current_dir(cwd)
         .arg("--offline")
         .args(args);
@@ -3413,6 +3424,8 @@ fn bare() -> (TempDir, Command) {
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", cache.path())
         .env("CHAPS_NO_UPDATE_CHECK", "1")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
         .current_dir(cache.path());
     (cache, cmd)
 }
@@ -3606,6 +3619,7 @@ fn doctor_outside_a_project_checks_the_machine_and_says_so() {
         "os and arch",
         "disk space",
         "network ghcr.io",
+        "github api",
         "chaps",
     ] {
         assert!(text.contains(name), "`{name}` is missing from:\n{text}");
@@ -3687,7 +3701,7 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
     );
 
     // Every network probe, and the image check that would follow one.
-    for id in ["net-ghcr", "net-marketplace", "net-releases"] {
+    for id in ["net-ghcr", "net-marketplace", "net-releases", "net-github"] {
         assert_eq!(doctor_status(&report, id), "skip", "{report}");
         assert!(
             doctor_check(&report, id)["detail"]
@@ -3791,6 +3805,148 @@ fn doctor_confirms_a_marketplace_pin_that_is_the_newest_build() {
         "{report}"
     );
     assert_eq!(check["fix"], Json::Null, "nothing to do: {report}");
+}
+
+/// Every request to GitHub's REST API carries the token when the environment
+/// names one, and carries nothing when it does not - and the `github api`
+/// line says which of the two hourly limits this address is spending.
+///
+/// The token matters because 60 requests an hour per address is one busy
+/// morning, or one CI runner sharing its egress address with everybody else,
+/// and a `doctor` whose pin lines all skip should say why.
+#[test]
+fn doctor_sends_the_github_token_and_says_what_is_left_of_the_hour() {
+    const TOKEN: &str = "ghp_the_tests_own_token";
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+    let (port, seen) = Hub::new().start_seen();
+
+    /// What the hub has been asked since it was last read, and by whom.
+    fn asked(seen: &Seen) -> Vec<(String, Option<String>)> {
+        let mut log = seen.lock().expect("the request log outlives its panics");
+        std::mem::take(&mut *log)
+    }
+
+    // With a token in the environment, every REST request carries it.
+    let report = json_of(
+        sandbox
+            .online(port)
+            .env("GITHUB_TOKEN", TOKEN)
+            .args(["--json", "doctor"]),
+    );
+    let check = doctor_check(&report, "net-github");
+    assert_eq!(check["name"], "github api", "{report}");
+    assert_eq!(check["status"], "ok", "{report}");
+    assert_eq!(
+        check["detail"].as_str().unwrap(),
+        "reachable, 4990 of 5000 requests left this hour (token)",
+        "{report}"
+    );
+    assert_eq!(check["fix"], Json::Null, "nothing to do: {report}");
+
+    let log = asked(&seen);
+    let api: Vec<&(String, Option<String>)> = log
+        .iter()
+        .filter(|(path, _)| path.starts_with("/repos/") || path.starts_with("/rate_limit"))
+        .collect();
+    assert!(
+        api.iter().any(|(path, _)| path.starts_with("/rate_limit")),
+        "the quota is asked for through /rate_limit: {log:?}"
+    );
+    assert!(api.len() > 1, "doctor asks GitHub more than once: {log:?}");
+    for (path, authorization) in &api {
+        assert_eq!(
+            authorization.as_deref(),
+            Some(format!("Bearer {TOKEN}").as_str()),
+            "{path} went out without the token"
+        );
+    }
+    // The raw file host is not the API and needs no credential.
+    for (path, authorization) in &log {
+        if path.ends_with("/compose.ghcr.yml") {
+            assert_eq!(
+                authorization, &None,
+                "{path} was sent a token it never needs"
+            );
+        }
+    }
+
+    // A `-v` trace says the header went out and never what was in it: these
+    // lines end up in bug reports.
+    let out = sandbox
+        .online(port)
+        .env("GITHUB_TOKEN", TOKEN)
+        .args(["-v", "--json", "doctor"])
+        .output()
+        .expect("doctor runs");
+    let trace = String::from_utf8(out.stderr).expect("utf-8");
+    assert!(
+        trace.contains("Authorization: Bearer <token>"),
+        "the trace has to say the header was sent:\n{trace}"
+    );
+    assert!(!trace.contains(TOKEN), "the token reached a trace line");
+    let _ = asked(&seen);
+
+    // `GH_TOKEN` is the same door: the `gh` CLI's variable, read when
+    // `GITHUB_TOKEN` names nothing.
+    let report = json_of(
+        sandbox
+            .online(port)
+            .env("GH_TOKEN", TOKEN)
+            .args(["--json", "doctor"]),
+    );
+    assert!(
+        doctor_check(&report, "net-github")["detail"]
+            .as_str()
+            .unwrap()
+            .contains("(token)"),
+        "{report}"
+    );
+    assert!(
+        asked(&seen)
+            .iter()
+            .filter(|(path, _)| path.starts_with("/repos/"))
+            .all(|(_, authorization)| authorization.is_some()),
+        "GH_TOKEN has to reach GitHub like GITHUB_TOKEN does"
+    );
+
+    // With neither variable set, nothing goes out with an Authorization
+    // header at all, and the line says what a token would buy.
+    let report = json_of(sandbox.online(port).args(["--json", "doctor"]));
+    let check = doctor_check(&report, "net-github");
+    assert_eq!(check["status"], "ok", "{report}");
+    assert_eq!(
+        check["detail"].as_str().unwrap(),
+        "reachable, 43 of 60 requests left this hour (no token; set GITHUB_TOKEN for 5000)",
+        "{report}"
+    );
+    let log = asked(&seen);
+    assert!(!log.is_empty(), "the run asked the hub for something");
+    for (path, authorization) in &log {
+        assert_eq!(
+            authorization, &None,
+            "{path} carried a credential nothing set"
+        );
+    }
+
+    // `--offline` asks nothing, and the line names the flag as the reason.
+    let offline = json_of(
+        sandbox
+            .chap()
+            .arg("-C")
+            .arg(sandbox.project())
+            .args(["--json", "doctor"]),
+    );
+    let check = doctor_check(&offline, "net-github");
+    assert_eq!(check["status"], "skip", "{offline}");
+    assert!(
+        check["detail"].as_str().unwrap().contains("--offline"),
+        "{offline}"
+    );
+    assert!(asked(&seen).is_empty(), "--offline asks nothing");
 }
 
 // ---------------------------------------------------------------------------
@@ -5019,6 +5175,14 @@ const REPO_URL: &str = "https://github.com/example/chapkit_example_manual_model"
 /// The image that repository publishes to.
 const IMAGE: &str = "ghcr.io/example/chapkit_example_manual_model";
 
+/// Every request the hub answered: the path, and the `Authorization` header
+/// it carried, where it carried one.
+type Seen = std::sync::Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>;
+
+/// The Unix second the hub's `/rate_limit` says the window resets at, so the
+/// clock time on the checklist is the same on every run.
+const RATE_RESET: u64 = 1_758_805_440;
+
 /// A local stand-in for GitHub, ghcr and the marketplace, routed by path.
 ///
 /// One listener answers every request one `chaps models add` makes: the
@@ -5161,10 +5325,18 @@ impl Hub {
     /// Serve this hub on a port of its own; the thread lives as long as the
     /// test process.
     fn start(self) -> u16 {
+        self.start_seen().0
+    }
+
+    /// The same, with the log of what was asked for and what credential came
+    /// with it, which is the only way a test can see a request header at all.
+    fn start_seen(self) -> (u16, Seen) {
         use std::io::{Read, Write};
 
         let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
         let port = listener.local_addr().expect("a local address").port();
+        let seen: Seen = Seen::default();
+        let log = Seen::clone(&seen);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
@@ -5179,7 +5351,16 @@ impl Hub {
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("/")
                     .to_string();
-                let (status, content_type, body) = self.respond(&path);
+                let authorization = request
+                    .lines()
+                    .skip(1)
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+                    .map(|(_, value)| value.trim().to_string());
+                log.lock()
+                    .expect("the request log outlives its panics")
+                    .push((path.clone(), authorization.clone()));
+                let (status, content_type, body) = self.respond(&path, authorization.as_deref());
                 let reason = if status == 200 { "OK" } else { "Not Found" };
                 let response = format!(
                     "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\n\
@@ -5190,12 +5371,29 @@ impl Hub {
                 let _ = stream.flush();
             }
         });
-        port
+        (port, seen)
     }
 
     /// The answer one request path gets: `(status, content type, body)`.
-    fn respond(&self, path: &str) -> (u16, &'static str, String) {
+    ///
+    /// `authorization` is what the request carried, which only `/rate_limit`
+    /// reads: GitHub reports one of two hourly limits depending on whether it
+    /// was asked by a token or by an address, and the checklist prints which.
+    fn respond(&self, path: &str, authorization: Option<&str>) -> (u16, &'static str, String) {
         let json = "application/json";
+        if path.starts_with("/rate_limit") {
+            let (limit, remaining) = match authorization {
+                Some(_) => (5000, 4990),
+                None => (60, 43),
+            };
+            return (
+                200,
+                json,
+                format!(
+                    r#"{{"resources":{{"core":{{"limit":{limit},"remaining":{remaining},"reset":{RATE_RESET},"used":0}}}},"rate":{{"limit":{limit},"remaining":{remaining},"reset":{RATE_RESET}}}}}"#
+                ),
+            );
+        }
         if path.starts_with("/registry.yaml") {
             return (200, "text/plain", REGISTRY_INDEX.to_string());
         }

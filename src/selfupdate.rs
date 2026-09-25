@@ -18,8 +18,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const REPO: &str = "winterop-com/chaps";
 
 /// Release endpoint for the newest final release.
-pub const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/winterop-com/chaps/releases/latest";
+///
+/// A function rather than a constant because `CHAPS_GITHUB_API` moves the
+/// REST base for the tests, and this is one of the calls it has to move: a
+/// test that asked the real GitHub would spend a request of somebody's hourly
+/// quota to answer a question it already knows the answer to.
+pub fn latest_release_url() -> String {
+    format!("{}/repos/{REPO}/releases/latest", crate::github::api_base())
+}
+
+/// One release by its tag.
+pub fn release_url(tag: &str) -> String {
+    format!(
+        "{}/repos/{REPO}/releases/tags/{tag}",
+        crate::github::api_base()
+    )
+}
 
 /// The triple this binary was built for, from the build script.
 pub const TARGET: &str = env!("TARGET");
@@ -344,8 +358,15 @@ pub fn pick_asset(release: &Release, target: &str) -> Result<String> {
 }
 
 /// The release document at `url`, parsed.
+///
+/// Through [`crate::github`], like every other REST call: the token where
+/// this run has one, and a used-up rate limit reported as what it is. The
+/// archive and its `SHA256SUMS` are *not* fetched that way - they come off
+/// `github.com` rather than the API, count against no limit, and a credential
+/// sent to a redirect chain ending at a signed storage URL is a credential
+/// sent somewhere it was not needed.
 fn release_at(url: &str, timeout: Duration) -> Result<Release> {
-    let body = get_text(url, timeout)?;
+    let body = crate::github::get_ok(url, timeout)?;
     parse_release(&body).map_err(|e| anyhow::anyhow!("reading the release at {url}: {e}"))
 }
 
@@ -358,7 +379,7 @@ fn release_at(url: &str, timeout: Duration) -> Result<Release> {
 /// other end. [`Release::prerelease`] is read all the same, so the one place
 /// that must never offer a pre-release can check rather than trust.
 pub fn latest_release(timeout: Duration) -> Result<Release> {
-    release_at(LATEST_RELEASE_URL, timeout)
+    release_at(&latest_release_url(), timeout)
 }
 
 /// One release by tag, for `--version` and for the `dev` channel.
@@ -366,7 +387,7 @@ pub fn latest_release(timeout: Duration) -> Result<Release> {
 /// `releases/tags/<tag>` returns a pre-release like any other release, which
 /// is what makes `--version dev` work at all.
 pub fn release_by_tag(tag: &str, timeout: Duration) -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{tag}");
+    let url = release_url(tag);
     release_at(&url, timeout).map_err(|e| match e.downcast_ref::<ChapError>() {
         Some(ChapError::Http { status: 404, .. }) => {
             anyhow::anyhow!("no release tagged `{tag}` in {REPO}")
@@ -1492,7 +1513,9 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
             download_base("v0.2.0"),
             "https://github.com/winterop-com/chaps/releases/download/v0.2.0"
         );
-        assert!(LATEST_RELEASE_URL.contains(REPO));
+        assert!(latest_release_url().contains(REPO));
+        assert!(latest_release_url().starts_with(crate::github::DEFAULT_API));
+        assert!(release_url("v0.2.0").ends_with("/releases/tags/v0.2.0"));
     }
 
     /// Port 9 is the discard service, so this covers the transport-error path
@@ -1506,10 +1529,11 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *chaps-universa
 
     #[test]
     fn a_status_code_becomes_a_typed_http_error() {
-        let err = map_error(LATEST_RELEASE_URL, ureq::Error::StatusCode(403));
+        let feed = latest_release_url();
+        let err = map_error(&feed, ureq::Error::StatusCode(403));
         match err.downcast_ref::<ChapError>() {
             Some(ChapError::Http { url, status }) => {
-                assert_eq!(url, LATEST_RELEASE_URL);
+                assert_eq!(*url, feed);
                 assert_eq!(*status, 403);
             }
             other => panic!("wrong error: {other:?}"),

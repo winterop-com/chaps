@@ -611,6 +611,117 @@ pub fn ago(age: Duration) -> String {
     format!("{value}{} ago", &unit[..1])
 }
 
+/// `HH:MM` of a Unix timestamp on this machine's clock.
+///
+/// Local time, because the only thing done with one of these is to compare it
+/// with the clock in front of the reader: "wait until 15:04" has to mean
+/// their 15:04. The offset comes from this machine's own zone file; where
+/// there is none to read - Windows keeps its zone somewhere else - the time
+/// is UTC, which is the closest this can get without a calendar dependency.
+pub fn local_clock(unix: u64) -> String {
+    clock_of(unix, local_offset(unix as i64))
+}
+
+/// [`local_clock`] with the offset handed in, so the formatting is testable
+/// on a machine in any time zone.
+fn clock_of(unix: u64, offset: i64) -> String {
+    let local = (unix as i64).saturating_add(offset).max(0) as u64;
+    let (_, _, _, hour, minute, _) = crate::backup::utc_parts(local);
+    format!("{hour:02}:{minute:02}")
+}
+
+/// This machine's UTC offset in seconds at `unix`, and 0 where nothing here
+/// can say what it is.
+fn local_offset(unix: i64) -> i64 {
+    std::fs::read(LOCALTIME)
+        .ok()
+        .and_then(|bytes| tzif_offset(&bytes, unix))
+        .unwrap_or(0)
+}
+
+/// The zone file every Unix keeps the machine's own zone in, as a symlink
+/// into the zoneinfo database. Absent on Windows, which is one of the two
+/// ways [`local_offset`] ends up with nothing to read.
+const LOCALTIME: &str = "/etc/localtime";
+
+/// The UTC offset a TZif file (RFC 8536) gives for `unix`, in seconds.
+///
+/// Written out rather than taken from a calendar crate, for the same reason
+/// [`crate::chapcore::sha256_hex`] is: it is one function, it is only ever
+/// used to print a clock time, and the release targets keep the dependency
+/// set they have.
+///
+/// A version 2 or later file carries the whole table twice - once with
+/// 32-bit transition times, once with 64-bit ones - and the modern `zic`
+/// leaves the first copy empty, so the second block is the one to read.
+fn tzif_offset(bytes: &[u8], unix: i64) -> Option<i64> {
+    /// Magic, version and the reserved bytes, before the six counts.
+    const COUNTS_AT: usize = 20;
+    /// The whole header: the counts are six 32-bit numbers.
+    const HEADER: usize = COUNTS_AT + 6 * 4;
+
+    let u32_at = |at: usize| -> Option<u32> {
+        bytes
+            .get(at..at + 4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_be_bytes)
+    };
+    // `isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt`, in that order.
+    let counts = |start: usize| -> Option<[u32; 6]> {
+        if bytes.get(start..start + 4)? != b"TZif" {
+            return None;
+        }
+        let mut out = [0u32; 6];
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = u32_at(start + COUNTS_AT + i * 4)?;
+        }
+        Some(out)
+    };
+
+    // Where the block to read starts, and how wide its transition times are.
+    let (start, width) = match *bytes.get(4)? >= b'2' {
+        false => (0, 4usize),
+        true => {
+            let [isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt] = counts(0)?;
+            let first = HEADER
+                + timecnt as usize * 5
+                + typecnt as usize * 6
+                + charcnt as usize
+                + leapcnt as usize * 8
+                + isstdcnt as usize
+                + isutcnt as usize;
+            (first, 8usize)
+        }
+    };
+
+    let [_, _, _, timecnt, typecnt, _] = counts(start)?;
+    let times = start + HEADER;
+    let indices = times + timecnt as usize * width;
+    let types = indices + timecnt as usize;
+
+    // The last transition at or before `unix` decides which local time type
+    // is in force; before the first one, the file's first type is.
+    let mut which = 0usize;
+    for i in 0..timecnt as usize {
+        let at = times + i * width;
+        let when = match width {
+            8 => i64::from_be_bytes(bytes.get(at..at + 8)?.try_into().ok()?),
+            _ => i64::from(i32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?)),
+        };
+        if when > unix {
+            break;
+        }
+        which = *bytes.get(indices + i)? as usize;
+    }
+    if which >= typecnt as usize {
+        return None;
+    }
+    let at = types + which * 6;
+    Some(i64::from(i32::from_be_bytes(
+        bytes.get(at..at + 4)?.try_into().ok()?,
+    )))
+}
+
 /// The largest whole unit of an age, as `(value, singular unit name)`.
 ///
 /// One place decides where a duration stops being seconds, so [`human_age`]
@@ -1079,5 +1190,113 @@ mod tests {
         // The same boundary human_age uses, so the two never disagree.
         assert_eq!(ago(Duration::from_secs(60)), "1m ago");
         assert_eq!(human_age(Duration::from_secs(60)), "1 minute");
+    }
+
+    /// 2026-09-25T13:04:00Z, which is the hour a rate-limit reset lands on.
+    const RESET: u64 = 1_758_805_440;
+
+    #[test]
+    fn a_clock_time_is_the_local_hour_and_minute() {
+        assert_eq!(clock_of(RESET, 0), "13:04");
+        // Two hours east and eight hours west of it.
+        assert_eq!(clock_of(RESET, 2 * 3600), "15:04");
+        assert_eq!(clock_of(RESET, -8 * 3600), "05:04");
+        // An offset that is not a whole hour, and one that crosses midnight.
+        assert_eq!(clock_of(RESET, 5 * 3600 + 1800), "18:34");
+        assert_eq!(clock_of(RESET, 11 * 3600), "00:04");
+        // A clock before 1970 is not a thing this prints.
+        assert_eq!(clock_of(0, -3600), "00:00");
+        // Whatever this machine's zone is, the answer is a clock.
+        assert!(
+            regex::Regex::new(r"^\d{2}:\d{2}$")
+                .unwrap()
+                .is_match(&local_clock(RESET)),
+            "{}",
+            local_clock(RESET)
+        );
+    }
+
+    /// The zone file reader, against a version 1 file built here: two
+    /// transitions, and a type table with the offsets they select.
+    #[test]
+    fn the_zone_file_gives_the_offset_in_force() {
+        fn tzif(version: u8, transitions: &[(i32, u8)], offsets: &[i32]) -> Vec<u8> {
+            let mut out = b"TZif".to_vec();
+            out.push(version);
+            out.extend(std::iter::repeat_n(0u8, 15));
+            for count in [
+                0u32,
+                0,
+                0,
+                transitions.len() as u32,
+                offsets.len() as u32,
+                0,
+            ] {
+                out.extend(count.to_be_bytes());
+            }
+            for (when, _) in transitions {
+                out.extend(when.to_be_bytes());
+            }
+            for (_, which) in transitions {
+                out.push(*which);
+            }
+            for offset in offsets {
+                out.extend(offset.to_be_bytes());
+                out.push(0);
+                out.push(0);
+            }
+            out
+        }
+
+        // Standard time until the first transition, summer time after it,
+        // standard time again after the second.
+        let file = tzif(
+            b'\0',
+            &[(1_743_296_400, 1), (1_761_440_400, 0)],
+            &[3600, 7200],
+        );
+        assert_eq!(tzif_offset(&file, 1_700_000_000), Some(3600), "before both");
+        assert_eq!(tzif_offset(&file, RESET as i64), Some(7200), "in between");
+        assert_eq!(tzif_offset(&file, 1_800_000_000), Some(3600), "after both");
+
+        // A zone that never changes carries no transitions at all.
+        let fixed = tzif(b'\0', &[], &[-18_000]);
+        assert_eq!(tzif_offset(&fixed, RESET as i64), Some(-18_000));
+
+        // Anything that is not a zone file, and a truncated one, are nothing
+        // rather than a wrong hour.
+        assert_eq!(tzif_offset(b"not a zone file at all", RESET as i64), None);
+        assert_eq!(tzif_offset(&file[..30], RESET as i64), None);
+        assert_eq!(tzif_offset(&[], 0), None);
+    }
+
+    /// A version 2 file carries the 32-bit table first and the one that is
+    /// actually read second; `zic` leaves the first empty, and reading it
+    /// would put every machine on UTC.
+    #[test]
+    fn a_version_2_zone_file_is_read_from_its_second_block() {
+        let mut out = b"TZif2".to_vec();
+        out.extend(std::iter::repeat_n(0u8, 15));
+        // The empty 32-bit block: no transitions, one type of no interest.
+        for count in [0u32, 0, 0, 0, 1, 0] {
+            out.extend(count.to_be_bytes());
+        }
+        out.extend(0i32.to_be_bytes());
+        out.extend([0u8, 0]);
+        // The 64-bit block, with the offset that has to win.
+        out.extend(b"TZif2");
+        out.extend(std::iter::repeat_n(0u8, 15));
+        for count in [0u32, 0, 0, 1, 2, 0] {
+            out.extend(count.to_be_bytes());
+        }
+        out.extend(1_743_296_400i64.to_be_bytes());
+        out.push(1);
+        for offset in [3600i32, 7200] {
+            out.extend(offset.to_be_bytes());
+            out.extend([0u8, 0]);
+        }
+
+        assert_eq!(tzif_offset(&out, RESET as i64), Some(7200));
+        assert_eq!(tzif_offset(&out, 1_700_000_000), Some(3600));
     }
 }
