@@ -3,11 +3,12 @@ CHAP model marketplace snapshot
 
 upstream:       https://github.com/dhis2-chap/model-marketplace
 ref:            main
-commit:         f5b6e0e279a9cff793449c283e0fd0ad48cae21a
-fetched:        2026-09-22
+commit:         3e04d24690412dad6aeb1c578e38dc643fe8b446
+fetched:        2026-09-25
 
-Files in this directory are verbatim copies of the upstream YAML. They are
-compiled into the binary by src/registry/embedded.rs and used as the last
-resort fallback when the registry cannot be fetched or read from cache.
+Files in this directory are verbatim copies of the upstream YAML. build.rs
+generates the table src/registry/embedded.rs compiles into the binary, which
+is the last resort fallback when the registry cannot be fetched or read from
+cache. There is no hand-written file list to keep in step.
 
 Refresh with scripts/vendor-marketplace.sh and commit the result.
