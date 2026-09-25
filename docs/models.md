@@ -274,6 +274,13 @@ transposes that frame into chap-core observations, posts it as a dataset,
 waits for the dataset job, runs a small rolling backtest over it (3 periods, 2
 splits, stride 1) and reads the scores off the result.
 
+The backtest names one of chap-core's configured models by its id, chosen from
+`GET /v1/crud/configured-models`: the live one named after the service where
+there is one, and otherwise the lowest-numbered of the configs chap-core synced
+out of the service as `<service>:<config>` - a `test_config_` an earlier test
+left behind coming last of all - with a service chap-core has nothing
+configured for skipped rather than backtested.
+
 Geometry is asked for whatever the service declares (`include_geo=true`).
 chap-core's dataset always carries a GeoJSON collection, so a model that says
 it needs no geometry would otherwise be handed features with none in them - and

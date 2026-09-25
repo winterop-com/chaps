@@ -5642,6 +5642,71 @@ const BACKTEST_ROW: &str = r#"{"id":7,"datasetId":41,"modelId":"chapkit-ewars-mo
   "aggregateMetrics":{"ratio_above_truth":0.45,"crps":20.04,"mae":28.96,"rmse":34.88,
   "mape":12.98,"coverage_10_90":0.6}}"#;
 
+/// The configured model a backtest of the passing model has to name.
+const PASSING_CONFIGURED: i64 = 20;
+
+/// What chap-core has configured, as `(id, name, archived)`.
+///
+/// The passing model is in the state that makes the id necessary: it has
+/// re-registered with a new version, so the row it first got - the one named
+/// plainly after the service - is archived, and what is live are the configs
+/// chap-core synced out of the service itself, named `<service>:<config>`.
+/// One of those is what a previous `chapkit test` left behind, and picking
+/// that one would be backtesting a test's leftovers.
+fn configured_models() -> Vec<(i64, String, bool)> {
+    vec![
+        (14, PASSING_MODEL.to_string(), true),
+        (
+            19,
+            format!("{PASSING_MODEL}:test_config_{TEST_CONFIG}"),
+            false,
+        ),
+        (
+            PASSING_CONFIGURED,
+            format!("{PASSING_MODEL}:{PASSING_MODEL}_1790267117082761"),
+            false,
+        ),
+        // The other two are as a service looks the day it registers.
+        (15, FAILING_MODEL.to_string(), false),
+        (16, OLD_CHAPKIT_MODEL.to_string(), false),
+    ]
+}
+
+/// `GET /v1/crud/configured-models`, with the fields chap-core carries.
+fn configured_models_payload() -> String {
+    let rows: Vec<Json> = configured_models()
+        .into_iter()
+        .map(|(id, name, archived)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "version": "1.0.1",
+                "archived": archived,
+                "usesChapkit": true,
+                "sourceDigest": "f9a1c0d",
+            })
+        })
+        .collect();
+    serde_json::to_string(&rows).expect("JSON")
+}
+
+/// The service a `create-backtest` body is about, from either spelling of
+/// `modelId`: the integer key of a configured model, or a service id.
+fn backtest_service(model_id: &Json) -> String {
+    if let Some(name) = model_id.as_str() {
+        return name.to_string();
+    }
+    let wanted = model_id.as_i64().unwrap_or_default();
+    configured_models()
+        .into_iter()
+        .find(|(id, ..)| *id == wanted)
+        .map(|(_, name, _)| match name.split_once(':') {
+            Some((service, _)) => service.to_string(),
+            None => name,
+        })
+        .unwrap_or_default()
+}
+
 /// `GET /v2/services/...` and everything under its proxy.
 fn services_route(
     method: &str,
@@ -5796,7 +5861,7 @@ fn analytics_route(
         ("POST", "/v1/analytics/create-backtest") => {
             let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
             recorded.backtests.push(sent.clone());
-            let service = sent["modelId"].as_str().unwrap_or_default();
+            let service = backtest_service(&sent["modelId"]);
             Some((200, json, format!(r#"{{"id":"bt-{service}"}}"#)))
         }
         // Not chap-core's: how a test asks this server what it was asked.
@@ -5816,6 +5881,7 @@ fn analytics_route(
             recorded.deleted.push(route.to_string());
             Some((200, json, r#"{"message":"deleted"}"#.to_string()))
         }
+        ("GET", "/v1/crud/configured-models") => Some((200, json, configured_models_payload())),
         ("GET", _) if route == format!("/v1/crud/backtests/{TEST_BACKTEST}") => {
             Some((200, json, BACKTEST_ROW.to_string()))
         }
@@ -6591,7 +6657,10 @@ fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
     // The backtest asked for is the small rolling one, against the dataset
     // the job wrote.
     let backtest = &recorded["backtests"][0];
-    assert_eq!(backtest["modelId"], Json::from(PASSING_MODEL));
+    // The configured model chap-core would run, by its integer id: the row
+    // named plainly after the service is archived, and the live ones are the
+    // synced configs, of which the `test_config_` is the wrong answer.
+    assert_eq!(backtest["modelId"], Json::from(PASSING_CONFIGURED));
     assert_eq!(backtest["datasetId"], Json::from(TEST_DATASET));
     assert_eq!(backtest["nPeriods"], Json::from(3));
     assert_eq!(backtest["nSplits"], Json::from(2));

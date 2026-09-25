@@ -633,6 +633,83 @@ pub fn metrics_cell(metrics: &serde_json::Value) -> String {
     parts.join("  ")
 }
 
+// ---------------------------------------------------------------------------
+// Which of chap-core's configured models a backtest is of
+// ---------------------------------------------------------------------------
+
+/// One row of `GET /v1/crud/configured-models`, cut to what the choice needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfiguredModel {
+    /// chap-core's primary key, which is what `create-backtest` is given.
+    pub id: i64,
+    /// chap-core's name for it: the service id for a service that has just
+    /// registered, and `<service id>:<config name>` for one whose configs
+    /// chap-core has synced.
+    pub name: String,
+    /// Whether chap-core has retired it. An archived row still has a name and
+    /// is still listed; it is simply not a model anything can be run with.
+    pub archived: bool,
+}
+
+/// The configured models of one listing, ignoring anything that is not a row.
+pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
+    let Some(rows) = listed.as_array() else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            Some(ConfiguredModel {
+                id: row.get("id")?.as_i64()?,
+                name: row.get("name")?.as_str()?.to_string(),
+                archived: row
+                    .get("archived")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+/// The configured model a backtest of `service_id` has to name.
+///
+/// `create-backtest` resolves a string `modelId` against these names, and a
+/// service is only named plainly for as long as chap-core has nothing else
+/// from it: a service that re-registers with a new version has its own stored
+/// configs synced as `<service id>:<config name>` instead, and the bare name
+/// stops existing. Sending the service id is then a `ValueError` from inside
+/// chap-core rather than a backtest, so the row is picked here and its
+/// integer id is what goes out.
+///
+/// The order is the order of how much the row is the service itself: its bare
+/// name, then a config of it, and a `test_config_` last of all, because that
+/// is what a previous `chaps models test` or `chapkit test` left behind and
+/// not a configuration anybody made. Ties go to the lowest id, so two runs of
+/// the same command backtest the same model.
+pub fn configured_model_for<'a>(
+    models: &'a [ConfiguredModel],
+    service_id: &str,
+) -> Option<&'a ConfiguredModel> {
+    let prefix = format!("{service_id}:");
+    let left_behind = format!("{prefix}test_config_");
+    models
+        .iter()
+        .filter(|model| !model.archived)
+        .filter_map(|model| {
+            let rank = if model.name == service_id {
+                0
+            } else if !model.name.starts_with(&prefix) {
+                return None;
+            } else if model.name.starts_with(&left_behind) {
+                2
+            } else {
+                1
+            };
+            Some((rank, model.id, model))
+        })
+        .min_by_key(|(rank, id, _)| (*rank, *id))
+        .map(|(_, _, model)| model)
+}
+
 /// `1 model`, `2 models`.
 fn plural(n: usize, word: &str) -> String {
     if n == 1 {
@@ -1088,6 +1165,117 @@ Result: 1 FAILURE(S)
         // Only the ones that are there, and something honest when none are.
         assert_eq!(metrics_cell(&serde_json::json!({"mae": 1.0})), "mae 1.0");
         assert_eq!(metrics_cell(&serde_json::json!({})), "no scores reported");
+    }
+
+    /// `(id, name, archived)` as a row of a configured-model listing.
+    fn configured(id: i64, name: &str, archived: bool) -> ConfiguredModel {
+        ConfiguredModel {
+            id,
+            name: name.to_string(),
+            archived,
+        }
+    }
+
+    #[test]
+    fn the_configured_model_of_a_service_is_its_own_name_then_one_of_its_configs() {
+        let bare = configured(15, "chapkit-ewars-model", false);
+        let synced = configured(
+            19,
+            "chapkit-ewars-model:chapkit-ewars-model_179026711",
+            false,
+        );
+        let left_behind = configured(
+            12,
+            "chapkit-ewars-model:test_config_01M3A4TSAZTTDYS0SJK62R4S5A",
+            false,
+        );
+        let other = configured(16, "chapkit-ghr-model", false);
+
+        // The bare name is the service itself and wins, whatever else is
+        // listed and whatever the ids are.
+        let all = vec![
+            other.clone(),
+            left_behind.clone(),
+            synced.clone(),
+            bare.clone(),
+        ];
+        assert_eq!(
+            configured_model_for(&all, "chapkit-ewars-model"),
+            Some(&bare)
+        );
+
+        // Without it - a service that re-registered, which is the state this
+        // exists for - a config of the service is the answer, and the one
+        // `chapkit test` left behind is the last resort.
+        let synced_only = vec![other.clone(), left_behind.clone(), synced.clone()];
+        assert_eq!(
+            configured_model_for(&synced_only, "chapkit-ewars-model"),
+            Some(&synced)
+        );
+        assert_eq!(
+            configured_model_for(&[other.clone(), left_behind.clone()], "chapkit-ewars-model"),
+            Some(&left_behind)
+        );
+
+        // Two configs of the same service: the lowest id, so two runs of the
+        // same command backtest the same model.
+        let second = configured(
+            9,
+            "chapkit-ewars-model:chapkit-ewars-model_179026761",
+            false,
+        );
+        assert_eq!(
+            configured_model_for(&[synced.clone(), second.clone()], "chapkit-ewars-model"),
+            Some(&second)
+        );
+
+        // An archived row is a name chap-core keeps and nothing runs, so the
+        // config is chosen over it rather than it over the config.
+        let retired = configured(3, "chapkit-ewars-model", true);
+        assert_eq!(
+            configured_model_for(&[retired.clone(), synced.clone()], "chapkit-ewars-model"),
+            Some(&synced)
+        );
+        assert_eq!(
+            configured_model_for(&[retired], "chapkit-ewars-model"),
+            None
+        );
+
+        // Nothing for this service at all, and a prefix that only looks like
+        // one: `chapkit-ewars-model-2` is a different service.
+        assert_eq!(configured_model_for(&[other], "chapkit-ewars-model"), None);
+        assert_eq!(configured_model_for(&[], "chapkit-ewars-model"), None);
+        let neighbour = configured(4, "chapkit-ewars-model-2:config", false);
+        assert_eq!(
+            configured_model_for(&[neighbour], "chapkit-ewars-model"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_configured_model_listing_is_read_down_to_the_three_fields_the_choice_needs() {
+        let listed = serde_json::json!([
+            {"id": 15, "name": "chapkit-ewars-model", "archived": true, "usesChapkit": true,
+             "version": "1.0.0", "sourceDigest": "cafe"},
+            {"id": 19, "name": "chapkit-ewars-model:cfg", "archived": false},
+            // No `archived` at all reads as a live row, and a row without an
+            // id or a name is not one.
+            {"id": 20, "name": "auto-arima-chapkit"},
+            {"name": "no id"},
+            {"id": 21},
+            "not a row",
+        ]);
+        let models = configured_models(&listed);
+        assert_eq!(models.len(), 3);
+        assert!(models[0].archived);
+        assert_eq!(models[1].id, 19);
+        assert_eq!(models[1].name, "chapkit-ewars-model:cfg");
+        assert!(!models[2].archived);
+        // An answer that is not a list at all is no configured model.
+        assert!(configured_models(&serde_json::json!({"detail": "Not Found"})).is_empty());
+
+        let chosen = configured_model_for(&models, "chapkit-ewars-model").expect("the config");
+        assert_eq!(chosen.id, 19);
     }
 
     #[test]
