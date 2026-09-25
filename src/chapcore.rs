@@ -171,7 +171,7 @@ pub fn parse_commit_date(body: &str) -> Option<String> {
 }
 
 /// The `YYYY-MM-DD` of an RFC 3339 timestamp, or `None` when it is not one.
-fn day_of(timestamp: &str) -> Option<String> {
+pub(crate) fn day_of(timestamp: &str) -> Option<String> {
     let day = timestamp.trim().split(['T', 't', ' ']).next()?;
     let mut fields = day.split('-');
     let ok = fields

@@ -29,6 +29,33 @@ pub fn default_branch(api: &str, repo: &Repo, timeout: Duration) -> Result<Strin
     parse_default_branch(&body).map_err(|e| anyhow::anyhow!("reading {url}: {e}"))
 }
 
+/// One entry of a commit listing: the commit, and the day it was made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commit {
+    /// The full SHA.
+    pub sha: String,
+    /// The committer date as `YYYY-MM-DD`, empty when the listing carried
+    /// none. A date nobody can print is not worth failing a lookup over.
+    pub day: String,
+}
+
+/// The newest commits on `branch`, newest first, with their days.
+pub fn commit_log(
+    api: &str,
+    repo: &Repo,
+    branch: &str,
+    per_page: u32,
+    timeout: Duration,
+) -> Result<Vec<Commit>> {
+    let url = format!(
+        "{}/repos/{}/commits?sha={branch}&per_page={per_page}",
+        api.trim_end_matches('/'),
+        repo.path()
+    );
+    let body = get(&url, timeout)?;
+    parse_commit_log(&body).map_err(|e| anyhow::anyhow!("reading {url}: {e}"))
+}
+
 /// The newest commits on `branch`, newest first, as full SHAs.
 pub fn commits(
     api: &str,
@@ -37,13 +64,25 @@ pub fn commits(
     per_page: u32,
     timeout: Duration,
 ) -> Result<Vec<String>> {
+    Ok(commit_log(api, repo, branch, per_page, timeout)?
+        .into_iter()
+        .map(|commit| commit.sha)
+        .collect())
+}
+
+/// The day one commit was made, `YYYY-MM-DD`.
+///
+/// One request, and only ever made for a commit the branch listing did not
+/// carry: a pin from a branch or a tag of its own has no day until it is
+/// asked for by name.
+pub fn commit_day(api: &str, repo: &Repo, sha: &str, timeout: Duration) -> Result<String> {
     let url = format!(
-        "{}/repos/{}/commits?sha={branch}&per_page={per_page}",
+        "{}/repos/{}/commits/{sha}",
         api.trim_end_matches('/'),
         repo.path()
     );
     let body = get(&url, timeout)?;
-    parse_commits(&body).map_err(|e| anyhow::anyhow!("reading {url}: {e}"))
+    parse_commit_day(&body).ok_or_else(|| anyhow::anyhow!("{url} names no commit date"))
 }
 
 /// `default_branch` out of a repository payload; every other field is ignored.
@@ -62,25 +101,64 @@ pub fn parse_default_branch(body: &str) -> Result<String> {
     Ok(branch.to_string())
 }
 
-/// The `sha` of every entry of a commit listing, in the order GitHub gave
-/// them, which is newest first.
-pub fn parse_commits(body: &str) -> Result<Vec<String>> {
-    #[derive(Debug, Deserialize)]
-    struct Commit {
-        #[serde(default)]
-        sha: String,
+/// One entry of a commit listing, as GitHub writes it. Every other field of
+/// the (large) payload is ignored.
+#[derive(Debug, Default, Deserialize)]
+struct Entry {
+    #[serde(default)]
+    sha: String,
+    #[serde(default)]
+    commit: CommitField,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct CommitField {
+    #[serde(default)]
+    committer: Signature,
+    #[serde(default)]
+    author: Signature,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct Signature {
+    #[serde(default)]
+    date: String,
+}
+
+impl Entry {
+    /// The day this entry was committed: the committer's, or the author's
+    /// where a rewritten commit carries only that.
+    fn day(&self) -> String {
+        crate::chapcore::day_of(&self.commit.committer.date)
+            .or_else(|| crate::chapcore::day_of(&self.commit.author.date))
+            .unwrap_or_default()
     }
-    let commits: Vec<Commit> =
+}
+
+/// Every entry of a commit listing, in the order GitHub gave them, which is
+/// newest first.
+pub fn parse_commit_log(body: &str) -> Result<Vec<Commit>> {
+    let entries: Vec<Entry> =
         serde_json::from_str(body).map_err(|e| anyhow::anyhow!("invalid commit JSON: {e}"))?;
-    let shas: Vec<String> = commits
+    let commits: Vec<Commit> = entries
         .into_iter()
-        .map(|c| c.sha.trim().to_string())
-        .filter(|sha| !sha.is_empty())
+        .filter(|entry| !entry.sha.trim().is_empty())
+        .map(|entry| Commit {
+            day: entry.day(),
+            sha: entry.sha.trim().to_string(),
+        })
         .collect();
-    if shas.is_empty() {
+    if commits.is_empty() {
         return Err(anyhow::anyhow!("the branch has no commits"));
     }
-    Ok(shas)
+    Ok(commits)
+}
+
+/// The day of a single commit payload, `YYYY-MM-DD`.
+pub fn parse_commit_day(body: &str) -> Option<String> {
+    let entry: Entry = serde_json::from_str(body).ok()?;
+    let day = entry.day();
+    (!day.is_empty()).then_some(day)
 }
 
 /// The image tag the publish workflow gives a commit: `sha-` plus the short
@@ -143,17 +221,63 @@ mod tests {
 
     #[test]
     fn the_commit_listing_yields_its_shas_newest_first() {
-        let shas = parse_commits(COMMITS).unwrap();
-        assert_eq!(shas.len(), 2);
-        assert!(shas[0].starts_with("b1d6c31"));
-        assert_eq!(sha_tag(&shas[0]), "sha-b1d6c31");
-        assert_eq!(sha_tag(&shas[1]), "sha-60b16a2");
+        let log = parse_commit_log(COMMITS).unwrap();
+        assert_eq!(log.len(), 2);
+        assert!(log[0].sha.starts_with("b1d6c31"));
+        assert_eq!(sha_tag(&log[0].sha), "sha-b1d6c31");
+        assert_eq!(sha_tag(&log[1].sha), "sha-60b16a2");
     }
 
     #[test]
     fn an_empty_or_unreadable_commit_listing_is_an_error() {
-        assert!(parse_commits("[]").is_err());
-        assert!(parse_commits(r#"{"message":"Not Found"}"#).is_err());
+        assert!(parse_commit_log("[]").is_err());
+        assert!(parse_commit_log(r#"{"message":"Not Found"}"#).is_err());
+    }
+
+    /// The listing the pin checks read: every commit with the day it was
+    /// made, and an entry with neither date left with none.
+    #[test]
+    fn the_commit_listing_carries_the_day_of_every_commit() {
+        const DATED: &str = r#"[
+          {"sha": "a6a05ef1111111111111111111111111111111ff",
+           "commit": {"committer": {"date": "2026-09-23T08:15:00Z"},
+                      "author": {"date": "2026-09-20T08:15:00Z"}}},
+          {"sha": "70c07a92222222222222222222222222222222ff",
+           "commit": {"author": {"date": "2026-09-08T11:00:00Z"}}},
+          {"sha": "00000003333333333333333333333333333333ff", "commit": {"message": "x"}}
+        ]"#;
+        let log = parse_commit_log(DATED).unwrap();
+        assert_eq!(log.len(), 3);
+        // The committer date wins over the author's, which is the day the
+        // build that carries the commit was made.
+        assert_eq!(log[0].day, "2026-09-23");
+        // A rewritten commit with only an author date still has a day.
+        assert_eq!(log[1].day, "2026-09-08");
+        assert_eq!(log[2].day, "", "no date is no day, and not a failure");
+        assert_eq!(sha_tag(&log[1].sha), "sha-70c07a9");
+
+        // A listing with no dates at all is still a listing.
+        assert!(
+            parse_commit_log(COMMITS)
+                .unwrap()
+                .iter()
+                .all(|c| c.day.is_empty())
+        );
+        assert!(parse_commit_log("[]").is_err());
+    }
+
+    #[test]
+    fn one_commit_payload_yields_its_day() {
+        assert_eq!(
+            parse_commit_day(
+                r#"{"sha":"70c07a9","commit":{"committer":{"date":"2026-09-08T11:00:00Z"}}}"#
+            )
+            .as_deref(),
+            Some("2026-09-08")
+        );
+        // A commit GitHub will not talk about has no day to print.
+        assert_eq!(parse_commit_day(r#"{"message":"Not Found"}"#), None);
+        assert_eq!(parse_commit_day("<html>"), None);
     }
 
     #[test]

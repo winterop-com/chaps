@@ -350,6 +350,84 @@ pub fn newest_published(
     pick_published(&shas, &|tag| client.tag_exists(tag))
 }
 
+/// The commit log of a branch, and the newest of those commits that has a
+/// published image.
+///
+/// What a pin is measured against: the tag says whether it is the newest
+/// build, and the log says where a pin that is not sits against it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchBuilds {
+    /// The newest commits of the branch, newest first.
+    pub log: Vec<github::Commit>,
+    /// The newest of them with a published image, as `(commit, tag)`, or
+    /// `None` when none of the ones that were asked about has one.
+    pub newest: Option<(String, String)>,
+}
+
+/// The default branch of a repository URL, e.g. `main`.
+pub fn default_branch_of(repository: &str, endpoints: &Endpoints) -> Result<String> {
+    let repo = repo_of(repository, endpoints)?;
+    github::default_branch(&endpoints.github_api, &repo, endpoints.timeout)
+}
+
+/// The newest `per_page` commits of `branch`, and the newest of the first
+/// `probes` of them that ghcr has an image for.
+///
+/// `probes` bounds the registry half: the publish workflow builds every push,
+/// so the newest commit is normally the first and only tag asked about, and a
+/// branch that has published nothing recently must not turn one doctor line
+/// into a page of registry round trips.
+pub fn branch_builds(
+    repository: &str,
+    branch: &str,
+    per_page: u32,
+    probes: usize,
+    endpoints: &Endpoints,
+) -> Result<BranchBuilds> {
+    let repo = repo_of(repository, endpoints)?;
+    let log = github::commit_log(
+        &endpoints.github_api,
+        &repo,
+        branch,
+        per_page,
+        endpoints.timeout,
+    )?;
+    let client = ghcr::Client::anonymous(
+        &endpoints.ghcr_url,
+        &repo.path().to_lowercase(),
+        endpoints.timeout,
+    )?;
+    let asked: Vec<String> = log
+        .iter()
+        .take(probes)
+        .map(|commit| commit.sha.clone())
+        .collect();
+    let newest = pick_published(&asked, &|tag| client.tag_exists(tag))?;
+    Ok(BranchBuilds { log, newest })
+}
+
+/// The day one commit of a repository was made, `YYYY-MM-DD`.
+pub fn commit_day(repository: &str, sha: &str, endpoints: &Endpoints) -> Result<String> {
+    let repo = repo_of(repository, endpoints)?;
+    github::commit_day(&endpoints.github_api, &repo, sha, endpoints.timeout)
+}
+
+/// The `<owner>/<repo>` a lookup is made against, with the two things that
+/// rule one out: `--offline`, and a source that names no repository.
+fn repo_of(repository: &str, endpoints: &Endpoints) -> Result<source::Repo> {
+    if endpoints.offline {
+        return Err(anyhow::anyhow!(
+            "reading {repository} needs the network, and this run is --offline"
+        ));
+    }
+    match Source::parse(repository)? {
+        Source::Repo(repo) => Ok(repo),
+        Source::Image(_) => Err(anyhow::anyhow!(
+            "{repository} is not a GitHub repository URL"
+        )),
+    }
+}
+
 /// What the image says about itself: over HTTP where the registry can be
 /// reached, from the local daemon where it cannot.
 ///

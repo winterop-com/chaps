@@ -14,30 +14,31 @@ chaps doctor
 ```
 
 ```text
-ok    docker cli                 docker 29.8.1
-ok    docker daemon              Docker Engine 29.8.0
-ok    docker compose             v2.24.6
-warn  os and arch                macos/aarch64; CHAP images are linux/amd64 only, so they run under emulation
+ok    docker cli                        docker 29.8.1
+ok    docker daemon                     Docker Engine 29.8.0
+ok    docker compose                    v2.24.6
+warn  os and arch                       macos/aarch64; CHAP images are linux/amd64 only, so they run under emulation
       nothing to do: Rosetta runs the amd64 images, they are only slower
-ok    disk space                 633.1 GB free on /Users/you/mychap
-ok    network ghcr.io            reachable (HTTP 401)
-ok    network marketplace        reachable (HTTP 200)
-ok    network releases           reachable, newest chap-core is v2.3.1
-ok    chaps                      v0.2.0, aarch64-apple-darwin, release archive
-ok    project                    mychap-1ab2c3 (recorded in .chaps/project.yaml)
-ok    project files              all 7 present
-ok    compose files              in sync (0 to write, 7 unchanged, 0 to remove)
-ok    .env                       auth off, POSTGRES_PASSWORD set, CHAP_IMAGE_TAG present
-ok    volumes                    6 volumes named mychap-1ab2c3_*
-fail  api port                   8000 is in use by something else
+ok    disk space                        633.1 GB free on /Users/you/mychap
+ok    network ghcr.io                   reachable (HTTP 401)
+ok    network marketplace               reachable (HTTP 200)
+ok    network releases                  reachable, newest chap-core is v2.3.1
+ok    chaps                             v0.2.0, aarch64-apple-darwin, release archive
+ok    project                           mychap-1ab2c3 (recorded in .chaps/project.yaml)
+ok    project files                     all 7 present
+ok    compose files                     in sync (0 to write, 7 unchanged, 0 to remove)
+ok    .env                              auth off, POSTGRES_PASSWORD set, CHAP_IMAGE_TAG present
+ok    volumes                           6 volumes named mychap-1ab2c3_*
+fail  api port                          8000 is in use by something else
       port 8000 is already in use on this machine (needed by chap); free it, or run
       `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
-ok    chap-core pin              v2.3.1 is the newest release
-ok    image chapkit-ewars-model  ghcr.io/chap-models/chapkit_ewars_model:sha-8d4a7ea (linux/amd64)
-skip  health                     no container of this project is running
+ok    chap-core pin                     v2.3.1 is the newest release
+ok    image chapkit-ewars-model         ghcr.io/chap-models/chapkit_ewars_model:sha-8d4a7ea (linux/amd64)
+ok    registry pin chapkit_ewars_model  sha-8d4a7ea is the newest build on main
+skip  health                            no container of this project is running
       run `chaps up` to start CHAP
 
-18 checks: 15 ok, 1 warn, 1 fail, 1 skipped
+19 checks: 16 ok, 1 warn, 1 fail, 1 skipped
 ```
 
 Four words carry the verdict, and only one of them is a problem:
@@ -102,6 +103,7 @@ project: none here (run chaps doctor inside a deployment directory for more)
 | `manual <id>` | is a model added with `chaps models add` still on the newest build its branch has published (one line per such model) | Warns when the branch has moved on: `chaps update` moves the pin. A model added from an image reference is pinned on purpose and skipped as such, and a repository or registry that would not answer is a check that was not made rather than a fault in the deployment. Skipped under `--offline`. See [Models outside the marketplace](./models.md#models-outside-the-marketplace). |
 | `chap-core pin` | is the pinned tag still the newest release (left out when `chap-core` is not a component of this deployment) | Warns when a newer chap-core has been released: `chaps update --dry-run` says what would move. A moving tag (`latest`, `master`, `dev`) is not behind anything, so it passes whether or not the list was read, and says which build it is on instead - `dev (moving tag, running 7f3a1c2e9b4d)` - plus the two commands that leave it: `chaps update` re-pulls it, `chaps update --pin-chap-core` pins a release. The digest comes from the image chap-core's container runs and is left out when nothing is running. See [Switching chap-core's tag](./updating.md#switching-chap-cores-tag). Skipped when the release list was not reachable, and under `--offline`, where it was never asked for. |
 | `image <model>` | does each enabled model's exact tag exist on ghcr, with a linux/amd64 image | `docker manifest inspect` per model, in parallel, ten seconds each. A tag that is gone fails and names the model to re-resolve with `chaps models enable <id>`. Skipped, with the reason on the line, under `--offline`, when there is no docker CLI to ask through, and when `ghcr.io` was unreachable. `--offline` is the reason given first, so the line reads the same on a machine with Docker and one without. |
+| `registry pin <id>` | is the commit the marketplace pins for each enabled model still the newest build that model's own repository has published (one line per enabled marketplace model) | Warns when the catalogue is behind: the model repository has built a newer commit than the version this deployment's channel resolves to, which is the state in which every deployment runs a fortnight-old image without anything saying so. No `chaps` command moves that pin - it lives in the marketplace, and `chaps models add` refuses an id the catalogue already lists - so the line asks for a new pin there. A commit the branch has not built yet, and one taken from a branch or a tag of its own, are ahead rather than behind and pass. The default branch, one commit listing and at most five registry lookups per model, run in parallel; a repository that will not answer, a rate limit and a branch with no published build are all skips with the reason on the line. Models added with `chaps models add` are left out, because `manual <id>` above already asks the same question. Skipped under `--offline`. See [Channels and versions](./models.md#channels-and-versions). |
 | `user <model>` | does the account the overlay runs each enabled model as still match what its image declares (one line per enabled model) | `docker image inspect --platform linux/amd64` of the exact tag the overlay pins, read from the local daemon only - no network, so this line is answered under `--offline` too. Warns when the two have drifted apart, which is what a `user:` written by an older `chaps` (or by hand) looks like: an image that runs as root under `user: 1000:1000` starts fine and then fails on its own binaries. `chaps models enable <id>` reads the account off the image again, and `chaps update` does it for a model it moves to a new tag. Skipped when the amd64 variant of the tag is not in this machine's image store - the line names the `chaps docker pull` that would put it there, which is also what an arm64 host holding only its own architecture is told - when there is no docker CLI to ask through, and when the image runs as an account name only the image itself can turn into numbers. See [Data directories and users](./models.md#data-directories-and-users). |
 | `image <component>` | does each enabled component's image exist | The same `docker manifest inspect`, without the linux/amd64 question: both component images are multi-arch and no component pins a platform, so "the tag exists" is the whole answer. Skipped for the same three reasons. |
 | `health` | chap-core's health and whether every model registered | Skipped when no container of this project is running, which is `chaps up`. Otherwise it is the verdict of [`chaps status`](./status.md) as one line. A `chap` container that is up and failing its healthcheck is reported as such, with the last error line from its own log and the fix that goes with it. A deployment without chap-core is judged by its components instead. When every model **is** registered the line is `ok` and still carries a next step - `chaps models test --all` - because registration is only a heartbeat: the check that settles whether a model can predict has to run the models, which takes minutes and is therefore not something `doctor` does itself. See [Testing a model](./models.md#testing-a-model). |
@@ -152,12 +154,13 @@ Outside a deployment directory the project checks are simply absent from
 `skip` with the reason, and the reason always names the flag:
 
 ```text
-skip  network ghcr.io            --offline: the image registry was not probed
-skip  network marketplace        --offline: the model catalogue was not probed
-skip  network releases           --offline: the chap-core release list was not probed
-skip  chaps                      v0.2.0, aarch64-apple-darwin, release archive; --offline: the release list was not asked
-skip  chap-core pin              v2.3.1 pinned; --offline: the release list was not asked
-skip  image chapkit-ewars-model  --offline: the registry was not asked
+skip  network ghcr.io                   --offline: the image registry was not probed
+skip  network marketplace               --offline: the model catalogue was not probed
+skip  network releases                  --offline: the chap-core release list was not probed
+skip  chaps                             v0.2.0, aarch64-apple-darwin, release archive; --offline: the release list was not asked
+skip  chap-core pin                     v2.3.1 pinned; --offline: the release list was not asked
+skip  image chapkit-ewars-model         --offline: the registry was not asked
+skip  registry pin chapkit_ewars_model  --offline, so the model repositories were not asked about newer builds
 ```
 
 `--offline` is the reason on every one of those lines whatever else the
