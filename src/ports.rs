@@ -314,20 +314,47 @@ fn sibling_dirs(dir: &Path) -> Vec<PathBuf> {
 /// A path in the one spelling two of them can be compared in.
 ///
 /// `canonicalize` resolves the symlinks that make `/tmp` and `/private/tmp`
-/// the same directory on macOS, but it needs the path to exist - and the
-/// directory `init` is about to write does not yet. So the parent is resolved
-/// and the name put back on, which is enough for the two searches and the new
-/// deployment to agree on which directory is which.
+/// the same directory on macOS, and the short names and the casing that do
+/// the same on Windows, but it needs the path to exist - and the directory
+/// `init` is about to write does not yet. So the parent is resolved and the
+/// name put back on, which is enough for the two searches and the new
+/// deployment to agree on which directory is which. What it answers is put
+/// back in the spelling the fallback uses, so all three branches agree too.
 fn identity(path: &Path) -> PathBuf {
     if let Ok(real) = path.canonicalize() {
-        return real;
+        return plain(real);
     }
     if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
         && let Ok(real) = parent.canonicalize()
     {
-        return real.join(name);
+        return plain(real).join(name);
     }
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// A canonical path without the verbatim prefix Windows gives one.
+///
+/// There `canonicalize` answers `\\?\C:\...`, which no other spelling of the
+/// same directory equals: not `std::path::absolute`, and not what docker
+/// printed either, so a canonicalized sibling would never be the docker-known
+/// deployment beside it. The prefix comes off before anything is compared.
+/// No path on Unix carries one, where this hands back what it was given.
+fn plain(path: PathBuf) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path;
+    };
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    let Some(rest) = text.strip_prefix(r"\\?\") else {
+        return path;
+    };
+    // A drive path only: the UNC spelling is the line above, and a device
+    // path (`\\?\Volume{...}`) has no plainer spelling to put it in.
+    match rest.as_bytes() {
+        [drive, b':', ..] if drive.is_ascii_alphabetic() => PathBuf::from(rest),
+        _ => path,
+    }
 }
 
 /// The whole message `chaps up` fails with when a port it needs is taken.
@@ -348,7 +375,7 @@ pub fn preflight_message(busy: &[PortClaim], suggestion: Option<u16>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{EnabledModel, ProjectState};
+    use crate::project::{CHAPS_COMPOSE, EnabledModel, ProjectState};
     use std::collections::{BTreeMap, BTreeSet};
 
     /// A listener on a port the kernel picked, so the test never fights
@@ -690,6 +717,40 @@ mod tests {
         None
     }
 
+    /// One entry of `docker compose ls -a --format json`: `ConfigFiles` is
+    /// the comma-separated list of absolute paths docker prints, built from
+    /// the paths themselves so the parser is handed the host's own
+    /// separators, and serialized by serde, since a Windows path pasted into
+    /// a JSON literal is not JSON at all (`\U` is no escape).
+    fn ls_entry(name: &str, dir: &Path, files: &[&str]) -> serde_json::Value {
+        let config_files: Vec<String> = files
+            .iter()
+            .map(|file| dir.join(file).display().to_string())
+            .collect();
+        serde_json::json!({
+            "Name": name,
+            "Status": "exited(0)",
+            "ConfigFiles": config_files.join(","),
+        })
+    }
+
+    #[test]
+    fn a_windows_verbatim_prefix_comes_off_before_two_paths_are_compared() {
+        // String work either way, so what `canonicalize` answers on Windows
+        // is checked on every host.
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\C:\work\hello1")),
+            PathBuf::from(r"C:\work\hello1")
+        );
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\UNC\server\share\hello1")),
+            PathBuf::from(r"\\server\share\hello1")
+        );
+        // A path that never had one is handed back as it came.
+        let already = PathBuf::from("/work/hello1");
+        assert_eq!(plain(already.clone()), already);
+    }
+
     #[test]
     fn the_deployments_beside_a_new_one_are_found_and_read_like_any_project() {
         let home = tempfile::tempdir().unwrap();
@@ -716,11 +777,8 @@ mod tests {
         let one = deployment(home.path(), "hello1", 8000, None);
         // `init --force` over a deployment that is already there: its own old
         // files are on disk, and docker remembers it too.
-        let json = format!(
-            r#"[{{"Name":"hello1","Status":"exited(0)","ConfigFiles":"{}/compose.yml,{}/compose.chaps.yml"}}]"#,
-            one.display(),
-            one.display()
-        );
+        let json = serde_json::json!([ls_entry("hello1", &one, &["compose.yml", CHAPS_COMPOSE])])
+            .to_string();
         let docker = || Some(json.clone());
         assert!(
             other_deployments(&one, &docker).is_empty(),
@@ -736,17 +794,17 @@ mod tests {
         // Somewhere else entirely: only docker knows about this one.
         let elsewhere = tempfile::tempdir().unwrap();
         let far = deployment(elsewhere.path(), "hello2", 8000, None);
-        let json = format!(
-            r#"[
-              {{"Name":"hello1","ConfigFiles":"{sibling}/compose.yml,{sibling}/compose.chaps.yml"}},
-              {{"Name":"hello2","ConfigFiles":"{far}/compose.chaps.yml"}},
-              {{"Name":"something-else","ConfigFiles":"{home}/other/docker-compose.yml"}},
-              {{"Name":"deleted","ConfigFiles":"{home}/gone/compose.chaps.yml"}}
-            ]"#,
-            sibling = sibling.display(),
-            far = far.display(),
-            home = home.path().display(),
-        );
+        let json = serde_json::json!([
+            ls_entry("hello1", &sibling, &["compose.yml", CHAPS_COMPOSE]),
+            ls_entry("hello2", &far, &[CHAPS_COMPOSE]),
+            ls_entry(
+                "something-else",
+                &home.path().join("other"),
+                &["docker-compose.yml"]
+            ),
+            ls_entry("deleted", &home.path().join("gone"), &[CHAPS_COMPOSE]),
+        ])
+        .to_string();
         let found = other_deployments(&home.path().join("hello3"), &|| Some(json.clone()));
         let names: Vec<String> = found.iter().map(Deployment::name).collect();
         assert_eq!(
@@ -808,18 +866,23 @@ mod tests {
         let held: Vec<Deployment> = ["a", "b", "c", "d", "e"]
             .iter()
             .map(|name| Deployment {
-                dir: PathBuf::from("/t").join(name),
+                dir: Path::new("/t").join(name),
                 claims: vec![claim.clone()],
             })
             .collect();
+        // The line prints the directory the way the host spells it, so the
+        // expectation is built from the same paths rather than from `/t/a`.
+        let named = |i: usize| format!("{} ({})", held[i].name(), held[i].dir.display());
 
         let two: Vec<&Deployment> = held.iter().take(2).collect();
         let line = claimed_line(&claim, &two, Some(9001));
         assert!(
-            line.starts_with(
-                "port 9000 is also used by a (/t/a), b (/t/b), which are not \
-                 running; they cannot all be up at once."
-            ),
+            line.starts_with(&format!(
+                "port 9000 is also used by {}, {}, which are not running; \
+                 they cannot all be up at once.",
+                named(0),
+                named(1),
+            )),
             "{line}"
         );
         // A component's port moves with the command that set it, and the
@@ -832,7 +895,12 @@ mod tests {
         let all: Vec<&Deployment> = held.iter().collect();
         let line = claimed_line(&claim, &all, None);
         assert!(
-            line.contains("a (/t/a), b (/t/b), c (/t/c) and 2 more, which are not running"),
+            line.contains(&format!(
+                "{}, {}, {} and 2 more, which are not running",
+                named(0),
+                named(1),
+                named(2),
+            )),
             "{line}"
         );
     }
