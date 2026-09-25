@@ -51,19 +51,21 @@ covariates:
   allow_free_additional: false
 
 channels:
-  stable: 1.0.0
-  latest: 1.0.0
+  stable: 1.0.1
+  latest: 1.0.1
 
 versions:
-  - version: 1.0.0
-    commit: 75c26ab4e4acbca23c2f9f534167cba44f763673
-    image_tag: sha-75c26ab
-    chapkit: ">=2.0.0,<3"
+  - version: 1.0.1
+    commit: 9fbdd09494fd74d6a55b1c9bef33a2d479cdb402
+    image_tag: sha-9fbdd09
+    chapkit: ">=2.1.2,<3"
     status: verified
     # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
     verified_by: []
     changelog: >-
-      Upgrade to chapkit 2.0.0.
+      Require chapkit 2.1.2, whose failure messages keep the R error line
+      instead of trailing warnings, and which applies the model
+      configurations chap-core sends.
     notes: >-
       Supersedes the MLproject-based minimalist_example_r entry in chap's
       model-repositories whitelist.

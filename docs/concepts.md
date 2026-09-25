@@ -179,7 +179,7 @@ A deployment is reproducible because everything it runs is pinned.
 
 - **Models** are pinned to an image tag, which for marketplace images is a
   `sha-<short commit>` build:
-  `image: <repo>:${<ID>_IMAGE_TAG:-sha-fa880a1}`. A model that follows a
+  `image: <repo>:${<ID>_IMAGE_TAG:-sha-8d4a7ea}`. A model that follows a
   channel records both the channel and the version the channel resolved to; one
   enabled with `--version` records the version alone and never moves.
 - **chap-core** is pinned to a release tag. `init` resolves the default

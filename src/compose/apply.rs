@@ -434,6 +434,18 @@ mod tests {
         sel
     }
 
+    /// The version and image tag the snapshot's `stable` channel points at,
+    /// so the assertions below follow a marketplace refresh instead of
+    /// pinning a sha that the next one invalidates.
+    fn stable_pin(registry: &Registry, id: &str) -> (String, String) {
+        let version = registry
+            .get(id)
+            .expect("vendored model")
+            .resolve(&VersionSelector::Channel(Channel::Stable))
+            .expect("stable resolves");
+        (version.version.clone(), version.image_tag.clone())
+    }
+
     fn umbrella_includes(project: &Project) -> Vec<String> {
         let body = std::fs::read_to_string(project.dir.join(MARKETPLACE_COMPOSE)).unwrap();
         let doc: Value = serde_yaml_ng::from_str(&body).unwrap();
@@ -458,7 +470,10 @@ mod tests {
             "a model publishes no host port unless one was asked for"
         );
         assert_eq!(entry.channel, Some(Channel::Stable));
-        assert_eq!(entry.image_tag, "sha-fa880a1");
+        assert_eq!(
+            entry.image_tag,
+            stable_pin(&registry, "chapkit_ewars_model").1
+        );
         assert_eq!(entry.data_dir, "/app/data");
         assert_eq!(entry.user, "1000:1000");
         assert_eq!(entry.user_from, UserSource::Table, "the test resolver");
@@ -584,7 +599,8 @@ mod tests {
         apply(&mut project, &registry, &publish(&["auto_arima_chapkit"])).unwrap();
 
         let mut sel = enable(&["chapkit_ewars_model"]);
-        sel.enable[0].selector = VersionSelector::Exact("1.0.0".into());
+        sel.enable[0].selector =
+            VersionSelector::Exact(stable_pin(&registry, "chapkit_ewars_model").0);
         sel.enable[0].user = Some("1000:1000".into());
         let report = apply(&mut project, &registry, &sel).unwrap();
         assert!(report.enabled.is_empty());
@@ -759,15 +775,19 @@ mod tests {
         // The same request without it is what asks the registry again.
         let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
         let entry = &report.updated[0].1;
-        assert_eq!(entry.version, "1.0.0");
-        assert_eq!(entry.image_tag, "sha-fa880a1");
+        let (version, tag) = stable_pin(&registry, "chapkit_ewars_model");
+        assert_eq!(entry.version, version);
+        assert_eq!(entry.image_tag, tag);
         assert_eq!(entry.channel, Some(Channel::Stable));
 
         // A model that is not enabled has no version to keep, so it resolves.
         let mut sel = enable(&["auto_arima_chapkit"]);
         sel.enable[0].keep_version = true;
         let report = apply(&mut project, &registry, &sel).unwrap();
-        assert_eq!(report.enabled[0].1.version, "1.0.0");
+        assert_eq!(
+            report.enabled[0].1.version,
+            stable_pin(&registry, "auto_arima_chapkit").0
+        );
     }
 
     /// `init --force` deletes the previous deployment's overlays before
@@ -859,13 +879,19 @@ mod tests {
         apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
         let body = std::fs::read_to_string(&env).unwrap();
         assert!(body.starts_with("POSTGRES_PASSWORD=secret\n"));
-        assert!(body.contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n"));
+        assert!(body.contains(&format!(
+            "\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG={}\n",
+            stable_pin(&registry, "chapkit_ewars_model").1
+        )));
 
         // A second run adds nothing; only the new model's pin appears.
         apply(&mut project, &registry, &enable(&["auto_arima_chapkit"])).unwrap();
         let body = std::fs::read_to_string(&env).unwrap();
         assert_eq!(body.matches("CHAPKIT_EWARS_MODEL_IMAGE_TAG").count(), 1);
-        assert!(body.contains("\n# AUTO_ARIMA_CHAPKIT_IMAGE_TAG=sha-70c07a9\n"));
+        assert!(body.contains(&format!(
+            "\n# AUTO_ARIMA_CHAPKIT_IMAGE_TAG={}\n",
+            stable_pin(&registry, "auto_arima_chapkit").1
+        )));
         assert!(
             !body.contains("none yet"),
             "the placeholder gives way to pins"

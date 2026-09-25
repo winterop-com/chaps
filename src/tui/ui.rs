@@ -623,7 +623,10 @@ mod tests {
         let screen = render(&app, 140, 40);
         assert!(screen.contains("chaps · models"));
         assert!(screen.contains("registry: embedded"));
-        assert!(screen.contains("6 models, 0 enabled, 0 pending changes"));
+        assert!(screen.contains(&format!(
+            "{} models, 0 enabled, 0 pending changes",
+            registry.models.len()
+        )));
         assert!(screen.contains("Marketplace"));
         assert!(screen.contains("Details"));
         // Rounded corners, not square ones.
@@ -645,7 +648,11 @@ mod tests {
             crate::project::EnabledModel {
                 service_id: model.service_id.clone(),
                 image: model.source.image.clone(),
-                image_tag: "sha-fa880a1".into(),
+                image_tag: model
+                    .version(&model.channels.stable)
+                    .expect("stable resolves")
+                    .image_tag
+                    .clone(),
                 version: model.channels.stable.clone(),
                 channel: Some(Channel::Stable),
                 host_port,
@@ -770,13 +777,14 @@ mod tests {
     #[test]
     fn a_manually_added_model_is_marked_and_named() {
         let mut state = ProjectState::default();
+        // An id the marketplace does not list: what a deployment can add.
         state.manual.insert(
-            "chapkit_ghr_model".to_string(),
+            "example_manual_model".to_string(),
             crate::project::ManualModel {
-                service_id: "chapkit-ghr-model".into(),
-                display_name: "chapkit_ghr_model".into(),
-                repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
-                image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+                service_id: "example-manual-model".into(),
+                display_name: "example_manual_model".into(),
+                repository: Some("https://github.com/example/example_manual_model".into()),
+                image: "ghcr.io/example/example_manual_model".into(),
                 tag: "sha-b1d6c31".into(),
                 commit: None,
                 follow: Some("main".into()),
@@ -795,7 +803,7 @@ mod tests {
         assert!(!screen.contains("[template]"), "{screen}");
 
         // The details pane of that row says what kind of entry it is.
-        while app.selected().map(|row| app.model(row).id.as_str()) != Some("chapkit_ghr_model") {
+        while app.selected().map(|row| app.model(row).id.as_str()) != Some("example_manual_model") {
             app.reduce(Action::Down);
         }
         let screen = render(&app, 100, 30);
@@ -804,7 +812,7 @@ mod tests {
         assert!(screen.contains("sha-b1"), "{screen}");
         assert!(!screen.contains("vsha-"), "{screen}");
         assert!(
-            screen.contains("ghcr.io/chap-models/chapkit_ghr_model:sha-"),
+            screen.contains("ghcr.io/example/example_manual_model:sha-"),
             "{screen}"
         );
     }
@@ -897,7 +905,7 @@ mod tests {
         let wide = render(&app, 140, 20);
         let first = wide.lines().next().unwrap();
         assert!(first.contains("registry: embedded"));
-        assert!(first.contains("6 models"));
+        assert!(first.contains(&format!("{} models", registry.models.len())));
 
         // Narrow: the counts are worth more than where the file came from.
         let narrow = render(&app, 60, 16);

@@ -927,19 +927,24 @@ mod tests {
     /// Two lines and no more: the shared one, then the model this file is.
     #[test]
     fn overlay_header_is_the_shared_line_plus_the_model() {
-        let text = render_overlay(&overlay_spec("chapkit_ewars_model"));
+        let spec = overlay_spec("chapkit_ewars_model");
+        let text = render_overlay(&spec);
         let header: Vec<&str> = text.lines().take(3).collect();
         assert_eq!(header[0], GENERATED_HEADER);
         assert_eq!(
             header[1],
-            "# chapkit_ewars_model 1.0.0 (https://github.com/chap-models/chapkit_ewars_model)"
+            format!(
+                "# chapkit_ewars_model {} (https://github.com/chap-models/chapkit_ewars_model)",
+                spec.version
+            )
         );
         assert_eq!(header[2], "services:", "no third comment line");
         // The tag variable is in the image line, which is the only place it
         // does anything.
         assert!(text.contains(&format!(
-            "${{{}:-sha-fa880a1}}",
-            tag_env_var("chapkit_ewars_model")
+            "${{{}:-{}}}",
+            tag_env_var("chapkit_ewars_model"),
+            spec.image_tag
         )));
     }
 
@@ -1485,13 +1490,13 @@ mod tests {
     fn env_lists_one_commented_pin_per_model() {
         let text = render_env(&EnvSpec {
             model_tag_pins: vec![
-                (tag_env_var("chapkit_ewars_model"), "sha-fa880a1".into()),
-                (tag_env_var("auto_arima_chapkit"), "sha-70c07a9".into()),
+                (tag_env_var("chapkit_ewars_model"), "sha-1111111".into()),
+                (tag_env_var("auto_arima_chapkit"), "sha-2222222".into()),
             ],
             ..env_spec()
         });
-        assert!(text.contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n"));
-        assert!(text.contains("\n# AUTO_ARIMA_CHAPKIT_IMAGE_TAG=sha-70c07a9\n"));
+        assert!(text.contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-1111111\n"));
+        assert!(text.contains("\n# AUTO_ARIMA_CHAPKIT_IMAGE_TAG=sha-2222222\n"));
         assert!(!text.contains("none yet"));
 
         // Without models the section keeps a body rather than a blank line.

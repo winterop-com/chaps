@@ -453,12 +453,17 @@ mod tests {
     #[test]
     fn an_id_this_deployment_added_is_removed_before_it_is_added_again() {
         let marketplace = crate::registry::load_embedded().unwrap();
-        let project = project_with(&[("chapkit_ghr_model", "chapkit-ghr-model")]);
+        // An id the marketplace does not list, so the only thing in the way
+        // is what this deployment added for itself.
+        let project = project_with(&[(
+            "chapkit_example_manual_model",
+            "chapkit-example-manual-model",
+        )]);
 
         let err = check_free(
             &project,
             &marketplace,
-            &names_of("chapkit_ghr_model", "chapkit-ghr-model-2"),
+            &names_of("chapkit_example_manual_model", "chapkit-example-manual-2"),
         )
         .expect_err("already added");
         assert!(err.to_string().contains("models remove"), "{err}");
@@ -466,7 +471,7 @@ mod tests {
         let err = check_free(
             &project,
             &marketplace,
-            &names_of("other_model", "chapkit-ghr-model"),
+            &names_of("other_model", "chapkit-example-manual-model"),
         )
         .expect_err("the service name is taken");
         assert!(err.to_string().contains("--service-id"), "{err}");

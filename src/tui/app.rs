@@ -481,6 +481,17 @@ mod tests {
         load_embedded().expect("embedded snapshot parses")
     }
 
+    /// Entries in the embedded snapshot, and how many of those are models
+    /// rather than templates. Read off the snapshot so a marketplace refresh
+    /// moves the counts below with it.
+    fn total(registry: &Registry) -> usize {
+        registry.models.len()
+    }
+
+    fn without_templates(registry: &Registry) -> usize {
+        registry.deployable().count()
+    }
+
     fn empty_state() -> ProjectState {
         ProjectState::default()
     }
@@ -536,15 +547,19 @@ mod tests {
     fn a_fresh_browser_shows_models_but_not_templates() {
         let registry = registry();
         let app = App::new(&registry, &empty_state());
-        assert_eq!(app.rows.len(), 6);
-        assert_eq!(app.visible.len(), 4, "the two templates are hidden");
+        assert_eq!(app.rows.len(), total(&registry));
+        assert_eq!(
+            app.visible.len(),
+            without_templates(&registry),
+            "the two templates are hidden"
+        );
         assert!(!app.show_templates);
         assert_eq!(app.mode, Mode::Browse);
         assert!(!app.dirty);
         assert_eq!(
             app.counts(),
             Counts {
-                total: 6,
+                total: total(&registry),
                 enabled: 0,
                 pending: 0
             }
@@ -557,9 +572,9 @@ mod tests {
         let mut app = App::new(&registry, &empty_state());
         assert!(app.reduce(Action::ToggleTemplates).is_none());
         assert!(app.show_templates);
-        assert_eq!(app.visible.len(), 6);
+        assert_eq!(app.visible.len(), total(&registry));
         app.reduce(Action::ToggleTemplates);
-        assert_eq!(app.visible.len(), 4);
+        assert_eq!(app.visible.len(), without_templates(&registry));
     }
 
     #[test]
@@ -847,7 +862,7 @@ mod tests {
         app.reduce(Action::FilterCancel);
         assert_eq!(app.mode, Mode::Browse);
         assert!(app.filter.is_empty());
-        assert_eq!(app.visible.len(), 4);
+        assert_eq!(app.visible.len(), without_templates(&registry));
     }
 
     #[test]
@@ -892,7 +907,7 @@ mod tests {
         let state = state_with(&registry, TEMPLATE, Some(Channel::Stable));
         let app = App::new(&registry, &state);
         assert!(app.show_templates);
-        assert_eq!(app.visible.len(), 6);
+        assert_eq!(app.visible.len(), total(&registry));
     }
 
     #[test]

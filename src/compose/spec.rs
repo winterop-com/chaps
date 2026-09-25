@@ -335,11 +335,17 @@ mod tests {
     fn from_model_copies_the_marketplace_entry() {
         let r = registry();
         let spec = spec_for(&r, "chapkit_ewars_model", None, None);
+        // The pin comes from the snapshot, so a refresh moves it here too.
+        let stable = r
+            .get("chapkit_ewars_model")
+            .unwrap()
+            .resolve(&VersionSelector::Channel(Channel::Stable))
+            .unwrap();
         assert_eq!(spec.id, "chapkit_ewars_model");
         assert_eq!(spec.service_id, "chapkit-ewars-model");
-        assert_eq!(spec.version, "1.0.0");
+        assert_eq!(spec.version, stable.version);
         assert_eq!(spec.image, "ghcr.io/chap-models/chapkit_ewars_model");
-        assert_eq!(spec.image_tag, "sha-fa880a1");
+        assert_eq!(spec.image_tag, stable.image_tag);
         assert_eq!(spec.tag_env_var, "CHAPKIT_EWARS_MODEL_IMAGE_TAG");
         assert_eq!(spec.volume_name, "ck_chapkit_ewars_model_data");
         assert_eq!(spec.host_port, Some(5001));

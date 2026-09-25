@@ -143,8 +143,8 @@ mod tests {
         let registry = registry::load_embedded().unwrap();
         let report = report(&ctx, &registry, true);
 
-        assert_eq!(report.models, 6);
-        assert_eq!(report.ids.as_ref().unwrap().len(), 6);
+        assert_eq!(report.models, registry.models.len());
+        assert_eq!(report.ids.as_ref().unwrap().len(), registry.models.len());
         assert_eq!(report.ids.as_ref().unwrap()[0], "chapkit_ewars_model");
         assert!(matches!(report.provenance, Provenance::Embedded));
         assert!(
@@ -162,10 +162,13 @@ mod tests {
 
         let value = serde_json::to_value(report(&ctx, &registry, false)).unwrap();
         assert!(value.get("ids").is_none(), "update omits the id list");
-        assert_eq!(value["models"], 6);
+        assert_eq!(value["models"], registry.models.len());
         assert_eq!(value["provenance"]["kind"], "embedded");
 
         let value = serde_json::to_value(report(&ctx, &registry, true)).unwrap();
-        assert_eq!(value["ids"].as_array().unwrap().len(), 6);
+        assert_eq!(
+            value["ids"].as_array().unwrap().len(),
+            registry.models.len()
+        );
     }
 }

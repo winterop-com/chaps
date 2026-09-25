@@ -1,0 +1,105 @@
+schema_version: 2
+
+id: chapkit_ghr_model
+service_id: chapkit-ghr-model
+display_name: GHRmodel
+kind: model
+
+# The author's own chapkit AssessedStatus, copied from the service — not a
+# marketplace verdict. red = early stage, not yet evaluated on real data.
+# See models/README.md for the full scale.
+assessed_status: red
+
+summary: >-
+  Bayesian hierarchical spatio-temporal model for climate-sensitive disease,
+  built on R-INLA. Wraps BSC's GHRmodel package (dhis2-workflow branch),
+  running one user-specified configuration with selectable spatial, seasonal
+  and interannual random effects and lagged or rolling climate covariates.
+
+source:
+  repository: https://github.com/chap-models/chapkit_ghr_model
+  image: ghcr.io/chap-models/chapkit_ghr_model
+  # R + INLA. Built on the chapkit R-INLA base. amd64 only.
+  runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
+
+attribution:
+  author: Global Health Resilience group, BSC (wrapped for CHAP by HISP Centre)
+  organization: Barcelona Supercomputing Center
+  # The wrapper's maintainer, not BSC: they authored the model but do not
+  # support this service.
+  contact: morten@dhis2.org
+  citation: >-
+    Lowe R, Lee SA, O'Reilly KM et al. (2021) Combined effects of
+    hydrometeorological hazards and urbanisation on dengue risk in Brazil: a
+    spatiotemporal modelling study. The Lancet Planetary Health.
+    https://doi.org/10.1016/S2542-5196(20)30292-8
+
+maintainers:
+  - mortenoh
+
+compatibility:
+  period_types: [monthly]
+  min_prediction_periods: 1
+  max_prediction_periods: 12
+  # Geometry is optional: with polygons the bym2 spatial effect is available,
+  # without them the service fits the model with re_spatial forced to none.
+  requires_geo: false
+
+covariates:
+  # Supplied automatically by chap; never repeated in a configuration.
+  required:
+    - population
+  # The service's own default additional_continuous_covariates, which its
+  # default lag, roll_mean and roll_sum settings refer to.
+  defaults:
+    - rainfall
+    - mean_temperature
+  allow_free_additional: true
+
+channels:
+  stable: 0.1.1
+  latest: 0.1.1
+
+versions:
+  - version: 0.1.1
+    commit: 3040e8f62c450fec04e496aec03b065321d5a00e
+    image_tag: sha-3040e8f
+    chapkit: ">=2.1.2,<3"
+    status: verified
+    # Pinned by the maintainers without the three-approval round.
+    verified_by: []
+    changelog: >-
+      Require chapkit 2.1.2, whose failure messages keep the R error line
+      instead of trailing warnings, and which applies the model
+      configurations chap-core sends.
+    notes: >-
+      The service runs as its own unprivileged user (uid 10001) and keeps its
+      data under /work/data.
+
+# Verified configurations. Each `config` block is the flat object chapkit
+# accepts as `data` on POST /api/v1/configs.
+configurations:
+  monthly_climate:
+    description: >-
+      The service defaults: negative-binomial likelihood, bym2 spatial,
+      rw1 seasonal and iid interannual random effects, rainfall and mean
+      temperature as lagged and rolling fixed effects, population as the
+      offset. population is required and auto-supplied, so it is not
+      repeated here.
+    config:
+      prediction_periods: 3
+      additional_continuous_covariates:
+        - rainfall
+        - mean_temperature
+      re_spatial: bym2
+      re_seasonal: rw1
+      re_interannual: iid
+      priors: "0.5:0.01"
+      lag: "mean_temperature:1;rainfall:1"
+      roll_mean: "mean_temperature:3"
+      roll_sum: "rainfall:3"
+      family: nbinomial
+      offset: population
+      offset_scale: 10000.0
+      standardize: true
+      n_samples: 1000

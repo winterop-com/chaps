@@ -25,17 +25,18 @@ Resolution order for every command that needs the catalogue:
 ```text
   url     https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml
   source  cache (56 minutes old)
-  models  6
+  models  7
   cache   ~/.cache/chaps/registries/https_raw_githubusercontent_com_dhis2_chap_model_marketplace_mai-f6e5270ab795f1bd
 
   chapkit_ewars_model
   chapkit_rwanda_malaria_bym_model
   chapkit_simple_multistep_model
   auto_arima_chapkit
+  chapkit_ghr_model
   chapkit_minimalist_example_py
   chapkit_minimalist_example_r
 
-6 models in the catalogue (cache (56 minutes old)); `chaps models info ID` describes one
+7 models in the catalogue (cache (56 minutes old)); `chaps models info ID` describes one
 ```
 
 `chaps registry update` forces a fetch and refreshes the cache, as does
@@ -61,7 +62,7 @@ each point at one of them.
 ```sh
 chaps models enable chapkit_ewars_model                       # stable, the default
 chaps models enable chapkit_ewars_model --channel latest
-chaps models enable chapkit_ewars_model --version 1.0.0       # an exact pin
+chaps models enable chapkit_ewars_model --version 1.0.2       # an exact pin
 ```
 
 A model that follows a channel records both the channel and the version it
@@ -88,12 +89,13 @@ chaps models info chapkit_ewars_model
 
 ```text
 ID                                SERVICE                           NAME                STATUS  STABLE  LATEST  ENABLED
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          orange  1.0.0   1.0.0   internal
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  gray    0.1.0   0.1.0   -
-chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    orange  0.1.0   0.1.0   -
-auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          red     1.0.0   1.0.0   -
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          orange  1.0.2   1.0.2   internal
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  gray    0.1.1   0.1.1   -
+chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    orange  0.1.1   0.1.1   -
+auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          red     1.0.1   1.0.1   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            red     0.1.1   0.1.1   -
 
-4 listed, 1 enabled in this project
+5 listed, 1 enabled in this project
 ```
 
 The `ENABLED` column is the host port, `internal` for an enabled model with no
@@ -368,9 +370,9 @@ A model the catalogue does not list - a new one, a private one, a fork of your
 own - is added to one deployment with `chaps models add`:
 
 ```sh
-chaps models add https://github.com/chap-models/chapkit_ghr_model
-chaps models add ghcr.io/chap-models/chapkit_ghr_model:sha-1eb8cf1
-chaps models add ghcr.io/chap-models/chapkit_ghr_model@sha256:31163f6a...
+chaps models add https://github.com/my-org/chapkit_dengue_model
+chaps models add ghcr.io/my-org/chapkit_dengue_model:sha-1eb8cf1
+chaps models add ghcr.io/my-org/chapkit_dengue_model@sha256:31163f6a...
 ```
 
 The two forms differ in one thing, and it is the important one:
@@ -389,15 +391,15 @@ kind of overlay, listed by `models list`, described by `models info`, moved (or
 not) by `chaps update`, seen by `chaps doctor` and shown in the browser.
 
 ```text
-added chapkit_ghr_model (chapkit-ghr-model)
-  source    https://github.com/chap-models/chapkit_ghr_model
-  image     ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31
+added chapkit_dengue_model (chapkit-dengue-model)
+  source    https://github.com/my-org/chapkit_dengue_model
+  image     ghcr.io/my-org/chapkit_dengue_model:sha-b1d6c31
   pin       sha-b1d6c31  (commit b1d6c31)
   follows   main  (`chaps update` moves the pin)
   data dir  /work/data  (from the image config)
   user      10001:10001  (from a docker probe)
-enabled chapkit_ghr_model sha-b1d6c31 on http://localhost:5001 (compose.chapkit-ghr-model.yml)
-note: the service must register with chap-core as `chapkit-ghr-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - re-add it with `--service-id <that id>`
+enabled chapkit_dengue_model sha-b1d6c31 on http://localhost:5001 (compose.chapkit-dengue-model.yml)
+note: the service must register with chap-core as `chapkit-dengue-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - re-add it with `--service-id <that id>`
 run `chaps up` to apply
 ```
 
@@ -441,11 +443,11 @@ it. Pass `--user <uid>:<gid>` to skip that.
 The definition goes in `.chaps/models-manual.yaml`, beside the enabled set:
 
 ```yaml
-chapkit_ghr_model:
-  service_id: chapkit-ghr-model
-  display_name: chapkit_ghr_model
-  repository: https://github.com/chap-models/chapkit_ghr_model
-  image: ghcr.io/chap-models/chapkit_ghr_model
+chapkit_dengue_model:
+  service_id: chapkit-dengue-model
+  display_name: chapkit_dengue_model
+  repository: https://github.com/my-org/chapkit_dengue_model
+  image: ghcr.io/my-org/chapkit_dengue_model
   tag: sha-b1d6c31
   commit: b1d6c312a83f07aa1a4e66fce05ae7f4eccb8188
   follow: main
@@ -456,8 +458,8 @@ chapkit_ghr_model:
 ```
 
 That file is the definition; `.chaps/models.yaml` still says which models are
-on. So `chaps models disable chapkit_ghr_model` keeps the definition and
-`chaps models enable chapkit_ghr_model` brings the model back at the recorded
+on. So `chaps models disable chapkit_dengue_model` keeps the definition and
+`chaps models enable chapkit_dengue_model` brings the model back at the recorded
 tag, data directory and user, without asking the network anything. It is
 carried over by `chaps init --force` and included in `chaps backup create`.
 A deployment that has added nothing has no such file.
@@ -466,12 +468,12 @@ Both listings mark these entries, because a local definition is not a reviewed
 catalogue entry:
 
 ```text
-ID                   SERVICE            NAME               STATUS  STABLE       LATEST       ENABLED  KIND
-chapkit_ewars_model  chapkit-ewars-...  CHAP-EWARS         orange  1.0.0        1.0.0        -        model
-chapkit_ghr_model    chapkit-ghr-model  chapkit_ghr_model  gray    sha-b1d6c31  sha-b1d6c31  5001     manual
+ID                    SERVICE               NAME                  STATUS  STABLE       LATEST       ENABLED  KIND
+chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            orange  1.0.2        1.0.2        -        model
+chapkit_dengue_model  chapkit-dengue-model  chapkit_dengue_model  gray    sha-b1d6c31  sha-b1d6c31  5001     manual
 ```
 
-`chaps models info chapkit_ghr_model` says the same in its own words - a
+`chaps models info chapkit_dengue_model` says the same in its own words - a
 `kind` of `manual`, a `source` line naming `chaps models add` and the day it
 was added, and a `follows` line naming the branch or reading
 `nothing (pinned)` - and leaves out every field a
@@ -505,7 +507,7 @@ reference to pass instead. The image form works offline as long as the image's
 inspect` can answer what the registry would have; the error names the `docker
 pull --platform linux/amd64` that puts it there.
 
-Refused rather than guessed at: a bare image name (`chapkit_ghr_model`), an
+Refused rather than guessed at: a bare image name (`chapkit_dengue_model`), an
 image on a registry other than ghcr, an image reference with no tag or digest,
 an id or service name the marketplace already uses, and an id this deployment
 has already added. The marketplace always wins a collision, so an id it
@@ -553,11 +555,11 @@ and nothing else by way of explanation: what it does is below.
 
 ```yaml
 # Generated by chaps from .chaps/; edit there and run `chaps sync`.
-# chapkit_ewars_model 1.0.0 (https://github.com/chap-models/chapkit_ewars_model)
+# chapkit_ewars_model 1.0.2 (https://github.com/chap-models/chapkit_ewars_model)
 services:
   chapkit-ewars-model:
     restart: unless-stopped
-    image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-fa880a1}
+    image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-8d4a7ea}
     # amd64-only image; the pin makes an arm64 host pull that variant.
     platform: linux/amd64
     init: true
@@ -697,20 +699,22 @@ What the marketplace images declare today:
 | --- | --- | --- |
 | EWARS | `/app/data` | `chapkit`, rendered as `1000:1000` |
 | The simple multistep model | `/app/data` | `chap`, rendered as `1001:1001` |
+| GHRmodel | `/work/data` | `app`, probed as `10001:10001` |
 | Everything else | `/work/data` | `root` |
 
 **An image that runs as root gets no `user:` line**; its init container is
-rendered like any other model's and chowns the volume to `0:0`. Four of the six
-marketplace images end their Dockerfile on `USER root`, and forcing an
+rendered like any other model's and chowns the volume to `0:0`. Four of the
+seven marketplace images end their Dockerfile on `USER root`, and forcing an
 unprivileged uid on one of them takes away a permission its own binaries need:
 the Rwanda BYM model's INLA binaries are root-owned and mode 744, so every
 prediction fails with `inla.run: Permission denied`. See
 [`Permission denied` from a model's own binaries](./troubleshooting.md#permission-denied-from-a-models-own-binaries).
 
 The init container needs an account name as numbers: `chapkit` is uid/gid 1000
-and `chap` is 1001. A `--user` that is already numeric is passed through, and a
-name `chaps` does not know falls back to `1000:1000` with a warning from
-`chaps sync`. `--data-dir` and `--user` override everything above, for an image
+and `chap` is 1001. GHRmodel's `app` is not one of them, so enabling it pulls
+the image once and asks it, exactly as `chaps models add` does. A `--user` that
+is already numeric is passed through, and a name nothing could resolve falls
+back to `1000:1000` with a warning from `chaps sync`. `--data-dir` and `--user` override everything above, for an image
 whose config says something the deployment has to contradict.
 
 `chaps doctor` re-checks each enabled model against the image on this machine

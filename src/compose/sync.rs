@@ -904,7 +904,10 @@ mod tests {
         assert!(body.contains("  gone-model:\n"));
         // The header names the id, and the image where the repository would be.
         assert!(
-            body.contains("# gone_model 1.0.0 (ghcr.io/chap-models/chapkit_ewars_model)"),
+            body.contains(&format!(
+                "# gone_model {} (ghcr.io/chap-models/chapkit_ewars_model)",
+                project.state.models["gone_model"].version
+            )),
             "{body}"
         );
         assert!(!sync(&mut project, &registry, true).unwrap().drift);
@@ -1371,10 +1374,13 @@ mod tests {
         );
 
         sync(&mut project, &registry, false).unwrap();
+        let pinned = project.state.models["chapkit_ewars_model"]
+            .image_tag
+            .clone();
         assert!(
             std::fs::read_to_string(&env)
                 .unwrap()
-                .contains("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1\n")
+                .contains(&format!("\n# CHAPKIT_EWARS_MODEL_IMAGE_TAG={pinned}\n"))
         );
         assert!(!sync(&mut project, &registry, true).unwrap().drift);
     }

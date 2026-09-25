@@ -263,6 +263,37 @@ fn includes(dir: &Path) -> Vec<String> {
     }
 }
 
+/// The version and image tag the vendored snapshot's `stable` channel pins
+/// for one marketplace id.
+///
+/// Read off `vendor/marketplace/` rather than written out here, so refreshing
+/// the snapshot moves these assertions with it instead of failing them. The
+/// tests run `--offline`, which is exactly what the CLI resolves against.
+fn stable_pin(id: &str) -> (String, String) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("vendor")
+        .join("marketplace")
+        .join("models")
+        .join(format!("{id}.yaml"));
+    let body = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    let doc: Yaml = serde_yaml_ng::from_str(&body).expect("the vendored model file parses");
+    let version = doc["channels"]["stable"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{id} has no stable channel"))
+        .to_string();
+    let tag = doc["versions"]
+        .as_sequence()
+        .unwrap_or_else(|| panic!("{id} lists no versions"))
+        .iter()
+        .find(|v| v["version"].as_str() == Some(version.as_str()))
+        .unwrap_or_else(|| panic!("{id} has no version {version}"))["image_tag"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{id} {version} has no image tag"))
+        .to_string();
+    (version, tag)
+}
+
 #[test]
 fn init_writes_every_file_of_a_deployment() {
     let sandbox = Sandbox::new();
@@ -325,7 +356,7 @@ fn init_writes_every_file_of_a_deployment() {
     // A model publishes no host port until someone asks for one.
     assert_eq!(model["host_port"], Json::Null);
     assert_eq!(model["service_id"], "chapkit-ewars-model");
-    assert_eq!(model["image_tag"], "sha-fa880a1");
+    assert_eq!(model["image_tag"], stable_pin("chapkit_ewars_model").1);
     assert_eq!(model["data_dir"], "/app/data");
     // `--offline` with no local image: the built-in table, whose `chapkit` is
     // recorded as the numbers the overlay renders.
@@ -355,7 +386,10 @@ fn init_writes_every_file_of_a_deployment() {
         .find_map(|l| l.strip_prefix("POSTGRES_PASSWORD="))
         .expect("a password line");
     assert_eq!(password.len(), 32);
-    assert!(env.contains("# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1"));
+    assert!(env.contains(&format!(
+        "# CHAPKIT_EWARS_MODEL_IMAGE_TAG={}",
+        stable_pin("chapkit_ewars_model").1
+    )));
     assert!(env.contains("# CHAP_IMAGE_TAG=latest"));
     // Active even at the default, so the port is where you would look for it.
     assert!(env.contains("\nCHAP_API_PORT=8000\n"), "{env}");
@@ -702,7 +736,10 @@ fn enabling_a_second_model_publishes_nothing_and_sorts_the_umbrella() {
         ],
         "includes follow the marketplace id order"
     );
-    assert!(read(&dir.join(".env")).contains("# AUTO_ARIMA_CHAPKIT_IMAGE_TAG=sha-70c07a9"));
+    assert!(read(&dir.join(".env")).contains(&format!(
+        "# AUTO_ARIMA_CHAPKIT_IMAGE_TAG={}",
+        stable_pin("auto_arima_chapkit").1
+    )));
 }
 
 #[test]
@@ -1199,7 +1236,10 @@ fn fresh_env_rewrites_the_env_file_and_warns() {
         "--fresh-env kept the old password"
     );
     // The file is a complete render again, pin comment included.
-    assert!(after.contains("# CHAPKIT_EWARS_MODEL_IMAGE_TAG=sha-fa880a1"));
+    assert!(after.contains(&format!(
+        "# CHAPKIT_EWARS_MODEL_IMAGE_TAG={}",
+        stable_pin("chapkit_ewars_model").1
+    )));
 }
 
 #[test]
@@ -1709,14 +1749,15 @@ fn enable_outside_a_project_says_so() {
 fn an_exact_version_pins_without_a_channel() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
+    let pinned = stable_pin("auto_arima_chapkit").0;
     sandbox.init(&["--models", "none"]).assert().success();
     sandbox
-        .models(&["enable", "auto_arima_chapkit", "--version", "1.0.0"])
+        .models(&["enable", "auto_arima_chapkit", "--version", &pinned])
         .assert()
         .success();
 
     let model = &state(&dir)["models"]["auto_arima_chapkit"];
-    assert_eq!(model["version"], "1.0.0");
+    assert_eq!(model["version"], pinned);
     assert_eq!(model["channel"], Json::Null);
 
     sandbox
@@ -4737,9 +4778,9 @@ const OLD_SHA: &str = "1eb8cf1a2b3c4d5e6f708192a3b4c5d6e7f80910";
 const NEW_TAG: &str = "sha-b1d6c31";
 const OLD_TAG: &str = "sha-1eb8cf1";
 /// The repository `models add` is pointed at.
-const REPO_URL: &str = "https://github.com/chap-models/chapkit_ghr_model";
+const REPO_URL: &str = "https://github.com/example/chapkit_example_manual_model";
 /// The image that repository publishes to.
-const IMAGE: &str = "ghcr.io/chap-models/chapkit_ghr_model";
+const IMAGE: &str = "ghcr.io/example/chapkit_example_manual_model";
 
 /// A local stand-in for GitHub, ghcr and the marketplace, routed by path.
 ///
@@ -4876,7 +4917,7 @@ impl Hub {
             return (
                 200,
                 json,
-                r#"{"name":"chapkit_ghr_model","default_branch":"main"}"#.to_string(),
+                r#"{"name":"chapkit_example_manual_model","default_branch":"main"}"#.to_string(),
             );
         }
         if let Some((_, reference)) = path.split_once("/manifests/") {
@@ -5071,10 +5112,11 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
         .models(&["enable", "chapkit_rwanda_malaria_bym_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(
+        .stdout(predicates::str::contains(format!(
             "warning: nothing could say what \
-             ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-028bb5a runs as",
-        ))
+             ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:{} runs as",
+            stable_pin("chapkit_rwanda_malaria_bym_model").1
+        )))
         .stdout(predicates::str::contains("the built-in table"))
         .stdout(predicates::str::contains("chaps models enable"));
 
@@ -5103,7 +5145,7 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "added chapkit_ghr_model (chapkit-ghr-model)",
+            "added chapkit_example_manual_model (chapkit-example-manual-model)",
         ))
         // The newest commit has no published build, so the pin lands on the
         // newest build there is.
@@ -5120,8 +5162,8 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
 
     // The definition, in a file of its own.
     let manual = manual_models(&dir);
-    let entry = &manual["chapkit_ghr_model"];
-    assert_eq!(entry["service_id"], "chapkit-ghr-model");
+    let entry = &manual["chapkit_example_manual_model"];
+    assert_eq!(entry["service_id"], "chapkit-example-manual-model");
     assert_eq!(entry["image"], IMAGE);
     assert_eq!(entry["tag"], OLD_TAG);
     assert_eq!(entry["commit"], OLD_SHA);
@@ -5131,20 +5173,23 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
     assert_eq!(entry["added"].as_str().map(str::len), Some(10));
 
     // And the enablement, in the file every other model uses.
-    let enabled = &state(&dir)["models"]["chapkit_ghr_model"];
+    let enabled = &state(&dir)["models"]["chapkit_example_manual_model"];
     assert_eq!(enabled["image_tag"], OLD_TAG);
     assert_eq!(enabled["version"], OLD_TAG);
     assert_eq!(enabled["channel"], "latest");
     assert_eq!(enabled["host_port"], Json::Null);
     assert_eq!(enabled["data_dir"], "/work/data");
     assert_eq!(enabled["user"], "10001:10001");
-    assert_eq!(enabled["compose_file"], "compose.chapkit-ghr-model.yml");
+    assert_eq!(
+        enabled["compose_file"],
+        "compose.chapkit-example-manual-model.yml"
+    );
 
     // The overlay is rendered like any other model's, chown and all.
-    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    let overlay = read(&dir.join("compose.chapkit-example-manual-model.yml"));
     assert!(
         overlay.contains(&format!(
-            "image: {IMAGE}:${{CHAPKIT_GHR_MODEL_IMAGE_TAG:-{OLD_TAG}}}"
+            "image: {IMAGE}:${{CHAPKIT_EXAMPLE_MANUAL_MODEL_IMAGE_TAG:-{OLD_TAG}}}"
         )),
         "{overlay}"
     );
@@ -5153,11 +5198,14 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
         "{overlay}"
     );
     assert!(overlay.contains("user: 10001:10001"), "{overlay}");
-    assert_eq!(includes(&dir), vec!["compose.chapkit-ghr-model.yml"]);
+    assert_eq!(
+        includes(&dir),
+        vec!["compose.chapkit-example-manual-model.yml"]
+    );
     assert!(
-        sandbox
-            .env()
-            .contains(&format!("# CHAPKIT_GHR_MODEL_IMAGE_TAG={OLD_TAG}")),
+        sandbox.env().contains(&format!(
+            "# CHAPKIT_EXAMPLE_MANUAL_MODEL_IMAGE_TAG={OLD_TAG}"
+        )),
         "{}",
         sandbox.env()
     );
@@ -5196,19 +5244,19 @@ fn a_manually_added_model_is_marked_in_the_list_and_on_its_page() {
         .as_array()
         .expect("an array")
         .iter()
-        .find(|row| row["id"] == "chapkit_ghr_model")
+        .find(|row| row["id"] == "chapkit_example_manual_model")
         .expect("the added model is listed");
     assert_eq!(manual["manual"], true);
     assert_eq!(manual["enabled"], true);
 
     // The page says where it came from and what it follows.
-    let date = manual_models(&dir)["chapkit_ghr_model"]["added"]
+    let date = manual_models(&dir)["chapkit_example_manual_model"]["added"]
         .as_str()
         .expect("a date")
         .to_string();
     sandbox
         .online(port)
-        .args(["models", "info", "chapkit_ghr_model"])
+        .args(["models", "info", "chapkit_example_manual_model"])
         .assert()
         .success()
         .stdout(predicates::str::contains("kind        manual"))
@@ -5237,7 +5285,7 @@ fn update_moves_a_following_manual_model_when_a_newer_build_appears() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "chapkit_ghr_model  {OLD_TAG}  unchanged"
+            "chapkit_example_manual_model  {OLD_TAG}  unchanged"
         )))
         .stdout(predicates::str::contains("already up to date"));
 
@@ -5249,7 +5297,7 @@ fn update_moves_a_following_manual_model_when_a_newer_build_appears() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "chapkit_ghr_model  {OLD_TAG} -> {NEW_TAG}"
+            "chapkit_example_manual_model  {OLD_TAG} -> {NEW_TAG}"
         )))
         .stdout(predicates::str::contains("would update 1 model pin"));
 
@@ -5266,7 +5314,7 @@ fn update_moves_a_following_manual_model_when_a_newer_build_appears() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "chapkit_ghr_model  {OLD_TAG}  unchanged (could not check)"
+            "chapkit_example_manual_model  {OLD_TAG}  unchanged (could not check)"
         )))
         .stderr(predicates::str::contains("could not check"));
 }
@@ -5282,14 +5330,14 @@ fn models_add_from_an_image_reference_is_pinned() {
         .stdout(predicates::str::contains(format!("pin       {NEW_TAG}")))
         .stdout(predicates::str::contains("follows   nothing (pinned)"));
 
-    let entry = &manual_models(&dir)["chapkit_ghr_model"];
+    let entry = &manual_models(&dir)["chapkit_example_manual_model"];
     assert_eq!(entry["tag"], NEW_TAG);
     assert_eq!(entry["follow"], Json::Null);
     assert_eq!(entry["repository"], Json::Null);
     assert_eq!(entry["commit"], Json::Null);
     // An exact pin follows no channel, and `update` says so.
     assert_eq!(
-        state(&dir)["models"]["chapkit_ghr_model"]["channel"],
+        state(&dir)["models"]["chapkit_example_manual_model"]["channel"],
         Json::Null
     );
     sandbox
@@ -5298,7 +5346,7 @@ fn models_add_from_an_image_reference_is_pinned() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "chapkit_ghr_model  {NEW_TAG}  pinned, skipped"
+            "chapkit_example_manual_model  {NEW_TAG}  pinned, skipped"
         )))
         .stdout(predicates::str::contains("already up to date"));
 }
@@ -5315,15 +5363,15 @@ fn models_add_accepts_a_digest_and_renders_a_digest_reference() {
         .stdout(predicates::str::contains(format!("pin       @{digest}")));
 
     assert_eq!(
-        manual_models(&dir)["chapkit_ghr_model"]["tag"],
+        manual_models(&dir)["chapkit_example_manual_model"]["tag"],
         format!("@{digest}")
     );
     // A digest carries its own separator, so the rendered reference has no
     // colon in front of it.
-    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    let overlay = read(&dir.join("compose.chapkit-example-manual-model.yml"));
     assert!(
         overlay.contains(&format!(
-            "image: {IMAGE}${{CHAPKIT_GHR_MODEL_IMAGE_TAG:-@{digest}}}"
+            "image: {IMAGE}${{CHAPKIT_EXAMPLE_MANUAL_MODEL_IMAGE_TAG:-@{digest}}}"
         )),
         "{overlay}"
     );
@@ -5347,7 +5395,7 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
         .stdout(predicates::str::contains("--user <uid>:<gid>"))
         .stdout(predicates::str::contains("chown 1000:1000").not());
 
-    let overlay = read(&dir.join("compose.chapkit-ghr-model.yml"));
+    let overlay = read(&dir.join("compose.chapkit-example-manual-model.yml"));
     assert!(overlay.contains("user: app"), "{overlay}");
     assert!(
         overlay.contains("chown -R 1000:1000 /work/data"),
@@ -5362,9 +5410,9 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
             "add",
             REPO_URL,
             "--id",
-            "ghr_two",
+            "second_manual_model",
             "--service-id",
-            "ghr-two",
+            "second-manual-model",
             "--user",
             "10001:10001",
         ])
@@ -5374,7 +5422,8 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
             "user      10001:10001  (given on the command line)",
         ));
     assert!(
-        read(&dir.join("compose.ghr-two.yml")).contains("chown -R 10001:10001 /work/data"),
+        read(&dir.join("compose.second-manual-model.yml"))
+            .contains("chown -R 10001:10001 /work/data"),
         "the flag reaches the init container"
     );
 }
@@ -5437,7 +5486,7 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
     // A bare image name is neither form.
     sandbox
         .online(port)
-        .args(["models", "add", "chapkit_ghr_model"])
+        .args(["models", "add", "chapkit_example_manual_model"])
         .assert()
         .failure()
         .stderr(predicates::str::contains("neither a repository URL"));
@@ -5451,26 +5500,34 @@ fn models_remove_takes_the_definition_and_the_overlay_with_it() {
         .args(["models", "add", REPO_URL])
         .assert()
         .success();
-    assert!(dir.join("compose.chapkit-ghr-model.yml").is_file());
+    assert!(
+        dir.join("compose.chapkit-example-manual-model.yml")
+            .is_file()
+    );
 
     // Offline: the definition is the deployment's own, so removing it needs
     // nothing from the network.
     sandbox
-        .models(&["remove", "chapkit-ghr-model"])
+        .models(&["remove", "chapkit-example-manual-model"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "removed chapkit_ghr_model (models-manual.yaml)",
+            "removed chapkit_example_manual_model (models-manual.yaml)",
         ))
-        .stdout(predicates::str::contains("disabled chapkit_ghr_model"))
         .stdout(predicates::str::contains(
-            "removed compose.chapkit-ghr-model.yml",
+            "disabled chapkit_example_manual_model",
+        ))
+        .stdout(predicates::str::contains(
+            "removed compose.chapkit-example-manual-model.yml",
         ));
 
-    assert!(!dir.join("compose.chapkit-ghr-model.yml").exists());
+    assert!(
+        !dir.join("compose.chapkit-example-manual-model.yml")
+            .exists()
+    );
     assert!(includes(&dir).is_empty());
     let manual = read(&dir.join(".chaps").join("models-manual.yaml"));
-    assert!(!manual.contains("chapkit_ghr_model"), "{manual}");
+    assert!(!manual.contains("chapkit_example_manual_model"), "{manual}");
     assert_eq!(state(&dir)["models"], serde_json::json!({}));
 
     // A marketplace model has no local definition to remove.
@@ -5500,12 +5557,12 @@ fn a_manual_model_can_be_disabled_and_enabled_again_at_the_recorded_tag() {
 
     // Disabling keeps the definition, which is what makes it reversible.
     sandbox
-        .models(&["disable", "chapkit_ghr_model"])
+        .models(&["disable", "chapkit_example_manual_model"])
         .assert()
         .success();
     assert_eq!(state(&dir)["models"], serde_json::json!({}));
     assert_eq!(
-        manual_models(&dir)["chapkit_ghr_model"]["tag"],
+        manual_models(&dir)["chapkit_example_manual_model"]["tag"],
         OLD_TAG,
         "the definition outlives the enablement"
     );
@@ -5513,22 +5570,30 @@ fn a_manual_model_can_be_disabled_and_enabled_again_at_the_recorded_tag() {
     // And enabling it again needs no network at all: the deployment is where
     // its definition lives.
     sandbox
-        .models(&["enable", "chapkit_ghr_model"])
+        .models(&["enable", "chapkit_example_manual_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("enabled chapkit_ghr_model"));
-    let enabled = &state(&dir)["models"]["chapkit_ghr_model"];
+        .stdout(predicates::str::contains(
+            "enabled chapkit_example_manual_model",
+        ));
+    let enabled = &state(&dir)["models"]["chapkit_example_manual_model"];
     assert_eq!(enabled["image_tag"], OLD_TAG);
     assert_eq!(enabled["data_dir"], "/work/data");
     assert_eq!(enabled["user"], "10001:10001");
-    assert!(dir.join("compose.chapkit-ghr-model.yml").is_file());
+    assert!(
+        dir.join("compose.chapkit-example-manual-model.yml")
+            .is_file()
+    );
 
     // A forced re-init carries the definition over rather than dropping it.
     sandbox
         .init(&["--models", "none", "--force"])
         .assert()
         .success();
-    assert_eq!(manual_models(&dir)["chapkit_ghr_model"]["tag"], OLD_TAG);
+    assert_eq!(
+        manual_models(&dir)["chapkit_example_manual_model"]["tag"],
+        OLD_TAG
+    );
 }
 
 #[test]

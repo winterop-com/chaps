@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn embedded_snapshot_parses_into_a_registry() {
         let r = registry();
-        assert_eq!(r.models.len(), 6);
+        assert_eq!(r.models.len(), 7);
         assert_eq!(r.url, DEFAULT_REGISTRY_URL);
         assert!(matches!(r.provenance, Provenance::Embedded));
         // Model order follows the index order.
@@ -405,21 +405,30 @@ mod tests {
     fn with_manual_appends_the_deployments_own_models() {
         let mut r = registry();
         let before = r.models.len();
+        // An id the marketplace does not list, which is the only kind a
+        // deployment can add for itself.
+        assert!(r.get("chapkit_example_manual_model").is_none());
         let manual = crate::project::ManualModels::from([(
-            "chapkit_ghr_model".to_string(),
-            manual("chapkit_ghr_model", "chapkit-ghr-model"),
+            "chapkit_example_manual_model".to_string(),
+            manual(
+                "chapkit_example_manual_model",
+                "chapkit-example-manual-model",
+            ),
         )]);
         assert!(r.with_manual(&manual).is_empty(), "nothing collides");
         assert_eq!(r.models.len(), before + 1);
 
         // Found by id and by service id, like any other entry, and marked as
         // this deployment's own.
-        for wanted in ["chapkit_ghr_model", "chapkit-ghr-model"] {
+        for wanted in [
+            "chapkit_example_manual_model",
+            "chapkit-example-manual-model",
+        ] {
             let found = r.get(wanted).unwrap_or_else(|| panic!("{wanted}"));
-            assert_eq!(found.id, "chapkit_ghr_model");
+            assert_eq!(found.id, "chapkit_example_manual_model");
             assert!(found.manual, "{wanted}");
         }
-        assert!(r.search("ghr").iter().any(|m| m.manual));
+        assert!(r.search("example_manual").iter().any(|m| m.manual));
         // And the marketplace entries are untouched.
         assert!(!r.get("chapkit_ewars_model").unwrap().manual);
     }
@@ -463,7 +472,7 @@ mod tests {
     fn deployable_excludes_templates() {
         let r = registry();
         let ids: Vec<&str> = r.deployable().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids.len(), 4);
+        assert_eq!(ids.len(), 5);
         assert!(!ids.iter().any(|id| id.contains("minimalist_example")));
     }
 
@@ -511,7 +520,7 @@ mod tests {
     /// Seed the cache with a one-model catalogue, backdated by `age`.
     ///
     /// One model is what makes a cache hit unmistakable: the embedded
-    /// snapshot has six, so a count of one cannot have come from the
+    /// snapshot has several, so a count of one cannot have come from the
     /// fallback.
     fn seed_cache(opts: &RegistryOptions, age: Duration) {
         const INDEX: &str = "\
@@ -553,7 +562,7 @@ models:
             "{:?}",
             r.provenance
         );
-        assert_eq!(r.models.len(), 6);
+        assert_eq!(r.models.len(), load_embedded().unwrap().models.len());
     }
 
     #[test]
@@ -565,7 +574,7 @@ models:
             "{:?}",
             r.provenance
         );
-        assert_eq!(r.models.len(), 6);
+        assert_eq!(r.models.len(), load_embedded().unwrap().models.len());
     }
 
     #[test]
@@ -591,8 +600,8 @@ models:
         let opts = opts(tmp.path(), false);
         seed_cache(&opts, Duration::from_secs(60));
 
-        // The URL is unreachable, so a cache miss would yield six embedded
-        // models; one model proves the cache answered first.
+        // The URL is unreachable, so a cache miss would yield the whole
+        // embedded snapshot; one model proves the cache answered first.
         let r = load(&opts).unwrap();
         match r.provenance {
             Provenance::Cache { age_secs } => assert!((60..600).contains(&age_secs), "{age_secs}"),

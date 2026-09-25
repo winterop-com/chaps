@@ -33,7 +33,7 @@ fail  api port                   8000 is in use by something else
       port 8000 is already in use on this machine (needed by chap); free it, or run
       `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
 ok    chap-core pin              v2.3.1 is the newest release
-ok    image chapkit-ewars-model  ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1 (linux/amd64)
+ok    image chapkit-ewars-model  ghcr.io/chap-models/chapkit_ewars_model:sha-8d4a7ea (linux/amd64)
 skip  health                     no container of this project is running
       run `chaps up` to start CHAP
 

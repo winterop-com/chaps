@@ -202,7 +202,7 @@ stderr, dimmed and never on stdout:
 ```text
 $ chaps -v status
 project: /srv/chapx (state in /srv/chapx/.chaps/project.yaml)
-registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (6 models)
+registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (7 models)
 asking chap-core at http://localhost:8000
 GET http://localhost:8000/health -> 200 in 12ms
 GET http://localhost:8000/v2/services -> 200 in 8ms

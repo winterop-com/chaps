@@ -949,11 +949,18 @@ mod tests {
         arima.versions[0].image_tag = "sha-2222222".into();
 
         let plan = plan(&project, &registry, &no_lookup).unwrap();
+        // Where stable points in the snapshot, whatever a marketplace
+        // refresh last made it.
+        let stable = registry
+            .get("chapkit_ewars_model")
+            .unwrap()
+            .resolve(&VersionSelector::Channel(Channel::Stable))
+            .unwrap();
         let ewars = plan.iter().find(|m| m.id == "chapkit_ewars_model").unwrap();
         assert!(ewars.changed);
         assert_eq!(ewars.old_version, "0.9.0");
-        assert_eq!(ewars.new_version, "1.0.0");
-        assert_eq!(ewars.new_tag, "sha-fa880a1");
+        assert_eq!(ewars.new_version, stable.version);
+        assert_eq!(ewars.new_tag, stable.image_tag);
 
         let arima = plan.iter().find(|m| m.id == "auto_arima_chapkit").unwrap();
         assert!(arima.pinned && !arima.changed);
@@ -968,12 +975,12 @@ mod tests {
             state: ProjectState::default(),
         };
         project.state.manual.insert(
-            "chapkit_ghr_model".to_string(),
+            "chapkit_example_manual_model".to_string(),
             ManualModel {
-                service_id: "chapkit-ghr-model".into(),
-                display_name: "chapkit_ghr_model".into(),
-                repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),
-                image: "ghcr.io/chap-models/chapkit_ghr_model".into(),
+                service_id: "chapkit-example-manual-model".into(),
+                display_name: "chapkit_example_manual_model".into(),
+                repository: Some("https://github.com/example/chapkit_example_manual_model".into()),
+                image: "ghcr.io/example/chapkit_example_manual_model".into(),
                 tag: "sha-1eb8cf1".into(),
                 commit: None,
                 follow: follow.map(str::to_string),
@@ -985,7 +992,7 @@ mod tests {
         );
         let mut registry = load_embedded().unwrap();
         assert!(registry.with_manual(&project.state.manual).is_empty());
-        let mut request = EnableRequest::new("chapkit_ghr_model");
+        let mut request = EnableRequest::new("chapkit_example_manual_model");
         request.selector = match follow {
             Some(_) => VersionSelector::Channel(Channel::Latest),
             None => VersionSelector::Exact("sha-1eb8cf1".into()),
@@ -1009,7 +1016,7 @@ mod tests {
     fn a_following_manual_model_moves_when_its_branch_has_a_newer_build() {
         let (_dir, project, registry) = project_with_manual(Some("main"));
         let plan = plan(&project, &registry, &|id, entry| {
-            assert_eq!(id, "chapkit_ghr_model");
+            assert_eq!(id, "chapkit_example_manual_model");
             assert_eq!(entry.follow.as_deref(), Some("main"));
             Some(("b1d6c31deadbeef".to_string(), "sha-b1d6c31".to_string()))
         })
@@ -1042,7 +1049,7 @@ mod tests {
             &Out::default(),
         );
         assert!(
-            text.contains("  chapkit_ghr_model  sha-1eb8cf1 -> sha-b1d6c31\n"),
+            text.contains("  chapkit_example_manual_model  sha-1eb8cf1 -> sha-b1d6c31\n"),
             "{text}"
         );
     }
@@ -1092,7 +1099,7 @@ mod tests {
         // The catalogue without the manual entry folded in, which is what a
         // registry refresh hands back before `with_manual` runs.
         let registry = load_embedded().unwrap();
-        assert!(registry.get("chapkit_ghr_model").is_none());
+        assert!(registry.get("chapkit_example_manual_model").is_none());
         let plan = plan(&project, &registry, &|_, _| None).unwrap();
         assert_eq!(plan.len(), 1);
         assert!(plan[0].manual);

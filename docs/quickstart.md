@@ -36,7 +36,7 @@ chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)
 API:       http://localhost:8000
 
 Enabled:
-  chapkit_ewars_model  CHAP-EWARS v1.0.0  internal
+  chapkit_ewars_model  CHAP-EWARS v1.0.2  internal
 
 Model services publish no host port: chap-core reaches them over the
 compose network, and you reach them through it at
@@ -56,7 +56,7 @@ explicit list of marketplace ids. `--interactive` opens the model browser
 instead of reading `--models`.
 
 A model the marketplace does not list yet is added from its repository or
-image: `chaps models add https://github.com/chap-models/chapkit_ghr_model` (see
+image: `chaps models add https://github.com/my-org/chapkit_dengue_model` (see
 [Models outside the marketplace](./models.md#models-outside-the-marketplace)).
 
 chap-core itself is pinned to the newest release, `v2.3.1` in the run above,
@@ -136,12 +136,13 @@ chaps up                                     # apply it
 
 ```text
 ID                                SERVICE                           NAME                STATUS  STABLE  LATEST  ENABLED
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          orange  1.0.0   1.0.0   internal
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  gray    0.1.0   0.1.0   -
-chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    orange  0.1.0   0.1.0   -
-auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          red     1.0.0   1.0.0   -
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          orange  1.0.2   1.0.2   internal
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  gray    0.1.1   0.1.1   -
+chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    orange  0.1.1   0.1.1   -
+auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          red     1.0.1   1.0.1   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            red     0.1.1   0.1.1   -
 
-4 listed, 1 enabled in this project
+5 listed, 1 enabled in this project
 ```
 
 ## 5. Reach a model from your own machine

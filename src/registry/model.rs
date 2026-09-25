@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(name, "registry.yaml");
         let index: RegistryIndex = serde_yaml_ng::from_str(body).expect("registry.yaml parses");
         assert_eq!(index.schema_version, 2);
-        assert_eq!(index.models.len(), 6);
+        assert_eq!(index.models.len(), 7);
         assert!(index.models.iter().all(|p| p.starts_with("models/")));
         assert!(!index.marketplace.documentation.is_empty());
         assert_eq!(index.review_policy.required_approvals, 3);
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn every_vendored_model_parses() {
         let models = parse_all();
-        assert_eq!(models.len(), 6);
+        assert_eq!(models.len(), 7);
         for m in &models {
             assert_eq!(m.schema_version, 2);
             assert!(!m.versions.is_empty(), "{} has no versions", m.id);
@@ -319,6 +319,7 @@ mod tests {
         for id in [
             "chapkit_ewars_model",
             "chapkit_rwanda_malaria_bym_model",
+            "chapkit_ghr_model",
             "chapkit_minimalist_example_r",
         ] {
             assert!(model(id).needs_amd64(), "{id} should need amd64");
@@ -359,10 +360,14 @@ mod tests {
     #[test]
     fn resolve_exact_and_unknown() {
         let m = model("auto_arima_chapkit");
+        // The pin the snapshot carries, asked for by its exact number rather
+        // than through a channel.
+        let pinned = m.channels.stable.clone();
         let v = m
-            .resolve(&VersionSelector::Exact("1.0.0".into()))
-            .expect("1.0.0 exists");
-        assert_eq!(v.image_tag, "sha-70c07a9");
+            .resolve(&VersionSelector::Exact(pinned.clone()))
+            .expect("the pinned version exists");
+        assert_eq!(v.version, pinned);
+        assert_eq!(v.image_tag, m.version(&pinned).unwrap().image_tag);
 
         let err = m
             .resolve(&VersionSelector::Exact("9.9.9".into()))

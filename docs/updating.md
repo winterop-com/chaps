@@ -64,7 +64,7 @@ A run is four steps, printed in that order:
    repository rather than the catalogue, so its row reads in image tags:
 
    ```text
-     chapkit_ghr_model  sha-1eb8cf1 -> sha-b1d6c31
+     chapkit_dengue_model  sha-1eb8cf1 -> sha-b1d6c31
    ```
 
    One added from a repository URL follows that repository's default branch:

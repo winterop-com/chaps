@@ -39,14 +39,21 @@ pub const FALLBACK_UID_GID: &str = "1000:1000";
 /// knows none of these names, so `chown chapkit:chapkit` there fails with
 /// "unknown user"; only numbers travel between images. Verified with
 /// `id <name>` inside each published image.
+///
+/// Only the names the chapkit base images create are listed. `app`, which
+/// GHRmodel's image declares, is deliberately left out: it is nobody's
+/// convention - an image that says `USER app` has to be asked what uid that
+/// is rather than assumed to match GHRmodel's 10001.
 const KNOWN_IDS: &[(&str, u32)] = &[
     // chapkit-py.Dockerfile creates chapkit as uid/gid 1000; every image built
-    // on chapkit-py (and the chapkit-r* family) inherits it.
+    // on chapkit-py (and the chapkit-r* family) inherits it. Checked against
+    // the published sha-8d4a7ea EWARS image: `uid=1000(chapkit)
+    // gid=1000(chapkit)`.
     ("chapkit", 1000),
     // chapkit_simple_multistep_model/Dockerfile:10 adds `chap` with a plain
     // `useradd` on top of chapkit-py, where 1000 is already taken, so the
     // account lands on 1001 - not 1000. Checked against the published
-    // sha-57eeb78 image: `uid=1001(chap) gid=1001(chap)`.
+    // sha-6c1d9ee image: `uid=1001(chap) gid=1001(chap)`.
     ("chap", 1001),
     ("root", 0),
 ];
@@ -147,10 +154,10 @@ pub fn chown_pair(user: &str) -> String {
 /// `stable` channel pins, read anonymously off ghcr - the same two fields
 /// [`crate::compose::resolve`] reads at enable time, so a run that falls back
 /// to this table lands where a run that could reach the registry would have.
-/// Four of the six images end their Dockerfile on `USER root`; only EWARS and
-/// the simple multistep model drop to an account of their own.
+/// Four of the seven images end their Dockerfile on `USER root`; EWARS, the
+/// simple multistep model and GHRmodel drop to an account of their own.
 const KNOWN: &[(&str, ImageOverride)] = &[
-    // User=chapkit, WorkingDir=/app at sha-fa880a1.
+    // User=chapkit, WorkingDir=/app at sha-8d4a7ea.
     // chapkit_ewars_model/Dockerfile:14 `WORKDIR /app`,
     // :33 `RUN mkdir -p /app/data && chown -R chapkit:chapkit /app/data`,
     // :37 `USER chapkit`.
@@ -161,10 +168,11 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "chapkit",
         },
     ),
-    // User=chap, WorkingDir=/app at sha-57eeb78.
+    // User=chap, WorkingDir=/app at sha-6c1d9ee.
     // chapkit_simple_multistep_model/Dockerfile:12 `WORKDIR /app`,
     // :10 `useradd ... chap`, :30 `RUN mkdir -p /app/data && chown chap:chap
-    // /app/data`, :37 `USER chap`. The only image with a user of its own.
+    // /app/data`, :37 `USER chap`. The one image that creates an account of
+    // its own on top of the chapkit base.
     (
         "chapkit_simple_multistep_model",
         ImageOverride {
@@ -172,7 +180,7 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "chap",
         },
     ),
-    // User=root, WorkingDir=/work at sha-028bb5a.
+    // User=root, WorkingDir=/work at sha-28d9fc3.
     // chapkit_rwanda_malaria_bym_model/Dockerfile:11 `WORKDIR /work`; main.py:81
     // keeps the relative default `sqlite+aiosqlite:///data/chapkit.db`, so
     // /work/data. The image ends on `USER root` and never drops back, and its
@@ -185,7 +193,7 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "root",
         },
     ),
-    // User=root, WorkingDir=/work at sha-70c07a9.
+    // User=root, WorkingDir=/work at sha-5adf3a8.
     // auto_arima_chapkit/Dockerfile:13 `WORKDIR /work`; main.py:77 keeps the
     // relative default database URL. (The model repo's own compose.yml mounts
     // /workspace/data, which does not match its WORKDIR; /work/data is what
@@ -197,7 +205,20 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "root",
         },
     ),
-    // User=root, WorkingDir=/work at sha-5689ab5.
+    // User=app, WorkingDir=/work at sha-3040e8f. The chapkit-r-inla base
+    // leaves chapkit's relative default database URL alone, so /work/data,
+    // which the model file's own notes repeat. `app` is the image's own
+    // account, uid/gid 10001 (`id app` inside sha-3040e8f), and is the one
+    // user in this table that [`numeric_pair`] cannot turn into numbers: see
+    // KNOWN_IDS for why it stays out of there.
+    (
+        "chapkit_ghr_model",
+        ImageOverride {
+            data_dir: "/work/data",
+            user: "app",
+        },
+    ),
+    // User=root, WorkingDir=/work at sha-73557ef.
     // chapkit_minimalist_example_py/Dockerfile:7 `WORKDIR /work`; main.py:101
     // keeps the relative default database URL.
     (
@@ -207,7 +228,7 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "root",
         },
     ),
-    // User=root, WorkingDir=/work at sha-75c26ab.
+    // User=root, WorkingDir=/work at sha-9fbdd09.
     // chapkit_minimalist_example_r/Dockerfile:15 `WORKDIR /work`; same
     // default database URL as the Python template.
     (
@@ -262,6 +283,7 @@ mod tests {
             ("chapkit_simple_multistep_model", "/app", "chap"),
             ("chapkit_rwanda_malaria_bym_model", "/work", "root"),
             ("auto_arima_chapkit", "/work", "root"),
+            ("chapkit_ghr_model", "/work", "app"),
             ("chapkit_minimalist_example_py", "/work", "root"),
             ("chapkit_minimalist_example_r", "/work", "root"),
         ];
@@ -277,7 +299,7 @@ mod tests {
     }
 
     /// The four images that end on `USER root` get no `user:` line and no
-    /// init container; the two that drop to an account of their own do.
+    /// init container; the three that drop to an account of their own do.
     #[test]
     fn the_table_says_which_images_run_as_root() {
         let root: Vec<&str> = KNOWN
@@ -335,9 +357,24 @@ mod tests {
         assert_eq!(FALLBACK_UID_GID, "1000:1000");
     }
 
+    /// The init container chowns from busybox, so a table user that cannot be
+    /// turned into numbers is a `chown` that fails. GHRmodel is the one
+    /// deliberate exception: its `app` is nobody's convention, so it stays out
+    /// of `KNOWN_IDS` and is asked of the image instead. Enabling it reaches
+    /// the registry or the local daemon and records `10001:10001`; only a run
+    /// that can reach neither lands on this row, and `chaps sync` warns there.
     #[test]
     fn every_user_in_the_table_is_resolvable() {
+        const PROBED: &[&str] = &["chapkit_ghr_model"];
         for (id, o) in KNOWN {
+            if PROBED.contains(id) {
+                assert_eq!(
+                    numeric_pair(o.user),
+                    None,
+                    "{id} would no longer be probed for its uid"
+                );
+                continue;
+            }
             assert!(
                 numeric_pair(o.user).is_some(),
                 "{id} runs as {} which the init container cannot chown to",

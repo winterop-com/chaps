@@ -4,8 +4,9 @@
 //!
 //! The marketplace has no JSON API, so the catalogue is plain YAML served from
 //! `raw.githubusercontent.com`: one request for the index, then one per model
-//! file it lists. Requests are sequential on purpose — six small files over a
-//! kept-alive connection is fast enough, and a failure is easier to attribute.
+//! file it lists. Requests are sequential on purpose — a handful of small
+//! files over a kept-alive connection is fast enough, and a failure is easier
+//! to attribute.
 
 use crate::error::{ChapError, Result};
 use crate::registry::{RegistryIndex, RegistryOptions, model_url};
