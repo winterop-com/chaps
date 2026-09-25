@@ -3741,8 +3741,18 @@ fn doctor_warns_when_the_marketplace_pin_lags_the_model_repository() {
             .starts_with("ask the marketplace maintainers for a new pin"),
         "{report}"
     );
-    // A marketplace that lags is nothing a deployment has to act on.
-    assert_eq!(report["summary"]["fail"], 0, "{report}");
+    // A marketplace that lags is nothing a deployment has to act on: the pin
+    // lines warn, never fail. (The rest of the report depends on the machine,
+    // a runner without docker fails its docker checks, so only these lines
+    // are judged.)
+    let pin_failures: Vec<&serde_json::Value> = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["id"].as_str().unwrap_or("").starts_with("registry-pin-"))
+        .filter(|c| c["status"] == "fail")
+        .collect();
+    assert!(pin_failures.is_empty(), "{report}");
 
     // The same deployment with the network switched off asks nothing, and
     // every one of these lines says that is why.
