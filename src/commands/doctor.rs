@@ -2326,7 +2326,9 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
 /// The one class of breakage `chaps sync` cannot see: the recorded user is
 /// what the overlay renders from, and an image that runs as root under a
 /// `user: 1000:1000` starts fine and then fails on its own binaries - the
-/// Rwanda BYM model's `inla.run: Permission denied`. Only a locally pulled
+/// Rwanda BYM model's `inla.run: Permission denied`, up to its 0.1.1 pin. It
+/// is also what a model that has moved the other way looks like, which is why
+/// the check compares rather than looks for root. Only a locally pulled
 /// image can be asked without a network round trip per model, so a model whose
 /// amd64 image is not in this machine's image store is skipped rather than
 /// guessed at.
@@ -3005,8 +3007,8 @@ mod tests {
         // The bug this check exists for: an image that runs as root under an
         // overlay that hands it an unprivileged uid.
         let wrong = user_check(
-            "chapkit_rwanda_malaria_bym_model",
-            "chapkit-rwanda-malaria-bym-model",
+            "auto_arima_chapkit",
+            "auto-arima-chapkit",
             Some(IMAGE_REF),
             "1000:1000",
             Some("root"),
@@ -3021,7 +3023,7 @@ mod tests {
         assert_eq!(
             wrong.fix.as_deref(),
             Some(
-                "run `chaps models enable chapkit_rwanda_malaria_bym_model` to read the \
+                "run `chaps models enable auto_arima_chapkit` to read the \
                  user off the image again, or `chaps update`"
             )
         );

@@ -36,7 +36,7 @@ chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)
 API:       http://localhost:8000
 
 Enabled:
-  chapkit_ewars_model  CHAP-EWARS v1.0.2  internal
+  chapkit_ewars_model  CHAP-EWARS v1.0.3  internal
 
 Model services publish no host port: chap-core reaches them over the
 compose network, and you reach them through it at
@@ -136,11 +136,11 @@ chaps up                                     # apply it
 
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.2   1.0.2   via chap-core
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.3   1.0.3   via chap-core
 chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
 auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
-chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.1   0.1.1   -
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.2   0.1.2   -
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.2   0.1.2   -
 
 5 listed, 1 enabled in this project
 ```

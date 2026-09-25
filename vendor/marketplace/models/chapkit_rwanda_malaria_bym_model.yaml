@@ -58,25 +58,23 @@ covariates:
   allow_free_additional: true
 
 channels:
-  stable: 0.1.1
-  latest: 0.1.1
+  stable: 0.1.2
+  latest: 0.1.2
 
 versions:
-  - version: 0.1.1
-    commit: 28d9fc35bacd211fd2f2717947a2bed70de83df4
-    image_tag: sha-28d9fc3
+  - version: 0.1.2
+    commit: a7b2892d74c694f5140a315357061ab2592897c6
+    image_tag: sha-a7b2892
     chapkit: ">=2.1.2,<3"
     status: verified
     # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
     verified_by: []
     changelog: >-
-      Require chapkit 2.1.2, whose failure messages keep the R error line
-      instead of trailing warnings, and which applies the model
-      configurations chap-core sends.
+      Run as the unprivileged chapkit user on the chapkit-r-inla base that
+      makes INLA executable for it; chapkit 2.1.2.
     notes: >-
-      The runner uses chapkit's chap_core config format, which writes
-      additional_continuous_covariates at the top level of config.yml —
-      that is what scripts/predict.R reads.
+      chap-core registers the pin as Rwanda Malaria BYM 0.1.2. The service runs
+      as the unprivileged chapkit user (uid 1000) with its data under /work/data.
 
 configurations:
   monthly:

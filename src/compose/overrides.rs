@@ -47,7 +47,7 @@ pub const FALLBACK_UID_GID: &str = "1000:1000";
 const KNOWN_IDS: &[(&str, u32)] = &[
     // chapkit-py.Dockerfile creates chapkit as uid/gid 1000; every image built
     // on chapkit-py (and the chapkit-r* family) inherits it. Checked against
-    // the published sha-8d4a7ea EWARS image: `uid=1000(chapkit)
+    // the published sha-24d58c0 EWARS image: `uid=1000(chapkit)
     // gid=1000(chapkit)`.
     ("chapkit", 1000),
     // chapkit_simple_multistep_model/Dockerfile:10 adds `chap` with a plain
@@ -154,10 +154,11 @@ pub fn chown_pair(user: &str) -> String {
 /// `stable` channel pins, read anonymously off ghcr - the same two fields
 /// [`crate::compose::resolve`] reads at enable time, so a run that falls back
 /// to this table lands where a run that could reach the registry would have.
-/// Four of the seven images end their Dockerfile on `USER root`; EWARS, the
-/// simple multistep model and GHRmodel drop to an account of their own.
+/// Three of the seven images end their Dockerfile on `USER root`; EWARS, the
+/// simple multistep model, the Rwanda BYM model and GHRmodel drop to an
+/// account of their own.
 const KNOWN: &[(&str, ImageOverride)] = &[
-    // User=chapkit, WorkingDir=/app at sha-8d4a7ea.
+    // User=chapkit, WorkingDir=/app at sha-24d58c0.
     // chapkit_ewars_model/Dockerfile:14 `WORKDIR /app`,
     // :33 `RUN mkdir -p /app/data && chown -R chapkit:chapkit /app/data`,
     // :37 `USER chapkit`.
@@ -180,17 +181,19 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "chap",
         },
     ),
-    // User=root, WorkingDir=/work at sha-28d9fc3.
-    // chapkit_rwanda_malaria_bym_model/Dockerfile:11 `WORKDIR /work`; main.py:81
+    // User=chapkit, WorkingDir=/work at sha-a7b2892.
+    // chapkit_rwanda_malaria_bym_model/Dockerfile:16 `WORKDIR /work`; main.py:81
     // keeps the relative default `sqlite+aiosqlite:///data/chapkit.db`, so
-    // /work/data. The image ends on `USER root` and never drops back, and its
-    // INLA binaries are mode 744 root-owned: run as anyone else, every
-    // prediction fails with `inla.run: Permission denied`.
+    // /work/data. :34 `RUN mkdir -p /work/data && chown -R chapkit:chapkit
+    // /work/data`, :42 `USER chapkit`. Up to 0.1.1 (sha-28d9fc3) the image ended
+    // on `USER root` with its INLA binaries mode 744 root-owned; 0.1.2 rebuilds
+    // on a chapkit-r-inla base that leaves them mode 755, so the chapkit user
+    // can execute them.
     (
         "chapkit_rwanda_malaria_bym_model",
         ImageOverride {
             data_dir: "/work/data",
-            user: "root",
+            user: "chapkit",
         },
     ),
     // User=root, WorkingDir=/work at sha-5adf3a8.
@@ -205,10 +208,10 @@ const KNOWN: &[(&str, ImageOverride)] = &[
             user: "root",
         },
     ),
-    // User=app, WorkingDir=/work at sha-3040e8f. The chapkit-r-inla base
+    // User=app, WorkingDir=/work at sha-a9532c7. The chapkit-r-inla base
     // leaves chapkit's relative default database URL alone, so /work/data,
     // which the model file's own notes repeat. `app` is the image's own
-    // account, uid/gid 10001 (`id app` inside sha-3040e8f), and is the one
+    // account, uid/gid 10001 (`id app` inside sha-a9532c7), and is the one
     // user in this table that [`numeric_pair`] cannot turn into numbers: see
     // KNOWN_IDS for why it stays out of there.
     (
@@ -281,7 +284,7 @@ mod tests {
         let declared = [
             ("chapkit_ewars_model", "/app", "chapkit"),
             ("chapkit_simple_multistep_model", "/app", "chap"),
-            ("chapkit_rwanda_malaria_bym_model", "/work", "root"),
+            ("chapkit_rwanda_malaria_bym_model", "/work", "chapkit"),
             ("auto_arima_chapkit", "/work", "root"),
             ("chapkit_ghr_model", "/work", "app"),
             ("chapkit_minimalist_example_py", "/work", "root"),
@@ -298,8 +301,8 @@ mod tests {
         }
     }
 
-    /// The four images that end on `USER root` get no `user:` line and no
-    /// init container; the three that drop to an account of their own do.
+    /// The three images that end on `USER root` get no `user:` line and no
+    /// init container; the four that drop to an account of their own do.
     #[test]
     fn the_table_says_which_images_run_as_root() {
         let root: Vec<&str> = KNOWN
@@ -310,7 +313,6 @@ mod tests {
         assert_eq!(
             root,
             [
-                "chapkit_rwanda_malaria_bym_model",
                 "auto_arima_chapkit",
                 "chapkit_minimalist_example_py",
                 "chapkit_minimalist_example_r",

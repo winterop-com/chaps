@@ -2,8 +2,8 @@
 //!
 //! A model image declares the account it runs as in `config.User`, and forcing
 //! a different one is how a model ends up unable to execute its own binaries:
-//! the Rwanda BYM model ships root-owned, mode 744 INLA binaries, so a
-//! hardened `user: chapkit:chapkit` turned every prediction into
+//! the Rwanda BYM model shipped root-owned, mode 744 INLA binaries up to
+//! 0.1.1, so a hardened `user: chapkit:chapkit` turned every prediction into
 //! `inla.run: Permission denied`. So the image is asked, in the order the
 //! answers can be trusted: the flag, the registry, the local daemon, and only
 //! then the table compiled into this binary.
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn the_table_resolver_looks_nothing_up() {
-        let resolution = from_table(&request("chapkit_rwanda_malaria_bym_model", None));
+        let resolution = from_table(&request("auto_arima_chapkit", None));
         assert_eq!(resolution.user, "root");
         assert_eq!(resolution.user_from, UserSource::Table);
         assert_eq!(resolution.data_dir, "/work/data");

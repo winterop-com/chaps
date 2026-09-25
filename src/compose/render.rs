@@ -564,10 +564,11 @@ mod tests {
         assert_eq!(text, golden);
     }
 
-    /// The other shape an overlay has: an image that runs as root, which gets
-    /// no `user:` line and an init container that chowns its volume to `0:0`.
+    /// The same shape under the other WorkingDir: `/work/data`, which is
+    /// where most of the catalogue keeps its database, rather than the EWARS
+    /// image's `/app/data`.
     #[test]
-    fn a_root_overlay_matches_its_own_golden_fixture() {
+    fn a_work_dir_overlay_matches_its_own_golden_fixture() {
         let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
         let golden = normalize_newlines(include_str!(
             "../../tests/fixtures/compose.chapkit-rwanda-malaria-bym-model.yml"
@@ -575,14 +576,16 @@ mod tests {
         assert_eq!(text, golden);
     }
 
-    /// What the two shapes differ in, said as assertions rather than as a
-    /// diff of two files.
+    /// The third shape, said as assertions rather than as a golden file: an
+    /// image that runs as root, which gets no `user:` line and an init
+    /// container that chowns its volume to `0:0`. Auto-ARIMA is one of the
+    /// three marketplace images that still end on `USER root`.
     #[test]
     fn a_root_image_gets_no_user_line_and_an_init_container_that_chowns_to_zero() {
-        let text = render_overlay(&overlay_spec("chapkit_rwanda_malaria_bym_model"));
+        let text = render_overlay(&overlay_spec("auto_arima_chapkit"));
         assert_no_tokens(&text);
         let doc = parse(&text);
-        let svc = service(&doc, "chapkit-rwanda-malaria-bym-model");
+        let svc = service(&doc, "auto-arima-chapkit");
         // The one line a root image does not get: the image's own user
         // applies, and a `user:` here could only take a permission away.
         assert!(svc.get("user").is_none(), "root needs no override");
@@ -592,7 +595,7 @@ mod tests {
         // this model as 1000:1000 is owned by 1000 - and the overlay drops
         // `CAP_DAC_OVERRIDE` with every other capability, so root cannot
         // write to it. This is what makes that upgrade heal itself.
-        let init = service(&doc, "chapkit-rwanda-malaria-bym-model-init");
+        let init = service(&doc, "auto-arima-chapkit-init");
         assert_eq!(
             init["command"][2].as_str(),
             Some("chown -R 0:0 /work/data"),
@@ -604,7 +607,7 @@ mod tests {
 
         // The model waits for it, and still waits for chap-core.
         assert_eq!(
-            svc["depends_on"]["chapkit-rwanda-malaria-bym-model-init"]["condition"].as_str(),
+            svc["depends_on"]["auto-arima-chapkit-init"]["condition"].as_str(),
             Some("service_completed_successfully")
         );
         assert_eq!(
@@ -612,13 +615,13 @@ mod tests {
             Some("service_healthy")
         );
         assert_eq!(svc["volumes"][1]["target"].as_str(), Some("/work/data"));
-        assert!(doc["volumes"]["ck_chapkit_rwanda_malaria_bym_model_data"].is_mapping());
+        assert!(doc["volumes"]["ck_auto_arima_chapkit_data"].is_mapping());
         // And the hardening it shares with every other overlay is untouched.
         assert_eq!(svc["read_only"].as_bool(), Some(true));
         assert_eq!(svc["init"].as_bool(), Some(true));
 
         // Every spelling of root renders the same file, chown included.
-        let mut spec = overlay_spec("chapkit_rwanda_malaria_bym_model");
+        let mut spec = overlay_spec("auto_arima_chapkit");
         for user in ["root", "0", "0:0", "root:root", ""] {
             spec.user = user.to_string();
             assert_eq!(render_overlay(&spec), text, "{user:?}");

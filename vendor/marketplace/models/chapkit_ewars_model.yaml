@@ -58,23 +58,22 @@ covariates:
 # what production chap instances should run. `latest` is the newest pin of
 # any status; it diverges from `stable` while a new version is under review.
 channels:
-  stable: 1.0.2
-  latest: 1.0.2
+  stable: 1.0.3
+  latest: 1.0.3
 
 versions:
-  - version: 1.0.2
-    commit: 8d4a7ea2d83f059c23b22caa9058c01a4500db84
-    image_tag: sha-8d4a7ea
+  - version: 1.0.3
+    commit: 24d58c08a793cd1af8f804c92a53f83943b80c84
+    image_tag: sha-24d58c0
     chapkit: ">=2.1.2,<3"
     status: verified
     # Pinned by the maintainers without the three-approval round.
     verified_by: []
     changelog: >-
-      Require chapkit 2.1.2, whose failure messages keep the R error line
-      instead of trailing warnings, and which applies the model
-      configurations chap-core sends.
+      Rebuilt on the chapkit-r-inla base that makes INLA executable for the
+      unprivileged user; chapkit 2.1.2.
     notes: >-
-      chap-core registers the pin as CHAP-EWARS 1.0.2.
+      chap-core registers the pin as CHAP-EWARS 1.0.3.
 # Verified configurations. Each `config` block is the flat object chapkit
 # accepts as `data` on POST /api/v1/configs.
 configurations:

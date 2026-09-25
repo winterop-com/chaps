@@ -373,7 +373,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App, columns: &Columns, theme:
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// One table row: `▸ ✓ Display Name   id   ● status   1.0.2   internal`.
+/// One table row: `▸ ✓ Display Name   id   ● status   1.0.3   internal`.
 fn row_line<'a>(
     app: &App,
     row: &Row,
@@ -1335,7 +1335,7 @@ fn horizon(app: &App, row: &Row) -> String {
     )
 }
 
-/// `1.0.2 (sha-8d4a7ea)`, or just the tag when the two are the same thing, as
+/// `1.0.3 (sha-24d58c0)`, or just the tag when the two are the same thing, as
 /// they are for a manually added model.
 fn version_and_tag(version: &str, tag: &str) -> String {
     if version == tag {
@@ -1543,9 +1543,9 @@ mod tests {
         assert_eq!(column_of(head, "MODEL"), column_of(row, "CHAP-EWARS"));
         assert_eq!(column_of(head, "ID"), column_of(row, "chapkit_ewars_model"));
         assert_eq!(column_of(head, "STATUS"), column_of(row, "●"));
-        assert_eq!(column_of(head, "VERSION"), column_of(row, "1.0.2"));
+        assert_eq!(column_of(head, "VERSION"), column_of(row, "1.0.3"));
         // And the version has lost the `v` the old list put in front of it.
-        assert!(!row.contains("v1.0.2"), "{row}");
+        assert!(!row.contains("v1.0.3"), "{row}");
 
         let enabled = state_with_ewars(&registry, Some(5001));
         let app = App::new(&registry, &enabled);
@@ -1710,7 +1710,7 @@ mod tests {
         let head = line_text(&lines[0]);
         assert!(head.starts_with("CHAP-EWARS"), "{head}");
         assert!(head.contains("● limited data"), "{head}");
-        assert!(head.contains("1.0.2 (sha-"), "{head}");
+        assert!(head.contains("1.0.3 (sha-"), "{head}");
         assert!(head.contains("not enabled"), "{head}");
         assert!(head.contains("requires population"), "{head}");
         assert!(head.ends_with("i for details"), "{head}");
@@ -1838,7 +1838,7 @@ mod tests {
         assert!(screen.contains("Channel for CHAP-EWARS"), "{screen}");
         let stable = line_with(&screen, "stable");
         assert!(stable.contains("▸ ✓ stable"), "{stable}");
-        assert!(stable.contains("1.0.2"), "the version it resolves to");
+        assert!(stable.contains("1.0.3"), "the version it resolves to");
         let latest = line_with(&screen, "latest");
         assert!(latest.contains("latest"), "{latest}");
         assert!(!latest.contains('▸'), "{latest}");
@@ -1878,7 +1878,7 @@ mod tests {
             // The colour word is only worth printing next to what it means.
             "● orange, shows promise on limited data",
             "http://localhost:5001",
-            "1.0.2 (sha-8d4a7ea) · verified · channels stable, latest",
+            "1.0.3 (sha-24d58c0) · verified · channels stable, latest",
             "ghcr.io/chap-models/chapkit_ewars_model:sha-",
             "amd64 only",
             "/app/data",
@@ -2033,7 +2033,7 @@ mod tests {
             .position(|l| l.starts_with("version"))
             .expect("a version row");
         assert!(
-            lines[at].contains("1.0.2 (sha-8d4a7ea) · verified · channels stable, latest"),
+            lines[at].contains("1.0.3 (sha-24d58c0) · verified · channels stable, latest"),
             "{:?}",
             lines[at]
         );

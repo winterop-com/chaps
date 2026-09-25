@@ -62,7 +62,7 @@ each point at one of them.
 ```sh
 chaps models enable chapkit_ewars_model                       # stable, the default
 chaps models enable chapkit_ewars_model --channel latest
-chaps models enable chapkit_ewars_model --version 1.0.2       # an exact pin
+chaps models enable chapkit_ewars_model --version 1.0.3       # an exact pin
 ```
 
 A model that follows a channel records both the channel and the version it
@@ -95,11 +95,11 @@ chaps models info chapkit_ewars_model
 
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.2   1.0.2   via chap-core
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.3   1.0.3   via chap-core
 chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
 auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
-chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.1   0.1.1   -
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.2   0.1.2   -
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.2   0.1.2   -
 
 5 listed, 1 enabled in this project
 ```
@@ -506,7 +506,7 @@ catalogue entry:
 
 ```text
 ID                    SERVICE               NAME                  STATUS        STABLE       LATEST       PORT  KIND
-chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            limited data  1.0.2        1.0.2        -     model
+chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            limited data  1.0.3        1.0.3        -     model
 chapkit_dengue_model  chapkit-dengue-model  chapkit_dengue_model  not for use   sha-b1d6c31  sha-b1d6c31  5001  manual
 ```
 
@@ -565,11 +565,11 @@ chaps · models                                                registry: cache �
 ╭ Marketplace ─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     MODEL                  ID                                 STATUS         VERSION  PORT                           │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● limited data 1.0.2    via chap-core                  │
+│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● limited data 1.0.3    via chap-core                  │
 │     Simple Multistep       chapkit_simple_multistep_model     ● limited data 0.1.1                                   │
 │     Auto-ARIMA             auto_arima_chapkit                 ● experimental 1.0.1                                   │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ CHAP-EWARS  ● limited data  1.0.2 (sha-8d4a7ea)  enabled, via chap-core  requires population            i for details│
+│ CHAP-EWARS  ● limited data  1.0.3 (sha-24d58c0)  enabled, via chap-core  requires population            i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  [j/k] move  [space] toggle  [i] info  [p] port  [v] channel  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
@@ -648,8 +648,8 @@ one resolves to and a `✓` on the one the row follows today:
 
 ```text
 ╭ Channel for CHAP-EWARS ─────────────────────────────────╮
-│ ▸ ✓ stable  1.0.2                                       │
-│     latest  1.0.2                                       │
+│ ▸ ✓ stable  1.0.3                                       │
+│     latest  1.0.3                                       │
 │                                                         │
 │ [enter] apply  [esc] cancel  [j/k] move  [s/l] pick one │
 ╰─────────────────────────────────────────────────────────╯
@@ -672,7 +672,7 @@ only then how this deployment runs it.
 │ with lagged climate covariates, fitted with R-INLA. Built for one country's data — │
 │ it needs geometry and the full climate covariate set.                              │
 │                                                                                    │
-│ version     0.1.1 (sha-28d9fc3) · verified · channels stable, latest               │
+│ version     0.1.2 (sha-a7b2892) · verified · channels stable, latest               │
 │ author      Similien NDAGIJIMANA · HISP Centre, University of Oslo ·               │
 │             knut.rand@dhis2.org                                                    │
 │ status      ● gray, not intended for use, deprecated or kept for backwards         │
@@ -683,7 +683,7 @@ only then how this deployment runs it.
 │             · free extras allowed · geometry required                              │
 │                                                                                    │
 │ reach       via chap-core (through chap-core's /run/ proxy)                        │
-│ image       ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-28d9fc3       │
+│ image       ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-a7b2892       │
 │ runtime     ghcr.io/dhis2-chap/chapkit-r-inla (amd64 only)                         │
 │                                                                                    │
 │ maintainers mortenoh, edvinstava                                                   │
@@ -737,11 +737,11 @@ and nothing else by way of explanation: what it does is below.
 
 ```yaml
 # Generated by chaps from .chaps/; edit there and run `chaps sync`.
-# chapkit_ewars_model 1.0.2 (https://github.com/chap-models/chapkit_ewars_model)
+# chapkit_ewars_model 1.0.3 (https://github.com/chap-models/chapkit_ewars_model)
 services:
   chapkit-ewars-model:
     restart: unless-stopped
-    image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-8d4a7ea}
+    image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-24d58c0}
     # amd64-only image; the pin makes an arm64 host pull that variant.
     platform: linux/amd64
     init: true
@@ -881,15 +881,18 @@ What the marketplace images declare today:
 | --- | --- | --- |
 | EWARS | `/app/data` | `chapkit`, rendered as `1000:1000` |
 | The simple multistep model | `/app/data` | `chap`, rendered as `1001:1001` |
+| The Rwanda BYM model | `/work/data` | `chapkit`, rendered as `1000:1000` |
 | GHRmodel | `/work/data` | `app`, probed as `10001:10001` |
 | Everything else | `/work/data` | `root` |
 
 **An image that runs as root gets no `user:` line**; its init container is
-rendered like any other model's and chowns the volume to `0:0`. Four of the
+rendered like any other model's and chowns the volume to `0:0`. Three of the
 seven marketplace images end their Dockerfile on `USER root`, and forcing an
 unprivileged uid on one of them takes away a permission its own binaries need:
-the Rwanda BYM model's INLA binaries are root-owned and mode 744, so every
-prediction fails with `inla.run: Permission denied`. See
+the Rwanda BYM model up to 0.1.1 kept its INLA binaries root-owned and mode
+744, so every prediction failed with `inla.run: Permission denied`. That is
+why the image is asked rather than assumed: 0.1.2 rebuilt it to run as
+`chapkit`, and re-enabling the model is what picks that up. See
 [`Permission denied` from a model's own binaries](./troubleshooting.md#permission-denied-from-a-models-own-binaries).
 
 The init container needs an account name as numbers: `chapkit` is uid/gid 1000

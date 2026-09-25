@@ -3,7 +3,7 @@ CHAP model marketplace snapshot
 
 upstream:       https://github.com/dhis2-chap/model-marketplace
 ref:            main
-commit:         3e04d24690412dad6aeb1c578e38dc643fe8b446
+commit:         b0bd6d41b875a8536cc23160a86090646a86dd4f
 fetched:        2026-09-25
 
 Files in this directory are verbatim copies of the upstream YAML. build.rs

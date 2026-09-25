@@ -235,10 +235,11 @@ The model started, registered, and then could not execute a file it ships
 itself. The overlay is running it as an account the image does not use.
 
 Some model images end their Dockerfile on `USER root` and keep their binaries
-root-owned and not world-executable - the Rwanda BYM model's INLA binaries are
-mode 744 - so an overlay that hardens such an image down to `user: 1000:1000`
-takes away the one permission it needed. The container comes up either way,
-which is why this surfaces as a failed prediction rather than a failed start.
+root-owned and not world-executable - the Rwanda BYM model's INLA binaries were
+mode 744 up to 0.1.1 - so an overlay that hardens such an image down to
+`user: 1000:1000` takes away the one permission it needed. The container comes
+up either way, which is why this surfaces as a failed prediction rather than a
+failed start.
 
 `chaps models enable <id>` reads the account off the image again and rewrites
 the overlay; `chaps up` then restarts the service with it:
@@ -249,7 +250,10 @@ $ chaps up
 ```
 
 The rendered overlay should then carry no `user:` line for a root image, and
-its `<service_id>-init` container should chown the volume to `0:0`.
+its `<service_id>-init` container should chown the volume to `0:0`. For an
+image that does drop to an account of its own - which Rwanda BYM 0.1.2 now
+does, as `chapkit` - it carries that account's `uid:gid` instead, and the init
+container chowns to the same two numbers.
 `chaps models info <id>` shows what was recorded and where it came from, and
 `chaps doctor` has one `user <service>` line per enabled model that compares
 the two whenever the image's amd64 variant is pulled here.

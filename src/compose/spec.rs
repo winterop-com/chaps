@@ -373,9 +373,9 @@ mod tests {
         assert_eq!(table.data_dir, "/app/data");
         assert_eq!(table.user, "chapkit");
 
-        // And the Rwanda model runs as root, which is what the overlay has to
+        // And Auto-ARIMA runs as root, which is what the overlay has to
         // leave alone.
-        let root = spec_for(&r, "chapkit_rwanda_malaria_bym_model", None, None);
+        let root = spec_for(&r, "auto_arima_chapkit", None, None);
         assert_eq!(root.data_dir, "/work/data");
         assert_eq!(root.user, "root");
 

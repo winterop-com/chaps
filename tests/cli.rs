@@ -5682,29 +5682,29 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
         .success();
 
     sandbox
-        .models(&["enable", "chapkit_rwanda_malaria_bym_model"])
+        .models(&["enable", "auto_arima_chapkit"])
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
             "warning: nothing could say what \
-             ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:{} runs as",
-            stable_pin("chapkit_rwanda_malaria_bym_model").1
+             ghcr.io/chap-models/auto_arima_chapkit:{} runs as",
+            stable_pin("auto_arima_chapkit").1
         )))
         .stdout(predicates::str::contains("the built-in table"))
         .stdout(predicates::str::contains("chaps models enable"));
 
     // The table's own answer for that image: root, which is the whole point.
-    let model = &state(&dir)["models"]["chapkit_rwanda_malaria_bym_model"];
+    let model = &state(&dir)["models"]["auto_arima_chapkit"];
     assert_eq!(model["user"], "root");
     assert_eq!(model["user_from"], "table");
-    let overlay = yaml(&dir.join("compose.chapkit-rwanda-malaria-bym-model.yml"));
-    let service = &overlay["services"]["chapkit-rwanda-malaria-bym-model"];
+    let overlay = yaml(&dir.join("compose.auto-arima-chapkit.yml"));
+    let service = &overlay["services"]["auto-arima-chapkit"];
     assert!(
         service.get("user").is_none(),
         "the model service overrides nothing"
     );
     assert_eq!(
-        overlay["services"]["chapkit-rwanda-malaria-bym-model-init"]["command"][2].as_str(),
+        overlay["services"]["auto-arima-chapkit-init"]["command"][2].as_str(),
         Some("chown -R 0:0 /work/data")
     );
 }
