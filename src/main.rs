@@ -33,8 +33,9 @@ use cli::{
 };
 use commands::Ctx;
 use error::ChapError;
+use output::Out;
 use project::Project;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Commands that need a deployment directory, hidden from `--help` when there
 /// is none. They still run when typed, and say what is missing.
@@ -60,6 +61,22 @@ const PROJECT_ONLY_MODELS: &[&str] = &[
     "add", "remove", "enable", "disable", "expose", "unexpose", "test",
 ];
 
+/// The mirror of [`PROJECT_ONLY`]: commands that answer "there is no
+/// deployment here", hidden from `--help` inside one, where that is not the
+/// question. They still run when typed: `chaps init --force` is how a
+/// deployment's settings are rewritten, and `chaps init sub` nests a second
+/// one.
+const OUTSIDE_ONLY: &[&str] = &["init"];
+
+/// The [`PROJECT_ONLY`] commands that are a group rather than a verb, so clap
+/// answers the bare command with the group's help.
+///
+/// Outside a deployment that help lists only subcommands that cannot run, so
+/// the missing project is the answer instead - the same one `chaps components
+/// list` gives. `jobs` is not here: its bare form is `list`, which already
+/// says so. `models` and `registry` are not project-only at all.
+const PROJECT_ONLY_GROUPS: &[&str] = &["auth", "backup", "components", "docker"];
+
 fn main() {
     // Windows cannot rename over a running image, so `chaps self update`
     // parks the outgoing binary beside the new one and the next run is the
@@ -73,14 +90,7 @@ fn main() {
     let ctx = Ctx::from_cli(&cli);
 
     if let Err(err) = dispatch(&ctx, &cli) {
-        let rendered = ctx.out.error(&err);
-        // JSON consumers read stdout, so a --json error goes there too.
-        if ctx.out.json {
-            println!("{rendered}");
-        } else {
-            eprintln!("{rendered}");
-        }
-        std::process::exit(exit_code(&err));
+        fail(&ctx.out, err);
     }
 
     // Only after the command said what it did, and only when it worked: a
@@ -89,6 +99,18 @@ fn main() {
     if wants_update_notice(&cli.command) {
         commands::selfcmd::notify(&ctx);
     }
+}
+
+/// Report a failure the way every `chaps` failure is reported, and exit.
+fn fail(out: &Out, err: anyhow::Error) -> ! {
+    let rendered = out.error(&err);
+    // JSON consumers read stdout, so a --json error goes there too.
+    if out.json {
+        println!("{rendered}");
+    } else {
+        eprintln!("{rendered}");
+    }
+    std::process::exit(exit_code(&err));
 }
 
 /// Whether this command may be followed by the once-a-day update notice.
@@ -181,13 +203,21 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
 ///
 /// Outside a deployment directory most of the tree cannot do anything, so it is
 /// hidden rather than offered; the commands still parse and run, and fail with
-/// the error that names the missing `.chaps/project.yaml`.
+/// the error that names the missing `.chaps/project.yaml`. Inside one the
+/// hiding runs the other way, over the commands that are about not having a
+/// deployment yet.
 fn parse() -> Cli {
     let argv: Vec<String> = std::env::args().collect();
-    let mut command = Cli::command();
-    if Project::find_root(&project_dir_of(&argv[1..])).is_none() {
-        command = hide_project_commands(command);
+    let project_dir = project_dir_of(&argv[1..]);
+    let inside = Project::find_root(&project_dir).is_some();
+    if !inside && let Some(matches) = bare_project_group(&argv) {
+        no_project(&matches, &project_dir);
     }
+    let command = if inside {
+        hide_outside_commands(Cli::command())
+    } else {
+        hide_project_commands(Cli::command())
+    };
     let matches = command.get_matches_from(&argv);
     match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
@@ -205,6 +235,45 @@ fn hide_project_commands(mut command: clap::Command) -> clap::Command {
             models.mut_subcommand(name, |c| c.hide(true))
         })
     })
+}
+
+/// Hide the commands that are about not having a project yet: inside one they
+/// are not what to run next.
+fn hide_outside_commands(mut command: clap::Command) -> clap::Command {
+    for name in OUTSIDE_ONLY {
+        command = command.mut_subcommand(name, |c| c.hide(true));
+    }
+    command
+}
+
+/// The matches for a [`PROJECT_ONLY_GROUPS`] command typed with nothing after
+/// it, and `None` for every other command line.
+///
+/// Clap's own answer to a bare group is `arg_required_else_help`, and outside
+/// a deployment that help lists only subcommands that cannot run either. The
+/// classification is a parse of its own, against a throwaway tree that lets
+/// the bare form through, so that the tree the command actually runs against
+/// keeps clap's required-subcommand usage line and its own help. Anything
+/// else - a subcommand, an unknown word, `--help` - stays clap's to answer.
+fn bare_project_group(argv: &[String]) -> Option<clap::ArgMatches> {
+    let mut command = Cli::command();
+    for name in PROJECT_ONLY_GROUPS {
+        command = command.mut_subcommand(name, |c| {
+            c.subcommand_required(false).arg_required_else_help(false)
+        });
+    }
+    let matches = command.try_get_matches_from(argv).ok()?;
+    let (name, group) = matches.subcommand()?;
+    (PROJECT_ONLY_GROUPS.contains(&name) && group.subcommand().is_none()).then_some(matches)
+}
+
+/// The missing-project error, reported before there is a [`Cli`] to carry the
+/// flags its rendering reads: only `--json` and `--no-color` matter, and clap
+/// has both already.
+fn no_project(matches: &clap::ArgMatches, project_dir: &Path) -> ! {
+    let out = Out::detect(matches.get_flag("json"), matches.get_flag("no_color"));
+    let shown = std::path::absolute(project_dir).unwrap_or_else(|_| project_dir.to_path_buf());
+    fail(&out, ChapError::NotAProject(shown).into())
 }
 
 /// The `-C` / `--project-dir` value, read straight out of the raw arguments.
@@ -353,15 +422,85 @@ mod tests {
     }
 
     #[test]
-    fn inside_a_project_nothing_is_hidden() {
-        let help = Cli::command().render_long_help().to_string();
+    fn inside_a_project_the_help_hides_only_what_belongs_outside() {
+        let mut command = hide_outside_commands(Cli::command());
+        let help = command.render_long_help().to_string();
         for name in PROJECT_ONLY {
             assert!(
-                help.contains(name),
+                help.contains(&format!("\n  {name} ")),
                 "`{name}` should be listed in a project"
             );
         }
+        for hidden in OUTSIDE_ONLY {
+            assert!(
+                !help.contains(&format!("\n  {hidden} ")) && !help.ends_with(hidden),
+                "`{hidden}` should not be listed inside a project"
+            );
+        }
         assert!(help.trim_end().ends_with(cli::DOCS_LINE));
+
+        // Hidden is not gone: `chaps init --force` over a deployment is the
+        // documented way to change what it was created with.
+        assert!(matches!(
+            Cli::try_parse_from(["chap", "init", "--force"])
+                .unwrap()
+                .command,
+            Command::Init(_)
+        ));
+    }
+
+    /// The two lists are opposites, so nothing may sit in both: a command in
+    /// both would be hidden wherever it was typed.
+    #[test]
+    fn the_two_hidden_lists_do_not_overlap() {
+        for name in OUTSIDE_ONLY {
+            assert!(!PROJECT_ONLY.contains(name), "`{name}` is in both lists");
+        }
+        for name in PROJECT_ONLY_GROUPS {
+            assert!(
+                PROJECT_ONLY.contains(name),
+                "`{name}` is a group that needs a project but is not hidden outside one"
+            );
+        }
+    }
+
+    /// Outside a project a bare group command is a missing project, not a
+    /// help listing of subcommands that cannot run either.
+    #[test]
+    fn outside_a_project_a_bare_group_command_asks_for_a_project() {
+        for name in PROJECT_ONLY_GROUPS {
+            assert!(
+                bare_project_group(&argv(&["chap", name])).is_some(),
+                "`chaps {name}` should ask for a project"
+            );
+        }
+
+        // A named subcommand is the subcommand's business, the groups that
+        // work anywhere keep their own help, and so does `--help` itself.
+        for args in [
+            vec!["chap", "components", "list"],
+            vec!["chap", "auth", "show"],
+            vec!["chap", "components", "--help"],
+            vec!["chap", "components", "bogus"],
+            vec!["chap", "models"],
+            vec!["chap", "registry"],
+            vec!["chap", "jobs"],
+            vec!["chap", "doctor"],
+            vec!["chap", "--help"],
+        ] {
+            assert!(bare_project_group(&argv(&args)).is_none(), "{args:?}");
+        }
+
+        // The globals are read off the same matches the rendering needs, in
+        // either position.
+        for args in [
+            vec!["chap", "--json", "backup"],
+            vec!["chap", "backup", "--json"],
+        ] {
+            let matches = bare_project_group(&argv(&args)).expect("a bare group");
+            assert!(matches.get_flag("json"), "{args:?}");
+            assert!(!matches.get_flag("no_color"), "{args:?}");
+        }
     }
 
     #[test]

@@ -300,12 +300,20 @@ Commands:
 ```
 
 Inside one, the deployment commands are listed too: up, down, logs, restart,
-status, sync, update, ui, components, docker, backup, auth.
+status, sync, update, ui, components, docker, backup, auth. The hiding runs
+both ways, so `init` drops out of that listing: the deployment it would create
+is already here. It still runs there - `chaps init --force` is how the API
+port or the components of a deployment are rewritten, see
+[How the API port is set](./ports.md#how-the-api-port-is-set), and
+`chaps init sub` creates a second deployment in a subdirectory of the first.
 
 The hidden commands still run if you type them; they just tell you there is no
-project. `chaps models` is split the same way: `list`, `search` and `info`
-browse the marketplace and work anywhere, while `enable`, `disable`, `expose`
-and `unexpose` change a project's model set and are hidden outside one. The
+project. A group command typed on its own says the same thing rather than
+listing subcommands that cannot run either, so `chaps components` outside a
+deployment is the missing-project error, not the components help. `chaps
+models` is split the same way: `list`, `search` and `info` browse the
+marketplace and work anywhere, while `enable`, `disable`, `expose` and
+`unexpose` change a project's model set and are hidden outside one. The
 [command reference](./reference.md) lists all of them, because it is rendered
 from the static command tree rather than from where you happen to be.
 

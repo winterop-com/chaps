@@ -2097,6 +2097,12 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
             "{name} should be listed inside a project:\n{inside}"
         );
     }
+    // And the mirror of it: here there is a deployment, so `init` is not the
+    // command to run next and is not offered.
+    assert!(
+        !inside.contains("\n  init "),
+        "init should not be listed inside a project:\n{inside}"
+    );
     assert!(
         inside
             .trim_end()
@@ -2119,6 +2125,107 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("not a chaps project"));
+}
+
+/// `init` is hidden inside a deployment, and every way of reaching it there
+/// still works: its help, the refusal that names `--force`, `--force` itself,
+/// and a nested deployment in a subdirectory.
+#[test]
+fn init_still_runs_inside_a_project_where_the_help_hides_it() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+
+    chap_in(&sandbox, &dir, &["init", "--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Create a deployment directory: compose files, .env and .chaps/",
+        ))
+        .stdout(predicates::str::contains("--force"));
+
+    // Bare, it still refuses rather than overwriting what is there.
+    chap_in(&sandbox, &dir, &["init"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "already contains a chaps project; use --force to overwrite",
+        ));
+
+    // `chaps init --api-port N --force` is the documented way to move the
+    // API port of a deployment that already exists.
+    let port = port_base();
+    let mut force = sandbox.chap();
+    force
+        .current_dir(&dir)
+        .args(["init", "--force", "--models", "none", "--api-port"])
+        .arg(port.to_string());
+    force.assert().success();
+    assert!(
+        read(&dir.join(".chaps/project.yaml")).contains(&format!("api_port: {port}")),
+        "--force rewrote the project"
+    );
+
+    // And a nested deployment in a subdirectory still works, warning about
+    // the one it is inside.
+    let mut nested = sandbox.chap();
+    nested
+        .current_dir(&dir)
+        .args(["init", "inner", "--models", "none"]);
+    nested
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("is inside the chaps project at"));
+    assert!(dir.join("inner/.chaps/project.yaml").is_file());
+}
+
+/// A group command with no subcommand is not a question its own help answers
+/// outside a deployment: every subcommand it would list needs the project
+/// that is missing, so that is what the reader is told instead.
+#[test]
+fn a_bare_group_command_outside_a_project_asks_for_a_project() {
+    let sandbox = Sandbox::new();
+    let missing = "is not a chaps project (no .chaps/project.yaml here or in a parent \
+                   directory); run `chaps init` first";
+
+    for group in ["components", "auth", "backup", "docker"] {
+        chap_in(&sandbox, sandbox.home.path(), &[group])
+            .assert()
+            .code(1)
+            .stderr(predicates::str::contains(missing));
+    }
+
+    // Word for word, and exit code for exit code, what the subcommands say.
+    for args in [
+        vec!["components", "list"],
+        vec!["auth", "show"],
+        vec!["jobs"],
+    ] {
+        chap_in(&sandbox, sandbox.home.path(), &args)
+            .assert()
+            .code(1)
+            .stderr(predicates::str::contains(missing));
+    }
+
+    // `models` and `registry` read the catalogue, which works anywhere, so
+    // their bare form is still their own help.
+    for group in ["models", "registry"] {
+        chap_in(&sandbox, sandbox.home.path(), &[group])
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("Usage: chaps"));
+    }
+    chap_in(&sandbox, sandbox.home.path(), &["models", "list"])
+        .assert()
+        .success();
+
+    // Inside a deployment the group's help is the right answer again.
+    sandbox.init(&["--models", "none"]).assert().success();
+    chap_in(&sandbox, &sandbox.project(), &["components"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("Usage: chaps components"))
+        .stderr(predicates::str::contains("enable"));
 }
 
 #[test]
