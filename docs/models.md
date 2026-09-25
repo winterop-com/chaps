@@ -582,7 +582,7 @@ j / k / arrows     move            space            enable or disable
 g / G              first / last    i / Enter        the full details
 PageUp / PageDown  jump a page     p                publish a host port: a number, auto, or none
 ctrl-u / ctrl-d    jump a page     P                take the host port away
-s                  save            v                switch channel (stable, latest)
+s                  save            v                pick the channel (stable, latest)
 u                  discard         t                show or hide templates
 q                  quit            /                filter (Enter keeps, Esc clears)
 ?                  help            Esc              clear the filter, or quit
@@ -601,22 +601,46 @@ that has asked for a port that is not picked until you save.
 
 ### Publishing a host port
 
-`p` opens a one-line prompt under the list, prefilled with the port the row
-has today or with `auto`:
+`p` opens a dialog over the list, prefilled with the port the row has today or
+with `auto`:
 
 ```text
- port for CHAP-EWARS  › 5010_                       [enter] apply  [esc] cancel  [none] no host port
+╭ Host port for CHAP-EWARS ──────────────────────────────────────────────╮
+│ port  › 80_                                                            │
+│ now: via chap-core · range 5001-5999 · api port 8140 is taken          │
+│ port 80 is outside this project's range 5001-5999                      │
+│                                                                        │
+│ [enter] apply  [esc] cancel  [auto] any free port  [none] no host port │
+╰────────────────────────────────────────────────────────────────────────╯
 ```
 
 It takes a port number, `auto` for the lowest free port in the project's
 range, or an empty line or `none` to take the port away again. A number it
 cannot accept - outside the range, chap-core's own API port, or one another
-model in the list is already asking for - keeps the prompt up with the reason
-on it, so the number is corrected rather than typed again. The two checks only
-a save can make - a port another compose file claims, and a port something on
-this machine is listening on - happen when the selection is applied, exactly
-as they do for `chaps models expose`. `P` takes the port away without the
-prompt.
+model in the list is already asking for - keeps the dialog up with the reason
+in it, as above, so the number is corrected rather than typed again. The two
+checks only a save can make - a port another compose file claims, and a port
+something on this machine is listening on - happen when the selection is
+applied, exactly as they do for `chaps models expose`. `P` takes the port away
+without the dialog.
+
+### Picking a channel
+
+`v` opens the same kind of dialog, listing both channels with the version each
+one resolves to and a `✓` on the one the row follows today:
+
+```text
+╭ Channel for CHAP-EWARS ─────────────────────────────────╮
+│ ▸ ✓ stable  1.0.2                                       │
+│     latest  1.0.2                                       │
+│                                                         │
+│ [enter] apply  [esc] cancel  [j/k] move  [s/l] pick one │
+╰─────────────────────────────────────────────────────────╯
+```
+
+`j` and `k` move between them, `s` and `l` jump straight to one, `Enter` takes
+it and `Esc` leaves the row alone. Changing the channel re-resolves the
+version when the selection is saved; changing only the port does not.
 
 ### The details, and the command palette
 

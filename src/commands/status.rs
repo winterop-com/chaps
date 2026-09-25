@@ -7,7 +7,9 @@ use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
 use crate::output::{Out, PanelKind};
-use crate::status::{ApiHealth, ModelState, StatusReport, closing_line, hints, status};
+use crate::status::{
+    ApiHealth, ModelState, ModelStatus, StatusReport, closing_line, hints, status,
+};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -258,7 +260,7 @@ fn human(report: &StatusReport, out: &Out) -> String {
                 vec![
                     m.id.clone(),
                     state_cell(out, m.state),
-                    reach_cell(out, &m.reach),
+                    reach_cell(out, m),
                     out.dim(&m.last_ping.clone().unwrap_or_else(|| "-".to_string())),
                 ]
             })
@@ -273,11 +275,12 @@ fn human(report: &StatusReport, out: &Out) -> String {
         return text;
     }
 
-    // The REACH column says `internal` for a model with no host port of its
-    // own; the way in is printed once, here, rather than in every row.
+    // The REACH column says `via chap-core` for a model with no host port of
+    // its own; the way in is printed once, here, rather than in every row.
     if report.models.iter().any(|m| m.reach == INTERNAL) {
         text.push_str(&out.dim(&format!(
-            "\ninternal models are reachable through chap-core at {}/v2/services/<id>/run/",
+            "\nmodels without a host port are reachable through chap-core at \
+             {}/v2/services/<id>/run/",
             report.api_url
         )));
         text.push('\n');
@@ -348,19 +351,29 @@ fn state_cell(out: &Out, state: ModelState) -> String {
     }
 }
 
-/// The REACH cell: a URL is a thing to click, `internal` is a fact about the
-/// deployment rather than an address.
-fn reach_cell(out: &Out, reach: &str) -> String {
-    let cell = dash(reach);
-    if cell == INTERNAL {
-        out.dim(&cell)
-    } else {
-        cell
+/// The REACH cell: the host port this deployment published, or the fact that
+/// there is none and chap-core's proxy is the way in.
+///
+/// `--json` keeps saying `internal` and `http://localhost:5001`, which is
+/// what a script already matches on; this is the column a human reads, and it
+/// says the same thing as `chaps models list` and the browser.
+fn reach_cell(out: &Out, model: &ModelStatus) -> String {
+    if let Some(port) = model.host_port {
+        return out.key(&format!("port {port}"));
     }
+    if model.reach == INTERNAL {
+        return out.dim(VIA_CHAP_CORE);
+    }
+    // An unmanaged service: whatever URL chap-core has for it.
+    dash(&model.reach)
 }
 
-/// The REACH cell of a model that publishes no host port.
+/// What [`crate::status::ModelStatus::reach`] says for a model that publishes
+/// no host port.
 const INTERNAL: &str = "internal";
+
+/// What the table says for it.
+const VIA_CHAP_CORE: &str = "via chap-core";
 
 /// Empty cells read badly in a table; a dash says "the API did not tell us".
 fn dash(value: &str) -> String {
@@ -540,8 +553,8 @@ mod tests {
             text,
             "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              \n\
-             MODEL                STATE       REACH                  LAST PING\n\
-             chapkit-ewars-model  registered  http://localhost:5001  12s ago\n\
+             MODEL                STATE       REACH      LAST PING\n\
+             chapkit-ewars-model  registered  port 5001  12s ago\n\
              \n\
              all 1 model registered\n\
              \u{20}\u{20}run `chaps models test --all` to check they can run\n"
@@ -603,12 +616,12 @@ mod tests {
             "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              \n\
              MODEL                             STATE                    REACH                           LAST PING\n\
-             chapkit-ewars-model               registered               http://localhost:5001           12s ago\n\
-             chapkit-rwanda-malaria-bym-model  running, not registered  internal                        -\n\
-             auto-arima-chapkit                not running              internal                        -\n\
+             chapkit-ewars-model               registered               port 5001                       12s ago\n\
+             chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core                   -\n\
+             auto-arima-chapkit                not running              via chap-core                   -\n\
              some-other-service                unmanaged                http://some-other-service:8000  12s ago\n\
              \n\
-             internal models are reachable through chap-core at \
+             models without a host port are reachable through chap-core at \
              http://localhost:8000/v2/services/<id>/run/\n\
              \n\
              2 of 3 models are not registered.\n\
@@ -632,11 +645,13 @@ mod tests {
             &[],
         );
         let text = human(&report, &Out::default());
-        assert!(text.contains("http://localhost:5001"));
+        assert!(text.contains("port 5001"), "{text}");
         assert!(
-            !text.contains("internal models are reachable"),
-            "nothing is internal here:\n{text}"
+            !text.contains("reachable through chap-core"),
+            "every model here has a port of its own:\n{text}"
         );
+        // The URL is still what `--json` carries, untouched by the column.
+        assert_eq!(report.models[0].reach, "http://localhost:5001");
     }
 
     #[test]
@@ -666,8 +681,8 @@ mod tests {
             text,
             "chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off\n\
              \n\
-             MODEL                STATE        REACH     LAST PING\n\
-             chapkit-ewars-model  not running  internal  -\n"
+             MODEL                STATE        REACH          LAST PING\n\
+             chapkit-ewars-model  not running  via chap-core  -\n"
         );
         // The reason is the error line `run` returns, printed once.
         assert!(!text.contains("not chap-core"));
@@ -691,6 +706,7 @@ mod tests {
             id: "y".to_string(),
             state: ModelState::Unmanaged,
             reach: String::new(),
+            host_port: None,
             last_ping: None,
         });
         let text = human(&report, &Out::default());

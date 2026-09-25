@@ -10,13 +10,13 @@ chap-core   up   http://localhost:8000   v2.3.1   auth: on
 ocs         up   http://localhost:9000   3 datasets   212.0 MB data
 s3          up   internal
 
-MODEL                             STATE                    REACH                  LAST PING
-chapkit-ewars-model               registered               http://localhost:5001  12s ago
-chapkit-rwanda-malaria-bym-model  running, not registered  internal               -
-auto-arima-chapkit                not running              internal               -
-some-other-service                unmanaged                http://c0ffee:8000     3s ago
+MODEL                             STATE                    REACH               LAST PING
+chapkit-ewars-model               registered               port 5001           12s ago
+chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
+auto-arima-chapkit                not running              via chap-core       -
+some-other-service                unmanaged                http://c0ffee:8000  3s ago
 
-internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
+models without a host port are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
@@ -87,8 +87,10 @@ taken from the registry and `docker compose ps` together.
 | `not running` | The project enables it, but no container exists or it is stopped. |
 | `unmanaged` | chap-core has a service registered that this project does not enable. |
 
-`internal` in `REACH` means the model publishes no host port of its own; the
-way in is printed once, under the table, rather than repeated per row. See
+`via chap-core` in `REACH` means the model publishes no host port of its own;
+the way in is printed once, under the table, rather than repeated per row. A
+model that does publish one reads `port 5001`. `--json` is unchanged: it
+carries `internal` and the full `http://localhost:5001` as it always has. See
 [Ports](./ports.md).
 
 A model whose container is up but which never registered is the interesting

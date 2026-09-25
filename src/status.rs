@@ -300,6 +300,11 @@ pub struct ModelStatus {
     /// Where a human reaches it: a host port, `internal`, or - for an
     /// unmanaged service - the URL chap-core has for it.
     pub reach: String,
+    /// The host port itself, for the table, which says `port 5010` where
+    /// `--json` says the whole URL. Not serialised: [`ModelStatus::reach`] is
+    /// what a script reads, and it has not changed.
+    #[serde(skip)]
+    pub host_port: Option<u16>,
     /// How long ago chap-core last heard from it, `None` when never.
     pub last_ping: Option<String>,
 }
@@ -573,6 +578,7 @@ pub fn model_rows(
                     Some(port) => format!("http://localhost:{port}"),
                     None => "internal".to_string(),
                 },
+                host_port: *host_port,
                 last_ping: found.and_then(|s| ago(now, &s.last_ping_at)),
             }
         })
@@ -589,6 +595,8 @@ pub fn model_rows(
         // Whatever chap-core has for it: an unmanaged service is not ours to
         // describe, and its URL is the only handle anyone has on it.
         reach: s.url.clone(),
+        // Not this deployment's port to know.
+        host_port: None,
         last_ping: ago(now, &s.last_ping_at),
     }));
     rows
@@ -1566,13 +1574,18 @@ mod tests {
 
         assert_eq!(rows[0].id, "chapkit-ewars-model");
         assert_eq!(rows[0].state, ModelState::Registered);
-        assert_eq!(rows[0].reach, "http://localhost:5001");
+        assert_eq!(
+            rows[0].reach, "http://localhost:5001",
+            "`--json` keeps the URL it has always carried"
+        );
+        assert_eq!(rows[0].host_port, Some(5001), "and the table gets the port");
         assert_eq!(rows[0].last_ping.as_deref(), Some("12s ago"));
 
         // Its container is up, so the registration is what failed.
         assert_eq!(rows[1].state, ModelState::RunningNotRegistered);
         assert_eq!(rows[1].state.label(), "running, not registered");
         assert_eq!(rows[1].reach, "internal");
+        assert_eq!(rows[1].host_port, None);
         assert_eq!(rows[1].last_ping, None);
 
         // Nothing is running it at all.

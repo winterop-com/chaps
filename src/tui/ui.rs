@@ -65,6 +65,8 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
         Mode::ConfirmQuit => draw_confirm(frame, area, theme),
         Mode::Info => draw_info(frame, area, app, theme),
         Mode::Palette => draw_palette(frame, area, app, theme),
+        Mode::Port => draw_port_dialog(frame, area, app, theme),
+        Mode::Channel => draw_channel_dialog(frame, area, app, theme),
         _ => {}
     }
 }
@@ -604,10 +606,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if area.height == 0 {
         return;
     }
-    if app.mode == Mode::Port {
-        draw_port_prompt(frame, area, app, theme);
-        return;
-    }
     if let Some(message) = &app.message {
         let text = fit_soft(&format!(" {message}"), area.width as usize);
         frame.render_widget(
@@ -624,39 +622,110 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     );
 }
 
-/// The port prompt, on the key bar's line: what is being typed, and either
-/// the reason the last thing typed was refused or the two words that are not
-/// numbers.
-fn draw_port_prompt(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    let width = area.width as usize;
-    let name = app
-        .selected()
-        .map(|row| app.model(row).display_name.clone())
-        .unwrap_or_default();
-    let mut spans = vec![
-        Span::styled(" port for ", theme.dim_style()),
-        Span::styled(name, theme.accent_style()),
-        Span::styled("  › ", theme.accent_style()),
-        Span::styled(app.port_input.clone(), theme.label_style()),
-        Span::styled("_", theme.accent_style()),
-    ];
-    let used = width_of(&spans);
-    let tail = match &app.port_error {
-        Some(why) => vec![Span::styled(why.clone(), theme.bad_style())],
-        // Two columns for the gap the tail needs to keep from the prompt.
-        None => keybar(
-            &keys::keybar(Mode::Port, 0, false),
-            width.saturating_sub(used + 2),
-            theme,
-        ),
+/// The host port dialog: what is being typed, what the row has now, why the
+/// last thing typed was refused, and the keys that end it.
+fn draw_port_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let Some(row) = app.selected() else {
+        return;
     };
-    let tail_width = width_of(&tail);
-    if used + tail_width + 2 <= width {
-        spans.push(Span::raw(" ".repeat(width - used - tail_width)));
-        spans.extend(tail);
+    let now = match row.want {
+        PortWant::None => "via chap-core".to_string(),
+        PortWant::Auto => "auto".to_string(),
+        PortWant::Exact(port) => format!("port {port}"),
+    };
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(" port  ", theme.dim_style()),
+            Span::styled("› ", theme.accent_style()),
+            Span::styled(app.port_input.clone(), theme.accent_style()),
+            Span::styled("_", theme.accent_style()),
+        ]),
+        Line::from(Span::styled(
+            format!(
+                " now: {now} · range {}-{} · api port {} is taken",
+                app.port_range.0, app.port_range.1, app.api_port
+            ),
+            theme.dim_style(),
+        )),
+        // Always drawn, empty or not, so the keys below it never move.
+        Line::from(Span::styled(
+            match &app.port_error {
+                Some(why) => format!(" {why}"),
+                None => String::new(),
+            },
+            theme.bad_style(),
+        )),
+        Line::raw(""),
+    ];
+    let title = format!("Host port for {}", app.model(row).display_name);
+    draw_dialog(frame, area, &title, lines, &keys::port_dialog_keys(), theme);
+}
+
+/// The channel dialog: the two channels, what each resolves to, and which one
+/// the row follows today.
+fn draw_channel_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let Some(row) = app.selected() else {
+        return;
+    };
+    let model = app.model(row);
+    let mut lines = Vec::new();
+    for (i, channel) in crate::tui::app::CHANNELS.iter().enumerate() {
+        let version = match channel {
+            Channel::Stable => &model.channels.stable,
+            Channel::Latest => &model.channels.latest,
+        };
+        let selected = i == app.channel_cursor.min(1);
+        let line = Line::from(vec![
+            Span::styled(if selected { " ▸ " } else { "   " }, theme.accent_style()),
+            Span::styled(
+                if *channel == row.channel {
+                    "✓ "
+                } else {
+                    "  "
+                },
+                theme.ok_style(),
+            ),
+            Span::raw(fit(channel_label(*channel), 8)),
+            Span::styled(version.clone(), theme.dim_style()),
+        ]);
+        lines.push(match selected {
+            true => line.style(theme.selection_style()),
+            false => line,
+        });
     }
-    truncate(&mut spans, width);
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    lines.push(Line::raw(""));
+    let title = format!("Channel for {}", model.display_name);
+    draw_dialog(
+        frame,
+        area,
+        &title,
+        lines,
+        &keys::channel_dialog_keys(),
+        theme,
+    );
+}
+
+/// A centred dialog: a rounded box with its own key line along the bottom.
+fn draw_dialog(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    mut lines: Vec<Line<'static>>,
+    hints: &[Hint],
+    theme: &Theme,
+) {
+    // Wide enough for its own key line, with a column to spare on each side,
+    // and never wider than the terminal.
+    let width = ((bar_width(&hints.iter().collect::<Vec<&Hint>>()) + 4) as u16)
+        .max(title.chars().count() as u16 + 6)
+        .min(area.width.saturating_sub(4))
+        .max(1);
+    let inner = width.saturating_sub(2) as usize;
+    lines.push(Line::from(keybar(hints, inner, theme)));
+    let height = (lines.len() as u16 + 2).min(area.height).max(1);
+    let popup = centered(area, width, height);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(Paragraph::new(lines).block(overlay(theme, title)), popup);
 }
 
 /// The key bar: `[key] what`, the key in the accent so the line reads as keys
@@ -1433,12 +1502,12 @@ mod tests {
         assert!(!screen.contains("5001"), "no host port is published");
         assert!(!screen.contains("internal"), "{screen}");
 
-        // The prompt is visible before saving, and so is what it took: the
+        // The dialog is visible before saving, and so is what it took: the
         // port itself is only picked when the selection is applied.
         app.reduce(Action::PortPrompt);
         let prompt = render(&app, 120, 40);
-        assert!(prompt.contains("port for CHAP-EWARS"), "{prompt}");
-        assert!(prompt.contains("› auto_"), "{prompt}");
+        assert!(prompt.contains("Host port for CHAP-EWARS"), "{prompt}");
+        assert!(prompt.contains("port  › auto_"), "{prompt}");
         assert!(prompt.contains("[enter] apply"), "{prompt}");
         app.reduce(Action::PortApply);
         let screen = render(&app, 120, 40);
@@ -1590,21 +1659,89 @@ mod tests {
         assert!(screen.contains("5010"), "the column shows it too");
     }
 
-    /// A refused port stays on the prompt line with the reason on it.
+    /// The port dialog: what is being typed, what the row has now, and - when
+    /// there is one - the reason the last entry was refused, all inside the
+    /// box, with only the way out on the bar underneath.
     #[test]
-    fn the_port_prompt_draws_what_it_refused_and_why() {
+    fn the_port_dialog_draws_the_state_and_what_it_refused() {
         let registry = registry();
         let state = state_with_ewars(&registry, None);
         let mut app = App::new(&registry, &state);
         app.reduce(Action::PortPrompt);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("Host port for CHAP-EWARS"), "{screen}");
+        assert!(screen.contains("port  › auto_"), "{screen}");
+        assert!(
+            screen.contains("now: via chap-core · range 5001-5999 · api port 8000 is taken"),
+            "{screen}"
+        );
+        assert!(
+            screen
+                .contains("[enter] apply  [esc] cancel  [auto] any free port  [none] no host port"),
+            "the dialog carries its own keys:\n{screen}"
+        );
+        let bar = screen.lines().last().expect("a key bar");
+        assert!(bar.trim() == "[esc] cancel", "{bar}");
+        // Rounded like the other overlays, and centred.
+        assert!(screen.contains('╭') && screen.contains('╯'), "{screen}");
+
+        // A refusal keeps the box up with the reason inside it.
         app.port_input.clear();
         for c in "80".chars() {
             app.reduce(Action::PortChar(c));
         }
         app.reduce(Action::PortApply);
         let screen = render(&app, 120, 40);
-        assert!(screen.contains("› 80_"), "{screen}");
-        assert!(screen.contains("outside this project's range"), "{screen}");
+        assert!(screen.contains("port  › 80_"), "{screen}");
+        assert!(
+            screen.contains("port 80 is outside this project's range 5001-5999"),
+            "{screen}"
+        );
+        assert!(screen.contains("Host port for CHAP-EWARS"), "still open");
+
+        // Cancelling leaves nothing behind.
+        app.reduce(Action::FilterCancel);
+        let screen = render(&app, 120, 40);
+        assert!(!screen.contains("Host port for"), "{screen}");
+        assert!(!screen.contains("outside this project's range"), "{screen}");
+    }
+
+    /// The channel dialog: the two channels, what each resolves to, and which
+    /// one the row follows today.
+    #[test]
+    fn the_channel_dialog_lists_both_channels_and_marks_the_one_in_force() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::ChannelPrompt);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("Channel for CHAP-EWARS"), "{screen}");
+        let stable = line_with(&screen, "stable");
+        assert!(stable.contains("▸ ✓ stable"), "{stable}");
+        assert!(stable.contains("1.0.2"), "the version it resolves to");
+        let latest = line_with(&screen, "latest");
+        assert!(latest.contains("latest"), "{latest}");
+        assert!(!latest.contains('▸'), "{latest}");
+        assert!(
+            screen.contains("[enter] apply  [esc] cancel  [j/k] move  [s/l] pick one"),
+            "{screen}"
+        );
+        assert_eq!(
+            screen.lines().last().expect("a key bar").trim(),
+            "[esc] cancel"
+        );
+
+        // `l` moves the cursor, Enter takes it, and the list says so.
+        app.reduce(Action::ChannelChar('l'));
+        let screen = render(&app, 120, 40);
+        assert!(line_with(&screen, "latest").contains("▸"), "{screen}");
+        app.reduce(Action::ChannelApply);
+        let screen = render(&app, 120, 40);
+        assert!(!screen.contains("Channel for"), "{screen}");
+        assert!(
+            screen.contains("follow latest"),
+            "the strip says what moved"
+        );
     }
 
     #[test]
@@ -2100,9 +2237,17 @@ mod tests {
             render_with(&app, width, height, &Theme::monochrome());
         }
         // Overlays are the easiest thing to draw outside a tiny screen.
-        for action in [Action::Help, Action::Info, Action::Palette] {
-            let mut app = App::new(&registry, &ProjectState::default());
-            app.reduce(action);
+        for action in [
+            Action::Help,
+            Action::Info,
+            Action::Palette,
+            Action::PortPrompt,
+            Action::ChannelPrompt,
+        ] {
+            // Enabled, so the port dialog has something to open on.
+            let mut app = App::new(&registry, &state_with_ewars(&registry, Some(5001)));
+            app.reduce(action.clone());
+            assert_ne!(app.mode, Mode::Browse, "{action:?} opened nothing");
             for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
                 render(&app, width, height);
             }

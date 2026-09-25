@@ -38,7 +38,7 @@ not want moved. `chaps models enable ID --port N|auto` does the same thing
 while enabling.
 
 `chaps models list` shows either the port or `via chap-core`, `chaps status`
-says `internal` in its `REACH` column for the same thing, and
+says the same in its `REACH` column, and
 `chaps models info ID` prints the proxy URL for a model with no port of its
 own. In `chaps ui`, `p` opens a prompt on the row under the cursor that takes
 a port number, `auto`, or nothing at all, and `P` takes the port away.
@@ -143,9 +143,9 @@ address CHAP could be published on is tried in turn.
 
 ## Internal-only models and the proxy URL
 
-`internal` in `chaps status`, and `via chap-core` in `chaps models list` and
-in the browser's `PORT` column, means the model publishes no host port of its
-own. The way in is chap-core:
+`via chap-core` - in `chaps status`, in `chaps models list` and in the
+browser's `PORT` column - means the model publishes no host port of its own.
+The way in is chap-core:
 
 ```text
 http://localhost:8000/v2/services/<service_id>/run/

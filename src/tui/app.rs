@@ -35,6 +35,9 @@ pub const DISCARDED_HINT: &str = "the pending changes are gone; nothing was writ
 /// The documentation the palette's "open the documentation" opens.
 pub const DOCS_CHAPTER: &str = "models.html";
 
+/// The channels the dialog offers, in the order it lists them.
+pub const CHANNELS: [Channel; 2] = [Channel::Stable, Channel::Latest];
+
 /// Which sub-state the browser is in; it decides both key mapping and what is
 /// drawn on top of the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +50,10 @@ pub enum Mode {
     Info,
     /// The command palette.
     Palette,
-    /// The one-line prompt `p` opens, asking for a host port.
+    /// The dialog `p` opens, asking for a host port.
     Port,
+    /// The dialog `v` opens, asking which channel to follow.
+    Channel,
 }
 
 /// Everything the browser can be asked to do, independent of key bindings.
@@ -69,7 +74,12 @@ pub enum Action {
     PortApply,
     /// Take the host port off the row under the cursor.
     RemovePort,
-    CycleChannel,
+    /// Open the channel dialog on the row under the cursor.
+    ChannelPrompt,
+    /// Pick a channel by its first letter.
+    ChannelChar(char),
+    /// Follow the channel the dialog's cursor is on.
+    ChannelApply,
     ToggleTemplates,
     StartFilter,
     FilterChar(char),
@@ -264,6 +274,8 @@ pub struct App<'a> {
     /// How far the overlay can scroll, which only the renderer knows because
     /// it depends on the terminal's size. The one thing drawing writes.
     pub info_max: Cell<usize>,
+    /// Which row the channel dialog is on, as an index into [`CHANNELS`].
+    pub channel_cursor: usize,
     pub palette_query: String,
     /// Index into [`App::palette_matches`].
     pub palette_cursor: usize,
@@ -309,6 +321,7 @@ impl<'a> App<'a> {
             api_port: state.api_port,
             port_input: String::new(),
             port_error: None,
+            channel_cursor: 0,
             dirty: false,
             message: None,
             info_scroll: 0,
@@ -336,6 +349,7 @@ impl<'a> App<'a> {
             Mode::ConfirmQuit => self.reduce_confirm(action),
             Mode::Filter => self.reduce_filter(action),
             Mode::Port => self.reduce_port(action),
+            Mode::Channel => self.reduce_channel(action),
             Mode::Info => self.reduce_info(action),
             Mode::Palette => self.reduce_palette(action),
             Mode::Browse => self.reduce_browse(action),
@@ -361,6 +375,28 @@ impl<'a> App<'a> {
                 self.port_input.clear();
                 self.port_error = None;
             }
+            _ => {}
+        }
+        None
+    }
+
+    /// The channel dialog: two rows, picked with j/k or with the first letter
+    /// of the one wanted, taken by Enter.
+    fn reduce_channel(&mut self, action: Action) -> Option<Outcome> {
+        match action {
+            Action::Down => self.channel_cursor = (self.channel_cursor + 1).min(1),
+            Action::Up => self.channel_cursor = self.channel_cursor.saturating_sub(1),
+            Action::ChannelChar(c) => match c.to_ascii_lowercase() {
+                's' => self.channel_cursor = 0,
+                'l' => self.channel_cursor = 1,
+                _ => {}
+            },
+            Action::ChannelApply => {
+                let channel = CHANNELS[self.channel_cursor.min(1)];
+                self.mode = Mode::Browse;
+                self.set_channel(channel);
+            }
+            Action::FilterCancel | Action::Quit => self.mode = Mode::Browse,
             _ => {}
         }
         None
@@ -437,7 +473,7 @@ impl<'a> App<'a> {
             CommandId::Toggle => self.toggle(),
             CommandId::SetPort => self.open_port_prompt(),
             CommandId::RemovePort => self.remove_port(),
-            CommandId::SetChannel => self.cycle_channel(),
+            CommandId::SetChannel => self.open_channel_prompt(),
             CommandId::Templates => {
                 self.show_templates = !self.show_templates;
                 self.refilter();
@@ -622,7 +658,7 @@ impl<'a> App<'a> {
             Action::Toggle => self.toggle(),
             Action::PortPrompt => self.open_port_prompt(),
             Action::RemovePort => self.remove_port(),
-            Action::CycleChannel => self.cycle_channel(),
+            Action::ChannelPrompt => self.open_channel_prompt(),
             Action::ToggleTemplates => {
                 self.show_templates = !self.show_templates;
                 self.refilter();
@@ -963,15 +999,24 @@ impl<'a> App<'a> {
         self.dirty = self.has_changes();
     }
 
-    fn cycle_channel(&mut self) {
+    /// Open the channel dialog on the row under the cursor, with its cursor
+    /// on the channel the row follows today.
+    fn open_channel_prompt(&mut self) {
+        let Some(row) = self.selected() else {
+            return;
+        };
+        self.channel_cursor = CHANNELS
+            .iter()
+            .position(|c| *c == row.channel)
+            .unwrap_or_default();
+        self.mode = Mode::Channel;
+    }
+
+    fn set_channel(&mut self, channel: Channel) {
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
-        let row = &mut self.rows[row_idx];
-        row.channel = match row.channel {
-            Channel::Stable => Channel::Latest,
-            Channel::Latest => Channel::Stable,
-        };
+        self.rows[row_idx].channel = channel;
         self.dirty = self.has_changes();
     }
 
@@ -1161,6 +1206,16 @@ mod tests {
             },
         );
         state
+    }
+
+    /// Pick a channel through the dialog the way `v` does.
+    fn pick_channel(app: &mut App, channel: Channel) {
+        app.reduce(Action::ChannelPrompt);
+        app.reduce(Action::ChannelChar(match channel {
+            Channel::Stable => 's',
+            Channel::Latest => 'l',
+        }));
+        app.reduce(Action::ChannelApply);
     }
 
     /// Type something into the port prompt and take it.
@@ -1420,7 +1475,7 @@ mod tests {
         );
 
         // Cycling the channel is a request about the version, port and all.
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(
@@ -1552,13 +1607,13 @@ mod tests {
     }
 
     #[test]
-    fn cycling_the_channel_of_an_enabled_row_re_pins_it() {
+    fn picking_a_channel_for_an_enabled_row_re_pins_it() {
         let registry = registry();
         let state = state_with(&registry, EWARS, Some(Channel::Stable));
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
 
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         assert_eq!(app.selected().unwrap().channel, Channel::Latest);
         let selection = app.selection();
         assert!(selection.disable.is_empty());
@@ -1569,17 +1624,31 @@ mod tests {
             VersionSelector::Channel(Channel::Latest)
         );
 
-        // Cycling back is once again a no-op.
-        app.reduce(Action::CycleChannel);
+        // Picking the one it started on is once again a no-op.
+        pick_channel(&mut app, Channel::Stable);
+        assert_eq!(app.selected().unwrap().channel, Channel::Stable);
+        assert!(!app.has_changes());
+
+        // And Esc takes nothing.
+        app.reduce(Action::ChannelPrompt);
+        assert_eq!(app.mode, Mode::Channel);
+        assert_eq!(app.channel_cursor, 0, "it opens on the one in force");
+        app.reduce(Action::Down);
+        assert_eq!(app.channel_cursor, 1);
+        app.reduce(Action::Down);
+        assert_eq!(app.channel_cursor, 1, "there are only two");
+        app.reduce(Action::FilterCancel);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.selected().unwrap().channel, Channel::Stable);
         assert!(!app.has_changes());
     }
 
     #[test]
-    fn cycling_a_row_nobody_enabled_changes_nothing() {
+    fn a_row_nobody_enabled_takes_a_channel_but_changes_nothing() {
         let registry = registry();
         let mut app = App::new(&registry, &empty_state());
         focus(&mut app, ARIMA);
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         assert_eq!(app.selected().unwrap().channel, Channel::Latest);
         assert!(!app.has_changes(), "a disabled row has nothing to apply");
     }
@@ -1663,7 +1732,7 @@ mod tests {
         app.reduce(Action::FilterDone);
         app.reduce(Action::Down);
         app.reduce(Action::Toggle);
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         assert!(!app.has_changes());
     }
 
@@ -1980,7 +2049,7 @@ mod tests {
         app.reduce(Action::Toggle);
         focus(&mut app, ARIMA);
         app.reduce(Action::Toggle);
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         assert_eq!(app.counts().pending, 2);
 
         app.reduce(Action::Discard);
@@ -2042,7 +2111,7 @@ mod tests {
         focus(&mut app, ARIMA);
         app.reduce(Action::Toggle);
         focus(&mut app, EWARS);
-        app.reduce(Action::CycleChannel);
+        pick_channel(&mut app, Channel::Latest);
         ask_for_port(&mut app, "5010");
 
         let changes = app.changes();

@@ -31,6 +31,20 @@ pub fn action_for(mode: Mode, key: &KeyEvent) -> Action {
         Mode::Info => info(key, ctrl),
         Mode::Palette => palette(key, ctrl),
         Mode::Port => port(key, ctrl),
+        Mode::Channel => channel(key),
+    }
+}
+
+/// The channel dialog: two rows, so j/k, the first letter, Enter and Esc are
+/// the whole of it.
+fn channel(key: &KeyEvent) -> Action {
+    match key.code {
+        KeyCode::Esc => Action::FilterCancel,
+        KeyCode::Enter => Action::ChannelApply,
+        KeyCode::Char('j') | KeyCode::Down => Action::Down,
+        KeyCode::Char('k') | KeyCode::Up => Action::Up,
+        KeyCode::Char(c) => Action::ChannelChar(c),
+        _ => Action::None,
     }
 }
 
@@ -86,7 +100,7 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         // Shift-P is the prompt's answer without the prompt: the one thing
         // there is nothing to type for.
         KeyCode::Char('P') => Action::RemovePort,
-        KeyCode::Char('v') => Action::CycleChannel,
+        KeyCode::Char('v') => Action::ChannelPrompt,
         KeyCode::Char('t') => Action::ToggleTemplates,
         KeyCode::Char('/') => Action::StartFilter,
         // Enter is the second way into the details, next to `i`; saving is
@@ -201,7 +215,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("i / Enter", "the full details, which j/k scroll"),
         ("p", "publish a host port: a number, auto, or none"),
         ("P", "take the host port away"),
-        ("v", "switch channel: stable or latest"),
+        ("v", "pick the channel: stable or latest"),
         ("t", "show or hide templates"),
         ("/", "filter; Enter keeps it, Esc clears it"),
         ("s", "save and apply the changes"),
@@ -297,13 +311,30 @@ pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
             hint("up/down", "move", 8),
             hint("enter", "run", 9),
         ],
-        Mode::Port => vec![
-            hint("enter", "apply", 9),
-            hint("esc", "cancel", 9),
-            hint("auto", "any free port", 5),
-            hint("none", "no host port", 5),
-        ],
+        // Both dialogs carry their own key line; the bar under them says the
+        // one thing that is true wherever the cursor is.
+        Mode::Port | Mode::Channel => vec![hint("esc", "cancel", 9)],
     }
+}
+
+/// The key line inside the port dialog.
+pub fn port_dialog_keys() -> Vec<Hint> {
+    vec![
+        hint("enter", "apply", 9),
+        hint("esc", "cancel", 9),
+        hint("auto", "any free port", 5),
+        hint("none", "no host port", 5),
+    ]
+}
+
+/// The key line inside the channel dialog.
+pub fn channel_dialog_keys() -> Vec<Hint> {
+    vec![
+        hint("enter", "apply", 9),
+        hint("esc", "cancel", 9),
+        hint("j/k", "move", 6),
+        hint("s/l", "pick one", 5),
+    ]
 }
 
 fn plural(n: usize) -> &'static str {
@@ -411,7 +442,7 @@ mod tests {
         assert_eq!(browse_action(KeyCode::Char(' ')), Action::Toggle);
         assert_eq!(browse_action(KeyCode::Char('p')), Action::PortPrompt);
         assert_eq!(browse_action(KeyCode::Char('P')), Action::RemovePort);
-        assert_eq!(browse_action(KeyCode::Char('v')), Action::CycleChannel);
+        assert_eq!(browse_action(KeyCode::Char('v')), Action::ChannelPrompt);
         assert_eq!(browse_action(KeyCode::Char('t')), Action::ToggleTemplates);
         assert_eq!(browse_action(KeyCode::Char('/')), Action::StartFilter);
         assert_eq!(browse_action(KeyCode::Char('s')), Action::Save);
@@ -456,6 +487,68 @@ mod tests {
             Action::None,
             "nothing behind the overlay is reachable through it"
         );
+    }
+
+    /// The channel dialog is picked from, not cycled through.
+    #[test]
+    fn the_channel_dialog_moves_picks_and_applies() {
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Char('j'))),
+            Action::Down
+        );
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Char('k'))),
+            Action::Up
+        );
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Char('s'))),
+            Action::ChannelChar('s')
+        );
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Char('L'))),
+            Action::ChannelChar('L')
+        );
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Enter)),
+            Action::ChannelApply
+        );
+        assert_eq!(
+            action_for(Mode::Channel, &key(KeyCode::Esc)),
+            Action::FilterCancel
+        );
+    }
+
+    /// Both dialogs carry their own key line, and the bar under them says the
+    /// one thing that is always true.
+    #[test]
+    fn a_dialog_names_its_keys_and_the_bar_under_it_says_cancel() {
+        assert_eq!(bar(Mode::Port, 0, false), "esc cancel");
+        assert_eq!(bar(Mode::Channel, 2, true), "esc cancel");
+        let port: Vec<String> = port_dialog_keys()
+            .iter()
+            .map(|h| format!("{} {}", h.key, h.what))
+            .collect();
+        assert_eq!(
+            port.join("   "),
+            "enter apply   esc cancel   auto any free port   none no host port"
+        );
+        let channel: Vec<String> = channel_dialog_keys()
+            .iter()
+            .map(|h| format!("{} {}", h.key, h.what))
+            .collect();
+        assert_eq!(
+            channel.join("   "),
+            "enter apply   esc cancel   j/k move   s/l pick one"
+        );
+        for hint in port_dialog_keys()
+            .iter()
+            .chain(channel_dialog_keys().iter())
+        {
+            assert!(!hint.chip, "a dialog's keys are not chips");
+            for c in ['[', ']', '{', '}', '|', '\\'] {
+                assert!(!hint.key.contains(c) && !hint.what.contains(c));
+            }
+        }
     }
 
     /// The palette opens where an editor and a file finder put it, and closes

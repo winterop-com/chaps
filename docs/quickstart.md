@@ -93,13 +93,13 @@ chaps status
 ```text
 chap-core   up   http://localhost:8000   v2.3.1   auth: off
 
-MODEL                             STATE                    REACH                  LAST PING
-chapkit-ewars-model               registered               http://localhost:5001  12s ago
-chapkit-rwanda-malaria-bym-model  running, not registered  internal               -
-auto-arima-chapkit                not running              internal               -
-some-other-service                unmanaged                http://c0ffee:8000     3s ago
+MODEL                             STATE                    REACH               LAST PING
+chapkit-ewars-model               registered               port 5001           12s ago
+chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
+auto-arima-chapkit                not running              via chap-core       -
+some-other-service                unmanaged                http://c0ffee:8000  3s ago
 
-internal models are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
+models without a host port are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
