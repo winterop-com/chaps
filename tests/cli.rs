@@ -1622,6 +1622,20 @@ fn init_warns_when_something_is_already_listening_on_the_api_port() {
     drop(listener);
 }
 
+/// The way `chaps` spells a deployment directory in a warning: resolved, and
+/// without the `\\?\` prefix Windows' `canonicalize` puts on one.
+/// `src/ports.rs` takes it off the same way, and a binary crate has nothing an
+/// integration test can import, so this mirrors it. String work, so it hands
+/// back the canonical path unchanged on Unix.
+fn resolved(path: &Path) -> String {
+    let real = std::fs::canonicalize(path).expect("the directory exists");
+    let text = real.display().to_string();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+}
+
 /// The gap the live probe cannot see: `chaps init a && chaps init b` with
 /// nothing running gives two deployments on one port, and nothing says so
 /// until the second `chaps up`.
@@ -1638,8 +1652,9 @@ fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
         .args(["--models", "none", "--api-port", port])
         .assert()
         .success();
-    // The CLI prints the path it walked to, which is the resolved one.
-    let first = std::fs::canonicalize(sandbox.home.path().join("a")).expect("the first deployment");
+    // The CLI names the deployment by the resolved directory, whatever
+    // spelling the shell it was started from happens to use.
+    let first = resolved(&sandbox.home.path().join("a"));
 
     sandbox
         .chap()
@@ -1651,10 +1666,9 @@ fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
         // to take turns, and the directory is worth writing either way.
         .success()
         .stderr(predicates::str::contains(format!(
-            "port 18400 is also used by a ({}), which is not running; both cannot be up at \
+            "port 18400 is also used by a ({first}), which is not running; both cannot be up at \
              once. Keep it, or run `chaps init --api-port 18401 --force` here / set \
-             CHAP_API_PORT=18401 in .env",
-            first.display()
+             CHAP_API_PORT=18401 in .env"
         )));
 
     // Written all the same, at the port that was asked for.

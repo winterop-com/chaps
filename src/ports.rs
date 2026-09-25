@@ -287,7 +287,10 @@ pub fn other_deployments(dir: &Path, compose_ls: &dyn Fn() -> Option<String>) ->
         };
         found.push(Deployment {
             claims: claims(&project),
-            dir: path,
+            // Read from the path that was walked, but named by the resolved
+            // one: the two are the same directory, and only one of them is a
+            // directory the operator will recognise.
+            dir: resolved(&path),
         });
     }
     found
@@ -354,6 +357,21 @@ fn plain(path: PathBuf) -> PathBuf {
     match rest.as_bytes() {
         [drive, b':', ..] if drive.is_ascii_alphabetic() => PathBuf::from(rest),
         _ => path,
+    }
+}
+
+/// The directory a deployment is named by in a warning: the resolved one.
+///
+/// Both searches hand back the path they walked, and on Windows that can
+/// still be the 8.3 short name a temp or profile directory is reached by,
+/// which no operator recognises and no second spelling of the same directory
+/// matches. `canonicalize` settles it, in the plain spelling like everything
+/// else here; a path it cannot resolve is named as it was found, since a name
+/// is better than none.
+fn resolved(path: &Path) -> PathBuf {
+    match path.canonicalize() {
+        Ok(real) => plain(real),
+        Err(_) => path.to_path_buf(),
     }
 }
 
@@ -752,6 +770,17 @@ mod tests {
     }
 
     #[test]
+    fn a_deployment_is_named_by_the_resolved_directory_and_a_missing_one_as_it_came() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = deployment(home.path(), "hello1", 8000, None);
+        assert_eq!(resolved(&dir), plain(dir.canonicalize().unwrap()));
+        // Nothing to resolve, so nothing is changed: a name is better than
+        // none.
+        let gone = home.path().join("nope");
+        assert_eq!(resolved(&gone), gone);
+    }
+
+    #[test]
     fn the_deployments_beside_a_new_one_are_found_and_read_like_any_project() {
         let home = tempfile::tempdir().unwrap();
         // One claims the port in `.chaps/project.yaml`, the other overrides a
@@ -765,6 +794,7 @@ mod tests {
 
         let found = other_deployments(&home.path().join("hello3"), &no_docker);
         let dirs: Vec<&PathBuf> = found.iter().map(|d| &d.dir).collect();
+        let (recorded, overridden) = (resolved(&recorded), resolved(&overridden));
         assert_eq!(dirs, vec![&recorded, &overridden], "{found:?}");
         assert!(found.iter().all(|d| d.holds(8000)), "{found:?}");
         assert_eq!(found[0].name(), "hello1");
