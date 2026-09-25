@@ -48,21 +48,19 @@ covariates:
   allow_free_additional: false
 
 channels:
-  stable: 1.0.1
-  latest: 1.0.1
+  stable: 1.0.0
+  latest: 1.0.0
 
 versions:
-  - version: 1.0.1
-    commit: 5adf3a8329f58764956c4df0584a549d16bcf119
-    image_tag: sha-5adf3a8
-    chapkit: ">=2.1.2,<3"
+  - version: 1.0.0
+    commit: 70c07a91a2164385e6d96477b7b786320ec32b32
+    image_tag: sha-70c07a9
+    chapkit: ">=2.0.0,<3"
     status: verified
     # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
     verified_by: []
     changelog: >-
-      Require chapkit 2.1.2, whose failure messages keep the R error line
-      instead of trailing warnings, and which applies the model
-      configurations chap-core sends.
+      Upgrade to chapkit 2.0.0 and register with CHAP Core.
 
 configurations:
   monthly:

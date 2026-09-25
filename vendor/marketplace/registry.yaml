@@ -28,7 +28,7 @@ marketplace:
   documentation:
     chap: https://chap.dhis2.org
     # Only chapkit model services are supported. Every listed model is a
-    # chapkit 2 service published as a container image; the install guide
+    # chapkit 2.0.0 service published as a container image; the install guide
     # is chapkit's own deployment walkthrough.
     install: https://dhis2-chap.github.io/chapkit/guides/deploying-to-chap-core/
     # How CHAP talks to a running chapkit service over HTTP.
@@ -52,7 +52,6 @@ models:
   - models/chapkit_rwanda_malaria_bym_model.yaml
   - models/chapkit_simple_multistep_model.yaml
   - models/auto_arima_chapkit.yaml
-  - models/chapkit_ghr_model.yaml
   # Templates — scaffolding for model authors, not models.
   - models/chapkit_minimalist_example_py.yaml
   - models/chapkit_minimalist_example_r.yaml

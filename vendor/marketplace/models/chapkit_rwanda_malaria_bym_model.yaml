@@ -58,21 +58,19 @@ covariates:
   allow_free_additional: true
 
 channels:
-  stable: 0.1.1
-  latest: 0.1.1
+  stable: 0.1.0
+  latest: 0.1.0
 
 versions:
-  - version: 0.1.1
-    commit: 28d9fc35bacd211fd2f2717947a2bed70de83df4
-    image_tag: sha-28d9fc3
-    chapkit: ">=2.1.2,<3"
+  - version: 0.1.0
+    commit: 028bb5aeef88f874116ac2dcb5863975fecc3201
+    image_tag: sha-028bb5a
+    chapkit: ">=2.0.0,<3"
     status: verified
     # Verified by the merge gate. Part of the chapkit 2.0.0 seed import.
     verified_by: []
     changelog: >-
-      Require chapkit 2.1.2, whose failure messages keep the R error line
-      instead of trailing warnings, and which applies the model
-      configurations chap-core sends.
+      Upgrade to chapkit 2.0.0.
     notes: >-
       The runner uses chapkit's chap_core config format, which writes
       additional_continuous_covariates at the top level of config.yml —
