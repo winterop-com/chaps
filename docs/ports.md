@@ -37,10 +37,11 @@ re-resolve the version, so they are safe on a deployment running a build you do
 not want moved. `chaps models enable ID --port N|auto` does the same thing
 while enabling.
 
-`chaps models list` and `chaps status` show either the port or `internal`, and
-`chaps models info ID` prints the proxy URL for an internal-only model. In
-`chaps ui`, `p` toggles publishing for the row under the cursor, and the
-command palette has it in both directions.
+`chaps models list` shows either the port or `via chap-core`, `chaps status`
+says `internal` in its `REACH` column for the same thing, and
+`chaps models info ID` prints the proxy URL for a model with no port of its
+own. In `chaps ui`, `p` opens a prompt on the row under the cursor that takes
+a port number, `auto`, or nothing at all, and `P` takes the port away.
 
 Model ports come from the range 5001 to 5999, with 5001 the default lowest
 (`init --port-base` moves it). A port has to be free twice over: unclaimed by
@@ -142,8 +143,9 @@ address CHAP could be published on is tried in turn.
 
 ## Internal-only models and the proxy URL
 
-`internal` in `chaps status` and `chaps models list` means the model publishes
-no host port of its own. The way in is chap-core:
+`internal` in `chaps status`, and `via chap-core` in `chaps models list` and
+in the browser's `PORT` column, means the model publishes no host port of its
+own. The way in is chap-core:
 
 ```text
 http://localhost:8000/v2/services/<service_id>/run/

@@ -9,8 +9,8 @@
 //! produced, and every colour comes from the [`Theme`]. The layout degrades on
 //! narrow terminals by dropping columns rather than wrapping or panicking.
 
-use crate::registry::{AssessedStatus, Channel, Provenance, Version, VersionStatus};
-use crate::tui::app::{App, Change, ChangeKind, Command, Mode, Row};
+use crate::registry::{Channel, Provenance, Version, VersionStatus};
+use crate::tui::app::{App, Change, ChangeKind, Command, Mode, PortWant, Row};
 use crate::tui::keys::{self, Hint};
 use crate::tui::theme::Theme;
 use ratatui::Frame;
@@ -27,13 +27,13 @@ const MARKER_W: usize = 5;
 const MODEL_W: usize = 22;
 /// `template` is the longest thing the kind column says.
 const KIND_W: usize = 8;
-/// `● orange`.
-const STATUS_W: usize = 8;
+/// `● experimental`: the dot, and the longest thing the scale means.
+const STATUS_W: usize = 14;
 const VERSION_W: usize = 8;
-/// `will be disabled`, the longest thing the enabled column says.
-const ENABLED_W: usize = 16;
-/// Enough for `internal` and `:5001`, when the full column does not fit.
-const ENABLED_MIN: usize = 9;
+/// `will be disabled`, the longest thing the port column says.
+const PORT_W: usize = 16;
+/// Enough for `via chap-core`, when the full column does not fit.
+const PORT_MIN: usize = 13;
 const ID_MIN: usize = 10;
 /// The id column stops growing here: a table that stretches an id across a
 /// wide terminal only puts distance between the columns that matter.
@@ -229,7 +229,7 @@ struct Columns {
     id: usize,
     status: usize,
     version: usize,
-    enabled: usize,
+    port: usize,
 }
 
 /// Hand out the width the table has, widest column last.
@@ -257,20 +257,30 @@ fn columns(inner: usize, kind: bool) -> Columns {
     };
     let version = take(VERSION_W, 0);
     let status = take(STATUS_W, 0);
-    let enabled = take(ENABLED_W, ENABLED_MIN);
+    // The enabled column reserves its narrow form first, so the id - the one
+    // column the other commands are typed from - is not what an eighty-column
+    // terminal gives up.
+    let mut port = take(PORT_MIN, 0);
     let kind = if kind { take(KIND_W, 0) } else { 0 };
     let id = if left > ID_MIN {
         (left - 1).min(ID_MAX)
     } else {
         0
     };
+    if id > 0 {
+        left -= id + 1;
+    }
+    if port > 0 {
+        let grow = (PORT_W - PORT_MIN).min(left);
+        port += grow;
+    }
     Columns {
         model,
         kind,
         id,
         status,
         version,
-        enabled,
+        port,
     }
 }
 
@@ -293,7 +303,7 @@ fn draw_head(frame: &mut Frame, area: Rect, columns: &Columns, theme: &Theme) {
         (columns.id, "ID"),
         (columns.status, "STATUS"),
         (columns.version, "VERSION"),
-        (columns.enabled, "ENABLED"),
+        (columns.port, "PORT"),
     ] {
         if width == 0 {
             continue;
@@ -406,7 +416,7 @@ fn row_line<'a>(
             theme.status_style(model.assessed_status),
         ));
         spans.push(Span::raw(fit(
-            status_label(model.assessed_status),
+            model.assessed_status.label(),
             columns.status - 2,
         )));
         spans.push(Span::raw(" "));
@@ -422,24 +432,39 @@ fn row_line<'a>(
         ));
         spans.push(Span::raw(" "));
     }
-    if columns.enabled > 0 {
-        let (text, style) = enabled_cell(row, recorded, theme);
-        spans.push(Span::styled(fit(&text, columns.enabled), style));
+    if columns.port > 0 {
+        let (text, style) = port_cell(row, recorded, columns.port, theme);
+        spans.push(Span::styled(fit(&text, columns.port), style));
     }
     Line::from(spans)
 }
 
-/// What the enabled column says: a pending change first, then how an enabled
-/// model is reached. The port itself is only picked when the selection is
-/// applied, hence `:auto`.
-fn enabled_cell(row: &Row, recorded: bool, theme: &Theme) -> (String, ratatui::style::Style) {
+/// What the port column says: a pending change first, then how an enabled
+/// model is reached. A model without a host port of its own is reachable
+/// through chap-core and nowhere else, and the port of a row `p` has just
+/// asked for is only picked when the selection is applied, hence `auto`.
+fn port_cell(
+    row: &Row,
+    recorded: bool,
+    width: usize,
+    theme: &Theme,
+) -> (String, ratatui::style::Style) {
+    // A column too narrow for the phrase says it in one word rather than
+    // cutting it off; the summary strip spells it out either way.
+    let roomy = width >= PORT_W;
     match (recorded, row.enabled) {
-        (false, true) => ("will be enabled".to_string(), theme.ok_style()),
-        (true, false) => ("will be disabled".to_string(), theme.bad_style()),
-        (_, true) => match (row.publish, row.port) {
-            (true, Some(port)) => (format!(":{port}"), theme.accent_style()),
-            (true, None) => (":auto".to_string(), theme.warn_style()),
-            (false, _) => ("internal".to_string(), theme.dim_style()),
+        (false, true) => match roomy {
+            true => ("will be enabled".to_string(), theme.ok_style()),
+            false => ("enabling".to_string(), theme.ok_style()),
+        },
+        (true, false) => match roomy {
+            true => ("will be disabled".to_string(), theme.bad_style()),
+            false => ("disabling".to_string(), theme.bad_style()),
+        },
+        (_, true) => match row.want {
+            PortWant::Exact(port) => (port.to_string(), theme.accent_style()),
+            PortWant::Auto => ("auto".to_string(), theme.warn_style()),
+            PortWant::None => ("via chap-core".to_string(), theme.dim_style()),
         },
         (_, false) => (String::new(), theme.dim_style()),
     }
@@ -479,10 +504,12 @@ fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     };
     let model = app.model(row);
 
-    let mut head = vec![Span::styled(
-        model.display_name.clone(),
-        theme.accent_style(),
-    )];
+    let mut head = vec![
+        Span::styled(model.display_name.clone(), theme.accent_style()),
+        Span::raw("  "),
+        Span::styled("● ", theme.status_style(model.assessed_status)),
+        Span::raw(model.assessed_status.label()),
+    ];
     let pinned = match app.recorded(row) {
         Some(recorded) => Some(version_and_tag(&recorded.version, &recorded.image_tag)),
         None => app
@@ -498,8 +525,8 @@ fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
         Some(recorded) => {
             head.push(Span::styled(
                 match recorded.host_port {
-                    Some(port) => format!("enabled, :{port}"),
-                    None => "enabled, internal".to_string(),
+                    Some(port) => format!("enabled on port {port}"),
+                    None => "enabled, via chap-core".to_string(),
                 },
                 theme.ok_style(),
             ));
@@ -577,6 +604,10 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if area.height == 0 {
         return;
     }
+    if app.mode == Mode::Port {
+        draw_port_prompt(frame, area, app, theme);
+        return;
+    }
     if let Some(message) = &app.message {
         let text = fit_soft(&format!(" {message}"), area.width as usize);
         frame.render_widget(
@@ -591,6 +622,41 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Paragraph::new(Line::from(keybar(&hints, area.width as usize, theme))),
         area,
     );
+}
+
+/// The port prompt, on the key bar's line: what is being typed, and either
+/// the reason the last thing typed was refused or the two words that are not
+/// numbers.
+fn draw_port_prompt(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let width = area.width as usize;
+    let name = app
+        .selected()
+        .map(|row| app.model(row).display_name.clone())
+        .unwrap_or_default();
+    let mut spans = vec![
+        Span::styled(" port for ", theme.dim_style()),
+        Span::styled(name, theme.accent_style()),
+        Span::styled("  › ", theme.accent_style()),
+        Span::styled(app.port_input.clone(), theme.label_style()),
+        Span::styled("_", theme.accent_style()),
+    ];
+    let used = width_of(&spans);
+    let tail = match &app.port_error {
+        Some(why) => vec![Span::styled(why.clone(), theme.bad_style())],
+        // Two columns for the gap the tail needs to keep from the prompt.
+        None => keybar(
+            &keys::keybar(Mode::Port, 0, false),
+            width.saturating_sub(used + 2),
+            theme,
+        ),
+    };
+    let tail_width = width_of(&tail);
+    if used + tail_width + 2 <= width {
+        spans.push(Span::raw(" ".repeat(width - used - tail_width)));
+        spans.extend(tail);
+    }
+    truncate(&mut spans, width);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// The key bar: `[key] what`, the key in the accent so the line reads as keys
@@ -691,7 +757,7 @@ fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             Span::styled(model.id.clone(), theme.dim_style()),
             Span::raw("  "),
             Span::styled("● ", theme.status_style(model.assessed_status)),
-            Span::raw(status_label(model.assessed_status)),
+            Span::raw(model.assessed_status.label()),
             Span::raw(" "),
         ]))
         .title_top(Line::from(vec![enabled, Span::raw(" ")]).right_aligned());
@@ -712,6 +778,15 @@ fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Vec<Line
         Some(port) => format!("http://localhost:{port}"),
         None => "internal (through chap-core's /run/ proxy)".to_string(),
     };
+    lines.push(Line::from(vec![
+        Span::styled(fit("status", LABEL_WIDTH), theme.label_style()),
+        Span::styled("● ", theme.status_style(model.assessed_status)),
+        Span::raw(format!(
+            "{}, {}",
+            model.assessed_status.colour(),
+            model.assessed_status.describe()
+        )),
+    ]));
     lines.push(field(theme, "reach", &reach));
 
     let pinned = match app.recorded(row) {
@@ -1163,16 +1238,6 @@ fn channel_label(channel: Channel) -> &'static str {
     channel.as_str()
 }
 
-fn status_label(status: AssessedStatus) -> &'static str {
-    match status {
-        AssessedStatus::Green => "green",
-        AssessedStatus::Yellow => "yellow",
-        AssessedStatus::Orange => "orange",
-        AssessedStatus::Red => "red",
-        AssessedStatus::Gray => "gray",
-    }
-}
-
 fn version_status(version: &Version) -> &'static str {
     match version.status {
         VersionStatus::Verified => "verified",
@@ -1270,10 +1335,17 @@ mod tests {
         );
         // Rounded corners, not square ones.
         assert!(screen.contains('╭') && screen.contains('╯'), "{screen}");
-        assert!(screen.contains("MODEL") && screen.contains("ENABLED"));
+        assert!(screen.contains("MODEL") && screen.contains("PORT"));
         assert!(screen.contains("CHAP-EWARS"));
         assert!(screen.contains("chapkit_ewars_model"));
-        assert!(screen.contains("● orange"), "{screen}");
+        assert!(
+            screen.contains("● limited data"),
+            "the dot carries the colour, the word its meaning:\n{screen}"
+        );
+        assert!(
+            !screen.contains("● orange"),
+            "a bare colour word says nothing:\n{screen}"
+        );
         assert!(screen.contains("[space] toggle"), "{screen}");
         // The summary strip stands in for the pane that used to be there.
         assert!(screen.contains("i for details"), "{screen}");
@@ -1301,7 +1373,7 @@ mod tests {
         let screen = render(&app, 120, 40);
         let head = line_with(&screen, "MODEL");
         let row = line_with(&screen, "✓ CHAP-EWARS");
-        assert_eq!(column_of(head, "ENABLED"), column_of(row, ":5001"));
+        assert_eq!(column_of(head, "PORT"), column_of(row, "5001"));
     }
 
     /// A project state with `chapkit_ewars_model` enabled on `host_port`.
@@ -1338,26 +1410,39 @@ mod tests {
         let app = App::new(&registry, &state);
         let screen = render(&app, 120, 40);
         assert!(screen.contains('✓'), "{screen}");
-        assert!(screen.contains(":5001"));
+        assert!(screen.contains("5001"));
         // The strip says the same thing in words.
-        assert!(screen.contains("enabled, :5001"), "{screen}");
+        assert!(screen.contains("enabled on port 5001"), "{screen}");
         assert!(screen.contains("user chapkit:chapkit"), "{screen}");
     }
 
+    /// The port column is about how the model is reached, not about whether
+    /// it is enabled - the tick already says that.
     #[test]
-    fn an_enabled_model_with_no_host_port_reads_as_internal() {
+    fn an_enabled_model_with_no_host_port_is_reached_through_chap_core() {
         let registry = registry();
         let state = state_with_ewars(&registry, None);
         let mut app = App::new(&registry, &state);
         let screen = render(&app, 120, 40);
         assert!(screen.contains('✓'));
-        assert!(screen.contains("internal"), "{screen}");
-        assert!(!screen.contains(":500"), "no host port is published");
+        assert!(screen.contains("via chap-core"), "{screen}");
+        assert!(
+            screen.contains("enabled, via chap-core"),
+            "and so does the strip"
+        );
+        assert!(!screen.contains("5001"), "no host port is published");
+        assert!(!screen.contains("internal"), "{screen}");
 
-        // Pressing p is visible before saving, with the port left to apply.
-        app.reduce(Action::TogglePublish);
+        // The prompt is visible before saving, and so is what it took: the
+        // port itself is only picked when the selection is applied.
+        app.reduce(Action::PortPrompt);
+        let prompt = render(&app, 120, 40);
+        assert!(prompt.contains("port for CHAP-EWARS"), "{prompt}");
+        assert!(prompt.contains("› auto_"), "{prompt}");
+        assert!(prompt.contains("[enter] apply"), "{prompt}");
+        app.reduce(Action::PortApply);
         let screen = render(&app, 120, 40);
-        assert!(screen.contains(":auto"), "{screen}");
+        assert!(screen.contains("auto"), "{screen}");
     }
 
     #[test]
@@ -1382,7 +1467,7 @@ mod tests {
         let line = row_line(&app, row, &columns, true, &theme());
         assert_eq!(line.spans[1].content, "✓ ");
         assert!(
-            line_text(&line).contains("internal"),
+            line_text(&line).contains("via chap-core"),
             "a row toggled off and on again comes back without its port"
         );
 
@@ -1428,7 +1513,7 @@ mod tests {
             theme().status_style(app.model(row).assessed_status)
         );
         assert_eq!(dot.style.fg, Some(theme().warn));
-        assert!(line_text(&line).contains("● orange"));
+        assert!(line_text(&line).contains("● limited data"));
     }
 
     /// The strip under the table is what the details pane used to be: the one
@@ -1480,7 +1565,7 @@ mod tests {
         assert!(removed.contains("the data volume is kept"), "{removed}");
         let added = line_with(&screen, "enable at");
         assert!(added.contains("+ "), "{added}");
-        assert!(added.contains("internal (no host port)"), "{added}");
+        assert!(added.contains("via chap-core"), "{added}");
         assert!(!screen.contains("i for details"), "{screen}");
         // And the header counts them, in the colour that says "unsaved".
         assert!(screen.contains("2 pending"), "{screen}");
@@ -1492,11 +1577,34 @@ mod tests {
         let registry = registry();
         let state = state_with_ewars(&registry, None);
         let mut app = App::new(&registry, &state);
-        app.reduce(Action::TogglePublish);
+        app.reduce(Action::PortPrompt);
+        app.port_input.clear();
+        for c in "5010".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
         let screen = render(&app, 120, 40);
         assert!(screen.contains("1 pending change "), "{screen}");
-        let line = line_with(&screen, "publish a host port");
+        let line = line_with(&screen, "publish port 5010");
         assert!(line.contains("+ CHAP-EWARS"), "{line}");
+        assert!(screen.contains("5010"), "the column shows it too");
+    }
+
+    /// A refused port stays on the prompt line with the reason on it.
+    #[test]
+    fn the_port_prompt_draws_what_it_refused_and_why() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::PortPrompt);
+        app.port_input.clear();
+        for c in "80".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("› 80_"), "{screen}");
+        assert!(screen.contains("outside this project's range"), "{screen}");
     }
 
     #[test]
@@ -1510,6 +1618,8 @@ mod tests {
         let screen = render(&app, 120, 40);
         // Everything the old pane held is here.
         for needle in [
+            // The colour word is only worth printing next to what it means.
+            "● orange, shows promise on limited data",
             "http://localhost:5001",
             "channel stable",
             "ghcr.io/chap-models/chapkit_ewars_model:sha-",
@@ -1852,9 +1962,12 @@ mod tests {
         let app = App::new(&registry, &ProjectState::default());
         let screen = render(&app, 80, 24);
         let row = line_with(&screen, "Rwanda Malaria BYM");
-        assert!(row.contains("chapkit_rwanda~"), "{row}");
+        assert!(row.contains("chapkit_rwa~"), "{row}");
         assert!(!row.contains("chapkit_rwanda_malaria_bym_model"), "{row}");
-        assert!(screen.contains("● gray"), "the status column survives");
+        assert!(
+            screen.contains("● not for use"),
+            "the status column survives"
+        );
 
         let summary = line_with(&screen, "Bayesian hierarchical");
         assert!(
@@ -1929,22 +2042,23 @@ mod tests {
         let wide = columns(160, false);
         assert_eq!(wide.id, ID_MAX);
         assert_eq!(wide.status, STATUS_W);
-        assert_eq!(wide.enabled, ENABLED_W);
+        assert_eq!(wide.port, PORT_W);
         assert_eq!(wide.kind, 0);
 
         assert_eq!(columns(160, true).kind, KIND_W);
 
-        // Eighty columns: everything, with a shorter id.
+        // Eighty columns: everything, with a shorter id and the narrow form
+        // of the enabled column.
         let eighty = columns(78, false);
         assert!(eighty.id >= ID_MIN, "{eighty:?}");
         assert!(eighty.id < ID_MAX);
-        assert_eq!(eighty.enabled, ENABLED_W);
+        assert_eq!(eighty.status, STATUS_W, "the assessment keeps its words");
+        assert_eq!(eighty.port, PORT_MIN);
 
         // Sixty: the id goes first, then the enabled column narrows.
         let sixty = columns(58, false);
         assert_eq!(sixty.id, 0, "{sixty:?}");
         assert_eq!(sixty.version, VERSION_W);
-        assert_eq!(sixty.status, STATUS_W);
 
         // Tiny: the name and nothing else, and never a width below zero.
         let tiny = columns(20, false);
@@ -1956,7 +2070,7 @@ mod tests {
         for inner in 0..200usize {
             let c = columns(inner, inner % 2 == 0);
             let used = MARKER_W
-                + [c.model, c.kind, c.id, c.status, c.version, c.enabled]
+                + [c.model, c.kind, c.id, c.status, c.version, c.port]
                     .iter()
                     .map(|w| if *w > 0 { w + 1 } else { 0 })
                     .sum::<usize>();

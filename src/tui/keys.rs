@@ -30,6 +30,26 @@ pub fn action_for(mode: Mode, key: &KeyEvent) -> Action {
         Mode::Help => help(key),
         Mode::Info => info(key, ctrl),
         Mode::Palette => palette(key, ctrl),
+        Mode::Port => port(key, ctrl),
+    }
+}
+
+/// The port prompt: a line of text, so every printable key is part of it.
+fn port(key: &KeyEvent, ctrl: bool) -> Action {
+    if ctrl {
+        return match key.code {
+            // Ctrl-U empties the line here as it does in a shell, rather than
+            // leaving the prompt.
+            KeyCode::Char('u') => Action::PortChar('\u{0}'),
+            _ => Action::None,
+        };
+    }
+    match key.code {
+        KeyCode::Esc => Action::FilterCancel,
+        KeyCode::Enter => Action::PortApply,
+        KeyCode::Backspace => Action::PortBackspace,
+        KeyCode::Char(c) => Action::PortChar(c),
+        _ => Action::None,
     }
 }
 
@@ -62,7 +82,10 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         KeyCode::PageDown => Action::PageDown,
         KeyCode::PageUp => Action::PageUp,
         KeyCode::Char(' ') => Action::Toggle,
-        KeyCode::Char('p') => Action::TogglePublish,
+        KeyCode::Char('p') => Action::PortPrompt,
+        // Shift-P is the prompt's answer without the prompt: the one thing
+        // there is nothing to type for.
+        KeyCode::Char('P') => Action::RemovePort,
         KeyCode::Char('v') => Action::CycleChannel,
         KeyCode::Char('t') => Action::ToggleTemplates,
         KeyCode::Char('/') => Action::StartFilter,
@@ -176,7 +199,8 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("ctrl-u / ctrl-d", "jump a page"),
         ("space", "enable or disable the model"),
         ("i / Enter", "the full details, which j/k scroll"),
-        ("p", "publish a host port for it, or take it away"),
+        ("p", "publish a host port: a number, auto, or none"),
+        ("P", "take the host port away"),
         ("v", "switch channel: stable or latest"),
         ("t", "show or hide templates"),
         ("/", "filter; Enter keeps it, Esc clears it"),
@@ -272,6 +296,12 @@ pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
             hint("esc", "close", 9),
             hint("up/down", "move", 8),
             hint("enter", "run", 9),
+        ],
+        Mode::Port => vec![
+            hint("enter", "apply", 9),
+            hint("esc", "cancel", 9),
+            hint("auto", "any free port", 5),
+            hint("none", "no host port", 5),
         ],
     }
 }
@@ -379,7 +409,8 @@ mod tests {
     #[test]
     fn browse_editing_keys() {
         assert_eq!(browse_action(KeyCode::Char(' ')), Action::Toggle);
-        assert_eq!(browse_action(KeyCode::Char('p')), Action::TogglePublish);
+        assert_eq!(browse_action(KeyCode::Char('p')), Action::PortPrompt);
+        assert_eq!(browse_action(KeyCode::Char('P')), Action::RemovePort);
         assert_eq!(browse_action(KeyCode::Char('v')), Action::CycleChannel);
         assert_eq!(browse_action(KeyCode::Char('t')), Action::ToggleTemplates);
         assert_eq!(browse_action(KeyCode::Char('/')), Action::StartFilter);
@@ -610,6 +641,7 @@ mod tests {
             Mode::Help,
             Mode::Info,
             Mode::Palette,
+            Mode::Port,
         ] {
             for c in awkward {
                 // The brackets the renderer draws around a key are decoration

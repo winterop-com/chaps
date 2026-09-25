@@ -18,7 +18,11 @@ struct ModelRow {
     service_id: String,
     display_name: String,
     kind: Kind,
+    /// The colour the marketplace wrote, which is what a script matches on.
     assessed_status: AssessedStatus,
+    /// What that colour means, the way the table prints it. The colour stays
+    /// the stable thing to match; this is what a human reads.
+    assessed_status_label: &'static str,
     /// Version the `stable` channel points at.
     stable: String,
     /// Version the `latest` channel points at.
@@ -215,6 +219,7 @@ fn row(model: &Model, enabled: Option<&EnabledModel>) -> ModelRow {
         display_name: model.display_name.clone(),
         kind: model.kind,
         assessed_status: model.assessed_status,
+        assessed_status_label: model.assessed_status.label(),
         stable: model.channels.stable.clone(),
         latest: model.channels.latest.clone(),
         enabled: enabled.is_some(),
@@ -229,7 +234,7 @@ fn row(model: &Model, enabled: Option<&EnabledModel>) -> ModelRow {
 
 fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
     let mut headers = vec![
-        "ID", "SERVICE", "NAME", "STATUS", "STABLE", "LATEST", "ENABLED",
+        "ID", "SERVICE", "NAME", "STATUS", "STABLE", "LATEST", "PORT",
     ];
     if with_kind {
         headers.push("KIND");
@@ -244,7 +249,7 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
                 status_cell(out, r.assessed_status),
                 r.stable.clone(),
                 out.dim(&r.latest),
-                enabled_cell(out, r),
+                port_cell(out, r),
             ];
             if with_kind {
                 cells.push(out.dim(row_kind(r)));
@@ -255,19 +260,22 @@ fn table(out: &Out, rows: &[ModelRow], with_kind: bool) -> String {
     out.table(&headers, &body)
 }
 
-/// The ENABLED cell: the host port when the model publishes one, `internal`
-/// when it is enabled without one, and a dash when it is not enabled at all.
-fn enabled_cell(out: &Out, row: &ModelRow) -> String {
+/// The PORT cell: the host port when the model publishes one, `via chap-core`
+/// when it is enabled and reachable only through the proxy, and a dash when it
+/// is not enabled at all. The tick is not needed: a row with nothing in this
+/// column is a row this project does not run.
+fn port_cell(out: &Out, row: &ModelRow) -> String {
     match (row.enabled, row.enabled_port) {
         (_, Some(port)) => out.key(&port.to_string()),
-        (true, None) => out.dim("internal"),
+        (true, None) => out.dim("via chap-core"),
         (false, None) => out.dim("-"),
     }
 }
 
-/// The STATUS cell, painted the colour the marketplace assessment means.
+/// The STATUS cell: what the assessment means, in the colour it means it.
+/// The colour word itself is in `--json`, for the scripts that match on it.
 fn status_cell(out: &Out, status: AssessedStatus) -> String {
-    let label = status_label(status);
+    let label = status.label();
     match status {
         AssessedStatus::Green => out.ok(label),
         // There is no orange in the 16-colour palette, and a half-verified
@@ -356,7 +364,14 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
             ("follows", follows),
             (
                 "status",
-                marketplace(status_label(m.assessed_status).to_string()),
+                marketplace(output::wrapped(
+                    &format!(
+                        "{}, {}",
+                        m.assessed_status.colour(),
+                        m.assessed_status.describe()
+                    ),
+                    DETAIL_WRAP,
+                )),
             ),
             ("summary", output::wrapped(&m.summary, DETAIL_WRAP)),
             ("repository", m.source.repository.clone()),
@@ -542,16 +557,6 @@ fn indent_block(text: &str, spaces: usize) -> String {
         .collect()
 }
 
-fn status_label(status: AssessedStatus) -> &'static str {
-    match status {
-        AssessedStatus::Green => "green",
-        AssessedStatus::Yellow => "yellow",
-        AssessedStatus::Orange => "orange",
-        AssessedStatus::Red => "red",
-        AssessedStatus::Gray => "gray",
-    }
-}
-
 fn version_status_label(status: VersionStatus) -> &'static str {
     match status {
         VersionStatus::Verified => "verified",
@@ -629,7 +634,7 @@ mod tests {
         assert_eq!(r.latest, m.channels.latest);
         assert_eq!(r.enabled_port, None);
         assert!(!r.enabled);
-        assert_eq!(enabled_cell(&Out::default(), &r), "-");
+        assert_eq!(port_cell(&Out::default(), &r), "-");
         assert!(
             r.image.starts_with(&format!("{}:", m.source.image)),
             "{} should be a tagged reference",
@@ -642,13 +647,13 @@ mod tests {
         let r = row(&model("chapkit_ewars_model"), Some(&enabled()));
         assert!(r.enabled);
         assert_eq!(r.enabled_port, Some(5001));
-        assert_eq!(enabled_cell(&Out::default(), &r), "5001");
+        assert_eq!(port_cell(&Out::default(), &r), "5001");
 
-        // Enabled without a port: `internal`, not a dash.
+        // Enabled without a port: the way in, not a dash.
         let r = row(&model("chapkit_ewars_model"), Some(&enabled_on(None)));
         assert!(r.enabled);
         assert_eq!(r.enabled_port, None);
-        assert_eq!(enabled_cell(&Out::default(), &r), "internal");
+        assert_eq!(port_cell(&Out::default(), &r), "via chap-core");
     }
 
     #[test]
@@ -659,7 +664,7 @@ mod tests {
         let plain = table(&out, &rows, false);
         assert_eq!(
             plain.lines().next().unwrap().split_whitespace().last(),
-            Some("ENABLED")
+            Some("PORT")
         );
         assert!(!plain.contains("template"));
 
@@ -1003,7 +1008,7 @@ mod tests {
 
     #[test]
     fn labels_match_the_yaml_spelling() {
-        assert_eq!(status_label(AssessedStatus::Gray), "gray");
+        assert_eq!(AssessedStatus::Gray.colour(), "gray");
         assert_eq!(kind_label(Kind::Template), "template");
         assert_eq!(first_line(Some("first\nsecond")), "first");
         assert_eq!(first_line(None), "");

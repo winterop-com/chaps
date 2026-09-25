@@ -75,6 +75,12 @@ pub enum Kind {
 }
 
 /// The author's own chapkit assessment, not a marketplace verdict.
+///
+/// The scale is chapkit's (`src/chapkit/api/service_builder.py`), mirrored in
+/// chap-core's `docs/external_models/model_metadata.md`. It runs from "do not
+/// use this" to "this has been validated"; what each colour means is
+/// [`AssessedStatus::describe`], because a bare colour word tells a reader
+/// nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssessedStatus {
@@ -83,6 +89,48 @@ pub enum AssessedStatus {
     Orange,
     Red,
     Gray,
+}
+
+impl AssessedStatus {
+    /// The colour as the marketplace writes it, which is what `--json` and the
+    /// model files use.
+    pub fn colour(&self) -> &'static str {
+        match self {
+            AssessedStatus::Green => "green",
+            AssessedStatus::Yellow => "yellow",
+            AssessedStatus::Orange => "orange",
+            AssessedStatus::Red => "red",
+            AssessedStatus::Gray => "gray",
+        }
+    }
+
+    /// What the colour means, in the width of a table cell.
+    pub fn label(&self) -> &'static str {
+        match self {
+            AssessedStatus::Green => "production",
+            AssessedStatus::Yellow => "testing",
+            AssessedStatus::Orange => "limited data",
+            AssessedStatus::Red => "experimental",
+            AssessedStatus::Gray => "not for use",
+        }
+    }
+
+    /// What the colour means, in full, for the places with room to say it.
+    pub fn describe(&self) -> &'static str {
+        match self {
+            AssessedStatus::Green => "validated and ready for production use",
+            AssessedStatus::Yellow => "ready for more rigorous testing on diverse data",
+            AssessedStatus::Orange => {
+                "shows promise on limited data, needs manual configuration and careful evaluation"
+            }
+            AssessedStatus::Red => {
+                "highly experimental prototype, not validated, only for early experimentation"
+            }
+            AssessedStatus::Gray => {
+                "not intended for use, deprecated or kept for backwards compatibility"
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

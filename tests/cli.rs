@@ -981,7 +981,7 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
 }
 
 #[test]
-fn models_list_and_info_say_internal_until_a_port_is_published() {
+fn models_list_and_info_name_the_proxy_until_a_port_is_published() {
     let sandbox = Sandbox::new();
     let base = port_base();
     sandbox
@@ -998,7 +998,7 @@ fn models_list_and_info_say_internal_until_a_port_is_published() {
         .models(&["list", "--enabled"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("internal"));
+        .stdout(predicates::str::contains("via chap-core"));
     sandbox
         .models(&["info", "chapkit_ewars_model"])
         .assert()
@@ -1022,7 +1022,7 @@ fn models_list_and_info_say_internal_until_a_port_is_published() {
     )
     .expect("the table is text");
     assert!(listed.contains(&base.to_string()), "{listed}");
-    assert!(!listed.contains("internal"), "{listed}");
+    assert!(!listed.contains("via chap-core"), "{listed}");
     sandbox
         .models(&["info", "chapkit_ewars_model"])
         .assert()
@@ -3705,6 +3705,84 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
     assert_eq!(doctor_status(&report, "chap-core-pin"), "ok", "{report}");
 }
 
+/// The `registry pin <id>` line: what the marketplace pins for an enabled
+/// model, against what that model's own repository has published since.
+///
+/// The hub's catalogue pins `sha-fa880a1`, committed on 1 September, while
+/// `main` has published `sha-1eb8cf1` on the 8th. That lag is what the check
+/// exists for: it is the marketplace that is behind, not the deployment, so
+/// the line warns and points at the marketplace rather than at `chaps`.
+#[test]
+fn doctor_warns_when_the_marketplace_pin_lags_the_model_repository() {
+    let (sandbox, _dir, port) = added_sandbox(Hub::new().publishing(MARKETPLACE_TAG));
+    sandbox
+        .online(port)
+        .args(["models", "enable", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    let report = json_of(sandbox.online(port).args(["--json", "doctor"]));
+    let check = doctor_check(&report, "registry-pin-chapkit_ewars_model");
+    assert_eq!(check["status"], "warn", "{report}");
+    assert_eq!(
+        check["name"], "registry pin chapkit_ewars_model",
+        "{report}"
+    );
+    assert_eq!(
+        check["detail"].as_str().unwrap(),
+        "the registry pins sha-fa880a1 (2026-09-01) but main's newest build is \
+         sha-1eb8cf1 (2026-09-08)",
+        "{report}"
+    );
+    assert!(
+        check["fix"]
+            .as_str()
+            .unwrap()
+            .starts_with("ask the marketplace maintainers for a new pin"),
+        "{report}"
+    );
+    // A marketplace that lags is nothing a deployment has to act on.
+    assert_eq!(report["summary"]["fail"], 0, "{report}");
+
+    // The same deployment with the network switched off asks nothing, and
+    // every one of these lines says that is why.
+    let offline = json_of(
+        sandbox
+            .chap()
+            .arg("-C")
+            .arg(sandbox.project())
+            .args(["--json", "doctor"]),
+    );
+    let check = doctor_check(&offline, "registry-pin-chapkit_ewars_model");
+    assert_eq!(check["status"], "skip", "{offline}");
+    assert!(
+        check["detail"].as_str().unwrap().contains("--offline"),
+        "{offline}"
+    );
+}
+
+/// The same line when the catalogue is up to date: the commit it pins is the
+/// newest one the branch has a published build for.
+#[test]
+fn doctor_confirms_a_marketplace_pin_that_is_the_newest_build() {
+    let (sandbox, _dir, port) = added_sandbox(Hub::new().pinning(OLD_SHA));
+    sandbox
+        .online(port)
+        .args(["models", "enable", "chapkit_ewars_model"])
+        .assert()
+        .success();
+
+    let report = json_of(sandbox.online(port).args(["--json", "doctor"]));
+    let check = doctor_check(&report, "registry-pin-chapkit_ewars_model");
+    assert_eq!(check["status"], "ok", "{report}");
+    assert_eq!(
+        check["detail"].as_str().unwrap(),
+        format!("{OLD_TAG} is the newest build on main"),
+        "{report}"
+    );
+    assert_eq!(check["fix"], Json::Null, "nothing to do: {report}");
+}
+
 // ---------------------------------------------------------------------------
 // Components: chap-core, ocs and the object store
 // ---------------------------------------------------------------------------
@@ -4906,6 +4984,26 @@ const OLD_SHA: &str = "1eb8cf1a2b3c4d5e6f708192a3b4c5d6e7f80910";
 /// The tags those two commits are built as.
 const NEW_TAG: &str = "sha-b1d6c31";
 const OLD_TAG: &str = "sha-1eb8cf1";
+/// The commit the served marketplace entry pins, older than either of them.
+const MARKETPLACE_SHA: &str = "fa880a1";
+/// The day every commit this hub knows about was made. The `registry pin`
+/// checks read these, and place a pin the branch listing does not carry by
+/// asking for its commit by name.
+const COMMIT_DAYS: &[(&str, &str)] = &[
+    (NEW_SHA, "2026-09-23T08:15:00Z"),
+    (OLD_SHA, "2026-09-08T11:00:00Z"),
+    (MARKETPLACE_SHA, "2026-09-01T09:00:00Z"),
+];
+
+/// The committer date this hub gives one commit, matched on the short SHA so
+/// a full one and the seven characters a pin carries find the same day.
+fn commit_date(sha: &str) -> Option<&'static str> {
+    let short = |sha: &str| sha.chars().take(7).collect::<String>();
+    COMMIT_DAYS
+        .iter()
+        .find(|(known, _)| short(known) == short(sha))
+        .map(|(_, date)| *date)
+}
 /// The repository `models add` is pointed at.
 const REPO_URL: &str = "https://github.com/example/chapkit_example_manual_model";
 /// The image that repository publishes to.
@@ -4932,6 +5030,9 @@ struct Hub {
     /// answer `releases/latest`, `releases`, `releases/tags/<tag>` and the
     /// `compose.ghcr.yml` every one of them publishes.
     releases: Vec<(String, String)>,
+    /// The commit the served marketplace entry pins, which is what the
+    /// `registry pin` checks compare against the branch.
+    pinned: String,
 }
 
 /// The chap-core releases the hub publishes by default: two of them, so a
@@ -4986,6 +5087,7 @@ impl Hub {
                 .iter()
                 .map(|(tag, at)| (tag.to_string(), at.to_string()))
                 .collect(),
+            pinned: MARKETPLACE_SHA.to_string(),
         }
     }
 
@@ -5013,6 +5115,29 @@ impl Hub {
         let mut published = self.published.clone();
         published.push(tag.to_string());
         Hub { published, ..self }
+    }
+
+    /// The same, with the marketplace entry pinning `commit` rather than the
+    /// one it carries by default.
+    fn pinning(self, commit: &str) -> Hub {
+        Hub {
+            pinned: commit.to_string(),
+            ..self
+        }
+    }
+
+    /// The marketplace entry as this hub serves it: the template, repinned.
+    fn marketplace_model(&self) -> String {
+        let short: String = self.pinned.chars().take(7).collect();
+        MARKETPLACE_MODEL
+            .replace(
+                &format!("commit: {MARKETPLACE_SHA}"),
+                &format!("commit: {}", self.pinned),
+            )
+            .replace(
+                &format!("image_tag: sha-{MARKETPLACE_SHA}"),
+                &format!("image_tag: sha-{short}"),
+            )
     }
 
     /// `WorkingDir` of the image, which the data directory follows.
@@ -5070,16 +5195,25 @@ impl Hub {
             return answer;
         }
         if path.starts_with("/models/chapkit_ewars_model.yaml") {
-            return (200, "text/plain", MARKETPLACE_MODEL.to_string());
+            return (200, "text/plain", self.marketplace_model());
         }
         if path.starts_with("/token") {
             return (200, json, r#"{"token":"anonymous"}"#.to_string());
+        }
+        // One commit by name, which is how a pin the branch listing does not
+        // carry is placed. Before the listing, which is the wider match.
+        if let Some((_, sha)) = path.split_once("/commits/") {
+            let sha = sha.split('?').next().unwrap_or(sha);
+            return match commit_date(sha) {
+                Some(date) => (200, json, dated_commit(sha, date)),
+                None => (404, json, r#"{"message":"Not Found"}"#.to_string()),
+            };
         }
         if path.starts_with("/repos/") && path.contains("/commits") {
             let entries: Vec<String> = self
                 .commits
                 .iter()
-                .map(|sha| format!(r#"{{"sha":"{sha}","commit":{{"message":"x"}}}}"#))
+                .map(|sha| dated_commit(sha, commit_date(sha).unwrap_or_default()))
                 .collect();
             return (200, json, format!("[{}]", entries.join(",")));
         }
@@ -5173,6 +5307,11 @@ impl Hub {
             false => (404, "text/plain", "404: Not Found".to_string()),
         })
     }
+}
+
+/// One entry of a commit listing, as GitHub writes it.
+fn dated_commit(sha: &str, date: &str) -> String {
+    format!(r#"{{"sha":"{sha}","commit":{{"message":"x","committer":{{"date":"{date}"}}}}}}"#)
 }
 
 /// An OCI index with the attestation entry ghcr adds to every one of them.

@@ -94,18 +94,44 @@ chaps models info chapkit_ewars_model
 ```
 
 ```text
-ID                                SERVICE                           NAME                STATUS  STABLE  LATEST  ENABLED
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          orange  1.0.2   1.0.2   internal
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  gray    0.1.1   0.1.1   -
-chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    orange  0.1.1   0.1.1   -
-auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          red     1.0.1   1.0.1   -
-chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            red     0.1.1   0.1.1   -
+ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.2   1.0.2   via chap-core
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
+chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
+auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.1   0.1.1   -
 
 5 listed, 1 enabled in this project
 ```
 
-The `ENABLED` column is the host port, `internal` for an enabled model with no
-host port of its own, or `-` for one this project does not enable.
+The `PORT` column is the host port a model publishes, `via chap-core` for one
+this project enables without a host port of its own - chap-core's proxy is
+then the only way in - or `-` for one this project does not enable.
+
+## What the STATUS column means
+
+`STATUS` is the model author's own
+[chapkit](https://github.com/dhis2-chap/chapkit) assessment of the model, not
+a marketplace verdict and not a measure of whether it runs. It is the one
+column to read before enabling anything:
+
+| Status | Colour | What the author is saying |
+| --- | --- | --- |
+| `production` | green | Validated and ready for production use. |
+| `testing` | yellow | Ready for more rigorous testing on diverse data. |
+| `limited data` | orange | Shows promise on limited data; needs manual configuration and careful evaluation. |
+| `experimental` | red | A highly experimental prototype, not validated, only for early experimentation. |
+| `not for use` | gray | Not intended for use: deprecated, or kept for backwards compatibility. |
+
+`--json` keeps emitting the colour as `assessed_status`, so a script that
+matches on `orange` goes on working, and adds the words above as
+`assessed_status_label`. `chaps models info ID` prints the colour and the
+whole sentence:
+
+```text
+  status        orange, shows promise on limited data, needs manual
+                configuration and careful evaluation
+```
 
 `chaps models info ID` prints everything the marketplace says about one entry:
 its image and runtime, the period types and forecast horizon it supports, the
@@ -474,9 +500,9 @@ Both listings mark these entries, because a local definition is not a reviewed
 catalogue entry:
 
 ```text
-ID                    SERVICE               NAME                  STATUS  STABLE       LATEST       ENABLED  KIND
-chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            orange  1.0.2        1.0.2        -        model
-chapkit_dengue_model  chapkit-dengue-model  chapkit_dengue_model  gray    sha-b1d6c31  sha-b1d6c31  5001     manual
+ID                    SERVICE               NAME                  STATUS        STABLE       LATEST       PORT  KIND
+chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            limited data  1.0.2        1.0.2        -     model
+chapkit_dengue_model  chapkit-dengue-model  chapkit_dengue_model  not for use   sha-b1d6c31  sha-b1d6c31  5001  manual
 ```
 
 `chaps models info chapkit_dengue_model` says the same in its own words - a
@@ -526,51 +552,71 @@ it is removed or renamed.
 with a three-line summary of the row under the cursor under it:
 
 ```text
-chaps · models                      registry: cache · 2 min   7 models · 1 enabled · 0 pending
-╭ Marketplace ───────────────────────────────────────────────────────────────────────────────╮
-│     MODEL                  ID                                 STATUS   VERSION  ENABLED     │
-│─────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● orange 1.0.2    internal    │
-│     Rwanda Malaria BYM     chapkit_rwanda_malaria_bym_model   ● gray   0.1.1                │
-│                                                                                             │
-│─────────────────────────────────────────────────────────────────────────────────────────────│
-│ CHAP-EWARS  1.0.2 (sha-8d4a7ea)  enabled, internal  user 1000:1000          i for details   │
-│ Bayesian hierarchical early-warning model fitted with INLA, the chapkit port of the modified~│
-│ requires population   defaults rainfall, mean_temperature   monthly, weekly   horizon 0 to 1~│
-╰─────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [space] toggle  [i] info  [p] port  [v] channel  [t] templates  [/] filter  [s] save
+chaps · models                            registry: cache · 2 min   7 models · 1 enabled · 0 pending
+╭ Marketplace ─────────────────────────────────────────────────────────────────────────────────────╮
+│     MODEL                  ID                               STATUS         VERSION  PORT         │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model              ● limited data 1.0.2    via chap-core│
+│     Rwanda Malaria BYM     chapkit_rwanda_malaria_bym_model ● not for use  0.1.1                 │
+│     Simple Multistep       chapkit_simple_multistep_model   ● limited data 0.1.1                 │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│ CHAP-EWARS  ● limited data  1.0.2 (sha-8d4a7ea)  enabled, via chap-core  user 1000:1000          │
+│ Bayesian hierarchical early-warning model fitted with INLA — the chapkit port of the modified WH~│
+│ requires population   defaults rainfall, mean_temperature   monthly, weekly   horizon 0 to 100 p~│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ [j/k] move  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
 
 The first column is the cursor, the second what the row will be: `✓` for a
 model this deployment runs, `+` for one you have switched on, `-` for one you
-have switched off. The status column is the author's own chapkit assessment,
-the version is what the row's channel resolves to, and the enabled column is
-how the model is reached. A `KIND` column appears when the list holds
-something that is not a plain marketplace model: a template, or an entry
-`chaps models add` created.
+have switched off. `STATUS` is the author's own chapkit assessment, the same
+five words [the table above](#what-the-status-column-means) explains; `VERSION`
+is what the row's channel resolves to; and `PORT` is how the model is reached.
+A `KIND` column appears when the list holds something that is not a plain
+marketplace model: a template, or an entry `chaps models add` created.
 
 The keys, none of which need Alt on a Norwegian keyboard:
 
 ```text
 j / k / arrows     move            space            enable or disable
 g / G              first / last    i / Enter        the full details
-PageUp / PageDown  jump a page     p                publish a host port, or stop
-ctrl-u / ctrl-d    jump a page     v                switch channel (stable, latest)
-s                  save            t                show or hide templates
-u                  discard         /                filter (Enter keeps, Esc clears)
-q                  quit            Esc              clear the filter, or quit
-?                  help            ctrl-k / ctrl-p  the command palette
-y / n              answer the quit confirmation
+PageUp / PageDown  jump a page     p                publish a host port: a number, auto, or none
+ctrl-u / ctrl-d    jump a page     P                take the host port away
+s                  save            v                switch channel (stable, latest)
+u                  discard         t                show or hide templates
+q                  quit            /                filter (Enter keeps, Esc clears)
+?                  help            Esc              clear the filter, or quit
+y / n              answer the quit confirmation     ctrl-k / ctrl-p  the command palette
 ```
 
 `ctrl-n` also moves down and `ctrl-c` always leaves. While filtering, the
 arrow keys still move the cursor and `ctrl-u` empties the filter without
 leaving it. An active filter shows in the title as `· filter <text>` and in
-the box title as how many entries it left.
+the box title as how many entries it left. The key bar gives up its entries
+from the least useful end when the terminal is too narrow for all of them.
 
-The enabled column reads `internal` for an enabled model with no host port,
-`:5001` for one that has had a port allocated, and `:auto` for a row where `p`
-has asked for one that is not picked until you save.
+The `PORT` column reads `via chap-core` for an enabled model with no host port
+of its own, the port number for one that publishes one, and `auto` for a row
+that has asked for a port that is not picked until you save.
+
+### Publishing a host port
+
+`p` opens a one-line prompt under the list, prefilled with the port the row
+has today or with `auto`:
+
+```text
+ port for CHAP-EWARS  › 5010_                       [enter] apply  [esc] cancel  [none] no host port
+```
+
+It takes a port number, `auto` for the lowest free port in the project's
+range, or an empty line or `none` to take the port away again. A number it
+cannot accept - outside the range, chap-core's own API port, or one another
+model in the list is already asking for - keeps the prompt up with the reason
+on it, so the number is corrected rather than typed again. The two checks only
+a save can make - a port another compose file claims, and a port something on
+this machine is listening on - happen when the selection is applied, exactly
+as they do for `chaps models expose`. `P` takes the port away without the
+prompt.
 
 ### The details, and the command palette
 

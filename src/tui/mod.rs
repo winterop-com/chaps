@@ -120,7 +120,7 @@ impl Carry {
                 let recorded = app.recorded(row);
                 recorded.is_some() != row.enabled
                     || recorded.is_some_and(|r| {
-                        r.host_port.is_some() != row.publish
+                        r.host_port.map(app::PortWant::Exact).unwrap_or_default() != row.want
                             || r.channel.unwrap_or(crate::registry::Channel::Stable) != row.channel
                     })
             })

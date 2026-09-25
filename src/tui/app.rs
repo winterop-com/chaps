@@ -47,6 +47,8 @@ pub enum Mode {
     Info,
     /// The command palette.
     Palette,
+    /// The one-line prompt `p` opens, asking for a host port.
+    Port,
 }
 
 /// Everything the browser can be asked to do, independent of key bindings.
@@ -59,7 +61,14 @@ pub enum Action {
     PageUp,
     PageDown,
     Toggle,
-    TogglePublish,
+    /// Open the port prompt on the row under the cursor.
+    PortPrompt,
+    PortChar(char),
+    PortBackspace,
+    /// Take what the prompt holds, or say why it cannot be taken.
+    PortApply,
+    /// Take the host port off the row under the cursor.
+    RemovePort,
     CycleChannel,
     ToggleTemplates,
     StartFilter,
@@ -123,10 +132,46 @@ pub struct Row {
     /// Host port from `.chaps/models.yaml`, for rows that are already enabled
     /// and publish one.
     pub port: Option<u16>,
-    /// Whether the row should publish a host port at all. Starts out matching
-    /// [`Row::port`]; `p` toggles it, and saving turns the difference into a
+    /// The host port the row should end up with. Starts out matching
+    /// [`Row::port`]; `p` edits it, and saving turns the difference into a
     /// [`PortRequest`].
-    pub publish: bool,
+    pub want: PortWant,
+}
+
+impl Row {
+    /// Whether the row asks for a host port of its own at all.
+    #[cfg(test)]
+    pub fn publishes(&self) -> bool {
+        self.want != PortWant::None
+    }
+}
+
+/// What a row asks for in its PORT column.
+///
+/// The browser cannot pick a port itself - only [`crate::compose::apply`]
+/// knows what the compose files and the machine have taken - so `Auto` is a
+/// question the save answers, and `Exact` is one the save has to honour or
+/// fail on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PortWant {
+    /// No host port: chap-core's proxy is the way in.
+    #[default]
+    None,
+    /// The lowest free port in the project's range, picked when saving.
+    Auto,
+    /// This port, or a save that says who has it.
+    Exact(u16),
+}
+
+impl PortWant {
+    /// What the PORT column and the prompt show for it.
+    pub fn text(&self) -> String {
+        match self {
+            PortWant::None => String::new(),
+            PortWant::Auto => "auto".to_string(),
+            PortWant::Exact(port) => port.to_string(),
+        }
+    }
 }
 
 /// Header counters.
@@ -203,6 +248,14 @@ pub struct App<'a> {
     /// `.chaps/models.yaml` as it was when the browser opened; the selection is the
     /// diff against this.
     pub initial: BTreeMap<String, EnabledModel>,
+    /// The project's model port range, which the prompt refuses to leave.
+    pub port_range: (u16, u16),
+    /// chap-core's own host port, which no model may take.
+    pub api_port: u16,
+    /// What is being typed into the port prompt.
+    pub port_input: String,
+    /// Why the last thing typed into it was refused.
+    pub port_error: Option<String>,
     pub dirty: bool,
     /// Transient footer note, cleared by the next action.
     pub message: Option<String>,
@@ -233,7 +286,7 @@ impl<'a> App<'a> {
                     enabled: enabled.is_some(),
                     channel: enabled.and_then(|e| e.channel).unwrap_or(Channel::Stable),
                     port,
-                    publish: port.is_some(),
+                    want: port.map(PortWant::Exact).unwrap_or_default(),
                 }
             })
             .collect();
@@ -252,6 +305,10 @@ impl<'a> App<'a> {
             mode: Mode::Browse,
             show_templates,
             initial: state.models.clone(),
+            port_range: state.port_range,
+            api_port: state.api_port,
+            port_input: String::new(),
+            port_error: None,
             dirty: false,
             message: None,
             info_scroll: 0,
@@ -278,10 +335,35 @@ impl<'a> App<'a> {
             Mode::Help => self.reduce_help(action),
             Mode::ConfirmQuit => self.reduce_confirm(action),
             Mode::Filter => self.reduce_filter(action),
+            Mode::Port => self.reduce_port(action),
             Mode::Info => self.reduce_info(action),
             Mode::Palette => self.reduce_palette(action),
             Mode::Browse => self.reduce_browse(action),
         }
+    }
+
+    /// The port prompt: one line of text, taken by Enter and dropped by Esc.
+    /// A refusal keeps the prompt up with the reason on it, so a mistyped
+    /// port is corrected rather than typed again from nothing.
+    fn reduce_port(&mut self, action: Action) -> Option<Outcome> {
+        match action {
+            Action::PortChar(c) => {
+                self.port_input.push(c);
+                self.port_error = None;
+            }
+            Action::PortBackspace => {
+                self.port_input.pop();
+                self.port_error = None;
+            }
+            Action::PortApply => self.apply_port_prompt(),
+            Action::FilterCancel | Action::Quit => {
+                self.mode = Mode::Browse;
+                self.port_input.clear();
+                self.port_error = None;
+            }
+            _ => {}
+        }
+        None
     }
 
     /// The details overlay: it scrolls, it opens a repository, and it closes.
@@ -353,8 +435,8 @@ impl<'a> App<'a> {
         self.close_palette();
         match command.id {
             CommandId::Toggle => self.toggle(),
-            CommandId::SetPort => self.set_publish(true),
-            CommandId::RemovePort => self.set_publish(false),
+            CommandId::SetPort => self.open_port_prompt(),
+            CommandId::RemovePort => self.remove_port(),
             CommandId::SetChannel => self.cycle_channel(),
             CommandId::Templates => {
                 self.show_templates = !self.show_templates;
@@ -410,7 +492,7 @@ impl<'a> App<'a> {
             entry(
                 CommandId::RemovePort,
                 format!("Remove the host port of {name}"),
-                "p",
+                "P",
                 "Remove port",
             ),
             entry(
@@ -538,7 +620,8 @@ impl<'a> App<'a> {
             Action::PageUp => self.move_by(-(PAGE_JUMP as isize)),
             Action::PageDown => self.move_by(PAGE_JUMP as isize),
             Action::Toggle => self.toggle(),
-            Action::TogglePublish => self.toggle_publish(),
+            Action::PortPrompt => self.open_port_prompt(),
+            Action::RemovePort => self.remove_port(),
             Action::CycleChannel => self.cycle_channel(),
             Action::ToggleTemplates => {
                 self.show_templates = !self.show_templates;
@@ -598,7 +681,7 @@ impl<'a> App<'a> {
             row.enabled = recorded.is_some();
             row.channel = recorded.and_then(|e| e.channel).unwrap_or(Channel::Stable);
             row.port = recorded.and_then(|e| e.host_port);
-            row.publish = row.port.is_some();
+            row.want = row.port.map(PortWant::Exact).unwrap_or_default();
         }
         self.dirty = false;
         self.refilter();
@@ -640,15 +723,21 @@ impl<'a> App<'a> {
                             .resolved(row)
                             .map(|v| v.version.clone())
                             .unwrap_or_else(|| "-".to_string());
-                        let reach = if row.publish {
-                            "with a host port"
-                        } else {
-                            "internal (no host port)"
+                        let detail = match row.want {
+                            PortWant::None => {
+                                format!("enable at {version}, via chap-core")
+                            }
+                            PortWant::Auto => {
+                                format!("enable at {version} on an automatic port")
+                            }
+                            PortWant::Exact(port) => {
+                                format!("enable at {version} on port {port}")
+                            }
                         };
                         changes.push(Change {
                             kind: ChangeKind::Add,
                             name,
-                            detail: format!("enable at {version}, {reach}"),
+                            detail,
                         });
                     }
                 }
@@ -669,9 +758,12 @@ impl<'a> App<'a> {
                             .unwrap_or_default();
                         moved.push(format!("follow {}{version}", row.channel.as_str()));
                     }
-                    match port_change(row.publish, previous.host_port) {
-                        Some(PortRequest::None) => moved.push("stop publishing a host port".into()),
-                        Some(_) => moved.push("publish a host port".into()),
+                    match port_change(row.want, previous.host_port) {
+                        Some(PortRequest::None) => moved.push("remove the host port".into()),
+                        Some(PortRequest::Auto) => moved.push("port auto".into()),
+                        Some(PortRequest::Fixed(port)) => {
+                            moved.push(format!("publish port {port}"))
+                        }
                         None => {}
                     }
                     if !moved.is_empty() {
@@ -739,8 +831,12 @@ impl<'a> App<'a> {
                 None => {
                     if row.enabled {
                         // A row enabled in this session publishes a port only
-                        // if `p` was pressed on it too.
-                        let port = row.publish.then_some(PortRequest::Auto);
+                        // if `p` asked for one.
+                        let port = match row.want {
+                            PortWant::None => None,
+                            PortWant::Auto => Some(PortRequest::Auto),
+                            PortWant::Exact(port) => Some(PortRequest::Fixed(port)),
+                        };
                         selection.enable.push(request(model, row, port));
                     }
                 }
@@ -750,7 +846,7 @@ impl<'a> App<'a> {
                         continue;
                     }
                     let channel_moved = row.channel != previous.channel.unwrap_or(Channel::Stable);
-                    let port = port_change(row.publish, previous.host_port);
+                    let port = port_change(row.want, previous.host_port);
                     if channel_moved || port.is_some() {
                         // Pressing `p` asks for a host port, not for a new
                         // version: only a toggle or a new channel resolves the
@@ -790,7 +886,7 @@ impl<'a> App<'a> {
         if !now_enabled {
             // Turning a model off drops its port with it, so turning it back
             // on in the same session does not silently re-publish.
-            row.publish = false;
+            row.want = PortWant::None;
         }
         if is_template && now_enabled {
             self.message = Some(TEMPLATE_WARNING.to_string());
@@ -798,22 +894,14 @@ impl<'a> App<'a> {
         self.dirty = self.has_changes();
     }
 
-    /// Toggle whether the row under the cursor publishes a host port.
+    /// Open the port prompt on the row under the cursor, prefilled with what
+    /// it asks for today.
     ///
-    /// The port itself is not chosen here: saving asks for
-    /// [`PortRequest::Auto`], and the allocator picks the lowest one that is
-    /// free both in the compose files and on this machine.
-    fn toggle_publish(&mut self) {
-        let Some(&row_idx) = self.visible.get(self.cursor) else {
-            return;
-        };
-        let want = !self.rows[row_idx].publish;
-        self.set_publish(want);
-    }
-
-    /// The same, said in one direction: what the palette's two port commands
-    /// ask for, where "set a host port" must not take one away.
-    fn set_publish(&mut self, publish: bool) {
+    /// The browser does not pick the port: `auto` leaves that to
+    /// [`crate::compose::apply`], which knows what the compose files and the
+    /// machine have taken, and an exact port is a claim the save has to
+    /// honour or fail on.
+    fn open_port_prompt(&mut self) {
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
@@ -821,7 +909,57 @@ impl<'a> App<'a> {
             self.message = Some(PUBLISH_NEEDS_ENABLED_HINT.to_string());
             return;
         }
-        self.rows[row_idx].publish = publish;
+        self.port_input = match self.rows[row_idx].want {
+            // Pressing p and Enter on a row with no port still means "any
+            // free one", which is what it has always meant.
+            PortWant::None => PortWant::Auto.text(),
+            want => want.text(),
+        };
+        self.port_error = None;
+        self.mode = Mode::Port;
+    }
+
+    /// Read what was typed, and either take it or say why not.
+    fn apply_port_prompt(&mut self) {
+        let Some(&row_idx) = self.visible.get(self.cursor) else {
+            self.mode = Mode::Browse;
+            return;
+        };
+        let taken: Vec<u16> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(i, row)| *i != row_idx && row.enabled)
+            .filter_map(|(_, row)| match row.want {
+                PortWant::Exact(port) => Some(port),
+                _ => None,
+            })
+            .collect();
+        match parse_port(&self.port_input, self.port_range, self.api_port, &taken) {
+            Ok(want) => {
+                self.rows[row_idx].want = want;
+                self.port_error = None;
+                self.port_input.clear();
+                self.mode = Mode::Browse;
+                self.dirty = self.has_changes();
+            }
+            // The prompt stays up with the reason on it, so the number can be
+            // corrected rather than retyped from nothing.
+            Err(why) => self.port_error = Some(why),
+        }
+    }
+
+    /// Take the host port off the row under the cursor, which is what the
+    /// palette's second port command asks for.
+    fn remove_port(&mut self) {
+        let Some(&row_idx) = self.visible.get(self.cursor) else {
+            return;
+        };
+        if !self.rows[row_idx].enabled {
+            self.message = Some(PUBLISH_NEEDS_ENABLED_HINT.to_string());
+            return;
+        }
+        self.rows[row_idx].want = PortWant::None;
         self.dirty = self.has_changes();
     }
 
@@ -896,14 +1034,57 @@ fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest
     }
 }
 
-/// The port request for a row whose publish flag may have moved, or `None`
-/// when it still says what the project recorded.
-fn port_change(publish: bool, recorded: Option<u16>) -> Option<PortRequest> {
-    match (publish, recorded) {
-        (true, None) => Some(PortRequest::Auto),
-        (false, Some(_)) => Some(PortRequest::None),
-        _ => None,
+/// The port request for a row whose wish may have moved, or `None` when it
+/// still says what the project recorded.
+fn port_change(want: PortWant, recorded: Option<u16>) -> Option<PortRequest> {
+    match (want, recorded) {
+        (PortWant::None, None) => None,
+        (PortWant::None, Some(_)) => Some(PortRequest::None),
+        (PortWant::Auto, _) => Some(PortRequest::Auto),
+        // The port it already has is not a change; any other one is.
+        (PortWant::Exact(port), Some(had)) if port == had => None,
+        (PortWant::Exact(port), _) => Some(PortRequest::Fixed(port)),
     }
+}
+
+/// What the port prompt accepts: a number in the project's range, `auto`, or
+/// nothing at all.
+///
+/// The reasons are the ones `chaps models expose` gives, minus the two only a
+/// save can answer - a port another compose file claims, and a port something
+/// on this machine is listening on - which [`crate::compose::apply`] checks
+/// when the selection is applied.
+fn parse_port(
+    input: &str,
+    range: (u16, u16),
+    api_port: u16,
+    taken: &[u16],
+) -> std::result::Result<PortWant, String> {
+    let text = input.trim();
+    if text.is_empty() || text.eq_ignore_ascii_case("none") {
+        return Ok(PortWant::None);
+    }
+    if text.eq_ignore_ascii_case("auto") {
+        return Ok(PortWant::Auto);
+    }
+    let port: u16 = text
+        .parse()
+        .map_err(|_| format!("`{text}` is not a port; type a number, auto, or none"))?;
+    // The API port is named before the range, because it is usually outside
+    // it and "outside the range" is not the reason worth giving for it.
+    if port == api_port {
+        return Err(format!("port {port} is chap-core's own API port"));
+    }
+    if port < range.0 || port > range.1 {
+        return Err(format!(
+            "port {port} is outside this project's range {}-{}",
+            range.0, range.1
+        ));
+    }
+    if taken.contains(&port) {
+        return Err(format!("port {port} is already taken by another model"));
+    }
+    Ok(PortWant::Exact(port))
 }
 
 /// Case-insensitive substring match over the fields a user would type.
@@ -982,6 +1163,16 @@ mod tests {
         state
     }
 
+    /// Type something into the port prompt and take it.
+    fn ask_for_port(app: &mut App, text: &str) {
+        app.reduce(Action::PortPrompt);
+        app.port_input.clear();
+        for c in text.chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
+    }
+
     /// Put the cursor on a model id; panics when it is not visible.
     fn focus(app: &mut App, id: &str) {
         let position = app
@@ -1050,23 +1241,30 @@ mod tests {
             request.port.is_none(),
             "a fresh row publishes nothing, which is apply's default"
         );
-        assert!(!app.selected().unwrap().publish);
+        assert!(!app.selected().unwrap().publishes());
         assert!(!request.allow_template);
         assert_eq!(app.counts().pending, 1);
     }
 
+    /// `p` opens a prompt prefilled with what the row asks for today, and
+    /// Enter on it is the old "give me any free port".
     #[test]
-    fn p_asks_for_an_automatic_port_and_takes_one_away_again() {
+    fn p_prompts_for_a_port_and_auto_is_what_enter_takes() {
         let registry = registry();
 
-        // A model that publishes nothing: `p` asks for a port.
+        // A model that publishes nothing: the prompt opens on `auto`.
         let state = state_with_port(&registry, EWARS, Some(Channel::Stable), None);
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
-        assert!(!app.selected().unwrap().publish);
+        assert!(!app.selected().unwrap().publishes());
 
-        assert!(app.reduce(Action::TogglePublish).is_none());
-        assert!(app.selected().unwrap().publish);
+        assert!(app.reduce(Action::PortPrompt).is_none());
+        assert_eq!(app.mode, Mode::Port);
+        assert_eq!(app.port_input, "auto");
+        assert!(app.reduce(Action::PortApply).is_none());
+        assert_eq!(app.mode, Mode::Browse);
+
+        assert_eq!(app.selected().unwrap().want, PortWant::Auto);
         assert!(app.dirty);
         let selection = app.selection();
         assert!(selection.disable.is_empty());
@@ -1083,22 +1281,121 @@ mod tests {
             "and the version the project recorded is kept, not re-resolved"
         );
 
-        // Pressing it again is back where we started, so nothing to apply.
-        app.reduce(Action::TogglePublish);
+        // Saying none is back where we started, so nothing to apply.
+        ask_for_port(&mut app, "none");
         assert!(!app.has_changes());
 
-        // A model that does publish one: `p` takes it away.
+        // A model that does publish one: the prompt opens on its number.
         let state = state_with_port(&registry, EWARS, Some(Channel::Stable), Some(5001));
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
-        assert!(app.selected().unwrap().publish);
+        assert!(app.selected().unwrap().publishes());
         assert_eq!(app.selected().unwrap().port, Some(5001));
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.port_input, "5001");
+        app.reduce(Action::PortApply);
+        assert!(
+            !app.has_changes(),
+            "taking back the port it already has changes nothing"
+        );
 
-        app.reduce(Action::TogglePublish);
+        // An empty line takes the port away.
+        ask_for_port(&mut app, "");
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(selection.enable[0].port, Some(PortRequest::None));
         assert!(selection.disable.is_empty());
+    }
+
+    /// The prompt takes a number, the way `chaps models expose --port` does.
+    #[test]
+    fn the_port_prompt_takes_a_number_auto_or_none() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), None);
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+
+        ask_for_port(&mut app, "5010");
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.selected().unwrap().want, PortWant::Exact(5010));
+        assert_eq!(
+            app.selection().enable[0].port,
+            Some(PortRequest::Fixed(5010))
+        );
+        assert!(app.selection().enable[0].keep_version);
+
+        ask_for_port(&mut app, "AUTO");
+        assert_eq!(app.selected().unwrap().want, PortWant::Auto);
+        ask_for_port(&mut app, "None");
+        assert_eq!(app.selected().unwrap().want, PortWant::None);
+        assert_eq!(app.selection().enable.len(), 0, "it had none to begin with");
+
+        // Esc leaves the row alone whatever was typed.
+        app.reduce(Action::PortPrompt);
+        for c in "5010".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortBackspace);
+        app.reduce(Action::FilterCancel);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(app.port_input.is_empty());
+        assert_eq!(app.selected().unwrap().want, PortWant::None);
+    }
+
+    /// A refused port keeps the prompt up with the reason on it: the number is
+    /// corrected, not typed again from nothing.
+    #[test]
+    fn the_port_prompt_says_why_it_refuses_and_stays_open() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), None);
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+
+        for (typed, reason) in [
+            ("80", "outside this project's range"),
+            ("6000", "outside this project's range"),
+            ("8000", "chap-core's own API port"),
+            ("five thousand", "is not a port"),
+        ] {
+            ask_for_port(&mut app, typed);
+            assert_eq!(app.mode, Mode::Port, "{typed} left the prompt");
+            let why = app.port_error.clone().unwrap_or_default();
+            assert!(why.contains(reason), "{typed}: {why}");
+            assert_eq!(app.port_input, typed, "what was typed is still there");
+            assert!(!app.has_changes());
+            app.reduce(Action::FilterCancel);
+        }
+
+        // A port another enabled row is already asking for is refused too.
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        ask_for_port(&mut app, "5010");
+        focus(&mut app, ARIMA);
+        app.reduce(Action::Toggle);
+        ask_for_port(&mut app, "5010");
+        assert_eq!(app.mode, Mode::Port);
+        assert!(
+            app.port_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("already taken by another model"),
+            "{:?}",
+            app.port_error
+        );
+        ask_for_port(&mut app, "5011");
+        assert_eq!(app.selected().unwrap().want, PortWant::Exact(5011));
+    }
+
+    /// The prompt only makes sense on a model this project runs.
+    #[test]
+    fn the_port_prompt_asks_for_the_model_to_be_enabled_first() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, ARIMA);
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.message.as_deref(), Some(PUBLISH_NEEDS_ENABLED_HINT));
     }
 
     /// A port change and a channel change are two different requests. The
@@ -1113,7 +1410,7 @@ mod tests {
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
 
-        app.reduce(Action::TogglePublish);
+        ask_for_port(&mut app, "auto");
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
@@ -1137,7 +1434,7 @@ mod tests {
         let mut app = App::new(&registry, &empty_state());
         focus(&mut app, EWARS);
         app.reduce(Action::Toggle);
-        app.reduce(Action::TogglePublish);
+        ask_for_port(&mut app, "auto");
         assert!(!app.selection().enable[0].keep_version);
     }
 
@@ -1147,14 +1444,14 @@ mod tests {
         let mut app = App::new(&registry, &empty_state());
         focus(&mut app, ARIMA);
 
-        app.reduce(Action::TogglePublish);
+        app.reduce(Action::PortPrompt);
         assert_eq!(app.message.as_deref(), Some(PUBLISH_NEEDS_ENABLED_HINT));
-        assert!(!app.selected().unwrap().publish);
+        assert!(!app.selected().unwrap().publishes());
         assert!(!app.has_changes());
 
         // Enabled first, then published: one request carrying both.
         app.reduce(Action::Toggle);
-        app.reduce(Action::TogglePublish);
+        ask_for_port(&mut app, "auto");
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(selection.enable[0].port, Some(PortRequest::Auto));
@@ -1167,13 +1464,13 @@ mod tests {
         let mut app = App::new(&registry, &state);
         focus(&mut app, EWARS);
 
-        // Off, then on again: the model comes back internal rather than
-        // silently re-publishing a port.
+        // Off, then on again: the model comes back reachable only through
+        // chap-core rather than silently re-publishing a port.
         app.reduce(Action::Toggle);
-        assert!(!app.selected().unwrap().publish);
+        assert!(!app.selected().unwrap().publishes());
         app.reduce(Action::Toggle);
         assert!(app.selected().unwrap().enabled);
-        assert!(!app.selected().unwrap().publish);
+        assert!(!app.selected().unwrap().publishes());
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert_eq!(selection.enable[0].port, Some(PortRequest::None));
@@ -1181,10 +1478,47 @@ mod tests {
 
     #[test]
     fn a_port_change_is_only_a_change_when_it_differs_from_the_record() {
-        assert_eq!(port_change(true, None), Some(PortRequest::Auto));
-        assert_eq!(port_change(false, Some(5001)), Some(PortRequest::None));
-        assert_eq!(port_change(true, Some(5001)), None, "already published");
-        assert_eq!(port_change(false, None), None, "already internal");
+        assert_eq!(port_change(PortWant::Auto, None), Some(PortRequest::Auto));
+        assert_eq!(
+            port_change(PortWant::None, Some(5001)),
+            Some(PortRequest::None)
+        );
+        assert_eq!(
+            port_change(PortWant::Exact(5001), Some(5001)),
+            None,
+            "it already has that one"
+        );
+        assert_eq!(
+            port_change(PortWant::Exact(5010), Some(5001)),
+            Some(PortRequest::Fixed(5010)),
+            "a different one is a claim to make"
+        );
+        assert_eq!(
+            port_change(PortWant::Exact(5010), None),
+            Some(PortRequest::Fixed(5010))
+        );
+        assert_eq!(port_change(PortWant::None, None), None, "already proxied");
+    }
+
+    /// What the prompt accepts, away from the reducer.
+    #[test]
+    fn the_port_prompt_parses_the_three_things_it_takes() {
+        let range = (5001, 5999);
+        let ok = |text: &str| parse_port(text, range, 8000, &[5010]).expect(text);
+        assert_eq!(ok(""), PortWant::None);
+        assert_eq!(ok("  "), PortWant::None);
+        assert_eq!(ok("none"), PortWant::None);
+        assert_eq!(ok("NONE"), PortWant::None);
+        assert_eq!(ok("auto"), PortWant::Auto);
+        assert_eq!(ok(" 5011 "), PortWant::Exact(5011));
+
+        let why = |text: &str| parse_port(text, range, 8000, &[5010]).expect_err(text);
+        assert!(why("5000").contains("5001-5999"));
+        assert!(why("6000").contains("5001-5999"));
+        assert!(why("8000").contains("API port"));
+        assert!(why("5010").contains("another model"));
+        assert!(why("abc").contains("not a port"));
+        assert!(why("-1").contains("not a port"));
     }
 
     #[test]
@@ -1537,25 +1871,34 @@ mod tests {
         );
         assert!(matched[0].label.contains("CHAP-EWARS"), "{matched:?}");
 
-        // The two port commands are directional, so neither undoes the other.
+        // "Set a host port" opens the same prompt `p` does; "remove" needs no
+        // prompt, so the two are not each other's undo by accident.
         app.reduce(Action::PaletteRun);
-        assert_eq!(app.mode, Mode::Browse);
-        assert!(app.palette_query.is_empty());
-        assert!(app.selected().unwrap().publish, "set a host port did that");
+        assert_eq!(app.mode, Mode::Port, "the palette opened the prompt");
+        assert_eq!(app.port_input, "auto");
+        app.port_input.clear();
+        for c in "5010".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
+        assert_eq!(app.selected().unwrap().want, PortWant::Exact(5010));
 
         app.reduce(Action::Palette);
         for c in "set a host".chars() {
             app.reduce(Action::PaletteChar(c));
         }
         app.reduce(Action::PaletteRun);
-        assert!(app.selected().unwrap().publish, "and asking again keeps it");
+        assert_eq!(app.port_input, "5010", "prefilled with what it has");
+        app.reduce(Action::FilterCancel);
+        assert_eq!(app.selected().unwrap().want, PortWant::Exact(5010));
 
         app.reduce(Action::Palette);
         for c in "remove the host".chars() {
             app.reduce(Action::PaletteChar(c));
         }
         app.reduce(Action::PaletteRun);
-        assert!(!app.selected().unwrap().publish);
+        assert_eq!(app.mode, Mode::Browse, "removing needs no prompt");
+        assert!(!app.selected().unwrap().publishes());
     }
 
     #[test]
@@ -1647,7 +1990,7 @@ mod tests {
         focus(&mut app, EWARS);
         assert!(app.selected().unwrap().enabled);
         assert_eq!(app.selected().unwrap().port, Some(5001));
-        assert!(app.selected().unwrap().publish);
+        assert_eq!(app.selected().unwrap().want, PortWant::Exact(5001));
         focus(&mut app, ARIMA);
         assert!(!app.selected().unwrap().enabled);
         assert_eq!(app.selected().unwrap().channel, Channel::Stable);
@@ -1700,7 +2043,7 @@ mod tests {
         app.reduce(Action::Toggle);
         focus(&mut app, EWARS);
         app.reduce(Action::CycleChannel);
-        app.reduce(Action::TogglePublish);
+        ask_for_port(&mut app, "5010");
 
         let changes = app.changes();
         assert_eq!(changes.len(), 2);
@@ -1709,10 +2052,7 @@ mod tests {
             .find(|c| c.kind == ChangeKind::Add)
             .expect("the new model is an addition");
         assert!(added.detail.starts_with("enable at "), "{added:?}");
-        assert!(
-            added.detail.ends_with("internal (no host port)"),
-            "{added:?}"
-        );
+        assert!(added.detail.ends_with("via chap-core"), "{added:?}");
 
         let updated = changes
             .iter()
@@ -1720,10 +2060,7 @@ mod tests {
             .expect("the re-pinned model is an update");
         assert_eq!(updated.name, "CHAP-EWARS");
         assert!(updated.detail.contains("follow latest"), "{updated:?}");
-        assert!(
-            updated.detail.contains("publish a host port"),
-            "{updated:?}"
-        );
+        assert!(updated.detail.contains("publish port 5010"), "{updated:?}");
 
         // Turning it off instead is a removal, and it says what is kept.
         app.reduce(Action::Toggle);
