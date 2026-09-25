@@ -70,6 +70,12 @@ resolved to, and `chaps update` re-resolves the channel. A model enabled with
 `--version` is listed as pinned by `update` and never moved. `--channel` and
 `--version` cannot be combined.
 
+Every version pins one commit of the model's own repository, and the image
+built from it; whether that commit is still the newest build the repository
+has published is what [`chaps doctor`](./doctor.md#project-checks) reports as
+one `registry pin <id>` line per enabled model, because a pin that lags is for
+the marketplace to move and not something a deployment can fix.
+
 ## Templates
 
 Entries with `kind: template` are scaffolding for writing your own model, not
@@ -516,32 +522,82 @@ it is removed or renamed.
 
 ## The model browser
 
-`chaps ui` opens a two-pane browser: the catalogue on the left, the details of
-the selected entry on the right. None of the keys need Alt on a Norwegian
-keyboard:
+`chaps ui` opens the catalogue as one table across the width of the terminal,
+with a three-line summary of the row under the cursor under it:
 
 ```text
-j / k / arrows     move            space   enable or disable
-g / G              first / last    p       publish a host port, or stop
-PageUp / PageDown  jump a page     v       switch channel (stable, latest)
-ctrl-u / ctrl-d    jump a page     t       show or hide templates
-Enter / s          save            /       filter (Enter keeps, Esc clears)
-q / Esc            quit            ?       help
+chaps · models                      registry: cache · 2 min   7 models · 1 enabled · 0 pending
+╭ Marketplace ───────────────────────────────────────────────────────────────────────────────╮
+│     MODEL                  ID                                 STATUS   VERSION  ENABLED     │
+│─────────────────────────────────────────────────────────────────────────────────────────────│
+│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● orange 1.0.2    internal    │
+│     Rwanda Malaria BYM     chapkit_rwanda_malaria_bym_model   ● gray   0.1.1                │
+│                                                                                             │
+│─────────────────────────────────────────────────────────────────────────────────────────────│
+│ CHAP-EWARS  1.0.2 (sha-8d4a7ea)  enabled, internal  user 1000:1000          i for details   │
+│ Bayesian hierarchical early-warning model fitted with INLA, the chapkit port of the modified~│
+│ requires population   defaults rainfall, mean_temperature   monthly, weekly   horizon 0 to 1~│
+╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+ [j/k] move  [space] toggle  [i] info  [p] port  [v] channel  [t] templates  [/] filter  [s] save
+```
+
+The first column is the cursor, the second what the row will be: `✓` for a
+model this deployment runs, `+` for one you have switched on, `-` for one you
+have switched off. The status column is the author's own chapkit assessment,
+the version is what the row's channel resolves to, and the enabled column is
+how the model is reached. A `KIND` column appears when the list holds
+something that is not a plain marketplace model: a template, or an entry
+`chaps models add` created.
+
+The keys, none of which need Alt on a Norwegian keyboard:
+
+```text
+j / k / arrows     move            space            enable or disable
+g / G              first / last    i / Enter        the full details
+PageUp / PageDown  jump a page     p                publish a host port, or stop
+ctrl-u / ctrl-d    jump a page     v                switch channel (stable, latest)
+s                  save            t                show or hide templates
+u                  discard         /                filter (Enter keeps, Esc clears)
+q                  quit            Esc              clear the filter, or quit
+?                  help            ctrl-k / ctrl-p  the command palette
 y / n              answer the quit confirmation
 ```
 
-`ctrl-n` and `ctrl-p` also move down and up, and `ctrl-c` always leaves.
-While filtering, the arrow keys still move the cursor and `ctrl-u` empties the
-filter without leaving it.
+`ctrl-n` also moves down and `ctrl-c` always leaves. While filtering, the
+arrow keys still move the cursor and `ctrl-u` empties the filter without
+leaving it. An active filter shows in the title as `· filter <text>` and in
+the box title as how many entries it left.
 
-The port column reads `internal` for an enabled model with no host port,
+The enabled column reads `internal` for an enabled model with no host port,
 `:5001` for one that has had a port allocated, and `:auto` for a row where `p`
 has asked for one that is not picked until you save.
 
-Saving applies the accumulated changes through the same write path as
-`chaps models enable`, then prints what changed. Nothing is written until you
-save, and quitting with unsaved changes asks first. `chaps ui` owns the
-terminal, so it rejects `--json`.
+### The details, and the command palette
+
+`i` or `Enter` opens the full entry over the list: how it is reached, what it
+is pinned to and on which channel, the image and the runtime, the data
+directory and the service user with where that user came from, the summary,
+the covariates, the period types and the forecast horizon, every published
+version with its status and channels, the maintainers, the author and the
+repository. `j` and `k` scroll it when it is taller than the terminal, `o`
+opens the repository in a browser, `c` puts the image reference on the status
+line, and `esc`, `i` or `q` closes it again.
+
+`ctrl-k` or `ctrl-p` opens a command palette: type to narrow it, `up` and
+`down` to move, `Enter` to run, `esc` to leave. It offers everything the keys
+do, plus two the keys do not: refreshing the catalogue from the marketplace
+without leaving the browser, the way `chaps registry update` does, and opening
+this documentation. The two port commands are separate, so "set a host port"
+never takes one away.
+
+### Saving
+
+With something unsaved, the summary strip lists what saving would write, one
+line per model, and the key bar grows a filled `[s] save N changes` and a
+`[u] discard` next to it. Saving applies the accumulated changes through the
+same write path as `chaps models enable`, then prints what changed. Nothing is
+written until you save, and quitting with unsaved changes asks first.
+`chaps ui` owns the terminal, so it rejects `--json`.
 
 `chaps init --interactive` opens the same browser to pick the initial model
 set instead of reading `--models`.
@@ -688,7 +744,7 @@ renders the same bytes on any machine.
 | data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else the built-in table, else `/work/data`. |
 | user | `--user`, else `config.User` from the image config on ghcr, else the same field from an image already pulled here (`docker image inspect --platform linux/amd64`), else the built-in table. |
 
-`chaps models info <id>` and the browser's details pane name which of those
+`chaps models info <id>` and the browser's details overlay name which of those
 answered: `image config`, `docker probe`, `--user` or `table`. A run that could
 reach neither ghcr nor a local copy says so, because the table is a snapshot
 this binary was built with and an image can change what it runs as.

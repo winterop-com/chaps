@@ -1,23 +1,46 @@
-//! TUI rendering: title bar, marketplace list, details pane, key bar.
+//! TUI rendering: title bar, the model table, the summary strip, key bar and
+//! the overlays.
 //!
 //! Owned by agent C.
 //!
-//! Drawing never mutates the [`App`]: everything on screen is derived from the
-//! state the reducer produced, and every colour comes from the [`Theme`]. The
-//! layout degrades on narrow terminals by dropping columns rather than
-//! wrapping or panicking.
+//! Drawing never mutates the [`App`] except for one thing it alone can know:
+//! how far the details overlay can scroll, which depends on the size of the
+//! terminal. Everything else on screen is derived from the state the reducer
+//! produced, and every colour comes from the [`Theme`]. The layout degrades on
+//! narrow terminals by dropping columns rather than wrapping or panicking.
 
-use crate::registry::{Channel, Version, VersionStatus};
-use crate::tui::app::{App, Mode, Row};
-use crate::tui::keys;
+use crate::registry::{AssessedStatus, Channel, Provenance, Version, VersionStatus};
+use crate::tui::app::{App, Change, ChangeKind, Command, Mode, Row};
+use crate::tui::keys::{self, Hint};
 use crate::tui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-/// The label column in the details pane.
+/// The label column in the details overlay.
 const LABEL_WIDTH: usize = 12;
+
+/// A space, the cursor column, and the enabled mark, each with a space.
+const MARKER_W: usize = 5;
+const MODEL_W: usize = 22;
+/// `template` is the longest thing the kind column says.
+const KIND_W: usize = 8;
+/// `● orange`.
+const STATUS_W: usize = 8;
+const VERSION_W: usize = 8;
+/// `will be disabled`, the longest thing the enabled column says.
+const ENABLED_W: usize = 16;
+/// Enough for `internal` and `:5001`, when the full column does not fit.
+const ENABLED_MIN: usize = 9;
+const ID_MIN: usize = 10;
+/// The id column stops growing here: a table that stretches an id across a
+/// wide terminal only puts distance between the columns that matter.
+const ID_MAX: usize = 34;
+
+/// How many pending changes the summary strip lists before it counts the rest.
+const STRIP_CHANGES: usize = 5;
 
 /// Draw one frame.
 pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
@@ -34,18 +57,14 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
     .areas(area);
 
     draw_title(frame, title_area, app, theme);
-
-    let [list_area, details_area] =
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .areas(body_area);
-    draw_list(frame, list_area, app, theme);
-    draw_details(frame, details_area, app, theme);
-
+    draw_body(frame, body_area, app, theme);
     draw_footer(frame, footer_area, app, theme);
 
     match app.mode {
         Mode::Help => draw_help(frame, area, theme),
         Mode::ConfirmQuit => draw_confirm(frame, area, theme),
+        Mode::Info => draw_info(frame, area, app, theme),
+        Mode::Palette => draw_palette(frame, area, app, theme),
         _ => {}
     }
 }
@@ -57,26 +76,28 @@ fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         return;
     }
     let counts = app.counts();
-    let left = vec![
+    let mut left = vec![
         Span::styled("chaps", theme.accent_style()),
         Span::styled(" · ", theme.dim_style()),
         Span::styled("models", theme.label_style()),
     ];
+    // A filter is part of what is being looked at, so it sits with the title
+    // rather than in a corner, with the cursor where the next letter lands.
+    if !app.filter.is_empty() || app.mode == Mode::Filter {
+        left.push(Span::styled(" · filter ", theme.dim_style()));
+        left.push(Span::styled(app.filter.clone(), theme.label_style()));
+        if app.mode == Mode::Filter {
+            left.push(Span::styled("_", theme.accent_style()));
+        }
+    }
 
-    let provenance = Span::styled(
-        format!("registry: {}", app.registry.provenance.label()),
-        theme.dim_style(),
-    );
+    let provenance = Span::styled(registry_label(&app.registry.provenance), theme.dim_style());
     let totals = Span::styled(
-        format!("{} models, {} enabled, ", counts.total, counts.enabled),
+        format!("{} models · {} enabled · ", counts.total, counts.enabled),
         theme.dim_style(),
     );
     let pending = Span::styled(
-        format!(
-            "{} pending change{}",
-            counts.pending,
-            plural(counts.pending)
-        ),
+        format!("{} pending", counts.pending),
         if counts.pending > 0 {
             theme.warn_style()
         } else {
@@ -109,213 +130,618 @@ fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_list(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    // The list is the only thing the keys act on, so it always holds focus.
-    let block = pane(theme, "Marketplace", true);
-    let inner_width = area.width.saturating_sub(2);
+/// `registry: cache · 2 min`: where the catalogue came from, and how old it is
+/// when that is a thing it can be.
+fn registry_label(provenance: &Provenance) -> String {
+    match provenance {
+        Provenance::Cache { age_secs } | Provenance::StaleCache { age_secs } => format!(
+            "registry: {} · {}",
+            provenance.label(),
+            short_age(*age_secs)
+        ),
+        _ => format!("registry: {}", provenance.label()),
+    }
+}
 
+/// An age in the width a title bar can spare: `40 sec`, `2 min`, `3 hr`, `5 d`.
+fn short_age(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs} sec"),
+        60..=3599 => format!("{} min", secs / 60),
+        3600..=86_399 => format!("{} hr", secs / 3600),
+        _ => format!("{} d", secs / 86_400),
+    }
+}
+
+/// The bordered box: the column headings, the table, and the summary strip
+/// under a rule.
+fn draw_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let block = pane(theme, &pane_title(app), true);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let changes = app.changes();
+    let want_strip = strip_height(&changes);
+    let [head, rule_top, list, rule_bottom, strip] =
+        split_body(inner.height, want_strip).map(Constraint::Length);
+    let [head, rule_top, list, rule_bottom, strip] =
+        Layout::vertical([head, rule_top, list, rule_bottom, strip]).areas(inner);
+
+    let columns = columns(inner.width as usize, kind_column(app));
+    draw_head(frame, head, &columns, theme);
+    draw_rule(frame, rule_top, theme);
+    draw_list(frame, list, app, &columns, theme);
+    draw_rule(frame, rule_bottom, theme);
+    draw_strip(frame, strip, app, &changes, theme);
+}
+
+/// `Marketplace`, plus what a filter left of it.
+fn pane_title(app: &App) -> String {
+    if app.filter.is_empty() {
+        return "Marketplace".to_string();
+    }
+    format!(
+        "Marketplace · {} of {} match \"{}\"",
+        app.visible.len(),
+        app.rows.len(),
+        app.filter
+    )
+}
+
+/// How tall the summary strip wants to be.
+fn strip_height(changes: &[Change]) -> u16 {
+    if changes.is_empty() {
+        // Name and state, the summary, and what it needs.
+        return 3;
+    }
+    let listed = changes.len().min(STRIP_CHANGES);
+    let more = usize::from(changes.len() > STRIP_CHANGES);
+    (1 + listed + more) as u16
+}
+
+/// Split the box between headings, rules, the table and the strip.
+///
+/// The table keeps at least one row, the strip comes next, then the headings,
+/// and the rules are the first thing a short terminal gives up.
+fn split_body(inner_h: u16, want_strip: u16) -> [u16; 5] {
+    let mut left = inner_h;
+    let list = 1.min(left);
+    left -= list;
+    let strip = want_strip.min(left);
+    left -= strip;
+    let head = 1.min(left);
+    left -= head;
+    let rule_top = if head == 1 { 1.min(left) } else { 0 };
+    left -= rule_top;
+    let rule_bottom = if strip > 0 { 1.min(left) } else { 0 };
+    left -= rule_bottom;
+    [head, rule_top, list + left, rule_bottom, strip]
+}
+
+/// The widths of the table's columns, so the headings and the rows agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Columns {
+    model: usize,
+    kind: usize,
+    id: usize,
+    status: usize,
+    version: usize,
+    enabled: usize,
+}
+
+/// Hand out the width the table has, widest column last.
+///
+/// Every column but the name is optional: they switch on in the order they
+/// stop costing the id its readable width, so a narrow terminal loses whole
+/// columns instead of wrapping a row.
+fn columns(inner: usize, kind: bool) -> Columns {
+    let avail = inner.saturating_sub(MARKER_W);
+    let model = MODEL_W.min(avail);
+    let mut left = avail - model;
+
+    let mut take = |want: usize, min: usize| {
+        let width = if left > want {
+            want
+        } else if left > min && min > 0 {
+            min
+        } else {
+            0
+        };
+        if width > 0 {
+            left -= width + 1;
+        }
+        width
+    };
+    let version = take(VERSION_W, 0);
+    let status = take(STATUS_W, 0);
+    let enabled = take(ENABLED_W, ENABLED_MIN);
+    let kind = if kind { take(KIND_W, 0) } else { 0 };
+    let id = if left > ID_MIN {
+        (left - 1).min(ID_MAX)
+    } else {
+        0
+    };
+    Columns {
+        model,
+        kind,
+        id,
+        status,
+        version,
+        enabled,
+    }
+}
+
+/// A kind column appears once the list holds something that is not a plain
+/// marketplace model: a template the user asked to see, or an entry this
+/// deployment added itself.
+fn kind_column(app: &App) -> bool {
+    app.show_templates || app.rows.iter().any(|row| app.model(row).manual)
+}
+
+/// `MODEL  ID  STATUS  VERSION  ENABLED`, over the columns they label.
+fn draw_head(frame: &mut Frame, area: Rect, columns: &Columns, theme: &Theme) {
+    if area.height == 0 {
+        return;
+    }
+    let mut text = " ".repeat(MARKER_W);
+    for (width, label) in [
+        (columns.model, "MODEL"),
+        (columns.kind, "KIND"),
+        (columns.id, "ID"),
+        (columns.status, "STATUS"),
+        (columns.version, "VERSION"),
+        (columns.enabled, "ENABLED"),
+    ] {
+        if width == 0 {
+            continue;
+        }
+        text.push_str(&fit(label, width));
+        text.push(' ');
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(text, theme.column_style()))),
+        area,
+    );
+}
+
+/// The thin line between the headings and the rows, and between the rows and
+/// the summary strip.
+fn draw_rule(frame: &mut Frame, area: Rect, theme: &Theme) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "─".repeat(area.width as usize),
+            theme.dim_style(),
+        ))),
+        area,
+    );
+}
+
+fn draw_list(frame: &mut Frame, area: Rect, app: &App, columns: &Columns, theme: &Theme) {
+    if area.height == 0 {
+        return;
+    }
+    if app.visible.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "  nothing matches this filter",
+                theme.dim_style(),
+            )),
+            area,
+        );
+        return;
+    }
+
+    let selected = app.cursor.min(app.visible.len() - 1);
     let items: Vec<ListItem> = app
         .visible
         .iter()
-        .map(|row_idx| ListItem::new(row_line(app, &app.rows[*row_idx], inner_width, theme)))
+        .enumerate()
+        .map(|(i, row_idx)| {
+            ListItem::new(row_line(
+                app,
+                &app.rows[*row_idx],
+                columns,
+                i == selected,
+                theme,
+            ))
+        })
         .collect();
 
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol("▸ ")
-        .highlight_style(theme.selection_style());
-
+    let list = List::new(items).highlight_style(theme.selection_style());
     let mut state = ListState::default();
-    if !app.visible.is_empty() {
-        state.select(Some(app.cursor.min(app.visible.len() - 1)));
-    }
+    state.select(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// One list line: `✓ Display Name   id   status   vX.Y.Z   :port`.
-///
-/// Columns drop off from the right as the pane narrows, so the mark and the
-/// name are always readable.
-fn row_line<'a>(app: &App, row: &Row, width: u16, theme: &Theme) -> Line<'a> {
+/// One table row: `▸ ✓ Display Name   id   ● status   1.0.2   internal`.
+fn row_line<'a>(
+    app: &App,
+    row: &Row,
+    columns: &Columns,
+    selected: bool,
+    theme: &Theme,
+) -> Line<'a> {
     let model = app.model(row);
-    // Two columns go to the highlight symbol. The remaining columns switch on
-    // in the order they become affordable, so nothing important is cut off.
-    let width = width.saturating_sub(2);
-    let show_version = width >= 41;
-    let show_status = width >= 49;
-    let show_id = width >= 80;
+    let recorded = app.recorded(row).is_some();
 
     // What the row will be, against what the project has on disk: a change
     // nobody has saved yet is the thing to see first.
-    let (mark, mark_style) = match (app.recorded(row).is_some(), row.enabled) {
-        (false, true) => ("+", theme.warn_style()),
-        (true, false) => ("-", theme.warn_style()),
+    let (mark, mark_style) = match (recorded, row.enabled) {
+        (false, true) => ("+", theme.ok_style()),
+        (true, false) => ("-", theme.bad_style()),
         (_, true) => ("✓", theme.ok_style()),
-        (_, false) => ("·", theme.dim_style()),
+        (_, false) => (" ", theme.dim_style()),
     };
 
     let mut spans = vec![
+        Span::styled(if selected { " ▸ " } else { "   " }, theme.accent_style()),
         Span::styled(format!("{mark} "), mark_style),
-        Span::raw(fit(&model.display_name, 22)),
+        Span::raw(fit(&model.display_name, columns.model)),
+        Span::raw(" "),
     ];
-    // The marker comes before the optional columns: a template, or a model
-    // this deployment added itself, must be recognisable even in a pane too
-    // narrow for anything else. An entry is one or the other, never both.
-    if model.is_template() {
-        spans.push(Span::styled(" [template]", theme.dim_style()));
-    } else if model.manual {
-        spans.push(Span::styled(" [manual]", theme.dim_style()));
-    }
-    if show_id {
-        spans.push(Span::styled(
-            format!(" {}", fit(&model.id, 30)),
-            theme.dim_style(),
-        ));
-    }
-    if show_status {
+    if columns.kind > 0 {
+        let (label, style) = if model.is_template() {
+            ("template", theme.template_style())
+        } else if model.manual {
+            ("manual", theme.dim_style())
+        } else {
+            ("model", theme.dim_style())
+        };
+        spans.push(Span::styled(fit(label, columns.kind), style));
         spans.push(Span::raw(" "));
+    }
+    if columns.id > 0 {
+        spans.push(Span::styled(fit(&model.id, columns.id), theme.dim_style()));
+        spans.push(Span::raw(" "));
+    }
+    if columns.status > 0 {
         spans.push(Span::styled(
-            fit(status_label(model.assessed_status), 7),
+            "● ",
             theme.status_style(model.assessed_status),
         ));
+        spans.push(Span::raw(fit(
+            status_label(model.assessed_status),
+            columns.status - 2,
+        )));
+        spans.push(Span::raw(" "));
     }
-    if show_version {
-        // A manual entry's version is its image tag, so `v` in front of it
-        // would read as a version number it does not have.
+    if columns.version > 0 {
         let version = app
             .resolved(row)
-            .map(|v| match model.manual {
-                true => v.version.clone(),
-                false => format!("v{}", v.version),
-            })
+            .map(|v| v.version.clone())
             .unwrap_or_else(|| "-".to_string());
         spans.push(Span::styled(
-            format!(" {}", fit(&version, 8)),
+            fit(&version, columns.version),
             theme.dim_style(),
         ));
+        spans.push(Span::raw(" "));
     }
-    // Enabled rows say how they are reached: their own host port, or that they
-    // are only on the compose network. It follows the pending publish flag, so
-    // pressing `p` is visible before saving - the port itself is only picked
-    // when the selection is applied, hence `:auto`.
-    if row.enabled {
-        let (text, style) = match (row.publish, row.port) {
-            (true, Some(port)) => (format!(" :{port}"), theme.accent_style()),
-            (true, None) => (" :auto".to_string(), theme.warn_style()),
-            (false, _) => (" internal".to_string(), theme.dim_style()),
-        };
-        spans.push(Span::styled(text, style));
+    if columns.enabled > 0 {
+        let (text, style) = enabled_cell(row, recorded, theme);
+        spans.push(Span::styled(fit(&text, columns.enabled), style));
     }
     Line::from(spans)
 }
 
-fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    let block = pane(theme, "Details", false);
+/// What the enabled column says: a pending change first, then how an enabled
+/// model is reached. The port itself is only picked when the selection is
+/// applied, hence `:auto`.
+fn enabled_cell(row: &Row, recorded: bool, theme: &Theme) -> (String, ratatui::style::Style) {
+    match (recorded, row.enabled) {
+        (false, true) => ("will be enabled".to_string(), theme.ok_style()),
+        (true, false) => ("will be disabled".to_string(), theme.bad_style()),
+        (_, true) => match (row.publish, row.port) {
+            (true, Some(port)) => (format!(":{port}"), theme.accent_style()),
+            (true, None) => (":auto".to_string(), theme.warn_style()),
+            (false, _) => ("internal".to_string(), theme.dim_style()),
+        },
+        (_, false) => (String::new(), theme.dim_style()),
+    }
+}
+
+/// The three lines under the table: what the row under the cursor is, or,
+/// when there is something unsaved, what saving would do.
+fn draw_strip(frame: &mut Frame, area: Rect, app: &App, changes: &[Change], theme: &Theme) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    // The strip is indented the way the rows are, so the two read as one box.
+    let width = area.width.saturating_sub(1) as usize;
+    let lines = if changes.is_empty() {
+        summary_lines(app, width, theme)
+    } else {
+        change_lines(changes, width, theme)
+    };
+    let lines = lines
+        .into_iter()
+        .map(|line| {
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(line.spans);
+            Line::from(spans)
+        })
+        .collect::<Vec<Line>>();
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// The row under the cursor, in three lines.
+fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let Some(row) = app.selected() else {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                "nothing matches this filter",
+        return vec![Line::from(Span::styled(
+            "nothing matches this filter",
+            theme.dim_style(),
+        ))];
+    };
+    let model = app.model(row);
+
+    let mut head = vec![Span::styled(
+        model.display_name.clone(),
+        theme.accent_style(),
+    )];
+    let pinned = match app.recorded(row) {
+        Some(recorded) => Some(version_and_tag(&recorded.version, &recorded.image_tag)),
+        None => app
+            .resolved(row)
+            .map(|v| version_and_tag(&v.version, &v.image_tag)),
+    };
+    if let Some(pinned) = pinned {
+        head.push(Span::raw("  "));
+        head.push(Span::styled(pinned, theme.dim_style()));
+    }
+    head.push(Span::raw("  "));
+    match app.recorded(row) {
+        Some(recorded) => {
+            head.push(Span::styled(
+                match recorded.host_port {
+                    Some(port) => format!("enabled, :{port}"),
+                    None => "enabled, internal".to_string(),
+                },
+                theme.ok_style(),
+            ));
+            head.push(Span::raw("  "));
+            head.push(Span::styled(
+                format!("user {}", recorded.user),
                 theme.dim_style(),
-            ))
-            .block(block),
+            ));
+        }
+        None => head.push(Span::styled("not enabled", theme.dim_style())),
+    }
+    let head = with_tail(
+        head,
+        Span::styled("i for details", theme.dim_style()),
+        width,
+    );
+
+    let mut needs = vec![
+        Span::styled("requires ", theme.dim_style()),
+        Span::raw(list_or_dash(&model.covariates.required)),
+        Span::styled("   defaults ", theme.dim_style()),
+        Span::raw(list_or_dash(&model.covariates.defaults)),
+        Span::raw("   "),
+        Span::styled(
+            model.compatibility.period_types.join(", "),
+            theme.dim_style(),
+        ),
+        Span::raw("   "),
+        Span::styled(horizon(app, row), theme.dim_style()),
+    ];
+    truncate(&mut needs, width);
+
+    vec![
+        Line::from(head),
+        Line::from(Span::raw(fit_soft(&model.summary, width))),
+        Line::from(needs),
+    ]
+}
+
+/// What saving would write, one line per model.
+fn change_lines<'a>(changes: &[Change], width: usize, theme: &Theme) -> Vec<Line<'a>> {
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            format!("{} pending change{}", changes.len(), plural(changes.len())),
+            theme.warn_style(),
+        ),
+        Span::raw("  "),
+        Span::styled("nothing is written until you save", theme.dim_style()),
+    ])];
+    for change in changes.iter().take(STRIP_CHANGES) {
+        let (mark, style) = match change.kind {
+            ChangeKind::Add => ("+", theme.ok_style()),
+            ChangeKind::Update => ("+", theme.warn_style()),
+            ChangeKind::Remove => ("-", theme.bad_style()),
+        };
+        let mut spans = vec![
+            Span::styled(format!("{mark} "), style),
+            Span::raw(fit(&change.name, MODEL_W)),
+            Span::raw("  "),
+            Span::styled(change.detail.clone(), theme.dim_style()),
+        ];
+        truncate(&mut spans, width);
+        lines.push(Line::from(spans));
+    }
+    if changes.len() > STRIP_CHANGES {
+        lines.push(Line::from(Span::styled(
+            format!("  and {} more", changes.len() - STRIP_CHANGES),
+            theme.dim_style(),
+        )));
+    }
+    lines
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    if area.height == 0 {
+        return;
+    }
+    if let Some(message) = &app.message {
+        let text = fit_soft(&format!(" {message}"), area.width as usize);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(text, theme.warn_style()))),
             area,
         );
         return;
-    };
+    }
+    let counts = app.counts();
+    let hints = keys::keybar(app.mode, counts.pending, !app.filter.is_empty());
+    frame.render_widget(
+        Paragraph::new(Line::from(keybar(&hints, area.width as usize, theme))),
+        area,
+    );
+}
 
+/// The key bar: `[key] what`, the key in the accent so the line reads as keys
+/// first, and the entries with the least to say dropped when it does not fit.
+fn keybar<'a>(hints: &[Hint], width: usize, theme: &Theme) -> Vec<Span<'a>> {
+    let mut kept: Vec<&Hint> = hints.iter().collect();
+    // One leading space, two between entries.
+    while kept.len() > 1 && 1 + bar_width(&kept) > width {
+        let Some(worst) = kept
+            .iter()
+            .enumerate()
+            .min_by_key(|(i, hint)| (hint.rank, *i))
+            .map(|(i, _)| i)
+        else {
+            break;
+        };
+        kept.remove(worst);
+    }
+
+    let mut spans = vec![Span::raw(" ")];
+    for (i, hint) in kept.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("  "));
+        }
+        if hint.chip {
+            spans.push(Span::styled(
+                format!(" [{}] {} ", hint.key, hint.what),
+                theme.chip_style(),
+            ));
+            continue;
+        }
+        spans.push(Span::styled("[", theme.dim_style()));
+        // The key itself is the only bold thing on the bar, so the line reads
+        // as keys with words after them rather than as a sentence.
+        spans.push(Span::styled(
+            hint.key.to_string(),
+            theme.accent_style().add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled("] ", theme.dim_style()));
+        spans.push(Span::styled(hint.what.clone(), theme.dim_style()));
+    }
+    spans
+}
+
+/// How wide a key bar would be, separators and all.
+fn bar_width(hints: &[&Hint]) -> usize {
+    let entries: usize = hints
+        .iter()
+        .map(|hint| {
+            // `[key] what`, or ` [key] what ` when it is a chip.
+            let plain = hint.key.chars().count() + hint.what.chars().count() + 3;
+            if hint.chip { plain + 2 } else { plain }
+        })
+        .sum();
+    entries + hints.len().saturating_sub(1) * 2
+}
+
+/// The details overlay: everything the catalogue and the project know about
+/// the row under the cursor, scrolled by `j` and `k`.
+fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let Some(row) = app.selected() else {
+        return;
+    };
+    let model = app.model(row);
+
+    let width = area.width.saturating_sub(6).clamp(1, 86);
+    // One column of padding inside the border, as the list has.
+    let inner_w = width.saturating_sub(3) as usize;
+    let lines: Vec<Line> = info_lines(app, row, inner_w, theme)
+        .into_iter()
+        .map(|line| {
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(line.spans);
+            Line::from(spans)
+        })
+        .collect();
+    // As tall as it needs to be, with the list still visible around it; what
+    // does not fit is what `j` and `k` scroll.
+    let height = (lines.len() as u16 + 2)
+        .min(area.height.saturating_sub(6))
+        .max(3.min(area.height));
+    let popup = centered(area, width, height);
+    let inner_h = popup.height.saturating_sub(2) as usize;
+    app.info_max.set(lines.len().saturating_sub(inner_h));
+    let scroll = app.info_scroll.min(app.info_max.get()) as u16;
+
+    let enabled = match app.recorded(row) {
+        Some(_) => Span::styled("enabled in this project", theme.ok_style()),
+        None => Span::styled("not enabled here", theme.dim_style()),
+    };
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.accent_style())
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(model.display_name.clone(), theme.accent_style()),
+            Span::raw("  "),
+            Span::styled(model.id.clone(), theme.dim_style()),
+            Span::raw("  "),
+            Span::styled("● ", theme.status_style(model.assessed_status)),
+            Span::raw(status_label(model.assessed_status)),
+            Span::raw(" "),
+        ]))
+        .title_top(Line::from(vec![enabled, Span::raw(" ")]).right_aligned());
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).block(block).scroll((scroll, 0)),
+        popup,
+    );
+}
+
+/// Every field the overlay lists, in the order it lists them.
+fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let model = app.model(row);
     let mut lines: Vec<Line> = Vec::new();
 
-    lines.push(Line::from(Span::styled(
-        model.display_name.clone(),
-        theme.accent_style(),
-    )));
-    lines.push(Line::from(Span::styled(
-        model.id.clone(),
-        theme.dim_style(),
-    )));
+    let reach = match app.recorded(row).and_then(|r| r.host_port) {
+        Some(port) => format!("http://localhost:{port}"),
+        None => "internal (through chap-core's /run/ proxy)".to_string(),
+    };
+    lines.push(field(theme, "reach", &reach));
 
-    // What this project already runs outranks the catalogue blurb: a short
-    // pane only shows the top of the paragraph.
-    if let Some(recorded) = app.recorded(row) {
-        lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(
-            "enabled in this project",
-            theme.ok_style(),
-        )));
-        lines.push(field(
-            theme,
-            "reach",
-            &match recorded.host_port {
-                Some(port) => format!("http://localhost:{port}"),
-                None => "internal (through chap-core's /run/ proxy)".to_string(),
-            },
-        ));
-        lines.push(field(
-            theme,
-            "pinned",
-            // The version and the tag are the same thing for a manually
-            // added model; printing it twice says nothing twice.
-            &match recorded.version == recorded.image_tag {
-                true => recorded.image_tag.clone(),
-                false => format!("{} ({})", recorded.version, recorded.image_tag),
-            },
-        ));
-        lines.push(field(theme, "data dir", &recorded.data_dir));
-        lines.push(field(
-            theme,
-            "user",
-            &format!("{}  ({})", recorded.user, recorded.user_from.label()),
-        ));
-    }
-
-    lines.push(Line::raw(""));
-    lines.push(Line::raw(model.summary.clone()));
-    lines.push(Line::raw(""));
-
-    // A template is not a forecasting model, and the pane says so in a colour
-    // that is neither "good" nor "bad", just different.
-    lines.push(Line::from(vec![
-        Span::styled(fit("kind", LABEL_WIDTH), theme.label_style()),
-        if model.is_template() {
-            Span::styled(
-                "template (scaffolding, not a forecasting model)",
-                theme.template_style(),
-            )
-        } else if model.manual {
-            Span::styled("manual (added with `chaps models add`)", theme.dim_style())
-        } else {
-            Span::raw("model")
-        },
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled(fit("status", LABEL_WIDTH), theme.label_style()),
-        Span::styled(
-            status_label(model.assessed_status).to_string(),
-            theme.status_style(model.assessed_status),
+    let pinned = match app.recorded(row) {
+        Some(recorded) => format!(
+            "{} · channel {}",
+            version_and_tag(&recorded.version, &recorded.image_tag),
+            recorded
+                .channel
+                .map(|c| c.as_str())
+                .unwrap_or("none, an exact pin")
         ),
-    ]));
-    lines.push(field(theme, "channel", channel_label(row.channel)));
+        None => match app.resolved(row) {
+            Some(version) => format!(
+                "{} · channel {}",
+                version_and_tag(&version.version, &version.image_tag),
+                channel_label(row.channel)
+            ),
+            None => format!(
+                "unresolved: channel {} has no version",
+                channel_label(row.channel)
+            ),
+        },
+    };
+    lines.push(field(theme, "pinned", &pinned));
 
-    match app.resolved(row) {
-        Some(version) => {
-            lines.push(field(
-                theme,
-                "image",
-                &crate::compose::image_ref(&model.source.image, &version.image_tag),
-            ));
-            lines.push(field(
-                theme,
-                "version",
-                &format!("{} ({})", version.version, version_status(version)),
-            ));
-        }
-        None => lines.push(field(
-            theme,
-            "image",
-            "unresolved: this channel has no version",
-        )),
-    }
+    let image = match app.resolved(row) {
+        Some(version) => crate::compose::image_ref(&model.source.image, &version.image_tag),
+        None => model.source.image.clone(),
+    };
+    lines.push(field(theme, "image", &image));
 
     let runtime = if model.needs_amd64() {
         format!("{} (amd64 only)", model.source.runtime_image)
@@ -323,42 +749,64 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         model.source.runtime_image.clone()
     };
     lines.push(field(theme, "runtime", &runtime));
+
+    // A template is not a forecasting model, and the overlay says so in a
+    // colour that is neither "good" nor "bad", just different.
+    if model.is_template() {
+        lines.push(Line::from(vec![
+            Span::styled(fit("kind", LABEL_WIDTH), theme.label_style()),
+            Span::styled(
+                "template (scaffolding, not a forecasting model)",
+                theme.template_style(),
+            ),
+        ]));
+    } else if model.manual {
+        lines.push(Line::from(vec![
+            Span::styled(fit("kind", LABEL_WIDTH), theme.label_style()),
+            Span::styled("manual (added with `chaps models add`)", theme.dim_style()),
+        ]));
+    }
+
+    if let Some(recorded) = app.recorded(row) {
+        lines.push(field(theme, "data dir", &recorded.data_dir));
+        lines.push(field(
+            theme,
+            "user",
+            &format!("{} ({})", recorded.user, recorded.user_from.label()),
+        ));
+    }
+
+    lines.push(Line::raw(""));
+    for line in wrap(&model.summary, width) {
+        lines.push(Line::raw(line));
+    }
+    lines.push(Line::raw(""));
+
+    let mut covariates = format!(
+        "{} · defaults {}",
+        list_or_dash(&model.covariates.required),
+        list_or_dash(&model.covariates.defaults)
+    );
+    if model.covariates.allow_free_additional {
+        covariates.push_str(" · free extras allowed");
+    }
+    lines.push(field(theme, "covariates", &covariates));
     lines.push(field(
         theme,
         "periods",
-        &model.compatibility.period_types.join(", "),
-    ));
-    lines.push(field(
-        theme,
-        "horizon",
         &format!(
-            "{} to {} periods",
-            model.compatibility.min_prediction_periods, model.compatibility.max_prediction_periods
+            "{} · {} · geometry {}",
+            model.compatibility.period_types.join(", "),
+            horizon(app, row),
+            if model.compatibility.requires_geo {
+                "required"
+            } else {
+                "not required"
+            }
         ),
     ));
-    lines.push(field(
-        theme,
-        "geo",
-        if model.compatibility.requires_geo {
-            "polygons required"
-        } else {
-            "not required"
-        },
-    ));
-    lines.push(field(
-        theme,
-        "covariates",
-        &list_or_dash(&model.covariates.required),
-    ));
-    lines.push(field(
-        theme,
-        "defaults",
-        &list_or_dash(&model.covariates.defaults),
-    ));
 
-    lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("versions", theme.label_style())));
-    for version in &model.versions {
+    for (i, version) in model.versions.iter().enumerate() {
         let mut marks: Vec<&str> = Vec::new();
         if version.version == model.channels.stable {
             marks.push("stable");
@@ -366,83 +814,143 @@ fn draw_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         if version.version == model.channels.latest {
             marks.push("latest");
         }
-        let marker = if marks.is_empty() {
-            String::new()
-        } else {
-            format!("  <- {}", marks.join(", "))
-        };
         lines.push(Line::from(vec![
-            Span::raw(format!("  {}  ", fit(&version.version, 10))),
             Span::styled(
-                fit(version_status(version), 10),
+                fit(if i == 0 { "versions" } else { "" }, LABEL_WIDTH),
+                theme.label_style(),
+            ),
+            Span::raw(fit(&version.version, 10)),
+            Span::styled(
+                fit(version_status(version), 11),
                 theme.version_style(version.status),
             ),
-            Span::styled(marker, theme.accent_style()),
+            Span::styled(marks.join(", "), theme.accent_style()),
         ]));
     }
 
     if !model.maintainers.is_empty() {
-        lines.push(Line::raw(""));
         lines.push(field(theme, "maintainers", &model.maintainers.join(", ")));
     }
     lines.push(field(theme, "author", &model.attribution.author));
+    lines.push(Line::from(vec![
+        Span::styled(fit("repository", LABEL_WIDTH), theme.label_style()),
+        Span::styled(model.source.repository.clone(), theme.accent_style()),
+    ]));
+    lines
+}
 
+/// The command palette: a filter line, what it matched, and every command it
+/// could have matched.
+fn draw_palette(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let matches = app.palette_matches();
+    let total = app.commands().len();
+    let width = area.width.saturating_sub(4).clamp(1, 72);
+
+    let inner_w = width.saturating_sub(2) as usize;
+    let strip = wrap(
+        &app.commands()
+            .iter()
+            .map(|c| c.short)
+            .collect::<Vec<&str>>()
+            .join(" · "),
+        inner_w.saturating_sub(1),
+    );
+    let strip: Vec<String> = strip.into_iter().take(3).collect();
+    let rows = matches.len().max(1);
+    let height = (2 + 1 + 1 + rows + 1 + strip.len()) as u16;
+    let popup = centered(area, width, height.min(area.height.max(1)));
+
+    let mut lines = vec![prompt_line(app, matches.len(), total, inner_w, theme)];
+    lines.push(rule_line(inner_w, theme));
+    if matches.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "   no command matches",
+            theme.dim_style(),
+        )));
+    }
+    for (i, command) in matches.iter().enumerate() {
+        lines.push(command_line(
+            command,
+            i == app.palette_cursor,
+            inner_w,
+            theme,
+        ));
+    }
+    lines.push(rule_line(inner_w, theme));
+    for line in strip {
+        lines.push(Line::from(Span::styled(
+            format!(" {line}"),
+            theme.dim_style(),
+        )));
+    }
+
+    frame.render_widget(Clear, popup);
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: false }),
-        area,
+        Paragraph::new(lines).block(overlay(theme, "Commands")),
+        popup,
     );
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    if area.height == 0 {
-        return;
-    }
-    let line = if let Some(message) = &app.message {
-        Line::from(Span::styled(format!(" {message}"), theme.warn_style()))
-    } else if app.mode == Mode::Filter {
-        let mut spans = vec![
-            Span::styled(" filter: ", theme.accent_style()),
-            Span::styled(app.filter.clone(), theme.label_style()),
-            Span::styled("_   ", theme.accent_style()),
-        ];
-        spans.extend(keybar(Mode::Filter, theme));
-        Line::from(spans)
-    } else {
-        let mut spans = Vec::new();
-        if !app.filter.is_empty() {
-            spans.push(Span::styled(
-                format!(" filter: {}  ", app.filter),
-                theme.accent_style(),
-            ));
-        } else {
-            spans.push(Span::raw(" "));
-        }
-        spans.extend(keybar(app.mode, theme));
-        Line::from(spans)
-    };
-    frame.render_widget(Paragraph::new(line), area);
+/// `› po_` on the left, how much of the list is left on the right.
+fn prompt_line<'a>(
+    app: &App,
+    matched: usize,
+    total: usize,
+    width: usize,
+    theme: &Theme,
+) -> Line<'a> {
+    let head = vec![
+        Span::styled(" › ", theme.accent_style()),
+        Span::styled(app.palette_query.clone(), theme.label_style()),
+        Span::styled("_", theme.accent_style()),
+    ];
+    Line::from(with_tail(
+        head,
+        Span::styled(format!("{matched} of {total} commands "), theme.dim_style()),
+        width,
+    ))
 }
 
-/// The key bar for a mode: the keys themselves in the accent, what they do in
-/// the quiet colour, so the line reads as keys first.
-fn keybar<'a>(mode: Mode, theme: &Theme) -> Vec<Span<'a>> {
-    let mut spans = Vec::new();
-    for (i, (key, what)) in keys::keybar_entries(mode).iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::raw("   "));
+/// One command: the cursor, the label with the typed text picked out, and the
+/// key that does the same thing from the list.
+fn command_line<'a>(command: &Command, selected: bool, width: usize, theme: &Theme) -> Line<'a> {
+    let mut spans = vec![Span::styled(
+        if selected { " ▸ " } else { "   " },
+        theme.accent_style(),
+    )];
+    match command.hit {
+        Some((from, to)) => {
+            let chars: Vec<char> = command.label.chars().collect();
+            spans.push(Span::raw(chars[..from].iter().collect::<String>()));
+            spans.push(Span::styled(
+                chars[from..to].iter().collect::<String>(),
+                theme.accent_style(),
+            ));
+            spans.push(Span::raw(chars[to..].iter().collect::<String>()));
         }
-        spans.push(Span::styled((*key).to_string(), theme.accent_style()));
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled((*what).to_string(), theme.dim_style()));
+        None => spans.push(Span::raw(command.label.clone())),
     }
-    spans
+    // The trailing space keeps the key off the border, and the padding that
+    // puts it there is what makes the highlight cover the whole row.
+    let line = Line::from(with_tail(
+        spans,
+        Span::styled(format!("{} ", command.key), theme.dim_style()),
+        width,
+    ));
+    if selected {
+        line.style(theme.selection_style())
+    } else {
+        line
+    }
+}
+
+fn rule_line<'a>(width: usize, theme: &Theme) -> Line<'a> {
+    Line::from(Span::styled("─".repeat(width), theme.dim_style()))
 }
 
 fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
     let entries = keys::help_entries();
-    let width = 52u16;
+    let width = 56u16;
     let height = entries.len() as u16 + 2;
     let popup = centered(area, width, height);
 
@@ -479,7 +987,7 @@ fn draw_confirm(frame: &mut Frame, area: Rect, theme: &Theme) {
 }
 
 /// A pane: rounded border, a title that follows the border's colour.
-fn pane<'a>(theme: &Theme, title: &'a str, focused: bool) -> Block<'a> {
+fn pane<'a>(theme: &Theme, title: &str, focused: bool) -> Block<'a> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.border_style(focused))
@@ -490,7 +998,7 @@ fn pane<'a>(theme: &Theme, title: &'a str, focused: bool) -> Block<'a> {
 }
 
 /// An overlay: the same shape as a pane, always in the accent.
-fn overlay<'a>(theme: &Theme, title: &'a str) -> Block<'a> {
+fn overlay<'a>(theme: &Theme, title: &str) -> Block<'a> {
     pane(theme, title, true)
 }
 
@@ -513,6 +1021,49 @@ fn field<'a>(theme: &Theme, label: &str, value: &str) -> Line<'a> {
     ])
 }
 
+/// Push `tail` to the right-hand edge of `width`, or leave it off when the
+/// head already fills the line.
+fn with_tail<'a>(mut head: Vec<Span<'a>>, tail: Span<'a>, width: usize) -> Vec<Span<'a>> {
+    let used = width_of(&head);
+    let tail_width = tail.content.chars().count();
+    if tail_width == 0 {
+        truncate(&mut head, width);
+        return head;
+    }
+    if used + tail_width + 2 > width {
+        truncate(&mut head, width);
+        return head;
+    }
+    head.push(Span::raw(" ".repeat(width - used - tail_width)));
+    head.push(tail);
+    head
+}
+
+/// Cut a run of spans down to `width` columns, marking the cut with `~` so
+/// the line never pretends it said everything.
+fn truncate(spans: &mut Vec<Span>, width: usize) {
+    if width_of(spans) <= width {
+        return;
+    }
+    if width == 0 {
+        spans.clear();
+        return;
+    }
+    let mut used = 0usize;
+    for i in 0..spans.len() {
+        let len = spans[i].content.chars().count();
+        if used + len < width {
+            used += len;
+            continue;
+        }
+        let mut cut: String = spans[i].content.chars().take(width - used - 1).collect();
+        cut.push('~');
+        spans[i].content = cut.into();
+        spans.truncate(i + 1);
+        return;
+    }
+}
+
 /// How many columns a run of spans occupies.
 fn width_of(spans: &[Span]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
@@ -523,6 +1074,24 @@ fn list_or_dash(values: &[String]) -> String {
         "-".to_string()
     } else {
         values.join(", ")
+    }
+}
+
+fn horizon(app: &App, row: &Row) -> String {
+    let c = &app.model(row).compatibility;
+    format!(
+        "horizon {} to {} periods",
+        c.min_prediction_periods, c.max_prediction_periods
+    )
+}
+
+/// `1.0.2 (sha-8d4a7ea)`, or just the tag when the two are the same thing, as
+/// they are for a manually added model.
+fn version_and_tag(version: &str, tag: &str) -> String {
+    if version == tag {
+        tag.to_string()
+    } else {
+        format!("{version} ({tag})")
     }
 }
 
@@ -545,6 +1114,47 @@ fn fit(text: &str, width: usize) -> String {
     out
 }
 
+/// [`fit`] without the padding: shorten what is too long, leave the rest.
+fn fit_soft(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    fit(text, width)
+}
+
+/// Break text into lines of at most `width` columns, on spaces where there is
+/// one and mid-word where there is not.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        let line_len = line.chars().count();
+        if line.is_empty() {
+            line = word.to_string();
+        } else if line_len + 1 + word_len <= width {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line = word.to_string();
+        }
+        while line.chars().count() > width {
+            let head: String = line.chars().take(width).collect();
+            let tail: String = line.chars().skip(width).collect();
+            lines.push(head);
+            line = tail;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
@@ -553,8 +1163,7 @@ fn channel_label(channel: Channel) -> &'static str {
     channel.as_str()
 }
 
-fn status_label(status: crate::registry::AssessedStatus) -> &'static str {
-    use crate::registry::AssessedStatus;
+fn status_label(status: AssessedStatus) -> &'static str {
     match status {
         AssessedStatus::Green => "green",
         AssessedStatus::Yellow => "yellow",
@@ -581,6 +1190,8 @@ mod tests {
     use crate::tui::app::Action;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+
+    const EWARS: &str = "chapkit_ewars_model";
 
     fn registry() -> Registry {
         load_embedded().expect("embedded snapshot parses")
@@ -616,33 +1227,87 @@ mod tests {
             .join("\n")
     }
 
+    /// The line of the rendered screen that contains `needle`.
+    fn line_with<'a>(screen: &'a str, needle: &str) -> &'a str {
+        screen
+            .lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("no line holds {needle}:\n{screen}"))
+    }
+
+    /// Which column of a rendered line `needle` starts in. Counted in
+    /// characters, because `│` and `▸` are three bytes each and byte offsets
+    /// would make two columns that line up look as if they did not.
+    fn column_of(line: &str, needle: &str) -> usize {
+        let byte = line
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle} is not on {line}"));
+        line[..byte].chars().count()
+    }
+
+    fn line_text(line: &Line) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
     #[test]
-    fn a_normal_terminal_shows_the_title_list_and_details() {
+    fn a_normal_terminal_shows_the_title_the_table_and_the_summary() {
         let registry = registry();
         let app = App::new(&registry, &ProjectState::default());
-        let screen = render(&app, 140, 40);
+        let screen = render(&app, 120, 40);
         assert!(screen.contains("chaps · models"));
         assert!(screen.contains("registry: embedded"));
         assert!(screen.contains(&format!(
-            "{} models, 0 enabled, 0 pending changes",
+            "{} models · 0 enabled · 0 pending",
             registry.models.len()
         )));
         assert!(screen.contains("Marketplace"));
-        assert!(screen.contains("Details"));
+        assert!(
+            !screen.contains("Details"),
+            "the details pane is an overlay now, not a second column"
+        );
         // Rounded corners, not square ones.
         assert!(screen.contains('╭') && screen.contains('╯'), "{screen}");
+        assert!(screen.contains("MODEL") && screen.contains("ENABLED"));
         assert!(screen.contains("CHAP-EWARS"));
         assert!(screen.contains("chapkit_ewars_model"));
-        assert!(screen.contains("space toggle"));
-        // The details pane describes the row under the cursor.
-        assert!(screen.contains("verified"));
-        assert!(screen.contains("amd64"));
+        assert!(screen.contains("● orange"), "{screen}");
+        assert!(screen.contains("[space] toggle"), "{screen}");
+        // The summary strip stands in for the pane that used to be there.
+        assert!(screen.contains("i for details"), "{screen}");
+        assert!(screen.contains("requires population"), "{screen}");
+    }
+
+    /// The headings mean nothing if they sit over the wrong columns.
+    #[test]
+    fn the_column_headings_line_up_with_the_rows() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let screen = render(&app, 120, 40);
+        let head = line_with(&screen, "MODEL");
+        let row = line_with(&screen, "CHAP-EWARS  ");
+
+        assert_eq!(column_of(head, "MODEL"), column_of(row, "CHAP-EWARS"));
+        assert_eq!(column_of(head, "ID"), column_of(row, "chapkit_ewars_model"));
+        assert_eq!(column_of(head, "STATUS"), column_of(row, "●"));
+        assert_eq!(column_of(head, "VERSION"), column_of(row, "1.0.2"));
+        // And the version has lost the `v` the old list put in front of it.
+        assert!(!row.contains("v1.0.2"), "{row}");
+
+        let enabled = state_with_ewars(&registry, Some(5001));
+        let app = App::new(&registry, &enabled);
+        let screen = render(&app, 120, 40);
+        let head = line_with(&screen, "MODEL");
+        let row = line_with(&screen, "✓ CHAP-EWARS");
+        assert_eq!(column_of(head, "ENABLED"), column_of(row, ":5001"));
     }
 
     /// A project state with `chapkit_ewars_model` enabled on `host_port`.
     fn state_with_ewars(registry: &Registry, host_port: Option<u16>) -> ProjectState {
         let mut state = ProjectState::default();
-        let model = registry.get("chapkit_ewars_model").unwrap();
+        let model = registry.get(EWARS).unwrap();
         state.models.insert(
             model.id.clone(),
             crate::project::EnabledModel {
@@ -671,68 +1336,12 @@ mod tests {
         let registry = registry();
         let state = state_with_ewars(&registry, Some(5001));
         let app = App::new(&registry, &state);
-        let screen = render(&app, 100, 30);
+        let screen = render(&app, 120, 40);
         assert!(screen.contains('✓'), "{screen}");
         assert!(screen.contains(":5001"));
-        assert!(screen.contains("enabled in this project"));
-        assert!(screen.contains("http://localhost:5001"));
-    }
-
-    #[test]
-    fn a_pending_change_is_marked_before_it_is_saved() {
-        let registry = registry();
-        let state = state_with_ewars(&registry, Some(5001));
-        let mut app = App::new(&registry, &state);
-
-        // The first row is the one the project already runs; turning it off is
-        // a removal, not an absence.
-        app.reduce(Action::Toggle);
-        let row = app.selected().expect("a row is selected");
-        let line = row_line(&app, row, 120, &theme());
-        assert_eq!(line.spans[0].content, "- ");
-        assert_eq!(line.spans[0].style, theme().warn_style());
-
-        // And back on again is no change at all.
-        app.reduce(Action::Toggle);
-        let row = app.selected().expect("a row is selected");
-        assert_eq!(row_line(&app, row, 120, &theme()).spans[0].content, "✓ ");
-
-        // A row the project never had reads as an addition.
-        let mut fresh = App::new(&registry, &ProjectState::default());
-        fresh.reduce(Action::Toggle);
-        let row = fresh.selected().expect("a row is selected");
-        let line = row_line(&fresh, row, 120, &theme());
-        assert_eq!(line.spans[0].content, "+ ");
-        assert_eq!(line.spans[0].style, theme().warn_style());
-    }
-
-    #[test]
-    fn a_row_nobody_enabled_is_marked_with_a_quiet_dot() {
-        let registry = registry();
-        let app = App::new(&registry, &ProjectState::default());
-        let row = app.selected().expect("a row is selected");
-        let line = row_line(&app, row, 120, &theme());
-        assert_eq!(line.spans[0].content, "· ");
-        assert_eq!(line.spans[0].style, theme().dim_style());
-    }
-
-    #[test]
-    fn the_status_column_carries_the_assessment_colour() {
-        let registry = registry();
-        let app = App::new(&registry, &ProjectState::default());
-        let row = app.selected().expect("a row is selected");
-        let line = row_line(&app, row, 120, &theme());
-        let status = line
-            .spans
-            .iter()
-            .find(|s| s.content.trim() == "orange")
-            .expect("the status column is there");
-        assert_eq!(status.style, theme().status_style(row_status(&app, row)));
-        assert_eq!(status.style.fg, Some(theme().warn));
-    }
-
-    fn row_status(app: &App, row: &Row) -> crate::registry::AssessedStatus {
-        app.model(row).assessed_status
+        // The strip says the same thing in words.
+        assert!(screen.contains("enabled, :5001"), "{screen}");
+        assert!(screen.contains("user chapkit:chapkit"), "{screen}");
     }
 
     #[test]
@@ -740,39 +1349,390 @@ mod tests {
         let registry = registry();
         let state = state_with_ewars(&registry, None);
         let mut app = App::new(&registry, &state);
-        let screen = render(&app, 100, 30);
+        let screen = render(&app, 120, 40);
         assert!(screen.contains('✓'));
         assert!(screen.contains("internal"), "{screen}");
         assert!(!screen.contains(":500"), "no host port is published");
-        assert!(screen.contains("proxy"), "the details name the way in");
 
         // Pressing p is visible before saving, with the port left to apply.
         app.reduce(Action::TogglePublish);
-        let screen = render(&app, 100, 30);
+        let screen = render(&app, 120, 40);
         assert!(screen.contains(":auto"), "{screen}");
     }
 
     #[test]
-    fn a_row_nobody_enabled_says_nothing_about_ports() {
+    fn a_pending_change_is_marked_before_it_is_saved() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
+        let mut app = App::new(&registry, &state);
+        let columns = columns(118, false);
+
+        // The first row is the one the project already runs; turning it off is
+        // a removal, not an absence.
+        app.reduce(Action::Toggle);
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, &columns, true, &theme());
+        assert_eq!(line.spans[1].content, "- ");
+        assert_eq!(line.spans[1].style, theme().bad_style());
+        assert!(line_text(&line).contains("will be disabled"), "{line:?}");
+
+        // And back on again is no change at all.
+        app.reduce(Action::Toggle);
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, &columns, true, &theme());
+        assert_eq!(line.spans[1].content, "✓ ");
+        assert!(
+            line_text(&line).contains("internal"),
+            "a row toggled off and on again comes back without its port"
+        );
+
+        // A row the project never had reads as an addition.
+        let mut fresh = App::new(&registry, &ProjectState::default());
+        fresh.reduce(Action::Toggle);
+        let row = fresh.selected().expect("a row is selected");
+        let line = row_line(&fresh, row, &columns, true, &theme());
+        assert_eq!(line.spans[1].content, "+ ");
+        assert_eq!(line.spans[1].style, theme().ok_style());
+        assert!(line_text(&line).contains("will be enabled"));
+    }
+
+    #[test]
+    fn a_row_nobody_enabled_carries_no_mark_and_says_nothing_about_ports() {
         let registry = registry();
         let app = App::new(&registry, &ProjectState::default());
         let row = app.selected().expect("a row is selected");
-        let text = line_text(&row_line(&app, row, 120, &theme()));
+        let line = row_line(&app, row, &columns(118, false), false, &theme());
+        assert_eq!(
+            line.spans[0].content, "   ",
+            "no cursor on an unselected row"
+        );
+        assert_eq!(line.spans[1].content, "  ");
+        let text = line_text(&line);
         assert!(!text.contains("internal"), "{text}");
         assert!(!text.contains(':'), "{text}");
     }
 
     #[test]
-    fn templates_are_marked_when_shown() {
+    fn the_status_column_carries_the_assessment_colour() {
         let registry = registry();
-        let mut app = App::new(&registry, &ProjectState::default());
-        assert!(!render(&app, 100, 30).contains("[template]"));
-        app.reduce(Action::ToggleTemplates);
-        assert!(render(&app, 100, 30).contains("[template]"));
+        let app = App::new(&registry, &ProjectState::default());
+        let row = app.selected().expect("a row is selected");
+        let line = row_line(&app, row, &columns(118, false), true, &theme());
+        let dot = line
+            .spans
+            .iter()
+            .find(|s| s.content.starts_with('●'))
+            .expect("the status column is there");
+        assert_eq!(
+            dot.style,
+            theme().status_style(app.model(row).assessed_status)
+        );
+        assert_eq!(dot.style.fg, Some(theme().warn));
+        assert!(line_text(&line).contains("● orange"));
     }
 
-    /// A model the deployment added itself is marked in the list and named
-    /// as such in the details, so the browser never presents a local
+    /// The strip under the table is what the details pane used to be: the one
+    /// row the cursor is on, in three lines.
+    #[test]
+    fn the_summary_strip_describes_the_row_under_the_cursor() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let lines = summary_lines(&app, 118, &theme());
+        assert_eq!(lines.len(), 3);
+
+        let head = line_text(&lines[0]);
+        assert!(head.starts_with("CHAP-EWARS"), "{head}");
+        assert!(head.contains("1.0.2 (sha-"), "{head}");
+        assert!(head.contains("not enabled"), "{head}");
+        assert!(head.ends_with("i for details"), "{head}");
+        assert_eq!(head.chars().count(), 118, "the hint is right-aligned");
+
+        let summary = line_text(&lines[1]);
+        assert!(summary.starts_with("Bayesian hierarchical"), "{summary}");
+        assert!(summary.chars().count() <= 118);
+
+        let needs = line_text(&lines[2]);
+        assert!(needs.contains("requires population"), "{needs}");
+        assert!(needs.contains("defaults rainfall"), "{needs}");
+        assert!(needs.contains("monthly"), "{needs}");
+        assert!(needs.contains("horizon 0 to 100 periods"), "{needs}");
+    }
+
+    /// With something unsaved, the strip stops describing a model and starts
+    /// listing what saving would write.
+    #[test]
+    fn pending_changes_replace_the_summary_strip() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::Toggle);
+        app.reduce(Action::Down);
+        app.reduce(Action::Toggle);
+
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("2 pending changes"), "{screen}");
+        assert!(
+            screen.contains("nothing is written until you save"),
+            "{screen}"
+        );
+        let removed = line_with(&screen, "the data volume");
+        assert!(removed.contains("- CHAP-EWARS"), "{removed}");
+        assert!(removed.contains("the data volume is kept"), "{removed}");
+        let added = line_with(&screen, "enable at");
+        assert!(added.contains("+ "), "{added}");
+        assert!(added.contains("internal (no host port)"), "{added}");
+        assert!(!screen.contains("i for details"), "{screen}");
+        // And the header counts them, in the colour that says "unsaved".
+        assert!(screen.contains("2 pending"), "{screen}");
+    }
+
+    /// A port change is not an enable, and the strip says which it is.
+    #[test]
+    fn a_changed_port_is_listed_as_an_update() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::TogglePublish);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("1 pending change "), "{screen}");
+        let line = line_with(&screen, "publish a host port");
+        assert!(line.contains("+ CHAP-EWARS"), "{line}");
+    }
+
+    #[test]
+    fn the_details_overlay_opens_closes_and_scrolls() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
+        let mut app = App::new(&registry, &state);
+        assert!(!render(&app, 120, 40).contains("data dir"));
+
+        app.reduce(Action::Info);
+        let screen = render(&app, 120, 40);
+        // Everything the old pane held is here.
+        for needle in [
+            "http://localhost:5001",
+            "channel stable",
+            "ghcr.io/chap-models/chapkit_ewars_model:sha-",
+            "amd64 only",
+            "/app/data",
+            "chapkit:chapkit",
+            "Bayesian hierarchical",
+            "covariates",
+            "horizon 0 to 100 periods",
+            "verified",
+            "maintainers",
+            "author",
+            "github.com/chap-models/chapkit_ewars_model",
+            "enabled in this project",
+        ] {
+            assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
+        }
+        assert!(screen.contains("[esc] close"), "{screen}");
+        assert!(screen.contains("[o] open repository"), "{screen}");
+        assert!(screen.contains("[c] image ref"), "{screen}");
+
+        // A short terminal cannot hold it all, so j and k move it.
+        let short = render(&app, 80, 24);
+        assert!(short.contains("reach"), "{short}");
+        assert!(app.info_max.get() > 0, "the overlay has more to show");
+        app.reduce(Action::Down);
+        app.reduce(Action::Down);
+        assert_eq!(app.info_scroll, 2);
+        let scrolled = render(&app, 80, 24);
+        assert_ne!(scrolled, short, "j scrolled the overlay");
+        assert!(!scrolled.contains("reach       http"), "{scrolled}");
+
+        // It never scrolls past the end, and it comes back.
+        for _ in 0..50 {
+            app.reduce(Action::Down);
+        }
+        render(&app, 80, 24);
+        assert_eq!(app.info_scroll, app.info_max.get());
+        app.reduce(Action::Top);
+        assert_eq!(app.info_scroll, 0);
+
+        app.reduce(Action::Info);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(!render(&app, 120, 40).contains("data dir"));
+    }
+
+    #[test]
+    fn the_palette_filters_and_runs_a_command() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        app.reduce(Action::Palette);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("Commands"), "{screen}");
+        assert!(screen.contains("› _"), "{screen}");
+        assert!(
+            screen.contains(&format!("{0} of {0} commands", app.commands().len())),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Refresh registry"),
+            "the strip lists them all"
+        );
+
+        for c in "po".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("› po_"), "{screen}");
+        assert!(
+            screen.contains("Set a host port for CHAP-EWARS"),
+            "{screen}"
+        );
+        assert!(screen.contains("Remove the host port"), "{screen}");
+        assert!(
+            !screen.contains("Show or hide templates"),
+            "the filter narrowed the list:\n{screen}"
+        );
+        assert!(
+            screen.contains(&format!(
+                "{} of {} commands",
+                app.palette_matches().len(),
+                app.commands().len()
+            )),
+            "{screen}"
+        );
+
+        // Typing something no command holds says so rather than showing an
+        // empty box.
+        app.reduce(Action::PaletteChar('z'));
+        assert!(render(&app, 120, 40).contains("no command matches"));
+        app.reduce(Action::PaletteBackspace);
+
+        // Enter runs what the cursor is on, and the palette closes.
+        let mut app = App::new(&registry, &ProjectState::default());
+        app.reduce(Action::Palette);
+        for c in "enable or".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        assert_eq!(app.palette_matches().len(), 1);
+        app.reduce(Action::PaletteRun);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(app.palette_query.is_empty());
+        assert!(
+            app.selected().expect("a row").enabled,
+            "the row was toggled"
+        );
+        assert!(render(&app, 120, 40).contains("will be enabled"));
+    }
+
+    #[test]
+    fn the_footer_follows_what_is_pending_and_what_is_filtered() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        // Wide enough for the whole bar, in the order the design gives.
+        let wide = render(&app, 150, 40);
+        let bar = wide.lines().last().expect("the bar is the last line");
+        let order: Vec<&str> = [
+            "[j/k] move",
+            "[space] toggle",
+            "[i] info",
+            "[p] port",
+            "[v] channel",
+            "[t] templates",
+            "[/] filter",
+            "[s] save",
+            "[ctrl+k] commands",
+            "[?] help",
+            "[q] quit",
+        ]
+        .into_iter()
+        .collect();
+        let mut at = 0;
+        for entry in &order {
+            let found = bar[at..]
+                .find(entry)
+                .unwrap_or_else(|| panic!("{entry} is missing or out of order:\n{bar}"));
+            at += found + entry.len();
+        }
+
+        // At a hundred and twenty the display toggles give way first.
+        let plain = render(&app, 120, 40);
+        assert!(plain.contains("[j/k] move"), "{plain}");
+        assert!(plain.contains("[p] port"), "{plain}");
+        assert!(plain.contains("[ctrl+k] commands"), "{plain}");
+        assert!(plain.contains("[s] save"), "{plain}");
+        assert!(!plain.contains("[u] discard"), "{plain}");
+        assert!(!plain.contains("[t] templates"), "{plain}");
+
+        app.reduce(Action::Toggle);
+        let pending = render(&app, 150, 40);
+        assert!(pending.contains("[s] save 1 change "), "{pending}");
+        assert!(pending.contains("[u] discard"), "{pending}");
+
+        app.reduce(Action::StartFilter);
+        for c in "arima".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        app.reduce(Action::FilterDone);
+        let filtered = render(&app, 150, 40);
+        assert!(filtered.contains("[esc] clear filter"), "{filtered}");
+        assert!(!filtered.contains("[t] templates"), "{filtered}");
+        assert!(!filtered.contains("[/] filter"), "{filtered}");
+    }
+
+    /// The save chip is filled rather than written, so it is the one thing on
+    /// the bar that cannot be mistaken for another key.
+    #[test]
+    fn the_save_chip_is_filled_when_there_is_something_to_save() {
+        let theme = theme();
+        let hints = keys::keybar(Mode::Browse, 2, false);
+        let spans = keybar(&hints, 200, &theme);
+        let chip = spans
+            .iter()
+            .find(|span| span.content.contains("save 2 changes"))
+            .expect("the chip is on the bar");
+        assert_eq!(chip.style, theme.chip_style());
+        assert_eq!(chip.style.bg, Some(theme.warn));
+
+        // And the bar gives up the least useful keys before it overflows.
+        let narrow = keybar(&hints, 44, &theme);
+        let text: String = narrow.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.chars().count() <= 44, "{text}");
+        assert!(text.contains("save 2 changes"), "{text}");
+        assert!(text.contains("move"), "{text}");
+        assert!(!text.contains("channel"), "{text}");
+    }
+
+    #[test]
+    fn filter_mode_shows_what_is_being_typed_in_the_title() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        app.reduce(Action::StartFilter);
+        for c in "ewars".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        let screen = render(&app, 120, 40);
+        assert!(
+            screen.contains("chaps · models · filter ewars_"),
+            "{screen}"
+        );
+        assert!(screen.contains("CHAP-EWARS"));
+        assert!(screen.contains("1 of 7 match \"ewars\""), "{screen}");
+        assert!(screen.contains("[esc] clear"), "{screen}");
+    }
+
+    #[test]
+    fn templates_and_manual_entries_get_a_kind_column() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        let screen = render(&app, 120, 40);
+        assert!(!screen.contains("KIND"), "{screen}");
+
+        app.reduce(Action::ToggleTemplates);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("KIND"), "{screen}");
+        assert!(screen.contains("template"), "{screen}");
+        let row = line_with(&screen, "CHAP-EWARS  ");
+        let head = line_with(&screen, "MODEL");
+        assert_eq!(column_of(head, "KIND"), column_of(row, "model "));
+    }
+
+    /// A model the deployment added itself is marked in the table and named
+    /// as such in the overlay, so the browser never presents a local
     /// definition as a reviewed marketplace entry.
     #[test]
     fn a_manually_added_model_is_marked_and_named() {
@@ -798,19 +1758,24 @@ mod tests {
         assert!(registry.with_manual(&state.manual).is_empty());
 
         let mut app = App::new(&registry, &state);
-        let screen = render(&app, 100, 30);
-        assert!(screen.contains("[manual]"), "{screen}");
-        assert!(!screen.contains("[template]"), "{screen}");
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("KIND"), "{screen}");
+        let row = line_with(&screen, "example_manual_model");
+        assert!(row.contains("manual "), "{row}");
+        assert!(!row.contains("template"), "{row}");
 
-        // The details pane of that row says what kind of entry it is.
+        // The overlay for that row says what kind of entry it is.
         while app.selected().map(|row| app.model(row).id.as_str()) != Some("example_manual_model") {
             app.reduce(Action::Down);
         }
-        let screen = render(&app, 100, 30);
-        assert!(screen.contains("manual (added with `chaps"), "{screen}");
         // The row shows the tag as the tag, not as a version number.
+        let screen = render(&app, 120, 40);
         assert!(screen.contains("sha-b1"), "{screen}");
         assert!(!screen.contains("vsha-"), "{screen}");
+
+        app.reduce(Action::Info);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("manual (added with `chaps"), "{screen}");
         assert!(
             screen.contains("ghcr.io/example/example_manual_model:sha-"),
             "{screen}"
@@ -825,6 +1790,8 @@ mod tests {
         let screen = render(&app, 100, 30);
         assert!(screen.contains("Keys"));
         assert!(screen.contains("enable or disable the model"));
+        assert!(screen.contains("the command palette"), "{screen}");
+        assert!(screen.contains("discard the pending changes"), "{screen}");
         assert!(screen.contains('╭'));
 
         let mut app = App::new(&registry, &ProjectState::default());
@@ -837,36 +1804,6 @@ mod tests {
     }
 
     #[test]
-    fn filter_mode_shows_what_is_being_typed() {
-        let registry = registry();
-        let mut app = App::new(&registry, &ProjectState::default());
-        app.reduce(Action::StartFilter);
-        for c in "ewars".chars() {
-            app.reduce(Action::FilterChar(c));
-        }
-        let screen = render(&app, 100, 30);
-        assert!(screen.contains("filter: ewars"));
-        assert!(screen.contains("CHAP-EWARS"));
-        assert!(screen.contains("Esc clear"), "{screen}");
-    }
-
-    #[test]
-    fn the_key_bar_changes_with_the_mode_and_paints_the_keys() {
-        let theme = theme();
-        let browse = keybar(Mode::Browse, &theme);
-        assert_eq!(browse[0].content, "j/k");
-        assert_eq!(browse[0].style, theme.accent_style());
-        assert_eq!(browse[2].style, theme.dim_style());
-
-        let confirm = keybar(Mode::ConfirmQuit, &theme);
-        assert_eq!(confirm[0].content, "y");
-        assert!(
-            line_text(&Line::from(confirm)).contains("discard the changes"),
-            "the bar says what the mode is about"
-        );
-    }
-
-    #[test]
     fn an_empty_filter_result_still_draws() {
         let registry = registry();
         let mut app = App::new(&registry, &ProjectState::default());
@@ -874,8 +1811,12 @@ mod tests {
         for c in "zzzz".chars() {
             app.reduce(Action::FilterChar(c));
         }
-        let screen = render(&app, 100, 30);
+        let screen = render(&app, 120, 40);
         assert!(screen.contains("nothing matches this filter"));
+        // And `i` has nothing to open.
+        app.reduce(Action::FilterDone);
+        app.reduce(Action::Info);
+        assert_eq!(app.mode, Mode::Browse);
     }
 
     #[test]
@@ -886,15 +1827,41 @@ mod tests {
             let screen = render(&app, width, height);
             assert!(screen.contains("chaps · models"), "{width}x{height}");
             assert!(screen.contains("Marketplace"), "{width}x{height}");
-            assert!(screen.contains("Details"), "{width}x{height}");
             assert!(screen.contains("CHAP-EWARS"), "{width}x{height}");
-            assert!(screen.contains("space toggle"), "{width}x{height}");
+            assert!(screen.contains("[space] toggle"), "{width}x{height}");
             assert_eq!(
                 screen.lines().count(),
                 height as usize,
                 "the frame fills the terminal exactly"
             );
+            for line in screen.lines() {
+                assert_eq!(
+                    line.chars().count(),
+                    width as usize,
+                    "a line overflowed at {width}x{height}:\n{screen}"
+                );
+            }
         }
+    }
+
+    /// Eighty columns is the terminal chaps has to assume: the id gives way
+    /// first, marked, and the strip's lines are cut rather than wrapped.
+    #[test]
+    fn eighty_columns_truncates_the_id_and_the_strip() {
+        let registry = registry();
+        let app = App::new(&registry, &ProjectState::default());
+        let screen = render(&app, 80, 24);
+        let row = line_with(&screen, "Rwanda Malaria BYM");
+        assert!(row.contains("chapkit_rwanda~"), "{row}");
+        assert!(!row.contains("chapkit_rwanda_malaria_bym_model"), "{row}");
+        assert!(screen.contains("● gray"), "the status column survives");
+
+        let summary = line_with(&screen, "Bayesian hierarchical");
+        assert!(
+            summary.ends_with("~│"),
+            "the strip is cut, not wrapped: {summary}"
+        );
+        assert_eq!(summary.chars().count(), 80);
     }
 
     #[test]
@@ -916,6 +1883,24 @@ mod tests {
     }
 
     #[test]
+    fn a_cached_catalogue_says_how_old_it_is() {
+        assert_eq!(
+            registry_label(&Provenance::Cache { age_secs: 120 }),
+            "registry: cache · 2 min"
+        );
+        assert_eq!(
+            registry_label(&Provenance::StaleCache { age_secs: 172_800 }),
+            "registry: stale cache · 2 d"
+        );
+        assert_eq!(registry_label(&Provenance::Network), "registry: network");
+        assert_eq!(registry_label(&Provenance::Embedded), "registry: embedded");
+        assert_eq!(short_age(0), "0 sec");
+        assert_eq!(short_age(59), "59 sec");
+        assert_eq!(short_age(60), "1 min");
+        assert_eq!(short_age(7200), "2 hr");
+    }
+
+    #[test]
     fn a_monochrome_theme_draws_the_same_shape_without_colour() {
         let registry = registry();
         let state = state_with_ewars(&registry, Some(5001));
@@ -928,43 +1913,58 @@ mod tests {
 
         let mono = Theme::monochrome();
         let row = app.selected().expect("a row is selected");
-        let line = row_line(&app, row, 120, &mono);
+        let line = row_line(&app, row, &columns(98, false), true, &mono);
         assert!(line.spans.iter().all(|s| s.style.fg.is_none()));
         assert_ne!(
-            line.spans[0].style,
+            line.spans[1].style,
             ratatui::style::Style::default(),
             "the tick still stands out"
         );
     }
 
-    fn line_text(line: &Line) -> String {
-        line.spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect()
-    }
-
     #[test]
-    fn narrow_rows_drop_columns_instead_of_wrapping() {
-        let registry = registry();
-        let app = App::new(&registry, &ProjectState::default());
-        let row = app.selected().expect("a row is selected");
+    fn narrow_tables_drop_columns_instead_of_wrapping() {
+        // Wide enough for everything, with the id capped so a wide terminal
+        // does not push the columns apart.
+        let wide = columns(160, false);
+        assert_eq!(wide.id, ID_MAX);
+        assert_eq!(wide.status, STATUS_W);
+        assert_eq!(wide.enabled, ENABLED_W);
+        assert_eq!(wide.kind, 0);
 
-        let wide = line_text(&row_line(&app, row, 120, &theme()));
-        assert!(wide.contains("CHAP-EWARS"));
-        assert!(
-            wide.contains("chapkit_ewars_model"),
-            "the id fits when wide"
-        );
-        assert!(wide.contains("orange"), "the assessed status has a column");
+        assert_eq!(columns(160, true).kind, KIND_W);
 
-        let narrow = line_text(&row_line(&app, row, 30, &theme()));
-        assert!(narrow.contains("CHAP-EWARS"), "the name always fits");
-        assert!(
-            !narrow.contains("chapkit_ewars_model"),
-            "the id column drops out of a narrow pane"
-        );
-        assert!(!narrow.contains("orange"), "so does the status column");
+        // Eighty columns: everything, with a shorter id.
+        let eighty = columns(78, false);
+        assert!(eighty.id >= ID_MIN, "{eighty:?}");
+        assert!(eighty.id < ID_MAX);
+        assert_eq!(eighty.enabled, ENABLED_W);
+
+        // Sixty: the id goes first, then the enabled column narrows.
+        let sixty = columns(58, false);
+        assert_eq!(sixty.id, 0, "{sixty:?}");
+        assert_eq!(sixty.version, VERSION_W);
+        assert_eq!(sixty.status, STATUS_W);
+
+        // Tiny: the name and nothing else, and never a width below zero.
+        let tiny = columns(20, false);
+        assert_eq!(tiny.id, 0);
+        assert_eq!(tiny.status, 0);
+        assert_eq!(tiny.model, 15);
+        assert_eq!(columns(0, true), columns(0, false));
+
+        for inner in 0..200usize {
+            let c = columns(inner, inner % 2 == 0);
+            let used = MARKER_W
+                + [c.model, c.kind, c.id, c.status, c.version, c.enabled]
+                    .iter()
+                    .map(|w| if *w > 0 { w + 1 } else { 0 })
+                    .sum::<usize>();
+            assert!(
+                used <= inner.max(MARKER_W) + 1,
+                "{inner}: {c:?} needs {used}"
+            );
+        }
     }
 
     #[test]
@@ -986,15 +1986,34 @@ mod tests {
             render_with(&app, width, height, &Theme::monochrome());
         }
         // Overlays are the easiest thing to draw outside a tiny screen.
-        app.reduce(Action::Help);
-        for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
-            render(&app, width, height);
+        for action in [Action::Help, Action::Info, Action::Palette] {
+            let mut app = App::new(&registry, &ProjectState::default());
+            app.reduce(action);
+            for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
+                render(&app, width, height);
+            }
         }
-        app.reduce(Action::Help);
         app.reduce(Action::Toggle);
         app.reduce(Action::Quit);
         for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
             render(&app, width, height);
+        }
+    }
+
+    #[test]
+    fn the_box_gives_up_its_rules_before_its_rows() {
+        // Roomy: headings, two rules, a three-line strip.
+        assert_eq!(split_body(20, 3), [1, 1, 14, 1, 3]);
+        // Tight: the rules go, then the strip, then the headings.
+        assert_eq!(split_body(7, 3), [1, 1, 1, 1, 3]);
+        assert_eq!(split_body(5, 3), [1, 0, 1, 0, 3]);
+        assert_eq!(split_body(2, 3), [0, 0, 1, 0, 1]);
+        assert_eq!(split_body(1, 3), [0, 0, 1, 0, 0]);
+        assert_eq!(split_body(0, 3), [0, 0, 0, 0, 0]);
+        for h in 0..40u16 {
+            for want in 0..8u16 {
+                assert_eq!(split_body(h, want).iter().sum::<u16>(), h, "{h}/{want}");
+            }
         }
     }
 
@@ -1007,6 +2026,51 @@ mod tests {
         assert_eq!(fit("", 3), "   ");
         // Multi-byte characters must not be cut in half.
         assert_eq!(fit("æøå-modell", 6).chars().count(), 6);
+        assert_eq!(fit_soft("ab", 4), "ab");
+        assert_eq!(fit_soft("abcdef", 4), "abc~");
+    }
+
+    #[test]
+    fn truncating_a_line_marks_where_it_was_cut() {
+        let theme = theme();
+        let spans = || {
+            vec![
+                Span::raw("requires population"),
+                Span::styled("   defaults ", theme.dim_style()),
+                Span::raw("rainfall"),
+            ]
+        };
+        let mut line = spans();
+        truncate(&mut line, 100);
+        assert_eq!(width_of(&line), 39, "nothing to cut, nothing cut");
+
+        let mut line = spans();
+        truncate(&mut line, 24);
+        let text: String = line.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text.chars().count(), 24);
+        assert!(text.ends_with('~'), "{text}");
+
+        // A cut that lands exactly on a span boundary still marks itself.
+        let mut line = spans();
+        truncate(&mut line, 19);
+        let text: String = line.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "requires populatio~");
+
+        let mut line = spans();
+        truncate(&mut line, 0);
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    fn wrapping_breaks_on_spaces_and_then_on_anything() {
+        assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
+        assert_eq!(wrap("", 10), Vec::<String>::new());
+        assert_eq!(wrap("word", 0), Vec::<String>::new());
+        // A word longer than the line is broken rather than dropped.
+        assert_eq!(wrap("abcdefgh", 3), vec!["abc", "def", "gh"]);
+        for line in wrap("a very long sentence about models and ports", 11) {
+            assert!(line.chars().count() <= 11, "{line}");
+        }
     }
 
     #[test]

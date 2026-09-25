@@ -72,6 +72,10 @@ const ABOUT: &str = "deploy and manage CHAP, the Climate Health Analytics Platfo
 /// the book, so the help points at it instead of repeating it.
 pub const DOCS_LINE: &str = "Docs: https://winterop-com.github.io/chaps/";
 
+/// The book itself, for the places that open it rather than print it. A test
+/// keeps it and [`DOCS_LINE`] pointing at the same place.
+pub const DOCS_URL: &str = "https://winterop-com.github.io/chaps/";
+
 /// The heading the global options are listed under, in their own block after
 /// each command's own options.
 const GLOBAL: &str = "Global options";
@@ -1120,6 +1124,13 @@ mod tests {
     #[test]
     fn command_tree_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    /// The help line and the URL the browser opens must not drift apart.
+    #[test]
+    fn the_help_line_points_at_the_documentation_url() {
+        assert!(DOCS_LINE.ends_with(DOCS_URL), "{DOCS_LINE} vs {DOCS_URL}");
+        assert!(DOCS_URL.ends_with('/'), "a chapter is appended to it");
     }
 
     /// Asking for help is not asking for the manual: the explanations live in

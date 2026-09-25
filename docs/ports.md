@@ -39,7 +39,8 @@ while enabling.
 
 `chaps models list` and `chaps status` show either the port or `internal`, and
 `chaps models info ID` prints the proxy URL for an internal-only model. In
-`chaps ui`, `p` toggles publishing for the row under the cursor.
+`chaps ui`, `p` toggles publishing for the row under the cursor, and the
+command palette has it in both directions.
 
 Model ports come from the range 5001 to 5999, with 5001 the default lowest
 (`init --port-base` moves it). A port has to be free twice over: unclaimed by

@@ -11,6 +11,7 @@
 use crate::compose::{EnableRequest, PortRequest, Selection};
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Channel, Model, Registry, Version, VersionSelector};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 /// Rows a page key moves the cursor by.
@@ -25,6 +26,15 @@ pub const TEMPLATE_HIDDEN_HINT: &str = "press t to show templates first";
 /// Footer note shown when `p` is pressed on a row that is not enabled.
 pub const PUBLISH_NEEDS_ENABLED_HINT: &str = "enable the model first (space), then press p";
 
+/// Footer note shown when `u` is pressed with nothing to discard.
+pub const NOTHING_TO_DISCARD_HINT: &str = "there is nothing to discard";
+
+/// Footer note shown after `u` threw the pending changes away.
+pub const DISCARDED_HINT: &str = "the pending changes are gone; nothing was written";
+
+/// The documentation the palette's "open the documentation" opens.
+pub const DOCS_CHAPTER: &str = "models.html";
+
 /// Which sub-state the browser is in; it decides both key mapping and what is
 /// drawn on top of the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +43,10 @@ pub enum Mode {
     Filter,
     ConfirmQuit,
     Help,
+    /// The full details of the row under the cursor, on top of the list.
+    Info,
+    /// The command palette.
+    Palette,
 }
 
 /// Everything the browser can be asked to do, independent of key bindings.
@@ -53,6 +67,22 @@ pub enum Action {
     FilterBackspace,
     FilterDone,
     FilterCancel,
+    /// Esc in the list: drop an active filter, or leave when there is none.
+    ClearFilterOrQuit,
+    /// Open the details overlay, or close it again.
+    Info,
+    /// Open the command palette.
+    Palette,
+    PaletteChar(char),
+    PaletteBackspace,
+    /// Run the command under the palette's cursor.
+    PaletteRun,
+    /// Throw the pending changes away.
+    Discard,
+    /// Hand the selected model's repository to the platform opener.
+    OpenRepository,
+    /// Put the selected model's image reference on the status line.
+    ImageRef,
     Save,
     Quit,
     ConfirmYes,
@@ -68,6 +98,18 @@ pub enum Outcome {
     Save,
     /// Leave the project untouched.
     Quit,
+}
+
+/// Something the reducer cannot do itself because it leaves the process.
+///
+/// The reducer stays pure by recording the wish; [`crate::tui::run_tui`] is
+/// what actually spawns an opener or goes back to the marketplace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Effect {
+    /// Hand this URL to the platform's opener.
+    Open(String),
+    /// Re-fetch the catalogue, the way `chaps registry update` does.
+    Refresh,
 }
 
 /// One catalogue entry as the browser tracks it.
@@ -95,6 +137,58 @@ pub struct Counts {
     pub pending: usize,
 }
 
+/// What one pending change would do, as the summary strip lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    /// A model this project does not run yet.
+    Add,
+    /// A model it runs, with a different channel or host port.
+    Update,
+    /// A model it runs and would stop running.
+    Remove,
+}
+
+/// One line of the pending strip: the mark, the model, and what saving does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    pub kind: ChangeKind,
+    pub name: String,
+    pub detail: String,
+}
+
+/// One command the palette can run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandId {
+    Toggle,
+    SetPort,
+    RemovePort,
+    SetChannel,
+    Templates,
+    Filter,
+    Save,
+    Discard,
+    Refresh,
+    Repository,
+    Docs,
+    Help,
+    Quit,
+}
+
+/// A palette entry: what it says, what key does the same thing, and where the
+/// filter matched it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    pub id: CommandId,
+    /// The whole line, with the selected model named where that helps.
+    pub label: String,
+    /// The key that does the same thing from the list, or `""`.
+    pub key: &'static str,
+    /// The name the palette's own footer strip lists it under.
+    pub short: &'static str,
+    /// Where the filter matched `label`, as character offsets.
+    pub hit: Option<(usize, usize)>,
+}
+
 /// The browser's whole state.
 pub struct App<'a> {
     pub registry: &'a Registry,
@@ -112,6 +206,16 @@ pub struct App<'a> {
     pub dirty: bool,
     /// Transient footer note, cleared by the next action.
     pub message: Option<String>,
+    /// First line of the details overlay that is on screen.
+    pub info_scroll: usize,
+    /// How far the overlay can scroll, which only the renderer knows because
+    /// it depends on the terminal's size. The one thing drawing writes.
+    pub info_max: Cell<usize>,
+    pub palette_query: String,
+    /// Index into [`App::palette_matches`].
+    pub palette_cursor: usize,
+    /// What the reducer wants the caller to do outside the terminal.
+    pub effect: Option<Effect>,
 }
 
 impl<'a> App<'a> {
@@ -150,9 +254,19 @@ impl<'a> App<'a> {
             initial: state.models.clone(),
             dirty: false,
             message: None,
+            info_scroll: 0,
+            info_max: Cell::new(0),
+            palette_query: String::new(),
+            palette_cursor: 0,
+            effect: None,
         };
         app.refilter();
         app
+    }
+
+    /// What the reducer asked the caller to do, once.
+    pub fn take_effect(&mut self) -> Option<Effect> {
+        self.effect.take()
     }
 
     /// Apply one action. `Some(_)` ends the browser.
@@ -164,8 +278,61 @@ impl<'a> App<'a> {
             Mode::Help => self.reduce_help(action),
             Mode::ConfirmQuit => self.reduce_confirm(action),
             Mode::Filter => self.reduce_filter(action),
+            Mode::Info => self.reduce_info(action),
+            Mode::Palette => self.reduce_palette(action),
             Mode::Browse => self.reduce_browse(action),
         }
+    }
+
+    /// The details overlay: it scrolls, it opens a repository, and it closes.
+    fn reduce_info(&mut self, action: Action) -> Option<Outcome> {
+        let last = self.info_max.get();
+        match action {
+            Action::Info | Action::Quit | Action::FilterCancel => {
+                self.mode = Mode::Browse;
+                self.info_scroll = 0;
+            }
+            Action::Down => self.info_scroll = (self.info_scroll + 1).min(last),
+            Action::Up => self.info_scroll = self.info_scroll.saturating_sub(1),
+            Action::PageDown => self.info_scroll = (self.info_scroll + PAGE_JUMP).min(last),
+            Action::PageUp => self.info_scroll = self.info_scroll.saturating_sub(PAGE_JUMP),
+            Action::Top => self.info_scroll = 0,
+            Action::Bottom => self.info_scroll = last,
+            Action::OpenRepository => self.open_repository(),
+            Action::ImageRef => self.show_image_ref(),
+            _ => {}
+        }
+        None
+    }
+
+    /// The command palette: type to narrow, Enter to run, Esc to leave.
+    fn reduce_palette(&mut self, action: Action) -> Option<Outcome> {
+        match action {
+            Action::PaletteChar(c) => {
+                self.palette_query.push(c);
+                self.palette_cursor = 0;
+            }
+            Action::PaletteBackspace => {
+                self.palette_query.pop();
+                self.palette_cursor = 0;
+            }
+            Action::Down => {
+                let last = self.palette_matches().len().saturating_sub(1);
+                self.palette_cursor = (self.palette_cursor + 1).min(last);
+            }
+            Action::Up => self.palette_cursor = self.palette_cursor.saturating_sub(1),
+            Action::PaletteRun => return self.run_command(),
+            Action::Palette | Action::FilterCancel => self.close_palette(),
+            Action::Quit => return Some(Outcome::Quit),
+            _ => {}
+        }
+        None
+    }
+
+    fn close_palette(&mut self) {
+        self.mode = Mode::Browse;
+        self.palette_query.clear();
+        self.palette_cursor = 0;
     }
 
     fn reduce_help(&mut self, action: Action) -> Option<Outcome> {
@@ -178,6 +345,151 @@ impl<'a> App<'a> {
             self.mode = Mode::Browse;
         }
         None
+    }
+
+    /// Run the command under the palette's cursor, then leave the palette.
+    fn run_command(&mut self) -> Option<Outcome> {
+        let command = self.palette_matches().get(self.palette_cursor).cloned()?;
+        self.close_palette();
+        match command.id {
+            CommandId::Toggle => self.toggle(),
+            CommandId::SetPort => self.set_publish(true),
+            CommandId::RemovePort => self.set_publish(false),
+            CommandId::SetChannel => self.cycle_channel(),
+            CommandId::Templates => {
+                self.show_templates = !self.show_templates;
+                self.refilter();
+            }
+            CommandId::Filter => self.mode = Mode::Filter,
+            CommandId::Save => return Some(Outcome::Save),
+            CommandId::Discard => self.discard(),
+            CommandId::Refresh => self.effect = Some(Effect::Refresh),
+            CommandId::Repository => self.open_repository(),
+            CommandId::Docs => {
+                self.effect = Some(Effect::Open(format!(
+                    "{}{DOCS_CHAPTER}",
+                    crate::cli::DOCS_URL
+                )))
+            }
+            CommandId::Help => self.mode = Mode::Help,
+            CommandId::Quit => return self.quit(),
+        }
+        None
+    }
+
+    /// Every command the palette offers, in the order it lists them.
+    ///
+    /// The selected model is named where a command acts on it, so the palette
+    /// reads as a sentence about what is under the cursor rather than as a
+    /// menu of verbs.
+    pub fn commands(&self) -> Vec<Command> {
+        let name = self
+            .selected()
+            .map(|row| self.model(row).display_name.clone())
+            .unwrap_or_else(|| "the selected model".to_string());
+        let entry = |id, label: String, key, short| Command {
+            id,
+            label,
+            key,
+            short,
+            hit: None,
+        };
+        vec![
+            entry(
+                CommandId::Toggle,
+                format!("Enable or disable {name}"),
+                "space",
+                "Toggle model",
+            ),
+            entry(
+                CommandId::SetPort,
+                format!("Set a host port for {name}"),
+                "p",
+                "Set port",
+            ),
+            entry(
+                CommandId::RemovePort,
+                format!("Remove the host port of {name}"),
+                "p",
+                "Remove port",
+            ),
+            entry(
+                CommandId::SetChannel,
+                format!("Set the channel of {name}: stable or latest"),
+                "v",
+                "Set channel",
+            ),
+            entry(
+                CommandId::Templates,
+                "Show or hide templates".to_string(),
+                "t",
+                "Templates",
+            ),
+            entry(
+                CommandId::Filter,
+                "Filter the model list".to_string(),
+                "/",
+                "Filter",
+            ),
+            entry(
+                CommandId::Save,
+                "Save the changes and apply them".to_string(),
+                "s",
+                "Save changes",
+            ),
+            entry(
+                CommandId::Discard,
+                "Discard the pending changes".to_string(),
+                "u",
+                "Discard changes",
+            ),
+            entry(
+                CommandId::Refresh,
+                "Refresh the registry from the marketplace".to_string(),
+                "",
+                "Refresh registry",
+            ),
+            entry(
+                CommandId::Repository,
+                format!("Open the repository of {name}"),
+                "o",
+                "Open repository",
+            ),
+            entry(
+                CommandId::Docs,
+                "Open the chaps documentation".to_string(),
+                "",
+                "Open docs",
+            ),
+            entry(
+                CommandId::Help,
+                "Show every key the browser binds".to_string(),
+                "?",
+                "Help",
+            ),
+            entry(CommandId::Quit, "Quit the browser".to_string(), "q", "Quit"),
+        ]
+    }
+
+    /// The commands the palette's filter leaves, each carrying where it hit.
+    ///
+    /// Case-insensitive substring: enough to find a command by typing a word
+    /// out of the middle of it, and short enough that it cannot surprise.
+    pub fn palette_matches(&self) -> Vec<Command> {
+        let needle = self.palette_query.to_lowercase();
+        self.commands()
+            .into_iter()
+            .filter_map(|mut command| {
+                if needle.is_empty() {
+                    return Some(command);
+                }
+                let haystack = command.label.to_lowercase();
+                let byte = haystack.find(&needle)?;
+                let start = haystack[..byte].chars().count();
+                command.hit = Some((start, start + needle.chars().count()));
+                Some(command)
+            })
+            .collect()
     }
 
     fn reduce_confirm(&mut self, action: Action) -> Option<Outcome> {
@@ -233,18 +545,146 @@ impl<'a> App<'a> {
                 self.refilter();
             }
             Action::StartFilter => self.mode = Mode::Filter,
-            Action::Help => self.mode = Mode::Help,
-            Action::Save => return Some(Outcome::Save),
-            Action::Quit => {
-                if self.dirty {
-                    self.mode = Mode::ConfirmQuit;
-                } else {
-                    return Some(Outcome::Quit);
+            Action::ClearFilterOrQuit => {
+                if self.filter.is_empty() {
+                    return self.quit();
+                }
+                self.filter.clear();
+                self.refilter();
+            }
+            Action::Info => {
+                if self.selected().is_some() {
+                    self.mode = Mode::Info;
+                    self.info_scroll = 0;
                 }
             }
+            Action::Palette => {
+                self.mode = Mode::Palette;
+                self.palette_query.clear();
+                self.palette_cursor = 0;
+            }
+            Action::Discard => {
+                if self.has_changes() {
+                    self.discard();
+                    self.message = Some(DISCARDED_HINT.to_string());
+                } else {
+                    self.message = Some(NOTHING_TO_DISCARD_HINT.to_string());
+                }
+            }
+            Action::OpenRepository => self.open_repository(),
+            Action::ImageRef => self.show_image_ref(),
+            Action::Help => self.mode = Mode::Help,
+            Action::Save => return Some(Outcome::Save),
+            Action::Quit => return self.quit(),
             _ => {}
         }
         None
+    }
+
+    /// Leave, asking first when there is something unsaved to lose.
+    fn quit(&mut self) -> Option<Outcome> {
+        if self.dirty {
+            self.mode = Mode::ConfirmQuit;
+            None
+        } else {
+            Some(Outcome::Quit)
+        }
+    }
+
+    /// Put every row back where the project state had it.
+    fn discard(&mut self) {
+        for row in &mut self.rows {
+            let recorded = self.initial.get(&self.registry.models[row.model_idx].id);
+            row.enabled = recorded.is_some();
+            row.channel = recorded.and_then(|e| e.channel).unwrap_or(Channel::Stable);
+            row.port = recorded.and_then(|e| e.host_port);
+            row.publish = row.port.is_some();
+        }
+        self.dirty = false;
+        self.refilter();
+    }
+
+    /// Ask the caller to open the selected model's repository.
+    fn open_repository(&mut self) {
+        let Some(row) = self.selected() else {
+            return;
+        };
+        let url = self.model(row).source.repository.clone();
+        self.effect = Some(Effect::Open(url));
+    }
+
+    /// Put the selected model's image reference on the status line, where it
+    /// can be read off and copied by hand.
+    fn show_image_ref(&mut self) {
+        let Some(row) = self.selected() else {
+            return;
+        };
+        let model = self.model(row);
+        let reference = match self.resolved(row) {
+            Some(version) => crate::compose::image_ref(&model.source.image, &version.image_tag),
+            None => model.source.image.clone(),
+        };
+        self.message = Some(reference);
+    }
+
+    /// What saving would do, one line per model, for the summary strip.
+    pub fn changes(&self) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for row in &self.rows {
+            let model = self.model(row);
+            let name = model.display_name.clone();
+            match self.initial.get(&model.id) {
+                None => {
+                    if row.enabled {
+                        let version = self
+                            .resolved(row)
+                            .map(|v| v.version.clone())
+                            .unwrap_or_else(|| "-".to_string());
+                        let reach = if row.publish {
+                            "with a host port"
+                        } else {
+                            "internal (no host port)"
+                        };
+                        changes.push(Change {
+                            kind: ChangeKind::Add,
+                            name,
+                            detail: format!("enable at {version}, {reach}"),
+                        });
+                    }
+                }
+                Some(previous) => {
+                    if !row.enabled {
+                        changes.push(Change {
+                            kind: ChangeKind::Remove,
+                            name,
+                            detail: "disable · the data volume is kept".to_string(),
+                        });
+                        continue;
+                    }
+                    let mut moved: Vec<String> = Vec::new();
+                    if row.channel != previous.channel.unwrap_or(Channel::Stable) {
+                        let version = self
+                            .resolved(row)
+                            .map(|v| format!(" ({})", v.version))
+                            .unwrap_or_default();
+                        moved.push(format!("follow {}{version}", row.channel.as_str()));
+                    }
+                    match port_change(row.publish, previous.host_port) {
+                        Some(PortRequest::None) => moved.push("stop publishing a host port".into()),
+                        Some(_) => moved.push("publish a host port".into()),
+                        None => {}
+                    }
+                    if !moved.is_empty() {
+                        changes.push(Change {
+                            kind: ChangeKind::Update,
+                            name,
+                            detail: moved.join(", "),
+                        });
+                    }
+                }
+            }
+        }
+        changes
     }
 
     /// The row under the cursor, if the list is not empty.
@@ -367,12 +807,21 @@ impl<'a> App<'a> {
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
+        let want = !self.rows[row_idx].publish;
+        self.set_publish(want);
+    }
+
+    /// The same, said in one direction: what the palette's two port commands
+    /// ask for, where "set a host port" must not take one away.
+    fn set_publish(&mut self, publish: bool) {
+        let Some(&row_idx) = self.visible.get(self.cursor) else {
+            return;
+        };
         if !self.rows[row_idx].enabled {
             self.message = Some(PUBLISH_NEEDS_ENABLED_HINT.to_string());
             return;
         }
-        let row = &mut self.rows[row_idx];
-        row.publish = !row.publish;
+        self.rows[row_idx].publish = publish;
         self.dirty = self.has_changes();
     }
 
@@ -400,7 +849,7 @@ impl<'a> App<'a> {
 
     /// Recompute [`App::visible`], keeping the cursor on the same row when it
     /// survives the new filter and clamping it into range otherwise.
-    fn refilter(&mut self) {
+    pub fn refilter(&mut self) {
         let keep = self.visible.get(self.cursor).copied();
         let registry = self.registry;
         let needle = self.filter.to_lowercase();
@@ -991,6 +1440,302 @@ mod tests {
         assert!(app.message.is_some());
         app.reduce(Action::Down);
         assert!(app.message.is_none());
+    }
+
+    /// `i` opens the details over the list and swallows the keys that would
+    /// otherwise move it; only scrolling and the way out get through.
+    #[test]
+    fn the_details_overlay_opens_scrolls_within_its_bounds_and_closes() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        app.reduce(Action::Info);
+        assert_eq!(app.mode, Mode::Info);
+        assert_eq!(app.info_scroll, 0);
+
+        // Scrolling is clamped by what the last frame could show.
+        app.info_max.set(3);
+        for _ in 0..10 {
+            app.reduce(Action::Down);
+        }
+        assert_eq!(app.info_scroll, 3, "it never scrolls past the end");
+        app.reduce(Action::Up);
+        assert_eq!(app.info_scroll, 2);
+        app.reduce(Action::Top);
+        assert_eq!(app.info_scroll, 0);
+        app.reduce(Action::Bottom);
+        assert_eq!(app.info_scroll, 3);
+        app.reduce(Action::PageUp);
+        assert_eq!(app.info_scroll, 0);
+
+        // The list underneath is untouched.
+        app.reduce(Action::Toggle);
+        assert!(!app.has_changes(), "toggling is inert behind the overlay");
+
+        app.reduce(Action::FilterCancel);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.info_scroll, 0, "it opens at the top next time");
+
+        // An empty list has nothing to describe, so nothing opens.
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::StartFilter);
+        for c in "zzzz".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        app.reduce(Action::FilterDone);
+        app.reduce(Action::Info);
+        assert_eq!(app.mode, Mode::Browse);
+    }
+
+    /// `o` and `c` are about the model, not about the project: neither writes
+    /// anything, and both say what they did.
+    #[test]
+    fn the_overlay_keys_open_a_repository_and_show_an_image_reference() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+
+        app.reduce(Action::OpenRepository);
+        let expected = registry.get(EWARS).unwrap().source.repository.clone();
+        assert_eq!(app.take_effect(), Some(Effect::Open(expected)));
+        assert!(app.take_effect().is_none(), "an effect is taken once");
+
+        app.reduce(Action::ImageRef);
+        let message = app.message.clone().expect("the reference is on the line");
+        assert!(message.starts_with("ghcr.io/chap-models/chapkit_ewars_model:"));
+        assert!(!app.has_changes());
+    }
+
+    #[test]
+    fn the_palette_narrows_by_substring_and_runs_what_it_matched() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        // A host port is only a question for a model that is enabled.
+        app.reduce(Action::Toggle);
+        app.reduce(Action::Palette);
+        assert_eq!(app.mode, Mode::Palette);
+        assert_eq!(app.palette_matches().len(), app.commands().len());
+        assert_eq!(app.commands().len(), 13);
+
+        for c in "PORT".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        let matched = app.palette_matches();
+        assert_eq!(matched.len(), 2, "case does not matter: {matched:?}");
+        assert_eq!(matched[0].id, CommandId::SetPort);
+        assert_eq!(matched[1].id, CommandId::RemovePort);
+        let (from, to) = matched[0].hit.expect("the match is marked");
+        assert_eq!(
+            matched[0]
+                .label
+                .chars()
+                .skip(from)
+                .take(to - from)
+                .collect::<String>(),
+            "port"
+        );
+        assert!(matched[0].label.contains("CHAP-EWARS"), "{matched:?}");
+
+        // The two port commands are directional, so neither undoes the other.
+        app.reduce(Action::PaletteRun);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(app.palette_query.is_empty());
+        assert!(app.selected().unwrap().publish, "set a host port did that");
+
+        app.reduce(Action::Palette);
+        for c in "set a host".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::PaletteRun);
+        assert!(app.selected().unwrap().publish, "and asking again keeps it");
+
+        app.reduce(Action::Palette);
+        for c in "remove the host".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::PaletteRun);
+        assert!(!app.selected().unwrap().publish);
+    }
+
+    #[test]
+    fn the_palette_moves_backspaces_and_leaves_without_running_anything() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::Palette);
+        for c in "port".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::Down);
+        assert_eq!(app.palette_cursor, 1);
+        app.reduce(Action::Down);
+        assert_eq!(app.palette_cursor, 1, "the cursor stops at the last match");
+        app.reduce(Action::Up);
+        assert_eq!(app.palette_cursor, 0);
+
+        app.reduce(Action::PaletteBackspace);
+        assert_eq!(app.palette_query, "por");
+        app.reduce(Action::FilterCancel);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(app.palette_query.is_empty());
+        assert!(!app.has_changes(), "leaving the palette runs nothing");
+
+        // A query nothing matches runs nothing either.
+        app.reduce(Action::Palette);
+        for c in "zzzz".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        for c in "zzzz".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        assert!(app.palette_matches().is_empty());
+        assert!(app.reduce(Action::PaletteRun).is_none());
+        assert_eq!(app.mode, Mode::Palette);
+    }
+
+    /// The commands that leave the terminal do not do it themselves: they ask
+    /// the caller, which is what keeps the reducer pure.
+    #[test]
+    fn the_palette_asks_the_caller_for_the_things_it_cannot_do() {
+        let registry = registry();
+        let run = |query: &str| {
+            let mut app = App::new(&registry, &empty_state());
+            app.reduce(Action::Palette);
+            for c in query.chars() {
+                app.reduce(Action::PaletteChar(c));
+            }
+            assert_eq!(app.palette_matches().len(), 1, "{query} is ambiguous");
+            let outcome = app.reduce(Action::PaletteRun);
+            (app.effect.clone(), app.mode, outcome)
+        };
+
+        assert_eq!(run("refresh the registry").0, Some(Effect::Refresh));
+        assert_eq!(
+            run("chaps documentation").0,
+            Some(Effect::Open(format!(
+                "{}{DOCS_CHAPTER}",
+                crate::cli::DOCS_URL
+            )))
+        );
+        assert!(matches!(
+            run("open the repository").0,
+            Some(Effect::Open(_))
+        ));
+        assert_eq!(run("every key").1, Mode::Help);
+        assert_eq!(run("filter the model").1, Mode::Filter);
+        assert_eq!(run("save the changes").2, Some(Outcome::Save));
+        assert_eq!(run("quit the browser").2, Some(Outcome::Quit));
+        assert!(run("show or hide").0.is_none());
+    }
+
+    #[test]
+    fn discarding_puts_every_row_back_where_the_project_had_it() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), Some(5001));
+        let mut app = App::new(&registry, &state);
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        focus(&mut app, ARIMA);
+        app.reduce(Action::Toggle);
+        app.reduce(Action::CycleChannel);
+        assert_eq!(app.counts().pending, 2);
+
+        app.reduce(Action::Discard);
+        assert_eq!(app.message.as_deref(), Some(DISCARDED_HINT));
+        assert!(!app.has_changes());
+        assert!(!app.dirty);
+        focus(&mut app, EWARS);
+        assert!(app.selected().unwrap().enabled);
+        assert_eq!(app.selected().unwrap().port, Some(5001));
+        assert!(app.selected().unwrap().publish);
+        focus(&mut app, ARIMA);
+        assert!(!app.selected().unwrap().enabled);
+        assert_eq!(app.selected().unwrap().channel, Channel::Stable);
+
+        // With nothing pending it says so rather than doing nothing quietly.
+        app.reduce(Action::Discard);
+        assert_eq!(app.message.as_deref(), Some(NOTHING_TO_DISCARD_HINT));
+    }
+
+    /// Esc is the way out of a filter first and the way out of the browser
+    /// second, so it never loses a filter and a session in one press.
+    #[test]
+    fn esc_clears_a_filter_before_it_quits() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::StartFilter);
+        for c in "arima".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        app.reduce(Action::FilterDone);
+        assert_eq!(app.visible.len(), 1);
+
+        assert!(app.reduce(Action::ClearFilterOrQuit).is_none());
+        assert!(app.filter.is_empty());
+        assert_eq!(app.visible.len(), without_templates(&registry));
+
+        assert_eq!(
+            app.reduce(Action::ClearFilterOrQuit),
+            Some(Outcome::Quit),
+            "with no filter left it is the way out"
+        );
+
+        // And it still asks before throwing changes away.
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::Toggle);
+        assert!(app.reduce(Action::ClearFilterOrQuit).is_none());
+        assert_eq!(app.mode, Mode::ConfirmQuit);
+    }
+
+    /// The pending strip is the summary of what saving writes, so it has to
+    /// tell an enable from a re-pin from a disable.
+    #[test]
+    fn the_change_list_says_what_each_pending_change_does() {
+        let registry = registry();
+        let state = state_with_port(&registry, EWARS, Some(Channel::Stable), None);
+        let mut app = App::new(&registry, &state);
+        assert!(app.changes().is_empty(), "an untouched browser has none");
+
+        focus(&mut app, ARIMA);
+        app.reduce(Action::Toggle);
+        focus(&mut app, EWARS);
+        app.reduce(Action::CycleChannel);
+        app.reduce(Action::TogglePublish);
+
+        let changes = app.changes();
+        assert_eq!(changes.len(), 2);
+        let added = changes
+            .iter()
+            .find(|c| c.kind == ChangeKind::Add)
+            .expect("the new model is an addition");
+        assert!(added.detail.starts_with("enable at "), "{added:?}");
+        assert!(
+            added.detail.ends_with("internal (no host port)"),
+            "{added:?}"
+        );
+
+        let updated = changes
+            .iter()
+            .find(|c| c.kind == ChangeKind::Update)
+            .expect("the re-pinned model is an update");
+        assert_eq!(updated.name, "CHAP-EWARS");
+        assert!(updated.detail.contains("follow latest"), "{updated:?}");
+        assert!(
+            updated.detail.contains("publish a host port"),
+            "{updated:?}"
+        );
+
+        // Turning it off instead is a removal, and it says what is kept.
+        app.reduce(Action::Toggle);
+        let changes = app.changes();
+        let removed = changes
+            .iter()
+            .find(|c| c.kind == ChangeKind::Remove)
+            .expect("a disabled model is a removal");
+        assert_eq!(removed.name, "CHAP-EWARS");
+        assert_eq!(removed.detail, "disable · the data volume is kept");
+        assert_eq!(changes.len(), 2);
+        assert_eq!(app.counts().pending, 2, "and the header counts the same");
     }
 
     #[test]

@@ -28,7 +28,15 @@ pub fn action_for(mode: Mode, key: &KeyEvent) -> Action {
         Mode::Filter => filter(key, ctrl),
         Mode::ConfirmQuit => confirm(key),
         Mode::Help => help(key),
+        Mode::Info => info(key, ctrl),
+        Mode::Palette => palette(key, ctrl),
     }
+}
+
+/// The palette's two openings: ctrl-k where an editor puts it, ctrl-p where a
+/// file finder does.
+fn opens_palette(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char('k') | KeyCode::Char('p'))
 }
 
 fn browse(key: &KeyEvent, ctrl: bool) -> Action {
@@ -37,8 +45,7 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
             KeyCode::Char('d') => Action::PageDown,
             KeyCode::Char('u') => Action::PageUp,
             KeyCode::Char('n') => Action::Down,
-            // ctrl-p is "previous line"; plain p publishes a port.
-            KeyCode::Char('p') => Action::Up,
+            code if opens_palette(code) => Action::Palette,
             _ => Action::None,
         };
     }
@@ -59,9 +66,62 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         KeyCode::Char('v') => Action::CycleChannel,
         KeyCode::Char('t') => Action::ToggleTemplates,
         KeyCode::Char('/') => Action::StartFilter,
-        KeyCode::Enter | KeyCode::Char('s') => Action::Save,
+        // Enter is the second way into the details, next to `i`; saving is
+        // `s`, which is the one key that writes anything.
+        KeyCode::Char('i') | KeyCode::Enter => Action::Info,
+        KeyCode::Char('u') => Action::Discard,
+        KeyCode::Char('o') => Action::OpenRepository,
+        KeyCode::Char('c') => Action::ImageRef,
+        KeyCode::Char('s') => Action::Save,
         KeyCode::Char('?') => Action::Help,
-        KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+        KeyCode::Char('q') => Action::Quit,
+        KeyCode::Esc => Action::ClearFilterOrQuit,
+        _ => Action::None,
+    }
+}
+
+/// The details overlay: the movement keys scroll it, and the keys its own
+/// footer names act on the model it describes.
+fn info(key: &KeyEvent, ctrl: bool) -> Action {
+    if ctrl {
+        return match key.code {
+            KeyCode::Char('d') => Action::PageDown,
+            KeyCode::Char('u') => Action::PageUp,
+            KeyCode::Char('n') => Action::Down,
+            _ => Action::None,
+        };
+    }
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Action::Down,
+        KeyCode::Char('k') | KeyCode::Up => Action::Up,
+        KeyCode::PageDown => Action::PageDown,
+        KeyCode::PageUp => Action::PageUp,
+        KeyCode::Char('g') | KeyCode::Home => Action::Top,
+        KeyCode::Char('G') | KeyCode::End => Action::Bottom,
+        KeyCode::Char('o') => Action::OpenRepository,
+        KeyCode::Char('c') => Action::ImageRef,
+        KeyCode::Char('i') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => Action::Info,
+        _ => Action::None,
+    }
+}
+
+/// The command palette: every printable character is part of the query, so
+/// only the keys that cannot be typed into it do anything else.
+fn palette(key: &KeyEvent, ctrl: bool) -> Action {
+    if ctrl {
+        return match key.code {
+            code if opens_palette(code) => Action::Palette,
+            KeyCode::Char('n') => Action::Down,
+            _ => Action::None,
+        };
+    }
+    match key.code {
+        KeyCode::Esc => Action::FilterCancel,
+        KeyCode::Enter => Action::PaletteRun,
+        KeyCode::Backspace => Action::PaletteBackspace,
+        KeyCode::Up => Action::Up,
+        KeyCode::Down => Action::Down,
+        KeyCode::Char(c) => Action::PaletteChar(c),
         _ => Action::None,
     }
 }
@@ -115,35 +175,109 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("PageUp / PageDown", "jump a page"),
         ("ctrl-u / ctrl-d", "jump a page"),
         ("space", "enable or disable the model"),
+        ("i / Enter", "the full details, which j/k scroll"),
         ("p", "publish a host port for it, or take it away"),
         ("v", "switch channel: stable or latest"),
         ("t", "show or hide templates"),
         ("/", "filter; Enter keeps it, Esc clears it"),
-        ("Enter / s", "save and apply the changes"),
+        ("s", "save and apply the changes"),
+        ("u", "discard the pending changes"),
+        ("o", "open the model's repository"),
+        ("c", "show the model's image reference"),
+        ("ctrl-k / ctrl-p", "the command palette"),
         ("?", "this help"),
-        ("q / Esc", "quit, asking first when there are changes"),
+        ("q", "quit, asking first when there are changes"),
+        ("Esc", "clear the filter, or quit"),
     ]
 }
 
-/// The one-line key bar under the list, as `(keys, what they do)` so the
-/// renderer can give the keys themselves a colour of their own.
-pub fn keybar_entries(mode: Mode) -> &'static [(&'static str, &'static str)] {
-    match mode {
-        Mode::Browse => &[
-            ("j/k", "move"),
-            ("space", "toggle"),
-            ("p", "port"),
-            ("v", "channel"),
-            ("t", "templates"),
-            ("/", "filter"),
-            ("s", "save"),
-            ("?", "help"),
-            ("q", "quit"),
-        ],
-        Mode::Filter => &[("type", "to filter"), ("Enter", "keep"), ("Esc", "clear")],
-        Mode::ConfirmQuit => &[("y", "discard the changes and quit"), ("n", "keep editing")],
-        Mode::Help => &[("? or Esc", "closes this help")],
+/// One entry in the key bar: a key and what it does, drawn as `[key] what`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub key: &'static str,
+    pub what: String,
+    /// Drawn as a filled chip rather than as a key and a quiet word: the one
+    /// thing on the bar that writes to disk, when there is something to write.
+    pub chip: bool,
+    /// What the bar gives up first when it does not fit: the lowest rank goes.
+    pub rank: u8,
+}
+
+fn hint(key: &'static str, what: &str, rank: u8) -> Hint {
+    Hint {
+        key,
+        what: what.to_string(),
+        chip: false,
+        rank,
     }
+}
+
+/// The key bar under the list for a mode.
+///
+/// `pending` and `filtering` are what the browser is in the middle of: with
+/// changes to save the bar grows a save chip and a way to throw them away,
+/// and with a filter on it offers to clear it rather than to hide templates.
+pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
+    match mode {
+        Mode::Browse => {
+            // The rank is what the bar gives up first when the terminal is
+            // too narrow for all of it: the two display toggles before the
+            // two things that act on the model under the cursor.
+            let mut hints = vec![
+                hint("j/k", "move", 10),
+                hint("space", "toggle", 8),
+                hint("i", "info", 5),
+                hint("p", "port", 3),
+                hint("v", "channel", 2),
+            ];
+            if filtering {
+                hints.push(hint("esc", "clear filter", 7));
+            } else {
+                hints.push(hint("t", "templates", 0));
+                hints.push(hint("/", "filter", 1));
+            }
+            if pending > 0 {
+                hints.push(Hint {
+                    key: "s",
+                    what: format!("save {pending} change{}", plural(pending)),
+                    chip: true,
+                    rank: 11,
+                });
+                hints.push(hint("u", "discard", 7));
+            } else {
+                hints.push(hint("s", "save", 11));
+            }
+            hints.push(hint("ctrl+k", "commands", 4));
+            hints.push(hint("?", "help", 6));
+            hints.push(hint("q", "quit", 9));
+            hints
+        }
+        Mode::Filter => vec![
+            hint("type", "to filter", 9),
+            hint("enter", "keep", 9),
+            hint("esc", "clear", 9),
+        ],
+        Mode::ConfirmQuit => vec![
+            hint("y", "discard the changes and quit", 9),
+            hint("n", "keep editing", 9),
+        ],
+        Mode::Help => vec![hint("? or esc", "closes this help", 9)],
+        Mode::Info => vec![
+            hint("esc", "close", 9),
+            hint("j/k", "scroll", 8),
+            hint("o", "open repository", 4),
+            hint("c", "image ref", 3),
+        ],
+        Mode::Palette => vec![
+            hint("esc", "close", 9),
+            hint("up/down", "move", 8),
+            hint("enter", "run", 9),
+        ],
+    }
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }
 
 #[cfg(test)]
@@ -151,10 +285,10 @@ mod tests {
     use super::*;
 
     /// The key bar as one line, the way it reads on screen.
-    fn keybar(mode: Mode) -> String {
-        keybar_entries(mode)
+    fn bar(mode: Mode, pending: usize, filtering: bool) -> String {
+        keybar(mode, pending, filtering)
             .iter()
-            .map(|(key, what)| format!("{key} {what}"))
+            .map(|hint| format!("{} {}", hint.key, hint.what))
             .collect::<Vec<String>>()
             .join("   ")
     }
@@ -162,19 +296,52 @@ mod tests {
     #[test]
     fn every_mode_has_a_key_bar_that_names_its_way_out() {
         assert_eq!(
-            keybar(Mode::Browse),
-            "j/k move   space toggle   p port   v channel   t templates   \
-             / filter   s save   ? help   q quit"
+            bar(Mode::Browse, 0, false),
+            "j/k move   space toggle   i info   p port   v channel   t templates   \
+             / filter   s save   ctrl+k commands   ? help   q quit"
         );
         assert_eq!(
-            keybar(Mode::Filter),
-            "type to filter   Enter keep   Esc clear"
+            bar(Mode::Filter, 0, false),
+            "type to filter   enter keep   esc clear"
         );
         assert_eq!(
-            keybar(Mode::ConfirmQuit),
+            bar(Mode::ConfirmQuit, 0, false),
             "y discard the changes and quit   n keep editing"
         );
-        assert_eq!(keybar(Mode::Help), "? or Esc closes this help");
+        assert_eq!(bar(Mode::Help, 0, false), "? or esc closes this help");
+        assert_eq!(
+            bar(Mode::Info, 0, false),
+            "esc close   j/k scroll   o open repository   c image ref"
+        );
+        assert_eq!(
+            bar(Mode::Palette, 0, false),
+            "esc close   up/down move   enter run"
+        );
+    }
+
+    /// The bar is about what can be done now: unsaved changes turn saving into
+    /// a chip that counts them and add a way to throw them away, and a filter
+    /// offers to clear itself instead of hiding templates.
+    #[test]
+    fn the_key_bar_follows_what_is_pending_and_what_is_filtered() {
+        let pending = bar(Mode::Browse, 2, false);
+        assert!(pending.contains("s save 2 changes"), "{pending}");
+        assert!(pending.contains("u discard"), "{pending}");
+        assert!(!pending.contains("s save   "), "{pending}");
+        assert_eq!(
+            keybar(Mode::Browse, 2, false)
+                .iter()
+                .filter(|hint| hint.chip)
+                .count(),
+            1,
+            "the save chip is the only filled thing on the bar"
+        );
+        assert!(bar(Mode::Browse, 1, false).contains("s save 1 change"));
+        assert!(keybar(Mode::Browse, 0, false).iter().all(|h| !h.chip));
+
+        let filtering = bar(Mode::Browse, 0, true);
+        assert!(filtering.contains("esc clear filter"), "{filtering}");
+        assert!(!filtering.contains("t templates"), "{filtering}");
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -217,10 +384,79 @@ mod tests {
         assert_eq!(browse_action(KeyCode::Char('t')), Action::ToggleTemplates);
         assert_eq!(browse_action(KeyCode::Char('/')), Action::StartFilter);
         assert_eq!(browse_action(KeyCode::Char('s')), Action::Save);
-        assert_eq!(browse_action(KeyCode::Enter), Action::Save);
+        assert_eq!(browse_action(KeyCode::Char('u')), Action::Discard);
+        assert_eq!(browse_action(KeyCode::Char('o')), Action::OpenRepository);
+        assert_eq!(browse_action(KeyCode::Char('c')), Action::ImageRef);
         assert_eq!(browse_action(KeyCode::Char('?')), Action::Help);
         assert_eq!(browse_action(KeyCode::Char('q')), Action::Quit);
-        assert_eq!(browse_action(KeyCode::Esc), Action::Quit);
+        assert_eq!(browse_action(KeyCode::Esc), Action::ClearFilterOrQuit);
+    }
+
+    /// Enter is the second way into the details rather than a second way to
+    /// save: `s` is the one key that writes anything.
+    #[test]
+    fn enter_and_i_open_the_details_and_only_s_saves() {
+        assert_eq!(browse_action(KeyCode::Char('i')), Action::Info);
+        assert_eq!(browse_action(KeyCode::Enter), Action::Info);
+        assert_eq!(browse_action(KeyCode::Char('s')), Action::Save);
+        for code in [
+            KeyCode::Char('i'),
+            KeyCode::Char('q'),
+            KeyCode::Esc,
+            KeyCode::Enter,
+        ] {
+            assert_eq!(action_for(Mode::Info, &key(code)), Action::Info);
+        }
+        assert_eq!(
+            action_for(Mode::Info, &key(KeyCode::Char('j'))),
+            Action::Down
+        );
+        assert_eq!(action_for(Mode::Info, &key(KeyCode::Char('k'))), Action::Up);
+        assert_eq!(
+            action_for(Mode::Info, &key(KeyCode::Char('o'))),
+            Action::OpenRepository
+        );
+        assert_eq!(
+            action_for(Mode::Info, &key(KeyCode::Char('c'))),
+            Action::ImageRef
+        );
+        assert_eq!(
+            action_for(Mode::Info, &key(KeyCode::Char(' '))),
+            Action::None,
+            "nothing behind the overlay is reachable through it"
+        );
+    }
+
+    /// The palette opens where an editor and a file finder put it, and closes
+    /// from inside itself; while it is up every printable key is query text.
+    #[test]
+    fn the_palette_opens_on_ctrl_k_and_ctrl_p_and_types_text() {
+        assert_eq!(action_for(Mode::Browse, &ctrl('k')), Action::Palette);
+        assert_eq!(action_for(Mode::Browse, &ctrl('p')), Action::Palette);
+        assert_eq!(
+            action_for(Mode::Palette, &key(KeyCode::Char('q'))),
+            Action::PaletteChar('q'),
+            "q is a letter of the query, not a way out"
+        );
+        assert_eq!(
+            action_for(Mode::Palette, &key(KeyCode::Char(' '))),
+            Action::PaletteChar(' ')
+        );
+        assert_eq!(
+            action_for(Mode::Palette, &key(KeyCode::Backspace)),
+            Action::PaletteBackspace
+        );
+        assert_eq!(
+            action_for(Mode::Palette, &key(KeyCode::Enter)),
+            Action::PaletteRun
+        );
+        assert_eq!(
+            action_for(Mode::Palette, &key(KeyCode::Esc)),
+            Action::FilterCancel
+        );
+        assert_eq!(action_for(Mode::Palette, &key(KeyCode::Down)), Action::Down);
+        assert_eq!(action_for(Mode::Palette, &key(KeyCode::Up)), Action::Up);
+        assert_eq!(action_for(Mode::Palette, &ctrl('k')), Action::Palette);
     }
 
     #[test]
@@ -234,9 +470,9 @@ mod tests {
             "a modifier must not fall through to the plain binding"
         );
         assert_eq!(
-            action_for(Mode::Browse, &ctrl('p')),
-            Action::Up,
-            "ctrl-p stays `previous line`; only plain p publishes a port"
+            action_for(Mode::Browse, &ctrl('n')),
+            Action::Down,
+            "ctrl-n stays `next line`; only plain p publishes a port"
         );
         assert_eq!(
             action_for(
@@ -367,10 +603,19 @@ mod tests {
                 assert!(!keys.contains(c), "{keys} documents an Alt-only character");
             }
         }
-        for mode in [Mode::Browse, Mode::Filter, Mode::ConfirmQuit, Mode::Help] {
+        for mode in [
+            Mode::Browse,
+            Mode::Filter,
+            Mode::ConfirmQuit,
+            Mode::Help,
+            Mode::Info,
+            Mode::Palette,
+        ] {
             for c in awkward {
+                // The brackets the renderer draws around a key are decoration
+                // and not a binding; what the bar names must be typeable.
                 assert!(
-                    !keybar(mode).contains(c),
+                    !bar(mode, 2, true).contains(c),
                     "the key bar for {mode:?} documents an Alt-only character"
                 );
             }
