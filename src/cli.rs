@@ -78,7 +78,10 @@ const GLOBAL: &str = "Global options";
 
 /// Deploy and manage CHAP, the Climate Health Analytics Platform.
 #[derive(Debug, Parser)]
-#[command(name = "chaps", version, about = ABOUT, after_help = DOCS_LINE)]
+// `bin_name` as well as `name`: without it clap takes the usage line from
+// argv[0], so the same help reads `chaps.exe` on Windows and `chaps`
+// everywhere else - and `docs/reference.md` is generated from that help.
+#[command(name = "chaps", bin_name = "chaps", version, about = ABOUT, after_help = DOCS_LINE)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of human output
     #[arg(long, global = true, help_heading = GLOBAL)]
@@ -600,6 +603,18 @@ pub struct UpdateArgs {
     /// Pin a moving chap-core tag to the newest release
     #[arg(long)]
     pub pin_chap_core: bool,
+
+    /// Move chap-core to this tag: vX.Y.Z, latest, master or dev
+    #[arg(long, value_name = "TAG", conflicts_with = "pin_chap_core")]
+    pub chap_tag: Option<String>,
+
+    /// List the chap-core tags you can move to, newest first
+    #[arg(long, conflicts_with_all = ["chap_tag", "pin_chap_core"])]
+    pub list_tags: bool,
+
+    /// Answer yes to the confirmation a backwards move asks for
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// Sync, then start CHAP (docker compose up)

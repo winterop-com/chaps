@@ -317,6 +317,9 @@ Usage: chaps update [OPTIONS]
 | --- | --- |
 | `--dry-run` | Show what would change: no pull, and nothing written. |
 | `--pin-chap-core` | Pin a moving chap-core tag to the newest release. |
+| `--chap-tag <TAG>` | Move chap-core to this tag: vX.Y.Z, latest, master or dev. |
+| `--list-tags` | List the chap-core tags you can move to, newest first. |
+| `--yes` | Answer yes to the confirmation a backwards move asks for. |
 
 ## chaps up
 

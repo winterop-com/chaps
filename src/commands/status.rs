@@ -69,6 +69,14 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         &running,
         token.as_deref(),
     );
+    // Which build a moving tag is on is the caller's to fill in too: `dev` is
+    // the same name whatever it points at today, and the digest the image was
+    // pulled at is the only thing on the line that says which one that is.
+    if report.chap_tag_moving
+        && let Some(containers) = containers.as_deref()
+    {
+        report.chap_build = docker::running_build(containers, crate::compose::API_SERVICE);
+    }
     // How much data OCS holds is the caller's to fill in, as the unhealthy
     // containers are: it is read from inside the running container, and this
     // is the half that has docker. An instance that is not running is not
@@ -190,6 +198,17 @@ fn human(report: &StatusReport, out: &Out) -> String {
         let version = report.version.label();
         if !version.is_empty() {
             text.push_str(&format!("   {}", out.dim(&version)));
+        }
+        // A moving tag names no image, so the line says which one it is on.
+        if report.chap_tag_moving {
+            let build = crate::status::moving_build_cell(
+                &report.chap_tag,
+                report.chap_build.as_deref(),
+                report.version.revision.as_deref(),
+            );
+            if !build.is_empty() {
+                text.push_str(&format!("   {}", out.dim(&build)));
+            }
         }
         // Last on the line, always present: "off" is the answer an operator
         // has to be able to see, and a blank space would not say it.
@@ -403,7 +422,11 @@ mod tests {
             version: ApiVersion {
                 value: "2.3.1".to_string(),
                 pinned: false,
+                revision: None,
             },
+            chap_tag: "v2.3.1".to_string(),
+            chap_tag_moving: false,
+            chap_build: None,
             registered,
             expected,
             missing,
@@ -548,6 +571,7 @@ mod tests {
         report.version = ApiVersion {
             value: String::new(),
             pinned: true,
+            revision: None,
         };
         assert!(
             human(&report, &Out::default())
@@ -633,6 +657,7 @@ mod tests {
             version: ApiVersion {
                 value: "v2.3.1".to_string(),
                 pinned: true,
+                revision: None,
             },
             ..up(vec![], &[("chapkit-ewars-model", None)], &[])
         };

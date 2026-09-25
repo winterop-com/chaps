@@ -449,3 +449,48 @@ By design. `chaps update` fetches the registry from the network with no cache
 and no fallback, `--dry-run` included, because a plan made from a stale
 catalogue is not a plan. Every other command falls back to the cache and then
 to the snapshot compiled into the binary.
+
+## `Can't locate revision identified by` in `chaps logs chap`
+
+```text
+ERROR [chap_core.database.database] Error during Alembic migrations:
+Can't locate revision identified by 'b4c5d6e7f8a3'
+```
+
+The database was migrated by a newer chap-core than the one now running: the
+Alembic revision it was stamped with does not exist in this build. It is what
+`chaps update --chap-tag` warns about before a move backwards, and the reason
+it asks for an answer:
+
+```text
+warning: moving chap-core from dev to v2.3.1 can run an older schema against a
+database migrated by the newer one; run `chaps backup create` first
+```
+
+chap-core logs the error and starts anyway, so `chaps status` says `up` while
+the schema is not the one this build expects. Either go back to the newer tag
+
+```sh
+chaps update --chap-tag master   # or whichever it was
+chaps restart
+```
+
+or restore the backup taken before the move (`chaps backup restore`) and start
+again from there. See
+[Switching chap-core's tag](./updating.md#switching-chap-cores-tag).
+
+## `the pull failed after the pins moved`
+
+```text
+Error response from daemon: failed to resolve reference
+"ghcr.io/dhis2-chap/chap-worker:dev": ghcr.io/dhis2-chap/chap-worker:dev: not found
+error: the pull failed after the pins moved; chap-core is now pinned to dev, and
+`chaps update --chap-tag v2.3.1 --yes` puts it back
+```
+
+chap-core is two images, `chap-core` and `chap-worker`, and a tag that exists
+for one of them does not have to exist for the other: at the time of writing
+ghcr serves `chap-core:dev` and has no `chap-worker:dev` at all. The pin has
+already moved when the pull runs, so the deployment is left describing images
+Docker cannot fetch - the containers keep running what they had. The line names
+the way back; `chaps update --list-tags` shows what else there is to move to.

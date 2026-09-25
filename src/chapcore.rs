@@ -14,32 +14,173 @@ use std::time::Duration;
 /// GitHub repository the chap-core images and the compose file come from.
 pub const REPO: &str = "dhis2-chap/chap-core";
 
-/// Release endpoint for the newest final release; prereleases and drafts are
-/// excluded by GitHub itself, which is exactly what the `latest` image tag
-/// follows. Unauthenticated requests are allowed, at 60 per hour per address.
-pub const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/dhis2-chap/chap-core/releases/latest";
+/// Public GitHub, unless `CHAPS_GITHUB_API` points somewhere else.
+pub const DEFAULT_API: &str = "https://api.github.com";
+
+/// Public raw.githubusercontent.com, unless `CHAPS_GITHUB_RAW` points
+/// somewhere else. Both are test hooks and nothing on the command line moves
+/// them; see `docs/development.md`.
+pub const DEFAULT_RAW: &str = "https://raw.githubusercontent.com";
 
 /// The standalone compose file published with every chap-core tag.
 pub const COMPOSE_FILE: &str = "compose.ghcr.yml";
 
+/// The moving image tag `chaps init` resolves to the release it points at.
+pub const LATEST_TAG: &str = "latest";
+
+/// The moving tags chap-core publishes, newest build first. `latest` follows
+/// the newest release; the other two follow their branches.
+pub const MOVING_TAGS: &[&str] = &["dev", "master", LATEST_TAG];
+
+/// How many releases `chaps update --list-tags` lists.
+pub const LIST_LIMIT: usize = 10;
+
+/// The media type the REST API answers best in.
+const ACCEPT_JSON: &str = "application/vnd.github+json";
+
 /// `User-Agent` sent with every request, matching the registry fetch.
 const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
 
+/// Base of the GitHub REST API this run talks to.
+pub fn api_base() -> String {
+    base("CHAPS_GITHUB_API", DEFAULT_API)
+}
+
+/// Base of the raw file host this run talks to.
+pub fn raw_base() -> String {
+    base("CHAPS_GITHUB_RAW", DEFAULT_RAW)
+}
+
+fn base(var: &str, default: &str) -> String {
+    base_of(std::env::var(var).ok(), default)
+}
+
+/// [`base`] with the variable already read, so the rule is testable without
+/// touching the environment of a process running tests in parallel.
+fn base_of(value: Option<String>, default: &str) -> String {
+    value
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Release endpoint for the newest final release; prereleases and drafts are
+/// excluded by GitHub itself, which is exactly what the `latest` image tag
+/// follows. Unauthenticated requests are allowed, at 60 per hour per address.
+pub fn latest_release_url() -> String {
+    format!("{}/repos/{REPO}/releases/{LATEST_TAG}", api_base())
+}
+
+/// The newest `limit` releases, newest first.
+pub fn releases_url(limit: usize) -> String {
+    format!("{}/repos/{REPO}/releases?per_page={limit}", api_base())
+}
+
+/// One release by its tag: 200 when that release exists, 404 when it does not.
+pub fn release_url(tag: &str) -> String {
+    format!("{}/repos/{REPO}/releases/tags/{tag}", api_base())
+}
+
+/// The newest commit of one branch, which is what a moving tag is built from.
+pub fn branch_url(branch: &str) -> String {
+    format!(
+        "{}/repos/{REPO}/commits?sha={branch}&per_page=1",
+        api_base()
+    )
+}
+
 /// Raw URL of [`COMPOSE_FILE`] at `tag`.
 pub fn compose_url(tag: &str) -> String {
-    format!("https://raw.githubusercontent.com/{REPO}/{tag}/{COMPOSE_FILE}")
+    format!("{}/{REPO}/{tag}/{COMPOSE_FILE}", raw_base())
 }
 
 /// The tag of the newest chap-core release, e.g. `v2.3.1`.
 pub fn latest_release(timeout: Duration) -> Result<String> {
-    let body = get(
-        LATEST_RELEASE_URL,
-        timeout,
-        Some("application/vnd.github+json"),
-    )?;
-    parse_release(&body)
-        .map_err(|e| anyhow::anyhow!("reading the release list at {LATEST_RELEASE_URL}: {e}"))
+    let url = latest_release_url();
+    let body = get(&url, timeout, Some(ACCEPT_JSON))?;
+    parse_release(&body).map_err(|e| anyhow::anyhow!("reading the release list at {url}: {e}"))
+}
+
+/// One chap-core release: the tag it names and the day it was published.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Release {
+    /// The tag, e.g. `v2.3.1`.
+    pub tag: String,
+    /// `YYYY-MM-DD`, or empty when the payload carried no date.
+    pub published: String,
+}
+
+/// The newest chap-core releases, newest first.
+///
+/// Only the tags that are versions ([`release_version`]) come back: the
+/// repository also tags other things, and a tag that is not a version is not
+/// somewhere `chaps update --chap-tag` can move a deployment to as a release.
+pub fn releases(limit: usize, timeout: Duration) -> Result<Vec<Release>> {
+    // Asked for wider than the list that is printed: the drafts, the
+    // prereleases and the tags that are not versions are dropped here, not by
+    // GitHub, so a page of exactly `limit` entries could come back short.
+    let url = releases_url((limit * 3).min(100));
+    let body = get(&url, timeout, Some(ACCEPT_JSON))?;
+    let mut list = parse_releases(&body)
+        .map_err(|e| anyhow::anyhow!("reading the release list at {url}: {e}"))?;
+    list.truncate(limit);
+    Ok(list)
+}
+
+/// Whether chap-core has released `tag`.
+///
+/// `Ok(false)` is GitHub saying there is no such release; an error is this
+/// run not having been able to ask, which is a different answer and the
+/// caller treats it as one.
+pub fn release_exists(tag: &str, timeout: Duration) -> Result<bool> {
+    let url = release_url(tag);
+    match get(&url, timeout, Some(ACCEPT_JSON)) {
+        Ok(_) => Ok(true),
+        Err(err) => match err.downcast_ref::<ChapError>() {
+            Some(ChapError::Http { status: 404, .. }) => Ok(false),
+            _ => Err(err),
+        },
+    }
+}
+
+/// The day `branch` was last committed to, `YYYY-MM-DD`.
+///
+/// Best effort and never fatal: it decorates one column of
+/// `chaps update --list-tags`, and a branch GitHub will not talk about simply
+/// has no date to print.
+pub fn branch_updated(branch: &str, timeout: Duration) -> Option<String> {
+    let body = get(&branch_url(branch), timeout, Some(ACCEPT_JSON)).ok()?;
+    parse_commit_date(&body)
+}
+
+/// `[0].commit.committer.date` of a commit list, as a day.
+pub fn parse_commit_date(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let commit = value.as_array()?.first()?.get("commit")?;
+    for who in ["committer", "author"] {
+        if let Some(date) = commit
+            .get(who)
+            .and_then(|w| w.get("date"))
+            .and_then(|d| d.as_str())
+            && let Some(day) = day_of(date)
+        {
+            return Some(day);
+        }
+    }
+    None
+}
+
+/// The `YYYY-MM-DD` of an RFC 3339 timestamp, or `None` when it is not one.
+fn day_of(timestamp: &str) -> Option<String> {
+    let day = timestamp.trim().split(['T', 't', ' ']).next()?;
+    let mut fields = day.split('-');
+    let ok = fields
+        .next()
+        .is_some_and(|y| y.len() == 4 && y.chars().all(|c| c.is_ascii_digit()))
+        && fields.next().is_some_and(|m| m.len() == 2)
+        && fields.next().is_some_and(|d| d.len() == 2)
+        && fields.next().is_none();
+    ok.then(|| day.to_string())
 }
 
 /// Download chap-core's `compose.ghcr.yml` at `tag`.
@@ -69,6 +210,87 @@ pub fn parse_release(body: &str) -> Result<String> {
         return Err(anyhow::anyhow!("the release carries no tag_name"));
     }
     Ok(release.tag_name.trim().to_string())
+}
+
+/// The releases of a release-list payload, newest first.
+///
+/// Drafts and prereleases are left out - they are not what the `latest` image
+/// tag follows - and so is every tag that is not a version, because a
+/// deployment moved to one of those would be pinned to something `update`
+/// could never compare against anything.
+pub fn parse_releases(body: &str) -> Result<Vec<Release>> {
+    #[derive(Debug, Default, Deserialize)]
+    struct Entry {
+        #[serde(default)]
+        tag_name: String,
+        #[serde(default)]
+        published_at: String,
+        #[serde(default)]
+        draft: bool,
+        #[serde(default)]
+        prerelease: bool,
+    }
+    let entries: Vec<Entry> =
+        serde_json::from_str(body).map_err(|e| anyhow::anyhow!("invalid release JSON: {e}"))?;
+    Ok(entries
+        .into_iter()
+        .filter(|entry| !entry.draft && !entry.prerelease)
+        .filter(|entry| release_version(entry.tag_name.trim()).is_some())
+        .map(|entry| Release {
+            tag: entry.tag_name.trim().to_string(),
+            published: day_of(&entry.published_at).unwrap_or_default(),
+        })
+        .collect())
+}
+
+/// What a chap-core tag is, as far as moving a deployment's pin goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagKind {
+    /// `vX.Y.Z`: a point on the version line, and what `update` moves forward.
+    Release,
+    /// `latest`, `master`, `dev`: the same name, a different image tomorrow.
+    Moving,
+    /// A `sha-` build or anything else: an exact pin nothing here moves.
+    Other,
+}
+
+impl TagKind {
+    /// How the kind reads in a table cell.
+    pub fn label(self) -> &'static str {
+        match self {
+            TagKind::Release => "release",
+            TagKind::Moving => "moving",
+            TagKind::Other => "exact",
+        }
+    }
+}
+
+/// Which of the three `tag` is.
+pub fn tag_kind(tag: &str) -> TagKind {
+    if is_moving_tag(tag) {
+        return TagKind::Moving;
+    }
+    if release_version(tag).is_some() {
+        return TagKind::Release;
+    }
+    TagKind::Other
+}
+
+/// Whether moving the pin from `from` to `to` goes backwards, which is the
+/// direction that can run an older schema against a newer database.
+///
+/// Two cases, and only two: an older release than the one that is pinned, and
+/// a release after a moving tag, because `dev` and `master` are ahead of
+/// every release and `latest` is the newest of them. Everything else - a
+/// newer release, a release to a moving tag, one moving tag to another, and
+/// anything involving a `sha-` build that is not on the version line at all -
+/// is not something this can call backwards, so it does not.
+pub fn is_backwards(from: &str, to: &str) -> bool {
+    match (tag_kind(from), tag_kind(to)) {
+        (TagKind::Release, TagKind::Release) => is_newer(from, to),
+        (TagKind::Moving, TagKind::Release) => true,
+        _ => false,
+    }
 }
 
 /// Whether `text` is usable as the base `compose.yml`.
@@ -304,7 +526,14 @@ mod tests {
             "https://raw.githubusercontent.com/dhis2-chap/chap-core/v2.3.1/compose.ghcr.yml"
         );
         assert!(compose_url("master").ends_with("/master/compose.ghcr.yml"));
-        assert!(LATEST_RELEASE_URL.contains(REPO));
+        assert!(latest_release_url().contains(REPO));
+        assert!(latest_release_url().starts_with(DEFAULT_API));
+        assert_eq!(
+            release_url("v2.3.1"),
+            "https://api.github.com/repos/dhis2-chap/chap-core/releases/tags/v2.3.1"
+        );
+        assert!(releases_url(10).ends_with("/releases?per_page=10"));
+        assert!(branch_url("dev").ends_with("/commits?sha=dev&per_page=1"));
     }
 
     #[test]
@@ -415,13 +644,100 @@ mod tests {
 
     #[test]
     fn a_status_code_becomes_a_typed_http_error() {
-        let err = map_error(LATEST_RELEASE_URL, ureq::Error::StatusCode(403));
+        let url = latest_release_url();
+        let err = map_error(&url, ureq::Error::StatusCode(403));
         match err.downcast_ref::<ChapError>() {
-            Some(ChapError::Http { url, status }) => {
-                assert_eq!(url, LATEST_RELEASE_URL);
+            Some(ChapError::Http { url: at, status }) => {
+                assert_eq!(*at, url);
                 assert_eq!(*status, 403);
             }
             other => panic!("wrong error: {other:?}"),
         }
+    }
+
+    /// The list page, trimmed to the fields that decide what is listed.
+    const RELEASES: &str = r#"[
+      {"tag_name":"v2.3.1","published_at":"2026-09-21T10:00:25Z","draft":false,"prerelease":false},
+      {"tag_name":"v2.4.0-rc.1","published_at":"2026-09-20T10:00:25Z","draft":false,"prerelease":true},
+      {"tag_name":"chap-1.1.1","published_at":"2026-08-26T18:15:28Z","draft":false,"prerelease":false},
+      {"tag_name":"v2.3.0","published_at":"2026-09-11T09:20:41Z","draft":false,"prerelease":false},
+      {"tag_name":"v2.2.0","draft":true,"prerelease":false}
+    ]"#;
+
+    #[test]
+    fn the_release_list_keeps_the_versions_and_drops_the_rest() {
+        let list = parse_releases(RELEASES).unwrap();
+        assert_eq!(
+            list,
+            vec![
+                Release {
+                    tag: "v2.3.1".into(),
+                    published: "2026-09-21".into()
+                },
+                Release {
+                    tag: "v2.3.0".into(),
+                    published: "2026-09-11".into()
+                },
+            ]
+        );
+        // A page with nothing usable in it is an empty list, not an error.
+        assert!(parse_releases("[]").unwrap().is_empty());
+        assert!(parse_releases(r#"{"message":"rate limit"}"#).is_err());
+    }
+
+    #[test]
+    fn a_commit_page_yields_the_day_of_its_newest_commit() {
+        let body = r#"[{"sha":"abc","commit":{"committer":{"date":"2026-09-24T08:15:00Z"}}}]"#;
+        assert_eq!(parse_commit_date(body).as_deref(), Some("2026-09-24"));
+        // The author's date is the fallback, and a page with neither has none.
+        let author = r#"[{"commit":{"author":{"date":"2026-09-23T08:15:00Z"}}}]"#;
+        assert_eq!(parse_commit_date(author).as_deref(), Some("2026-09-23"));
+        assert_eq!(parse_commit_date("[]"), None);
+        assert_eq!(parse_commit_date(r#"[{"commit":{}}]"#), None);
+        assert_eq!(day_of("not-a-date"), None);
+        assert_eq!(day_of("2026-9-1T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn a_tag_is_a_release_a_moving_tag_or_an_exact_pin() {
+        assert_eq!(tag_kind("v2.3.1"), TagKind::Release);
+        assert_eq!(tag_kind("2.3.1"), TagKind::Release);
+        for moving in MOVING_TAGS {
+            assert_eq!(tag_kind(moving), TagKind::Moving, "{moving}");
+        }
+        assert_eq!(tag_kind("sha-fa880a1"), TagKind::Other);
+        assert_eq!(tag_kind(""), TagKind::Other);
+        assert_eq!(TagKind::Release.label(), "release");
+        assert_eq!(TagKind::Moving.label(), "moving");
+        assert_eq!(TagKind::Other.label(), "exact");
+    }
+
+    #[test]
+    fn only_an_older_release_counts_as_moving_backwards() {
+        // Release to release, by version and not by string.
+        assert!(is_backwards("v2.3.1", "v2.3.0"));
+        assert!(is_backwards("v2.10.0", "v2.9.0"));
+        assert!(!is_backwards("v2.3.0", "v2.3.1"));
+        assert!(!is_backwards("v2.3.1", "v2.3.1"));
+        // A moving tag is ahead of every release, `latest` included.
+        for moving in MOVING_TAGS {
+            assert!(is_backwards(moving, "v2.3.1"), "{moving}");
+            assert!(!is_backwards("v2.3.1", moving), "{moving}");
+        }
+        assert!(!is_backwards("dev", "master"));
+        // A `sha-` build is not on the line at all, in either direction.
+        assert!(!is_backwards("sha-fa880a1", "v2.3.1"));
+        assert!(!is_backwards("v2.3.1", "sha-fa880a1"));
+        assert!(!is_backwards("dev", "sha-fa880a1"));
+    }
+
+    #[test]
+    fn the_hosts_follow_the_test_hooks() {
+        let hook = Some("http://127.0.0.1:18099/".to_string());
+        assert_eq!(base_of(hook, DEFAULT_API), "http://127.0.0.1:18099");
+        // Unset, empty and whitespace all mean the public host.
+        assert_eq!(base_of(None, DEFAULT_API), DEFAULT_API);
+        assert_eq!(base_of(Some(String::new()), DEFAULT_RAW), DEFAULT_RAW);
+        assert_eq!(base_of(Some("  ".into()), DEFAULT_RAW), DEFAULT_RAW);
     }
 }

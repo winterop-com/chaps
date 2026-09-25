@@ -8,6 +8,14 @@
 //! chap-core tag (`latest`, `master`, `dev`) is only refreshed by the pull,
 //! unless `--pin-chap-core` turns it into a release pin.
 //!
+//! `--chap-tag` is the other direction: not forward, but somewhere else
+//! entirely. It is the same run with chap-core's destination decided by the
+//! operator rather than by the release feed, and the one move that can cost
+//! data - a release older than the one running, or a release after a moving
+//! tag, since `dev` and `master` are ahead of every release - is named and
+//! confirmed before anything is fetched, written or pulled. `--list-tags`
+//! answers where a deployment can go, and writes nothing at all.
+//!
 //! What it does not do is touch a container. The run reads: the plan, then
 //! the pull, then one line saying what moved and which running services are
 //! now out of date. Applying that is `chaps restart`, and starting a
@@ -26,7 +34,7 @@ use crate::commands::Ctx;
 use crate::components;
 use crate::compose::resolve::{self, UserSource};
 use crate::compose::sync::{EnvTag, refresh_env_pin, set_env_chap_tag};
-use crate::compose::{sync, tag_env_var};
+use crate::compose::{API_SERVICE, sync, tag_env_var};
 use crate::docker;
 use crate::error::{ChapError, Result};
 use crate::manual;
@@ -113,6 +121,20 @@ pub struct ChapCoreUpdate {
     pub latest_release: Option<String>,
     /// Where `compose.yml` is rendered from after this run.
     pub compose_source: ComposeSource,
+    /// The tag `--chap-tag` asked for, when this run was given one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    /// The git ref whose `compose.ghcr.yml` goes with [`new_tag`]: the tag
+    /// itself for a release or a branch, the newest release for `latest`
+    /// (which is the release that publishes it), and `None` when there is
+    /// nothing to fetch or nothing that could be resolved.
+    ///
+    /// [`new_tag`]: ChapCoreUpdate::new_tag
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compose_ref: Option<String>,
+    /// Whether this move can run an older schema against a database a newer
+    /// chap-core has already migrated.
+    pub backwards: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -271,6 +293,22 @@ impl UpdateReport {
 /// pull, then say what needs restarting.
 pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let mut project = ctx.project()?;
+    // A listing writes nothing and asks the marketplace nothing, so it is
+    // answered before the refresh that the rest of the command needs.
+    if args.list_tags {
+        return list_tags(ctx, &project);
+    }
+    // The tag `--chap-tag` names is checked before anything else happens: a
+    // typo should cost one lookup, not a marketplace refresh and a pull.
+    let requested = match &args.chap_tag {
+        Some(tag) => Some(check_chap_tag(
+            tag.trim(),
+            ctx.registry.offline,
+            ctx.registry.timeout,
+        )?),
+        None => None,
+    };
+    let requested = requested.as_deref();
     // No fallback on purpose: an update from a stale catalogue is not an update.
     let registry = super::refreshed_registry_for(ctx, Some(&project))?;
 
@@ -291,6 +329,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let latest = lookup_latest(
         &project.state.chap_image_tag,
         args.pin_chap_core,
+        requested,
         ctx.registry.timeout,
     );
     // Nothing here starts or stops a container, so this answer holds for the
@@ -302,7 +341,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             provenance: registry.provenance.clone(),
         },
         models,
-        chap_core: plan_chap_core(&project, latest, args.pin_chap_core),
+        chap_core: plan_chap_core(&project, latest, args.pin_chap_core, requested),
         components: plan_components(&project),
         pulled: false,
         pulled_new: Vec::new(),
@@ -314,10 +353,23 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // The plan first, before any of docker's own noise: it is what the pull
     // is about to act on, and it is the half a person reads.
     say(ctx, &plan_text(&report, &ctx.out));
+    // Going back to an older chap-core is the one move this command makes
+    // that can cost data, so it is named before anything is fetched, written
+    // or pulled - in the dry run too, where it is half of what there is to see.
+    if report.chap_core.backwards {
+        output::warn(&backwards_warning(
+            &report.chap_core.old_tag,
+            &report.chap_core.new_tag,
+        ));
+    }
     if args.dry_run {
         return ctx
             .out
             .emit(&report, || dry_run_line(updated(&report).as_deref()));
+    }
+    // And confirmed, once it is about to actually happen.
+    if report.chap_core.backwards && !args.yes {
+        confirm_backwards(ctx, &report.chap_core)?;
     }
 
     if report.chap_core.changed {
@@ -355,7 +407,19 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     let refs: Vec<String> = images.values().cloned().collect();
     let before = docker::image_ids(&refs);
 
-    run_compose(&project, &["pull".to_string()])?;
+    // A pull that fails once chap-core's pin has moved leaves the deployment
+    // describing images docker could not fetch - upstream publishing a tag
+    // for one of its images and not the other is enough to get there - so the
+    // failure says where the pin is now and how to put it back.
+    if let Err(err) = run_compose(&project, &["pull".to_string()]) {
+        if report.chap_core.changed {
+            return Err(err.context(pull_failed_after_switch(
+                &report.chap_core.old_tag,
+                &report.chap_core.new_tag,
+            )));
+        }
+        return Err(err);
+    }
     report.pulled = true;
 
     let after = docker::image_ids(&refs);
@@ -572,8 +636,13 @@ fn newest_published(
 /// that is not a version at all, so the unauthenticated rate limit is spent
 /// only when there is a decision to make. A failed lookup is a warning, not a
 /// failure: a marketplace update is still an update.
-fn lookup_latest(current: &str, pin: bool, timeout: std::time::Duration) -> Option<String> {
-    if !needs_release_lookup(current, pin) {
+fn lookup_latest(
+    current: &str,
+    pin: bool,
+    requested: Option<&str>,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    if !needs_release_lookup(current, pin, requested) {
         return None;
     }
     match chapcore::latest_release(timeout) {
@@ -589,35 +658,181 @@ fn lookup_latest(current: &str, pin: bool, timeout: std::time::Duration) -> Opti
 }
 
 /// Whether the newest release can change what this run does.
-fn needs_release_lookup(current: &str, pin: bool) -> bool {
+///
+/// A run given `--chap-tag` has been told where to go, so the only reason
+/// left to ask is `latest`: the deployment follows that moving tag, and the
+/// compose file that goes with it is the one the newest release publishes.
+pub fn needs_release_lookup(current: &str, pin: bool, requested: Option<&str>) -> bool {
+    if let Some(tag) = requested {
+        return tag == chapcore::LATEST_TAG;
+    }
     if chapcore::is_moving_tag(current) {
         return pin;
     }
     chapcore::release_version(current).is_some()
 }
 
+/// The git ref whose `compose.ghcr.yml` goes with an image tag.
+///
+/// A release tag and a branch name are both refs of the repository, so the
+/// file is fetched at the tag itself. `latest` is not a ref at all - it is an
+/// image tag the newest release publishes - so the file comes from that
+/// release, and a run that could not resolve it has no ref to fetch.
+pub fn compose_ref(tag: &str, latest: Option<&str>) -> Option<String> {
+    if tag == chapcore::LATEST_TAG {
+        return latest.map(str::to_string);
+    }
+    Some(tag.to_string())
+}
+
 /// Work out what happens to the chap-core pin, without changing anything.
 ///
-/// A release pin moves to a newer release; a moving tag stays put unless
-/// `pin` says to convert it, because following `latest` is a choice the
-/// operator made and `update` re-pulls it either way. A tag that is neither
-/// (a `sha-` build, say) is not ours to move.
-fn plan_chap_core(project: &Project, latest: Option<String>, pin: bool) -> ChapCoreUpdate {
+/// `requested` is `--chap-tag`, and it decides on its own: the operator said
+/// where this deployment goes. Without it, a release pin moves to a newer
+/// release and a moving tag stays put unless `pin` says to convert it,
+/// because following `latest` is a choice the operator made and `update`
+/// re-pulls it either way. A tag that is neither (a `sha-` build, say) is not
+/// ours to move.
+fn plan_chap_core(
+    project: &Project,
+    latest: Option<String>,
+    pin: bool,
+    requested: Option<&str>,
+) -> ChapCoreUpdate {
     let current = project.state.chap_image_tag.clone();
     let moving = chapcore::is_moving_tag(&current);
-    let new_tag = match (&latest, moving) {
-        (Some(release), true) if pin => release.clone(),
-        (Some(release), false) if chapcore::is_newer(release, &current) => release.clone(),
-        _ => current.clone(),
+    let new_tag = match requested {
+        Some(tag) => tag.to_string(),
+        None => match (&latest, moving) {
+            (Some(release), true) if pin => release.clone(),
+            (Some(release), false) if chapcore::is_newer(release, &current) => release.clone(),
+            _ => current.clone(),
+        },
     };
+    let changed = new_tag != current;
     ChapCoreUpdate {
-        changed: new_tag != current,
+        changed,
+        backwards: changed && chapcore::is_backwards(&current, &new_tag),
+        compose_ref: changed
+            .then(|| compose_ref(&new_tag, latest.as_deref()))
+            .flatten(),
         old_tag: current,
         new_tag,
         moving,
         latest_release: latest,
         compose_source: project.state.chap_compose_source.clone(),
+        requested: requested.map(str::to_string),
     }
+}
+
+/// Check the tag `--chap-tag` was given, and hand it back as it will be
+/// recorded.
+///
+/// A release tag has to be one chap-core has actually released, because a tag
+/// nobody published is a deployment that will not start; a moving tag is one
+/// of the three by definition; anything else is taken as an exact pin, with
+/// the note that nothing will ever move it again. A lookup that could not be
+/// made - `--offline`, a rate limit, a network that is not there - is a
+/// warning and the tag as typed: not being able to check is not the same as
+/// having checked.
+pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) -> Result<String> {
+    if tag.is_empty() {
+        return Err(anyhow::anyhow!(
+            "--chap-tag needs a tag: a release such as `v2.3.1`, or `latest`, `master` or `dev`"
+        ));
+    }
+    match chapcore::tag_kind(tag) {
+        chapcore::TagKind::Moving => {}
+        chapcore::TagKind::Other => output::warn(&format!(
+            "{tag} is neither a chap-core release nor a moving tag, so it is recorded as an exact \
+             pin and `chaps update` will never move it"
+        )),
+        chapcore::TagKind::Release => {
+            if offline {
+                output::warn(&format!(
+                    "--offline: whether chap-core has released {tag} cannot be looked up; the tag \
+                     is taken as given"
+                ));
+            } else {
+                match chapcore::release_exists(tag, timeout) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Err(anyhow::anyhow!(
+                            "chap-core has no release {tag}; run `chaps update --list-tags` to see \
+                             the tags this deployment can move to"
+                        ));
+                    }
+                    Err(err) => output::warn(&format!(
+                        "whether chap-core has released {tag} cannot be looked up ({err:#}); the \
+                         tag is taken as given"
+                    )),
+                }
+            }
+        }
+    }
+    Ok(tag.to_string())
+}
+
+/// What a failed pull says when this run had just moved chap-core's pin.
+///
+/// The pin is recorded before the pull, so a deployment whose images would not
+/// come down is pointed at a tag it cannot run. Naming the way back is the
+/// difference between that and a directory an operator has to repair by hand.
+pub fn pull_failed_after_switch(old: &str, new: &str) -> String {
+    format!(
+        "the pull failed after the pins moved; chap-core is now pinned to {new}, and \
+         `chaps update --chap-tag {old} --yes` puts it back"
+    )
+}
+
+/// What a move backwards is warned about, before it is made.
+///
+/// It says the risk and the one command that makes it recoverable, and
+/// nothing about chap-core's migrations: which release migrated what is not
+/// something this CLI knows, and a confident sentence about it would be an
+/// invention.
+pub fn backwards_warning(old: &str, new: &str) -> String {
+    format!(
+        "moving chap-core from {old} to {new} can run an older schema against a database \
+         migrated by the newer one; run `chaps backup create` first"
+    )
+}
+
+/// Get a yes for a move backwards, or refuse to make it.
+///
+/// `--yes` is how a script says it meant it. A run nobody is watching -
+/// `--json`, or no terminal on stdin - refuses rather than assume, the way
+/// `chaps down --volumes` does with the volumes it is about to destroy.
+fn confirm_backwards(ctx: &Ctx, chap_core: &ChapCoreUpdate) -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+
+    let how = "pass `--yes` to `chaps update --chap-tag` to confirm it";
+    if ctx.out.json {
+        return Err(anyhow::anyhow!(
+            "moving chap-core backwards needs an answer and --json has nobody to ask; {how}"
+        ));
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow::anyhow!(
+            "moving chap-core backwards needs an answer and this is not a terminal; {how}"
+        ));
+    }
+    eprint!(
+        "\nmove chap-core from {} to {}? [y/N] ",
+        chap_core.old_tag, chap_core.new_tag
+    );
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut answer)
+        .map_err(|e| anyhow::anyhow!("reading the answer: {e}"))?;
+    if matches!(answer.trim(), "y" | "Y" | "yes" | "Yes") {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "cancelled; nothing was fetched, written or pulled"
+    ))
 }
 
 /// Move the chap-core pin: cache the compose file the new tag publishes,
@@ -632,26 +847,32 @@ fn apply_chap_core(
     timeout: std::time::Duration,
 ) -> Result<()> {
     let tag = update.new_tag.clone();
-    match chapcore::fetch_compose(&tag, timeout) {
-        Ok(body) => {
-            let chaps = project.chaps_dir();
-            std::fs::create_dir_all(&chaps)
-                .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
-            let path = chaps.join(cached_compose_file(&tag));
-            std::fs::write(&path, &body)
-                .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
-            let source = ComposeSource::Fetched {
-                url: chapcore::compose_url(&tag),
-                tag: tag.clone(),
-                sha256: chapcore::sha256_hex(body.as_bytes()),
-            };
-            project.state.chap_compose_source = source.clone();
-            update.compose_source = source;
-        }
-        Err(err) => output::warn(&format!(
-            "could not fetch chap-core's compose.ghcr.yml at {tag} ({err:#}); the image pin moves \
-             but compose.yml keeps the layout it has"
+    match update.compose_ref.clone() {
+        None => output::warn(&format!(
+            "there is no chap-core ref to fetch compose.ghcr.yml from for {tag}; the image pin \
+             moves but compose.yml keeps the layout it has"
         )),
+        Some(reference) => match chapcore::fetch_compose(&reference, timeout) {
+            Ok(body) => {
+                let chaps = project.chaps_dir();
+                std::fs::create_dir_all(&chaps)
+                    .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
+                let path = chaps.join(cached_compose_file(&reference));
+                std::fs::write(&path, &body)
+                    .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+                let source = ComposeSource::Fetched {
+                    url: chapcore::compose_url(&reference),
+                    tag: reference.clone(),
+                    sha256: chapcore::sha256_hex(body.as_bytes()),
+                };
+                project.state.chap_compose_source = source.clone();
+                update.compose_source = source;
+            }
+            Err(err) => output::warn(&format!(
+                "could not fetch chap-core's compose.ghcr.yml at {reference} ({err:#}); the image \
+                 pin moves but compose.yml keeps the layout it has"
+            )),
+        },
     }
 
     // The tag has to reach .env as well, or compose still substitutes the old
@@ -685,16 +906,25 @@ fn run_compose(project: &Project, args: &[String]) -> Result<()> {
 }
 
 /// The chap-core row of the list, in the same shape as a model's.
-fn chap_core_line(c: &ChapCoreUpdate) -> String {
+pub fn chap_core_line(c: &ChapCoreUpdate) -> String {
     if c.changed {
         // The compose file only follows the pin once the run has actually
         // fetched it, and the plan is printed before that happens, so the
         // note is there for a report built after the fetch and nowhere else.
+        let fetched = c.compose_ref.as_deref().unwrap_or(&c.new_tag);
         let compose = match &c.compose_source {
-            ComposeSource::Fetched { tag, .. } if tag == &c.new_tag => "  (compose.ghcr.yml too)",
+            ComposeSource::Fetched { tag, .. } if tag == fetched => "  (compose.ghcr.yml too)",
             _ => "",
         };
         return format!("chap-core  {} -> {}{compose}", c.old_tag, c.new_tag);
+    }
+    // `--chap-tag` naming the tag this deployment already runs: nothing to
+    // switch, and saying so is the whole answer the run owes.
+    if c.requested.is_some() {
+        return format!(
+            "chap-core  {}  already the pin, nothing to switch",
+            c.old_tag
+        );
     }
     if c.moving {
         return format!(
@@ -867,6 +1097,209 @@ fn state_of(m: &ModelUpdate) -> &'static str {
         return "unchanged (could not check)";
     }
     "unchanged"
+}
+
+// ---------------------------------------------------------------------------
+// --list-tags
+// ---------------------------------------------------------------------------
+
+/// What `chaps update --list-tags` prints, and the whole of its `--json`.
+#[derive(Debug, Serialize)]
+pub struct TagList {
+    /// The tag `.chaps/project.yaml` records today.
+    pub pin: String,
+    /// Whether the releases could be listed at all. False is `--offline` or a
+    /// lookup that did not arrive, and the table is then the moving tags plus
+    /// this deployment's own pin.
+    pub releases_listed: bool,
+    pub tags: Vec<TagRow>,
+}
+
+/// One tag a deployment can move chap-core to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TagRow {
+    pub tag: String,
+    /// `release`, `moving`, or `exact` for a pin that is neither.
+    pub kind: &'static str,
+    /// The day the release was published, or the branch behind a moving tag
+    /// was last committed to. `null` when it could not be had cheaply.
+    pub published: Option<String>,
+    /// Whether this is the tag the deployment records today.
+    pub pinned: bool,
+    /// Whether this is the newest release.
+    pub newest: bool,
+    /// Which build a pinned moving tag is actually running, when its container
+    /// is up and docker could be asked.
+    pub running: Option<String>,
+}
+
+/// The rows of the listing: the moving tags, then the releases newest first,
+/// and this deployment's pin when it is neither.
+pub fn tag_rows(
+    pin: &str,
+    releases: &[chapcore::Release],
+    published: &BTreeMap<String, String>,
+    running: Option<&str>,
+) -> Vec<TagRow> {
+    let row = |tag: &str, kind: &'static str, day: Option<String>, newest: bool| {
+        let pinned = tag == pin;
+        TagRow {
+            tag: tag.to_string(),
+            kind,
+            published: day.filter(|d| !d.is_empty()),
+            pinned,
+            newest,
+            // Which image a release tag names is not in question, so the
+            // digest is only ever printed where the tag does not say.
+            running: (pinned && kind == chapcore::TagKind::Moving.label())
+                .then(|| running.map(str::to_string))
+                .flatten(),
+        }
+    };
+    let mut rows: Vec<TagRow> = chapcore::MOVING_TAGS
+        .iter()
+        .map(|tag| {
+            row(
+                tag,
+                chapcore::TagKind::Moving.label(),
+                published.get(*tag).cloned(),
+                false,
+            )
+        })
+        .collect();
+
+    let mut sorted: Vec<&chapcore::Release> = releases.iter().collect();
+    sorted.sort_by_key(|release| std::cmp::Reverse(chapcore::release_version(&release.tag)));
+    for (index, release) in sorted.iter().enumerate() {
+        rows.push(row(
+            &release.tag,
+            chapcore::TagKind::Release.label(),
+            Some(release.published.clone()),
+            index == 0,
+        ));
+    }
+    // A pin the listing does not otherwise hold - an older release, or a
+    // `sha-` build - is still where this deployment is, and the point of the
+    // table is to say where it can go from there.
+    if !rows.iter().any(|row| row.tag == pin) {
+        rows.push(row(pin, chapcore::tag_kind(pin).label(), None, false));
+    }
+    rows
+}
+
+/// The NOTE cell: what this row is to this deployment, and to the release
+/// line. `-` for a tag that is neither pinned nor the newest.
+pub fn tag_note(row: &TagRow) -> String {
+    let mut parts = Vec::new();
+    if row.pinned {
+        parts.push(match &row.running {
+            Some(digest) => format!("pinned (moving, running {digest})"),
+            None => "pinned".to_string(),
+        });
+    }
+    if row.newest {
+        parts.push("newest".to_string());
+    }
+    if parts.is_empty() {
+        return "-".to_string();
+    }
+    parts.join(", ")
+}
+
+/// The one line the listing ends on: what to do with a tag from the table.
+pub fn tag_closing_line(list: &TagList) -> String {
+    format!(
+        "chap-core is pinned to {}; move it with `chaps update --chap-tag <TAG>`",
+        list.pin
+    )
+}
+
+/// The table, then that line.
+fn tag_table(out: &Out, list: &TagList) -> String {
+    let rows: Vec<Vec<String>> = list
+        .tags
+        .iter()
+        .map(|row| {
+            let note = tag_note(row);
+            vec![
+                row.tag.clone(),
+                out.dim(row.kind),
+                out.dim(row.published.as_deref().unwrap_or("-")),
+                if row.pinned {
+                    out.ok(&note)
+                } else {
+                    out.dim(&note)
+                },
+            ]
+        })
+        .collect();
+    let mut text = out.table(&["TAG", "KIND", "PUBLISHED", "NOTE"], &rows);
+    text.push('\n');
+    text.push_str(&out.cmd(&out.backticks(&tag_closing_line(list))));
+    text
+}
+
+/// `chaps update --list-tags`: where this deployment can move chap-core to.
+///
+/// It writes nothing and pulls nothing, so it is also the command to run
+/// before `--chap-tag`, and it works offline: the three moving tags and this
+/// deployment's own pin need nothing from the network.
+fn list_tags(ctx: &Ctx, project: &Project) -> Result<()> {
+    let pin = project.state.chap_image_tag.clone();
+    let timeout = ctx.registry.timeout;
+    let offline = ctx.registry.offline;
+    let releases = if offline {
+        output::warn(
+            "--offline: the chap-core releases were not listed, so this is the moving tags and \
+             this deployment's own pin",
+        );
+        Vec::new()
+    } else {
+        match chapcore::releases(chapcore::LIST_LIMIT, timeout) {
+            Ok(list) => list,
+            Err(err) => {
+                output::warn(&format!(
+                    "could not list the chap-core releases ({err:#}), so this is the moving tags \
+                     and this deployment's own pin"
+                ));
+                Vec::new()
+            }
+        }
+    };
+
+    // What each moving tag was last built from, where it is one request away:
+    // `dev` and `master` from their branches, and `latest` from the release
+    // that publishes it. A branch that will not answer costs its own cell.
+    let mut published = BTreeMap::new();
+    if !offline {
+        for tag in chapcore::MOVING_TAGS {
+            if *tag == chapcore::LATEST_TAG {
+                continue;
+            }
+            if let Some(day) = chapcore::branch_updated(tag, timeout) {
+                published.insert((*tag).to_string(), day);
+            }
+        }
+    }
+    if let Some(newest) = releases.first() {
+        published.insert(chapcore::LATEST_TAG.to_string(), newest.published.clone());
+    }
+
+    // Which build the pin is on, for the one kind of tag that does not say.
+    let running = chapcore::is_moving_tag(&pin)
+        .then(|| {
+            docker::running_containers(project)
+                .as_deref()
+                .and_then(|containers| docker::running_build(containers, API_SERVICE))
+        })
+        .flatten();
+
+    let list = TagList {
+        releases_listed: !releases.is_empty(),
+        tags: tag_rows(&pin, &releases, &published, running.as_deref()),
+        pin,
+    };
+    ctx.out.emit(&list, || tag_table(&ctx.out, &list))
 }
 
 /// The chap-core row, with the new tag coloured the way a model row's is.
@@ -1436,6 +1869,9 @@ mod tests {
             moving: chapcore::is_moving_tag(old),
             latest_release: latest.map(str::to_string),
             compose_source: ComposeSource::Embedded,
+            requested: None,
+            compose_ref: (old != new).then(|| new.to_string()),
+            backwards: chapcore::is_backwards(old, new),
         }
     }
 
@@ -1452,7 +1888,7 @@ mod tests {
 
     #[test]
     fn a_release_pin_moves_to_a_newer_release_and_no_further() {
-        let plan = plan_chap_core(&pinned_to("v2.3.0"), Some("v2.3.1".into()), false);
+        let plan = plan_chap_core(&pinned_to("v2.3.0"), Some("v2.3.1".into()), false, None);
         assert!(plan.changed && !plan.moving);
         assert_eq!(
             (plan.old_tag.as_str(), plan.new_tag.as_str()),
@@ -1461,13 +1897,13 @@ mod tests {
         assert_eq!(plan.latest_release.as_deref(), Some("v2.3.1"));
 
         // Already current, and never backwards.
-        let plan = plan_chap_core(&pinned_to("v2.3.1"), Some("v2.3.1".into()), false);
+        let plan = plan_chap_core(&pinned_to("v2.3.1"), Some("v2.3.1".into()), false, None);
         assert!(!plan.changed);
-        let plan = plan_chap_core(&pinned_to("v2.4.0"), Some("v2.3.1".into()), false);
+        let plan = plan_chap_core(&pinned_to("v2.4.0"), Some("v2.3.1".into()), false, None);
         assert!(!plan.changed, "a release ahead of the newest one stays");
 
         // A failed lookup leaves everything where it is.
-        let plan = plan_chap_core(&pinned_to("v2.3.0"), None, false);
+        let plan = plan_chap_core(&pinned_to("v2.3.0"), None, false, None);
         assert!(!plan.changed);
         assert_eq!(plan.new_tag, "v2.3.0");
     }
@@ -1475,37 +1911,286 @@ mod tests {
     #[test]
     fn a_moving_tag_only_moves_when_asked_to() {
         for tag in ["latest", "master", "dev"] {
-            let plan = plan_chap_core(&pinned_to(tag), Some("v2.3.1".into()), false);
+            let plan = plan_chap_core(&pinned_to(tag), Some("v2.3.1".into()), false, None);
             assert!(!plan.changed, "{tag} follows itself");
             assert!(plan.moving, "{tag}");
             assert_eq!(plan.new_tag, tag);
 
-            let plan = plan_chap_core(&pinned_to(tag), Some("v2.3.1".into()), true);
+            let plan = plan_chap_core(&pinned_to(tag), Some("v2.3.1".into()), true, None);
             assert!(plan.changed, "--pin-chap-core pins {tag}");
             assert_eq!(plan.new_tag, "v2.3.1");
             assert!(plan.moving, "the tag it came from was a moving one");
         }
 
         // Nothing to pin it to: the flag cannot invent a release.
-        let plan = plan_chap_core(&pinned_to("latest"), None, true);
+        let plan = plan_chap_core(&pinned_to("latest"), None, true, None);
         assert!(!plan.changed);
     }
 
     #[test]
     fn a_tag_that_is_neither_a_release_nor_moving_is_left_alone() {
-        let plan = plan_chap_core(&pinned_to("sha-abcdef0"), Some("v2.3.1".into()), true);
+        let plan = plan_chap_core(&pinned_to("sha-abcdef0"), Some("v2.3.1".into()), true, None);
         assert!(!plan.changed && !plan.moving);
         assert_eq!(plan.new_tag, "sha-abcdef0");
     }
 
     #[test]
     fn the_release_lookup_is_skipped_when_it_cannot_matter() {
-        assert!(needs_release_lookup("v2.3.0", false));
-        assert!(needs_release_lookup("v2.3.0", true));
-        assert!(!needs_release_lookup("latest", false));
-        assert!(needs_release_lookup("latest", true));
-        assert!(!needs_release_lookup("sha-abcdef0", false));
-        assert!(!needs_release_lookup("sha-abcdef0", true));
+        assert!(needs_release_lookup("v2.3.0", false, None));
+        assert!(needs_release_lookup("v2.3.0", true, None));
+        assert!(!needs_release_lookup("latest", false, None));
+        assert!(needs_release_lookup("latest", true, None));
+        assert!(!needs_release_lookup("sha-abcdef0", false, None));
+        assert!(!needs_release_lookup("sha-abcdef0", true, None));
+
+        // A run that was told where to go asks for one reason only: `latest`
+        // is an image tag, and the compose file that goes with it is the one
+        // the newest release publishes.
+        assert!(needs_release_lookup("v2.3.0", false, Some("latest")));
+        assert!(!needs_release_lookup("v2.3.0", false, Some("dev")));
+        assert!(!needs_release_lookup("dev", false, Some("v2.3.1")));
+        assert!(!needs_release_lookup("v2.3.0", false, Some("v2.3.1")));
+    }
+
+    #[test]
+    fn a_requested_tag_decides_where_the_pin_goes() {
+        // Forward, backwards and sideways: the tag that was asked for wins,
+        // and the newest release does not enter into it.
+        let plan = plan_chap_core(
+            &pinned_to("v2.3.1"),
+            Some("v2.3.1".into()),
+            false,
+            Some("dev"),
+        );
+        assert!(plan.changed && !plan.moving && !plan.backwards);
+        assert_eq!(plan.new_tag, "dev");
+        assert_eq!(plan.compose_ref.as_deref(), Some("dev"));
+        assert_eq!(plan.requested.as_deref(), Some("dev"));
+
+        let plan = plan_chap_core(&pinned_to("dev"), None, false, Some("v2.3.1"));
+        assert!(plan.changed && plan.moving && plan.backwards);
+        assert_eq!(plan.new_tag, "v2.3.1");
+        assert_eq!(plan.compose_ref.as_deref(), Some("v2.3.1"));
+
+        let plan = plan_chap_core(&pinned_to("v2.3.1"), None, false, Some("v2.3.0"));
+        assert!(plan.changed && plan.backwards, "an older release");
+
+        let plan = plan_chap_core(&pinned_to("v2.3.0"), None, false, Some("v2.3.1"));
+        assert!(plan.changed && !plan.backwards, "a newer release");
+
+        // The tag it already runs: nothing moves, and nothing is fetched.
+        let plan = plan_chap_core(&pinned_to("dev"), None, false, Some("dev"));
+        assert!(!plan.changed && !plan.backwards);
+        assert_eq!(plan.compose_ref, None);
+        assert_eq!(
+            chap_core_line(&plan),
+            "chap-core  dev  already the pin, nothing to switch"
+        );
+    }
+
+    #[test]
+    fn the_compose_file_of_latest_is_the_one_the_newest_release_publishes() {
+        // `latest` is an image tag, not a ref of the repository.
+        assert_eq!(
+            compose_ref("latest", Some("v2.3.1")).as_deref(),
+            Some("v2.3.1")
+        );
+        assert_eq!(compose_ref("latest", None), None);
+        // Everything else is a ref: a release tag or a branch.
+        assert_eq!(compose_ref("v2.3.1", None).as_deref(), Some("v2.3.1"));
+        assert_eq!(compose_ref("dev", Some("v2.3.1")).as_deref(), Some("dev"));
+        assert_eq!(compose_ref("master", None).as_deref(), Some("master"));
+
+        let plan = plan_chap_core(
+            &pinned_to("v2.3.0"),
+            Some("v2.3.1".into()),
+            false,
+            Some("latest"),
+        );
+        assert_eq!(plan.new_tag, "latest");
+        assert_eq!(plan.compose_ref.as_deref(), Some("v2.3.1"));
+        // And the row says the compose file came with it, at that ref.
+        let mut fetched = plan;
+        fetched.compose_source = ComposeSource::Fetched {
+            url: chapcore::compose_url("v2.3.1"),
+            tag: "v2.3.1".into(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(
+            chap_core_line(&fetched),
+            "chap-core  v2.3.0 -> latest  (compose.ghcr.yml too)"
+        );
+    }
+
+    #[test]
+    fn a_switch_reports_the_way_the_rest_of_the_update_does() {
+        let plan = plan_chap_core(&pinned_to("v2.3.1"), None, false, Some("dev"));
+        assert_eq!(chap_core_line(&plan), "chap-core  v2.3.1 -> dev");
+        assert_eq!(
+            updated_phrase(0, Some(("v2.3.1", "dev")), &[]).as_deref(),
+            Some("chap-core v2.3.1 -> dev")
+        );
+        assert_eq!(
+            closing_line(
+                updated_phrase(
+                    0,
+                    Some(("v2.3.1", "dev")),
+                    &["chap".into(), "worker".into()]
+                )
+                .as_deref(),
+                &["chap".to_string(), "worker".to_string()],
+                Some(true)
+            ),
+            "updated chap-core v2.3.1 -> dev, new images for chap, worker; \
+             restart needed: chap, worker (run `chaps restart`)"
+        );
+        // A dry run says the same thing in the conditional, and nothing about
+        // restarting: nothing was written for anything to be behind.
+        let line = dry_run_line(updated_phrase(0, Some(("v2.3.1", "dev")), &[]).as_deref());
+        assert_eq!(
+            line,
+            "would update chap-core v2.3.1 -> dev; nothing written \
+             (run `chaps update` to do it)"
+        );
+        assert!(!line.contains("restart"));
+    }
+
+    #[test]
+    fn a_pull_that_fails_after_a_switch_says_where_the_pin_is() {
+        assert_eq!(
+            pull_failed_after_switch("v2.3.1", "dev"),
+            "the pull failed after the pins moved; chap-core is now pinned to dev, and \
+             `chaps update --chap-tag v2.3.1 --yes` puts it back"
+        );
+    }
+
+    #[test]
+    fn the_backwards_warning_names_the_move_and_the_way_out() {
+        assert_eq!(
+            backwards_warning("dev", "v2.3.1"),
+            "moving chap-core from dev to v2.3.1 can run an older schema against a database \
+             migrated by the newer one; run `chaps backup create` first"
+        );
+    }
+
+    #[test]
+    fn a_requested_tag_is_checked_before_anything_happens() {
+        // Offline: nothing can be looked up, and the tag is taken as given.
+        let offline = std::time::Duration::from_secs(1);
+        assert_eq!(check_chap_tag("v9.9.9", true, offline).unwrap(), "v9.9.9");
+        // A moving tag needs no lookup at all, online or not.
+        for tag in chapcore::MOVING_TAGS {
+            assert_eq!(&check_chap_tag(tag, false, offline).unwrap(), tag);
+        }
+        // Nor does a tag that is neither, which is recorded as an exact pin.
+        assert_eq!(
+            check_chap_tag("sha-fa880a1", false, offline).unwrap(),
+            "sha-fa880a1"
+        );
+        // An empty tag is the one thing this refuses without asking anyone.
+        let err = check_chap_tag("", false, offline).expect_err("nothing to move to");
+        assert!(err.to_string().contains("--chap-tag needs a tag"), "{err}");
+    }
+
+    /// The releases a listing is built from, newest first.
+    fn releases() -> Vec<chapcore::Release> {
+        vec![
+            chapcore::Release {
+                tag: "v2.3.1".into(),
+                published: "2026-09-21".into(),
+            },
+            chapcore::Release {
+                tag: "v2.3.0".into(),
+                published: "2026-09-11".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn the_tag_listing_marks_the_pin_and_the_newest_release() {
+        let mut published = BTreeMap::new();
+        published.insert("dev".to_string(), "2026-09-24".to_string());
+        published.insert("latest".to_string(), "2026-09-21".to_string());
+
+        let rows = tag_rows("dev", &releases(), &published, Some("7f3a1c2e9b4d"));
+        let cells: Vec<(&str, &str, &str, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.tag.as_str(),
+                    row.kind,
+                    row.published.as_deref().unwrap_or("-"),
+                    tag_note(row),
+                )
+            })
+            .collect();
+        assert_eq!(
+            cells,
+            vec![
+                (
+                    "dev",
+                    "moving",
+                    "2026-09-24",
+                    "pinned (moving, running 7f3a1c2e9b4d)".to_string()
+                ),
+                ("master", "moving", "-", "-".to_string()),
+                ("latest", "moving", "2026-09-21", "-".to_string()),
+                ("v2.3.1", "release", "2026-09-21", "newest".to_string()),
+                ("v2.3.0", "release", "2026-09-11", "-".to_string()),
+            ]
+        );
+
+        // A release pin is marked where it sits, and the newest release is
+        // still named as such.
+        let rows = tag_rows("v2.3.0", &releases(), &BTreeMap::new(), None);
+        let note = |tag: &str| tag_note(rows.iter().find(|row| row.tag == tag).expect("a row"));
+        assert_eq!(note("v2.3.0"), "pinned");
+        assert_eq!(note("v2.3.1"), "newest");
+        // No digest for a release pin: the tag already says which image it is.
+        let rows = tag_rows(
+            "v2.3.0",
+            &releases(),
+            &BTreeMap::new(),
+            Some("7f3a1c2e9b4d"),
+        );
+        assert!(rows.iter().all(|row| row.running.is_none()));
+
+        // The newest release wins on version, not on the order of the list.
+        let listed = vec![releases()[1].clone(), releases()[0].clone()];
+        let rows = tag_rows("dev", &listed, &BTreeMap::new(), None);
+        let releases_only: Vec<&str> = rows
+            .iter()
+            .filter(|row| row.kind == "release")
+            .map(|row| row.tag.as_str())
+            .collect();
+        assert_eq!(releases_only, vec!["v2.3.1", "v2.3.0"]);
+        assert!(rows.iter().find(|row| row.tag == "v2.3.1").unwrap().newest);
+    }
+
+    #[test]
+    fn a_pin_the_listing_does_not_hold_gets_a_row_of_its_own() {
+        // Offline, or a release older than the page: the deployment is still
+        // somewhere, and the table says where.
+        let rows = tag_rows("sha-fa880a1", &[], &BTreeMap::new(), None);
+        let last = rows.last().expect("a row for the pin");
+        assert_eq!((last.tag.as_str(), last.kind), ("sha-fa880a1", "exact"));
+        assert_eq!(tag_note(last), "pinned");
+        assert_eq!(rows.len(), chapcore::MOVING_TAGS.len() + 1);
+
+        let rows = tag_rows("v1.0.0", &releases(), &BTreeMap::new(), None);
+        assert_eq!(rows.last().unwrap().tag, "v1.0.0");
+        assert_eq!(rows.last().unwrap().kind, "release");
+        assert_eq!(tag_note(rows.last().unwrap()), "pinned");
+
+        let list = TagList {
+            pin: "dev".to_string(),
+            releases_listed: false,
+            tags: rows,
+        };
+        assert_eq!(
+            tag_closing_line(&list),
+            "chap-core is pinned to dev; move it with `chaps update --chap-tag <TAG>`"
+        );
     }
 
     #[test]

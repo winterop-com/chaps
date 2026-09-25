@@ -34,14 +34,16 @@ against temporary directories, and every run is `--offline` with its own cache
 directory, so the embedded marketplace snapshot is what the CLI sees and no
 test touches the network or the developer's real cache.
 
-`chaps models add` is the one command that cannot be tested that way: it
-resolves a repository over HTTP. Those tests stand a local server in for
-everything it would reach - GitHub's REST API, ghcr and the marketplace index -
-through three hooks nothing on the command line can set:
+`chaps models add` and `chaps update --chap-tag` are the commands that cannot
+be tested that way: they resolve a repository, a release or a compose file over
+HTTP. Those tests stand a local server in for everything they would reach -
+GitHub's REST API, the raw file host, ghcr and the marketplace index - through
+four hooks nothing on the command line can set:
 
 | Variable | What it moves |
 | --- | --- |
-| `CHAPS_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`. |
+| `CHAPS_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`: the repository lookups and chap-core's release feed. |
+| `CHAPS_GITHUB_RAW` | The raw file base URL, normally `https://raw.githubusercontent.com`: chap-core's `compose.ghcr.yml` at a ref. |
 | `CHAPS_GHCR_URL` | The registry base URL, normally `https://ghcr.io`. |
 | `CHAPS_NO_DOCKER_PROBE` | `1` turns off the uid probe, which would otherwise `docker pull` an image the test has not got. |
 

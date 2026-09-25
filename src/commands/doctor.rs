@@ -448,9 +448,20 @@ fn project_checks(
     // The chap-core release feed says nothing about a deployment that does not
     // run chap-core.
     if project.state.components.chap_core.enabled {
+        // Which build a moving tag is on, asked only when the tag is one: a
+        // release tag names its image, and a `docker inspect` per doctor run
+        // is not worth spending to say so twice.
+        let running_build = chapcore::is_moving_tag(&project.state.chap_image_tag)
+            .then(|| {
+                containers
+                    .as_deref()
+                    .and_then(|containers| docker::running_build(containers, API_SERVICE))
+            })
+            .flatten();
         checks.push(pin_check(
             &project.state.chap_image_tag,
             ReleaseList::of(probed.map(|p| &p.chap_core)),
+            running_build.as_deref(),
         ));
     }
     checks.extend(image_checks(project, probed, have_cli));
@@ -1711,12 +1722,25 @@ pub fn api_port_note(project: &Project) -> Option<String> {
 /// Whether the chap-core tag this deployment pins is still the newest one.
 ///
 /// A moving tag is answered before the release list is looked at: there is no
-/// comparison to make, so that verdict is the same online and offline.
-pub fn pin_verdict(tag: &str, latest: ReleaseList<'_>) -> (Status, String, Option<String>) {
+/// comparison to make, so that verdict is the same online and offline. What
+/// it says instead is which build the tag is on - `running` is the digest the
+/// image chap-core's container runs was pulled at, or `None` when it is not
+/// up and docker has nothing to say.
+pub fn pin_verdict(
+    tag: &str,
+    latest: ReleaseList<'_>,
+    running: Option<&str>,
+) -> (Status, String, Option<String>) {
     if chapcore::is_moving_tag(tag) {
+        let build = match running.filter(|digest| !digest.is_empty()) {
+            Some(digest) => format!("{tag} (moving tag, running {digest})"),
+            None => format!("{tag} (moving tag)"),
+        };
         return (
             Status::Ok,
-            format!("{tag} (a moving tag: `chaps up --pull` takes whatever it points at today)"),
+            format!(
+                "{build}; `chaps update` re-pulls it, `chaps update --pin-chap-core` pins a release"
+            ),
             None,
         );
     }
@@ -1748,8 +1772,12 @@ pub fn pin_verdict(tag: &str, latest: ReleaseList<'_>) -> (Status, String, Optio
 }
 
 /// The `chap-core-pin` line.
-pub fn pin_check(tag: &str, latest: ReleaseList<'_>) -> Check {
-    Check::from_verdict("chap-core-pin", "chap-core pin", pin_verdict(tag, latest))
+pub fn pin_check(tag: &str, latest: ReleaseList<'_>, running: Option<&str>) -> Check {
+    Check::from_verdict(
+        "chap-core-pin",
+        "chap-core pin",
+        pin_verdict(tag, latest, running),
+    )
 }
 
 /// Whether a manifest document offers a linux/amd64 image.
@@ -3665,33 +3693,33 @@ mod tests {
 
     #[test]
     fn the_pin_check_only_speaks_up_for_a_release_that_moved() {
-        let (status, detail, fix) = pin_verdict("latest", ReleaseList::Newest("v2.3.1"));
+        let (status, detail, fix) = pin_verdict("latest", ReleaseList::Newest("v2.3.1"), None);
         assert_eq!(status, Status::Ok, "a moving tag is not behind anything");
         assert!(detail.contains("moving tag"), "{detail}");
         assert_eq!(fix, None);
 
-        let (status, detail, fix) = pin_verdict("v2.3.0", ReleaseList::Newest("v2.3.1"));
+        let (status, detail, fix) = pin_verdict("v2.3.0", ReleaseList::Newest("v2.3.1"), None);
         assert_eq!(status, Status::Warn);
         assert_eq!(detail, "v2.3.0 pinned, v2.3.1 released");
         assert!(fix.unwrap().contains("chaps update --dry-run"));
 
         assert_eq!(
-            pin_verdict("v2.3.1", ReleaseList::Newest("v2.3.1")).0,
+            pin_verdict("v2.3.1", ReleaseList::Newest("v2.3.1"), None).0,
             Status::Ok
         );
         assert_eq!(
-            pin_verdict("v2.4.0", ReleaseList::Newest("v2.3.1")).0,
+            pin_verdict("v2.4.0", ReleaseList::Newest("v2.3.1"), None).0,
             Status::Ok
         );
 
         // Without the release list there is nothing to compare against, and
         // the two silent cases each say which one they are.
-        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Unreachable);
+        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Unreachable, None);
         assert_eq!(status, Status::Skip);
         assert!(detail.contains("v2.3.0"), "{detail}");
         assert!(detail.contains("not reachable"), "{detail}");
 
-        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Offline);
+        let (status, detail, _) = pin_verdict("v2.3.0", ReleaseList::Offline, None);
         assert_eq!(status, Status::Skip);
         assert!(
             detail.contains("v2.3.0") && detail.contains("offline"),
@@ -3699,7 +3727,31 @@ mod tests {
         );
 
         // A moving tag needs no list at all, offline included.
-        assert_eq!(pin_verdict("latest", ReleaseList::Offline).0, Status::Ok);
+        assert_eq!(
+            pin_verdict("latest", ReleaseList::Offline, None).0,
+            Status::Ok
+        );
+    }
+
+    #[test]
+    fn a_moving_pin_says_which_build_it_is_on_and_how_to_leave_it() {
+        let (status, detail, fix) =
+            pin_verdict("dev", ReleaseList::Newest("v2.3.1"), Some("7f3a1c2e9b4d"));
+        assert_eq!(status, Status::Ok);
+        assert_eq!(
+            detail,
+            "dev (moving tag, running 7f3a1c2e9b4d); `chaps update` re-pulls it, \
+             `chaps update --pin-chap-core` pins a release"
+        );
+        assert_eq!(fix, None);
+
+        // Nothing running, or a docker that would not say: the tag is still
+        // the answer, without a digest invented for it.
+        for unknown in [None, Some("")] {
+            let (_, detail, _) = pin_verdict("dev", ReleaseList::Offline, unknown);
+            assert!(detail.starts_with("dev (moving tag);"), "{detail}");
+            assert!(!detail.contains("running"), "{detail}");
+        }
     }
 
     /// The reason the image lines give, in the order the reasons rank.
@@ -3819,7 +3871,11 @@ mod tests {
             version: ApiVersion {
                 value: "v2.3.1".to_string(),
                 pinned: false,
+                revision: None,
             },
+            chap_tag: "v2.3.1".to_string(),
+            chap_tag_moving: false,
+            chap_build: None,
             registered: Vec::new(),
             expected: expected.iter().map(|s| s.to_string()).collect(),
             missing: missing.iter().map(|s| s.to_string()).collect(),

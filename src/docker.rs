@@ -511,6 +511,61 @@ pub fn image_ids(refs: &[String]) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// Which build one running service is actually on, in short form.
+///
+/// A moving tag such as `dev` says nothing about what it is: two machines on
+/// the same tag can be on different images, and so can the same machine after
+/// a pull. The digest the image was pulled at is the one thing that does say,
+/// so it is what `chaps status`, `chaps doctor` and
+/// `chaps update --list-tags` print next to a moving tag.
+///
+/// `None` all the way down when docker cannot be asked or the service is not
+/// up: not knowing which build is running is reported as not knowing.
+pub fn running_build(containers: &[Container], service: &str) -> Option<String> {
+    let container = containers
+        .iter()
+        .find(|c| c.service == service && c.is_running())?;
+    let build = container_builds(std::slice::from_ref(&container.id));
+    let id = build.get(&container.id).map(|b| b.image_id.clone())?;
+    Some(short_digest(&image_digest(&id).unwrap_or(id)))
+}
+
+/// The digest an image on this machine was pulled at, from its `RepoDigests`.
+///
+/// An image that was built here rather than pulled carries none, which is
+/// `None`: its id is the only thing that identifies it, and the caller falls
+/// back to that.
+pub fn image_digest(reference: &str) -> Option<String> {
+    let args = vec![
+        "image".to_string(),
+        "inspect".to_string(),
+        "--format".to_string(),
+        "{{json .RepoDigests}}".to_string(),
+        reference.to_string(),
+    ];
+    parse_repo_digest(&docker_capture(&args)?)
+}
+
+/// The first digest of a `RepoDigests` array, as `sha256:...`.
+pub fn parse_repo_digest(text: &str) -> Option<String> {
+    let list: Vec<String> = serde_json::from_str(text.trim()).ok()?;
+    list.iter()
+        .find_map(|entry| entry.split_once('@').map(|(_, digest)| digest.to_string()))
+}
+
+/// How long a digest or image id a person is asked to compare by eye.
+const SHORT_DIGEST: usize = 12;
+
+/// A digest or image id as the twelve hex characters that identify it.
+pub fn short_digest(value: &str) -> String {
+    let hex = value
+        .trim()
+        .rsplit_once(':')
+        .map(|(_, hex)| hex)
+        .unwrap_or_else(|| value.trim());
+    hex.chars().take(SHORT_DIGEST).collect()
+}
+
 /// The local image id one reference points at, or `None` when this machine
 /// does not have it.
 fn image_id(reference: &str) -> Option<String> {
@@ -1962,6 +2017,31 @@ mod tests {
         assert_eq!(odd[0].1.image_id, "sha256:ccc");
         assert_eq!(odd[0].1.config_hash, "");
         assert!(parse_container_builds("").is_empty());
+    }
+
+    #[test]
+    fn an_image_reports_the_digest_it_was_pulled_at() {
+        let text = r#"["ghcr.io/dhis2-chap/chap-core@sha256:7f3a1c2e9b4d5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"]"#;
+        assert_eq!(
+            parse_repo_digest(text).as_deref(),
+            Some("sha256:7f3a1c2e9b4d5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d")
+        );
+        // An image built here rather than pulled carries no digest at all.
+        assert_eq!(parse_repo_digest("[]"), None);
+        assert_eq!(parse_repo_digest("null"), None);
+        assert_eq!(parse_repo_digest(""), None);
+        assert_eq!(parse_repo_digest(r#"["ghcr.io/x/y:dev"]"#), None);
+    }
+
+    #[test]
+    fn a_digest_is_shortened_to_the_characters_a_person_compares() {
+        assert_eq!(
+            short_digest("sha256:7f3a1c2e9b4d5a6b7c8d9e0f1a2b3c4d"),
+            "7f3a1c2e9b4d"
+        );
+        assert_eq!(short_digest("  sha256:abc  "), "abc");
+        assert_eq!(short_digest("7f3a1c2e9b4d5a6b"), "7f3a1c2e9b4d");
+        assert_eq!(short_digest(""), "");
     }
 
     /// One `docker image inspect` line, the way the real format prints it.

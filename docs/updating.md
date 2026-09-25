@@ -10,7 +10,7 @@ with anything here.
 | Command | What it does |
 | --- | --- |
 | `chaps up` | Starts what is on disk. Never changes a version. |
-| `chaps update` | Fetches newer versions: moves the pins, pulls the images. Never touches a container. |
+| `chaps update` | Fetches newer versions: moves the pins, pulls the images. Never touches a container. `--chap-tag` moves chap-core somewhere else entirely. |
 | `chaps restart` | Applies what was fetched to the services that are running. |
 
 An update that restarted things by itself would decide for you when your
@@ -44,7 +44,7 @@ or `--version`) and `chaps update`. Nothing else, `up`, `restart`, `expose` and
 ## `chaps update`
 
 ```sh
-chaps update [--dry-run] [--pin-chap-core]
+chaps update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes]
 ```
 
 `chaps update` fetches the registry from the network: no cache, no fallback. It
@@ -217,6 +217,130 @@ converts such a tag into a release pin, the way `init` does by default.
 
 A tag that is neither a release nor a moving one, a `sha-` build for instance,
 is never moved.
+
+## Switching chap-core's tag
+
+`chaps update` moves a release pin forward and re-pulls a moving one. Going
+somewhere else - onto `dev`, back to a release, or straight to a release that
+came out this morning - is `--chap-tag`:
+
+```sh
+chaps update --chap-tag dev        # follow the dev branch from now on
+chaps update --chap-tag v2.3.2     # pin that release
+chaps update --chap-tag latest     # follow whatever the newest release is
+```
+
+It is the same run as any other update: the tag is checked, the
+`compose.ghcr.yml` that goes with it is fetched and cached under `.chaps/`,
+`chap_image_tag` and `chap_compose_source` are recorded, the single active
+`CHAP_IMAGE_TAG=` line in `.env` is rewritten, the compose files are
+re-rendered, the images are pulled, and the closing line says what moved and
+what needs restarting:
+
+```text
+  chap-core  v2.3.1 -> dev
+updated chap-core v2.3.1 -> dev; restart needed: chap, worker (run `chaps restart`)
+```
+
+`--chap-tag` cannot be combined with `--pin-chap-core`: both decide where
+chap-core's pin goes, and one command does not get to do it twice.
+
+### The three moves
+
+| Move | Command | What happens |
+| --- | --- | --- |
+| A release to the newest release | `chaps update` | The ordinary run. Nothing to name: `update` looks the newest release up itself. |
+| A release to `dev` and back | `chaps update --chap-tag dev`, then `chaps update --chap-tag v2.3.1 --yes` | Onto `dev` without a question; back to the release with the warning below, and an answer. |
+| To a release the day it is out | `chaps update --chap-tag v2.3.2` | The same as waiting for `chaps update` to find it, except that it happens now. A release that does not exist is refused. |
+
+Asking for the tag that is already pinned changes nothing and says so:
+
+```text
+  chap-core  dev  already the pin, nothing to switch
+already up to date
+```
+
+### Which compose file comes with which tag
+
+`compose.ghcr.yml` is fetched at a ref of the repository, so a release tag and
+a branch bring their own, and `latest` - which is an image tag rather than a
+ref - brings the one the newest release publishes. A ref that has no
+`compose.ghcr.yml` is a warning: the image pin moves and `compose.yml` keeps
+the layout it has.
+
+### Moving backwards
+
+Going back to an older chap-core means running an older schema against a
+database a newer one has already migrated. `chaps` does not know chap-core's
+migrations and will not pretend to, so it names the risk and asks:
+
+```text
+warning: moving chap-core from dev to v2.3.1 can run an older schema against a
+database migrated by the newer one; run `chaps backup create` first
+
+move chap-core from dev to v2.3.1? [y/N]
+```
+
+Two moves count as backwards: a release to an older release, and a moving tag
+to any release, since `dev` and `master` are ahead of every release and
+`latest` is the newest of them. Going forward, and moving between moving tags,
+needs no answer.
+
+`--yes` is how a script says it meant it. A run with nothing to ask - no
+terminal on stdin, or `--json` - is refused rather than assumed, and a
+`--dry-run` prints the warning and stops there, because it writes nothing to
+confirm.
+
+### What a moving tag shows afterwards
+
+`dev` is the same name today and tomorrow, so the tag alone does not say what
+is running. Both `chaps status` and `chaps doctor` say which build it is:
+
+```text
+chap-core   up   http://localhost:8190   2.3.2   dev: running 7f3a1c2e9b4d, revision a1b2c3d
+```
+
+```text
+ok    chap-core pin    dev (moving tag, running 7f3a1c2e9b4d); `chaps update` re-pulls it,
+                       `chaps update --pin-chap-core` pins a release
+```
+
+The digest is the one the image was pulled at (`docker inspect`), shortened to
+the twelve characters a person compares; the revision is what chap-core
+reports for itself at `/system/info`, which a build without a `GIT_REVISION`
+does not carry. Either is left off the line when it could not be had rather
+than printed as a hole.
+
+## `--list-tags`
+
+```sh
+chaps update --list-tags
+```
+
+lists where this deployment can move chap-core to, newest first: the three
+moving tags, then the newest releases GitHub publishes.
+
+```text
+TAG     KIND     PUBLISHED   NOTE
+dev     moving   2026-09-24  pinned (moving, running 7f3a1c2e9b4d)
+master  moving   2026-09-24  -
+latest  moving   2026-09-21  -
+v2.3.1  release  2026-09-21  newest
+v2.3.0  release  2026-09-11  -
+
+chap-core is pinned to dev; move it with `chaps update --chap-tag <TAG>`
+```
+
+`PUBLISHED` is the day the release was published, or the day the branch behind
+a moving tag was last committed to; `latest` carries the date of the release it
+publishes. A cell that could not be had cheaply is `-`.
+
+`NOTE` marks the tag this deployment records (`pinned`, with the running build
+for a moving tag whose container is up) and the newest release (`newest`).
+
+It writes nothing, pulls nothing, asks for no confirmation and ignores
+`--dry-run`. Under `--offline` it prints the moving tags and this deployment's
+own pin, with a warning that the releases could not be listed.
 
 ## Without the network
 

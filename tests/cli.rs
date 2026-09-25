@@ -95,6 +95,7 @@ impl Sandbox {
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
             .env("CHAPS_NO_UPDATE_CHECK", "1")
             .env("CHAPS_GITHUB_API", &base)
+            .env("CHAPS_GITHUB_RAW", &base)
             .env("CHAPS_GHCR_URL", &base)
             .env("CHAPS_NO_DOCKER_PROBE", "1")
             .current_dir(self.home.path())
@@ -102,6 +103,27 @@ impl Sandbox {
             .arg(format!("{base}/registry.yaml"))
             .arg("-C")
             .arg(self.project());
+        cmd
+    }
+
+    /// `chaps init <project> ...` with the same network, which is how a
+    /// deployment gets a chap-core pin and the compose file that goes with it
+    /// without touching the real GitHub.
+    fn online_init(&self, port: u16, args: &[&str]) -> Command {
+        let base = format!("http://127.0.0.1:{port}");
+        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
+        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            .env("CHAPS_NO_UPDATE_CHECK", "1")
+            .env("CHAPS_GITHUB_API", &base)
+            .env("CHAPS_GITHUB_RAW", &base)
+            .env("CHAPS_GHCR_URL", &base)
+            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .current_dir(self.home.path())
+            .arg("--registry-url")
+            .arg(format!("{base}/registry.yaml"))
+            .arg("init")
+            .arg(self.project())
+            .args(args);
         cmd
     }
 }
@@ -4906,6 +4928,38 @@ struct Hub {
     user: String,
     /// Its `WorkingDir`, which is what the data directory is derived from.
     working_dir: String,
+    /// chap-core's releases, newest first, as `(tag, published_at)`. They
+    /// answer `releases/latest`, `releases`, `releases/tags/<tag>` and the
+    /// `compose.ghcr.yml` every one of them publishes.
+    releases: Vec<(String, String)>,
+}
+
+/// The chap-core releases the hub publishes by default: two of them, so a
+/// switch can go forwards and backwards between releases as well as to a
+/// moving tag.
+const CHAP_RELEASES: &[(&str, &str)] = &[
+    ("v2.3.1", "2026-09-21T10:00:25Z"),
+    ("v2.3.0", "2026-09-11T09:20:41Z"),
+];
+
+/// The day the hub's `dev` branch was last committed to.
+const DEV_COMMITTED: &str = "2026-09-24T08:15:00Z";
+
+/// chap-core's `compose.ghcr.yml` as the hub publishes it at one ref.
+///
+/// The ref is written into the document, so a test can tell which one
+/// `compose.yml` was rendered from; everything else is the little the CLI
+/// requires of it, the `${CHAP_IMAGE_TAG}` pin included.
+fn chap_compose(reference: &str) -> String {
+    format!(
+        "services:\n  \
+         chap:\n    \
+         image: ghcr.io/dhis2-chap/chap-core:${{CHAP_IMAGE_TAG:-latest}}\n    \
+         environment:\n      \
+         CHAPS_TEST_REF: {reference}\n  \
+         worker:\n    \
+         image: ghcr.io/dhis2-chap/chap-core:${{CHAP_IMAGE_TAG:-latest}}\n"
+    )
 }
 
 /// The digest of the amd64 manifest inside the index.
@@ -4928,6 +4982,10 @@ impl Hub {
             published: vec![OLD_TAG.to_string()],
             user: "10001:10001".to_string(),
             working_dir: "/work".to_string(),
+            releases: CHAP_RELEASES
+                .iter()
+                .map(|(tag, at)| (tag.to_string(), at.to_string()))
+                .collect(),
         }
     }
 
@@ -5006,6 +5064,11 @@ impl Hub {
         if path.starts_with("/registry.yaml") {
             return (200, "text/plain", REGISTRY_INDEX.to_string());
         }
+        // chap-core's own releases and the compose file each ref publishes.
+        // Before the model repository's routes, which are the wider match.
+        if let Some(answer) = self.chap_core(path) {
+            return answer;
+        }
         if path.starts_with("/models/chapkit_ewars_model.yaml") {
             return (200, "text/plain", MARKETPLACE_MODEL.to_string());
         }
@@ -5053,6 +5116,62 @@ impl Hub {
             );
         }
         (404, json, "{}".to_string())
+    }
+
+    /// The chap-core half of the hub: the release feed and the raw
+    /// `compose.ghcr.yml` of every ref that publishes one.
+    ///
+    /// `None` when the path is not one of chap-core's, which is what lets the
+    /// model repository keep the routes it had.
+    fn chap_core(&self, path: &str) -> Option<(u16, &'static str, String)> {
+        const REPO: &str = "dhis2-chap/chap-core";
+        let json = "application/json";
+        let release = |(tag, at): &(String, String)| {
+            format!(
+                r#"{{"tag_name":"{tag}","published_at":"{at}","draft":false,"prerelease":false}}"#
+            )
+        };
+        let releases = format!("/repos/{REPO}/releases");
+
+        if path.starts_with(&format!("{releases}/latest")) {
+            return Some(match self.releases.first() {
+                Some(newest) => (200, json, release(newest)),
+                None => (404, json, r#"{"message":"Not Found"}"#.to_string()),
+            });
+        }
+        if let Some(tag) = path.strip_prefix(&format!("{releases}/tags/")) {
+            let tag = tag.split('?').next().unwrap_or(tag);
+            return Some(match self.releases.iter().find(|(name, _)| name == tag) {
+                Some(found) => (200, json, release(found)),
+                None => (404, json, r#"{"message":"Not Found"}"#.to_string()),
+            });
+        }
+        if path.starts_with(&releases) {
+            let entries: Vec<String> = self.releases.iter().map(release).collect();
+            return Some((200, json, format!("[{}]", entries.join(","))));
+        }
+        if path.starts_with(&format!("/repos/{REPO}/commits")) {
+            return Some((
+                200,
+                json,
+                format!(
+                    r#"[{{"sha":"{NEW_SHA}","commit":{{"committer":{{"date":"{DEV_COMMITTED}"}}}}}}]"#
+                ),
+            ));
+        }
+        // The raw host: `/<repo>/<ref>/compose.ghcr.yml`. Every release and
+        // the two branches publish one; anything else is a 404, which is what
+        // a tag that was never built looks like.
+        let reference = path
+            .strip_prefix(&format!("/{REPO}/"))?
+            .strip_suffix("/compose.ghcr.yml")?;
+        let known = reference == "dev"
+            || reference == "master"
+            || self.releases.iter().any(|(tag, _)| tag == reference);
+        Some(match known {
+            true => (200, "text/plain", chap_compose(reference)),
+            false => (404, "text/plain", "404: Not Found".to_string()),
+        })
     }
 }
 
@@ -7148,4 +7267,295 @@ fn models_test_skips_an_image_that_has_no_chapkit_test() {
     assert!(text.contains("the service reports chapkit 2.0.0"), "{text}");
     assert!(text.contains("--backtest"), "{text}");
     assert!(text.contains("0 pass, 1 skipped"), "{text}");
+}
+
+// ------------------------------------------- switching chap-core's tag ---
+
+/// A `docker` on PATH that answers everything with success and nothing else.
+///
+/// `chaps update` ends in `docker compose pull`, and a test must not pull
+/// anything: what it is about is the files the run writes before that, and
+/// the closing line it prints after. Every call is logged so a test can check
+/// that the pull was asked for at all.
+#[cfg(unix)]
+fn quiet_docker() -> (TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let docker = bin.join("docker");
+    std::fs::write(
+        &docker,
+        format!("#!/bin/sh\necho \"$*\" >> {}\nexit 0\n", log.display()),
+    )
+    .expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin, log)
+}
+
+/// A deployment pinned to the hub's newest release, and the fake docker the
+/// update runs through.
+#[cfg(unix)]
+fn pinned_sandbox() -> (Sandbox, PathBuf, u16, TempDir, PathBuf) {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = Hub::new().start();
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)",
+        ));
+    assert!(read(&dir.join("compose.yml")).contains("CHAPS_TEST_REF: v2.3.1"));
+    let (temp, bin, _) = quiet_docker();
+    (sandbox, dir, port, temp, bin)
+}
+
+/// `chaps -C <project> update ...` against the hub, with the fake docker
+/// ahead of the real one on PATH.
+#[cfg(unix)]
+fn online_update(sandbox: &Sandbox, port: u16, bin: &Path, args: &[&str]) -> Command {
+    let mut cmd = sandbox.online(port);
+    cmd.env(
+        "PATH",
+        format!(
+            "{}:{}",
+            bin.display(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
+    cmd.arg("update").args(args);
+    cmd
+}
+
+#[cfg(unix)]
+#[test]
+fn update_switches_chap_core_to_a_moving_tag_and_back() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+
+    // Forwards, onto a tag that is ahead of every release: no confirmation,
+    // and the compose file of that branch comes with it.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chap-core  v2.3.1 -> dev"))
+        .stdout(predicates::str::contains("updated chap-core v2.3.1 -> dev"))
+        .stderr(predicates::str::contains("backup").not());
+
+    let moved = state(&dir);
+    assert_eq!(moved["chap_image_tag"], "dev");
+    assert_eq!(moved["chap_compose_source"]["tag"], "dev");
+    assert!(
+        moved["chap_compose_source"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/dhis2-chap/chap-core/dev/compose.ghcr.yml")
+    );
+    assert!(dir.join(".chaps/compose.chap-core.dev.yml").is_file());
+    assert!(
+        read(&dir.join(".chaps/compose.chap-core.dev.yml")).contains("CHAPS_TEST_REF: dev"),
+        "the fetched copy is the dev one"
+    );
+    // The rendered base follows it, and so does the line compose reads.
+    let base = read(&dir.join("compose.yml"));
+    assert!(base.contains("CHAPS_TEST_REF: dev"), "{base}");
+    assert!(
+        base.contains("# chap-core compose.ghcr.yml at dev\n"),
+        "{base}"
+    );
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("dev"));
+
+    // Asking for the tag it already runs changes nothing and says so.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "chap-core  dev  already the pin, nothing to switch",
+        ))
+        .stdout(predicates::str::contains("already up to date"));
+    assert_eq!(state(&dir)["chap_image_tag"], "dev");
+
+    // And back to the release, which is the direction that needs an answer.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v2.3.1", "--yes"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "moving chap-core from dev to v2.3.1 can run an older schema against a database \
+             migrated by the newer one; run `chaps backup create` first",
+        ))
+        .stdout(predicates::str::contains("chap-core  dev -> v2.3.1"))
+        .stdout(predicates::str::contains("updated chap-core dev -> v2.3.1"));
+
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(state(&dir)["chap_compose_source"]["tag"], "v2.3.1");
+    assert!(read(&dir.join("compose.yml")).contains("CHAPS_TEST_REF: v2.3.1"));
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("v2.3.1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_backwards_switch_without_an_answer_is_refused() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v2.3.0"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "moving chap-core from v2.3.1 to v2.3.0",
+        ))
+        .stderr(predicates::str::contains("not a terminal"))
+        .stderr(predicates::str::contains("--yes"));
+    // Refused before anything was written.
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("v2.3.1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn update_refuses_a_chap_tag_that_was_never_released() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    let before = read(&dir.join("compose.yml"));
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v9.9.9"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("chap-core has no release v9.9.9"))
+        .stderr(predicates::str::contains("chaps update --list-tags"));
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(read(&dir.join("compose.yml")), before);
+
+    // The two ways of deciding chap-core's tag cannot both be given.
+    online_update(
+        &sandbox,
+        port,
+        &bin,
+        &["--chap-tag", "dev", "--pin-chap-core"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dry_run_switch_writes_nothing() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    let before = (
+        read(&dir.join("compose.yml")),
+        read(&dir.join(".chaps/project.yaml")),
+        sandbox.env(),
+    );
+
+    online_update(&sandbox, port, &bin, &["--dry-run", "--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chap-core  v2.3.1 -> dev"))
+        .stdout(predicates::str::contains(
+            "would update chap-core v2.3.1 -> dev; nothing written",
+        ));
+
+    assert_eq!(read(&dir.join("compose.yml")), before.0);
+    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+    assert_eq!(sandbox.env(), before.2);
+    assert!(!dir.join(".chaps/compose.chap-core.dev.yml").exists());
+
+    // A dry run backwards says what it would cost and still writes nothing,
+    // without an answer: there is nothing yet to confirm.
+    online_update(&sandbox, port, &bin, &["--dry-run", "--chap-tag", "v2.3.0"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "moving chap-core from v2.3.1 to v2.3.0",
+        ));
+    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+}
+
+#[test]
+fn list_tags_names_the_moving_tags_the_releases_and_the_pin() {
+    let sandbox = Sandbox::new();
+    let port = Hub::new().start();
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.0"])
+        .assert()
+        .success();
+
+    let mut cmd = sandbox.online(port);
+    cmd.args(["update", "--list-tags"]);
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(text.contains("TAG") && text.contains("KIND"), "{text}");
+    assert!(
+        text.contains("PUBLISHED") && text.contains("NOTE"),
+        "{text}"
+    );
+    for row in [
+        "dev     moving   2026-09-24  -",
+        "master  moving   2026-09-24  -",
+        "latest  moving   2026-09-21  -",
+        "v2.3.1  release  2026-09-21  newest",
+        "v2.3.0  release  2026-09-11  pinned",
+    ] {
+        assert!(text.contains(row), "missing row `{row}` in:\n{text}");
+    }
+    assert!(
+        text.contains(
+            "chap-core is pinned to v2.3.0; move it with `chaps update --chap-tag <TAG>`"
+        ),
+        "{text}"
+    );
+
+    // The same as JSON, which is the list a script reads.
+    let mut cmd = sandbox.online(port);
+    cmd.args(["--json", "update", "--list-tags"]);
+    let list = json_of(&mut cmd);
+    assert_eq!(list["pin"], "v2.3.0");
+    assert_eq!(list["releases_listed"], true);
+    let tags: Vec<&str> = list["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(tags, vec!["dev", "master", "latest", "v2.3.1", "v2.3.0"]);
+    assert_eq!(list["tags"][3]["newest"], true);
+    assert_eq!(list["tags"][4]["pinned"], true);
+
+    // It writes nothing: the listing is a question, not a change.
+    assert_eq!(state(&sandbox.project())["chap_image_tag"], "v2.3.0");
+}
+
+#[test]
+fn list_tags_works_offline_with_what_it_has() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--chap-tag", "v1.2.3"])
+        .assert()
+        .success();
+
+    let mut cmd = sandbox.chap();
+    cmd.arg("-C")
+        .arg(sandbox.project())
+        .args(["update", "--list-tags"]);
+    cmd.assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "--offline: the chap-core releases were not listed",
+        ))
+        .stdout(predicates::str::contains("dev     moving   -          -"))
+        .stdout(predicates::str::contains(
+            "v1.2.3  release  -          pinned",
+        ))
+        .stdout(predicates::str::contains("chap-core is pinned to v1.2.3"));
+
+    // `--dry-run` has nothing to say about a command that writes nothing.
+    let mut dry = sandbox.chap();
+    dry.arg("-C")
+        .arg(sandbox.project())
+        .args(["update", "--list-tags", "--dry-run"]);
+    dry.assert().success().stdout(predicates::str::contains(
+        "v1.2.3  release  -          pinned",
+    ));
 }

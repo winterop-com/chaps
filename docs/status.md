@@ -31,6 +31,16 @@ The version is chap-core's own when it publishes one, and otherwise the tag
 `.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
 build.
 
+A deployment pinned to a moving tag (`latest`, `master`, `dev`) gets one more
+cell, because the tag alone does not say which build is behind it: the digest
+the running image was pulled at, and the commit chap-core reports at
+`/system/info`. Either is left off when it could not be had. See
+[Switching chap-core's tag](./updating.md#switching-chap-cores-tag).
+
+```text
+chap-core   up   http://localhost:8190   2.4.0.dev0   master: running cc09e3654ff2, revision 7bf2a98739f4   auth: off
+```
+
 `auth: on` means `.env` sets `CHAP_API_TOKEN`, and that `status` sent it as
 `Authorization: Bearer` on every request; `auth: off` means the API is open to
 anyone who can reach the port. See [Authentication](./auth.md).

@@ -53,6 +53,17 @@ pub struct StatusReport {
     pub api: ApiHealth,
     /// Which chap-core this is, and whether the API said so itself.
     pub version: ApiVersion,
+    /// The chap-core tag this deployment pins, and whether it is one that can
+    /// point at a different image tomorrow.
+    pub chap_tag: String,
+    pub chap_tag_moving: bool,
+    /// The build chap-core's container is running, as a short digest.
+    ///
+    /// Filled in by the caller, which is the half that has docker, and only
+    /// asked for when the tag is a moving one: a release tag names its image
+    /// already. `None` is "not asked" or "docker could not say".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chap_build: Option<String>,
     /// Services chap-core currently knows about, from `/v2/services`.
     pub registered: Vec<RegisteredService>,
     /// Service ids the project expects to be registered.
@@ -184,13 +195,17 @@ pub struct ComponentStatus {
 }
 
 /// The version `chaps status` puts next to the API URL.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ApiVersion {
     /// What the API reported, or the tag `.chaps/project.yaml` pins when it
     /// reported nothing.
     pub value: String,
     /// True when `value` is that pin rather than the API's own answer.
     pub pinned: bool,
+    /// The commit that build came from, where `/system/info` said. `None`
+    /// when it did not, which is every chap-core built without `GIT_REVISION`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 impl ApiVersion {
@@ -202,6 +217,42 @@ impl ApiVersion {
             (false, false) => self.value.clone(),
         }
     }
+}
+
+/// A commit as the line prints it: the first twelve characters of a full SHA,
+/// and anything else as it came.
+///
+/// chap-core reports the whole forty-character commit, which is thirty more
+/// than anyone reads off a status line and the same length the image digest
+/// is already shortened to.
+pub fn short_revision(revision: &str) -> String {
+    let revision = revision.trim();
+    let sha = revision.len() > 12 && revision.chars().all(|c| c.is_ascii_hexdigit());
+    match sha {
+        true => revision.chars().take(12).collect(),
+        false => revision.to_string(),
+    }
+}
+
+/// Which build a moving chap-core tag is actually on.
+///
+/// `dev` is the same name today and tomorrow, so the tag says nothing about
+/// what is running. These two do: the digest the image was pulled at, and the
+/// commit chap-core reports for itself. Both are best effort - docker may not
+/// be there and the build may carry no revision - and an empty one is left
+/// off the line rather than printed as a hole.
+pub fn moving_build_cell(tag: &str, digest: Option<&str>, revision: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if let Some(digest) = digest.filter(|d| !d.is_empty()) {
+        parts.push(format!("running {digest}"));
+    }
+    if let Some(revision) = revision.filter(|r| !r.is_empty()) {
+        parts.push(format!("revision {}", short_revision(revision)));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("{tag}: {}", parts.join(", "))
 }
 
 /// Where one model row stands.
@@ -372,6 +423,9 @@ pub fn status(
         api_port_source,
         api,
         version,
+        chap_tag_moving: crate::chapcore::is_moving_tag(&project.state.chap_image_tag),
+        chap_tag: project.state.chap_image_tag.clone(),
+        chap_build: None,
         registered,
         expected,
         missing,
@@ -795,6 +849,7 @@ fn version_of(
                 return ApiVersion {
                     value: version,
                     pinned: false,
+                    revision: parse_revision(&answer.body),
                 };
             }
         }
@@ -802,7 +857,23 @@ fn version_of(
     ApiVersion {
         value: pinned.to_string(),
         pinned: true,
+        revision: None,
     }
+}
+
+/// The commit an info body says the build came from.
+///
+/// chap-core fills `revision` from `GIT_REVISION`, which is empty in a build
+/// that was not given one; empty is no answer, not an answer of "".
+pub fn parse_revision(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    const KEYS: &[&str] = &["revision", "git_revision", "commit"];
+    for key in KEYS {
+        if let Some(found) = string_at(&value, key) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 /// A version out of an info body, wherever it keeps it.
@@ -1366,7 +1437,8 @@ mod tests {
         assert_eq!(
             ApiVersion {
                 value: "2.3.1".into(),
-                pinned: false
+                pinned: false,
+                revision: None,
             }
             .label(),
             "2.3.1"
@@ -1374,7 +1446,8 @@ mod tests {
         assert_eq!(
             ApiVersion {
                 value: "v2.3.1".into(),
-                pinned: true
+                pinned: true,
+                revision: None,
             }
             .label(),
             "v2.3.1 (pinned)"
@@ -1382,11 +1455,54 @@ mod tests {
         assert!(
             ApiVersion {
                 value: String::new(),
-                pinned: true
+                pinned: true,
+                revision: None,
             }
             .label()
             .is_empty()
         );
+    }
+
+    #[test]
+    fn a_moving_tag_says_which_build_it_is_running() {
+        let sha = "7bf2a98739f46b57487c8cb05e9ddd29778080e9";
+        assert_eq!(
+            moving_build_cell("master", Some("cc09e3654ff2"), Some(sha)),
+            "master: running cc09e3654ff2, revision 7bf2a98739f4"
+        );
+        // Either half on its own, and nothing at all when neither could be had.
+        assert_eq!(
+            moving_build_cell("dev", Some("cc09e3654ff2"), None),
+            "dev: running cc09e3654ff2"
+        );
+        assert_eq!(
+            moving_build_cell("dev", None, Some("a1b2c3d")),
+            "dev: revision a1b2c3d"
+        );
+        assert_eq!(moving_build_cell("dev", None, None), "");
+        assert_eq!(moving_build_cell("dev", Some(""), Some("")), "");
+    }
+
+    #[test]
+    fn a_full_commit_is_shortened_and_anything_else_is_not() {
+        assert_eq!(
+            short_revision("7bf2a98739f46b57487c8cb05e9ddd29778080e9"),
+            "7bf2a98739f4"
+        );
+        assert_eq!(short_revision("a1b2c3d"), "a1b2c3d");
+        assert_eq!(short_revision("2.4.0.dev0+g7bf2a98"), "2.4.0.dev0+g7bf2a98");
+        assert_eq!(short_revision(""), "");
+    }
+
+    #[test]
+    fn the_revision_comes_off_the_info_body_when_there_is_one() {
+        let body = r#"{"chap_core_version":"2.4.0.dev0","revision":"7bf2a98739f4"}"#;
+        assert_eq!(parse_revision(body).as_deref(), Some("7bf2a98739f4"));
+        assert_eq!(parse_version(body).as_deref(), Some("2.4.0.dev0"));
+        // A build with no GIT_REVISION reports an empty one, which is no answer.
+        assert_eq!(parse_revision(r#"{"revision":""}"#), None);
+        assert_eq!(parse_revision(r#"{"chap_core_version":"2.3.1"}"#), None);
+        assert_eq!(parse_revision("<html>"), None);
     }
 
     #[test]
@@ -1695,7 +1811,11 @@ mod tests {
             version: ApiVersion {
                 value: "v2.3.1".into(),
                 pinned: true,
+                revision: None,
             },
+            chap_tag: "v2.3.1".into(),
+            chap_tag_moving: false,
+            chap_build: None,
             registered: Vec::new(),
             expected: vec!["a".into()],
             missing: vec!["a".into()],

@@ -1578,6 +1578,37 @@ mod tests {
         );
     }
 
+    /// `chaps update --chap-tag` writes through the same rule: the one active
+    /// line moves, in either direction, and only when it still says what the
+    /// project recorded.
+    #[test]
+    fn set_env_chap_tag_moves_a_release_to_a_moving_tag_and_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "CHAP_IMAGE_TAG=v2.3.1\nPOSTGRES_DB=chap_core\n").unwrap();
+
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.1", "dev").unwrap(),
+            EnvTag::Updated
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=dev\nPOSTGRES_DB=chap_core\n");
+
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "dev", "v2.3.1").unwrap(),
+            EnvTag::Updated
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=v2.3.1\nPOSTGRES_DB=chap_core\n");
+
+        // And a line the operator pinned themselves is still theirs: the
+        // switch is recorded, the file is not touched, and the caller warns.
+        std::fs::write(&env, "CHAP_IMAGE_TAG=sha-fa880a1\n").unwrap();
+        assert_eq!(
+            set_env_chap_tag(dir.path(), "v2.3.1", "dev").unwrap(),
+            EnvTag::Foreign("sha-fa880a1".to_string())
+        );
+        assert_eq!(read(&env), "CHAP_IMAGE_TAG=sha-fa880a1\n");
+    }
+
     #[test]
     fn overlay_name_shape() {
         assert!(is_overlay_name("compose.chapkit-ewars-model.yml"));
