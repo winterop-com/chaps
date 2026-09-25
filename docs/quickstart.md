@@ -137,10 +137,10 @@ chaps up                                     # apply it
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
 chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.2   1.0.2   via chap-core
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
 chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
 auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
 chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.1   0.1.1   -
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
 
 5 listed, 1 enabled in this project
 ```

@@ -104,6 +104,22 @@ impl AssessedStatus {
         }
     }
 
+    /// Where this assessment sits on the maturity scale, most mature first.
+    ///
+    /// Every list of the catalogue is in this order rather than in the order
+    /// the marketplace index happens to name its files: a reader looking for
+    /// something to run wants what has been validated at the top and what
+    /// nobody should run at the bottom.
+    pub fn rank(&self) -> u8 {
+        match self {
+            AssessedStatus::Green => 0,
+            AssessedStatus::Yellow => 1,
+            AssessedStatus::Orange => 2,
+            AssessedStatus::Red => 3,
+            AssessedStatus::Gray => 4,
+        }
+    }
+
     /// What the colour means, in the width of a table cell.
     pub fn label(&self) -> &'static str {
         match self {
@@ -295,6 +311,20 @@ impl Model {
 
     /// Whether the service needs `platform: linux/amd64`, i.e. whether it is
     /// built on the R-INLA runtime.
+    /// How the catalogue is listed: templates after models, then by
+    /// maturity, then by name, because a tie on maturity is not a reason to
+    /// fall back on the order a directory listing happened to have.
+    ///
+    /// The name is compared without case so `auto_arima` and `Auto-ARIMA`
+    /// sort where a reader looks for them.
+    pub fn order_key(&self) -> (bool, u8, String) {
+        (
+            self.is_template(),
+            self.assessed_status.rank(),
+            self.display_name.to_lowercase(),
+        )
+    }
+
     pub fn needs_amd64(&self) -> bool {
         runtime_base(&self.source.runtime_image) == R_INLA_RUNTIME
     }
@@ -345,6 +375,48 @@ mod tests {
         assert!(index.models.iter().all(|p| p.starts_with("models/")));
         assert!(!index.marketplace.documentation.is_empty());
         assert_eq!(index.review_policy.required_approvals, 3);
+    }
+
+    /// The order every listing of the catalogue is in, pinned here because
+    /// the browser, `models list` and `models search` all read it from one
+    /// place.
+    #[test]
+    fn the_catalogue_is_ordered_by_maturity_then_by_name() {
+        let ranks: Vec<u8> = [
+            AssessedStatus::Green,
+            AssessedStatus::Yellow,
+            AssessedStatus::Orange,
+            AssessedStatus::Red,
+            AssessedStatus::Gray,
+        ]
+        .iter()
+        .map(AssessedStatus::rank)
+        .collect();
+        assert_eq!(ranks, vec![0, 1, 2, 3, 4], "most mature first");
+
+        let mut models = parse_all();
+        models.sort_by_key(Model::order_key);
+        let listed: Vec<&str> = models
+            .iter()
+            .filter(|m| !m.is_template())
+            .map(|m| m.display_name.as_str())
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                "CHAP-EWARS",
+                "Simple Multistep",
+                "Auto-ARIMA",
+                "GHRmodel",
+                "Rwanda Malaria BYM",
+            ]
+        );
+        // Scaffolding is not a forecasting model, so it comes after every
+        // one of them however its own author assessed it.
+        assert!(
+            models.iter().rev().take(2).all(Model::is_template),
+            "the templates are last"
+        );
     }
 
     #[test]

@@ -194,10 +194,12 @@ fn pane_title(app: &App) -> String {
 }
 
 /// How tall the summary strip wants to be.
+///
+/// One row for the model under the cursor, so the list keeps the rest; only
+/// something unsaved makes the strip grow, a line per change.
 fn strip_height(changes: &[Change]) -> u16 {
     if changes.is_empty() {
-        // Name and state, the summary, and what it needs.
-        return 3;
+        return 1;
     }
     let listed = changes.len().min(STRIP_CHANGES);
     let more = usize::from(changes.len() > STRIP_CHANGES);
@@ -472,8 +474,8 @@ fn port_cell(
     }
 }
 
-/// The three lines under the table: what the row under the cursor is, or,
-/// when there is something unsaved, what saving would do.
+/// The strip under the table: one line for the row under the cursor, or, when
+/// there is something unsaved, a line for each thing saving would do.
 fn draw_strip(frame: &mut Frame, area: Rect, app: &App, changes: &[Change], theme: &Theme) {
     if area.height == 0 || area.width == 0 {
         return;
@@ -496,7 +498,9 @@ fn draw_strip(frame: &mut Frame, area: Rect, app: &App, changes: &[Change], them
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// The row under the cursor, in three lines.
+/// The row under the cursor, in one line: what it is, how far it can be
+/// trusted, what it is pinned to, whether this deployment runs it, and what
+/// data it needs. Everything else about it is behind `i`.
 fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let Some(row) = app.selected() else {
         return vec![Line::from(Span::styled(
@@ -509,7 +513,7 @@ fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let mut head = vec![
         Span::styled(model.display_name.clone(), theme.accent_style()),
         Span::raw("  "),
-        Span::styled("● ", theme.status_style(model.assessed_status)),
+        Span::styled("\u{25cf} ", theme.status_style(model.assessed_status)),
         Span::raw(model.assessed_status.label()),
     ];
     let pinned = match app.recorded(row) {
@@ -524,48 +528,26 @@ fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     }
     head.push(Span::raw("  "));
     match app.recorded(row) {
-        Some(recorded) => {
-            head.push(Span::styled(
-                match recorded.host_port {
-                    Some(port) => format!("enabled on port {port}"),
-                    None => "enabled, via chap-core".to_string(),
-                },
-                theme.ok_style(),
-            ));
-            head.push(Span::raw("  "));
-            head.push(Span::styled(
-                format!("user {}", recorded.user),
-                theme.dim_style(),
-            ));
-        }
+        Some(recorded) => head.push(Span::styled(
+            match recorded.host_port {
+                Some(port) => format!("enabled on port {port}"),
+                None => "enabled, via chap-core".to_string(),
+            },
+            theme.ok_style(),
+        )),
         None => head.push(Span::styled("not enabled", theme.dim_style())),
     }
-    let head = with_tail(
+    // Last, because it is the one part that can be any length: a narrow
+    // terminal cuts the covariates and keeps everything in front of them.
+    head.push(Span::raw("  "));
+    head.push(Span::styled("requires ", theme.dim_style()));
+    head.push(Span::raw(list_or_dash(&model.covariates.required)));
+
+    vec![Line::from(with_kept_tail(
         head,
         Span::styled("i for details", theme.dim_style()),
         width,
-    );
-
-    let mut needs = vec![
-        Span::styled("requires ", theme.dim_style()),
-        Span::raw(list_or_dash(&model.covariates.required)),
-        Span::styled("   defaults ", theme.dim_style()),
-        Span::raw(list_or_dash(&model.covariates.defaults)),
-        Span::raw("   "),
-        Span::styled(
-            model.compatibility.period_types.join(", "),
-            theme.dim_style(),
-        ),
-        Span::raw("   "),
-        Span::styled(horizon(app, row), theme.dim_style()),
-    ];
-    truncate(&mut needs, width);
-
-    vec![
-        Line::from(head),
-        Line::from(Span::raw(fit_soft(&model.summary, width))),
-        Line::from(needs),
-    ]
+    ))]
 }
 
 /// What saving would write, one line per model.
@@ -789,7 +771,6 @@ fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let Some(row) = app.selected() else {
         return;
     };
-    let model = app.model(row);
 
     let width = area.width.saturating_sub(6).clamp(1, 86);
     // One column of padding inside the border, as the list has.
@@ -812,24 +793,15 @@ fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     app.info_max.set(lines.len().saturating_sub(inner_h));
     let scroll = app.info_scroll.min(app.info_max.get()) as u16;
 
-    let enabled = match app.recorded(row) {
-        Some(_) => Span::styled("enabled in this project", theme.ok_style()),
-        None => Span::styled("not enabled here", theme.dim_style()),
-    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.accent_style())
-        .title(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(model.display_name.clone(), theme.accent_style()),
-            Span::raw("  "),
-            Span::styled(model.id.clone(), theme.dim_style()),
-            Span::raw("  "),
-            Span::styled("● ", theme.status_style(model.assessed_status)),
-            Span::raw(model.assessed_status.label()),
-            Span::raw(" "),
-        ]))
-        .title_top(Line::from(vec![enabled, Span::raw(" ")]).right_aligned());
+        .title(info_title(
+            app,
+            row,
+            popup.width.saturating_sub(2) as usize,
+            theme,
+        ));
 
     frame.render_widget(Clear, popup);
     frame.render_widget(
@@ -838,61 +810,146 @@ fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     );
 }
 
+/// The overlay's title: what the model is called, what `models.yaml` calls
+/// it, and whether this deployment runs it.
+///
+/// The state is right-aligned and always fits; the id gives way first,
+/// because the display name in front of it already says which model this is.
+/// The assessed status is not up here - it has a row of its own.
+fn info_title<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Line<'a> {
+    let model = app.model(row);
+    let (state, style) = match app.recorded(row) {
+        Some(recorded) => (
+            match recorded.host_port {
+                Some(port) => format!("enabled on port {port}"),
+                None => "enabled, via chap-core".to_string(),
+            },
+            theme.ok_style(),
+        ),
+        None => ("not enabled here".to_string(), theme.dim_style()),
+    };
+    let head = vec![
+        Span::raw(" "),
+        Span::styled(model.display_name.clone(), theme.accent_style()),
+        Span::raw("  "),
+        Span::styled(model.id.clone(), theme.dim_style()),
+    ];
+    Line::from(with_kept_tail(
+        head,
+        Span::styled(format!("{state} "), style),
+        width,
+    ))
+}
+
 /// Every field the overlay lists, in the order it lists them.
 fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let model = app.model(row);
     let mut lines: Vec<Line> = Vec::new();
 
-    let reach = match app.recorded(row).and_then(|r| r.host_port) {
-        Some(port) => format!("http://localhost:{port}"),
-        None => "internal (through chap-core's /run/ proxy)".to_string(),
-    };
-    lines.push(Line::from(vec![
-        Span::styled(fit("status", LABEL_WIDTH), theme.label_style()),
-        Span::styled("● ", theme.status_style(model.assessed_status)),
-        Span::raw(format!(
-            "{}, {}",
-            model.assessed_status.colour(),
-            model.assessed_status.describe()
-        )),
-    ]));
-    lines.push(field(theme, "reach", &reach));
+    // What the model does comes first: everything under it is detail about a
+    // model the reader has already decided to look at.
+    for line in wrap(&model.summary, width) {
+        lines.push(Line::raw(line));
+    }
+    lines.push(Line::raw(""));
 
+    // What this row is pinned to, how far that pin is trusted, and which
+    // channels point at it: one fact, so one row.
     let pinned = match app.recorded(row) {
-        Some(recorded) => format!(
-            "{} · channel {}",
+        Some(recorded) => Some((
             version_and_tag(&recorded.version, &recorded.image_tag),
-            recorded
-                .channel
-                .map(|c| c.as_str())
-                .unwrap_or("none, an exact pin")
-        ),
-        None => match app.resolved(row) {
-            Some(version) => format!(
-                "{} · channel {}",
-                version_and_tag(&version.version, &version.image_tag),
-                channel_label(row.channel)
-            ),
-            None => format!(
+            recorded.version.clone(),
+        )),
+        None => app
+            .resolved(row)
+            .map(|v| (version_and_tag(&v.version, &v.image_tag), v.version.clone())),
+    };
+    match pinned {
+        Some((shown, version)) => {
+            let entry = model.versions.iter().find(|v| v.version == version);
+            lines.push(version_line(model, "version", &shown, entry, theme));
+            // The rest of the published history, when there is any.
+            if model.versions.len() > 1 {
+                for other in model.versions.iter().filter(|v| v.version != version) {
+                    lines.push(version_line(
+                        model,
+                        "",
+                        &version_and_tag(&other.version, &other.image_tag),
+                        Some(other),
+                        theme,
+                    ));
+                }
+            }
+        }
+        None => lines.push(field(
+            theme,
+            "version",
+            &format!(
                 "unresolved: channel {} has no version",
                 channel_label(row.channel)
             ),
-        },
-    };
-    lines.push(field(theme, "pinned", &pinned));
+        )),
+    }
 
-    let image = match app.resolved(row) {
-        Some(version) => crate::compose::image_ref(&model.source.image, &version.image_tag),
-        None => model.source.image.clone(),
-    };
-    lines.push(field(theme, "image", &image));
+    let mut author = model.attribution.author.clone();
+    if let Some(organization) = &model.attribution.organization {
+        author.push_str(&format!(" · {organization}"));
+    }
+    if let Some(contact) = &model.attribution.contact {
+        author.push_str(&format!(" · {contact}"));
+    }
+    lines.extend(wrapped_field(theme, "author", &author, width));
 
-    let runtime = if model.needs_amd64() {
-        format!("{} (amd64 only)", model.source.runtime_image)
-    } else {
-        model.source.runtime_image.clone()
-    };
-    lines.push(field(theme, "runtime", &runtime));
+    // The assessment wraps rather than being cut: half of "not intended for
+    // use" is worse than no sentence at all.
+    let assessment = format!(
+        "{}, {}",
+        model.assessed_status.colour(),
+        model.assessed_status.describe()
+    );
+    let room = width.saturating_sub(LABEL_WIDTH + 2).max(1);
+    for (i, chunk) in wrap(&assessment, room).into_iter().enumerate() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                fit(if i == 0 { "status" } else { "" }, LABEL_WIDTH),
+                theme.label_style(),
+            ),
+            match i {
+                0 => Span::styled("● ", theme.status_style(model.assessed_status)),
+                _ => Span::raw("  "),
+            },
+            Span::raw(chunk),
+        ]));
+    }
+
+    lines.push(field(
+        theme,
+        "period",
+        &format!(
+            "{} · {}",
+            model.compatibility.period_types.join(", "),
+            horizon(app, row)
+        ),
+    ));
+    // The marketplace schema carries no target: chap-core forecasts disease
+    // cases for every model in the catalogue, so that is what this says.
+    lines.push(field(theme, "target", "disease cases"));
+
+    let mut covariates = format!(
+        "{} · defaults {}",
+        list_or_dash(&model.covariates.required),
+        list_or_dash(&model.covariates.defaults)
+    );
+    if model.covariates.allow_free_additional {
+        covariates.push_str(" · free extras allowed");
+    }
+    if model.compatibility.requires_geo {
+        covariates.push_str(" · geometry required");
+    }
+    lines.extend(wrapped_field(theme, "covariates", &covariates, width));
+
+    // Everything below is about this deployment rather than the model.
+    lines.push(Line::raw(""));
 
     // A template is not a forecasting model, and the overlay says so in a
     // colour that is neither "good" nor "bad", just different.
@@ -911,6 +968,25 @@ fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Vec<Line
         ]));
     }
 
+    let reach = match app.recorded(row).and_then(|r| r.host_port) {
+        Some(port) => format!("http://localhost:{port}"),
+        None => "via chap-core (through chap-core's /run/ proxy)".to_string(),
+    };
+    lines.push(field(theme, "reach", &reach));
+
+    let image = match app.resolved(row) {
+        Some(version) => crate::compose::image_ref(&model.source.image, &version.image_tag),
+        None => model.source.image.clone(),
+    };
+    lines.extend(wrapped_field(theme, "image", &image, width));
+
+    let runtime = if model.needs_amd64() {
+        format!("{} (amd64 only)", model.source.runtime_image)
+    } else {
+        model.source.runtime_image.clone()
+    };
+    lines.extend(wrapped_field(theme, "runtime", &runtime, width));
+
     if let Some(recorded) = app.recorded(row) {
         lines.push(field(theme, "data dir", &recorded.data_dir));
         lines.push(field(
@@ -921,66 +997,58 @@ fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Vec<Line
     }
 
     lines.push(Line::raw(""));
-    for line in wrap(&model.summary, width) {
-        lines.push(Line::raw(line));
-    }
-    lines.push(Line::raw(""));
-
-    let mut covariates = format!(
-        "{} · defaults {}",
-        list_or_dash(&model.covariates.required),
-        list_or_dash(&model.covariates.defaults)
-    );
-    if model.covariates.allow_free_additional {
-        covariates.push_str(" · free extras allowed");
-    }
-    lines.push(field(theme, "covariates", &covariates));
-    lines.push(field(
-        theme,
-        "periods",
-        &format!(
-            "{} · {} · geometry {}",
-            model.compatibility.period_types.join(", "),
-            horizon(app, row),
-            if model.compatibility.requires_geo {
-                "required"
-            } else {
-                "not required"
-            }
-        ),
-    ));
-
-    for (i, version) in model.versions.iter().enumerate() {
-        let mut marks: Vec<&str> = Vec::new();
-        if version.version == model.channels.stable {
-            marks.push("stable");
-        }
-        if version.version == model.channels.latest {
-            marks.push("latest");
-        }
-        lines.push(Line::from(vec![
-            Span::styled(
-                fit(if i == 0 { "versions" } else { "" }, LABEL_WIDTH),
-                theme.label_style(),
-            ),
-            Span::raw(fit(&version.version, 10)),
-            Span::styled(
-                fit(version_status(version), 11),
-                theme.version_style(version.status),
-            ),
-            Span::styled(marks.join(", "), theme.accent_style()),
-        ]));
-    }
 
     if !model.maintainers.is_empty() {
-        lines.push(field(theme, "maintainers", &model.maintainers.join(", ")));
+        lines.extend(wrapped_field(
+            theme,
+            "maintainers",
+            &model.maintainers.join(", "),
+            width,
+        ));
     }
-    lines.push(field(theme, "author", &model.attribution.author));
     lines.push(Line::from(vec![
         Span::styled(fit("repository", LABEL_WIDTH), theme.label_style()),
         Span::styled(model.source.repository.clone(), theme.accent_style()),
     ]));
+    if let Some(citation) = &model.attribution.citation {
+        lines.extend(wrapped_field(theme, "citation", citation, width));
+    }
     lines
+}
+
+/// One published version: what it is, how far it is trusted, and the channels
+/// pointing at it.
+fn version_line<'a>(
+    model: &crate::registry::Model,
+    label: &str,
+    shown: &str,
+    entry: Option<&Version>,
+    theme: &Theme,
+) -> Line<'a> {
+    let mut spans = vec![
+        Span::styled(fit(label, LABEL_WIDTH), theme.label_style()),
+        Span::raw(shown.to_string()),
+    ];
+    let Some(entry) = entry else {
+        return Line::from(spans);
+    };
+    spans.push(Span::styled(" · ", theme.dim_style()));
+    spans.push(Span::styled(
+        version_status(entry),
+        theme.version_style(entry.status),
+    ));
+    let mut channels: Vec<&str> = Vec::new();
+    if entry.version == model.channels.stable {
+        channels.push("stable");
+    }
+    if entry.version == model.channels.latest {
+        channels.push("latest");
+    }
+    if !channels.is_empty() {
+        spans.push(Span::styled(" · channels ", theme.dim_style()));
+        spans.push(Span::styled(channels.join(", "), theme.accent_style()));
+    }
+    Line::from(spans)
 }
 
 /// The command palette: a filter line, what it matched, and every command it
@@ -1165,6 +1233,29 @@ fn field<'a>(theme: &Theme, label: &str, value: &str) -> Line<'a> {
     ])
 }
 
+/// [`field`] for a value that can be longer than the box: it wraps under its
+/// own label instead of being cut off at the border.
+fn wrapped_field<'a>(theme: &Theme, label: &str, value: &str, width: usize) -> Vec<Line<'a>> {
+    let room = width.saturating_sub(LABEL_WIDTH).max(1);
+    let chunks = wrap(value, room);
+    if chunks.is_empty() {
+        return vec![field(theme, label, "")];
+    }
+    chunks
+        .into_iter()
+        .enumerate()
+        .map(|(i, chunk)| {
+            Line::from(vec![
+                Span::styled(
+                    fit(if i == 0 { label } else { "" }, LABEL_WIDTH),
+                    theme.label_style(),
+                ),
+                Span::raw(chunk),
+            ])
+        })
+        .collect()
+}
+
 /// Push `tail` to the right-hand edge of `width`, or leave it off when the
 /// head already fills the line.
 fn with_tail<'a>(mut head: Vec<Span<'a>>, tail: Span<'a>, width: usize) -> Vec<Span<'a>> {
@@ -1178,6 +1269,21 @@ fn with_tail<'a>(mut head: Vec<Span<'a>>, tail: Span<'a>, width: usize) -> Vec<S
         truncate(&mut head, width);
         return head;
     }
+    head.push(Span::raw(" ".repeat(width - used - tail_width)));
+    head.push(tail);
+    head
+}
+
+/// [`with_tail`] for a tail that has to stay: the head is cut to make room
+/// for it, because a hint that only shows on a wide terminal is no hint.
+fn with_kept_tail<'a>(mut head: Vec<Span<'a>>, tail: Span<'a>, width: usize) -> Vec<Span<'a>> {
+    let tail_width = tail.content.chars().count();
+    if tail_width == 0 || tail_width + 2 > width {
+        truncate(&mut head, width);
+        return head;
+    }
+    truncate(&mut head, width - tail_width - 2);
+    let used = width_of(&head);
     head.push(Span::raw(" ".repeat(width - used - tail_width)));
     head.push(tail);
     head
@@ -1419,6 +1525,10 @@ mod tests {
         // The summary strip stands in for the pane that used to be there.
         assert!(screen.contains("i for details"), "{screen}");
         assert!(screen.contains("requires population"), "{screen}");
+        assert!(
+            !screen.contains("Bayesian hierarchical"),
+            "the summary text is behind `i`, not on the strip:\n{screen}"
+        );
     }
 
     /// The headings mean nothing if they sit over the wrong columns.
@@ -1482,7 +1592,10 @@ mod tests {
         assert!(screen.contains("5001"));
         // The strip says the same thing in words.
         assert!(screen.contains("enabled on port 5001"), "{screen}");
-        assert!(screen.contains("user chapkit:chapkit"), "{screen}");
+        assert!(
+            !screen.contains("user chapkit:chapkit"),
+            "the service user is behind `i`, not on the strip:\n{screen}"
+        );
     }
 
     /// The port column is about how the model is reached, not about whether
@@ -1585,31 +1698,38 @@ mod tests {
         assert!(line_text(&line).contains("● limited data"));
     }
 
-    /// The strip under the table is what the details pane used to be: the one
-    /// row the cursor is on, in three lines.
+    /// The strip under the table is what the details pane used to be, boiled
+    /// down to the one line that says whether this model is worth opening.
     #[test]
     fn the_summary_strip_describes_the_row_under_the_cursor() {
         let registry = registry();
         let app = App::new(&registry, &ProjectState::default());
         let lines = summary_lines(&app, 118, &theme());
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 1, "one line, not three");
 
         let head = line_text(&lines[0]);
         assert!(head.starts_with("CHAP-EWARS"), "{head}");
+        assert!(head.contains("● limited data"), "{head}");
         assert!(head.contains("1.0.2 (sha-"), "{head}");
         assert!(head.contains("not enabled"), "{head}");
+        assert!(head.contains("requires population"), "{head}");
         assert!(head.ends_with("i for details"), "{head}");
         assert_eq!(head.chars().count(), 118, "the hint is right-aligned");
 
-        let summary = line_text(&lines[1]);
-        assert!(summary.starts_with("Bayesian hierarchical"), "{summary}");
-        assert!(summary.chars().count() <= 118);
+        // What the strip dropped is in the overlay, not on the line.
+        for gone in ["Bayesian hierarchical", "defaults", "horizon", "user "] {
+            assert!(!head.contains(gone), "{gone} is still on the strip: {head}");
+        }
 
-        let needs = line_text(&lines[2]);
-        assert!(needs.contains("requires population"), "{needs}");
-        assert!(needs.contains("defaults rainfall"), "{needs}");
-        assert!(needs.contains("monthly"), "{needs}");
-        assert!(needs.contains("horizon 0 to 100 periods"), "{needs}");
+        // Too narrow for the covariates: they are cut, the hint stays.
+        let narrow = line_text(&summary_lines(&app, 70, &theme())[0]);
+        assert!(narrow.starts_with("CHAP-EWARS"), "{narrow}");
+        assert!(
+            narrow.ends_with("i for details"),
+            "the hint always fits: {narrow}"
+        );
+        assert!(narrow.contains('~'), "the cut is marked: {narrow}");
+        assert_eq!(narrow.chars().count(), 70);
     }
 
     /// With something unsaved, the strip stops describing a model and starts
@@ -1758,19 +1878,21 @@ mod tests {
             // The colour word is only worth printing next to what it means.
             "● orange, shows promise on limited data",
             "http://localhost:5001",
-            "channel stable",
+            "1.0.2 (sha-8d4a7ea) · verified · channels stable, latest",
             "ghcr.io/chap-models/chapkit_ewars_model:sha-",
             "amd64 only",
             "/app/data",
             "chapkit:chapkit",
             "Bayesian hierarchical",
             "covariates",
-            "horizon 0 to 100 periods",
-            "verified",
+            "period      monthly, weekly · horizon 0 to 100 periods",
+            "target      disease cases",
             "maintainers",
-            "author",
+            "author      ",
+            "citation    ",
             "github.com/chap-models/chapkit_ewars_model",
-            "enabled in this project",
+            // The title carries the state, in the words the strip uses.
+            "enabled on port 5001",
         ] {
             assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
         }
@@ -1780,14 +1902,17 @@ mod tests {
 
         // A short terminal cannot hold it all, so j and k move it.
         let short = render(&app, 80, 24);
-        assert!(short.contains("reach"), "{short}");
+        assert!(short.contains("Bayesian hierarchical"), "{short}");
         assert!(app.info_max.get() > 0, "the overlay has more to show");
         app.reduce(Action::Down);
         app.reduce(Action::Down);
         assert_eq!(app.info_scroll, 2);
         let scrolled = render(&app, 80, 24);
         assert_ne!(scrolled, short, "j scrolled the overlay");
-        assert!(!scrolled.contains("reach       http"), "{scrolled}");
+        assert!(
+            !scrolled.contains("Bayesian hierarchical"),
+            "the top scrolled away:\n{scrolled}"
+        );
 
         // It never scrolls past the end, and it comes back.
         for _ in 0..50 {
@@ -1801,6 +1926,129 @@ mod tests {
         app.reduce(Action::Info);
         assert_eq!(app.mode, Mode::Browse);
         assert!(!render(&app, 120, 40).contains("data dir"));
+    }
+
+    /// The title is the one line that can collide: three things competing
+    /// for the top border. The state is the one that has to survive.
+    #[test]
+    fn the_overlay_title_keeps_the_state_and_cuts_the_id() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::Info);
+
+        let screen = render(&app, 120, 40);
+        let wide = line_with(&screen, "CHAP-EWARS  chapkit_ewars_model");
+        assert!(wide.contains("enabled, via chap-core"), "{wide}");
+        assert!(
+            !wide.contains("● limited data"),
+            "the assessment has a row of its own: {wide}"
+        );
+
+        // The id gives way, the state does not, and they never touch.
+        let title = line_text(&info_title(&app, app.selected().unwrap(), 50, &theme()));
+        assert_eq!(title.chars().count(), 50);
+        assert!(title.starts_with(" CHAP-EWARS"), "{title}");
+        assert!(title.ends_with("enabled, via chap-core "), "{title}");
+        assert!(title.contains('~'), "the id is cut: {title}");
+        assert!(
+            title.contains("  enabled"),
+            "two columns of daylight, not a collision: {title}"
+        );
+    }
+
+    /// The order is the one the CHAP Modeling App uses: what it does, what
+    /// it is, who wrote it, then how this deployment runs it.
+    #[test]
+    fn the_overlay_leads_with_what_the_model_does() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, Some(5001));
+        let app = App::new(&registry, &state);
+        let row = app.selected().expect("a row");
+        let lines: Vec<String> = info_lines(&app, row, 83, &theme())
+            .iter()
+            .map(line_text)
+            .collect();
+
+        assert!(lines[0].starts_with("Bayesian hierarchical"), "{lines:?}");
+        let at = |label: &str| {
+            lines
+                .iter()
+                .position(|l| l.starts_with(label))
+                .unwrap_or_else(|| panic!("no {label} row in {lines:?}"))
+        };
+        let order = [
+            "version",
+            "author",
+            "status",
+            "period",
+            "target",
+            "covariates",
+            "reach",
+            "image",
+            "runtime",
+            "data dir",
+            "user",
+            "maintainers",
+            "repository",
+            "citation",
+        ];
+        let mut last = 0;
+        for label in order {
+            let at = at(label);
+            assert!(at > last, "{label} is out of order in {lines:?}");
+            last = at;
+        }
+        // A blank line before the deployment facts, and before the credits.
+        assert_eq!(lines[at("reach") - 1], "", "{lines:?}");
+        assert_eq!(lines[at("maintainers") - 1], "", "{lines:?}");
+        // Long values wrap under their label instead of being cut.
+        assert!(!lines.iter().any(|l| l.contains('~')), "{lines:?}");
+    }
+
+    /// One version is the whole story on the `version` row; a model with a
+    /// history lists the rest of it underneath.
+    #[test]
+    fn a_model_with_more_than_one_version_lists_them_all() {
+        let mut registry = registry();
+        let model = registry
+            .models
+            .iter_mut()
+            .find(|m| m.id == EWARS)
+            .expect("the ewars model");
+        let mut older = model.versions[0].clone();
+        older.version = "1.0.1".to_string();
+        older.image_tag = "sha-0000001".to_string();
+        older.status = VersionStatus::Deprecated;
+        model.versions.push(older);
+
+        let app = App::new(&registry, &ProjectState::default());
+        let row = app.selected().expect("a row");
+        let lines: Vec<String> = info_lines(&app, row, 83, &theme())
+            .iter()
+            .map(line_text)
+            .collect();
+        let at = lines
+            .iter()
+            .position(|l| l.starts_with("version"))
+            .expect("a version row");
+        assert!(
+            lines[at].contains("1.0.2 (sha-8d4a7ea) · verified · channels stable, latest"),
+            "{:?}",
+            lines[at]
+        );
+        assert!(
+            lines[at + 1]
+                .trim()
+                .starts_with("1.0.1 (sha-0000001) · deprecated"),
+            "the older release follows it: {:?}",
+            lines[at + 1]
+        );
+        assert!(
+            !lines[at + 1].contains("channels"),
+            "no channel points at it: {:?}",
+            lines[at + 1]
+        );
     }
 
     #[test]
@@ -2106,12 +2354,25 @@ mod tests {
             "the status column survives"
         );
 
-        let summary = line_with(&screen, "Bayesian hierarchical");
+        let strip = line_with(&screen, "i for details");
+        assert!(strip.contains("CHAP-EWARS"), "{strip}");
         assert!(
-            summary.ends_with("~│"),
-            "the strip is cut, not wrapped: {summary}"
+            strip.contains('~'),
+            "the strip is cut, not wrapped: {strip}"
         );
-        assert_eq!(summary.chars().count(), 80);
+        assert!(
+            strip
+                .trim_end_matches('│')
+                .trim_end()
+                .ends_with("i for details"),
+            "the hint survives eighty columns: {strip}"
+        );
+        assert_eq!(strip.chars().count(), 80);
+        assert_eq!(
+            screen.matches("i for details").count(),
+            1,
+            "the strip is one row, so the hint is on it once:\n{screen}"
+        );
     }
 
     #[test]
@@ -2261,7 +2522,9 @@ mod tests {
 
     #[test]
     fn the_box_gives_up_its_rules_before_its_rows() {
-        // Roomy: headings, two rules, a three-line strip.
+        // Roomy and idle: the one-row strip leaves the rest to the list.
+        assert_eq!(split_body(20, 1), [1, 1, 16, 1, 1]);
+        // Roomy, with a three-line pending strip.
         assert_eq!(split_body(20, 3), [1, 1, 14, 1, 3]);
         // Tight: the rules go, then the strip, then the headings.
         assert_eq!(split_body(7, 3), [1, 1, 1, 1, 3]);
@@ -2274,6 +2537,63 @@ mod tests {
                 assert_eq!(split_body(h, want).iter().sum::<u16>(), h, "{h}/{want}");
             }
         }
+    }
+
+    #[test]
+    fn zz_dump_docs_mock() {
+        let registry = registry();
+        let state = state_with_ewars(&registry, None);
+        let app = App::new(&registry, &state);
+        eprintln!("=== DOCS BROWSER 120x11 ===");
+        eprintln!("{}", render(&app, 120, 11));
+        let mut app = App::new(&registry, &ProjectState::default());
+        while app.selected().map(|r| app.model(r).display_name.clone())
+            != Some("Rwanda Malaria BYM".to_string())
+        {
+            app.reduce(Action::Down);
+        }
+        app.reduce(Action::Info);
+        eprintln!("=== DOCS OVERLAY 120x40 ===");
+        eprintln!("{}", render(&app, 120, 40));
+    }
+
+    #[test]
+    fn zz_dump_buffers() {
+        let registry = registry();
+        let mut app = App::new(&registry, &ProjectState::default());
+        eprintln!("=== IDLE 120 (default cursor) ===");
+        eprintln!("{}", render(&app, 120, 40));
+        while app.selected().map(|r| app.model(r).display_name.clone())
+            != Some("Rwanda Malaria BYM".to_string())
+        {
+            app.reduce(Action::Down);
+        }
+        eprintln!("=== IDLE 120 (Rwanda) ===");
+        eprintln!("{}", render(&app, 120, 40));
+        eprintln!("=== OVERLAY 120x40 (Rwanda) ===");
+        app.reduce(Action::Info);
+        eprintln!("{}", render(&app, 120, 40));
+        app.reduce(Action::Info);
+        eprintln!("=== IDLE 80x24 ===");
+        let plain = App::new(&registry, &ProjectState::default());
+        eprintln!("{}", render(&plain, 80, 24));
+        let mut app = App::new(&registry, &ProjectState::default());
+        app.reduce(Action::Toggle);
+        app.reduce(Action::Down);
+        app.reduce(Action::Toggle);
+        eprintln!("=== PENDING 120 ===");
+        eprintln!("{}", render(&app, 120, 40));
+
+        let app = App::new(&registry, &state_with_ewars(&registry, None));
+        let mut terminal = Terminal::new(TestBackend::new(120, 11)).expect("test backend starts");
+        terminal
+            .draw(|frame| draw(frame, &app, &theme()))
+            .expect("draw");
+        eprintln!("=== SVG ===");
+        eprintln!(
+            "{}",
+            crate::tui::screenshot::svg(terminal.backend().buffer(), &theme())
+        );
     }
 
     #[test]

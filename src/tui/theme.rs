@@ -74,6 +74,20 @@ impl Theme {
         }
     }
 
+    /// What a picture of the browser is painted on.
+    ///
+    /// The TUI paints no background of its own - it inherits the terminal's -
+    /// so [`crate::tui::screenshot`] has to name one, and an ANSI 16 palette
+    /// is drawn to be read on a dark ground.
+    pub fn background(&self) -> Color {
+        Color::Rgb(0x14, 0x16, 0x18)
+    }
+
+    /// What a cell with no colour of its own is drawn in, in that picture.
+    pub fn foreground(&self) -> Color {
+        Color::Rgb(0xd8, 0xdc, 0xe0)
+    }
+
     /// A foreground colour, or the weight that stands in for it without one.
     fn fg(&self, colour: Color, mono: Modifier) -> Style {
         if self.mono {

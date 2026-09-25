@@ -96,13 +96,18 @@ chaps models info chapkit_ewars_model
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
 chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.2   1.0.2   via chap-core
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
 chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
 auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
 chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.1   0.1.1   -
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.1   0.1.1   -
 
 5 listed, 1 enabled in this project
 ```
+
+Every listing is in the same order: by `STATUS`, from the models that have
+been validated down to the ones nobody should run, and by name inside each
+step of that scale. Templates come after models when `--all` or `--templates`
+asks for them, and a search narrows the catalogue without reordering it.
 
 The `PORT` column is the host port a model publishes, `via chap-core` for one
 this project enables without a host port of its own - chap-core's proxy is
@@ -531,8 +536,12 @@ error: chapkit_ewars_model is a marketplace model, so there is no local definiti
 
 ### What it needs, and what it refuses
 
-`chaps models add` reads GitHub's REST API and ghcr anonymously; both are
-public for the CHAP model repositories, and neither needs a token. The
+`chaps models add` reads GitHub's REST API and ghcr; both are public for the
+CHAP model repositories, so neither needs a credential. GitHub allows 60
+requests an hour to an address that sends none, and `chaps` sends
+`GITHUB_TOKEN` (or `GH_TOKEN`) where the environment names one, for 5000 an
+hour instead - it is never stored and never printed, and `chaps doctor`'s
+`github api` line says how much of the hour is left. The
 repository form cannot work under `--offline` and says so, naming the image
 reference to pass instead. The image form works offline as long as the image's
 `linux/amd64` variant is in the local image store, because then `docker image
@@ -549,23 +558,28 @@ it is removed or renamed.
 ## The model browser
 
 `chaps ui` opens the catalogue as one table across the width of the terminal,
-with a three-line summary of the row under the cursor under it:
+with a one-line summary of the row under the cursor under it:
 
 ```text
-chaps · models                            registry: cache · 2 min   7 models · 1 enabled · 0 pending
-╭ Marketplace ─────────────────────────────────────────────────────────────────────────────────────╮
-│     MODEL                  ID                               STATUS         VERSION  PORT         │
-│──────────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model              ● limited data 1.0.2    via chap-core│
-│     Rwanda Malaria BYM     chapkit_rwanda_malaria_bym_model ● not for use  0.1.1                 │
-│     Simple Multistep       chapkit_simple_multistep_model   ● limited data 0.1.1                 │
-│──────────────────────────────────────────────────────────────────────────────────────────────────│
-│ CHAP-EWARS  ● limited data  1.0.2 (sha-8d4a7ea)  enabled, via chap-core  user 1000:1000          │
-│ Bayesian hierarchical early-warning model fitted with INLA — the chapkit port of the modified WH~│
-│ requires population   defaults rainfall, mean_temperature   monthly, weekly   horizon 0 to 100 p~│
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
+chaps · models                                                registry: cache · 2 min   7 models · 1 enabled · 0 pending
+╭ Marketplace ─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│     MODEL                  ID                                 STATUS         VERSION  PORT                           │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● limited data 1.0.2    via chap-core                  │
+│     Simple Multistep       chapkit_simple_multistep_model     ● limited data 0.1.1                                   │
+│     Auto-ARIMA             auto_arima_chapkit                 ● experimental 1.0.1                                   │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ CHAP-EWARS  ● limited data  1.0.2 (sha-8d4a7ea)  enabled, via chap-core  requires population            i for details│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ [j/k] move  [space] toggle  [i] info  [p] port  [v] channel  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
+
+The summary line names the model, what the author's assessment means, what the
+row is pinned to, whether this deployment runs it and what data it needs, with
+`i for details` held at the right-hand edge. A terminal too narrow for all of
+it cuts the covariates first, marked with `~`; the hint never goes. Everything
+the line leaves out - the summary text, the defaults, the period types, the
+forecast horizon and the service user - is behind `i`.
 
 The first column is the cursor, the second what the row will be: `✓` for a
 model this deployment runs, `+` for one you have switched on, `-` for one you
@@ -573,7 +587,10 @@ have switched off. `STATUS` is the author's own chapkit assessment, the same
 five words [the table above](#what-the-status-column-means) explains; `VERSION`
 is what the row's channel resolves to; and `PORT` is how the model is reached.
 A `KIND` column appears when the list holds something that is not a plain
-marketplace model: a template, or an entry `chaps models add` created.
+marketplace model: a template, or an entry `chaps models add` created. The
+rows are in the same maturity order `chaps models list` uses, with templates
+last when `t` shows them; nothing done in the browser reorders them, so the
+cursor stays on the row it was on.
 
 The keys, none of which need Alt on a Norwegian keyboard:
 
@@ -644,20 +661,59 @@ version when the selection is saved; changing only the port does not.
 
 ### The details, and the command palette
 
-`i` or `Enter` opens the full entry over the list: how it is reached, what it
-is pinned to and on which channel, the image and the runtime, the data
-directory and the service user with where that user came from, the summary,
-the covariates, the period types and the forecast horizon, every published
-version with its status and channels, the maintainers, the author and the
-repository. `j` and `k` scroll it when it is taller than the terminal, `o`
-opens the repository in a browser, `c` puts the image reference on the status
-line, and `esc`, `i` or `q` closes it again.
+`i` or `Enter` opens the full entry over the list, in the order the CHAP
+Modeling App presents a model: what it does, what it is, who wrote it, and
+only then how this deployment runs it.
+
+```text
+╭ Rwanda Malaria BYM  chapkit_rwanda_malaria_bym_model              not enabled here ╮
+│ Spatio-temporal Bayesian model for malaria incidence in Rwanda at sector (ADM3)    │
+│ level: BYM spatial effects, RW1 temporal effects and an IID space-time interaction │
+│ with lagged climate covariates, fitted with R-INLA. Built for one country's data — │
+│ it needs geometry and the full climate covariate set.                              │
+│                                                                                    │
+│ version     0.1.1 (sha-28d9fc3) · verified · channels stable, latest               │
+│ author      Similien NDAGIJIMANA · HISP Centre, University of Oslo ·               │
+│             knut.rand@dhis2.org                                                    │
+│ status      ● gray, not intended for use, deprecated or kept for backwards         │
+│               compatibility                                                        │
+│ period      monthly · horizon 1 to 24 periods                                      │
+│ target      disease cases                                                          │
+│ covariates  population, rainfall, mean_temperature, relative_humidity · defaults - │
+│             · free extras allowed · geometry required                              │
+│                                                                                    │
+│ reach       via chap-core (through chap-core's /run/ proxy)                        │
+│ image       ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-28d9fc3       │
+│ runtime     ghcr.io/dhis2-chap/chapkit-r-inla (amd64 only)                         │
+│                                                                                    │
+│ maintainers mortenoh, edvinstava                                                   │
+│ repository  https://github.com/chap-models/chapkit_rwanda_malaria_bym_model        │
+│ citation    Climate Health Analytics Platform. 2025. "Kigali Malaria BYM Model".   │
+│             HISP Centre, University of Oslo.                                       │
+╰────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+The title carries the name, the marketplace id and whether this deployment
+runs it - `enabled, via chap-core`, `enabled on port 5010` or `not enabled
+here`; the id is the part that gives way when the three do not fit. `version`
+is the pin, how far that release is trusted and which channels point at it,
+with the rest of the published history under it when there is more than one.
+`target` is what chap-core forecasts, the same for every model in the
+catalogue. A model this deployment runs also lists its data directory and its
+service user with where that user came from. Long values - the summary, the
+assessment, the citation - wrap under their label rather than being cut.
+
+`j` and `k` scroll it when it is taller than the terminal, `o` opens the
+repository in a browser, `c` puts the image reference on the status line, and
+`esc`, `i` or `q` closes it again.
 
 `ctrl-k` or `ctrl-p` opens a command palette: type to narrow it, `up` and
 `down` to move, `Enter` to run, `esc` to leave. It offers everything the keys
-do, plus two the keys do not: refreshing the catalogue from the marketplace
-without leaving the browser, the way `chaps registry update` does, and opening
-this documentation. The two port commands are separate, so "set a host port"
+do, plus three the keys do not: refreshing the catalogue from the marketplace
+without leaving the browser, the way `chaps registry update` does, opening
+this documentation, and `Save a screenshot (SVG)`, which writes the frame the
+palette just closed over to `chaps-ui-<date>-<time>.svg` in the directory
+`chaps ui` was started in and names the file on the status line. The two port commands are separate, so "set a host port"
 never takes one away.
 
 ### Saving

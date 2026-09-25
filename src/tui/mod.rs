@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod keys;
+pub mod screenshot;
 pub mod theme;
 pub mod ui;
 
@@ -90,6 +91,15 @@ fn event_loop(terminal: &mut TerminalGuard, app: &mut App, theme: &theme::Theme)
         match app.take_effect() {
             Some(Effect::Refresh) => return Ok(Exit::Refresh),
             Some(Effect::Open(url)) => app.message = Some(open(&url)),
+            Some(Effect::Screenshot) => {
+                // Draw the frame the palette is no longer on, and shoot that
+                // one; the message about the file lands on the frame after.
+                let saved = {
+                    let frame = terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
+                    screenshot::save(frame.buffer, theme)
+                };
+                app.message = Some(saved);
+            }
             None => {}
         }
         match outcome {

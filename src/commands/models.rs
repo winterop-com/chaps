@@ -71,7 +71,7 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
     let project = open_project(ctx, args.enabled)?;
     let registry = super::registry_for(ctx, project.as_ref())?;
 
-    let rows: Vec<ModelRow> = registry
+    let mut listed: Vec<&crate::registry::Model> = registry
         .models
         .iter()
         .filter(|m| {
@@ -83,6 +83,12 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
                 !m.is_template()
             }
         })
+        .collect();
+    // By maturity, the same order the browser and `models search` use.
+    listed.sort_by_key(|m| m.order_key());
+
+    let rows: Vec<ModelRow> = listed
+        .into_iter()
         .filter_map(|m| {
             let enabled = enabled_entry(project.as_ref(), m);
             match (args.enabled, enabled) {
@@ -119,8 +125,10 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
     let project = open_project(ctx, false)?;
     let registry = super::registry_for(ctx, project.as_ref())?;
 
-    let rows: Vec<ModelRow> = registry
-        .search(&args.query)
+    let mut found = registry.search(&args.query);
+    // A filter narrows the catalogue; it does not reorder it.
+    found.sort_by_key(|m| m.order_key());
+    let rows: Vec<ModelRow> = found
         .into_iter()
         .map(|m| row(m, enabled_entry(project.as_ref(), m)))
         .collect();
@@ -675,6 +683,48 @@ mod tests {
         );
         assert!(with_kind.lines().nth(1).unwrap().ends_with("template"));
         assert!(with_kind.lines().all(|l| !l.ends_with(' ')));
+    }
+
+    /// `models list` and `models search` list the catalogue by maturity, the
+    /// same order the browser puts it in.
+    #[test]
+    fn a_listing_is_ordered_by_maturity_then_by_name() {
+        let registry = registry();
+        let mut listed: Vec<&Model> = registry.models.iter().collect();
+        listed.sort_by_key(|m| m.order_key());
+        let rows: Vec<ModelRow> = listed
+            .iter()
+            .filter(|m| !m.is_template())
+            .map(|m| row(m, None))
+            .collect();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.display_name.as_str())
+                .collect::<Vec<&str>>(),
+            vec![
+                "CHAP-EWARS",
+                "Simple Multistep",
+                "Auto-ARIMA",
+                "GHRmodel",
+                "Rwanda Malaria BYM",
+            ]
+        );
+        // A manual entry is sorted among the marketplace ones, not appended:
+        // where it came from says nothing about how far it can be trusted.
+        let manual = manual_entry().to_model("chapkit_dengue_model");
+        let mut with_manual: Vec<&Model> = registry.models.iter().collect();
+        with_manual.push(&manual);
+        with_manual.sort_by_key(|m| m.order_key());
+        let names: Vec<&str> = with_manual
+            .iter()
+            .filter(|m| !m.is_template())
+            .map(|m| m.display_name.as_str())
+            .collect();
+        assert!(
+            names.iter().position(|n| *n == "chapkit_ghr_model")
+                < names.iter().position(|n| *n == "Rwanda Malaria BYM"),
+            "a gray marketplace model still comes last: {names:?}"
+        );
     }
 
     /// A model this deployment added itself, synthesised the way

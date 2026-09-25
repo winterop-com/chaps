@@ -129,6 +129,12 @@ pub enum Effect {
     Open(String),
     /// Re-fetch the catalogue, the way `chaps registry update` does.
     Refresh,
+    /// Write a picture of the next frame to the working directory.
+    ///
+    /// The next one, not this one: the frame that is still on screen has the
+    /// palette over it, and nobody wants a screenshot of the menu they used
+    /// to take it.
+    Screenshot,
 }
 
 /// One catalogue entry as the browser tracks it.
@@ -224,6 +230,7 @@ pub enum CommandId {
     Discard,
     Refresh,
     Repository,
+    Screenshot,
     Docs,
     Help,
     Quit,
@@ -286,7 +293,7 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     /// Build the browser state from the catalogue and the project's state file.
     pub fn new(registry: &'a Registry, state: &ProjectState) -> App<'a> {
-        let rows: Vec<Row> = registry
+        let mut rows: Vec<Row> = registry
             .models
             .iter()
             .enumerate()
@@ -302,6 +309,11 @@ impl<'a> App<'a> {
                 }
             })
             .collect();
+        // Maturity, not the marketplace index's file order: the first row a
+        // reader lands on should be the one most likely to be worth running.
+        // Nothing the browser does changes a model's maturity, so this order
+        // holds for the whole session and a toggle never moves the cursor.
+        rows.sort_by_key(|row| registry.models[row.model_idx].order_key());
 
         // A project that already runs a template should not hide it.
         let show_templates = rows
@@ -483,6 +495,7 @@ impl<'a> App<'a> {
             CommandId::Discard => self.discard(),
             CommandId::Refresh => self.effect = Some(Effect::Refresh),
             CommandId::Repository => self.open_repository(),
+            CommandId::Screenshot => self.effect = Some(Effect::Screenshot),
             CommandId::Docs => {
                 self.effect = Some(Effect::Open(format!(
                     "{}{DOCS_CHAPTER}",
@@ -572,6 +585,12 @@ impl<'a> App<'a> {
                 format!("Open the repository of {name}"),
                 "o",
                 "Open repository",
+            ),
+            entry(
+                CommandId::Screenshot,
+                "Save a screenshot (SVG)".to_string(),
+                "",
+                "Screenshot",
             ),
             entry(
                 CommandId::Docs,
@@ -1919,7 +1938,7 @@ mod tests {
         app.reduce(Action::Palette);
         assert_eq!(app.mode, Mode::Palette);
         assert_eq!(app.palette_matches().len(), app.commands().len());
-        assert_eq!(app.commands().len(), 13);
+        assert_eq!(app.commands().len(), 14);
 
         for c in "PORT".chars() {
             app.reduce(Action::PaletteChar(c));
@@ -2142,6 +2161,102 @@ mod tests {
         assert_eq!(removed.detail, "disable · the data volume is kept");
         assert_eq!(changes.len(), 2);
         assert_eq!(app.counts().pending, 2, "and the header counts the same");
+    }
+
+    /// The list is ordered by how far a model can be trusted, not by
+    /// whatever order the marketplace index names its files in.
+    #[test]
+    fn the_list_is_ordered_by_maturity_then_by_name() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        let names = |app: &App| -> Vec<String> {
+            app.visible
+                .iter()
+                .map(|i| app.model(&app.rows[*i]).display_name.clone())
+                .collect()
+        };
+        assert_eq!(
+            names(&app),
+            vec![
+                "CHAP-EWARS",
+                "Simple Multistep",
+                "Auto-ARIMA",
+                "GHRmodel",
+                "Rwanda Malaria BYM",
+            ],
+            "orange, orange, red, red, gray - and alphabetical inside each"
+        );
+        for pair in app.visible.windows(2) {
+            let (a, b) = (app.model(&app.rows[pair[0]]), app.model(&app.rows[pair[1]]));
+            assert!(
+                a.assessed_status.rank() <= b.assessed_status.rank(),
+                "{} came before {}",
+                a.display_name,
+                b.display_name
+            );
+        }
+
+        // Templates are scaffolding, so they follow the models whatever
+        // their own assessment says.
+        app.reduce(Action::ToggleTemplates);
+        let shown = names(&app);
+        let first_template = shown
+            .iter()
+            .position(|name| name.contains("Minimalist"))
+            .expect("the templates are listed");
+        assert!(first_template >= 5, "templates come last: {shown:?}");
+
+        // A filter narrows the list; it does not reorder it.
+        app.reduce(Action::ToggleTemplates);
+        app.reduce(Action::StartFilter);
+        for c in "model".chars() {
+            app.reduce(Action::FilterChar(c));
+        }
+        let filtered = names(&app);
+        let mut expected = filtered.clone();
+        expected.sort_by_key(|name| {
+            let model = registry
+                .models
+                .iter()
+                .find(|m| &m.display_name == name)
+                .unwrap();
+            model.order_key()
+        });
+        assert_eq!(filtered, expected, "the filter kept the order");
+    }
+
+    /// Nothing the browser does changes a model's maturity, so the cursor
+    /// stays on the row it was on when a toggle re-reads the list.
+    #[test]
+    fn toggling_a_row_never_moves_it() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::Down);
+        let before = app.selected_model().map(|m| m.id.clone());
+        app.reduce(Action::Toggle);
+        assert_eq!(app.selected_model().map(|m| m.id.clone()), before);
+        app.reduce(Action::Toggle);
+        assert_eq!(app.selected_model().map(|m| m.id.clone()), before);
+    }
+
+    /// The palette is the only way to a screenshot, and it asks the caller
+    /// for it rather than writing the file from the reducer.
+    #[test]
+    fn the_screenshot_command_asks_the_caller_to_take_one() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::Palette);
+        for c in "screenshot".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        let matched = app.palette_matches();
+        assert_eq!(matched.len(), 1, "{matched:?}");
+        assert_eq!(matched[0].id, CommandId::Screenshot);
+        assert_eq!(matched[0].label, "Save a screenshot (SVG)");
+        assert_eq!(matched[0].key, "", "no key binds it");
+        assert!(app.reduce(Action::PaletteRun).is_none());
+        assert_eq!(app.mode, Mode::Browse, "the palette is out of the picture");
+        assert_eq!(app.take_effect(), Some(Effect::Screenshot));
     }
 
     #[test]
