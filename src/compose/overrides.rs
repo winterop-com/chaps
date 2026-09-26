@@ -7,8 +7,6 @@
 //! ([`crate::compose::resolve`]); this table is the last resort, for a run
 //! that can reach neither the registry nor a local copy of the image.
 //! `--data-dir` and `--user` override both.
-//!
-//! Owned by agent B.
 
 /// The non-default data dir and user of one image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,8 +242,6 @@ const KNOWN: &[(&str, ImageOverride)] = &[
 ];
 
 /// Look up the override for a marketplace id, if it has one.
-///
-/// Owned by agent B.
 pub fn known_override(id: &str) -> Option<ImageOverride> {
     KNOWN
         .iter()

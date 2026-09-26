@@ -1,7 +1,5 @@
 //! Network fetch of the marketplace index and the model files it lists.
 //!
-//! Owned by agent A.
-//!
 //! The marketplace has no JSON API, so the catalogue is plain YAML served from
 //! `raw.githubusercontent.com`: one request for the index, then one per model
 //! file it lists. Requests are sequential on purpose — a handful of small

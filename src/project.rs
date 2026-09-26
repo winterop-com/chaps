@@ -219,7 +219,7 @@ const MANAGED_HEADER: &str =
 
 /// Where the base `compose.yml` is rendered from.
 ///
-/// `compose.yml` is an artifact like the overlays: [`crate::compose::sync`]
+/// `compose.yml` is an artifact like the overlays: [`crate::compose::sync()`]
 /// re-renders it, and this says from what. Old `project.yaml` files that
 /// predate the field load as [`ComposeSource::Embedded`], which is what they
 /// were written from.

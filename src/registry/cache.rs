@@ -1,7 +1,5 @@
 //! On-disk cache of the fetched marketplace snapshot.
 //!
-//! Owned by agent A.
-//!
 //! Layout under [`RegistryOptions::cache_dir`](crate::registry::RegistryOptions):
 //!
 //! ```text

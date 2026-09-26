@@ -1,7 +1,7 @@
 //! `chaps models list|search|info` — read-only views of the catalogue.
 //!
-//! Owned by agent A. `enable` and `disable` live in
-//! [`crate::commands::enable`] because they share the write path with `init`.
+//! `enable` and `disable` live in [`crate::commands::enable`] because they
+//! share the write path with `init`.
 
 use crate::cli::{ModelsInfoArgs, ModelsListArgs, ModelsSearchArgs};
 use crate::commands::Ctx;

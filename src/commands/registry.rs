@@ -1,6 +1,4 @@
 //! `chaps registry update|show`.
-//!
-//! Owned by agent A.
 
 use crate::cli::RegistryCmd;
 use crate::commands::Ctx;

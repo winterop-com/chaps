@@ -237,12 +237,10 @@ impl OverlaySpec {
     /// Build a spec for a freshly enabled model.
     ///
     /// `data_dir` and `user` override the table and the defaults when given,
-    /// and [`crate::compose::apply`] always gives them: it resolves both
+    /// and [`crate::compose::apply()`] always gives them: it resolves both
     /// against the image itself ([`crate::compose::resolve`]) and records the
     /// answers. The table below it is the last resort, for a caller that
     /// resolved nothing.
-    ///
-    /// Owned by agent B.
     pub fn from_model(
         m: &Model,
         v: &Version,

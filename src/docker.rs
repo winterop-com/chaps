@@ -3,8 +3,6 @@
 //! Every invocation passes the project's explicit `-f` list, so the wrappers
 //! work from any working directory and never depend on compose's own file
 //! discovery.
-//!
-//! Owned by agent C.
 
 use crate::error::{ChapError, Result};
 use crate::project::Project;

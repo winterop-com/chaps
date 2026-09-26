@@ -1,7 +1,5 @@
 //! Host port allocation for model overlays.
 //!
-//! Owned by agent B.
-//!
 //! Model services publish no host port by default, so the allocator is only
 //! asked for one when someone said `--port`: `chaps models enable X --port N`,
 //! `chaps models expose X`, or `--port auto`. A port has to be free twice
@@ -38,8 +36,6 @@ impl PortAllocator {
     /// handing out a port some hand-written file already publishes. A file
     /// that does not parse is skipped with a warning rather than failing the
     /// command, since it may be unrelated to the deployment.
-    ///
-    /// Owned by agent B.
     pub fn scan_compose_dir(dir: &Path) -> Result<BTreeSet<u16>> {
         let mut ports = BTreeSet::new();
         let entries = match std::fs::read_dir(dir) {
@@ -76,8 +72,6 @@ impl PortAllocator {
 
     /// Take the lowest port in the range that no compose file claims and that
     /// `busy` says nothing is listening on.
-    ///
-    /// Owned by agent B.
     pub fn allocate(&mut self, busy: &dyn Fn(u16) -> bool) -> Result<u16> {
         for port in self.lo..=self.hi {
             if self.used.contains(&port) || busy(port) {
@@ -100,8 +94,6 @@ impl PortAllocator {
     /// range and [`crate::error::ChapError::PortInUse`] when a compose file
     /// already publishes it or `busy` finds a listener on it - the message
     /// says which, because the two are fixed in different places.
-    ///
-    /// Owned by agent B.
     pub fn claim(&mut self, p: u16, busy: &dyn Fn(u16) -> bool) -> Result<()> {
         if p < self.lo || p > self.hi {
             return Err(ChapError::PortOutOfRange(p).into());

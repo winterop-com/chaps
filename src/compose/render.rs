@@ -3,8 +3,6 @@
 //! The templates are plain text with `@KEY@` tokens rather than a template
 //! engine, because compose's own `${VAR:-default}` syntax collides with the
 //! usual `{{ }}` delimiters and a serde round trip would drop the comments.
-//!
-//! Owned by agent B.
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::components::{
