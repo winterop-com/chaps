@@ -1,15 +1,17 @@
 //! The backup archive: its layout, its manifest, and the pure helpers
 //! `chaps backup create` and `chaps backup restore` share.
 //!
-//! An archive is a plain `tar.gz` with five members, all optional but the
-//! first:
+//! An archive is a plain `tar.gz` with five kinds of member, all optional
+//! but the first:
 //!
 //! ```text
 //! manifest.yaml            what this archive is and what it holds
-//! files/                   .env, .chaps/**, ocs/** and every compose*.yml
+//! files/                   .env, .chaps/**, the directory of every component
+//!                          that has one, and every compose*.yml
 //! db/chap_core.dump        pg_dump -Fc of the chap-core database
 //! models/<service_id>.tar  one model data volume, as tar saw it
-//! components/<name>.tar    one component data volume (ocs, s3), likewise
+//! components/<member>.tar  one component data volume, likewise; a component
+//!                          with several volumes has a member for each
 //! ```
 //!
 //! Nothing in here is chaps-specific magic: `tar`, `pg_restore` and a busybox
@@ -45,9 +47,10 @@ pub const ENV_BACKUP_FILE: &str = ".env.before-restore";
 /// Image the component volumes are read and written through.
 ///
 /// The model services carry a one-shot `<service>-init` container that mounts
-/// the same volume, but `ocs` and `s3` do not, so their volumes are reached by
-/// mounting them into a throwaway container of their own. Pinned rather than
-/// `latest`: what reads a backup a year from now should be what wrote it.
+/// the same volume, but no component has one that mounts a volume in
+/// [`COMPONENT_VOLUMES`], so those are reached by mounting them into a
+/// throwaway container of their own. Pinned rather than `latest`: what reads a
+/// backup a year from now should be what wrote it.
 pub const BUSYBOX_IMAGE: &str = "busybox:1.37";
 
 /// Archive member holding one model's data directory.
@@ -157,16 +160,17 @@ pub struct ManifestModel {
 
 /// One component data volume, as the backup found it.
 ///
-/// `ocs` and `s3` keep theirs in a named volume like a model does, but they
-/// have no init container of their own, so the volume is read through a
+/// A component keeps its state in a named volume like a model does, but no
+/// component one-shot mounts a volume an archive holds, so it is read through a
 /// throwaway [`BUSYBOX_IMAGE`] container instead. One entry per volume, so a
 /// component that keeps several has several entries here, all under its name;
 /// `volume` is what tells them apart, and it is the key a restore looks an
 /// entry up by.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManifestComponent {
-    /// Component name: `ocs` or `s3`. Every entry of a component that keeps
-    /// several volumes carries the same one.
+    /// Component name, as [`crate::components::Component::name`] gives it.
+    /// Every entry of a component that keeps several volumes carries the same
+    /// one.
     pub name: String,
     /// Compose service the volume belongs to.
     pub service: String,
@@ -415,19 +419,29 @@ pub fn keep_env_copy(current: Option<&[u8]>, incoming: Option<&[u8]>) -> bool {
 // ------------------------------------------------------------ file lists ---
 
 /// The project files a backup holds, relative to the project directory and in
-/// a stable order: `.env`, then `.chaps/**`, then `ocs/**`, then the root
-/// `compose*.yml`.
+/// a stable order: `.env`, then `.chaps/**`, then the directory of every
+/// component that owns one in [`crate::components::Component::ALL`] order
+/// (`ocs/**`, then `dhis2/**`), then the root `compose*.yml`.
 ///
 /// `.chaps/tmp/` is scratch space (this is where the archive is staged) and
 /// half-written `.tmp` state files are transient, so neither is included.
 /// Compose files are taken from the project root only; a `compose.yml` in a
 /// subdirectory belongs to something else.
 ///
-/// `ocs/` is in here because `ocs/climate-service.yaml` is the operator's own
-/// file, not a rendered artifact: `chaps sync` only ever creates a missing
-/// one, so nothing can rebuild the edits made to it. It is taken whether or
-/// not the `ocs` component is enabled right now - a file that exists is one
-/// somebody wrote.
+/// The component directories are in here because what they hold is the
+/// operator's own, not a rendered artifact: `chaps sync` only ever creates a
+/// missing `ocs/climate-service.yaml` or `dhis2/dhis.conf`, so nothing can
+/// rebuild the edits made to one, and DHIS2 does not start at all without its.
+/// [`crate::components::Component::dir`] is asked rather than any of them being
+/// named here, because a name in this function is a name the next component is
+/// forgotten from - which is exactly how `dhis2/dhis.conf` came to be missing
+/// from every archive.
+///
+/// A directory is taken whether or not its component is enabled right now: a
+/// file that exists is one somebody wrote, `chaps components disable` says the
+/// directory is left alone because it is the operator's, and a backup that
+/// dropped it the moment the component went off would lose it at the one moment
+/// nothing else is looking after it.
 pub fn project_files(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if dir.join(crate::project::ENV_FILE).is_file() {
@@ -440,11 +454,15 @@ pub fn project_files(dir: &Path) -> Vec<String> {
     state.sort();
     out.extend(state);
 
-    let ocs_dir = crate::components::OCS_DIR;
-    let mut ocs = Vec::new();
-    collect_under(&dir.join(ocs_dir), ocs_dir, &mut ocs);
-    ocs.sort();
-    out.extend(ocs);
+    for owned in crate::components::Component::ALL
+        .iter()
+        .filter_map(|component| component.dir())
+    {
+        let mut files = Vec::new();
+        collect_under(&dir.join(owned), owned, &mut files);
+        files.sort();
+        out.extend(files);
+    }
 
     let mut compose = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -749,9 +767,10 @@ pub fn component_volumes(
 /// `docker run` arguments that read a named volume as a tar on stdout.
 ///
 /// The model services carry a `<service>-init` container that mounts their
-/// volume, so compose can read those without help; `ocs` and `s3` have none,
-/// and a container of their own is the only way in. The volume is mounted at
-/// `/v` and nothing else is, so an operator can run the same line by hand.
+/// volume, so compose can read those without help; nothing but the component
+/// itself mounts a volume in [`COMPONENT_VOLUMES`], and a container of their
+/// own is the only way in. The volume is mounted at `/v` and nothing else is,
+/// so an operator can run the same line by hand.
 pub fn volume_read_args(volume: &str) -> Vec<String> {
     let mut args = docker_run_args(volume, false);
     args.extend(
@@ -1420,6 +1439,7 @@ mod tests {
         write(".chaps/tmp/backup-1/manifest.yaml", "staged");
         write("ocs/climate-service.yaml", "sources: []\n");
         write("ocs/extra/regions.csv", "id,name\n");
+        write("dhis2/dhis.conf", "connection.dialect = ...\n");
         write("compose.yml", "services: {}\n");
         write("compose.marketplace.yml", "include: []\n");
         write("compose.chapkit-ewars-model.yml", "services: {}\n");
@@ -1435,16 +1455,66 @@ mod tests {
                 ".chaps/compose.chap-core.v2.3.1.yml",
                 ".chaps/models.yaml",
                 ".chaps/project.yaml",
-                // The OCS instance config is the operator's own file, so it is
-                // in the archive like .chaps/ is.
+                // The component directories are the operator's own files, so
+                // they are in the archive like .chaps/ is, in Component::ALL
+                // order: ocs/ before dhis2/.
                 "ocs/climate-service.yaml",
                 "ocs/extra/regions.csv",
+                "dhis2/dhis.conf",
                 "compose.chapkit-ewars-model.yml",
                 "compose.marketplace.yml",
                 "compose.override.yml",
                 "compose.yml",
             ]
         );
+    }
+
+    /// Every component that owns a directory has it in the archive, asked of
+    /// [`crate::components::Component::dir`] rather than of a list written out
+    /// here.
+    ///
+    /// This is the test the bug got past: `ocs/` was collected by name, so
+    /// `dhis2/dhis.conf` - the one file DHIS2 will not start without, written
+    /// once and never rewritten - was in no archive ever taken, and nothing
+    /// said so. Written this way a fifth component with a directory fails here
+    /// until `project_files` collects it, instead of needing a test of its own
+    /// that somebody has to remember to add.
+    #[test]
+    fn the_file_list_takes_the_directory_of_every_component_that_owns_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let write = |rel: &str| {
+            let path = join_relative(root, rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "the operator's own\n").unwrap();
+        };
+        write(".chaps/project.yaml");
+        write("compose.yml");
+
+        let owned: Vec<&str> = crate::components::Component::ALL
+            .iter()
+            .filter_map(|component| component.dir())
+            .collect();
+        assert!(!owned.is_empty(), "some component keeps files of its own");
+        for owned_dir in &owned {
+            write(&format!("{owned_dir}/config.marker"));
+            // Nested, like ocs/plugins/: a directory is collected recursively,
+            // so whatever an operator puts beside the config file comes too.
+            write(&format!("{owned_dir}/plugins/nested.marker"));
+        }
+
+        let files = project_files(root);
+        for owned_dir in &owned {
+            let config = format!("{owned_dir}/config.marker");
+            for rel in [config.clone(), format!("{owned_dir}/plugins/nested.marker")] {
+                assert!(files.contains(&rel), "{rel} is in the archive: {files:?}");
+            }
+            // And in the group between `.chaps/**` and the compose files, which
+            // is the order a restore's own tests read the list in.
+            let at = |name: &str| files.iter().position(|f| f == name);
+            assert!(at(".chaps/project.yaml") < at(&config));
+            assert!(at(&config) < at("compose.yml"));
+        }
     }
 
     #[test]

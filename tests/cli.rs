@@ -2763,6 +2763,282 @@ fn ocs_lookalike() -> u16 {
     )
 }
 
+/// A server that answers `ok_path` with a 200 and every other path with a 404,
+/// on a port of its own.
+///
+/// The two shapes a DHIS2 container takes from outside. One where the Spring
+/// context came up, and `/api/ping` answers - the route DHIS2 serves without
+/// credentials, and the one the container's own healthcheck uses. And one where
+/// it did not: Tomcat keeps serving, and every `/api/*` request 404s.
+fn routed(ok_path: Option<&'static str>, body: &'static str) -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+    let port = listener.local_addr().expect("a local address").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut request = String::new();
+            // The request has to be read before the answer, or the client sees
+            // a reset instead of the response.
+            if BufReader::new(&stream).read_line(&mut request).is_err() {
+                continue;
+            }
+            let path = request.split_whitespace().nth(1).unwrap_or_default();
+            let ok = ok_path == Some(path);
+            let (code, reason) = if ok { (200, "OK") } else { (404, "Not Found") };
+            let response = format!(
+                "HTTP/1.1 {code} {reason}\r\nContent-Type: text/plain\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    port
+}
+
+/// A DHIS2 whose API layer is alive.
+fn dhis2_lookalike() -> u16 {
+    routed(Some("/api/ping"), "pong")
+}
+
+/// A DHIS2 that is falsely healthy: it serves, and it has no API.
+fn dhis2_without_an_api() -> u16 {
+    routed(None, "Not Found")
+}
+
+/// A `docker` on PATH that reports one service of this deployment as running,
+/// and knows nothing else.
+///
+/// `chaps status` asks docker which containers are up, and that answer is what
+/// decides whether a component is asked anything at all. No test may start a
+/// real DHIS2 - it wants several gigabytes and many minutes - so the container
+/// half of the answer comes from here and the HTTP half from a stand-in on the
+/// port, which is the whole of what the row is made of.
+#[cfg(unix)]
+fn docker_running(service: &str) -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let script = format!(
+        "#!/bin/sh\n\
+         case \"$*\" in\n\
+         *' ps -a --format json'*) \
+           printf '{{\"Service\":\"{service}\",\"State\":\"running\",\"Health\":\"healthy\"}}\\n'; \
+           exit 0;;\n\
+         esac\n\
+         exit 1\n",
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin)
+}
+
+/// A deployment whose only component besides chap-core is a DHIS2 published on
+/// `port`, which is where a stand-in is already listening.
+fn dhis2_sandbox(port: u16) -> (Sandbox, PathBuf) {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &port.to_string()])
+        .assert()
+        .success();
+    (sandbox, dir)
+}
+
+/// The `dhis2` row, out of a `chaps status --json` document.
+fn dhis2_row(report: &Json) -> &Json {
+    report["components"]
+        .as_array()
+        .expect("a component list")
+        .iter()
+        .find(|row| row["name"] == "dhis2")
+        .expect("a dhis2 row")
+}
+
+/// A DHIS2 whose container is up and whose `/api/ping` answers is the one shape
+/// that counts as `up`.
+#[cfg(unix)]
+#[test]
+fn status_calls_dhis2_up_once_api_ping_answers() {
+    let port = dhis2_lookalike();
+    let (sandbox, dir) = dhis2_sandbox(port);
+    let (_temp, bin) = docker_running("dhis2");
+
+    let mut status = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["status", "--json", "--timeout", "2"],
+    );
+    status.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = status.assert().get_output().stdout.clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    let row = dhis2_row(&report);
+    assert_eq!(row["state"], "up", "{report}");
+    assert_eq!(row["reach"], format!("http://localhost:{port}"));
+    assert_eq!(
+        row["health_url"],
+        format!("http://localhost:{port}/api/ping")
+    );
+    // None of the OCS-only fields turns up on it.
+    assert_eq!(row["datasets"], Json::Null);
+    assert_eq!(row["read_only"], false);
+
+    // And the human line says the same.
+    let mut status = chap_with_docker(&sandbox, &dir, &bin, &["status", "--timeout", "2"]);
+    status.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = status.assert().get_output().stdout.clone();
+    let text = String::from_utf8_lossy(&out).into_owned();
+    assert!(
+        text.contains(&format!("dhis2       up   http://localhost:{port}")),
+        "{text}"
+    );
+}
+
+/// The failure the request exists to catch. A DHIS2 container reports itself
+/// healthy while its Spring context has failed and every `/api/*` request 404s,
+/// so the container alone is not evidence of anything: `up` is the one answer
+/// this must not give.
+#[cfg(unix)]
+#[test]
+fn status_does_not_call_a_dhis2_up_that_serves_pages_but_no_api() {
+    let port = dhis2_without_an_api();
+    let (sandbox, dir) = dhis2_sandbox(port);
+    let (_temp, bin) = docker_running("dhis2");
+
+    let mut status = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["status", "--json", "--timeout", "2"],
+    );
+    status.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = status.assert().get_output().stdout.clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    let row = dhis2_row(&report);
+    assert_ne!(row["state"], "up", "{report}");
+    assert_eq!(row["state"], "starting", "{report}");
+    // The address is recorded state, so it says the same thing either way.
+    assert_eq!(
+        row["health_url"],
+        format!("http://localhost:{port}/api/ping")
+    );
+
+    let mut status = chap_with_docker(&sandbox, &dir, &bin, &["status", "--timeout", "2"]);
+    status.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = status.assert().get_output().stdout.clone();
+    let text = String::from_utf8_lossy(&out).into_owned();
+    assert!(text.contains("dhis2       starting"), "{text}");
+    assert!(!text.contains("dhis2       up"), "{text}");
+}
+
+/// A deployment that is DHIS2 and nothing else: the row is there, with the
+/// address it will answer on, before anything has ever been started.
+#[test]
+fn status_json_carries_the_dhis2_row_on_a_dhis2_only_deployment() {
+    let port = dhis2_lookalike();
+    let (sandbox, dir) = dhis2_sandbox(port);
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success();
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .args(["status", "--json", "--timeout", "2"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    let components = report["components"].as_array().expect("a component list");
+    assert_eq!(components.len(), 1, "{report}");
+    let row = &components[0];
+    assert_eq!(row["name"], "dhis2");
+    // Nothing this deployment owns is running, so nothing was asked - and the
+    // stand-in holding that port did not become this deployment's answer.
+    assert_eq!(row["state"], "not-running", "{report}");
+    assert_eq!(
+        row["health_url"],
+        format!("http://localhost:{port}/api/ping")
+    );
+    assert_eq!(row["reach"], format!("http://localhost:{port}"));
+    assert_eq!(report["api"]["state"], "off", "{report}");
+}
+
+/// The three things `chaps doctor` has to say about a DHIS2 deployment: the
+/// component and its seed, the image it pulls, and the one file without which
+/// DHIS2 will not start at all.
+#[test]
+fn doctor_reports_the_dhis2_component_its_image_and_a_missing_config() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "dhis2",
+            "--dhis2-port",
+            &free_port().to_string(),
+            "--api-port",
+            &free_port().to_string(),
+        ])
+        .assert()
+        .success();
+
+    let out = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("doctor")
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out).into_owned();
+    // The scaffolded file is there, and the seed is reported rather than judged.
+    assert!(
+        text.contains("chap-core, dhis2; dhis2/dhis.conf present; seed: default ("),
+        "{text}"
+    );
+    // The image the component pulls, at the tag it records. Offline this is a
+    // skip, which still proves the line is asked for.
+    assert!(text.contains("image dhis2"), "{text}");
+    assert!(text.contains("port dhis2"), "{text}");
+
+    // Without `dhis2/dhis.conf` DHIS2 throws on startup, so its absence is a
+    // fault with `chaps sync` as the way out.
+    std::fs::remove_file(dir.join("dhis2").join("dhis.conf")).expect("the scaffolded config");
+    let assert = sandbox
+        .chap()
+        .arg("-C")
+        .arg(&dir)
+        .arg("doctor")
+        .assert()
+        .failure();
+    let text = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(
+        text.contains("fail  components") && text.contains("dhis2/dhis.conf is missing"),
+        "{text}"
+    );
+    assert!(text.contains("run `chaps sync` to scaffold"), "{text}");
+}
+
 #[test]
 fn status_does_not_call_something_that_is_not_chap_core_up() {
     let sandbox = Sandbox::new();
@@ -7974,4 +8250,51 @@ fn list_tags_works_offline_with_what_it_has() {
     dry.assert().success().stdout(predicates::str::contains(
         "v1.2.3  release  -          pinned",
     ));
+}
+
+/// `chaps update` re-pulls every enabled component's image, DHIS2's among them,
+/// and says so before it pulls anything.
+///
+/// The warning beside it is the part DHIS2 needs and the others do not. Nothing
+/// in the plan moves - `dhis2/core:2.42` is a minor line, so the same tag is a
+/// newer patch release tomorrow - and a newer DHIS2 migrates `dhis2_db` forward
+/// only, so the line names the archive that makes it recoverable.
+#[cfg(unix)]
+#[test]
+fn update_lists_the_dhis2_image_and_warns_about_the_migration() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &free_port().to_string()])
+        .assert()
+        .success();
+    assert!(dir.join("compose.dhis2.yml").is_file());
+
+    let assert = online_update(&sandbox, port, &bin, &["--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "dhis2  2.42  moving tag, re-pulled",
+        ))
+        // No pin moves: the component follows a moving tag, so the plan says
+        // nothing would change and the warning beside it is the whole point.
+        .stdout(predicates::str::contains("already up to date"));
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    // The fake docker answers every `volume inspect` with success, so `dhis2_db`
+    // is there as far as this run can tell - which is when the line is earned.
+    assert!(stderr.contains("`dhis2/core:2.42`"), "{stderr}");
+    assert!(stderr.contains("chaps backup create"), "{stderr}");
+    assert!(stderr.contains("404s"), "{stderr}");
+    // Not the `components enable dhis2` wording, which names two tags.
+    assert!(!stderr.contains("moves from"), "{stderr}");
+
+    // A pin an operator set by hand is re-pulled at that tag, and said to be.
+    let env = read(&dir.join(".env"));
+    std::fs::write(dir.join(".env"), format!("{env}\nDHIS2_IMAGE_TAG=2.41\n"))
+        .expect("an .env with a pin in it");
+    online_update(&sandbox, port, &bin, &["--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "dhis2  2.41  pinned in .env, re-pulled at that tag",
+        ));
 }

@@ -331,6 +331,35 @@ impl Component {
         }
     }
 
+    /// The directory this component keeps its own files in, relative to the
+    /// project directory.
+    ///
+    /// The operator's half of a component, and the opposite of
+    /// [`Component::compose_file`] in every way that matters: the compose file is
+    /// rendered from `.chaps/` and `chaps sync` can always write it again, while
+    /// what is in here is scaffolded once and never rewritten, so an edit made
+    /// to it exists nowhere else. `ocs/climate-service.yaml` and
+    /// `dhis2/dhis.conf` are the two, and the whole directory is named rather
+    /// than the file, because what an operator puts beside that file -
+    /// `ocs/plugins/` is the case in point - is theirs on the same grounds.
+    ///
+    /// The one place this is written down, because a name in one place is a name
+    /// the next component is forgotten from: [`crate::backup::project_files`]
+    /// collects the directory of every component that has one, so a fifth
+    /// component's files are in the archive the moment this method answers for
+    /// it.
+    ///
+    /// `None` for chap-core, whose every setting is in `.chaps/` and `.env`, and
+    /// for `s3`, which is configured by its compose file and two `.env` keys and
+    /// has nothing on disk for anyone to edit.
+    pub fn dir(self) -> Option<&'static str> {
+        match self {
+            Component::ChapCore | Component::S3 => None,
+            Component::Ocs => Some(OCS_DIR),
+            Component::Dhis2 => Some(DHIS2_DIR),
+        }
+    }
+
     /// The named volumes this component keeps its data in, as the compose file
     /// `chaps sync` renders declares them, in the order they are reported.
     ///
@@ -367,8 +396,8 @@ impl Component {
     /// The one place this rule lives, because every caller that stops or
     /// inspects a component's containers has to draw the same line. A component
     /// owns the service named after it and every `<name>-<suffix>` sibling
-    /// beside it: the one-shot `ocs-init` and `s3-init` that prepare the
-    /// volumes, and the further services a component that is more than one
+    /// beside it: the one-shots that prepare it, `s3-init` and `dhis2-prep`
+    /// among them, and the further services a component that is more than one
     /// container brings. The hyphen is the whole of the boundary, so `s3` owns
     /// `s3-init` and not some service whose name merely starts with those two
     /// characters.
@@ -1214,7 +1243,7 @@ mod tests {
         }
     }
 
-    /// Every note about the two components names the command that acts on it,
+    /// Every note `ocs` and `s3` print names the command that acts on it,
     /// which is the project's message rule, and none of them overstates the S3
     /// contract OCS does not have yet.
     #[test]

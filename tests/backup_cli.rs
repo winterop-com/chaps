@@ -112,6 +112,67 @@ fn members(archive: &Path) -> Vec<String> {
         .collect()
 }
 
+/// One member's body, read out of the archive without unpacking it.
+fn member_body(archive: &Path, member: &str) -> String {
+    let out = std::process::Command::new("tar")
+        .args(["-xzf", archive.to_str().unwrap(), "-O", member])
+        .output()
+        .expect("tar is on PATH");
+    assert!(out.status.success(), "reading {member}");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Every file under `dir`, as `prefix/...` paths.
+fn files_under(dir: &Path, prefix: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = format!("{prefix}/{name}");
+        if entry.path().is_dir() {
+            found.extend(files_under(&entry.path(), &path));
+        } else {
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The directories a deployment keeps its own files in: everything in the
+/// project root that is not the `.chaps/` state.
+///
+/// Read off the disk rather than listed here, so a component that scaffolds a
+/// directory of its own is covered by the tests that use this the day it is
+/// added, without anybody having to remember it.
+fn owned_dirs(dir: &Path) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name != ".chaps")
+        .collect();
+    found.sort();
+    found
+}
+
+/// The name of every component this build has, from `chaps components list`.
+fn component_names(sandbox: &Sandbox, dir: &Path) -> Vec<String> {
+    let out = sandbox
+        .chap(dir, &["components", "list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice::<Json>(&out).expect("a JSON listing")["components"]
+        .as_array()
+        .expect("a components array")
+        .iter()
+        .map(|row| row["name"].as_str().expect("a name").to_string())
+        .collect()
+}
+
 /// The archive's manifest, as JSON, read without unpacking it.
 fn manifest(archive: &Path) -> Json {
     let out = std::process::Command::new("tar")
@@ -218,6 +279,130 @@ fn a_backup_holds_the_ocs_instance_config() {
         .assert()
         .success();
     assert_eq!(read(&dir.join(config)), edited);
+}
+
+/// Every file a deployment keeps of its own is in the archive, for every
+/// component that has a directory - not only the one whose name somebody
+/// remembered to write into the file list.
+///
+/// `dhis2/dhis.conf` was in no archive ever taken: `ocs/` was collected by name,
+/// so DHIS2's directory was never going to be picked up, and a fifth
+/// component's would have gone the same way. That file is written once and
+/// never rewritten and DHIS2 throws on startup without it, so the reverse-proxy
+/// pair, the Flyway settings and a hand-set encryption password were lost on
+/// every restore with nothing reporting it.
+///
+/// The components are asked of the CLI and the directories are read off the
+/// disk, so this fails for the next component that keeps files of its own
+/// rather than waiting for somebody to add a test per component.
+#[test]
+fn a_backup_holds_every_file_a_component_keeps_of_its_own() {
+    let sandbox = Sandbox::new();
+    // Every component this build has, from the CLI rather than a list in here.
+    let probe = sandbox.init("probe", &[]);
+    let every = component_names(&sandbox, &probe).join(",");
+
+    // `none` for the two host ports there is a flag for: this is a test about
+    // files, and nothing in it should depend on which ports the machine running
+    // it has free.
+    let dir = sandbox.init(
+        "chapx",
+        &[
+            "--with",
+            &every,
+            "--ocs-port",
+            "none",
+            "--dhis2-port",
+            "none",
+        ],
+    );
+
+    let owned = owned_dirs(&dir);
+    for name in ["dhis2", "ocs"] {
+        assert!(
+            owned.contains(&name.to_string()),
+            "init --with {every} scaffolds {name}/: {owned:?}"
+        );
+    }
+
+    // A recognisable edit in every scaffolded file, plus a nested one beside it:
+    // `ocs/plugins/` is collected recursively, and a component directory has to
+    // behave the same whichever component it belongs to.
+    const MARKER: &str = "# the-operators-own-edit";
+    let mut expected: Vec<(String, String)> = Vec::new();
+    for owned_dir in &owned {
+        for rel in files_under(&dir.join(owned_dir), owned_dir) {
+            let edited = format!("{}\n{MARKER}\n", read(&dir.join(&rel)));
+            std::fs::write(dir.join(&rel), &edited).unwrap();
+            expected.push((rel, edited));
+        }
+        let nested = format!("{owned_dir}/plugins/extra.py");
+        std::fs::create_dir_all(dir.join(owned_dir).join("plugins")).unwrap();
+        let body = format!("{MARKER}, nested\n");
+        std::fs::write(dir.join(&nested), &body).unwrap();
+        expected.push((nested, body));
+    }
+    for must in ["ocs/climate-service.yaml", "dhis2/dhis.conf"] {
+        assert!(
+            expected.iter().any(|(rel, _)| rel == must),
+            "{must} is one of the files this covers: {expected:?}"
+        );
+    }
+
+    let archive = backup(&sandbox, &dir, &sandbox.archives(), &["--no-components"]);
+    let members = members(&archive);
+    let manifest = manifest(&archive);
+    let listed: Vec<&str> = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f.as_str().unwrap())
+        .collect();
+
+    for (rel, body) in &expected {
+        assert!(
+            members.contains(&format!("files/{rel}")),
+            "{rel} is in the archive: {members:?}"
+        );
+        assert!(
+            listed.contains(&rel.as_str()),
+            "the manifest lists {rel}: {listed:?}"
+        );
+        assert_eq!(
+            &member_body(&archive, &format!("files/{rel}")),
+            body,
+            "{rel} went in with the edit intact"
+        );
+    }
+
+    // And every one of them comes back, which is the half that matters to an
+    // operator: restore already writes whatever `files/` holds, so the archive
+    // was the only thing between these files and a deployment rebuilt without
+    // them. The edit rather than the whole body, because the re-render that
+    // follows a files restore may add a key it manages to a file it wrote -
+    // `plugins_dir` lands in `ocs/climate-service.yaml` now that there is an
+    // `ocs/plugins/` - and that is `chaps sync` doing its job, not the restore
+    // losing anything.
+    for (rel, _) in &expected {
+        std::fs::write(dir.join(rel), "# thrown away\n").unwrap();
+    }
+    sandbox
+        .chap(
+            &dir,
+            &[
+                "backup",
+                "restore",
+                archive.to_str().unwrap(),
+                "--files-only",
+                "--yes",
+            ],
+        )
+        .assert()
+        .success();
+    for (rel, _) in &expected {
+        let restored = read(&dir.join(rel));
+        assert!(restored.contains(MARKER), "{rel} was restored: {restored}");
+    }
 }
 
 #[test]

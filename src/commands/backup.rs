@@ -4,11 +4,11 @@
 //! database (`pg_dump -Fc` through the running postgres container), one tar
 //! per model data volume (read by the overlay's one-shot init container, which
 //! mounts the same volume the model does) and one tar per component data
-//! volume (read through a busybox container, since `ocs` and `s3` have no init
-//! container of their own). Everything is staged under `.chaps/tmp/`, packed
-//! in one `tar -czf` into a temporary sibling of the destination and renamed
-//! into place, so a failure halfway leaves no half-written archive and any
-//! archive already at that path exactly as it was.
+//! volume (read through a busybox container, since no component one-shot
+//! mounts a volume the archive holds). Everything is staged under
+//! `.chaps/tmp/`, packed in one `tar -czf` into a temporary sibling of the
+//! destination and renamed into place, so a failure halfway leaves no
+//! half-written archive and any archive already at that path exactly as it was.
 //!
 //! A service that is running is paused for the seconds its volume takes to
 //! read: a model keeps a live SQLite database in there, and tar reading a file
@@ -469,8 +469,8 @@ fn capture_models(
 /// One tar per enabled component with state of its own, read out of its named
 /// volume while the service is held still.
 ///
-/// `ocs` and `s3` have no init container to read their volume through, so it
-/// is mounted into a throwaway busybox container instead - the one command in
+/// No component one-shot mounts a volume the archive holds, so each one is
+/// mounted into a throwaway busybox container instead - the one command in
 /// a backup that is a plain `docker run` rather than a compose one, because
 /// there is no compose service that would do it.
 fn capture_components(

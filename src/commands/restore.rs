@@ -584,10 +584,10 @@ fn restore_models(
 
 /// Empty and refill each component data volume the archive holds.
 ///
-/// `ocs` and `s3` have no init container, so their volumes are reached the
-/// same way the backup read them: mounted into a throwaway busybox container.
-/// The tar carries the numeric ownership it was taken with, so there is no
-/// chown step to undo afterwards.
+/// No component one-shot mounts a volume the archive holds, so these are
+/// reached the same way the backup read them: mounted into a throwaway busybox
+/// container. The tar carries the numeric ownership it was taken with, so
+/// there is no chown step to undo afterwards.
 fn restore_components(
     project: &Project,
     archive: &Path,
