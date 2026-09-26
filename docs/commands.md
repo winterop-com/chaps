@@ -12,7 +12,7 @@ lists every command, every flag and every default.
 
 | Command | What it does |
 | --- | --- |
-| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--with ocs[,s3]` adds optional components. |
+| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--with ocs[,s3]` adds optional components, and `--ocs-port`, `--s3-port` and `--ocs-read-only` settle how they start. |
 | `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d --remove-orphans`, and end with what started or was recreated. The orphans are the containers of models and components that were disabled; see [Orphans](./concepts.md#orphans) for what that means for a compose file of your own. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
 | `chaps down [--volumes] [-y] [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there, naming the compose project they are prefixed with. `--volumes` removes them too, and the data in them: it names the volumes first and asks, unless `-y`/`--yes` says it was meant. |
@@ -67,7 +67,7 @@ that reaches the passthrough (`chaps down -- -v`) is refused and told to use
 | `chaps models disable ID [--purge]` | Drop the model from `.chaps/models.yaml` and remove its overlay, keeping its data volume and naming it; `--purge` removes that volume too. |
 | `chaps models expose ID [--port N\|auto]` | Publish a host port for an enabled model, without touching the version it is pinned to. |
 | `chaps models unexpose ID` | Take that host port away again. |
-| `chaps ui` | The model browser. |
+| `chaps ui` | Open the browser: marketplace models and components, on two pages `Tab` moves between. One `s` saves both. |
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
 rest need a project; `test` is the only one of them that changes nothing.
@@ -82,7 +82,7 @@ was given. See [Models and the marketplace](./models.md).
 | Command | What it does |
 | --- | --- |
 | `chaps components list` | Every component, whether this deployment has it and where it is reached. |
-| `chaps components enable NAME [--port N]` | Turn a component on, or change the settings of one that already is, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds. |
+| `chaps components enable NAME [--port N]` | Turn a component on, or change the settings of one that already is, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds, plus `--base-url` and `--read-only`/`--read-write`. A port already in use is a warning, not a refusal. |
 | `chaps components disable NAME [--purge]` | Turn it off, remove its compose file and sync, keeping its data volume and naming it; `--purge` removes that volume too, and is refused for chap-core. |
 
 A component is a service (or a small group) that `chaps sync` renders one

@@ -52,6 +52,9 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--with <LIST>` | Components to add: ocs, s3. |
 | `--without <LIST>` | Components to leave out: chap-core, ocs, s3. |
 | `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
+| `--ocs-port <PORT\|none>` | Host port to publish OCS on, or none to keep it internal. |
+| `--s3-port <PORT\|none>` | Host port to publish the object store on, or none. |
+| `--ocs-read-only` | Refuse ingestion over HTTP on the new OCS instance. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
@@ -261,7 +264,7 @@ Usage: chaps components disable [OPTIONS] <NAME>
 
 ## chaps ui
 
-Open the model browser.
+Open the browser: marketplace models and components.
 
 ```text
 Usage: chaps ui [OPTIONS]

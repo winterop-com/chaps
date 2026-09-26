@@ -555,9 +555,14 @@ has already added. The marketplace always wins a collision, so an id it
 publishes later shadows nothing: the local entry is reported and ignored until
 it is removed or renamed.
 
-## The model browser
+## The browser
 
-`chaps ui` opens the catalogue as one table across the width of the terminal,
+`chaps ui` opens two pages: **models**, the marketplace catalogue, and
+**components**, what this deployment is made of. `Tab` goes to the next page
+and `shift-Tab` back; one `s` saves both, so the two are a single sitting
+rather than two commands.
+
+The models page is the catalogue as one table across the width of the terminal,
 with a one-line summary of the row under the cursor under it:
 
 ```text
@@ -571,7 +576,7 @@ chaps · models                                                registry: cache �
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │ CHAP-EWARS  ● limited data  1.0.3 (sha-24d58c0)  enabled, via chap-core  requires population            i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [space] toggle  [i] info  [p] port  [v] channel  [s] save  [ctrl+k] commands  [?] help  [q] quit
+ [j/k] move  [tab] page  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
 
 The summary line names the model, what the author's assessment means, what the
@@ -599,11 +604,12 @@ j / k / arrows     move            space            enable or disable
 g / G              first / last    i / Enter        the full details
 PageUp / PageDown  jump a page     p                publish a host port: a number, auto, or none
 ctrl-u / ctrl-d    jump a page     P                take the host port away
-s                  save            v                pick the channel (stable, latest)
-u                  discard         t                show or hide templates
-q                  quit            /                filter (Enter keeps, Esc clears)
-?                  help            Esc              clear the filter, or quit
-y / n              answer the quit confirmation     ctrl-k / ctrl-p  the command palette
+Tab / shift-Tab    change page     v                pick the channel (stable, latest)
+s                  save            t                show or hide templates
+u                  discard         /                filter (Enter keeps, Esc clears)
+q                  quit            Esc              clear the filter, or quit
+?                  help            ctrl-k / ctrl-p  the command palette
+y / n              answer the quit confirmation
 ```
 
 `ctrl-n` also moves down and `ctrl-c` always leaves. While filtering, the
@@ -659,6 +665,103 @@ one resolves to and a `✓` on the one the row follows today:
 it and `Esc` leaves the row alone. Changing the channel re-resolves the
 version when the selection is saved; changing only the port does not.
 
+### The components page
+
+`Tab` from the models page opens what this deployment is made of, with the same
+columns [`chaps components list`](./components.md) prints:
+
+```text
+chaps · components                                             registry: embedded   3 components · 2 enabled · 0 pending
+╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ ▸ ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
+│     s3           off      -                        RustFS, an S3-compatible object store OCS will keep objects in    │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ chap-core  enabled here  http://localhost:8000  compose.yml + compose.chaps.yml  CHAP itself: chap-co~  i for details│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ [j/k] move  [tab] page  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
+```
+
+The marker column reads the same way it does on the models page: `✓` for a
+component this deployment has, `+` for one you have switched on this session,
+`-` for one you have switched off. `STATE` follows it - `enabled`, `off`, and
+`adding` or `removing` while a change is pending - so the row says both what is
+recorded and what saving would do to it. `REACH` is where the component answers
+from this machine, or `internal` for one that publishes no host port, and `-`
+for one that is off. The strip under the table is the row the cursor is on:
+whether this deployment has it, where it answers, which compose file it is
+rendered into, and what it is, with the same `i for details` held at the
+right-hand edge.
+
+```text
+chaps · components                                             registry: embedded   3 components · 3 enabled · 1 pending
+╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│   ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
+│ ▸ + s3           adding   internal                 RustFS, an S3-compatible object store OCS will keep objects in    │
+│                                                                                                                      │
+│                                                                                                                      │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ 1 pending change  nothing is written until you save                                                                  │
+│ + s3                      enable, on the compose network                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ [j/k] move  [tab] page  [space] toggle  [i] info   [s] save 1 change   [u] discard  [?] help  [q] quit
+```
+
+`space` toggles the component under the cursor, `p` sets its host port and `P`
+takes it away, and `i` or `Enter` opens the details. The pending counter in the
+header, the summary strip and the quit confirmation all count both pages, so a
+component change cannot be lost by saving from the models page - and `u`
+discards both pages, because it means "nothing I did this session" rather than
+"nothing on this page".
+
+The port prompt here is narrower than the models one: it takes a port number,
+or an empty line or `none` to take the port away, and **not** `auto`. `auto`
+means "the lowest free port in this project's model range", and a component
+publishes a well-known port of its own that is not in that range, so the prompt
+says what to type rather than picking a number nobody asked for. `p` on
+`chap-core` is refused outright, because its host port is the API port, which
+lives in `.chaps/project.yaml`: the footer names
+`chaps init --api-port PORT --force` and `CHAP_API_PORT` in `.env` instead. `p`
+on a component that is off asks you to enable it first.
+
+`i` opens the details, which say where the component's compose file and data
+volume are, and - for OCS - which of its settings this page deliberately does
+not edit:
+
+```text
+╭ ocs                                                                   enabled here ╮
+│ Open Climate Service: climate data, reachable at http://ocs:9000                   │
+│                                                                                    │
+│ state       enabled                                                                │
+│ reach       http://localhost:9000                                                  │
+│ compose     compose.ocs.yml · rendered from .chaps/components.yaml by `chaps sync` │
+│ volume      ocs_data · kept when the component is disabled                         │
+│ config      ocs/climate-service.yaml · yours to edit, and chaps never rewrites it  │
+│                                                                                    │
+│ not on this page:                                                                  │
+│   `chaps components enable ocs --base-url URL`                                     │
+│     the public origin OCS builds its STAC and openEO links from                    │
+│   `chaps components enable ocs --read-only`                                        │
+│     refuse ingestion over HTTP (--read-write allows it again)                      │
+╰────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+Those two are one-way settings on a file rather than a field on a row:
+`--base-url` is a URL to type correctly rather than pick, and `--read-only`
+edits `ocs/climate-service.yaml`, which is the operator's file. A dialog that
+looked like it owned them would be a dialog that quietly rewrote your config,
+so the overlay names the commands instead. See
+[Behind a reverse proxy](./components.md#behind-a-reverse-proxy) and
+[Read-only instances](./components.md#read-only-instances).
+
 ### The details, and the command palette
 
 `i` or `Enter` opens the full entry over the list, in the order the CHAP
@@ -708,21 +811,29 @@ repository in a browser, `c` puts the image reference on the status line, and
 `esc`, `i` or `q` closes it again.
 
 `ctrl-k` or `ctrl-p` opens a command palette: type to narrow it, `up` and
-`down` to move, `Enter` to run, `esc` to leave. It offers everything the keys
-do, plus three the keys do not: refreshing the catalogue from the marketplace
-without leaving the browser, the way `chaps registry update` does, opening
-this documentation, and `Save a screenshot (SVG)`, which writes the frame the
+`down` to move, `Enter` to run, `esc` to leave. Its first entry is always the
+other page - `Go to the components page`, or `Go to the models page` - and the
+rest follow whichever page you are on, so on the components page it offers
+`Enable or disable the ocs component` and `Set a host port for the ocs
+component` where the models page offers the channel and the template filter.
+
+It offers everything the keys do, plus three the keys do not: refreshing the
+catalogue from the marketplace without leaving the browser, the way
+`chaps registry update` does, opening this documentation - the chapter for the
+page you are on - and `Save a screenshot (SVG)`, which writes the frame the
 palette just closed over to `chaps-ui-<date>-<time>.svg` in the directory
-`chaps ui` was started in and names the file on the status line. The two port commands are separate, so "set a host port"
-never takes one away.
+`chaps ui` was started in and names the file on the status line. The two port
+commands are separate, so "set a host port" never takes one away.
 
 ### Saving
 
 With something unsaved, the summary strip lists what saving would write, one
-line per model, and the key bar grows a filled `[s] save N changes` and a
-`[u] discard` next to it. Saving applies the accumulated changes through the
-same write path as `chaps models enable`, then prints what changed. Nothing is
-written until you save, and quitting with unsaved changes asks first.
+line per change, and the key bar grows a filled `[s] save N changes` and a
+`[u] discard` next to it. Both pages are in that count and in that one save:
+`s` writes the model changes through the same path as `chaps models enable` and
+the component changes through the same path as `chaps components enable`, then
+prints what changed. Nothing is written until you save, and quitting with
+unsaved changes asks first, on either page and for either kind of change.
 `chaps ui` owns the terminal, so it rejects `--json`.
 
 `chaps init --interactive` opens the same browser to pick the initial model

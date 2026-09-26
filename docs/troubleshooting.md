@@ -432,6 +432,43 @@ Upgrade Docker Compose.
 `chaps sync --check` reports drift without writing, and exits non-zero, which
 makes it a usable pre-commit or CI check.
 
+## An OCS dataset plugin does not appear after a restart
+
+You put a plugin in `ocs/plugins/datasets/`, ran `chaps restart` - or
+`chaps restart --all ocs` - and OCS still serves the datasets it served before.
+Nothing failed: the plugin directory was never mounted.
+
+The mount is rendered from the directory being there, and `chaps up` is the only
+wrapper that re-renders the compose files before it calls Docker. On a deployment
+where `ocs` was enabled before `ocs/plugins/` existed, `compose.ocs.yml` carries
+no plugin mount, so `chaps restart` compares the container against a file it
+already matches and does nothing at all.
+
+```sh
+chaps up                                          # syncs first, then recreates ocs
+chaps docker exec ocs ls /app/plugins/datasets    # the plugin is inside
+```
+
+`chaps doctor` finds this on its own, on the `compose files` line, which is
+`chaps sync --check`:
+
+```text
+warn  compose files   out of date with .chaps/ (2 to write, 5 unchanged, 0 to remove)
+      run `chaps sync`, or `chaps up`, which syncs first
+```
+
+Two files, because the mount in `compose.ocs.yml` and the `plugins_dir` key in
+`ocs/climate-service.yaml` are written by the same sync.
+
+`chaps restart --all ocs` is the right command for a change to
+`ocs/climate-service.yaml`, and for the opposite reason: that file is a bind
+mount, so its new text is already inside the container and the compose files have
+not changed - all that is wrong is that OCS read the old text at startup. A
+directory that did not exist when the compose file was rendered is the other
+case: the file itself is out of date, and recreating a container cannot mount
+what the file does not mention. See
+[Adding a plugin to a running deployment](./components.md#adding-a-plugin-to-a-running-deployment).
+
 ## `chaps update` said a restart is needed
 
 That is the whole design, not a failure. `chaps update` moves the pins and

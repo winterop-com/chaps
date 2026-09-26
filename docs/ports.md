@@ -43,12 +43,57 @@ says the same in its `REACH` column, and
 own. In `chaps ui`, `p` opens a prompt on the row under the cursor that takes
 a port number, `auto`, or nothing at all, and `P` takes the port away.
 
+`p` works the same way on the browser's components page, with a narrower
+prompt: a number, or an empty line or `none`, and **not** `auto`. `auto` means
+the lowest free port in the model range, and a component publishes a well-known
+port of its own outside it, so there is nothing for `auto` to pick from. `p` on
+`chap-core` is refused rather than prompted - its host port is the API port,
+which lives in `.chaps/project.yaml` - and the footer names
+`chaps init --api-port PORT --force` and `CHAP_API_PORT` in `.env` instead. See
+[The components page](./models.md#the-components-page).
+
 Model ports come from the range 5001 to 5999, with 5001 the default lowest
 (`init --port-base` moves it). A port has to be free twice over: unclaimed by
 `.chaps/models.yaml` and by every `compose*.yml` in the directory, and with
 nothing on the machine listening on it. So two models never collide, and
 neither does a model and something else you are running. `--port N` claims one
 explicitly, and the command fails if it is taken.
+
+## Component ports
+
+A component publishes a well-known port of its own rather than one from the
+model range: OCS is on 9000 by default and the object store on none at all.
+Both are set at creation time or afterwards, and `none` is how either one is
+kept off the host entirely:
+
+```sh
+chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
+chaps init mychap --with ocs --ocs-port none        # reachable only inside
+chaps components enable ocs --port 9010             # or afterwards
+chaps components enable ocs --port none
+```
+
+`--ocs-port` and `--s3-port` each need their component: asking for a port for
+something this deployment is not getting is refused rather than silently
+ignored, because a port that quietly did nothing would leave you waiting for a
+service on an address no file mentions.
+
+`chaps components enable` probes the port it is given the same way `init` does,
+and warns rather than refuses:
+
+```text
+enabled ocs on http://localhost:9000
+written  compose.ocs.yml
+note: port 9000 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port <free>`
+run `chaps up` to apply
+```
+
+A warning, because the listener is often something you are about to stop, and
+because nothing is started here: `chaps up` is where a taken port becomes a
+refusal. A port one of this deployment's own running services already publishes
+is not a conflict at all. As at `init`, a port no one is listening on but
+another deployment on this machine claims gets the same line with that
+deployment named.
 
 ## How the API port is set
 

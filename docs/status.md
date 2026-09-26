@@ -75,7 +75,12 @@ question is how much data a `chaps down --volumes` would destroy. Under
 both `null` where the line says nothing.
 
 A deployment with `chap-core` disabled has no chap-core line at all, and
-`status` does not exit non-zero over an API that is not meant to be there.
+`status` does not exit non-zero over an API that is not meant to be there. Its
+closing line counts components rather than models - `all 2 components are up`,
+or `1 of 2 components is not running; start it with `chaps up`` - because it
+has no models to count and the models line would name `chaps models enable`,
+the one command such a deployment refuses. See
+[Standalone OCS](./components.md#standalone-ocs).
 
 Every model the project enables gets a row, registered or not, with its state
 taken from the registry and `docker compose ps` together.
@@ -157,19 +162,45 @@ look like the failure. See
 
 ## Exit codes and short-circuits
 
-`chaps status` exits non-zero when the API is down or a model has not
-registered, which makes it a health gate for a script. The table has already
-named every model that is missing and what to do about each one, so that exit
-adds nothing further; only an API that is not answering prints its one error
-line.
+`chaps status` exits non-zero when anything this deployment declares is not
+where it should be: the API down, a model not registered, or a component not
+`up`. One rule for every deployment shape, because a script polling it as a
+health gate cannot know which shape it is polling, and a component that died
+has to be as visible as a model that did not register.
 
-A project whose containers do not exist at all skips the table and says
+The rows have already named what is wrong - which models are missing and what
+to do about each one, which component is not up - so that exit adds nothing
+further; only an API that is not answering prints its one error line, because
+nothing else on the screen says why. `starting` counts as not up: a component
+whose container is running but not answering is a deployment that is not ready,
+whatever it will be a moment later.
+
+A project whose containers do not exist at all skips the model table: nothing
+can have registered with a chap-core that has never started. A deployment that
+is chap-core and nothing else is then the one line
 
 ```text
 CHAP is not running; start it with `chaps up`
 ```
 
-`--url` turns that short-circuit off, because then the question is about that
+A deployment that has components prints their rows first and puts that line
+under them, in the shape a running deployment has. The rows are read from
+`.chaps/components.yaml` rather than from docker, so they are known whether
+anything is up or not, and they say the one thing the single line cannot: which
+components this deployment is made of, and where each of them will answer.
+
+```text
+ocs   not running   http://localhost:9000
+s3    not running   internal
+
+nothing in this deployment is running; start it with `chaps up`
+```
+
+That wording is the other half of it: a deployment chap-core is not a component
+of is never told that CHAP is not running, because there is no CHAP in it to be
+running.
+
+`--url` turns the short-circuit off, because then the question is about that
 API and not about this machine. `--url` also overrides the default of
 `http://localhost:<api_port>`, and `--timeout SECONDS` (5 by default) bounds
 each request.

@@ -28,7 +28,18 @@ At creation time:
 ```sh
 chaps init mychap --with ocs          # chap-core and OCS
 chaps init mychap --with ocs,s3       # both, plus the object store
+chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
+chaps init mychap --with ocs --ocs-port none --ocs-read-only
 ```
+
+`--ocs-port` and `--s3-port` take a port number or `none`, and
+`--ocs-read-only` starts the instance refusing every write over HTTP. Each one
+needs its component: a setting for something `--with` did not ask for is
+refused rather than quietly dropped. There is no `--ocs-read-write` to match,
+so a `--force` over a directory whose `ocs/climate-service.yaml` already says
+`read_only: true` has no init-side way back - `chaps components enable ocs
+--read-write` is the route, and the file is the operator's either way. See
+[Read-only instances](#read-only-instances).
 
 Afterwards, in the deployment directory:
 
@@ -51,6 +62,52 @@ Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, `--port none` takes it away, and nothing else
 is touched. `--port none` reads the same on both components that take one, so
 there is one flag to remember rather than a verb per component.
+
+### What `enable` tells you
+
+Every run says what it wrote and what to do next, and adds a `note:` line per
+thing that is worth knowing but is nobody's fault. Turning OCS on for the first
+time is the noisiest of them:
+
+```text
+enabled ocs on http://localhost:9000
+written  compose.ocs.yml
+written  .env
+note: port 9000 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port <free>`
+note: wrote ocs/climate-service.yaml; it is yours to edit, and chaps never rewrites it
+note: OCS will soon need an S3-compatible object store; `chaps components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
+note: the OCS data source variables are now in `.env`, commented out: WorldPop and CHIRPS3 need none of them and ERA5-Land needs one; `chaps auth show` reports which are set
+run `chaps up` to apply
+```
+
+The port line is the same probe `chaps init` makes, and a warning for the same
+reason: nothing is being started here, the listener is often something you are
+about to stop, and `chaps up` is where a taken port becomes a refusal. A port
+one of this deployment's own running services already publishes is not a
+conflict. See [Component ports](./ports.md#component-ports).
+
+The data source line appears on the run that appends the credential block to
+`.env`, because until then the only sign of it was `written .env` and which
+dataset needs which key is the one thing the variable names do not say. See
+[Data source credentials](#data-source-credentials).
+
+The other two are the soft dependency between OCS and the store, in both
+directions. Enabling `s3` on a deployment with no OCS says so, because nothing
+else in a chaps deployment writes to it:
+
+```text
+note: the object store is for OCS to keep its objects in, and this deployment has no OCS; `chaps components enable ocs` adds one, and nothing else here writes to the store
+```
+
+and disabling `s3` while OCS is on says what the next sync takes off the OCS
+service, which is a change to a service you did not name:
+
+```text
+note: the OCS service loses its S3_* variables on this sync; OCS does not read them yet, and `chaps components enable s3` puts them back
+```
+
+Neither is a refusal. A store with nothing to put in it and an OCS with no
+store are both states an operator may well be passing through on purpose.
 
 ### The data volume
 
@@ -80,6 +137,38 @@ honest way to ask for that.
 
 `chaps doctor` reports a component volume whose component is off as a leftover;
 see [Doctor](./doctor.md).
+
+### Re-initialising with `--force`
+
+`chaps init --force` over an existing deployment sets the component set from
+the flags it is given, exactly as `--models` sets the model set: `--with` and
+`--without` are the whole answer, and a component the directory had but the new
+run does not ask for is going. It is reset-from-flags, not a merge, so the way
+to keep a component across a `--force` is to name it again.
+
+Each one that goes gets its own warning before anything is written:
+
+```text
+warning: this directory had the ocs component and this run does not ask for it, so compose.ocs.yml is removed and its data volume is left behind; re-run with `--with ocs` to keep it
+warning: this directory had the s3 component and this run does not ask for it, so compose.s3.yml is removed and its data volume is left behind; re-run with `--with s3` to keep it
+```
+
+So `chaps init . --force --with ocs` keeps OCS and drops the store, and
+`chaps init . --force --with ocs,s3` keeps both. A component named in
+`--without` is not warned about: you said so.
+
+What a dropped component loses is its compose file and its containers, which
+are stopped and removed while the compose file that names them is still on disk
+- a service whose definition has just been deleted cannot be stopped by name
+afterwards, and one left running would hold its host port against a deployment
+that no longer asks for it. What it keeps is its data volume, on the same terms
+[`disable` keeps one](#the-data-volume): nothing declares it any more, so
+`chaps down --volumes` no longer reaches it and `docker volume rm <name>` or
+`chaps components disable <name> --purge` is what removes it. The `ocs/`
+directory is yours and is never touched.
+
+`.env` is kept as it always is, so the database password, the API token and any
+OCS credentials survive a `--force` whatever happens to the components.
 
 ## The files
 
@@ -382,6 +471,46 @@ Nothing creates the directory for you, and `chaps` never writes into it: the
 plugins are yours, and a plugin with dependencies the image does not have needs
 an image of its own.
 
+### Adding a plugin to a running deployment
+
+Run `chaps up`, not `chaps restart`. `chaps up` is the only wrapper that
+re-renders the compose files before it calls Docker; `chaps restart`,
+`chaps logs`, `chaps docker ps` and the rest run against the files exactly as
+they are on disk. So on a deployment where `ocs` was enabled before
+`ocs/plugins/` existed, `compose.ocs.yml` carries no plugin mount, and a
+`chaps restart` finds a container that already matches that file: nothing
+happens at all - no error, no mount, no plugin.
+
+```sh
+mkdir -p ocs/plugins/datasets
+cp clms_gpp.py clms_gpp.yaml ocs/plugins/datasets/
+chaps up      # syncs first, so the mount is rendered and then ocs is recreated
+```
+
+`chaps sync` followed by `chaps restart` is the same thing in two steps: once
+the mount is in the file, the running container no longer matches it and compose
+recreates it.
+
+**This is the one place where `chaps restart --all ocs` is the wrong reach.**
+That form belongs to [`ocs/climate-service.yaml`](#read-only-instances), and for
+the opposite reason: that file is a bind mount, so an edit to it is already
+visible inside the container and there is nothing to re-render - the only
+problem is that OCS read the old text at startup, which a forced recreate of
+that one service fixes. A directory that did not exist at render time is the
+other case entirely: the compose file itself is out of date, and no amount of
+recreating mounts a directory it does not mention.
+
+`chaps doctor` is the safety net, because its `compose files` line is
+`chaps sync --check`:
+
+```text
+warn  compose files   out of date with .chaps/ (2 to write, 5 unchanged, 0 to remove)
+      run `chaps sync`, or `chaps up`, which syncs first
+```
+
+Two files to write, because the mount in `compose.ocs.yml` and the `plugins_dir`
+key in `ocs/climate-service.yaml` are rendered by the same sync.
+
 ## The object store
 
 OCS will soon require an S3-compatible object store. It does not read any `S3_*`
@@ -403,8 +532,10 @@ own `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY`, so the credentials live in
 
 A one-shot `s3-init` service creates the `ocs` bucket once the store is healthy.
 It runs the same RustFS image and signs the request with `curl --aws-sigv4`, so
-nothing extra is pulled, and creating a bucket that already exists answers 200 -
-re-running it changes nothing.
+nothing extra is pulled: the image is Alpine-based and ships both curl and wget,
+which is what the `s3` health check uses on `GET /health` as well. Creating a
+bucket that already exists answers 200, so every later `chaps up` runs the
+one-shot again and changes nothing.
 
 The store publishes no host port: OCS reaches it at `http://s3:9000` on the
 compose default network. `chaps components enable s3 --port 9002` publishes one
@@ -420,13 +551,19 @@ chaps init climate --with ocs,s3 --without chap-core
 
 Neither `compose.yml` nor `compose.chaps.yml` is rendered, and the `-f` list is
 just the component files and the (empty) marketplace umbrella. `chaps status`
-leaves out the chap-core line, and `chaps doctor` judges the deployment by its
-components alone.
+leaves out the chap-core line and counts components rather than models in its
+closing line; a deployment with nothing running is told that nothing in it is
+running, never that CHAP is not, because there is no CHAP here to be running.
+`chaps doctor` judges the deployment by its components alone.
 
 Models need chap-core: a model service registers with chap-core and is reached
-through it. So `--without chap-core` together with `--models` is refused, and
-`chaps components disable chap-core` is refused while any model is enabled. The
-message names the models in the way.
+through it. So `--without chap-core` together with a `--models` list is refused,
+and `chaps components disable chap-core` is refused while any model is enabled.
+The message names the models in the way. The default model set is a default and
+not something you asked for, so `--without chap-core` on its own starts with no
+models rather than making you type `--models none` as well; the `init` summary
+then says why there are none and names `chaps components enable chap-core`,
+rather than naming `chaps models enable`, which such a deployment refuses.
 
 ## What the other commands say
 
@@ -436,12 +573,21 @@ message names the models in the way.
   line: OCS from its `/health` endpoint, the object store from whether its
   container is up. An OCS instance with no host port cannot be asked from out
   here at all, so it is judged by its container too, and the line says
-  `internal (proxy: <base_url>)` and `read-only` where those apply. `--json`
-  carries them under `components`, with `read_only` and `health_url`.
-- **`chaps doctor`** adds a `components` line (which components are on, whether
+  `internal (proxy: <base_url>)` and `read-only` where those apply. An OCS
+  instance that answered also reports what it holds, `3 datasets` and
+  `212.0 MB data`. The rows come from `.chaps/components.yaml` rather than from
+  docker, so they are printed with nothing running too, each reading
+  `not running` beside the address it will answer on. `--json` carries the rows
+  under `components`, with `read_only`, `health_url`, `datasets` and
+  `data_bytes`.
+- **`chaps doctor`** adds a `components` line - which components are on, whether
   the OCS config is present and still the example, whether any data source
-  credential is set, and how many plugin files there are), a port line per
-  published component, and an image line per component image.
+  credential is set, how many plugin files there are and, while the instance is
+  up, what it holds - plus a port line per published component and an image line
+  per component image. Those last facts ride on the warning about an unedited
+  config as much as on an `ok` line: a deployment that has just enabled `ocs`
+  still has the example config, and that is the run in which a missing ERA5-Land
+  key is most worth reading.
 - **`chaps auth show`** adds an `OCS data sources` block, masked.
 - **`chaps update`** reports each component's image. Both follow moving tags, so
   there is no pin to move, only a pull: `docker compose pull` takes whatever the
@@ -449,4 +595,10 @@ message names the models in the way.
   `.env` is your own pin, and is reported as such. When the pull brings an image
   the machine did not have, the closing line names the component and
   `chaps restart` is what puts it in service.
-- **`chaps ui`** is unchanged: it browses models, not components.
+- **`chaps ui`** has a components page beside the models one: `Tab` moves
+  between them, the rows are the ones `chaps components list` prints, and
+  `space`, `p` and `P` do there what they do for a model. One `s` saves both
+  pages. The two OCS settings it deliberately does not edit - `--base-url` and
+  `--read-only` - are named in the component's `i` overlay rather than hidden,
+  because they write to `ocs/climate-service.yaml`, which is yours. See
+  [The components page](./models.md#the-components-page).
