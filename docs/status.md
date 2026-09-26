@@ -51,6 +51,34 @@ is asked over HTTP at `http://localhost:<port>/health`; the object store
 publishes no host port, so the only thing that can be said about it from out
 here is whether its container is up.
 
+A `dhis2` line is judged by its container first, exactly as the OCS one is, and
+only then asked anything: one request to `/api/ping`, the single route DHIS2
+answers without credentials, and the same route its container's healthcheck is
+built out of - judged by the status code, not the body. That request is there for
+a failure OCS does not have. A Spring context that failed to come up - an
+unreadable `dhis2/dhis.conf`, a PostgreSQL extension the image cannot find, a
+Flyway checksum that does not match the database - leaves Tomcat running and
+serving pages while every `/api/*` request answers 404, so a container that is up
+is no evidence at all that the instance works. A 200 from `/api/ping` is, and a
+container that is up while the ping goes unanswered reads `starting` rather than
+`up`. An instance with no host port cannot be asked from out here and is judged
+by its container alone, like the object store.
+
+The line carries no version, and deliberately: no component line does. DHIS2
+tells only a logged-in session which version it is running - `/api/system/info`
+answers nothing else, and `chaps` holds credentials for no instance - and the
+`image_tag` in `.chaps/components.yaml` is not that version either. It is intent:
+the tag the next `chaps up` would start, while the container standing there was
+created, and migrated `dhis2_db`, at whatever tag was in force when it was
+created. Printing the recorded one beside a live container would name a version
+that container is not. The recorded tag is `chaps doctor`'s `image dhis2` line,
+and moving it is an edit to `.chaps/components.yaml` and a `chaps sync`; see
+[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
+
+See [DHIS2](./dhis2.md) for the component, and [a DHIS2 that answers but 404s
+every API request](./troubleshooting.md#a-dhis2-that-answers-but-404s-every-api-request)
+for what that failure looks like from the outside.
+
 | State | Meaning |
 | --- | --- |
 | `up` | Answering its health endpoint, or - for a component with no endpoint to ask - running. |

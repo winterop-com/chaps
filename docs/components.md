@@ -9,6 +9,7 @@ component like the others and is on unless you turn it off; the rest are opt-in.
 | `chap-core` | CHAP itself: chap-core, its worker, Valkey and PostgreSQL, plus the model overlays on top. | yes |
 | `ocs` | [Open Climate Service](https://github.com/dhis2/open-climate-service), beside chap-core, reachable inside the deployment at `http://ocs:9000`. | no |
 | `s3` | [RustFS](https://github.com/rustfs/rustfs), an S3-compatible object store for OCS to keep its objects in. | no |
+| `dhis2` | A demo or development [DHIS2](https://dhis2.org) and its own PostgreSQL, for a deployment that wants one beside CHAP. See [DHIS2](./dhis2.md). | no |
 
 ```sh
 chaps components list
@@ -19,6 +20,7 @@ COMPONENT  STATE    REACH                  WHAT IT IS
 chap-core  enabled  http://localhost:8000  CHAP itself: chap-core, its worker, Valkey and PostgreSQL
 ocs        enabled  http://localhost:9000  Open Climate Service: climate data, reachable at http://ocs:9000
 s3         off      -                      RustFS, an S3-compatible object store OCS will keep objects in
+dhis2      enabled  http://localhost:8080  DHIS2 and its own database, for a deployment that wants one
 ```
 
 ## Turning one on and off
@@ -30,12 +32,15 @@ chaps init mychap --with ocs          # chap-core and OCS
 chaps init mychap --with ocs,s3       # both, plus the object store
 chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
 chaps init mychap --with ocs --ocs-port none --ocs-read-only
+chaps init mychap --with dhis2 --dhis2-port 18080 --dhis2-seed none
 ```
 
-`--ocs-port` and `--s3-port` take a port number or `none`, and
-`--ocs-read-only` starts the instance refusing every write over HTTP. Each one
-needs its component: a setting for something `--with` did not ask for is
-refused rather than quietly dropped. There is no `--ocs-read-write` to match,
+`--ocs-port`, `--s3-port` and `--dhis2-port` take a port number or `none`,
+`--ocs-read-only` starts the instance refusing every write over HTTP, and
+`--dhis2-seed` says what the DHIS2 database is restored from the first time it is
+created. Each one needs its component: a setting for something `--with` did not
+ask for is refused rather than quietly dropped. There is no `--ocs-read-write` to
+match,
 so a `--force` over a directory whose `ocs/climate-service.yaml` already says
 `read_only: true` has no init-side way back - `chaps components enable ocs
 --read-write` is the route, and the file is the operator's either way. See
@@ -48,6 +53,7 @@ chaps components enable ocs           # publishes it on 9000
 chaps components enable ocs --port 9010
 chaps components enable ocs --port none  # no host port; see below
 chaps components enable s3            # internal only
+chaps components enable dhis2         # publishes it on 8080
 chaps components disable ocs
 chaps components disable ocs --purge  # and its data
 ```
@@ -60,8 +66,11 @@ line - so the host port it published is free straight away.
 
 Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, `--port none` takes it away, and nothing else
-is touched. `--port none` reads the same on both components that take one, so
-there is one flag to remember rather than a verb per component.
+is touched. `--port none` reads the same on every component that takes a port, so
+there is one flag to remember rather than a verb per component. `dhis2` has two
+settings `--port` is not among - the seed and the image tag - and those are an
+edit to `.chaps/components.yaml` followed by `chaps sync`, because neither is a
+thing to change by accident: see [DHIS2](./dhis2.md#the-seed).
 
 ### What `enable` tells you
 
@@ -109,6 +118,25 @@ note: the OCS service loses its S3_* variables on this sync; OCS does not read t
 Neither is a refusal. A store with nothing to put in it and an OCS with no
 store are both states an operator may well be passing through on purpose.
 
+Turning `dhis2` on says two more things, because neither is visible from the
+compose file and both decide what the first start does:
+
+```text
+enabled dhis2 on http://localhost:8080
+written  compose.dhis2.yml
+written  .env
+note: wrote dhis2/dhis.conf; it is yours to edit, and chaps never rewrites it
+note: the first `chaps up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `chaps components disable dhis2 --purge` makes it happen again
+note: the first `chaps up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `chaps logs dhis2` is where that shows
+run `chaps up` to apply
+```
+
+The first is the restore happening **once**, on a data directory PostgreSQL has
+just created, which is the half that decides whether changing the seed later does
+anything. The second is the first start taking minutes rather than seconds, which
+is the half that decides whether the first `chaps status` reads as a broken
+deployment. See [DHIS2](./dhis2.md).
+
 ### The data volume
 
 `disable` keeps the component's data, exactly as it keeps a disabled model's,
@@ -122,10 +150,15 @@ note: the ocs/ directory is left alone; it is yours
 run `chaps up` to apply
 ```
 
-`ocs` keeps `ocs_data` and `s3` keeps `s3_data`, each prefixed with the compose
-project name. Naming it is the whole point: the compose file that declared the
-volume has just been removed, so `chaps down --volumes` no longer reaches it. `--purge` removes it with the component, after the containers, and
-reports `removed volume <name>` or `volume <name> not found`; `--json` carries
+`ocs` keeps `ocs_data`, `s3` keeps `s3_data`, and `dhis2` keeps `dhis2_home`,
+`dhis2_db` and `dhis2_dump`, each prefixed with the compose project name. A
+component is not limited to one volume, so every one it declares is named on a
+line of its own - `dhis2_dump` included, which is a download cache rather than
+data but is still a name someone would otherwise have to find by hand. Naming
+them is the whole point: the compose file that declared the volume has just been
+removed, so `chaps down --volumes` no longer reaches it. `--purge` removes them
+with the component, after the containers, and
+reports `removed volume <name>` or `volume <name> not found` per volume; `--json` carries
 `purged` and `kept_volumes`. `--purge` works on a component that is already
 off, so a volume that was forgotten can still be removed by name.
 
@@ -179,9 +212,14 @@ mychap/
   compose.ocs.yml        artifact: the ocs service and its data volume
   compose.s3.yml         artifact: the object store, its health check and the
                          one-shot that creates the bucket
+  compose.dhis2.yml      artifact: DHIS2, its own PostgreSQL, two one-shots and
+                         three volumes
   ocs/
     climate-service.yaml the OCS instance configuration - yours, written once
     plugins/             optional dataset plugins - yours, mounted if present
+  dhis2/
+    dhis.conf            the DHIS2 instance configuration - yours, written once,
+                         and DHIS2 does not start without it
 ```
 
 `.chaps/components.yaml` is intent, like `project.yaml` and `models.yaml`:
@@ -198,6 +236,11 @@ ocs:
 s3:
   enabled: true
   port: null
+dhis2:
+  enabled: true
+  port: 8080
+  image_tag: '2.42'
+  seed: default
 ```
 
 Every field has a default, so a deployment created before components existed
@@ -209,7 +252,7 @@ and `compose.marketplace.yml`:
 
 ```sh
 docker compose -f compose.yml -f compose.chaps.yml -f compose.ocs.yml \
-  -f compose.s3.yml -f compose.marketplace.yml up -d
+  -f compose.s3.yml -f compose.dhis2.yml -f compose.marketplace.yml up -d
 ```
 
 ## OCS
@@ -581,6 +624,30 @@ The store publishes no host port: OCS reaches it at `http://s3:9000` on the
 compose default network. `chaps components enable s3 --port 9002` publishes one
 for an S3 client of your own.
 
+## DHIS2
+
+The `dhis2` component is a demo or development DHIS2 and a PostgreSQL of its own,
+published on 8080 by default, for a deployment that wants one beside CHAP. CHAP
+is often deployed with DHIS2 and not always, so this is one way to get one rather
+than something a deployment needs.
+
+It is the largest component here - four services, three volumes, a mandatory
+instance config and a seeded database - and the only one with settings the browser
+and the `--port` flag do not cover. It has a chapter of its own:
+
+- **[DHIS2](./dhis2.md)**, which covers why it brings its own PostgreSQL,
+  `dhis2/dhis.conf` and what DHIS2 will not start without, the seed dump and the
+  one chance a deployment gets to apply it, the first start taking minutes, the
+  4 to 5 GB the analytics populate phase wants, and why moving the image tag
+  starts with `chaps backup`.
+
+One thing to read before deploying it:
+[a DHIS2 with CHAP beside it is not yet usable from the Modeling
+App](./dhis2.md#what-is-not-here-yet). The app reaches chap-core through a DHIS2
+Route with `code: "chap"`, and nothing here creates it - and a seeded instance
+carries a `chap` route from the demo dump that points at somebody else's server,
+so it looks configured and is not.
+
 ## Standalone OCS
 
 `--without chap-core` is the same mechanism with CHAP left out:
@@ -611,9 +678,9 @@ rather than naming `chaps models enable`, which such a deployment refuses.
   the API port, and names the command that moves each one.
 - **`chaps status`** prints one line per enabled component under the chap-core
   line, each judged by its container first, exactly as `chaps doctor` does: a
-  component with no container reads `not running`, and only OCS is asked
-  anything beyond that - its `/health` endpoint, and only while its container is
-  up. That gate is what keeps a stopped OCS from being reported `up` because
+  component with no container reads `not running`, and one that has a container
+  is then asked whatever it answers - OCS its `/health` endpoint, and only while
+  that container is up. That gate is what keeps a stopped OCS from being reported `up` because
   another process answered on its host port: OCS defaults to 9000, so two
   deployments on one machine collide there, which is the clash the `up`
   preflight and `chaps doctor` already warn about. An OCS instance with no host
@@ -625,7 +692,12 @@ rather than naming `chaps models enable`, which such a deployment refuses.
   docker, so they are printed with nothing running too, each reading
   `not running` beside the address it will answer on. `--json` carries the rows
   under `components`, with `read_only`, `health_url`, `datasets` and
-  `data_bytes`.
+  `data_bytes`. A `dhis2` row is judged the same way and then asked one thing,
+  `/api/ping`: a DHIS2 container can be up and the instance entirely broken, with
+  Tomcat serving pages while every `/api/*` request answers 404, so a row whose
+  ping goes unanswered reads `starting` rather than `up`. It carries no version,
+  because no component row does and DHIS2 gives its own only to a logged-in
+  session. See [`chaps status`](./status.md).
 - **`chaps doctor`** adds a `components` line - which components are on, whether
   the OCS config is present and still the example, whether any data source
   credential is set, how many plugin files there are and, while the instance is
@@ -633,18 +705,41 @@ rather than naming `chaps models enable`, which such a deployment refuses.
   per component image. Those last facts ride on the warning about an unedited
   config as much as on an `ok` line: a deployment that has just enabled `ocs`
   still has the example config, and that is the run in which a missing ERA5-Land
-  key is most worth reading.
-- **`chaps auth show`** adds an `OCS data sources` block, masked.
-- **`chaps update`** reports each component's image. Both follow moving tags, so
-  there is no pin to move, only a pull: `docker compose pull` takes whatever the
-  tag points at today. An active `OCS_IMAGE_TAG` or `S3_IMAGE_TAG` line in
-  `.env` is your own pin, and is reported as such. When the pull brings an image
-  the machine did not have, the closing line names the component and
-  `chaps restart` is what puts it in service.
+  key is most worth reading. For `dhis2` the same line reports whether
+  `dhis2/dhis.conf` is there - a `fail` when it is not, because DHIS2 throws on
+  startup without it - and which seed this deployment is set to, including the
+  case where the setting is `default` and chaps knows no dump for the pinned
+  minor line, which is the one to read before a first `chaps up` brings up an
+  empty DHIS2. A deployment with `dhis2` enabled also gets a `memory` line among
+  the machine checks, measured as what docker says it can give a container
+  rather than as the host's memory. The `project files` line names the component
+  directories it does not count, since these facts are what covers them.
+- **`chaps auth show`** adds an `OCS data sources` block, masked. The two DHIS2
+  secrets are not in it: they are this deployment's own, in `.env`, and
+  `DHIS2_ENCRYPTION_PASSWORD` is one the database was created with rather than
+  something to paste anywhere.
+- **`chaps update`** reports each component's image. `ocs` and `s3` follow moving
+  tags, so there is no pin to move, only a pull: `docker compose pull` takes
+  whatever the tag points at today. An active `OCS_IMAGE_TAG` or `S3_IMAGE_TAG`
+  line in `.env` is your own pin, and is reported as such. `dhis2` is pinned to a
+  minor line, which means the same tag is a newer patch release tomorrow: a pull
+  moves it without anything on the screen changing, and a newer DHIS2 migrates
+  `dhis2_db` irreversibly on the next `chaps up`. A run that would re-pull it
+  while that volume is already on the machine warns and names `chaps backup
+  create` first; see
+  [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version). When the
+  pull brings an image the machine did not have, the closing line names the
+  component and `chaps restart` is what puts it in service.
+- **`chaps backup`** archives each component volume that holds state: `ocs_data`,
+  `s3_data`, and `dhis2_home` and `dhis2_db` as two members. `dhis2_dump` is left
+  out on purpose - it is a download cache the one-shot refills - so no archive
+  carries the seed dump. See [Backup and restore](./backup.md).
 - **`chaps ui`** has a components page beside the models one: `Tab` moves
   between them, the rows are the ones `chaps components list` prints, and
   `space`, `p` and `P` do there what they do for a model. One `s` saves both
-  pages. The two OCS settings it deliberately does not edit - `--base-url` and
-  `--read-only` - are named in the component's `i` overlay rather than hidden,
-  because they write to `ocs/climate-service.yaml`, which is yours. See
+  pages. The settings it deliberately does not edit are named in each
+  component's `i` overlay rather than hidden: OCS's `--base-url` and
+  `--read-only`, because they write to `ocs/climate-service.yaml`, which is
+  yours; and DHIS2's `seed:` and `image_tag:`, because no flag moves either after
+  `init` and both are an edit to `.chaps/components.yaml` and a `chaps sync`. See
   [The components page](./models.md#the-components-page).

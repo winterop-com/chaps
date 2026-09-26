@@ -671,13 +671,14 @@ version when the selection is saved; changing only the port does not.
 columns [`chaps components list`](./components.md) prints:
 
 ```text
-chaps · components                                             registry: embedded   3 components · 2 enabled · 0 pending
+chaps · components                                             registry: embedded   4 components · 2 enabled · 0 pending
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │ ▸ ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
 │   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │     s3           off      -                        RustFS, an S3-compatible object store OCS will keep objects in    │
+│     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -699,13 +700,14 @@ rendered into, and what it is, with the same `i for details` held at the
 right-hand edge.
 
 ```text
-chaps · components                                             registry: embedded   3 components · 3 enabled · 1 pending
+chaps · components                                             registry: embedded   4 components · 3 enabled · 1 pending
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │   ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
 │   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │ ▸ + s3           adding   internal                 RustFS, an S3-compatible object store OCS will keep objects in    │
+│     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
 │                                                                                                                      │
 │                                                                                                                      │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
@@ -761,6 +763,50 @@ looked like it owned them would be a dialog that quietly rewrote your config,
 so the overlay names the commands instead. See
 [Behind a reverse proxy](./components.md#behind-a-reverse-proxy) and
 [Read-only instances](./components.md#read-only-instances).
+
+DHIS2's overlay is the longest one, because a DHIS2 is the component with the
+most that cannot be seen from its row:
+
+```text
+╭ dhis2                                                                 enabled here ╮
+│ DHIS2 and its own database, for a deployment that wants one                        │
+│                                                                                    │
+│ state       enabled                                                                │
+│ reach       http://localhost:8080                                                  │
+│ compose     compose.dhis2.yml · rendered from .chaps/components.yaml by `chaps     │
+│             sync`                                                                  │
+│ volume      dhis2_home, dhis2_db, dhis2_dump · kept when the component is disabled │
+│ config      dhis2/dhis.conf · yours to edit, and DHIS2 will not start without it   │
+│ seed        https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz · restored   │
+│             once, into the database the first `chaps up` creates                   │
+│ cache       dhis2_dump holds the downloaded dump rather than data; the dhis2-dump  │
+│             one-shot fetches it again when the volume is empty                     │
+│ first start minutes, not seconds: DHIS2 migrates its schema on the way up, and     │
+│             `chaps logs dhis2` is where that shows                                 │
+│                                                                                    │
+│ not on this page:                                                                  │
+│   `seed:` in .chaps/components.yaml, then `chaps sync`                             │
+│     the dump a database being created is restored from: default, none, a URL, or a │
+│     path in the deployment directory                                               │
+│   `image_tag:` in .chaps/components.yaml, then `chaps sync`                        │
+│     the DHIS2 version, 2.42 here; it migrates a schema forward only, so run `chaps │
+│     backup` first                                                                  │
+╰────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+Four things only the overlay says. That `dhis2/dhis.conf` is yours **and** that
+DHIS2 does not start without it. That one of the three volumes is a download
+cache rather than data. What the database will be restored from, and that a
+restore only ever happens to a database being created - so changing the seed on
+a deployment that has already started means removing the volume. And that the
+first start takes minutes, which is the difference between reading the first
+`chaps status` as slow or as broken.
+
+The two settings at the bottom are not commands but a key in
+`.chaps/components.yaml` and a `chaps sync`, because no flag moves either after
+`init`. The seed is a one-chance setting and the image tag is one DHIS2 migrates
+a database forward for, irreversibly, so neither belongs behind a dialog on a
+row. See [DHIS2](./dhis2.md).
 
 ### The details, and the command palette
 
@@ -824,6 +870,12 @@ page you are on - and `Save a screenshot (SVG)`, which writes the frame the
 palette just closed over to `chaps-ui-<date>-<time>.svg` in the directory
 `chaps ui` was started in and names the file on the status line. The two port
 commands are separate, so "set a host port" never takes one away.
+
+Every component is also in the palette by name, from either page - `Turn the
+dhis2 component on or off` and one such entry per component - because that is
+where somebody looking for OCS, an object store or a DHIS2 finds out the browser
+has them at all. Running one turns it on or off and moves the components page's
+cursor to it, without moving the page you are on.
 
 ### Saving
 

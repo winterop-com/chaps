@@ -469,6 +469,101 @@ case: the file itself is out of date, and recreating a container cannot mount
 what the file does not mention. See
 [Adding a plugin to a running deployment](./components.md#adding-a-plugin-to-a-running-deployment).
 
+## A DHIS2 that answers but 404s every API request
+
+The login page loads, `chaps status` may even say `dhis2  up`, and every
+`/api/*` request answers **404**. Nothing in the log says "error".
+
+DHIS2 migrates its schema **forward only**, so this is almost always an older
+image started against a database a newer one has already migrated. The Spring
+context fails to come up, Tomcat keeps running and keeps serving pages, and every
+API route is simply not registered. The other two causes have the same shape: a
+`dhis.conf` DHIS2 could not read, and a Flyway checksum that does not match the
+database.
+
+```sh
+chaps logs dhis2 | grep -iE "flyway|migrat|exception|failed"
+docker compose config | grep "image: dhis2/core"    # the tag that is running
+grep -n "image_tag" .chaps/components.yaml          # the tag that was asked for
+grep -n "DHIS2_IMAGE_TAG" .env                      # and any override, which wins
+```
+
+Put the tag back where the database is, rather than migrating further:
+
+```sh
+chaps backup create                     # before anything, if there is data worth keeping
+# set image_tag back in .chaps/components.yaml, or fix DHIS2_IMAGE_TAG in .env
+chaps sync
+chaps up
+```
+
+There is no way back down a migration. A database migrated by 2.42 does not work
+under 2.41 again, so the choice is the newer image or a restore. `chaps` warns
+before it happens - the note names `chaps backup` first for exactly this reason:
+
+```text
+note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `chaps backup` first - an older image on a migrated database answers healthy while every API request 404s
+```
+
+A deployment with nothing in DHIS2 worth keeping is quicker to start again:
+`chaps components disable dhis2 --purge` takes all three volumes, and the next
+`chaps up` migrates or restores from scratch. See
+[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
+
+## DHIS2 never becomes healthy
+
+Two quite different things look the same from outside, and the first start is
+where both show up.
+
+**It is still migrating.** DHIS2 migrates its whole schema before it serves a
+request, and on a seeded deployment it restores a dump first. That is about 40
+seconds on a native arm64 host with an empty database and **8 to 15 minutes**
+under emulation. The health check allows 240 seconds of `start_period` and 60
+retries for that reason. Watch it rather than restarting it:
+
+```sh
+chaps logs -f dhis2
+```
+
+**It ran out of memory.** DHIS2 wants roughly **4 to 5 GB** for the analytics
+populate phase, and below that the JVM is `SIGKILL`ed part-way through. That
+failure looks like anything except memory: a container that exits with no Java
+exception in the log, an analytics run that never ends, an instance that was
+healthy a minute ago and is now gone.
+
+```sh
+docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' \
+  "$(chaps docker ps -- -q dhis2)"
+docker info --format '{{.MemTotal}}'      # what the daemon has to give
+```
+
+`OOMKilled true`, or exit code 137, settles it. Raise the memory the Docker
+daemon has - on Docker Desktop that is the VM's limit, in Settings, Resources -
+rather than trimming the heap: a smaller `-Xmx` makes the JVM fail inside Java
+instead of being killed, which is tidier and no more successful. The heap itself
+is `DHIS2_JAVA_TOOL_OPTIONS` in `.env`, commented with the default
+`-Xms2g -Xmx4g -XX:+UseG1GC`. See [Memory](./dhis2.md#memory).
+
+## The Modeling App does not see CHAP
+
+Because nothing has connected the two yet. The app does not reach chap-core
+directly: it goes through a DHIS2 Route with `code: "chap"`, and `chaps` does not
+create that Route - it is Phase 2, along with analytics generation and installing
+the apps.
+
+The trap is that it will **look** configured. The climate demo dumps ship a
+`chap` route of their own, aimed at an external CHAP server, so a seeded instance
+has a route by that name pointing somewhere else entirely:
+
+```sh
+curl -u admin:district http://localhost:8080/api/routes/chap | head
+```
+
+It has to be repointed at `http://chap:8000/**`, not created.
+`route.remote_servers_allowed` in `dhis2/dhis.conf` is already set to that target,
+so the allowlist is not what is in the way. See
+[What is not here yet](./dhis2.md#what-is-not-here-yet).
+
 ## `chaps update` said a restart is needed
 
 That is the whole design, not a failure. `chaps update` moves the pins and

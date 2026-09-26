@@ -49,8 +49,8 @@ pub(crate) const GENERATED_HEADER: &str =
 static OVERLAY_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/compose.overlay.yml")));
 /// The one-shot container that hands a model's data volume over before it
-/// starts. A fragment rather than a file of its own: an image that runs as
-/// root needs no chown, and then the overlay has no such service at all.
+/// starts. A fragment rather than a file of its own, substituted into the
+/// overlay: every model gets one, root included, where the chown is to `0:0`.
 static OVERLAY_INIT_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/compose.overlay-init.yml")));
 /// The generated `.env`.
@@ -611,11 +611,11 @@ pub fn render_ocs_config(spec: &OcsConfigSpec) -> String {
 
 /// Render one `compose.<service_id>.yml` overlay.
 ///
-/// An image that runs as root gets neither a `user:` line nor an init
-/// container: there is nothing to override, and root can write a fresh volume
-/// as docker seeded it. Every other image gets both, with the same numeric
-/// `uid:gid` in each - the `user:` line so compose and the `chown` cannot
-/// drift apart, and the numbers because the init container is busybox, which
+/// An image that runs as root gets no `user:` line: there is nothing to
+/// override, and root can write a fresh volume as docker seeded it. Every
+/// image gets an init container, carrying the same numeric `uid:gid` as the
+/// `user:` line where there is one - so compose and the `chown` cannot drift
+/// apart, and the numbers because the init container is busybox, which
 /// resolves no account name of its own.
 pub fn render_overlay(spec: &OverlaySpec) -> String {
     // The token sits at the start of its line and carries its own newline, so

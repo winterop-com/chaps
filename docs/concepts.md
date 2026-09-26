@@ -19,7 +19,7 @@ mychap/
                                added by `chaps models add`; only present when it
                                has added one
     components.yaml            intent: which components this deployment is made of
-                               (chap-core, ocs, s3) and their settings
+                               (chap-core, ocs, s3, dhis2) and their settings
     compose.chap-core.<tag>.yml
                                chap-core's own compose.ghcr.yml at the pinned tag,
                                exactly as downloaded; compose.yml is rendered from it
@@ -29,22 +29,26 @@ mychap/
                                registration key chap-core checks
   compose.ocs.yml              artifact: the ocs component, when it is enabled
   compose.s3.yml               artifact: the s3 component, when it is enabled
+  compose.dhis2.yml            artifact: the dhis2 component, when it is enabled
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
   ocs/climate-service.yaml     the OCS instance configuration; scaffolded once by
                                chaps and never rewritten
+  dhis2/dhis.conf              the DHIS2 instance configuration; likewise, and DHIS2
+                               does not start without it
   .env                         written once by init; only pins, the two auth
                                secrets and the component settings are ever added
 ```
 
 | File | What it is |
 | --- | --- |
-| `compose.yml` | The base of the CHAP stack, which is chap-core, its worker and database plus the enabled models: chap-core, worker, Valkey and PostgreSQL, with the models added on top by their overlays. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
+| `compose.yml` | The base of a CHAP deployment, which is chap-core, its worker and database plus the enabled models: chap-core, worker, Valkey and PostgreSQL, with the models added on top by their overlays. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
 | `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: the compose project `name:`, the API's host port as `ports: !override`, and `SERVICEKIT_REGISTRATION_KEY` plus `XDG_RUNTIME_DIR` in the `chap` service's environment. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break CHAP; it only means `sync` can no longer re-render `compose.yml`. |
-| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so the one published port is discoverable), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
-| `compose.ocs.yml`, `compose.s3.yml` | One per enabled component other than chap-core, rendered from `.chaps/components.yaml`. They sit in the `-f` list between `compose.chaps.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
+| `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so chap-core's published port is discoverable by reading the file), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
+| `compose.ocs.yml`, `compose.s3.yml`, `compose.dhis2.yml` | One per enabled component other than chap-core, rendered from `.chaps/components.yaml`. They sit in the `-f` list between `compose.chaps.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
 | `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `chaps` never rewrites it, and only re-creates it if it goes missing. |
+| `dhis2/dhis.conf` | The DHIS2 instance configuration, on exactly the same terms - scaffolded once when `dhis2` is first enabled, never rewritten, re-created only if it goes missing. That last part matters more here: DHIS2 does not start without it. See [DHIS2](./dhis2.md#dhis2dhisconf). |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. It carries the project `name:` as well, because it is the one file that is always in the `-f` list. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
 | `.chaps/project.yaml`, `.chaps/models.yaml`, `.chaps/components.yaml` | The intent, as above. All three open with one line saying `chaps` manages them. A deployment created before `components.yaml` existed reads as chap-core alone, which is what it was. |
@@ -188,11 +192,13 @@ A deployment is reproducible because everything it runs is pinned.
   reproducible rather than following a tag that changes under it. `--chap-tag
   master` or `dev` keeps a moving tag on purpose.
 
-- **Components** other than chap-core follow a moving tag, because neither OCS
-  nor the object store publishes a release feed: `${OCS_IMAGE_TAG:-main}` and
-  `${S3_IMAGE_TAG:-latest}`. Set either variable in `.env` to pin a build of
-  your own; `chaps update` says which of the two is in force. See
-  [Components](./components.md).
+- **OCS and the object store** follow a moving tag, because neither publishes a
+  release feed: `${OCS_IMAGE_TAG:-main}` and `${S3_IMAGE_TAG:-latest}`. Set
+  either variable in `.env` to pin a build of your own; `chaps update` says which
+  of the two is in force. **DHIS2** is pinned to a minor line instead,
+  `${DHIS2_IMAGE_TAG:-2.42}`, so a patch release arrives with a pull and moving
+  to another line is a deliberate edit - DHIS2 migrates its schema forward only.
+  See [Components](./components.md) and [DHIS2](./dhis2.md#changing-the-dhis2-version).
 
 Model pins only move in two ways: `chaps models enable ID` (with `--channel`
 or `--version`) and `chaps update`. Nothing else, `up`, `restart`, `expose` and
@@ -229,9 +235,12 @@ paste into a bug report. See [Authentication](./auth.md).
 
 Enabling a component appends its own section the same way `sync` appends a
 model's pin: a commented `OCS_IMAGE_TAG`, and for the object store a generated
-`S3_ACCESS_KEY` and `S3_SECRET_KEY`. Those two are written once and never
-rewritten, for the same reason the database password is: the volume was created
-with them.
+`S3_ACCESS_KEY` and `S3_SECRET_KEY`. DHIS2 brings the longest section - a
+generated `DHIS2_DB_PASSWORD` and `DHIS2_ENCRYPTION_PASSWORD`, plus commented
+`DHIS2_IMAGE_TAG`, `DHIS2_DB_DUMP_URL` and `DHIS2_JAVA_TOOL_OPTIONS` carrying the
+values the rendered compose file already defaults to. Every generated value there
+is written once and never rewritten, for the same reason the database password
+is: the volume was created with them.
 
 `init --fresh-env` is the explicit override: it renders a new `.env` with a new
 password, so an existing volume has to be dropped with
@@ -254,13 +263,15 @@ already carry.
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | The database CHAP creates. The password is 32 random hex characters, generated once. It has to be URL-safe, because the connection URL is composed from it. |
 | `CHAP_DATABASE_URL` | A full percent-encoded URL that replaces the one composed from `POSTGRES_*`. The way to use a password that is not URL-safe. |
 | `CHAP_IMAGE_TAG` | Tag for both chap-core images: a release tag such as `v2.3.1` pins one, `latest` is the newest release and `master` the branch. |
-| `CHAP_API_PORT` | Host port chap-core's API is published on, and the only port CHAP publishes by default. See [Ports](./ports.md). |
+| `CHAP_API_PORT` | Host port chap-core's API is published on, and the only one a deployment of chap-core and models publishes. A component publishes a well-known port of its own beside it. See [Ports](./ports.md). |
 | `CHAP_API_TOKEN` | API token. Commented out means no authentication at all. See [Authentication](./auth.md). |
 | `SERVICEKIT_REGISTRATION_KEY` | Shared secret each model sends when it registers, and the one chap-core checks. It travels with the API token. |
 | `CHAP_ROOT_PATH` | Path prefix, for serving the API behind a reverse proxy. Not written by `init`; add it when you need it. |
 | `<ID>_IMAGE_TAG` | Per-model pin, one commented line per enabled model. Uncomment to run a different build of that model. |
-| `OCS_IMAGE_TAG`, `S3_IMAGE_TAG` | The same for the components. See [Components](./components.md). |
+| `OCS_IMAGE_TAG`, `S3_IMAGE_TAG`, `DHIS2_IMAGE_TAG` | The same for the components. See [Components](./components.md). |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Root credentials for the object store, generated once when `s3` is enabled. The volume is created with them, so changing them later locks the store's own data away. |
+| `DHIS2_DB_PASSWORD`, `DHIS2_ENCRYPTION_PASSWORD` | DHIS2's own database password and the key it encrypts stored credentials with, generated once when `dhis2` is enabled. 32 hex characters each, past the 24 DHIS2 demands of the second. Nothing to do with the CHAP database: DHIS2 has its own. See [DHIS2](./dhis2.md#encryptionpassword). |
+| `DHIS2_DB_DUMP_URL`, `DHIS2_JAVA_TOOL_OPTIONS` | The dump the DHIS2 database is seeded from and the JVM options it runs with, both commented with the value the compose file already defaults to. See [DHIS2](./dhis2.md#the-seed). |
 
 Compose reads `.env` automatically, so `${CHAP_IMAGE_TAG:-latest}` and the
 per-model `${<ID>_IMAGE_TAG:-sha-xxxxxxx}` pins can be overridden there without

@@ -297,8 +297,9 @@ mod tests {
         }
     }
 
-    /// The three images that end on `USER root` get no `user:` line and no
-    /// init container; the four that drop to an account of their own do.
+    /// The three images that end on `USER root` get no `user:` line; the four
+    /// that drop to an account of their own do. All seven get an init
+    /// container.
     #[test]
     fn the_table_says_which_images_run_as_root() {
         let root: Vec<&str> = KNOWN

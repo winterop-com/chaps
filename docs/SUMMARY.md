@@ -9,6 +9,7 @@
   - [Command reference](./reference.md)
 - [Models and the marketplace](./models.md)
 - [Components](./components.md)
+  - [DHIS2](./dhis2.md)
 - [Ports](./ports.md)
 - [Authentication](./auth.md)
 - [Updating](./updating.md)

@@ -247,9 +247,9 @@ fn flag(value: Option<&str>) -> Option<String> {
 /// The form a resolved user is recorded and rendered in.
 ///
 /// Root is written as `root`, because that is the one value the overlay reads
-/// as "no `user:` line and no init container" and `root` says so where `0:0`
-/// would have to be decoded. Everything else that resolves becomes the numeric
-/// pair, so the `user:` line and the init container's `chown` are the same two
+/// as "no `user:` line" and `root` says so where `0:0` would have to be
+/// decoded. Everything else that resolves becomes the numeric pair, so the
+/// `user:` line and the init container's `chown` are the same two
 /// numbers. A name nothing could resolve is kept as it is, which is what
 /// `chaps sync` warns about.
 ///

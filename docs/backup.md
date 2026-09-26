@@ -2,7 +2,7 @@
 
 A deployment is four things: the files in the project directory, the chap-core
 database in PostgreSQL, one data volume per model service, and one data volume
-per enabled component that keeps state (`ocs`, `s3`).
+per volume an enabled component keeps state in (`ocs`, `s3`, and `dhis2` twice).
 `chaps backup create` puts all four into one `tar.gz`, and
 `chaps backup restore` puts them back.
 
@@ -20,11 +20,12 @@ chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
                              version, image tag, host port (null when it
                              publishes none), data dir and volume, and what was
                              included (or why it was not)
-  files/                     .env, .chaps/**, ocs/** and every compose*.yml at
-                             the project root
+  files/                     .env, .chaps/**, ocs/**, dhis2/** and every
+                             compose*.yml at the project root
   db/chap_core.dump          pg_dump in the custom format (-Fc)
   models/<service_id>.tar    one model's data directory, as tar saw it
-  components/<name>.tar      one component's data volume (ocs, s3), likewise
+  components/<name>.tar      one component volume, likewise: ocs, s3, dhis2-home
+                             and dhis2-db
 ```
 
 Every member but the manifest is optional, and the manifest records which ones
@@ -33,7 +34,17 @@ service was held still while its volume was read.
 
 `ocs/climate-service.yaml` is in `files/` because it is the operator's own
 file rather than a rendered artifact: `chaps sync` only ever creates a missing
-one, so nothing can rebuild the edits made to it.
+one, so nothing can rebuild the edits made to it. `dhis2/dhis.conf` is the same
+kind of file and is in `files/` on the same grounds - DHIS2 does not start
+without it, and all `chaps sync` can do is scaffold a fresh one.
+
+What is collected is the whole of each such directory rather than those two
+files, because what an operator puts beside them - `ocs/plugins/` is the case in
+point - is theirs for the same reason; anything nested under `dhis2/` is in the
+archive too. A directory is collected whether or not its component is enabled at
+the time, because `chaps components disable` leaves it alone and says it is
+yours, so a backup taken while a component is off still protects its files. See
+[DHIS2](./dhis2.md#dhis2dhisconf).
 
 The archive is built and read with the system `tar` binary rather than a Rust
 tar crate, so what an operator sees with `tar -tzf` is exactly what
@@ -64,9 +75,17 @@ entirely. Every model overlay has one, root included. A model that has never
 started has no volume yet; it is skipped with a warning and recorded as such
 in the manifest.
 
-Component data (`ocs_data`, `s3_data`) is read the second way for the same
-reason: neither service has an init container. `--no-components` leaves both
-out.
+Component data is read through a throwaway `busybox` container instead: no
+component one-shot - `s3-init`, `dhis2-dump`, `dhis2-prep` - mounts a volume
+that ends up in the archive. `--no-components` leaves all of it out.
+
+`dhis2` contributes two members rather than one, `dhis2-home` and `dhis2-db`,
+because it keeps `/opt/dhis2` - the installed apps and the file store - apart
+from its database. Its third volume, `dhis2_dump`, is deliberately left out: it
+is a download cache the `dhis2-dump` one-shot refills on its own, so archiving it
+would add the whole seed dump to every backup of the deployment for nothing.
+`chaps components disable dhis2 --purge` still takes it, and `chaps doctor` does
+not call it a leftover; the archive is the one place it costs something.
 
 A service that is running is paused for the seconds its volume takes to read:
 
@@ -127,7 +146,8 @@ Then, in order:
    container, then chowned back to the model's numeric uid:gid (busybox resolves
    no account names, which is why the numbers matter),
 5. each component data volume is emptied and refilled the same way, through a
-   `busybox` container, since `ocs` and `s3` have no init container,
+   `busybox` container, since no component one-shot mounts a volume the archive
+   holds,
 6. `docker compose up -d`, unless `--no-start`.
 
 The order is the whole design: nothing writes to the database or a data volume
@@ -215,8 +235,10 @@ defaulting to `chap` and `chap_core`.
 | read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.37 tar -C /v -cf - . > ocs.tar` |
 | write it back | `docker run --rm -i -v <project>_ocs_data:/v busybox:1.37 sh -c 'rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -' < ocs.tar` |
 
-Stop `chap`, `worker`, the model services and `ocs`/`s3` before loading a
-database or a data volume, and start them again afterwards. `<data_dir>` and
+Stop `chap`, `worker`, the model services and the component services - `ocs`,
+`s3`, `dhis2` and `dhis2-db` - before loading a database or a data volume, and
+start them again afterwards. A DHIS2 whose `dhis2_db` volume is replaced under it
+is the one case where it matters most: it read the schema version at startup. `<data_dir>` and
 the uid:gid are in the manifest, one entry per model; `<project>` is the
 `compose_project` in `.chaps/project.yaml`, which is also the prefix
 `docker volume ls` shows.

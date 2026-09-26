@@ -2,8 +2,11 @@
 
 ## One published port
 
-A deployment publishes **one** host port: chap-core's API, 8000 by default and
-`chaps init --api-port N` otherwise. Nothing else needs one.
+A deployment of chap-core and models publishes **one** host port: chap-core's
+API, 8000 by default and `chaps init --api-port N` otherwise. Nothing else in it
+needs one. The opt-in [components](./components.md) are the exception, and each
+one publishes a well-known port of its own: see
+[Component ports](#component-ports).
 
 chap-core reaches each model over the compose default network at
 `http://<service_id>:8000`, and that internal URL is what a model registers
@@ -62,21 +65,37 @@ explicitly, and the command fails if it is taken.
 ## Component ports
 
 A component publishes a well-known port of its own rather than one from the
-model range: OCS is on 9000 by default and the object store on none at all.
-Both are set at creation time or afterwards, and `none` is how either one is
+model range:
+
+| Component | Default host port | Why that one |
+| --- | --- | --- |
+| `ocs` | 9000 | OCS serves a web interface as well as an API, so it is published. |
+| `s3` | none | OCS reaches the object store at `http://s3:9000` inside the deployment; nothing out here needs it. |
+| `dhis2` | 8080 | The container port unchanged, because every DHIS2 instruction anyone reads says 8080. DHIS2 is a web application people log into. |
+
+Each is set at creation time or afterwards, and `none` is how any of them is
 kept off the host entirely:
 
 ```sh
 chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
 chaps init mychap --with ocs --ocs-port none        # reachable only inside
+chaps init mychap --with dhis2 --dhis2-port 18080
 chaps components enable ocs --port 9010             # or afterwards
-chaps components enable ocs --port none
+chaps components enable dhis2 --port none           # behind a reverse proxy
 ```
 
-`--ocs-port` and `--s3-port` each need their component: asking for a port for
-something this deployment is not getting is refused rather than silently
-ignored, because a port that quietly did nothing would leave you waiting for a
-service on an address no file mentions.
+`--ocs-port`, `--s3-port` and `--dhis2-port` each need their component: asking
+for a port for something this deployment is not getting is refused rather than
+silently ignored, because a port that quietly did nothing would leave you
+waiting for a service on an address no file mentions.
+
+8080 is a busy port on a developer's machine, and 8000 - chap-core's own - is
+next to it. Neither the `init` probe nor `chaps components enable` refuses a
+taken one; both warn, and the way out is on the same line:
+
+```text
+warning: port 8080 is also used by demo (/home/me/demo), which is not running; both cannot be up at once. Keep it, or run `chaps components enable dhis2 --port <free>`
+```
 
 `chaps components enable` probes the port it is given the same way `init` does,
 and warns rather than refuses:

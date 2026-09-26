@@ -184,7 +184,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the
         // chapkit ids, but the operator should know the guess was taken. A
-        // model that runs as root has no init container to warn about.
+        // model that runs as root resolves to `0:0`, so it never lands here.
         if overrides::numeric_pair(&spec.user).is_none() {
             report.warnings.push(format!(
                 "{id} runs as `{}`, which has no known uid:gid; the volume init \

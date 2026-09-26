@@ -12,8 +12,10 @@ This file holds the rules that are not derivable from the code.
 ## Wording
 
 - The product is "CHAP" or "chap-core". Never write "stack" in anything a user
-  sees: help, messages, docs. Do not describe CHAP as a DHIS2 product; it is
-  often deployed with DHIS2, not always.
+  sees: help, messages, docs. The one exception is `docs/introduction.md`, where
+  "CHAP Stack" is the etymology of the binary's name and stays; leave it alone.
+  Do not describe CHAP as a DHIS2 product; it is often deployed with DHIS2, not
+  always.
 - Every `--help` string is one clause of about 70 characters. Explanations go
   in `docs/`, never in `long_about`, never as paragraphs on args. Global
   options sit under `help_heading = "Global options"`.
@@ -44,8 +46,8 @@ This file holds the rules that are not derivable from the code.
   Compose 2.24.4) and per-model overlays.
 - Model images are amd64-only; every overlay pins `platform: linux/amd64`.
   The service user comes from the image config (`src/compose/resolve.rs`),
-  not from assumptions; a root image gets no `user:` line and no chown init
-  container.
+  not from assumptions; a root image gets no `user:` line, and its init
+  container chowns to `0:0` like every other model's.
 - Talk to chap-core through `src/api.rs` (base URL from the project, Bearer
   token from `.env`, `CHAP_API_TOKEN` as the fallback). Never print a token.
 - Anything that needs the network or docker must degrade: `--offline` works
