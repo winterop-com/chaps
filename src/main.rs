@@ -219,11 +219,54 @@ fn parse() -> Cli {
     } else {
         hide_project_commands(Cli::command())
     };
-    let matches = command.get_matches_from(&argv);
+    let matches = match command.try_get_matches_from(&argv) {
+        Ok(matches) => matches,
+        Err(err) => print_and_exit(err),
+    };
     match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
-        Err(err) => err.exit(),
+        Err(err) => print_and_exit(err),
     }
+}
+
+/// Print what clap has to say - help, the version, or a usage error - and exit
+/// with its code, leaving a blank line after the help that ends on the book.
+///
+/// The blank line cannot come from `after_help`: clap renders the help,
+/// `trim_end`s it and appends exactly one newline, so a newline written into
+/// [`cli::DOCS_LINE`] or into the `after_help` value never reaches the
+/// terminal. It is added here instead, where the help is printed, which is
+/// also what it is: a blank line between the book's address and the prompt,
+/// not part of the address. Only the root help gets it - it is the one that
+/// ends on the docs line, however it was reached (`chaps --help`, `chaps -h`,
+/// `chaps help`, or `chaps` with nothing after it) - so a subcommand's help
+/// still ends on its last line.
+fn print_and_exit(err: clap::Error) -> ! {
+    use clap::error::ErrorKind;
+    use std::io::Write;
+
+    let ends_on_the_docs_line = matches!(
+        err.kind(),
+        ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    ) && err
+        .render()
+        .to_string()
+        .trim_end()
+        .ends_with(cli::DOCS_LINE);
+    // Broken pipes are swallowed, as clap's own `exit` does.
+    let _ = err.print();
+    if ends_on_the_docs_line {
+        if err.use_stderr() {
+            let mut stream = std::io::stderr();
+            let _ = stream.write_all(b"\n");
+            let _ = stream.flush();
+        } else {
+            let mut stream = std::io::stdout();
+            let _ = stream.write_all(b"\n");
+            let _ = stream.flush();
+        }
+    }
+    std::process::exit(err.exit_code());
 }
 
 /// Hide the commands that need a project: outside one they cannot work.

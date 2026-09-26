@@ -2314,6 +2314,63 @@ fn the_help_says_what_chap_is() {
     );
 }
 
+/// The root help ends on a blank line, so the book's address is not flush
+/// against the prompt. Clap cannot do it - it trims the rendered help and
+/// appends one newline - so the binary writes the line itself, and this is
+/// what keeps it from being dropped again.
+#[test]
+fn the_root_help_ends_on_a_blank_line() {
+    let sandbox = Sandbox::new();
+    let ends_blank = "Docs: https://winterop-com.github.io/chaps/\n\n";
+
+    // Every way of asking the root for help, including the `help` subcommand
+    // and a bare `chaps`, which answers with the same help on stderr.
+    for argv in [vec!["--help"], vec!["-h"], vec!["help"]] {
+        let help = chap_in(&sandbox, sandbox.home.path(), &argv)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let help = String::from_utf8(help).expect("help is text");
+        assert!(help.ends_with(ends_blank), "`chaps {argv:?}`:\n{help:?}");
+    }
+    // A bare `chaps` - no arguments at all, so not through `chap_in`, which
+    // always passes `--offline` - answers with the same help on stderr.
+    let mut bare = Command::cargo_bin("chaps").expect("the chaps binary is built");
+    let bare = bare
+        .env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .current_dir(sandbox.home.path())
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    let bare = String::from_utf8(bare).expect("help is text");
+    assert!(bare.ends_with(ends_blank), "bare `chaps`:\n{bare:?}");
+
+    // The blank line belongs to the root help alone: a subcommand's help has
+    // no docs line to separate from the prompt, and gains no blank line.
+    for argv in [
+        vec!["init", "--help"],
+        vec!["models", "--help"],
+        vec!["models", "list", "--help"],
+        vec!["help", "doctor"],
+    ] {
+        let help = chap_in(&sandbox, sandbox.home.path(), &argv)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let help = String::from_utf8(help).expect("help is text");
+        assert!(
+            !help.ends_with("\n\n"),
+            "`chaps {argv:?}` gained a blank line:\n{help:?}"
+        );
+    }
+}
+
 #[test]
 fn init_inside_a_project_warns_about_the_parent() {
     let sandbox = Sandbox::new();

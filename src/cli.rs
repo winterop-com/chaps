@@ -70,6 +70,11 @@ const ABOUT: &str = "deploy and manage CHAP, the Climate Health Analytics Platfo
 
 /// The last line of `chaps --help`. Anything longer than a clause belongs in
 /// the book, so the help points at it instead of repeating it.
+///
+/// A line, and nothing more: the blank line the help ends on is written where
+/// the help is printed (`print_and_exit` in `main`), because clap `trim_end`s
+/// the rendered help and appends one newline of its own, so a newline added
+/// here or to `after_help` would be thrown away.
 pub const DOCS_LINE: &str = "Docs: https://winterop-com.github.io/chaps/";
 
 /// The book itself, for the places that open it rather than print it. A test
@@ -1143,6 +1148,29 @@ mod tests {
     fn the_help_line_points_at_the_documentation_url() {
         assert!(DOCS_LINE.ends_with(DOCS_URL), "{DOCS_LINE} vs {DOCS_URL}");
         assert!(DOCS_URL.ends_with('/'), "a chapter is appended to it");
+    }
+
+    /// Why the blank line at the end of `chaps --help` is not in `after_help`:
+    /// clap trims the rendered help and appends exactly one newline, so the
+    /// docs line is the last thing it will print whatever `after_help` ends
+    /// with. `main` adds the blank line where the help is printed instead, and
+    /// `tests/cli.rs` pins what the binary then prints.
+    #[test]
+    fn clap_renders_the_help_flush_against_the_docs_line() {
+        for rendered in [
+            Cli::command()
+                .after_help(format!("{DOCS_LINE}\n"))
+                .render_help(),
+            Cli::command()
+                .after_help(format!("{DOCS_LINE}\n\n"))
+                .render_long_help(),
+        ] {
+            let help = rendered.to_string();
+            assert!(
+                help.ends_with(&format!("{DOCS_LINE}\n")),
+                "clap no longer trims `after_help`; the blank line may belong there again:\n{help}"
+            );
+        }
     }
 
     /// Asking for help is not asking for the manual: the explanations live in
