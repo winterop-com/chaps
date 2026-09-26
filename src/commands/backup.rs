@@ -527,7 +527,7 @@ fn capture_components(
             continue;
         }
 
-        let member = backup::component_member(part.name);
+        let member = backup::component_member(part.member);
         let dest = stage.path(&member)?;
         let mut quiesce = Quiesce::hold(project, part.service, running.has(part.service));
         let read = backup::read_volume(&volume, &dest);

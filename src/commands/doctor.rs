@@ -1895,6 +1895,11 @@ const LEFTOVER_FIX: &str = "remove each with `chaps models disable <id> --purge`
 /// Every other name - the database, chap-core's own - belongs to the base
 /// stack, which is nobody's leftover.
 ///
+/// A component is asked whether the volume is among the ones it keeps, not
+/// whether it is *the* one: a component with two volumes would otherwise have
+/// the second reported as a leftover while the component is enabled, which is
+/// an invitation to delete live data.
+///
 /// Pure, and injected with both lists: the verdict is decided here and the
 /// docker call that gathers the names is [`volumes_check`]'s.
 pub fn leftover_volumes(
@@ -1913,7 +1918,7 @@ pub fn leftover_volumes(
                 return !models.iter().any(|enabled| enabled == id);
             }
             Component::ALL.iter().any(|component| {
-                component.volume() == Some(bare) && !components.is_enabled(*component)
+                component.volumes().contains(&bare) && !components.is_enabled(*component)
             })
         })
         .cloned()

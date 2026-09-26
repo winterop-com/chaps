@@ -169,17 +169,53 @@ impl Component {
         }
     }
 
-    /// The named volume this component keeps its data in, as the compose file
-    /// `chaps sync` renders declares it.
+    /// The named volumes this component keeps its data in, as the compose file
+    /// `chaps sync` renders declares them, in the order they are reported.
     ///
-    /// `None` for chap-core: its volumes are upstream's own, declared in a
-    /// compose file this CLI does not write, and `chaps down --volumes` is
-    /// what removes them.
-    pub fn volume(self) -> Option<&'static str> {
+    /// A slice rather than one name because a component is not limited to one
+    /// volume: `ocs` and `s3` have a single data volume each, and a component
+    /// that is several services can keep one volume per service. Empty for
+    /// chap-core: its volumes are upstream's own, declared in a compose file
+    /// this CLI does not write, and `chaps down --volumes` is what removes
+    /// them. So an empty slice is "nothing chaps names here", which is what
+    /// `components disable --purge` refuses on.
+    pub fn volumes(self) -> &'static [&'static str] {
         match self {
-            Component::Ocs => Some(crate::compose::render::OCS_VOLUME),
-            Component::S3 => Some(crate::compose::render::S3_VOLUME),
-            Component::ChapCore => None,
+            Component::Ocs => &[crate::compose::render::OCS_VOLUME],
+            Component::S3 => &[crate::compose::render::S3_VOLUME],
+            Component::ChapCore => &[],
+        }
+    }
+
+    /// Whether the compose service `service` belongs to this component.
+    ///
+    /// The one place this rule lives, because every caller that stops or
+    /// inspects a component's containers has to draw the same line. A component
+    /// owns the service named after it and every `<name>-<suffix>` sibling
+    /// beside it: the one-shot `ocs-init` and `s3-init` that prepare the
+    /// volumes, and the further services a component that is more than one
+    /// container brings. The hyphen is the whole of the boundary, so `s3` owns
+    /// `s3-init` and not some service whose name merely starts with those two
+    /// characters.
+    ///
+    /// chap-core is the exception, and the reason this is a method rather than
+    /// a table of names: its services are upstream's - `chap`, `chap-worker`,
+    /// Valkey, PostgreSQL - named in a file this CLI does not write and sharing
+    /// no prefix with the component, so the only thing they have in common is
+    /// that no other component claims them. Asking the other components is what
+    /// keeps that true: a hand-kept list of the names that are not chap-core's
+    /// would hand a fourth component's services to chap-core, and `chaps
+    /// components disable chap-core` would stop them. A model service falls to
+    /// chap-core on the same rule, which is the answer it has always given, and
+    /// harmless because `disable` refuses while any model is enabled.
+    pub fn owns_service(self, service: &str) -> bool {
+        match self {
+            Component::ChapCore => !Component::ALL
+                .iter()
+                .any(|other| *other != Component::ChapCore && other.owns_service(service)),
+            named => service
+                .strip_prefix(named.name())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('-')),
         }
     }
 }
@@ -601,6 +637,79 @@ mod tests {
             vec![OCS_COMPOSE, S3_COMPOSE],
             "in the order they belong in the -f list"
         );
+    }
+
+    /// The volumes a component keeps are what a `disable` names and `--purge`
+    /// removes, so they have to be the component's own: chap-core's are
+    /// upstream's, declared in a file this CLI does not write, and an empty
+    /// slice is how that is said.
+    #[test]
+    fn a_component_names_the_volumes_it_keeps_and_chap_cores_are_upstreams() {
+        assert_eq!(Component::Ocs.volumes(), ["ocs_data"].as_slice());
+        assert_eq!(Component::S3.volumes(), ["s3_data"].as_slice());
+        assert!(Component::ChapCore.volumes().is_empty());
+
+        // No two components may claim one volume: the doctor decides whether a
+        // volume is a leftover by asking every component whether it is one of
+        // theirs, and two answers would be two verdicts.
+        let mut all: Vec<&str> = Component::ALL
+            .iter()
+            .flat_map(|c| c.volumes().iter().copied())
+            .collect();
+        let count = all.len();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), count, "one volume, one component");
+    }
+
+    /// Which compose services a component owns, which is what a `disable` stops
+    /// before the definitions go away.
+    #[test]
+    fn a_component_owns_its_own_service_and_the_siblings_beside_it() {
+        assert!(Component::Ocs.owns_service("ocs"));
+        assert!(Component::Ocs.owns_service("ocs-init"));
+        assert!(Component::S3.owns_service("s3") && Component::S3.owns_service("s3-init"));
+        assert!(!Component::Ocs.owns_service("s3") && !Component::S3.owns_service("ocs"));
+
+        // The hyphen is the whole of the sibling rule: a name that merely starts
+        // with a component's is some other service, and a name the component's
+        // own is a prefix of is not the component's either.
+        assert!(!Component::S3.owns_service("s3x"));
+        assert!(!Component::Ocs.owns_service("ocsx"));
+        assert!(!Component::Ocs.owns_service("oc"));
+
+        // chap-core's services share no prefix with the component - `chap-core`
+        // is not a service at all - so they can only be the ones no other
+        // component claims. Which is also what leaves a model service where it
+        // has always been, chap-core's, while `disable` refuses to take
+        // chap-core away with one enabled.
+        assert!(Component::ChapCore.owns_service("chap"));
+        assert!(Component::ChapCore.owns_service("chap-worker"));
+        assert!(Component::ChapCore.owns_service("postgres"));
+        assert!(Component::ChapCore.owns_service("chapkit-ewars-model"));
+        assert!(Component::ChapCore.owns_service("chapkit-ewars-model-init"));
+        assert!(!Component::ChapCore.owns_service("ocs"));
+        assert!(!Component::ChapCore.owns_service("ocs-init"));
+        assert!(!Component::ChapCore.owns_service("s3-init"));
+
+        // And the invariant the whole rule exists for: exactly one component
+        // owns any given service, whatever the component is called and however
+        // many services it brings. A fourth component's `<name>-db` and
+        // `<name>-dump` are its own on the same terms `ocs-init` is, which a
+        // hand-kept list of the names that are not chap-core's would not give
+        // them - chap-core would claim them and a `disable chap-core` would
+        // stop them.
+        for component in Component::ALL {
+            for suffix in ["", "-init", "-db", "-dump"] {
+                let service = format!("{}{suffix}", component.name());
+                let owners: Vec<&str> = Component::ALL
+                    .iter()
+                    .filter(|c| c.owns_service(&service))
+                    .map(|c| c.name())
+                    .collect();
+                assert_eq!(owners, [component.name()], "who owns {service}");
+            }
+        }
     }
 
     /// Every note about the two components names the command that acts on it,

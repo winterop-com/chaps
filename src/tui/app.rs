@@ -1128,10 +1128,7 @@ impl<'a> App<'a> {
                 (true, false) => changes.push(Change {
                     kind: ChangeKind::Remove,
                     name,
-                    detail: match component.volume() {
-                        Some(volume) => format!("disable · the {volume} volume is kept"),
-                        None => "disable · its own volumes are kept".to_string(),
-                    },
+                    detail: disable_detail(component.volumes()),
                 }),
                 // Still on, and the port under it may have moved.
                 (true, true) => {
@@ -1609,6 +1606,20 @@ fn parse_component_port(
         return Err(format!("port {port} is already taken by {holder}"));
     }
     Ok(Some(port))
+}
+
+/// What a component's removal says about the data it leaves behind.
+///
+/// Every volume is named, because every one of them is a name the operator
+/// would have to type to remove it, and a component with two volumes that only
+/// owned up to one would be the change strip understating what stays on the
+/// disk. Nothing to name at all is chap-core, whose volumes are upstream's.
+fn disable_detail(volumes: &[&str]) -> String {
+    match volumes {
+        [] => "disable · its own volumes are kept".to_string(),
+        [volume] => format!("disable · the {volume} volume is kept"),
+        volumes => format!("disable · the {} volumes are kept", volumes.join(", ")),
+    }
 }
 
 /// Case-insensitive substring match over the fields a user would type.
@@ -2870,6 +2881,26 @@ mod tests {
             wanted.ocs.port,
             Some(9000),
             "its port is left alone, so switching it back on restores it"
+        );
+    }
+
+    /// The removal detail on its own, including the shapes no component has
+    /// yet: one volume reads as the one it is, and several are all named, since
+    /// each is a name the operator would have to remove by hand.
+    #[test]
+    fn the_removal_detail_names_every_volume_that_stays() {
+        assert_eq!(
+            disable_detail(&[]),
+            "disable · its own volumes are kept",
+            "chap-core's are upstream's"
+        );
+        assert_eq!(
+            disable_detail(&["ocs_data"]),
+            "disable · the ocs_data volume is kept"
+        );
+        assert_eq!(
+            disable_detail(&["a_data", "b_data", "c_data"]),
+            "disable · the a_data, b_data, c_data volumes are kept"
         );
     }
 

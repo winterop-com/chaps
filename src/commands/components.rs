@@ -199,10 +199,10 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
 
 /// Turn a component off and remove what `sync` rendered for it.
 ///
-/// The component's data volume is kept, exactly as a disabled model's is, and
-/// named either way: once the compose file is gone nothing else declares that
-/// volume, so `chaps down --volumes` no longer reaches it. `--purge` removes
-/// it with the component.
+/// The component's data volumes are kept, exactly as a disabled model's volume
+/// is, and each of them named: once the compose file is gone nothing else
+/// declares them, so `chaps down --volumes` no longer reaches them. `--purge`
+/// removes them with the component.
 pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
     let mut project = ctx.project()?;
@@ -217,7 +217,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     }
     // Said before anything is stopped: a `--purge` that cannot do the one
     // thing it was asked for is a refusal, not a disable with a note.
-    if args.purge && component.volume().is_none() {
+    if args.purge && component.volumes().is_empty() {
         return Err(anyhow::anyhow!(CORE_HAS_NO_CHAPS_VOLUME));
     }
 
@@ -238,19 +238,20 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let mut kept_volumes = Vec::new();
     let mut stopped = stop_components(&project, &going);
     if args.purge {
-        match component_volume(&project, component) {
-            Some(name) => {
-                let (removed, line) = super::docker::purge_volume(&name);
-                purged.extend(removed);
-                stopped.push(line);
-            }
-            // chap-core keeps its volumes either way, and `--purge` was refused
-            // above; a deployment with no compose project name can name none.
-            None => stopped.push(super::docker::UNNAMEABLE_VOLUME.to_string()),
+        let names = component_volumes(&project, component);
+        // chap-core keeps its volumes either way, and `--purge` was refused
+        // above; a deployment with no compose project name can name none.
+        if names.is_empty() {
+            stopped.push(super::docker::UNNAMEABLE_VOLUME.to_string());
+        }
+        for name in names {
+            let (removed, line) = super::docker::purge_volume(&name);
+            purged.extend(removed);
+            stopped.push(line);
         }
     } else {
-        stopped.extend(kept_volume_note(&project, component));
-        kept_volumes.extend(component_volume(&project, component));
+        stopped.extend(kept_volume_notes(&project, component));
+        kept_volumes.extend(component_volumes(&project, component));
     }
 
     project.state.components = after.clone();
@@ -307,23 +308,10 @@ const CORE_HAS_NO_CHAPS_VOLUME: &str = "chap-core keeps no volume of its own tha
 /// Whether a compose service belongs to a component, for the purpose of
 /// stopping its containers when that component is disabled.
 ///
-/// `ocs` and `s3` are the services `sync` renders for them, each with the
-/// exited one-shot `-init` companion that prepared it. chap-core's are
-/// upstream's - `chap`, its worker, Valkey, PostgreSQL - named in a file this
-/// CLI does not write, so they are everything else: `disable` has already
-/// refused while any model is enabled, and `ocs` and `s3` are the only other
-/// components there are.
+/// [`Component::owns_service`] is the rule; this is the predicate the docker
+/// helpers take, so there is one answer and one place it is decided.
 fn owns(component: Component) -> impl Fn(&str) -> bool {
-    move |service: &str| {
-        let base = service.strip_suffix("-init").unwrap_or(service);
-        match component {
-            Component::Ocs => base == crate::compose::OCS_SERVICE,
-            Component::S3 => base == crate::compose::S3_SERVICE,
-            Component::ChapCore => {
-                base != crate::compose::OCS_SERVICE && base != crate::compose::S3_SERVICE
-            }
-        }
-    }
+    move |service: &str| component.owns_service(service)
 }
 
 /// The components that were enabled in `before` and are not in `after`, in
@@ -358,7 +346,7 @@ pub fn stop_disabled_components(
 ) -> Vec<String> {
     let going = disabled_between(before, after);
     let mut notes = stop_components(project, &going);
-    notes.extend(going.iter().filter_map(|c| kept_volume_note(project, *c)));
+    notes.extend(going.iter().flat_map(|c| kept_volume_notes(project, *c)));
     notes
 }
 
@@ -378,24 +366,32 @@ fn stop_components(project: &Project, going: &[Component]) -> Vec<String> {
         .collect()
 }
 
-/// The named data volume `component` keeps in this deployment, as docker spells
-/// it.
+/// The named data volumes `component` keeps in this deployment, as docker
+/// spells them.
 ///
-/// `None` for chap-core, whose volumes are upstream's own, and for a directory
-/// that records no compose project name and cannot name one.
-fn component_volume(project: &Project, component: Component) -> Option<String> {
+/// Empty for chap-core, whose volumes are upstream's own, and for a directory
+/// that records no compose project name and so can name none of them.
+fn component_volumes(project: &Project, component: Component) -> Vec<String> {
     component
-        .volume()
-        .and_then(|volume| project.prefixed_volume(volume))
+        .volumes()
+        .iter()
+        .filter_map(|volume| project.prefixed_volume(volume))
+        .collect()
 }
 
-/// The line a disable closes with for the data volume it left in place.
-fn kept_volume_note(project: &Project, component: Component) -> Option<String> {
-    let name = component_volume(project, component)?;
-    Some(super::docker::kept_volume_line(
-        &name,
-        &format!("chaps components disable {}", component.name()),
-    ))
+/// The lines a disable closes with for the data volumes it left in place: one
+/// per volume, because each carries the `docker volume rm` for its own name and
+/// an operator removing them by hand needs every one of them.
+fn kept_volume_notes(project: &Project, component: Component) -> Vec<String> {
+    component_volumes(project, component)
+        .iter()
+        .map(|name| {
+            super::docker::kept_volume_line(
+                name,
+                &format!("chaps components disable {}", component.name()),
+            )
+        })
+        .collect()
 }
 
 /// The host port a component will publish once this run is done: the `--port`
@@ -747,6 +743,37 @@ mod tests {
         let core = owns(Component::ChapCore);
         assert!(core("chap") && core("chap-worker") && core("postgres"));
         assert!(!core("ocs") && !core("s3") && !core("s3-init"));
+
+        // The sibling rule is drawn at the hyphen, so a name that merely starts
+        // with a component's is not that component's service - and falls to
+        // chap-core exactly as `chap` and `chap-worker` do.
+        assert!(!ocs("ocsx") && !s3("s3x"));
+        assert!(core("ocsx") && core("s3x"));
+
+        // A model service is chap-core's on the same rule, which is the answer
+        // it has always given; `disable chap-core` refuses while one is enabled.
+        assert!(core("chapkit-ewars-model") && core("chapkit-ewars-model-init"));
+
+        // And the point of asking the other components rather than listing the
+        // names that are not chap-core's: whatever a component is called, its
+        // own service and its siblings are its own, and chap-core is left with
+        // what nothing else claims. This holds for every component there is, so
+        // it will hold for a fourth one that brings several services.
+        for component in Component::ALL {
+            if *component == Component::ChapCore {
+                continue;
+            }
+            let name = component.name();
+            for service in [
+                name.to_string(),
+                format!("{name}-init"),
+                format!("{name}-db"),
+                format!("{name}-prep"),
+            ] {
+                assert!(owns(*component)(&service), "{name} owns {service}");
+                assert!(!core(&service), "chap-core must not claim {service}");
+            }
+        }
     }
 
     /// What the shared stop path acts on. Only the components that went from on
@@ -781,8 +808,8 @@ mod tests {
         );
     }
 
-    /// The data volume line a disable closes with, and the two components that
-    /// have no volume of their own to name.
+    /// The data volume line a disable closes with, and the component that has
+    /// no volume of its own to name.
     #[test]
     fn a_kept_volume_is_named_with_the_command_that_would_remove_it() {
         let dir = tempfile::tempdir().unwrap();
@@ -793,18 +820,26 @@ mod tests {
                 ..crate::project::ProjectState::default()
             },
         };
-        let line = kept_volume_note(&project, Component::Ocs).expect("a volume to keep");
+        // One volume, one line: every name an operator would have to type is
+        // on a line of its own, and a component with one keeps the line it had.
+        let notes = kept_volume_notes(&project, Component::Ocs);
+        assert_eq!(notes.len(), 1, "ocs keeps one volume");
+        let line = &notes[0];
         assert!(line.starts_with("kept volume hello1-abc123_"), "{line}");
         assert!(
             line.contains("`chaps components disable ocs --purge`"),
             "{line}"
         );
         assert!(line.contains("docker volume rm"), "{line}");
+        assert_eq!(
+            component_volumes(&project, Component::Ocs),
+            vec!["hello1-abc123_ocs_data".to_string()]
+        );
 
         // chap-core's volumes are upstream's own, so there is nothing here to
         // name; `chaps down --volumes` is what removes them.
-        assert_eq!(kept_volume_note(&project, Component::ChapCore), None);
-        assert_eq!(component_volume(&project, Component::ChapCore), None);
+        assert!(kept_volume_notes(&project, Component::ChapCore).is_empty());
+        assert!(component_volumes(&project, Component::ChapCore).is_empty());
     }
 
     /// The `.env` note has to go out on the run that appended the section and on

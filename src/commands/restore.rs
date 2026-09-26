@@ -604,19 +604,24 @@ fn restore_components(
     };
 
     for planned in report.plan.components.clone() {
+        // By volume, not by name: a component that keeps several volumes has an
+        // entry per volume, all under the one component name, and the volume is
+        // what no two of them share.
         let part = report
             .plan
             .manifest
             .components
             .iter()
-            .find(|c| c.name == planned.name)
+            .find(|c| c.volume == planned.volume)
             .cloned();
         let Some(part) = part else { continue };
         let Some(member) = part.path.clone() else {
             continue;
         };
 
-        let tar = stage.path(&format!("{}.tar", part.name))?;
+        // Staged under the member's own path, which is unique per volume where
+        // the component name is not.
+        let tar = stage.path(&member)?;
         backup::tar_extract_member_to(archive, &member, &tar)?;
 
         let volume = format!("{prefix}_{}", part.volume);

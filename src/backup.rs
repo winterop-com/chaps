@@ -55,9 +55,10 @@ pub fn model_member(service_id: &str) -> String {
     format!("{MODELS_MEMBER}/{service_id}.tar")
 }
 
-/// Archive member holding one component's data volume.
-pub fn component_member(name: &str) -> String {
-    format!("{COMPONENTS_MEMBER}/{name}.tar")
+/// Archive member holding one component data volume, by the member name
+/// [`ComponentVolume::member`] gives it.
+pub fn component_member(member: &str) -> String {
+    format!("{COMPONENTS_MEMBER}/{member}.tar")
 }
 
 /// What one backup is and what it holds.
@@ -154,18 +155,23 @@ pub struct ManifestModel {
     pub quiesce: Option<String>,
 }
 
-/// One component with persistent state, as the backup found it.
+/// One component data volume, as the backup found it.
 ///
 /// `ocs` and `s3` keep theirs in a named volume like a model does, but they
 /// have no init container of their own, so the volume is read through a
-/// throwaway [`BUSYBOX_IMAGE`] container instead.
+/// throwaway [`BUSYBOX_IMAGE`] container instead. One entry per volume, so a
+/// component that keeps several has several entries here, all under its name;
+/// `volume` is what tells them apart, and it is the key a restore looks an
+/// entry up by.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManifestComponent {
-    /// Component name: `ocs` or `s3`.
+    /// Component name: `ocs` or `s3`. Every entry of a component that keeps
+    /// several volumes carries the same one.
     pub name: String,
     /// Compose service the volume belongs to.
     pub service: String,
-    /// Named volume, without the compose project prefix.
+    /// Named volume, without the compose project prefix. Unique within an
+    /// archive, since no two volumes of a deployment share a name.
     pub volume: String,
     /// Where the service mounts it.
     pub data_dir: String,
@@ -646,11 +652,26 @@ fn tar_spawn_error(err: &std::io::Error) -> anyhow::Error {
 
 // ---------------------------------------------------- component volumes ---
 
-/// One component that keeps state in a named volume of its own.
+/// One named volume a component keeps state in. A component with several
+/// volumes has one entry here per volume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ComponentVolume {
-    /// Component name, as `components.yaml` and `--with` spell it.
+    /// Component name, as `components.yaml` and `--with` spell it, and as
+    /// [`crate::components::Component::name`] returns it. Several entries share
+    /// it when one component keeps several volumes.
     pub name: &'static str,
+    /// What this volume's archive member is called inside [`COMPONENTS_MEMBER`],
+    /// as [`component_member`] spells it out.
+    ///
+    /// The component name for a component that keeps one volume, so `ocs` is
+    /// `components/ocs.tar` and `s3` is `components/s3.tar`, as they have been
+    /// in every archive ever written; `<name>-<what it holds>` for each volume
+    /// of a component that keeps several, because two members under one name
+    /// would be two entries of the same path in the tar and only the last of
+    /// them would come back out. So this field is the member and `name` is the
+    /// component: the manifest goes on reporting the component an operator asked
+    /// for while the archive keeps one member per volume.
+    pub member: &'static str,
     /// Compose service the volume belongs to, and the one to hold still while
     /// it is read.
     pub service: &'static str,
@@ -661,29 +682,34 @@ pub struct ComponentVolume {
     pub data_dir: &'static str,
 }
 
-/// Every component with state of its own, in [`crate::components::Component`]
-/// order.
+/// Every volume a component keeps state in, in [`crate::components::Component`]
+/// order and, within a component, in the order
+/// [`crate::components::Component::volumes`] lists them.
 ///
 /// chap-core's state is the database and the model volumes, each captured in
 /// its own right. `ocs` keeps a data directory and `s3` its object store, and
 /// the `data_dir`s here are the `target:` of the volume mount in
-/// `compose.ocs.yml` and `compose.s3.yml`.
+/// `compose.ocs.yml` and `compose.s3.yml`. The two tables are checked against
+/// each other by `the_table_and_the_component_agree_on_every_volume`, so a
+/// component that gains a volume cannot gain it in only one of them.
 pub const COMPONENT_VOLUMES: &[ComponentVolume] = &[
     ComponentVolume {
         name: "ocs",
+        member: "ocs",
         service: crate::compose::OCS_SERVICE,
         volume: crate::compose::render::OCS_VOLUME,
         data_dir: "/app/data",
     },
     ComponentVolume {
         name: "s3",
+        member: "s3",
         service: crate::compose::S3_SERVICE,
         volume: crate::compose::render::S3_VOLUME,
         data_dir: "/data",
     },
 ];
 
-/// The [`COMPONENT_VOLUMES`] this deployment has enabled.
+/// The [`COMPONENT_VOLUMES`] this deployment has enabled, one entry per volume.
 pub fn component_volumes(
     components: &crate::components::Components,
 ) -> Vec<&'static ComponentVolume> {
@@ -1729,6 +1755,78 @@ mod tests {
         assert_eq!(parts[0].service, "ocs");
         assert_eq!(parts[0].data_dir, "/app/data");
         assert_eq!(parts[1].data_dir, "/data");
+    }
+
+    /// The two places a component's volumes are written down have to agree:
+    /// [`crate::components::Component::volumes`] is what a `disable` names and
+    /// the doctor judges leftovers by, and [`COMPONENT_VOLUMES`] is what a
+    /// backup reads, so a volume that arrived in one of them alone would be a
+    /// volume that is kept and never captured.
+    #[test]
+    fn the_table_and_the_component_agree_on_every_volume() {
+        use crate::components::Component;
+
+        let expected: Vec<&str> = Component::ALL
+            .iter()
+            .flat_map(|c| c.volumes().iter().copied())
+            .collect();
+        let table: Vec<&str> = COMPONENT_VOLUMES.iter().map(|part| part.volume).collect();
+        assert_eq!(
+            table, expected,
+            "one entry per volume, in component order and then in volume order"
+        );
+
+        for part in COMPONENT_VOLUMES {
+            let component = Component::from_name(part.name).expect("an entry names a component");
+            assert!(
+                component.volumes().contains(&part.volume),
+                "{} is not one of {}'s volumes",
+                part.volume,
+                part.name
+            );
+        }
+    }
+
+    /// One member per volume, and the name of the one a component with a single
+    /// volume keeps is the component's own - which is what makes an archive
+    /// written by an earlier chaps restorable by this one.
+    #[test]
+    fn every_component_volume_has_an_archive_member_of_its_own() {
+        use crate::components::Component;
+
+        let mut members: Vec<&str> = COMPONENT_VOLUMES.iter().map(|part| part.member).collect();
+        let count = members.len();
+        members.sort_unstable();
+        members.dedup();
+        assert_eq!(
+            members.len(),
+            count,
+            "two volumes under one member name would be one member in the tar"
+        );
+
+        for component in Component::ALL {
+            let mine: Vec<&ComponentVolume> = COMPONENT_VOLUMES
+                .iter()
+                .filter(|part| part.name == component.name())
+                .collect();
+            if let [only] = mine.as_slice() {
+                assert_eq!(
+                    only.member, only.name,
+                    "a component with one volume keeps the member name every archive already holds"
+                );
+            }
+            for part in mine {
+                assert!(
+                    part.member == part.name || part.member.starts_with(&format!("{}-", part.name)),
+                    "{} does not read as one of {}'s members",
+                    part.member,
+                    part.name
+                );
+            }
+        }
+
+        assert_eq!(component_member("ocs"), "components/ocs.tar");
+        assert_eq!(component_member("s3"), "components/s3.tar");
     }
 
     #[test]

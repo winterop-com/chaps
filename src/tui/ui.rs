@@ -1188,12 +1188,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
     lines.extend(wrapped_field(
         theme,
         "volume",
-        &match component.volume() {
-            Some(volume) => format!("{volume} · kept when the component is disabled"),
-            None => {
-                "none of its own · `chaps down --volumes` removes this deployment's".to_string()
-            }
-        },
+        &volume_field(component.volumes()),
         width,
     ));
     if component == Component::Ocs {
@@ -1244,6 +1239,22 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
         )));
     }
     lines
+}
+
+/// The `volume` field of the component overlay: every volume the component
+/// keeps, or what to run for a component that keeps none of its own.
+///
+/// All of them on the one field, comma separated, since the field is what the
+/// overlay exists for - saying where a component's data lives - and a component
+/// with two volumes has it in two places.
+fn volume_field(volumes: &[&str]) -> String {
+    match volumes {
+        [] => "none of its own · `chaps down --volumes` removes this deployment's".to_string(),
+        volumes => format!(
+            "{} · kept when the component is disabled",
+            volumes.join(", ")
+        ),
+    }
 }
 
 /// Every field the overlay lists, in the order it lists them.
@@ -3142,6 +3153,25 @@ mod tests {
         assert!(
             !screen.contains("--base-url"),
             "an OCS-only setting:\n{screen}"
+        );
+    }
+
+    /// The overlay's `volume` field, including the shape no component has yet:
+    /// one volume is the field it has always been, and several are all listed,
+    /// because the field is there to say where the data is.
+    #[test]
+    fn the_volume_field_lists_every_volume_a_component_keeps() {
+        assert_eq!(
+            volume_field(&["ocs_data"]),
+            "ocs_data · kept when the component is disabled"
+        );
+        assert_eq!(
+            volume_field(&["a_data", "b_data"]),
+            "a_data, b_data · kept when the component is disabled"
+        );
+        assert_eq!(
+            volume_field(&[]),
+            "none of its own · `chaps down --volumes` removes this deployment's"
         );
     }
 
