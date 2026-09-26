@@ -1182,6 +1182,20 @@ pub struct OcsFacts<'a> {
 /// deployment with no dataset credentials is a working deployment: WorldPop and
 /// CHIRPS3 need none, and an operator who only wants those should not be told
 /// once a day that something is unset on purpose.
+///
+/// The tail those facts make ([`ocs_notes`]) rides on the warning as well, in
+/// the same place it sits on the `ok` line. A deployment that has just enabled
+/// `ocs` still has the example config by definition, and that is exactly the
+/// run in which the operator most needs to read that ERA5-Land has no key yet;
+/// a tail that waited for the file to be edited would be silent when it is
+/// worth most. The advice line stays the one thing to do, because none of the
+/// facts is something to do.
+///
+/// The missing-config `fail` carries none of it: there is no instance to hold
+/// datasets, credentials or plugins until the file is back, `chaps sync` is the
+/// one next step either way, and the dataset count and the data size are only
+/// ever read out of a running container, which a deployment in that state does
+/// not have.
 pub fn components_verdict(
     components: &Components,
     facts: &OcsFacts,
@@ -1203,7 +1217,10 @@ pub fn components_verdict(
     if body.contains(OCS_EXAMPLE_MARKER) {
         return (
             Status::Warn,
-            format!("{label}; {config} still holds OCS's example values"),
+            format!(
+                "{label}; {config} still holds OCS's example values{}",
+                ocs_notes(facts)
+            ),
             Some(format!(
                 "edit {config} for your own country or region and delete the note at the top; \
                  `chaps components enable ocs --ocs-name NAME --ocs-country CODE --ocs-bbox \
@@ -1219,7 +1236,9 @@ pub fn components_verdict(
 }
 
 /// The informational tail of the `components` line: what the OCS instance has
-/// beyond its config file.
+/// beyond its config file. The same tail whether that file is the operator's
+/// own or still the example, so a reader who has seen one line recognises the
+/// other and `--json` carries the facts in `detail` either way.
 fn ocs_notes(facts: &OcsFacts) -> String {
     let mut notes = String::new();
     if !facts.credentials {
@@ -3705,13 +3724,28 @@ mod tests {
         );
         assert!(!detail.contains("credentials unset"), "{detail}");
         assert!(detail.ends_with("plugins/: 1 file"), "{detail}");
+    }
 
-        // An example config is a warning either way, and the notes wait for
-        // the file to be the operator's own: one thing to fix at a time.
+    /// The tail rides on the example-config warning too. Enabling `ocs` leaves
+    /// the example config behind by definition, so a tail that waited for the
+    /// operator's own file would say nothing in exactly the run where
+    /// ERA5-Land's missing key is the thing worth reading.
+    #[test]
+    fn the_example_config_warning_carries_the_same_tail_as_the_ok_line() {
+        // The tail a deployment with no credentials and three plugin files
+        // makes, spelled once for the two lines that have to carry the same one.
+        const TAIL: &str = "; ERA5-Land: credentials unset (WorldPop and CHIRPS3 work \
+                            without them); plugins/: 3 files";
+
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Ocs, true);
         let example = crate::compose::render::render_ocs_config(
             &crate::compose::spec::OcsConfigSpec::default(),
         );
-        let (status, detail, _) = components_verdict(
+
+        // A freshly enabled OCS: the scaffolded config, no credentials in
+        // `.env`, and a plugin directory the operator has started filling.
+        let (status, detail, fix) = components_verdict(
             &components,
             &OcsFacts {
                 config: Some(&example),
@@ -3721,7 +3755,58 @@ mod tests {
             },
         );
         assert_eq!(status, Status::Warn);
-        assert!(!detail.contains("plugins/"), "{detail}");
+        assert_eq!(
+            detail,
+            format!(
+                "chap-core, ocs; ocs/climate-service.yaml still holds OCS's example values{TAIL}"
+            )
+        );
+        // One fault, one next step: the facts are on the status line and never
+        // in the advice, because none of them is something to do.
+        let fix = fix.unwrap();
+        assert!(fix.contains("--ocs-country"), "{fix}");
+        assert!(!fix.contains("credentials"), "{fix}");
+
+        // Credentials set: the warning says nothing about them either way.
+        let (status, detail, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some(&example),
+                credentials: true,
+                ..OcsFacts::default()
+            },
+        );
+        assert_eq!(status, Status::Warn);
+        assert!(!detail.contains("credentials"), "{detail}");
+        assert!(detail.ends_with("example values"), "{detail}");
+
+        // The operator's own file: the same tail, after the same separator.
+        let (status, edited, _) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: Some("id: mine\n"),
+                credentials: false,
+                plugins: Some(3),
+                ..OcsFacts::default()
+            },
+        );
+        assert_eq!(status, Status::Ok);
+        assert!(edited.ends_with(TAIL), "{edited}");
+
+        // A missing config keeps none of it: nothing holds datasets or reads a
+        // credential until the file is back, and `chaps sync` is the one step.
+        let (status, detail, fix) = components_verdict(
+            &components,
+            &OcsFacts {
+                config: None,
+                credentials: false,
+                plugins: Some(3),
+                ..OcsFacts::default()
+            },
+        );
+        assert_eq!(status, Status::Fail);
+        assert!(detail.ends_with("is missing"), "{detail}");
+        assert!(fix.unwrap().contains("chaps sync"));
     }
 
     /// The same two facts `chaps status` puts on the OCS line: what the

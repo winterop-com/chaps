@@ -1,7 +1,5 @@
 //! `chaps status`: chap-core health plus the services it has registered.
 //!
-//! Owned by agent C.
-//!
 //! Lenient about the fields chap-core sends - it may add fields, rename
 //! optional ones or leave one empty, and none of that should turn
 //! `chaps status` into a crash - and strict about who is answering. A 200
@@ -160,10 +158,16 @@ impl ComponentState {
         }
     }
 
-    /// Whether this row is something to do about. A component that was never
-    /// started is not: `chaps up` is the answer, and the report says so once.
+    /// Whether this row is something to do about: anything that is not `up`.
+    ///
+    /// A component that is not running is as much a problem as a model that is
+    /// not registered, and it is read the same way - by a script polling
+    /// `chaps status` for a deployment that has stopped being what it should
+    /// be. This is the predicate that exit code is made of, and nothing else:
+    /// the STATE cell is coloured from the three states directly, because
+    /// `starting` is amber and `not running` is red while both are failures.
     pub fn is_problem(self) -> bool {
-        self == ComponentState::Starting
+        matches!(self, ComponentState::Starting | ComponentState::NotRunning)
     }
 }
 
@@ -600,6 +604,94 @@ pub fn model_rows(
         last_ping: ago(now, &s.last_ping_at),
     }));
     rows
+}
+
+/// What a deployment with nothing running at all is told, when chap-core is not
+/// one of its components.
+///
+/// The mirror of `chaps status`'s `CHAP is not running`: there is no CHAP here
+/// to be running or not, only the components the deployment is made of, so the
+/// line names the deployment rather than a product it does not contain.
+pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start it with `chaps up`";
+
+/// The one line the component rows add up to, for a deployment chap-core is not
+/// a component of.
+///
+/// [`closing_line`] cannot answer for one: it counts models, such a deployment
+/// can have none, and the line it gives for none names `chaps models enable`,
+/// which is refused there. The components are the whole of the deployment, so
+/// they are the whole of its verdict.
+///
+/// A component that is not running is what the reader has to do something
+/// about, so it is what the line counts and `chaps up` is what it names - the
+/// same rows [`ComponentState::is_problem`] makes the exit code out of.
+pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
+    let total = rows.len();
+    if total == 0 {
+        return "this deployment has no components at all; \
+                `chaps components enable chap-core` adds CHAP back"
+            .to_string();
+    }
+    let down = rows
+        .iter()
+        .filter(|row| row.state == ComponentState::NotRunning)
+        .count();
+    if down == total {
+        return NOTHING_RUNNING.to_string();
+    }
+    let noun = if total == 1 {
+        "component"
+    } else {
+        "components"
+    };
+    if down > 0 {
+        let verb = if down == 1 { "is" } else { "are" };
+        let them = if down == 1 { "it" } else { "them" };
+        return format!(
+            "{down} of {total} {noun} {verb} not running; start {them} with `chaps up`"
+        );
+    }
+    let starting = rows
+        .iter()
+        .filter(|row| row.state == ComponentState::Starting)
+        .count();
+    if starting > 0 {
+        let verb = if starting == 1 { "is" } else { "are" };
+        return format!(
+            "{starting} of {total} {noun} {verb} still starting; \
+             run `chaps status` again in a moment"
+        );
+    }
+    let verb = if total == 1 { "is" } else { "are" };
+    format!("all {total} {noun} {verb} up")
+}
+
+/// Whether anything this deployment declares is not where it should be, which
+/// is what a non-zero exit from `chaps status` means.
+///
+/// One rule for every deployment shape, because the command is a health gate
+/// for a script and a script cannot know which shape it is polling. Before
+/// this, a component was only ever consulted on a deployment without chap-core,
+/// and even there only while it was `starting` - so an `ocs` container that
+/// died left `chaps status` exiting 0, which is the one answer a monitor must
+/// never get wrong.
+///
+/// The exit stays silent. The rows have already named what is wrong - the model
+/// table which ones did not register, the component lines which one is not up -
+/// and an error line on top of that would be the third telling. Only an API
+/// that is not answering gets one, because nothing else on the screen says why.
+pub fn exit_failure(report: &StatusReport) -> bool {
+    let components_failing = report
+        .components
+        .iter()
+        .any(|component| component.state.is_problem());
+    match report.api {
+        ApiHealth::Down { .. } => true,
+        ApiHealth::Up { .. } => !report.missing.is_empty() || components_failing,
+        // chap-core is not part of this deployment, so its API not answering is
+        // the expected state rather than a failure.
+        ApiHealth::Off => components_failing,
+    }
 }
 
 /// The one line the table adds up to.
@@ -1659,6 +1751,165 @@ mod tests {
             closing_line(&[]),
             "no models enabled; run `chaps models enable ID` to add one"
         );
+    }
+
+    /// One component row, for the lines a deployment without chap-core adds up
+    /// to.
+    fn component(state: ComponentState) -> ComponentStatus {
+        ComponentStatus {
+            name: "ocs".to_string(),
+            state,
+            reach: "http://localhost:9000".to_string(),
+            health_url: None,
+            read_only: false,
+            datasets: None,
+            data_bytes: None,
+        }
+    }
+
+    /// One report, for the exit-code branches.
+    fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) -> StatusReport {
+        StatusReport {
+            project: None,
+            api_url: URL.to_string(),
+            api_port: 8000,
+            api_port_source: ApiPortSource::Project,
+            api,
+            version: ApiVersion::default(),
+            chap_tag: "v2.3.1".to_string(),
+            chap_tag_moving: false,
+            chap_build: None,
+            registered: Vec::new(),
+            expected: missing.iter().map(|id| id.to_string()).collect(),
+            missing: missing.iter().map(|id| id.to_string()).collect(),
+            reach: Default::default(),
+            models: Vec::new(),
+            unmanaged: Vec::new(),
+            auth: false,
+            components,
+            unhealthy: Vec::new(),
+        }
+    }
+
+    /// `chaps status` is a health gate, so one rule covers every deployment
+    /// shape: anything this deployment declares and does not have is non-zero.
+    /// A component that died used to be the exception - the one answer a
+    /// monitor must never get wrong.
+    #[test]
+    fn the_exit_code_is_non_zero_for_anything_the_deployment_is_missing() {
+        use ComponentState::{NotRunning, Starting, Up};
+
+        let up = || ApiHealth::Up {
+            status: "success".to_string(),
+            message: "healthy".to_string(),
+        };
+
+        // chap-core, everything registered, no components: the clean run.
+        assert!(!exit_failure(&report(up(), &[], Vec::new())));
+        // A model that did not register, as before.
+        assert!(exit_failure(&report(
+            up(),
+            &["chapkit-ewars-model"],
+            vec![]
+        )));
+        // An API that is not answering, as before.
+        assert!(exit_failure(&report(
+            ApiHealth::Down {
+                error: "connection refused".to_string()
+            },
+            &[],
+            vec![]
+        )));
+
+        // A component that is up changes nothing, on either deployment shape.
+        assert!(!exit_failure(&report(up(), &[], vec![component(Up)])));
+        assert!(!exit_failure(&report(
+            ApiHealth::Off,
+            &[],
+            vec![component(Up)]
+        )));
+
+        // A component that is not up is a failure, on either shape. The
+        // chap-core half of this is what used to exit 0: the components were
+        // not consulted at all while the API was answering.
+        for state in [NotRunning, Starting] {
+            assert!(
+                exit_failure(&report(up(), &[], vec![component(Up), component(state)])),
+                "{state:?} beside a healthy chap-core"
+            );
+            assert!(
+                exit_failure(&report(
+                    ApiHealth::Off,
+                    &[],
+                    vec![component(Up), component(state)]
+                )),
+                "{state:?} on a deployment without chap-core"
+            );
+        }
+
+        // A deployment without chap-core and without components: nothing is
+        // declared, so nothing is missing.
+        assert!(!exit_failure(&report(ApiHealth::Off, &[], Vec::new())));
+    }
+
+    /// A deployment without chap-core has no models to count, so its verdict is
+    /// its components - and it must never be the models line, which names
+    /// `chaps models enable`, the one command such a deployment refuses.
+    #[test]
+    fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
+        use ComponentState::{NotRunning, Starting, Up};
+
+        assert_eq!(
+            components_closing_line(&[component(Up), component(Up)]),
+            "all 2 components are up"
+        );
+        // One of them reads as English too.
+        assert_eq!(
+            components_closing_line(&[component(Up)]),
+            "all 1 component is up"
+        );
+
+        // Nothing running at all is the same sentence the "never started"
+        // rendering uses, so the two states do not read as different answers.
+        assert_eq!(
+            components_closing_line(&[component(NotRunning), component(NotRunning)]),
+            NOTHING_RUNNING
+        );
+
+        assert_eq!(
+            components_closing_line(&[component(Up), component(NotRunning)]),
+            "1 of 2 components is not running; start it with `chaps up`"
+        );
+        assert_eq!(
+            components_closing_line(&[component(Up), component(NotRunning), component(NotRunning)]),
+            "2 of 3 components are not running; start them with `chaps up`"
+        );
+
+        // A container that is up but not answering yet is a wait, not a
+        // `chaps up`: saying `up` again would recreate nothing.
+        let line = components_closing_line(&[component(Up), component(Starting)]);
+        assert_eq!(
+            line,
+            "1 of 2 components is still starting; run `chaps status` again in a moment"
+        );
+
+        // The empty deployment: chap-core off and nothing else on is almost
+        // certainly a mistake, and putting chap-core back is the way out.
+        assert_eq!(
+            components_closing_line(&[]),
+            "this deployment has no components at all; \
+             `chaps components enable chap-core` adds CHAP back"
+        );
+
+        for rows in [
+            vec![component(Up)],
+            vec![component(NotRunning)],
+            vec![component(Starting)],
+            vec![],
+        ] {
+            let line = components_closing_line(&rows);
+            assert!(!line.contains("model"), "{line}");
+        }
     }
 
     #[test]

@@ -1,6 +1,4 @@
 //! `chaps status` — chap-core health and registered services.
-//!
-//! Owned by agent C.
 
 use crate::cli::StatusArgs;
 use crate::commands::Ctx;
@@ -8,7 +6,7 @@ use crate::docker;
 use crate::error::Result;
 use crate::output::{Out, PanelKind};
 use crate::status::{
-    ApiHealth, ModelState, ModelStatus, StatusReport, closing_line, hints, status,
+    ApiHealth, ModelState, ModelStatus, StatusReport, closing_line, exit_failure, hints, status,
 };
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -23,10 +21,12 @@ const CHAP_CORE_LABEL: &str = "chap-core";
 
 /// Probe the API and print a [`StatusReport`].
 ///
-/// Exits non-zero when the API is down or a model the project enabled has not
-/// registered, so `chaps status` can gate a script or a CI step. The table
-/// already names every model that has not registered, so that exit is silent;
-/// an API that is not answering gets the one error line it needs.
+/// Exits non-zero when anything this deployment declares is not where it should
+/// be - the API down, a model not registered, a component not up - so
+/// `chaps status` can gate a script or a CI step. [`exit_failure`] is that one
+/// rule for every deployment shape. The rows have already named what is wrong,
+/// so the exit is silent; an API that is not answering gets the one error line
+/// it needs, because nothing else on the screen says why.
 ///
 /// A deployment that has never been started is reported as exactly that -
 /// unless `--url` names an API explicitly, which means the caller is asking
@@ -111,8 +111,8 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         && matches!(containers.as_deref(), Some(containers) if containers.is_empty());
     if never_started {
         // The JSON report is the same document either way; only the human
-        // rendering collapses to the one line that matters.
-        ctx.out.emit(&report, || not_running(&ctx.out))?;
+        // rendering collapses to what matters when nothing has run.
+        ctx.out.emit(&report, || not_running(&report, &ctx.out))?;
         std::process::exit(1);
     }
 
@@ -124,17 +124,11 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // document on stdout would break single-document parsers.
         ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
         ApiHealth::Down { error } => Err(anyhow::anyhow!(down_message(&report, error))),
-        // The table said which models are missing and what to do about each
-        // one; repeating that as an error would be the third telling.
-        ApiHealth::Up { .. } if !report.missing.is_empty() => std::process::exit(1),
-        ApiHealth::Up { .. } => Ok(()),
-        // chap-core is not part of this deployment, so its API not answering
-        // is the expected state, not a failure. A component that is down says
-        // so on its own line.
-        ApiHealth::Off if report.components.iter().any(|c| c.state.is_problem()) => {
-            std::process::exit(1)
-        }
-        ApiHealth::Off => Ok(()),
+        // Everything else is the one rule, and it is silent: the model table
+        // said which models are missing and the component lines said which
+        // component is not up, so an error line would be the third telling.
+        _ if exit_failure(&report) => std::process::exit(1),
+        _ => Ok(()),
     }
 }
 
@@ -152,26 +146,59 @@ fn down_message(report: &StatusReport, error: &str) -> String {
     text
 }
 
-/// The "nothing here has ever run" line, as a panel on a terminal.
+/// Which "nothing is running" line this deployment gets.
 ///
-/// The box is the whole answer in that case, so it is worth drawing; a pipe
-/// still gets the one line it has always parsed.
-fn not_running(out: &Out) -> String {
-    out.panel_or(
-        "Not running",
-        &crate::output::hint_lines(NOT_RUNNING)
-            .iter()
-            .map(|line| out.backticks(line))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        PanelKind::Warning,
-        NOT_RUNNING,
-    )
+/// [`ApiHealth::Off`] is exactly "chap-core is not a component of this
+/// deployment", so the report already carries the answer and the choice needs
+/// no project: a deployment that has no CHAP in it is never told that CHAP is
+/// not running.
+fn nothing_running_line(report: &StatusReport) -> &'static str {
+    match report.api {
+        ApiHealth::Off => crate::status::NOTHING_RUNNING,
+        _ => NOT_RUNNING,
+    }
 }
 
-/// The human rendering: the chap-core line, the model table, then the one
-/// line it adds up to and a hint per model that needs something done.
-fn human(report: &StatusReport, out: &Out) -> String {
+/// What a deployment with no containers at all is told.
+///
+/// The box is the whole answer when the deployment is chap-core and nothing
+/// else: a table whose every row says "not running" says nothing the one line
+/// does not, and a pipe still gets the one line it has always parsed.
+///
+/// A deployment with components has more than that to show - which components
+/// it is made of, and where each of them will answer - and those rows are
+/// recorded state rather than an answer docker had to give, so they are known
+/// whether anything is up or not. There they are printed and the verdict goes
+/// under them, in the shape a running deployment has. The model table stays
+/// out: nothing can have registered with a chap-core that has never started.
+fn not_running(report: &StatusReport, out: &Out) -> String {
+    let line = nothing_running_line(report);
+    if report.components.is_empty() {
+        return out.panel_or(
+            "Not running",
+            &crate::output::hint_lines(line)
+                .iter()
+                .map(|line| out.backticks(line))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            PanelKind::Warning,
+            line,
+        );
+    }
+    let mut text = service_lines(report, out);
+    text.push('\n');
+    text.push_str(&out.cmd(line));
+    text.push('\n');
+    text
+}
+
+/// The chap-core line and one line per component: the part of the report that
+/// says what this deployment is made of and where each piece answers.
+///
+/// Shared with [`not_running`], where these lines are the whole of what there
+/// is to say. The component set is recorded in `.chaps/components.yaml`, so
+/// these rows exist whether anything is running or not.
+fn service_lines(report: &StatusReport, out: &Out) -> String {
     let up = matches!(report.api, ApiHealth::Up { .. });
     let chap_core = !matches!(report.api, ApiHealth::Off);
     let mut text = String::new();
@@ -251,6 +278,14 @@ fn human(report: &StatusReport, out: &Out) -> String {
         }
         text.push('\n');
     }
+    text
+}
+
+/// The human rendering: what the deployment is made of, the model table, then
+/// the one line it adds up to and a hint per model that needs something done.
+fn human(report: &StatusReport, out: &Out) -> String {
+    let up = matches!(report.api, ApiHealth::Up { .. });
+    let mut text = service_lines(report, out);
 
     if !report.models.is_empty() {
         let rows: Vec<Vec<String>> = report
@@ -267,6 +302,18 @@ fn human(report: &StatusReport, out: &Out) -> String {
             .collect();
         text.push('\n');
         text.push_str(&out.table(&["MODEL", "STATE", "REACH", "LAST PING"], &rows));
+    }
+
+    // A deployment chap-core is not a component of has no API to be down and
+    // no models to register, so its components are its verdict. Without this
+    // it would be the one deployment shape `chaps status` said nothing about
+    // at the end, and `closing_line` would name `chaps models enable`, which
+    // is refused there.
+    if matches!(report.api, ApiHealth::Off) {
+        text.push('\n');
+        text.push_str(&out.cmd(&crate::status::components_closing_line(&report.components)));
+        text.push('\n');
+        return text;
     }
 
     // Everything the API cannot be asked about is left out while it is down:
@@ -387,7 +434,9 @@ fn dash(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::status::{ApiVersion, ModelState, ModelStatus, RegisteredService, model_rows};
+    use crate::status::{
+        ApiVersion, ComponentStatus, ModelState, ModelStatus, RegisteredService, model_rows,
+    };
 
     /// A fixed "now", so the ages in these tests do not move.
     const NOW: u64 = 1_790_147_400;
@@ -692,6 +741,123 @@ mod tests {
     #[test]
     fn the_never_started_line_replaces_the_whole_report() {
         assert_eq!(NOT_RUNNING, "CHAP is not running; start it with `chaps up`");
+    }
+
+    /// One component row.
+    fn component(name: &str, state: crate::status::ComponentState, reach: &str) -> ComponentStatus {
+        ComponentStatus {
+            name: name.to_string(),
+            state,
+            reach: reach.to_string(),
+            health_url: None,
+            read_only: false,
+            datasets: None,
+            data_bytes: None,
+        }
+    }
+
+    /// A report for a deployment chap-core is not a component of.
+    fn without_chap_core(components: Vec<ComponentStatus>) -> StatusReport {
+        StatusReport {
+            api: ApiHealth::Off,
+            components,
+            ..up(Vec::new(), &[], &[])
+        }
+    }
+
+    /// The one command whose job is to say what is up must not name a product
+    /// this deployment does not contain, and must not go silent about the
+    /// components it does.
+    #[test]
+    fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
+        use crate::status::ComponentState::NotRunning;
+
+        let report = without_chap_core(vec![
+            component("ocs", NotRunning, "http://localhost:9000"),
+            component("s3", NotRunning, "internal"),
+        ]);
+        let line = nothing_running_line(&report);
+        assert_eq!(line, crate::status::NOTHING_RUNNING);
+        assert!(!line.contains("CHAP"), "{line}");
+        assert!(line.contains("`chaps up`"), "{line}");
+
+        // The rows are recorded state, not something docker had to answer, so
+        // they are printed even with nothing up: which components this
+        // deployment is made of, and where each of them will answer.
+        assert_eq!(
+            not_running(&report, &Out::default()),
+            "ocs   not running   http://localhost:9000\n\
+             s3    not running   internal\n\
+             \n\
+             nothing in this deployment is running; start it with `chaps up`\n"
+        );
+
+        // chap-core in the set: the one line is the whole answer again, and it
+        // names CHAP because there is one to name.
+        let bare = up(Vec::new(), &[], &[]);
+        assert_eq!(nothing_running_line(&bare), NOT_RUNNING);
+        assert_eq!(not_running(&bare, &Out::default()), NOT_RUNNING);
+    }
+
+    /// A deployment that has components and chap-core shows both when nothing
+    /// is running: the rows say what it is made of, which the one line cannot.
+    #[test]
+    fn nothing_running_still_lists_the_components_a_deployment_has() {
+        use crate::status::ComponentState::NotRunning;
+
+        let report = StatusReport {
+            api: ApiHealth::Down {
+                error: "connection refused".to_string(),
+            },
+            components: vec![component("ocs", NotRunning, "http://localhost:9000")],
+            ..up(Vec::new(), &[], &[])
+        };
+        let text = not_running(&report, &Out::default());
+        assert!(
+            text.starts_with("chap-core   down   http://localhost:8000"),
+            "{text}"
+        );
+        assert!(
+            text.contains("ocs         not running   http://localhost:9000\n"),
+            "{text}"
+        );
+        assert!(text.ends_with(&format!("{NOT_RUNNING}\n")), "{text}");
+        // The models are left out: nothing can have registered with a
+        // chap-core that has never started.
+        assert!(!text.contains("MODEL"), "{text}");
+    }
+
+    /// The verdict of a deployment without chap-core is its components. Without
+    /// it this is the one deployment shape `chaps status` ended on nothing, and
+    /// `closing_line` would name `chaps models enable`, which it refuses.
+    #[test]
+    fn a_components_only_report_ends_on_a_verdict_about_its_components() {
+        use crate::status::ComponentState::{NotRunning, Up};
+
+        let mut report = without_chap_core(vec![
+            component("ocs", Up, "http://localhost:9000"),
+            component("s3", Up, "internal"),
+        ]);
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "ocs   up   http://localhost:9000\n\
+             s3    up   internal\n\
+             \n\
+             all 2 components are up\n"
+        );
+        assert!(
+            !text.contains("chap-core"),
+            "no line for a component this deployment does not have:\n{text}"
+        );
+        assert!(!text.contains("model"), "{text}");
+
+        report.components[1].state = NotRunning;
+        let text = human(&report, &Out::default());
+        assert!(
+            text.ends_with("1 of 2 components is not running; start it with `chaps up`\n"),
+            "{text}"
+        );
     }
 
     #[test]
