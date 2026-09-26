@@ -2749,14 +2749,18 @@ fn html_server() -> u16 {
     )
 }
 
-/// A server that answers a component's `/health` the way a running one does,
-/// on a port of its own.
+/// A server that answers a component's port the way a running OCS would, on a
+/// port of its own.
 ///
-/// Stands in for OCS, which `chaps status` calls up when `/health` answers at
-/// all. Nothing here needs docker, so the verdict is the same on every
-/// machine.
-fn health_server() -> u16 {
-    server("application/json", r#"{"status":"healthy"}"#)
+/// Every 200 counts as an answer to `/health`, and the body is the dataset list
+/// `chaps status` counts - so a state or a count taken from this server is proof
+/// that it was asked something. Nothing here needs docker, so the verdict is the
+/// same on every machine.
+fn ocs_lookalike() -> u16 {
+    server(
+        "application/json",
+        r#"{"kind":"DatasetList","items":[{"dataset_id":"worldpop"}]}"#,
+    )
 }
 
 #[test]
@@ -4707,15 +4711,18 @@ fn status_reports_every_enabled_component() {
     assert_eq!(components[1]["health_url"], Json::Null);
 }
 
-/// The other half of the same report: a component whose `/health` answers is
-/// `up`, without a container anywhere in it.
+/// The other half of the same report: the container this deployment owns is
+/// what decides, not whoever holds its host port. Something else answering
+/// there - most realistically another deployment's OCS on the same port - used
+/// to be reported as this one being `up`, and cost every `chaps status` the
+/// requests to find out.
 #[test]
-fn status_calls_a_component_up_when_its_health_endpoint_answers() {
+fn status_does_not_call_a_component_up_because_something_else_answers_its_port() {
     let sandbox = Sandbox::new();
     let api_port = free_port().to_string();
     // A stand-in OCS on a port of its own, answering for as long as this test
     // runs.
-    let ocs_port = health_server();
+    let ocs_port = ocs_lookalike();
     sandbox
         .init(&["--models", "none", "--api-port", &api_port])
         .assert()
@@ -4738,11 +4745,16 @@ fn status_calls_a_component_up_when_its_health_endpoint_answers() {
     let components = report["components"].as_array().expect("a component list");
     assert_eq!(components.len(), 1, "{report}");
     assert_eq!(components[0]["name"], "ocs");
+    // The address is recorded state, so it is reported either way; the state is
+    // the container's, and this deployment has none running.
     assert_eq!(
         components[0]["health_url"],
         format!("http://localhost:{ocs_port}/health")
     );
-    assert_eq!(components[0]["state"], "up", "{report}");
+    assert_eq!(components[0]["state"], "not-running", "{report}");
+    // Nothing was asked, so the dataset list that server would have answered
+    // with is not counted onto this deployment's line either.
+    assert_eq!(components[0]["datasets"], Json::Null, "{report}");
 }
 
 #[test]

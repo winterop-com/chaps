@@ -181,7 +181,13 @@ pub struct ComponentStatus {
     /// component that publishes no host port - with the proxy named when the
     /// component records one, since that is the address that does work.
     pub reach: String,
-    /// The health URL that was probed, when one was.
+    /// Where this component answers its health endpoint: its own host port
+    /// plus the path. `None` for an instance that publishes no host port,
+    /// which is one that cannot be asked from out here at all.
+    ///
+    /// Derived from the address rather than from a request, so it says the same
+    /// thing whether the instance is running or not: a consumer keying off it
+    /// must not watch it appear and disappear with the container.
     pub health_url: Option<String>,
     /// Whether this OCS instance refuses ingestion over HTTP. Always false for
     /// every other component, none of which has the setting.
@@ -454,6 +460,10 @@ pub fn status(
 /// only thing that can be said about it from out here is whether its container
 /// is up. A component with no container at all is `not running` rather than
 /// down: there is nothing wrong with a deployment that has not been started.
+///
+/// Nothing is asked of a component whose container is not running. `chaps
+/// status` is the command run most often, and an instance that is not there
+/// would cost it a timeout to say what the container already said.
 fn component_rows(
     project: &Project,
     agent: &ureq::Agent,
@@ -466,25 +476,33 @@ fn component_rows(
         // the only way in is the compose network or whatever proxy sits in
         // front of it, and neither is something this probe can assume. So it
         // is judged by its container, exactly as the object store is.
-        let probe = components
-            .ocs_url()
-            .map(|url| (get(agent, &url, HEALTH_PATH, None).is_ok(), url));
+        let url = components.ocs_url();
         let up = running.contains(crate::compose::OCS_SERVICE);
+        let state = match (&url, up) {
+            // The same reasoning gates the request on the container: with
+            // nothing running there is no answer to wait for, only a timeout to
+            // spend on a port this deployment has nobody on - and whatever else
+            // is holding it would answer in its place, which is how a stopped
+            // OCS came to be reported `up` on a machine running a second
+            // deployment's OCS on the default 9000.
+            (_, false) => ComponentState::NotRunning,
+            (Some(url), true) => component_state(get(agent, url, HEALTH_PATH, None).is_ok(), up),
+            (None, true) => ComponentState::Up,
+        };
         // What the instance holds is only asked for when it has just
         // answered: a second request to an instance that is down would spend
         // another timeout to learn the same thing.
-        let datasets = probe
-            .as_ref()
-            .filter(|(answered, _)| *answered)
-            .and_then(|(_, url)| ocs_datasets(url));
+        let datasets = url
+            .as_deref()
+            .filter(|_| state == ComponentState::Up)
+            .and_then(ocs_datasets);
         rows.push(ComponentStatus {
             name: crate::compose::OCS_SERVICE.to_string(),
-            state: match &probe {
-                Some((answered, _)) => component_state(*answered, up),
-                None => component_state(up, up),
-            },
+            state,
             reach: components.ocs_reach(),
-            health_url: probe.map(|(_, url)| format!("{url}{HEALTH_PATH}")),
+            // The address, not the answer: the field says where this instance
+            // answers, and that is as true of one that is switched off.
+            health_url: url.map(|url| format!("{url}{HEALTH_PATH}")),
             read_only: components.ocs.read_only,
             datasets,
             data_bytes: None,
@@ -1751,6 +1769,177 @@ mod tests {
             closing_line(&[]),
             "no models enabled; run `chaps models enable ID` to add one"
         );
+    }
+
+    /// A deployment with OCS enabled, published on `port` when it has one.
+    fn ocs_project(port: Option<u16>) -> Project {
+        let mut state = crate::project::ProjectState::default();
+        state.components.ocs.enabled = true;
+        state.components.ocs.port = port;
+        Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state,
+        }
+    }
+
+    /// Something listening on the OCS host port, answering `/health` and the
+    /// dataset list the way OCS does and recording what it was asked - so a
+    /// test can tell "no request was made" from "a request came back empty".
+    struct StandIn {
+        port: u16,
+        asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl StandIn {
+        /// The paths it was asked for, in order.
+        fn asked(&self) -> Vec<String> {
+            self.asked.lock().expect("the request log").clone()
+        }
+    }
+
+    fn stand_in_ocs() -> StandIn {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("a loopback port");
+        let port = listener.local_addr().expect("the bound address").port();
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = asked.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut request = String::new();
+                if BufReader::new(&stream).read_line(&mut request).is_err() {
+                    continue;
+                }
+                let path = request
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                let body = if path.starts_with("/datasets") {
+                    DATASETS
+                } else {
+                    r#"{"status":"success","message":"healthy"}"#
+                };
+                log.lock().expect("the request log").push(path);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        StandIn { port, asked }
+    }
+
+    /// A port nothing is listening on: taken to learn a free number, then let
+    /// go, so a connection to it is refused rather than left hanging.
+    fn closed_port() -> u16 {
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("a loopback port");
+        listener.local_addr().expect("the bound address").port()
+    }
+
+    /// Short, because none of these tests waits for anything: the one request
+    /// that fails is refused, not timed out.
+    fn probe_agent() -> ureq::Agent {
+        agent(Duration::from_millis(500))
+    }
+
+    /// The row of a deployment that has not been started costs no request at
+    /// all. Nothing is there to answer, so the only thing a probe could buy is
+    /// a timeout on every `chaps status` - or an answer from whatever else
+    /// holds that host port, which is how a stopped OCS came to read as `up`
+    /// beside another deployment's OCS on the same default 9000.
+    #[test]
+    fn a_component_that_is_not_running_is_not_asked_and_still_reports_its_health_url() {
+        // Answering, and deliberately not this deployment's.
+        let stand_in = stand_in_ocs();
+        let rows = component_rows(
+            &ocs_project(Some(stand_in.port)),
+            &probe_agent(),
+            &BTreeSet::new(),
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].state, ComponentState::NotRunning);
+        assert!(
+            stand_in.asked().is_empty(),
+            "no request was worth making: {:?}",
+            stand_in.asked()
+        );
+        // `--json` keeps every field it had: the address is known from the
+        // record, so it is reported whether the instance is up or not.
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{}/health", stand_in.port).as_str())
+        );
+        assert_eq!(rows[0].reach, format!("http://localhost:{}", stand_in.port));
+        assert!(!rows[0].read_only);
+        // Nothing was asked, so there is nothing it holds to report.
+        assert_eq!(rows[0].datasets, None);
+        assert_eq!(rows[0].data_bytes, None);
+    }
+
+    /// The distinction the probe is there for: a container that is up and
+    /// answering is `up`, and it is the answer that carries the dataset count.
+    #[test]
+    fn a_running_component_is_asked_and_reports_what_it_holds() {
+        let stand_in = stand_in_ocs();
+        let rows = component_rows(
+            &ocs_project(Some(stand_in.port)),
+            &probe_agent(),
+            &running(&[crate::compose::OCS_SERVICE]),
+        );
+        assert_eq!(rows[0].state, ComponentState::Up);
+        assert_eq!(rows[0].datasets, Some(3));
+        assert_eq!(
+            stand_in.asked(),
+            vec![HEALTH_PATH.to_string(), DATASETS_PATH.to_string()]
+        );
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{}/health", stand_in.port).as_str())
+        );
+    }
+
+    /// The other half of that distinction: the container is up but nothing is
+    /// answering on its port yet, which is a wait rather than a fault.
+    #[test]
+    fn a_running_component_that_does_not_answer_yet_is_starting() {
+        let port = closed_port();
+        let rows = component_rows(
+            &ocs_project(Some(port)),
+            &probe_agent(),
+            &running(&[crate::compose::OCS_SERVICE]),
+        );
+        assert_eq!(rows[0].state, ComponentState::Starting);
+        // Asked and not answered, so there is still no count to put on the line.
+        assert_eq!(rows[0].datasets, None);
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{port}/health").as_str())
+        );
+    }
+
+    /// An instance that publishes no host port is judged by its container
+    /// alone, as it always has been: there is no address out here to ask.
+    #[test]
+    fn an_instance_with_no_host_port_is_judged_by_its_container() {
+        let project = ocs_project(None);
+        let rows = component_rows(
+            &project,
+            &probe_agent(),
+            &running(&[crate::compose::OCS_SERVICE]),
+        );
+        assert_eq!(rows[0].state, ComponentState::Up);
+        assert_eq!(rows[0].reach, "internal");
+        assert_eq!(rows[0].health_url, None);
+        assert_eq!(rows[0].datasets, None);
+
+        let rows = component_rows(&project, &probe_agent(), &BTreeSet::new());
+        assert_eq!(rows[0].state, ComponentState::NotRunning);
+        assert_eq!(rows[0].health_url, None);
     }
 
     /// One component row, for the lines a deployment without chap-core adds up
