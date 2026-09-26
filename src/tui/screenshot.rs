@@ -1,8 +1,6 @@
 //! A picture of the browser, taken the way Textual takes one: the buffer that
 //! was just drawn, written out as SVG.
 //!
-//! Owned by agent C.
-//!
 //! ratatui has no screenshot of its own and chaps takes no dependency for
 //! one: a terminal cell is a rectangle and a glyph, which is two SVG
 //! elements. What lands in the file is what the terminal showed, cell for
@@ -412,6 +410,40 @@ mod tests {
             "{message}"
         );
         assert!(!missing.exists(), "no directory was made");
+    }
+
+    /// A picture of the browser is a picture of whatever page was up: the
+    /// buffer is the only thing this reads, so the components page needs no
+    /// special case - which is worth a test rather than a comment.
+    #[test]
+    fn the_components_page_photographs_like_the_model_page() {
+        use crate::project::ProjectState;
+        use crate::tui::app::{Action, App};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let registry = crate::registry::load_embedded().expect("embedded snapshot parses");
+        let mut state = ProjectState::default();
+        state
+            .components
+            .set_enabled(crate::components::Component::Ocs, true);
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::NextPage);
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 12)).expect("test backend starts");
+        terminal
+            .draw(|frame| crate::tui::ui::draw(frame, &app, &Theme::default()))
+            .expect("draw");
+        let svg = svg(terminal.backend().buffer(), &Theme::default());
+
+        assert!(svg.starts_with("<svg "), "{svg}");
+        // The title bar paints each part in its own colour, so the page's name
+        // is a span of its own.
+        assert!(svg.contains(">components</tspan>"), "{svg}");
+        assert!(svg.contains("COMPONENT    STATE    REACH"), "{svg}");
+        assert!(svg.contains("chap-core"), "{svg}");
+        assert!(svg.contains(">http://localhost:9000</tspan>"), "{svg}");
+        assert!(svg.ends_with("</svg>\n"), "{svg}");
     }
 
     #[test]

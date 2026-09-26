@@ -1,8 +1,10 @@
-//! The ratatui model browser.
+//! The ratatui browser: the marketplace on one page, the components this
+//! deployment is made of on the other.
 //!
-//! Owned by agent C. The TUI only produces a [`Selection`], applying it is
-//! done by the caller through [`crate::compose::apply`], so the write path
-//! stays shared with `init`, `enable` and `disable`.
+//! The TUI only produces a [`Selection`], applying it is done by the caller
+//! through [`crate::compose::apply()`], so the write path stays shared with
+//! `init`, `enable` and `disable` - the component set rides on the same
+//! selection, which is why one `s` writes both pages.
 
 pub mod app;
 pub mod keys;
@@ -119,6 +121,12 @@ struct Carry {
     filter: String,
     show_templates: bool,
     message: Option<String>,
+    /// The component set the session wants. A new catalogue says nothing about
+    /// components, so it comes back whole - and a refresh that dropped it would
+    /// throw away edits the header was still counting.
+    components: crate::components::Components,
+    page: app::Page,
+    component_cursor: usize,
 }
 
 impl Carry {
@@ -142,6 +150,9 @@ impl Carry {
             filter: app.filter.clone(),
             show_templates: app.show_templates,
             message: app.message.clone(),
+            components: app.components.clone(),
+            page: app.page,
+            component_cursor: app.component_cursor,
         }
     }
 
@@ -160,6 +171,9 @@ impl Carry {
         app.show_templates = self.show_templates;
         app.filter = self.filter;
         app.message = self.message;
+        app.components = self.components;
+        app.page = self.page;
+        app.component_cursor = self.component_cursor;
         app.dirty = app.has_changes();
         app.refilter();
         if let Some(id) = self.cursor_id
@@ -267,6 +281,45 @@ mod tests {
             fresh.selected_model().map(|m| m.id.clone()),
             Some(toggled),
             "the cursor stays on the row it was on"
+        );
+    }
+
+    /// A new catalogue says nothing about components, so a refresh has to
+    /// bring the whole wanted set back: it is counted in the header and saved
+    /// by the same `s`, and losing it to a re-fetch would be silent.
+    #[test]
+    fn a_refresh_keeps_the_component_edits_and_the_page() {
+        use crate::components::Component;
+
+        let registry = load_embedded().expect("embedded snapshot parses");
+        let mut app = App::new(&registry, &ProjectState::default());
+        app.reduce(Action::NextPage);
+        app.reduce(Action::Down);
+        app.reduce(Action::Toggle);
+        assert_eq!(app.selected_component(), Component::Ocs);
+        assert!(app.components.ocs.enabled);
+
+        let carry = Carry::of(&app);
+        let mut fresh = App::new(&registry, &ProjectState::default());
+        assert!(!fresh.has_changes());
+        carry.restore(&mut fresh);
+
+        assert!(fresh.components.ocs.enabled);
+        assert!(fresh.has_changes() && fresh.dirty);
+        assert_eq!(fresh.counts().pending, 1);
+        assert_eq!(fresh.page, app::Page::Components);
+        assert_eq!(
+            fresh.selected_component(),
+            Component::Ocs,
+            "the cursor stays on the row it was on"
+        );
+        assert!(
+            fresh
+                .selection()
+                .components
+                .expect("the set is selected")
+                .ocs
+                .enabled
         );
     }
 

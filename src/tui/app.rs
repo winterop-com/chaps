@@ -1,13 +1,15 @@
 //! TUI state and the pure `App::reduce(Action) -> Option<Outcome>` reducer.
 //!
-//! Owned by agent C.
-//!
 //! Nothing here touches the terminal: the browser is a state machine that
-//! takes [`Action`]s and ends by producing a
-//! [`Selection`](crate::compose::Selection), which the caller applies through
-//! [`crate::compose::apply`]. That is what makes the browser testable without
-//! a tty.
+//! takes [`Action`]s and ends by producing a [`Selection`], which the caller
+//! applies through [`crate::compose::apply()`]. That is what makes the browser
+//! testable without a tty.
+//!
+//! There are two pages, [`Page::Models`] and [`Page::Components`], and one
+//! selection: every key that acts on a row acts on the page that is up, and
+//! saving carries both pages' changes.
 
+use crate::components::{Component, Components, models_need_chap_core};
 use crate::compose::{EnableRequest, PortRequest, Selection};
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Channel, Model, Registry, Version, VersionSelector};
@@ -32,11 +34,58 @@ pub const NOTHING_TO_DISCARD_HINT: &str = "there is nothing to discard";
 /// Footer note shown after `u` threw the pending changes away.
 pub const DISCARDED_HINT: &str = "the pending changes are gone; nothing was written";
 
-/// The documentation the palette's "open the documentation" opens.
+/// Footer note shown when `p` is pressed on a component that is not enabled.
+pub const PORT_NEEDS_COMPONENT_HINT: &str = "enable the component first (space), then press p";
+
+/// Footer note shown when `p` is pressed on `chap-core`.
+///
+/// chap-core's host port is the API port, which lives in `project.yaml` rather
+/// than in the component block, so this page is not where it is edited.
+pub const CORE_PORT_IS_API_PORT: &str = "chap-core's host port is the API port; run `chaps init --api-port PORT --force`, \
+     or set CHAP_API_PORT in .env";
+
+/// Why the component port prompt refuses `auto`.
+pub const COMPONENT_HAS_NO_AUTO_PORT: &str =
+    "`auto` picks from the model port range; type a number, or none";
+
+/// The documentation the palette's "open the documentation" opens, per page.
 pub const DOCS_CHAPTER: &str = "models.html";
+pub const COMPONENTS_DOCS_CHAPTER: &str = "components.html";
 
 /// The channels the dialog offers, in the order it lists them.
 pub const CHANNELS: [Channel; 2] = [Channel::Stable, Channel::Latest];
+
+/// Which list the browser is showing.
+///
+/// Two pages rather than one table: a component has no version, no maturity
+/// and no channel, and `space` on a model resolves a version out of the
+/// registry where `space` on a component only flips a flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Models,
+    Components,
+}
+
+impl Page {
+    /// The pages, in the order `Tab` walks them.
+    pub const ALL: [Page; 2] = [Page::Models, Page::Components];
+
+    /// What the title bar calls it.
+    pub fn title(self) -> &'static str {
+        match self {
+            Page::Models => "models",
+            Page::Components => "components",
+        }
+    }
+
+    /// What the box around the list is called.
+    pub fn pane(self) -> &'static str {
+        match self {
+            Page::Models => "Marketplace",
+            Page::Components => "Components",
+        }
+    }
+}
 
 /// Which sub-state the browser is in; it decides both key mapping and what is
 /// drawn on top of the list.
@@ -66,6 +115,10 @@ pub enum Action {
     PageUp,
     PageDown,
     Toggle,
+    /// Go to the next page, which `Tab` does.
+    NextPage,
+    /// Go to the previous one, which shift-Tab does.
+    PrevPage,
     /// Open the port prompt on the row under the cursor.
     PortPrompt,
     PortChar(char),
@@ -164,7 +217,7 @@ impl Row {
 
 /// What a row asks for in its PORT column.
 ///
-/// The browser cannot pick a port itself - only [`crate::compose::apply`]
+/// The browser cannot pick a port itself - only [`crate::compose::apply()`]
 /// knows what the compose files and the machine have taken - so `Auto` is a
 /// question the save answers, and `Exact` is one the save has to honour or
 /// fail on.
@@ -188,6 +241,21 @@ impl PortWant {
             PortWant::Exact(port) => port.to_string(),
         }
     }
+}
+
+/// One row of the components page, in the columns `chaps components list`
+/// prints: COMPONENT, STATE, REACH, WHAT IT IS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComponentLine {
+    pub component: Component,
+    /// Whether this session's set has it on.
+    pub enabled: bool,
+    /// Whether the project had it on when the browser opened.
+    pub recorded: bool,
+    /// Where it is reached: its own host port, the compose network, or `-`
+    /// for a component this deployment does not have.
+    pub reach: String,
+    pub summary: &'static str,
 }
 
 /// Header counters.
@@ -226,6 +294,10 @@ pub enum CommandId {
     SetChannel,
     Templates,
     Filter,
+    /// Go to the other page.
+    Page,
+    /// Turn one named component on or off, whichever page is up.
+    Component(Component),
     Save,
     Discard,
     Refresh,
@@ -261,6 +333,16 @@ pub struct App<'a> {
     pub cursor: usize,
     pub filter: String,
     pub mode: Mode,
+    /// Which list is up. Every key that acts on a row acts on this page's.
+    pub page: Page,
+    /// The component set the session wants, which saving turns into
+    /// [`Selection::components`].
+    pub components: Components,
+    /// `.chaps/components.yaml` as it was when the browser opened; the wanted
+    /// set is the diff against this.
+    pub initial_components: Components,
+    /// Index into [`Component::ALL`], the components page's cursor.
+    pub component_cursor: usize,
     pub show_templates: bool,
     /// `.chaps/models.yaml` as it was when the browser opened; the selection is the
     /// diff against this.
@@ -327,6 +409,10 @@ impl<'a> App<'a> {
             cursor: 0,
             filter: String::new(),
             mode: Mode::Browse,
+            page: Page::Models,
+            components: state.components.clone(),
+            initial_components: state.components.clone(),
+            component_cursor: 0,
             show_templates,
             initial: state.models.clone(),
             port_range: state.port_range,
@@ -428,8 +514,8 @@ impl<'a> App<'a> {
             Action::PageUp => self.info_scroll = self.info_scroll.saturating_sub(PAGE_JUMP),
             Action::Top => self.info_scroll = 0,
             Action::Bottom => self.info_scroll = last,
-            Action::OpenRepository => self.open_repository(),
-            Action::ImageRef => self.show_image_ref(),
+            Action::OpenRepository if self.page == Page::Models => self.open_repository(),
+            Action::ImageRef if self.page == Page::Models => self.show_image_ref(),
             _ => {}
         }
         None
@@ -491,16 +577,26 @@ impl<'a> App<'a> {
                 self.refilter();
             }
             CommandId::Filter => self.mode = Mode::Filter,
+            CommandId::Page => self.turn_page(1),
+            CommandId::Component(component) => {
+                // The cursor follows, so the strip and the footer talk about
+                // the component that just moved.
+                if let Some(at) = Component::ALL.iter().position(|c| *c == component) {
+                    self.component_cursor = at;
+                }
+                self.toggle_component(component);
+            }
             CommandId::Save => return Some(Outcome::Save),
             CommandId::Discard => self.discard(),
             CommandId::Refresh => self.effect = Some(Effect::Refresh),
             CommandId::Repository => self.open_repository(),
             CommandId::Screenshot => self.effect = Some(Effect::Screenshot),
             CommandId::Docs => {
-                self.effect = Some(Effect::Open(format!(
-                    "{}{DOCS_CHAPTER}",
-                    crate::cli::DOCS_URL
-                )))
+                let chapter = match self.page {
+                    Page::Models => DOCS_CHAPTER,
+                    Page::Components => COMPONENTS_DOCS_CHAPTER,
+                };
+                self.effect = Some(Effect::Open(format!("{}{chapter}", crate::cli::DOCS_URL)))
             }
             CommandId::Help => self.mode = Mode::Help,
             CommandId::Quit => return self.quit(),
@@ -510,14 +606,12 @@ impl<'a> App<'a> {
 
     /// Every command the palette offers, in the order it lists them.
     ///
-    /// The selected model is named where a command acts on it, so the palette
-    /// reads as a sentence about what is under the cursor rather than as a
-    /// menu of verbs.
+    /// The row under the cursor is named where a command acts on it, so the
+    /// palette reads as a sentence about what is selected rather than as a
+    /// menu of verbs. The page decides which rows those are: the entries that
+    /// resolve a version or filter a catalogue belong to the models page, and
+    /// on the components page the same three keys act on a component.
     pub fn commands(&self) -> Vec<Command> {
-        let name = self
-            .selected()
-            .map(|row| self.model(row).display_name.clone())
-            .unwrap_or_else(|| "the selected model".to_string());
         let entry = |id, label: String, key, short| Command {
             id,
             label,
@@ -525,43 +619,99 @@ impl<'a> App<'a> {
             short,
             hit: None,
         };
-        vec![
-            entry(
-                CommandId::Toggle,
-                format!("Enable or disable {name}"),
-                "space",
-                "Toggle model",
-            ),
-            entry(
-                CommandId::SetPort,
-                format!("Set a host port for {name}"),
-                "p",
-                "Set port",
-            ),
-            entry(
-                CommandId::RemovePort,
-                format!("Remove the host port of {name}"),
-                "P",
-                "Remove port",
-            ),
-            entry(
-                CommandId::SetChannel,
-                format!("Set the channel of {name}: stable or latest"),
-                "v",
-                "Set channel",
-            ),
-            entry(
-                CommandId::Templates,
-                "Show or hide templates".to_string(),
-                "t",
-                "Templates",
-            ),
-            entry(
-                CommandId::Filter,
-                "Filter the model list".to_string(),
-                "/",
-                "Filter",
-            ),
+        let other = match self.page {
+            Page::Models => Page::Components,
+            Page::Components => Page::Models,
+        };
+        let mut commands = vec![entry(
+            CommandId::Page,
+            format!("Go to the {} page", other.title()),
+            "tab",
+            "Other page",
+        )];
+
+        match self.page {
+            Page::Models => {
+                let name = self
+                    .selected()
+                    .map(|row| self.model(row).display_name.clone())
+                    .unwrap_or_else(|| "the selected model".to_string());
+                commands.extend([
+                    entry(
+                        CommandId::Toggle,
+                        format!("Enable or disable {name}"),
+                        "space",
+                        "Toggle model",
+                    ),
+                    entry(
+                        CommandId::SetPort,
+                        format!("Set a host port for {name}"),
+                        "p",
+                        "Set port",
+                    ),
+                    entry(
+                        CommandId::RemovePort,
+                        format!("Remove the host port of {name}"),
+                        "P",
+                        "Remove port",
+                    ),
+                    entry(
+                        CommandId::SetChannel,
+                        format!("Set the channel of {name}: stable or latest"),
+                        "v",
+                        "Set channel",
+                    ),
+                    entry(
+                        CommandId::Templates,
+                        "Show or hide templates".to_string(),
+                        "t",
+                        "Templates",
+                    ),
+                    entry(
+                        CommandId::Filter,
+                        "Filter the model list".to_string(),
+                        "/",
+                        "Filter",
+                    ),
+                ]);
+            }
+            Page::Components => {
+                let name = self.selected_component().name();
+                commands.extend([
+                    entry(
+                        CommandId::Toggle,
+                        format!("Enable or disable the {name} component"),
+                        "space",
+                        "Toggle component",
+                    ),
+                    entry(
+                        CommandId::SetPort,
+                        format!("Set a host port for the {name} component"),
+                        "p",
+                        "Set port",
+                    ),
+                    entry(
+                        CommandId::RemovePort,
+                        format!("Remove the host port of the {name} component"),
+                        "P",
+                        "Remove port",
+                    ),
+                ]);
+            }
+        }
+
+        // Every component by name, from either page: this is where someone
+        // looking for OCS or an object store finds out the browser has them.
+        for component in Component::ALL {
+            commands.push(entry(
+                CommandId::Component(*component),
+                format!("Turn the {} component on or off", component.name()),
+                "",
+                component.name(),
+            ));
+        }
+
+        commands.extend([
             entry(
                 CommandId::Save,
                 "Save the changes and apply them".to_string(),
@@ -580,12 +730,20 @@ impl<'a> App<'a> {
                 "",
                 "Refresh registry",
             ),
-            entry(
+        ]);
+        if self.page == Page::Models {
+            let name = self
+                .selected()
+                .map(|row| self.model(row).display_name.clone())
+                .unwrap_or_else(|| "the selected model".to_string());
+            commands.push(entry(
                 CommandId::Repository,
                 format!("Open the repository of {name}"),
                 "o",
                 "Open repository",
-            ),
+            ));
+        }
+        commands.extend([
             entry(
                 CommandId::Screenshot,
                 "Save a screenshot (SVG)".to_string(),
@@ -605,7 +763,8 @@ impl<'a> App<'a> {
                 "Help",
             ),
             entry(CommandId::Quit, "Quit the browser".to_string(), "q", "Quit"),
-        ]
+        ]);
+        commands
     }
 
     /// The commands the palette's filter leaves, each carrying where it hit.
@@ -670,19 +829,24 @@ impl<'a> App<'a> {
         match action {
             Action::Up => self.move_by(-1),
             Action::Down => self.move_by(1),
-            Action::Top => self.cursor = 0,
-            Action::Bottom => self.cursor = self.visible.len().saturating_sub(1),
+            Action::Top => self.move_by(-(self.row_count() as isize)),
+            Action::Bottom => self.move_by(self.row_count() as isize),
             Action::PageUp => self.move_by(-(PAGE_JUMP as isize)),
             Action::PageDown => self.move_by(PAGE_JUMP as isize),
+            Action::NextPage => self.turn_page(1),
+            Action::PrevPage => self.turn_page(-1),
             Action::Toggle => self.toggle(),
             Action::PortPrompt => self.open_port_prompt(),
             Action::RemovePort => self.remove_port(),
-            Action::ChannelPrompt => self.open_channel_prompt(),
-            Action::ToggleTemplates => {
+            // A component follows no channel, so the dialog belongs to the
+            // model page alone.
+            Action::ChannelPrompt if self.page == Page::Models => self.open_channel_prompt(),
+            // Nor is a component filtered or hidden: three rows need neither.
+            Action::ToggleTemplates if self.page == Page::Models => {
                 self.show_templates = !self.show_templates;
                 self.refilter();
             }
-            Action::StartFilter => self.mode = Mode::Filter,
+            Action::StartFilter if self.page == Page::Models => self.mode = Mode::Filter,
             Action::ClearFilterOrQuit => {
                 if self.filter.is_empty() {
                     return self.quit();
@@ -691,7 +855,9 @@ impl<'a> App<'a> {
                 self.refilter();
             }
             Action::Info => {
-                if self.selected().is_some() {
+                // The components page always has a row to describe; the model
+                // list can be filtered down to none.
+                if self.page == Page::Components || self.selected().is_some() {
                     self.mode = Mode::Info;
                     self.info_scroll = 0;
                 }
@@ -709,8 +875,10 @@ impl<'a> App<'a> {
                     self.message = Some(NOTHING_TO_DISCARD_HINT.to_string());
                 }
             }
-            Action::OpenRepository => self.open_repository(),
-            Action::ImageRef => self.show_image_ref(),
+            // Both are about a marketplace model: a component has no
+            // repository of its own and no image reference to copy.
+            Action::OpenRepository if self.page == Page::Models => self.open_repository(),
+            Action::ImageRef if self.page == Page::Models => self.show_image_ref(),
             Action::Help => self.mode = Mode::Help,
             Action::Save => return Some(Outcome::Save),
             Action::Quit => return self.quit(),
@@ -729,7 +897,8 @@ impl<'a> App<'a> {
         }
     }
 
-    /// Put every row back where the project state had it.
+    /// Put every row back where the project state had it, on both pages: `u`
+    /// means "nothing I did this session", not "nothing on this page".
     fn discard(&mut self) {
         for row in &mut self.rows {
             let recorded = self.initial.get(&self.registry.models[row.model_idx].id);
@@ -738,8 +907,110 @@ impl<'a> App<'a> {
             row.port = recorded.and_then(|e| e.host_port);
             row.want = row.port.map(PortWant::Exact).unwrap_or_default();
         }
+        self.components = self.initial_components.clone();
         self.dirty = false;
         self.refilter();
+    }
+
+    /// Go to another page. With two of them either direction flips, which is
+    /// what `Tab` and shift-Tab both come to.
+    fn turn_page(&mut self, delta: isize) {
+        let at = Page::ALL
+            .iter()
+            .position(|page| *page == self.page)
+            .unwrap_or(0) as isize;
+        let next = (at + delta).rem_euclid(Page::ALL.len() as isize) as usize;
+        self.page = Page::ALL[next];
+    }
+
+    /// How many rows the page under the cursor has.
+    fn row_count(&self) -> usize {
+        match self.page {
+            Page::Models => self.visible.len(),
+            Page::Components => Component::ALL.len(),
+        }
+    }
+
+    /// The component the components page's cursor is on.
+    pub fn selected_component(&self) -> Component {
+        Component::ALL[self.component_cursor.min(Component::ALL.len() - 1)]
+    }
+
+    /// Where a component is reached, as the REACH column prints it.
+    ///
+    /// The same three answers `chaps components list` gives: its own host port,
+    /// the compose network, or a dash for a component this deployment does not
+    /// have. chap-core's port is the API port, which lives in `project.yaml`
+    /// rather than in the component block.
+    pub fn component_reach(&self, component: Component) -> String {
+        if !self.components.is_enabled(component) {
+            return "-".to_string();
+        }
+        match component {
+            Component::ChapCore => format!("http://localhost:{}", self.api_port),
+            Component::Ocs => self.components.ocs_reach(),
+            Component::S3 => match self.components.s3.port {
+                Some(port) => format!("http://localhost:{port}"),
+                None => "internal".to_string(),
+            },
+        }
+    }
+
+    /// Every row of the components page, in [`Component::ALL`] order.
+    pub fn component_lines(&self) -> Vec<ComponentLine> {
+        Component::ALL
+            .iter()
+            .map(|component| ComponentLine {
+                component: *component,
+                enabled: self.components.is_enabled(*component),
+                recorded: self.initial_components.is_enabled(*component),
+                reach: self.component_reach(*component),
+                summary: component.summary(),
+            })
+            .collect()
+    }
+
+    /// The host port the wanted set records for a component, whether it is on
+    /// or not: what the prompt opens with, and what a toggle brings back.
+    fn component_port(&self, component: Component) -> Option<u16> {
+        match component {
+            Component::ChapCore => None,
+            Component::Ocs => self.components.ocs.port,
+            Component::S3 => self.components.s3.port,
+        }
+    }
+
+    fn set_component_port(&mut self, component: Component, port: Option<u16>) {
+        match component {
+            Component::ChapCore => {}
+            Component::Ocs => self.components.ocs.port = port,
+            Component::S3 => self.components.s3.port = port,
+        }
+    }
+
+    /// Turn one component on or off, or say why it cannot go off.
+    ///
+    /// Turning chap-core off with models enabled is refused in the words
+    /// `chaps components disable chap-core` uses, because it is the same
+    /// dependency: a model service registers with chap-core.
+    fn toggle_component(&mut self, component: Component) {
+        let wanted = !self.components.is_enabled(component);
+        if !wanted && component == Component::ChapCore {
+            let staying: Vec<String> = self
+                .rows
+                .iter()
+                .filter(|row| row.enabled)
+                .map(|row| self.model(row).id.clone())
+                .collect();
+            if !staying.is_empty() {
+                self.message = Some(models_need_chap_core(&staying));
+                return;
+            }
+        }
+        // The port it publishes is left alone, so a component switched off and
+        // on again in one session comes back exactly as the project has it.
+        self.components.set_enabled(component, wanted);
+        self.dirty = self.has_changes();
     }
 
     /// Ask the caller to open the selected model's repository.
@@ -831,6 +1102,55 @@ impl<'a> App<'a> {
                 }
             }
         }
+        changes.extend(self.component_changes());
+        changes
+    }
+
+    /// What saving would do to the component set, one line per component.
+    ///
+    /// Listed after the models, in [`Component::ALL`] order, so the strip reads
+    /// the way the two pages are ordered.
+    pub fn component_changes(&self) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for component in Component::ALL {
+            let name = component.name().to_string();
+            let was = self.initial_components.is_enabled(*component);
+            let now = self.components.is_enabled(*component);
+            match (was, now) {
+                (false, true) => changes.push(Change {
+                    kind: ChangeKind::Add,
+                    name,
+                    detail: match self.components.port_of(*component) {
+                        Some(port) => format!("enable on port {port}"),
+                        None => "enable, on the compose network".to_string(),
+                    },
+                }),
+                (true, false) => changes.push(Change {
+                    kind: ChangeKind::Remove,
+                    name,
+                    detail: match component.volume() {
+                        Some(volume) => format!("disable · the {volume} volume is kept"),
+                        None => "disable · its own volumes are kept".to_string(),
+                    },
+                }),
+                // Still on, and the port under it may have moved.
+                (true, true) => {
+                    let before = self.initial_components.port_of(*component);
+                    let now = self.components.port_of(*component);
+                    if before != now {
+                        changes.push(Change {
+                            kind: ChangeKind::Update,
+                            name,
+                            detail: match now {
+                                Some(port) => format!("publish port {port}"),
+                                None => "remove the host port".to_string(),
+                            },
+                        });
+                    }
+                }
+                (false, false) => {}
+            }
+        }
         changes
     }
 
@@ -863,12 +1183,18 @@ impl<'a> App<'a> {
     }
 
     /// Header counters: catalogue size, enabled rows, pending changes.
+    ///
+    /// The pending count is both pages' worth, because one `s` writes both and
+    /// a counter that only saw the page in front of you would be a way to lose
+    /// the other one.
     pub fn counts(&self) -> Counts {
         let selection = self.selection();
         Counts {
             total: self.rows.len(),
             enabled: self.rows.iter().filter(|r| r.enabled).count(),
-            pending: selection.enable.len() + selection.disable.len(),
+            pending: selection.enable.len()
+                + selection.disable.len()
+                + self.component_changes().len(),
         }
     }
 
@@ -916,22 +1242,42 @@ impl<'a> App<'a> {
                 }
             }
         }
+        // The component set rides on the same selection, so one `s` writes
+        // both pages. It is only set when the session moved something: apply
+        // would treat an identical set as a no-op, but a selection that says
+        // nothing is what makes `chaps ui` able to say "no changes".
+        if self.components != self.initial_components {
+            selection.components = Some(self.components.clone());
+        }
         selection
     }
 
-    /// Whether the selection would change anything.
+    /// Whether the selection would change anything, on either page.
     pub fn has_changes(&self) -> bool {
         let selection = self.selection();
-        !selection.enable.is_empty() || !selection.disable.is_empty()
+        !selection.enable.is_empty()
+            || !selection.disable.is_empty()
+            || selection.components.is_some()
     }
 
     fn toggle(&mut self) {
+        if self.page == Page::Components {
+            self.toggle_component(self.selected_component());
+            return;
+        }
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
         let is_template = self.model(&self.rows[row_idx]).is_template();
         if is_template && !self.show_templates {
             self.message = Some(TEMPLATE_HIDDEN_HINT.to_string());
+            return;
+        }
+        // A model registers with chap-core, so a session that has switched
+        // chap-core off says so now rather than at the save, where the
+        // refusal would arrive after the browser had closed.
+        if !self.rows[row_idx].enabled && !self.components.chap_core.enabled {
+            self.message = Some(crate::components::MODELS_NEED_CHAP_CORE.to_string());
             return;
         }
 
@@ -953,10 +1299,14 @@ impl<'a> App<'a> {
     /// it asks for today.
     ///
     /// The browser does not pick the port: `auto` leaves that to
-    /// [`crate::compose::apply`], which knows what the compose files and the
+    /// [`crate::compose::apply()`], which knows what the compose files and the
     /// machine have taken, and an exact port is a claim the save has to
     /// honour or fail on.
     fn open_port_prompt(&mut self) {
+        if self.page == Page::Components {
+            self.open_component_port_prompt();
+            return;
+        }
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
@@ -974,8 +1324,35 @@ impl<'a> App<'a> {
         self.mode = Mode::Port;
     }
 
+    /// Open the prompt on the component under the cursor, prefilled with the
+    /// port it publishes today.
+    ///
+    /// chap-core is refused rather than prompted: its host port is the API
+    /// port, and `project.yaml` is where that one lives.
+    fn open_component_port_prompt(&mut self) {
+        let component = self.selected_component();
+        if component == Component::ChapCore {
+            self.message = Some(CORE_PORT_IS_API_PORT.to_string());
+            return;
+        }
+        if !self.components.is_enabled(component) {
+            self.message = Some(PORT_NEEDS_COMPONENT_HINT.to_string());
+            return;
+        }
+        self.port_input = match self.component_port(component) {
+            Some(port) => port.to_string(),
+            None => String::new(),
+        };
+        self.port_error = None;
+        self.mode = Mode::Port;
+    }
+
     /// Read what was typed, and either take it or say why not.
     fn apply_port_prompt(&mut self) {
+        if self.page == Page::Components {
+            self.apply_component_port_prompt();
+            return;
+        }
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             self.mode = Mode::Browse;
             return;
@@ -1004,9 +1381,51 @@ impl<'a> App<'a> {
         }
     }
 
+    /// The component prompt's answer: a number, or nothing at all.
+    fn apply_component_port_prompt(&mut self) {
+        let component = self.selected_component();
+        // Every other port this session has claimed, so two components cannot
+        // be sent to the same one.
+        let mut taken: Vec<(u16, String)> = Vec::new();
+        for other in Component::ALL.iter().filter(|c| **c != component) {
+            if let Some(port) = self.components.port_of(*other) {
+                taken.push((port, format!("the {} component", other.name())));
+            }
+        }
+        for row in self.rows.iter().filter(|row| row.enabled) {
+            if let PortWant::Exact(port) = row.want {
+                taken.push((port, format!("the model {}", self.model(row).id)));
+            }
+        }
+        match parse_component_port(&self.port_input, self.api_port, &taken) {
+            Ok(port) => {
+                self.set_component_port(component, port);
+                self.port_error = None;
+                self.port_input.clear();
+                self.mode = Mode::Browse;
+                self.dirty = self.has_changes();
+            }
+            Err(why) => self.port_error = Some(why),
+        }
+    }
+
     /// Take the host port off the row under the cursor, which is what the
     /// palette's second port command asks for.
     fn remove_port(&mut self) {
+        if self.page == Page::Components {
+            let component = self.selected_component();
+            if component == Component::ChapCore {
+                self.message = Some(CORE_PORT_IS_API_PORT.to_string());
+                return;
+            }
+            if !self.components.is_enabled(component) {
+                self.message = Some(PORT_NEEDS_COMPONENT_HINT.to_string());
+                return;
+            }
+            self.set_component_port(component, None);
+            self.dirty = self.has_changes();
+            return;
+        }
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
@@ -1040,6 +1459,12 @@ impl<'a> App<'a> {
     }
 
     fn move_by(&mut self, delta: isize) {
+        if self.page == Page::Components {
+            let last = (Component::ALL.len() - 1) as isize;
+            let next = (self.component_cursor as isize).saturating_add(delta);
+            self.component_cursor = next.clamp(0, last) as usize;
+            return;
+        }
         if self.visible.is_empty() {
             self.cursor = 0;
             return;
@@ -1116,7 +1541,7 @@ fn port_change(want: PortWant, recorded: Option<u16>) -> Option<PortRequest> {
 ///
 /// The reasons are the ones `chaps models expose` gives, minus the two only a
 /// save can answer - a port another compose file claims, and a port something
-/// on this machine is listening on - which [`crate::compose::apply`] checks
+/// on this machine is listening on - which [`crate::compose::apply()`] checks
 /// when the selection is applied.
 fn parse_port(
     input: &str,
@@ -1149,6 +1574,41 @@ fn parse_port(
         return Err(format!("port {port} is already taken by another model"));
     }
     Ok(PortWant::Exact(port))
+}
+
+/// What the port prompt accepts on the components page: a number, or nothing
+/// at all.
+///
+/// `auto` is not one of them. It means "the lowest free port in this project's
+/// model range", which is a question the save answers for a model service; a
+/// component publishes a well-known port of its own and is not in that range,
+/// so the prompt says what to type instead of picking a number nobody asked
+/// for. The range itself is not checked either, for the same reason.
+fn parse_component_port(
+    input: &str,
+    api_port: u16,
+    taken: &[(u16, String)],
+) -> std::result::Result<Option<u16>, String> {
+    let text = input.trim();
+    if text.is_empty() || text.eq_ignore_ascii_case("none") {
+        return Ok(None);
+    }
+    if text.eq_ignore_ascii_case("auto") {
+        return Err(COMPONENT_HAS_NO_AUTO_PORT.to_string());
+    }
+    let port: u16 = text
+        .parse()
+        .map_err(|_| format!("`{text}` is not a port; type a number, or none"))?;
+    if port == 0 {
+        return Err("`0` is not a port; type a number, or none".to_string());
+    }
+    if port == api_port {
+        return Err(format!("port {port} is chap-core's own API port"));
+    }
+    if let Some((_, holder)) = taken.iter().find(|(other, _)| *other == port) {
+        return Err(format!("port {port} is already taken by {holder}"));
+    }
+    Ok(Some(port))
 }
 
 /// Case-insensitive substring match over the fields a user would type.
@@ -1938,7 +2398,7 @@ mod tests {
         app.reduce(Action::Palette);
         assert_eq!(app.mode, Mode::Palette);
         assert_eq!(app.palette_matches().len(), app.commands().len());
-        assert_eq!(app.commands().len(), 14);
+        assert_eq!(app.commands().len(), 18);
 
         for c in "PORT".chars() {
             app.reduce(Action::PaletteChar(c));
@@ -2257,6 +2717,513 @@ mod tests {
         assert!(app.reduce(Action::PaletteRun).is_none());
         assert_eq!(app.mode, Mode::Browse, "the palette is out of the picture");
         assert_eq!(app.take_effect(), Some(Effect::Screenshot));
+    }
+
+    /// Put the cursor on a component and make sure the page is up.
+    fn focus_component(app: &mut App, component: Component) {
+        app.page = Page::Components;
+        app.component_cursor = Component::ALL
+            .iter()
+            .position(|c| *c == component)
+            .expect("every component is listed");
+    }
+
+    /// `Tab` is the only way between the two lists, and going there leaves the
+    /// model page exactly as it was.
+    #[test]
+    fn tab_walks_the_pages_and_the_model_page_is_untouched() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        assert_eq!(app.page, Page::Models);
+        app.reduce(Action::Down);
+        let on = app.selected_model().map(|m| m.id.clone());
+        let visible = app.visible.len();
+
+        assert!(app.reduce(Action::NextPage).is_none());
+        assert_eq!(app.page, Page::Components);
+        assert_eq!(app.component_cursor, 0);
+        // Movement on the components page moves the components page's cursor.
+        app.reduce(Action::Down);
+        assert_eq!(app.component_cursor, 1);
+        app.reduce(Action::Bottom);
+        assert_eq!(app.component_cursor, Component::ALL.len() - 1);
+        app.reduce(Action::Down);
+        assert_eq!(
+            app.component_cursor,
+            Component::ALL.len() - 1,
+            "there are only three"
+        );
+        app.reduce(Action::Top);
+        assert_eq!(app.component_cursor, 0);
+
+        // Back, and nothing about the model list moved.
+        app.reduce(Action::NextPage);
+        assert_eq!(app.page, Page::Models);
+        assert_eq!(app.selected_model().map(|m| m.id.clone()), on);
+        assert_eq!(app.visible.len(), visible);
+        assert!(!app.has_changes());
+
+        // shift-Tab is the other direction, which with two pages is the same
+        // flip.
+        app.reduce(Action::PrevPage);
+        assert_eq!(app.page, Page::Components);
+        app.reduce(Action::PrevPage);
+        assert_eq!(app.page, Page::Models);
+    }
+
+    /// The rows the components page draws, in the columns `chaps components
+    /// list` prints them in.
+    #[test]
+    fn the_component_rows_say_what_each_one_is_and_where_it_is_reached() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        let app = App::new(&registry, &state);
+
+        let lines = app.component_lines();
+        assert_eq!(
+            lines
+                .iter()
+                .map(|l| l.component)
+                .collect::<Vec<Component>>(),
+            Component::ALL.to_vec()
+        );
+        // chap-core's port is the API port, which lives in project.yaml.
+        assert_eq!(
+            lines[0].reach,
+            format!("http://localhost:{}", state.api_port)
+        );
+        assert!(lines[0].enabled && lines[0].recorded);
+        assert_eq!(lines[1].reach, "http://localhost:9000");
+        assert_eq!(lines[1].summary, Component::Ocs.summary());
+        assert_eq!(lines[2].reach, "-", "a component this deployment has not");
+        assert!(!lines[2].enabled);
+
+        // An OCS instance behind a proxy names the proxy where the address
+        // would be, which is what `Components::ocs_reach` does for the CLI.
+        let mut app = App::new(&registry, &state);
+        app.components.ocs.port = None;
+        app.components.ocs.base_url = Some("https://ocs.example.org".to_string());
+        assert_eq!(
+            app.component_lines()[1].reach,
+            "internal (proxy: https://ocs.example.org)"
+        );
+        // And the object store says where it is reached from inside.
+        app.components.set_enabled(Component::S3, true);
+        assert_eq!(app.component_lines()[2].reach, "internal");
+        app.components.s3.port = Some(18091);
+        assert_eq!(app.component_lines()[2].reach, "http://localhost:18091");
+    }
+
+    /// `space` on a component is the whole of adding one: the selection carries
+    /// the wanted set, and the models beside it are untouched.
+    #[test]
+    fn space_on_ocs_selects_the_component_set_that_has_it() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::Ocs);
+
+        assert!(app.reduce(Action::Toggle).is_none());
+        assert!(app.dirty);
+        assert!(app.components.ocs.enabled);
+
+        let selection = app.selection();
+        assert!(selection.enable.is_empty() && selection.disable.is_empty());
+        let wanted = selection.components.expect("the component set is selected");
+        assert!(wanted.ocs.enabled);
+        assert!(wanted.chap_core.enabled, "chap-core is left where it was");
+        assert!(!wanted.s3.enabled);
+        assert_eq!(app.counts().pending, 1);
+
+        // The strip says what saving would do, in the same shape a model does.
+        let changes = app.changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, ChangeKind::Add);
+        assert_eq!(changes[0].name, "ocs");
+        assert_eq!(changes[0].detail, "enable on port 9000");
+
+        // Off again is back where the project had it, so there is nothing to
+        // save and nothing to say about components.
+        app.reduce(Action::Toggle);
+        assert!(!app.has_changes());
+        assert!(app.selection().components.is_none());
+        assert_eq!(app.counts().pending, 0);
+    }
+
+    /// Turning a component off is a removal, and it says what is kept.
+    #[test]
+    fn switching_a_component_off_is_a_removal_that_keeps_the_volume() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Ocs);
+
+        app.reduce(Action::Toggle);
+        let changes = app.changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, ChangeKind::Remove);
+        assert_eq!(changes[0].detail, "disable · the ocs_data volume is kept");
+        let wanted = app.selection().components.expect("a set is selected");
+        assert!(!wanted.ocs.enabled);
+        assert_eq!(
+            wanted.ocs.port,
+            Some(9000),
+            "its port is left alone, so switching it back on restores it"
+        );
+    }
+
+    /// The one hard dependency between components, in the words `chaps
+    /// components disable chap-core` uses.
+    #[test]
+    fn chap_core_cannot_be_switched_off_while_a_model_is_enabled() {
+        let registry = registry();
+        let state = state_with(&registry, EWARS, Some(Channel::Stable));
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::ChapCore);
+
+        app.reduce(Action::Toggle);
+        assert_eq!(
+            app.message.as_deref(),
+            Some(models_need_chap_core(&[EWARS.to_string()]).as_str())
+        );
+        assert!(app.components.chap_core.enabled, "it is still on");
+        assert!(!app.has_changes());
+
+        // Disabling the model first is what clears the way, and both changes
+        // ride on one selection.
+        app.page = Page::Models;
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        focus_component(&mut app, Component::ChapCore);
+        app.reduce(Action::Toggle);
+        assert!(!app.components.chap_core.enabled);
+        let selection = app.selection();
+        assert_eq!(selection.disable, vec![EWARS.to_string()]);
+        assert!(!selection.components.expect("a set").chap_core.enabled);
+        assert_eq!(app.counts().pending, 2);
+    }
+
+    /// `p` on a component: a number or `none`, never `auto`, and never on
+    /// chap-core - whose host port is the API port.
+    #[test]
+    fn the_component_port_prompt_takes_a_number_or_none() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Ocs);
+
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.mode, Mode::Port);
+        assert_eq!(app.port_input, "9000", "prefilled with what it publishes");
+
+        ask_for_port(&mut app, "none");
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.components.ocs.port, None);
+        let wanted = app.selection().components.expect("a set is selected");
+        assert_eq!(wanted.ocs.port, None, "no host port survives the save");
+        assert!(wanted.ocs.enabled, "and it is still enabled");
+        let changes = app.changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, ChangeKind::Update);
+        assert_eq!(changes[0].detail, "remove the host port");
+
+        // A number is taken as it is: a component is not in the model range,
+        // so the range is not checked.
+        ask_for_port(&mut app, "18090");
+        assert_eq!(app.components.ocs.port, Some(18090));
+        assert_eq!(app.changes()[0].detail, "publish port 18090");
+
+        // And `auto` is refused with what to type instead.
+        ask_for_port(&mut app, "auto");
+        assert_eq!(app.mode, Mode::Port);
+        assert_eq!(app.port_error.as_deref(), Some(COMPONENT_HAS_NO_AUTO_PORT));
+        assert_eq!(app.components.ocs.port, Some(18090), "nothing was taken");
+        app.reduce(Action::FilterCancel);
+
+        // `P` takes the port away without a prompt, as it does for a model.
+        app.reduce(Action::RemovePort);
+        assert_eq!(app.components.ocs.port, None);
+    }
+
+    #[test]
+    fn the_component_port_prompt_refuses_chap_core_and_a_component_that_is_off() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+
+        focus_component(&mut app, Component::ChapCore);
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.message.as_deref(), Some(CORE_PORT_IS_API_PORT));
+        app.reduce(Action::RemovePort);
+        assert_eq!(app.message.as_deref(), Some(CORE_PORT_IS_API_PORT));
+
+        focus_component(&mut app, Component::S3);
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.message.as_deref(), Some(PORT_NEEDS_COMPONENT_HINT));
+        assert!(!app.has_changes());
+    }
+
+    /// What the component prompt accepts, away from the reducer.
+    #[test]
+    fn the_component_port_prompt_parses_a_number_and_nothing_else() {
+        let taken = vec![(18090u16, "the s3 component".to_string())];
+        let ok = |text: &str| parse_component_port(text, 8000, &taken).expect(text);
+        assert_eq!(ok(""), None);
+        assert_eq!(ok(" none "), None);
+        assert_eq!(ok("NONE"), None);
+        assert_eq!(ok(" 9000 "), Some(9000));
+        // Nothing about the model range: a component is not in it.
+        assert_eq!(ok("80"), Some(80));
+
+        let why = |text: &str| parse_component_port(text, 8000, &taken).expect_err(text);
+        assert_eq!(why("auto"), COMPONENT_HAS_NO_AUTO_PORT);
+        assert!(why("8000").contains("API port"));
+        assert!(why("18090").contains("already taken by the s3 component"));
+        assert!(why("0").contains("not a port"));
+        assert!(why("nine thousand").contains("not a port"));
+    }
+
+    /// Two components cannot be sent to one port, and neither can a component
+    /// and a model.
+    #[test]
+    fn a_component_port_another_row_asks_for_is_refused() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        state.components.set_enabled(Component::S3, true);
+        let mut app = App::new(&registry, &state);
+
+        focus_component(&mut app, Component::S3);
+        ask_for_port(&mut app, "9000");
+        assert_eq!(app.mode, Mode::Port);
+        assert!(
+            app.port_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("already taken by the ocs component"),
+            "{:?}",
+            app.port_error
+        );
+        ask_for_port(&mut app, "18091");
+        assert_eq!(app.components.s3.port, Some(18091));
+
+        // A model's published port is taken too.
+        app.page = Page::Models;
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        ask_for_port(&mut app, "5010");
+        focus_component(&mut app, Component::S3);
+        ask_for_port(&mut app, "5010");
+        assert!(
+            app.port_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains(&format!("already taken by the model {EWARS}")),
+            "{:?}",
+            app.port_error
+        );
+    }
+
+    /// `u` is "nothing I did this session", both pages included, and the quit
+    /// confirmation counts both too.
+    #[test]
+    fn discarding_and_quitting_account_for_both_pages() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        focus_component(&mut app, Component::Ocs);
+        app.reduce(Action::Toggle);
+        assert_eq!(app.counts().pending, 2);
+
+        // A component change alone is enough to be asked before quitting.
+        let mut only_component = App::new(&registry, &empty_state());
+        focus_component(&mut only_component, Component::S3);
+        only_component.reduce(Action::Toggle);
+        assert!(only_component.dirty);
+        assert!(only_component.reduce(Action::Quit).is_none());
+        assert_eq!(only_component.mode, Mode::ConfirmQuit);
+
+        app.reduce(Action::Discard);
+        assert_eq!(app.message.as_deref(), Some(DISCARDED_HINT));
+        assert!(!app.has_changes());
+        assert!(!app.components.ocs.enabled);
+        assert!(app.selection().components.is_none());
+    }
+
+    /// The palette is where someone who has never pressed Tab finds the page
+    /// and the components on it.
+    #[test]
+    fn the_palette_reaches_the_other_page_and_every_component() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        app.reduce(Action::Palette);
+        for c in "components page".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        let matched = app.palette_matches();
+        assert_eq!(matched.len(), 1, "{matched:?}");
+        assert_eq!(matched[0].id, CommandId::Page);
+        assert_eq!(matched[0].key, "tab");
+        app.reduce(Action::PaletteRun);
+        assert_eq!(app.page, Page::Components);
+        assert_eq!(app.mode, Mode::Browse);
+        // And from there it offers the way back.
+        assert!(
+            app.commands()
+                .iter()
+                .any(|c| c.label == "Go to the models page")
+        );
+
+        // Every component by name, from either page.
+        for (query, component) in [
+            ("turn the ocs", Component::Ocs),
+            ("turn the s3", Component::S3),
+        ] {
+            let mut app = App::new(&registry, &empty_state());
+            app.reduce(Action::Palette);
+            for c in query.chars() {
+                app.reduce(Action::PaletteChar(c));
+            }
+            let matched = app.palette_matches();
+            assert_eq!(matched.len(), 1, "{query}: {matched:?}");
+            assert_eq!(matched[0].id, CommandId::Component(component));
+            app.reduce(Action::PaletteRun);
+            assert_eq!(app.page, Page::Models, "it does not move the page");
+            assert!(app.components.is_enabled(component), "{query} turned it on");
+            assert_eq!(
+                app.selected_component(),
+                component,
+                "the cursor followed, so the page talks about it"
+            );
+        }
+
+        // Turning chap-core off from the palette is refused just as `space` is.
+        let state = state_with(&registry, EWARS, Some(Channel::Stable));
+        let mut app = App::new(&registry, &state);
+        app.reduce(Action::Palette);
+        for c in "turn the chap-core".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::PaletteRun);
+        assert!(app.components.chap_core.enabled);
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("chap-core cannot be disabled"),
+            "{:?}",
+            app.message
+        );
+    }
+
+    /// On the components page the three row keys act on a component, and the
+    /// entries that only make sense for a catalogue are not offered.
+    #[test]
+    fn the_palette_follows_the_page_it_was_opened_from() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::Ocs);
+        let labels: Vec<String> = app.commands().iter().map(|c| c.label.clone()).collect();
+        assert!(
+            labels.contains(&"Enable or disable the ocs component".to_string()),
+            "{labels:?}"
+        );
+        assert!(
+            labels.contains(&"Set a host port for the ocs component".to_string()),
+            "{labels:?}"
+        );
+        for gone in [
+            "Show or hide templates",
+            "Filter the model list",
+            "Open the repository of CHAP-EWARS",
+        ] {
+            assert!(
+                !labels.iter().any(|label| label == gone),
+                "{gone} is offered on the components page: {labels:?}"
+            );
+        }
+
+        // And the page's own docs chapter is what the palette opens.
+        app.reduce(Action::Palette);
+        for c in "chaps documentation".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::PaletteRun);
+        assert_eq!(
+            app.take_effect(),
+            Some(Effect::Open(format!(
+                "{}{COMPONENTS_DOCS_CHAPTER}",
+                crate::cli::DOCS_URL
+            )))
+        );
+    }
+
+    /// The dependency in the other direction, caught while the browser is
+    /// still up: a session with chap-core switched off cannot enable a model,
+    /// because the selection it would produce is one apply refuses.
+    #[test]
+    fn a_model_cannot_be_enabled_while_this_session_has_chap_core_off() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::ChapCore);
+        app.reduce(Action::Toggle);
+        assert!(!app.components.chap_core.enabled);
+
+        app.page = Page::Models;
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        assert_eq!(
+            app.message.as_deref(),
+            Some(crate::components::MODELS_NEED_CHAP_CORE)
+        );
+        assert!(!app.selected().unwrap().enabled);
+        assert!(app.selection().enable.is_empty());
+
+        // Switching chap-core back on is what clears the way.
+        focus_component(&mut app, Component::ChapCore);
+        app.reduce(Action::Toggle);
+        app.page = Page::Models;
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        assert!(app.selected().unwrap().enabled);
+        let selection = app.selection();
+        assert_eq!(selection.enable.len(), 1);
+        assert!(
+            selection.components.is_none(),
+            "chap-core is back where the project had it, so the set says nothing"
+        );
+    }
+
+    /// The keys that belong to a catalogue do nothing on the components page:
+    /// a component follows no channel and three rows are not filtered.
+    #[test]
+    fn the_model_only_keys_are_inert_on_the_components_page() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::Ocs);
+        for action in [
+            Action::ChannelPrompt,
+            Action::StartFilter,
+            Action::ToggleTemplates,
+            Action::OpenRepository,
+            Action::ImageRef,
+        ] {
+            app.reduce(action.clone());
+            assert_eq!(app.mode, Mode::Browse, "{action:?} opened something");
+            assert!(app.take_effect().is_none(), "{action:?} left the terminal");
+        }
+        assert!(!app.show_templates);
+        assert!(app.filter.is_empty());
+        assert!(!app.has_changes());
+
+        // `i` always has a row to describe here, however the model list is
+        // filtered.
+        app.reduce(Action::Info);
+        assert_eq!(app.mode, Mode::Info);
     }
 
     #[test]

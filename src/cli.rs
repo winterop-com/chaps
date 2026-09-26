@@ -141,7 +141,7 @@ pub enum Command {
     /// Show and change what this deployment is made of
     Components(ComponentsArgs),
 
-    /// Open the model browser
+    /// Open the browser: marketplace models and components
     Ui(UiArgs),
 
     /// Inspect and refresh the marketplace registry
@@ -573,7 +573,7 @@ pub struct ModelsUnexposeArgs {
     pub id: String,
 }
 
-/// Open the model browser
+/// Open the browser: marketplace models and components
 #[derive(Debug, Clone, Args)]
 pub struct UiArgs {}
 

@@ -1,7 +1,5 @@
-//! TUI rendering: title bar, the model table, the summary strip, key bar and
-//! the overlays.
-//!
-//! Owned by agent C.
+//! TUI rendering: title bar, the model or component table, the summary strip,
+//! key bar and the overlays.
 //!
 //! Drawing never mutates the [`App`] except for one thing it alone can know:
 //! how far the details overlay can scroll, which depends on the size of the
@@ -9,8 +7,9 @@
 //! produced, and every colour comes from the [`Theme`]. The layout degrades on
 //! narrow terminals by dropping columns rather than wrapping or panicking.
 
+use crate::components::Component;
 use crate::registry::{Channel, Provenance, Version, VersionStatus};
-use crate::tui::app::{App, Change, ChangeKind, Command, Mode, PortWant, Row};
+use crate::tui::app::{App, Change, ChangeKind, Command, ComponentLine, Mode, Page, PortWant, Row};
 use crate::tui::keys::{self, Hint};
 use crate::tui::theme::Theme;
 use ratatui::Frame;
@@ -35,6 +34,15 @@ const PORT_W: usize = 16;
 /// Enough for `via chap-core`, when the full column does not fit.
 const PORT_MIN: usize = 13;
 const ID_MIN: usize = 10;
+/// The components page's columns: the name, whether this deployment has it,
+/// and where it is reached. What it is takes the rest of the line.
+const COMPONENT_W: usize = 12;
+const STATE_W: usize = 8;
+const REACH_W: usize = 24;
+/// Enough for `internal`, or the start of a URL, when the full column does
+/// not fit: where a component is reached is worth more than the sentence
+/// saying what it is.
+const REACH_MIN: usize = 10;
 /// The id column stops growing here: a table that stretches an id across a
 /// wide terminal only puts distance between the columns that matter.
 const ID_MAX: usize = 34;
@@ -81,7 +89,7 @@ fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let mut left = vec![
         Span::styled("chaps", theme.accent_style()),
         Span::styled(" · ", theme.dim_style()),
-        Span::styled("models", theme.label_style()),
+        Span::styled(app.page.title(), theme.label_style()),
     ];
     // A filter is part of what is being looked at, so it sits with the title
     // rather than in a corner, with the cursor where the next letter lands.
@@ -94,8 +102,17 @@ fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     }
 
     let provenance = Span::styled(registry_label(&app.registry.provenance), theme.dim_style());
+    // The counts are about the page in front of the reader; the pending count
+    // is both pages', because one save writes both.
     let totals = Span::styled(
-        format!("{} models · {} enabled · ", counts.total, counts.enabled),
+        match app.page {
+            Page::Models => format!("{} models · {} enabled · ", counts.total, counts.enabled),
+            Page::Components => format!(
+                "{} components · {} enabled · ",
+                Component::ALL.len(),
+                app.components.enabled().len()
+            ),
+        },
         theme.dim_style(),
     );
     let pending = Span::styled(
@@ -172,18 +189,28 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let [head, rule_top, list, rule_bottom, strip] =
         Layout::vertical([head, rule_top, list, rule_bottom, strip]).areas(inner);
 
-    let columns = columns(inner.width as usize, kind_column(app));
-    draw_head(frame, head, &columns, theme);
-    draw_rule(frame, rule_top, theme);
-    draw_list(frame, list, app, &columns, theme);
+    match app.page {
+        Page::Models => {
+            let columns = columns(inner.width as usize, kind_column(app));
+            draw_head(frame, head, &columns, theme);
+            draw_rule(frame, rule_top, theme);
+            draw_list(frame, list, app, &columns, theme);
+        }
+        Page::Components => {
+            let columns = component_columns(inner.width as usize);
+            draw_component_head(frame, head, &columns, theme);
+            draw_rule(frame, rule_top, theme);
+            draw_component_list(frame, list, app, &columns, theme);
+        }
+    }
     draw_rule(frame, rule_bottom, theme);
     draw_strip(frame, strip, app, &changes, theme);
 }
 
-/// `Marketplace`, plus what a filter left of it.
+/// `Marketplace` or `Components`, plus what a filter left of it.
 fn pane_title(app: &App) -> String {
-    if app.filter.is_empty() {
-        return "Marketplace".to_string();
+    if app.page != Page::Models || app.filter.is_empty() {
+        return app.page.pane().to_string();
     }
     format!(
         "Marketplace · {} of {} match \"{}\"",
@@ -474,6 +501,149 @@ fn port_cell(
     }
 }
 
+/// The widths of the components table, so its headings and rows agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ComponentColumns {
+    component: usize,
+    state: usize,
+    reach: usize,
+    what: usize,
+}
+
+/// Hand out the width the components table has.
+///
+/// The name, the state and where it is reached come first, and the sentence
+/// saying what the component is takes whatever is left: a narrow terminal
+/// loses the end of that rather than losing which row is which or where it
+/// answers.
+fn component_columns(inner: usize) -> ComponentColumns {
+    let avail = inner.saturating_sub(MARKER_W);
+    let component = COMPONENT_W.min(avail);
+    let mut left = avail - component;
+    let mut take = |want: usize, min: usize| {
+        let width = if left > want {
+            want
+        } else if left > min && min > 0 {
+            min
+        } else {
+            0
+        };
+        if width > 0 {
+            left -= width + 1;
+        }
+        width
+    };
+    let state = take(STATE_W, 0);
+    let reach = take(REACH_W, REACH_MIN);
+    let what = left.saturating_sub(1);
+    ComponentColumns {
+        component,
+        state,
+        reach,
+        what,
+    }
+}
+
+/// `COMPONENT  STATE  REACH  WHAT IT IS`, the columns `components list` prints.
+fn draw_component_head(frame: &mut Frame, area: Rect, columns: &ComponentColumns, theme: &Theme) {
+    if area.height == 0 {
+        return;
+    }
+    let mut text = " ".repeat(MARKER_W);
+    for (width, label) in [
+        (columns.component, "COMPONENT"),
+        (columns.state, "STATE"),
+        (columns.reach, "REACH"),
+        (columns.what, "WHAT IT IS"),
+    ] {
+        if width == 0 {
+            continue;
+        }
+        text.push_str(&fit(label, width));
+        text.push(' ');
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(text, theme.column_style()))),
+        area,
+    );
+}
+
+fn draw_component_list(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    columns: &ComponentColumns,
+    theme: &Theme,
+) {
+    if area.height == 0 {
+        return;
+    }
+    let lines = app.component_lines();
+    let selected = app.component_cursor.min(lines.len().saturating_sub(1));
+    let items: Vec<ListItem> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| ListItem::new(component_row_line(line, columns, i == selected, theme)))
+        .collect();
+
+    let list = List::new(items).highlight_style(theme.selection_style());
+    let mut state = ListState::default();
+    state.select(Some(selected));
+    frame.render_stateful_widget(list, area, &mut state);
+}
+
+/// One components row: `▸ ✓ ocs  enabled  http://localhost:9000  Open ...`.
+///
+/// The mark is the model page's: a tick for what this deployment has, `+` for
+/// one this session switched on, `-` for one it switched off.
+fn component_row_line<'a>(
+    line: &ComponentLine,
+    columns: &ComponentColumns,
+    selected: bool,
+    theme: &Theme,
+) -> Line<'a> {
+    let (mark, mark_style) = match (line.recorded, line.enabled) {
+        (false, true) => ("+", theme.ok_style()),
+        (true, false) => ("-", theme.bad_style()),
+        (_, true) => ("✓", theme.ok_style()),
+        (_, false) => (" ", theme.dim_style()),
+    };
+    let mut spans = vec![
+        Span::styled(if selected { " ▸ " } else { "   " }, theme.accent_style()),
+        Span::styled(format!("{mark} "), mark_style),
+        Span::raw(fit(line.component.name(), columns.component)),
+        Span::raw(" "),
+    ];
+    if columns.state > 0 {
+        // What the row will be, against what the project has on disk, in the
+        // words `components list` uses for the two settled states.
+        let (text, style) = match (line.recorded, line.enabled) {
+            (false, true) => ("adding", theme.ok_style()),
+            (true, false) => ("removing", theme.bad_style()),
+            (_, true) => ("enabled", theme.ok_style()),
+            (_, false) => ("off", theme.dim_style()),
+        };
+        spans.push(Span::styled(fit(text, columns.state), style));
+        spans.push(Span::raw(" "));
+    }
+    if columns.reach > 0 {
+        let style = if line.enabled {
+            theme.accent_style()
+        } else {
+            theme.dim_style()
+        };
+        spans.push(Span::styled(fit(&line.reach, columns.reach), style));
+        spans.push(Span::raw(" "));
+    }
+    if columns.what > 0 {
+        spans.push(Span::styled(
+            fit(line.summary, columns.what),
+            theme.dim_style(),
+        ));
+    }
+    Line::from(spans)
+}
+
 /// The strip under the table: one line for the row under the cursor, or, when
 /// there is something unsaved, a line for each thing saving would do.
 fn draw_strip(frame: &mut Frame, area: Rect, app: &App, changes: &[Change], theme: &Theme) {
@@ -482,10 +652,10 @@ fn draw_strip(frame: &mut Frame, area: Rect, app: &App, changes: &[Change], them
     }
     // The strip is indented the way the rows are, so the two read as one box.
     let width = area.width.saturating_sub(1) as usize;
-    let lines = if changes.is_empty() {
-        summary_lines(app, width, theme)
-    } else {
-        change_lines(changes, width, theme)
+    let lines = match (changes.is_empty(), app.page) {
+        (false, _) => change_lines(changes, width, theme),
+        (true, Page::Models) => summary_lines(app, width, theme),
+        (true, Page::Components) => component_summary_lines(app, width, theme),
     };
     let lines = lines
         .into_iter()
@@ -550,6 +720,56 @@ fn summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     ))]
 }
 
+/// The component under the cursor, in one line: what it is called, whether
+/// this deployment has it, where it is reached, and the file `sync` renders
+/// for it. The rest is behind `i`.
+fn component_summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
+    let component = app.selected_component();
+    let enabled = app.components.is_enabled(component);
+    let mut head = vec![
+        Span::styled(component.name().to_string(), theme.accent_style()),
+        Span::raw("  "),
+        Span::styled(
+            match enabled {
+                true => "enabled here",
+                false => "not enabled here",
+            },
+            match enabled {
+                true => theme.ok_style(),
+                false => theme.dim_style(),
+            },
+        ),
+        Span::raw("  "),
+        Span::styled(app.component_reach(component), theme.dim_style()),
+        Span::raw("  "),
+        Span::styled(compose_of(component), theme.dim_style()),
+    ];
+    // Last, because it is the one part that can be any length.
+    head.push(Span::raw("  "));
+    head.push(Span::raw(component.summary().to_string()));
+    vec![Line::from(with_kept_tail(
+        head,
+        Span::styled("i for details", theme.dim_style()),
+        width,
+    ))]
+}
+
+/// The compose file `chaps sync` renders for a component.
+///
+/// chap-core's are upstream's own, which this CLI renders but does not author,
+/// so they are named as the pair they are.
+fn compose_of(component: Component) -> String {
+    match component {
+        Component::ChapCore => format!(
+            "{} + {}",
+            crate::project::BASE_COMPOSE,
+            crate::project::CHAPS_COMPOSE
+        ),
+        Component::Ocs => crate::components::OCS_COMPOSE.to_string(),
+        Component::S3 => crate::components::S3_COMPOSE.to_string(),
+    }
+}
+
 /// What saving would write, one line per model.
 fn change_lines<'a>(changes: &[Change], width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let mut lines = vec![Line::from(vec![
@@ -597,7 +817,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         return;
     }
     let counts = app.counts();
-    let hints = keys::keybar(app.mode, counts.pending, !app.filter.is_empty());
+    let hints = keys::keybar(app.page, app.mode, counts.pending, !app.filter.is_empty());
     frame.render_widget(
         Paragraph::new(Line::from(keybar(&hints, area.width as usize, theme))),
         area,
@@ -607,6 +827,10 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 /// The host port dialog: what is being typed, what the row has now, why the
 /// last thing typed was refused, and the keys that end it.
 fn draw_port_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    if app.page == Page::Components {
+        draw_component_port_dialog(frame, area, app, theme);
+        return;
+    }
     let Some(row) = app.selected() else {
         return;
     };
@@ -640,7 +864,53 @@ fn draw_port_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Line::raw(""),
     ];
     let title = format!("Host port for {}", app.model(row).display_name);
-    draw_dialog(frame, area, &title, lines, &keys::port_dialog_keys(), theme);
+    draw_dialog(
+        frame,
+        area,
+        &title,
+        lines,
+        &keys::port_dialog_keys(app.page),
+        theme,
+    );
+}
+
+/// The same dialog for a component: no port range, because a component is not
+/// in the model range, and no `auto`, because nothing allocates one for it.
+fn draw_component_port_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let component = app.selected_component();
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(" port  ", theme.dim_style()),
+            Span::styled("› ", theme.accent_style()),
+            Span::styled(app.port_input.clone(), theme.accent_style()),
+            Span::styled("_", theme.accent_style()),
+        ]),
+        Line::from(Span::styled(
+            format!(
+                " now: {} · api port {} is taken",
+                app.component_reach(component),
+                app.api_port
+            ),
+            theme.dim_style(),
+        )),
+        Line::from(Span::styled(
+            match &app.port_error {
+                Some(why) => format!(" {why}"),
+                None => String::new(),
+            },
+            theme.bad_style(),
+        )),
+        Line::raw(""),
+    ];
+    let title = format!("Host port for {}", component.name());
+    draw_dialog(
+        frame,
+        area,
+        &title,
+        lines,
+        &keys::port_dialog_keys(app.page),
+        theme,
+    );
 }
 
 /// The channel dialog: the two channels, what each resolves to, and which one
@@ -696,10 +966,14 @@ fn draw_dialog(
     hints: &[Hint],
     theme: &Theme,
 ) {
-    // Wide enough for its own key line, with a column to spare on each side,
-    // and never wider than the terminal.
+    // Wide enough for its own key line, its title and the widest thing it
+    // says - a refusal is the reason the box is up, so it is not the thing to
+    // cut - with a column to spare on each side, and never wider than the
+    // terminal.
+    let widest = lines.iter().map(width_of_line).max().unwrap_or(0);
     let width = ((bar_width(&hints.iter().collect::<Vec<&Hint>>()) + 4) as u16)
         .max(title.chars().count() as u16 + 6)
+        .max(widest as u16 + 3)
         .min(area.width.saturating_sub(4))
         .max(1);
     let inner = width.saturating_sub(2) as usize;
@@ -768,14 +1042,22 @@ fn bar_width(hints: &[&Hint]) -> usize {
 /// The details overlay: everything the catalogue and the project know about
 /// the row under the cursor, scrolled by `j` and `k`.
 fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    let Some(row) = app.selected() else {
-        return;
+    let row = match app.page {
+        Page::Models => match app.selected() {
+            Some(row) => Some(row),
+            None => return,
+        },
+        Page::Components => None,
     };
 
     let width = area.width.saturating_sub(6).clamp(1, 86);
     // One column of padding inside the border, as the list has.
     let inner_w = width.saturating_sub(3) as usize;
-    let lines: Vec<Line> = info_lines(app, row, inner_w, theme)
+    let body = match row {
+        Some(row) => info_lines(app, row, inner_w, theme),
+        None => component_info_lines(app, inner_w, theme),
+    };
+    let lines: Vec<Line> = body
         .into_iter()
         .map(|line| {
             let mut spans = vec![Span::raw(" ")];
@@ -793,15 +1075,14 @@ fn draw_info(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     app.info_max.set(lines.len().saturating_sub(inner_h));
     let scroll = app.info_scroll.min(app.info_max.get()) as u16;
 
+    let title_w = popup.width.saturating_sub(2) as usize;
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.accent_style())
-        .title(info_title(
-            app,
-            row,
-            popup.width.saturating_sub(2) as usize,
-            theme,
-        ));
+        .title(match row {
+            Some(row) => info_title(app, row, title_w, theme),
+            None => component_info_title(app, title_w, theme),
+        });
 
     frame.render_widget(Clear, popup);
     frame.render_widget(
@@ -839,6 +1120,130 @@ fn info_title<'a>(app: &App, row: &Row, width: usize, theme: &Theme) -> Line<'a>
         Span::styled(format!("{state} "), style),
         width,
     ))
+}
+
+/// The component overlay's title: the component, and whether this deployment
+/// has it.
+///
+/// What the deployment has, not what the session wants: the model overlay's
+/// title reads off the project the same way, and the `state` row inside is
+/// where a pending change is said.
+fn component_info_title<'a>(app: &App, width: usize, theme: &Theme) -> Line<'a> {
+    let component = app.selected_component();
+    let enabled = app.initial_components.is_enabled(component);
+    let (state, style) = match enabled {
+        true => ("enabled here".to_string(), theme.ok_style()),
+        false => ("not enabled here".to_string(), theme.dim_style()),
+    };
+    let head = vec![
+        Span::raw(" "),
+        Span::styled(component.name().to_string(), theme.accent_style()),
+    ];
+    Line::from(with_kept_tail(
+        head,
+        Span::styled(format!("{state} "), style),
+        width,
+    ))
+}
+
+/// Everything the browser knows about a component: what it is, what `sync`
+/// renders for it, where its data lives, and - for OCS - the config file and
+/// the two settings this page deliberately leaves to the CLI.
+fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
+    let component = app.selected_component();
+    let enabled = app.components.is_enabled(component);
+    let mut lines: Vec<Line> = Vec::new();
+
+    for line in wrap(component.summary(), width) {
+        lines.push(Line::raw(line));
+    }
+    lines.push(Line::raw(""));
+
+    lines.push(Line::from(vec![
+        Span::styled(fit("state", LABEL_WIDTH), theme.label_style()),
+        Span::styled(
+            match (app.initial_components.is_enabled(component), enabled) {
+                (false, true) => "off · this session would add it".to_string(),
+                (true, false) => "enabled · this session would remove it".to_string(),
+                (_, true) => "enabled".to_string(),
+                (_, false) => "off".to_string(),
+            },
+            match enabled {
+                true => theme.ok_style(),
+                false => theme.dim_style(),
+            },
+        ),
+    ]));
+    lines.push(field(theme, "reach", &app.component_reach(component)));
+    lines.extend(wrapped_field(
+        theme,
+        "compose",
+        &format!(
+            "{} · rendered from .chaps/{} by `chaps sync`",
+            compose_of(component),
+            crate::components::COMPONENTS_FILE
+        ),
+        width,
+    ));
+    lines.extend(wrapped_field(
+        theme,
+        "volume",
+        &match component.volume() {
+            Some(volume) => format!("{volume} · kept when the component is disabled"),
+            None => {
+                "none of its own · `chaps down --volumes` removes this deployment's".to_string()
+            }
+        },
+        width,
+    ));
+    if component == Component::Ocs {
+        lines.extend(wrapped_field(
+            theme,
+            "config",
+            &format!(
+                "{}/{} · yours to edit, and chaps never rewrites it",
+                crate::components::OCS_DIR,
+                crate::components::OCS_CONFIG_FILE
+            ),
+            width,
+        ));
+        lines.push(Line::raw(""));
+        // The two OCS settings the browser has no dialog for, named here so
+        // this overlay is where someone learns they exist.
+        lines.push(Line::from(Span::styled(
+            "not on this page:",
+            theme.label_style(),
+        )));
+        for (command, what) in [
+            (
+                "chaps components enable ocs --base-url URL",
+                "the public origin OCS builds its STAC and openEO links from",
+            ),
+            (
+                "chaps components enable ocs --read-only",
+                "refuse ingestion over HTTP (--read-write allows it again)",
+            ),
+        ] {
+            lines.push(Line::from(Span::styled(
+                format!("  `{command}`"),
+                theme.accent_style(),
+            )));
+            for chunk in wrap(what, width.saturating_sub(4).max(1)) {
+                lines.push(Line::from(Span::styled(
+                    format!("    {chunk}"),
+                    theme.dim_style(),
+                )));
+            }
+        }
+    }
+    if component == Component::ChapCore {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "its host port is the API port, which lives in .chaps/project.yaml",
+            theme.dim_style(),
+        )));
+    }
+    lines
 }
 
 /// Every field the overlay lists, in the order it lists them.
@@ -1312,6 +1717,11 @@ fn truncate(spans: &mut Vec<Span>, width: usize) {
         spans.truncate(i + 1);
         return;
     }
+}
+
+/// How many columns a whole line occupies.
+fn width_of_line(line: &Line) -> usize {
+    width_of(&line.spans)
 }
 
 /// How many columns a run of spans occupies.
@@ -2174,7 +2584,7 @@ mod tests {
     #[test]
     fn the_save_chip_is_filled_when_there_is_something_to_save() {
         let theme = theme();
-        let hints = keys::keybar(Mode::Browse, 2, false);
+        let hints = keys::keybar(Page::Models, Mode::Browse, 2, false);
         let spans = keybar(&hints, 200, &theme);
         let chip = spans
             .iter()
@@ -2284,7 +2694,7 @@ mod tests {
         app.reduce(Action::Help);
         let screen = render(&app, 100, 30);
         assert!(screen.contains("Keys"));
-        assert!(screen.contains("enable or disable the model"));
+        assert!(screen.contains("enable or disable the row"));
         assert!(screen.contains("the command palette"), "{screen}");
         assert!(screen.contains("discard the pending changes"), "{screen}");
         assert!(screen.contains('╭'));
@@ -2537,6 +2947,294 @@ mod tests {
                 assert_eq!(split_body(h, want).iter().sum::<u16>(), h, "{h}/{want}");
             }
         }
+    }
+
+    /// A project state with OCS enabled beside chap-core.
+    fn state_with_ocs(port: Option<u16>) -> ProjectState {
+        let mut state = ProjectState::default();
+        state.components.set_enabled(Component::Ocs, true);
+        state.components.ocs.port = port;
+        state
+    }
+
+    /// Put the browser on the components page, with the cursor on one of them.
+    fn on_components(app: &mut App, component: Component) {
+        app.page = Page::Components;
+        app.component_cursor = Component::ALL
+            .iter()
+            .position(|c| *c == component)
+            .expect("every component is listed");
+    }
+
+    /// The second page: the title says which list it is, the box is named
+    /// after it, and the columns are the four `chaps components list` prints.
+    #[test]
+    fn the_components_page_draws_the_columns_components_list_prints() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        let before = render(&app, 120, 40);
+        assert!(before.contains("chaps · models"), "{before}");
+
+        app.reduce(Action::NextPage);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("chaps · components"), "{screen}");
+        assert!(
+            screen.contains("3 components · 2 enabled · 0 pending"),
+            "{screen}"
+        );
+        assert!(screen.contains("Components"), "{screen}");
+        assert!(!screen.contains("Marketplace"), "{screen}");
+        assert!(
+            !screen.contains("CHAP-EWARS"),
+            "the model list is not drawn"
+        );
+
+        let head = line_with(&screen, "COMPONENT");
+        for column in ["COMPONENT", "STATE", "REACH", "WHAT IT IS"] {
+            assert!(head.contains(column), "{head}");
+        }
+        // Every component has a row, and the headings sit over the cells.
+        let core = line_with(&screen, "chap-core");
+        assert_eq!(column_of(head, "COMPONENT"), column_of(core, "chap-core"));
+        assert_eq!(column_of(head, "STATE"), column_of(core, "enabled"));
+        assert_eq!(
+            column_of(head, "REACH"),
+            column_of(core, "http://localhost:8000"),
+            "chap-core is reached at the API port"
+        );
+        let ocs = line_with(&screen, " ocs ");
+        assert!(ocs.contains("✓ ocs"), "{ocs}");
+        assert!(ocs.contains("http://localhost:9000"), "{ocs}");
+        assert!(ocs.contains("Open Climate Service"), "{ocs}");
+        let s3 = line_with(&screen, " s3 ");
+        assert!(s3.contains("off"), "{s3}");
+        assert!(s3.contains("RustFS"), "{s3}");
+        assert!(!s3.contains('✓'), "{s3}");
+
+        // The strip under it describes the row, and the bar offers the page.
+        assert!(screen.contains("i for details"), "{screen}");
+        assert!(screen.contains("[tab] page"), "{screen}");
+        assert!(!screen.contains("[v] channel"), "{screen}");
+        assert!(!screen.contains("[t] templates"), "{screen}");
+    }
+
+    /// A pending component change is marked before it is saved, exactly as a
+    /// model's is, and the strip says what saving would do.
+    #[test]
+    fn a_pending_component_change_is_marked_and_listed() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        on_components(&mut app, Component::S3);
+        app.reduce(Action::Toggle);
+
+        let screen = render(&app, 120, 40);
+        let s3 = line_with(&screen, " s3 ");
+        assert!(s3.contains("+ s3"), "{s3}");
+        assert!(s3.contains("adding"), "{s3}");
+        assert!(
+            s3.contains("internal"),
+            "the store publishes nothing by default"
+        );
+        assert!(screen.contains("1 pending change "), "{screen}");
+        let listed = line_with(&screen, "enable, on the compose network");
+        assert!(listed.contains("+ s3"), "{listed}");
+
+        // Switching an enabled one off reads as a removal that keeps the data.
+        on_components(&mut app, Component::Ocs);
+        app.reduce(Action::Toggle);
+        let screen = render(&app, 120, 40);
+        let ocs = line_with(&screen, " ocs ");
+        assert!(ocs.contains("- ocs"), "{ocs}");
+        assert!(ocs.contains("removing"), "{ocs}");
+        assert!(screen.contains("2 pending changes"), "{screen}");
+        assert!(screen.contains("the ocs_data volume is kept"), "{screen}");
+        // And the header counts both pages' worth.
+        assert!(screen.contains("2 pending"), "{screen}");
+
+        // The count survives the trip back to the model page, because one save
+        // writes both.
+        app.reduce(Action::PrevPage);
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("chaps · models"), "{screen}");
+        assert!(screen.contains("2 pending changes"), "{screen}");
+    }
+
+    /// The port dialog on a component: no range, because a component is not in
+    /// the model range, and no `auto`, because nothing allocates one for it.
+    #[test]
+    fn the_component_port_dialog_offers_a_number_or_none() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        on_components(&mut app, Component::Ocs);
+        app.reduce(Action::PortPrompt);
+
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("Host port for ocs"), "{screen}");
+        assert!(screen.contains("port  › 9000_"), "{screen}");
+        assert!(
+            screen.contains("now: http://localhost:9000 · api port 8000 is taken"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("[enter] apply  [esc] cancel  [none] no host port"),
+            "and it does not offer auto:\n{screen}"
+        );
+        assert!(!screen.contains("any free port"), "{screen}");
+        assert!(!screen.contains("range 5001-5999"), "{screen}");
+
+        // A refusal keeps the box up with the reason inside it.
+        app.port_input.clear();
+        for c in "auto".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
+        let screen = render(&app, 120, 40);
+        assert!(
+            screen.contains("Host port for ocs"),
+            "still open:\n{screen}"
+        );
+        assert!(screen.contains("model port range"), "{screen}");
+    }
+
+    /// The overlay is where the rest of a component lives: the file `sync`
+    /// renders, its data volume, the OCS config, and the two OCS settings this
+    /// page deliberately leaves to the CLI.
+    #[test]
+    fn the_component_overlay_names_the_files_and_the_settings_it_does_not_edit() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        on_components(&mut app, Component::Ocs);
+        app.reduce(Action::Info);
+
+        let screen = render(&app, 120, 40);
+        for needle in [
+            "ocs",
+            "enabled here",
+            "Open Climate Service",
+            "http://localhost:9000",
+            "compose.ocs.yml · rendered from .chaps/components.yaml by `chaps sync`",
+            "ocs_data · kept when the component is disabled",
+            "ocs/climate-service.yaml · yours to edit",
+            "not on this page:",
+            "`chaps components enable ocs --base-url URL`",
+            "`chaps components enable ocs --read-only`",
+        ] {
+            assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
+        }
+        assert!(screen.contains("[esc] close"), "{screen}");
+        assert!(
+            !screen.contains("[o] open repository"),
+            "a component has no repository:\n{screen}"
+        );
+
+        // chap-core's own: no volume of its own, and its port lives elsewhere.
+        app.reduce(Action::Info);
+        on_components(&mut app, Component::ChapCore);
+        app.reduce(Action::Info);
+        let screen = render(&app, 120, 40);
+        assert!(
+            screen.contains("compose.yml + compose.chaps.yml"),
+            "{screen}"
+        );
+        assert!(screen.contains("none of its own"), "{screen}");
+        assert!(screen.contains("`chaps down --volumes`"), "{screen}");
+        assert!(screen.contains("host port is the API port"), "{screen}");
+        assert!(
+            !screen.contains("--base-url"),
+            "an OCS-only setting:\n{screen}"
+        );
+    }
+
+    /// The components page holds together at every terminal size the model
+    /// page has to.
+    #[test]
+    fn the_components_page_holds_from_a_tiny_terminal_to_a_huge_one() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        app.reduce(Action::NextPage);
+        for (width, height) in [(1, 1), (8, 3), (20, 5), (60, 16), (80, 24), (200, 60)] {
+            let screen = render(&app, width, height);
+            assert_eq!(screen.lines().count(), height as usize);
+            for line in screen.lines() {
+                assert_eq!(
+                    line.chars().count(),
+                    width as usize,
+                    "a line overflowed at {width}x{height}:\n{screen}"
+                );
+            }
+        }
+        // Eighty columns keeps the three columns that say what the row is.
+        let eighty = render(&app, 80, 24);
+        assert!(eighty.contains("chap-core"), "{eighty}");
+        assert!(eighty.contains("http://localhost:9000"), "{eighty}");
+
+        // And every overlay draws on top of it without panicking.
+        for action in [
+            Action::Info,
+            Action::PortPrompt,
+            Action::Help,
+            Action::Palette,
+        ] {
+            let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+            on_components(&mut app, Component::Ocs);
+            app.reduce(action.clone());
+            assert_ne!(app.mode, Mode::Browse, "{action:?} opened nothing");
+            for (width, height) in [(1, 1), (10, 4), (30, 6), (60, 16), (80, 24)] {
+                render(&app, width, height);
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_component_tables_drop_columns_instead_of_wrapping() {
+        let wide = component_columns(160);
+        assert_eq!(wide.component, COMPONENT_W);
+        assert_eq!(wide.state, STATE_W);
+        assert_eq!(wide.reach, REACH_W);
+        assert!(wide.what > 0, "{wide:?}");
+
+        // Narrow: the sentence gives way first, then the reach narrows to its
+        // short form, and the state is the last thing to go.
+        let fifty = component_columns(50);
+        assert_eq!(fifty.reach, REACH_MIN, "{fifty:?}");
+        assert!(fifty.what > 0 && fifty.what < REACH_W, "{fifty:?}");
+        assert_eq!(component_columns(30).reach, 0);
+        assert_eq!(component_columns(30).state, STATE_W);
+        assert_eq!(component_columns(14).state, 0);
+
+        for inner in 0..200usize {
+            let c = component_columns(inner);
+            let used = MARKER_W
+                + [c.component, c.state, c.reach, c.what]
+                    .iter()
+                    .map(|w| if *w > 0 { w + 1 } else { 0 })
+                    .sum::<usize>();
+            assert!(
+                used <= inner.max(MARKER_W) + 1,
+                "{inner}: {c:?} needs {used}"
+            );
+        }
+    }
+
+    #[test]
+    fn zz_dump_components_page() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
+        app.reduce(Action::NextPage);
+        eprintln!("=== COMPONENTS 120x14 ===");
+        eprintln!("{}", render(&app, 120, 14));
+        on_components(&mut app, Component::S3);
+        app.reduce(Action::Toggle);
+        eprintln!("=== COMPONENTS PENDING 120x14 ===");
+        eprintln!("{}", render(&app, 120, 14));
+        app.reduce(Action::Info);
+        eprintln!("=== COMPONENT OVERLAY 120x30 ===");
+        eprintln!("{}", render(&app, 120, 30));
+        app.reduce(Action::Info);
+        on_components(&mut app, Component::Ocs);
+        app.reduce(Action::Info);
+        eprintln!("=== OCS OVERLAY 120x30 ===");
+        eprintln!("{}", render(&app, 120, 30));
     }
 
     #[test]

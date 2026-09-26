@@ -1,12 +1,15 @@
-//! `chaps ui` — the model browser.
+//! `chaps ui` — the browser: marketplace models on one page, the components
+//! this deployment is made of on the other.
 //!
-//! Owned by agent C. The browser returns a
-//! [`Selection`](crate::compose::Selection); applying it goes through
-//! [`crate::compose::apply`] outside the terminal, and the resulting
-//! [`ApplyReport`](crate::compose::ApplyReport) is printed afterwards.
+//! The browser returns a [`Selection`](crate::compose::Selection); applying
+//! it goes through [`crate::compose::apply()`] outside the terminal, and the
+//! resulting [`ApplyReport`] is printed afterwards. The containers of a
+//! component the save switches off are stopped in between, while the compose
+//! files that name them are still there.
 
 use crate::cli::UiArgs;
 use crate::commands::Ctx;
+use crate::components::Components;
 use crate::compose::{ApplyReport, apply};
 use crate::error::Result;
 use crate::tui::run_tui;
@@ -28,14 +31,30 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         return Ok(());
     }
 
+    // Answered before anything is stopped or written, so a selection that was
+    // never going to apply leaves the deployment exactly as it was.
+    crate::compose::apply::validate(&project, &registry, &selection)?;
+
+    // The containers of a component being switched off go now, while the
+    // compose files that define them are still there: a service whose
+    // definition has just been removed cannot be stopped by name, and one left
+    // running keeps its host port published long after the component is gone.
+    // Volumes are not touched - `--purge` stays a `components disable` flag.
+    let before = project.state.components.clone();
+    let after: Components = selection
+        .components
+        .clone()
+        .unwrap_or_else(|| before.clone());
+    let stopped = super::components::stop_disabled_components(&project, &before, &after);
+
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
     let report = apply(&mut project, &registry, &selection, &endpoints)?;
-    ctx.out.emit(&report, || human(&report))?;
+    ctx.out.emit(&report, || human(&report, &stopped))?;
     Ok(())
 }
 
 /// The human rendering of what was applied.
-fn human(report: &ApplyReport) -> String {
+fn human(report: &ApplyReport, notes: &[String]) -> String {
     let mut text = String::new();
     for warning in &report.warnings {
         text.push_str(&format!("warning: {warning}\n"));
@@ -63,6 +82,30 @@ fn human(report: &ApplyReport) -> String {
         for id in &report.disabled {
             text.push_str(&format!("  {id}\n"));
         }
+    }
+
+    if !report.components_enabled.is_empty() {
+        text.push_str("components on:\n");
+        for (name, port) in &report.components_enabled {
+            text.push_str(&format!(
+                "  {name}  {}\n",
+                match port {
+                    Some(port) => format!("http://localhost:{port}"),
+                    None => "internal".to_string(),
+                }
+            ));
+        }
+    }
+    if !report.components_disabled.is_empty() {
+        text.push_str("components off:\n");
+        for name in &report.components_disabled {
+            text.push_str(&format!("  {name}\n"));
+        }
+    }
+    // What stopping the containers of a switched-off component did, and which
+    // data volumes it left behind.
+    for note in notes {
+        text.push_str(&format!("note: {note}\n"));
     }
 
     if report.is_empty() {
@@ -104,7 +147,7 @@ mod tests {
             warnings: vec!["templates are not for real forecasts".to_string()],
             ..ApplyReport::default()
         };
-        let text = human(&report);
+        let text = human(&report, &[]);
         assert!(text.starts_with("warning: templates are not for real forecasts\n"));
         assert!(text.contains("enabled:\n  chapkit_ewars_model  1.0.0  port 5001\n"));
         assert!(text.contains("updated:\n  auto_arima_chapkit  1.0.0  port 5002\n"));
@@ -114,7 +157,7 @@ mod tests {
 
     #[test]
     fn an_empty_report_says_so() {
-        assert_eq!(human(&ApplyReport::default()), "no changes\n");
+        assert_eq!(human(&ApplyReport::default(), &[]), "no changes\n");
     }
 
     /// The seam the browser exists for: keys in, files on disk out. Everything
@@ -168,6 +211,92 @@ mod tests {
         assert!(dir.path().join(&model.compose_file).is_file());
         assert!(dir.path().join(".chaps/models.yaml").is_file());
         assert!(dir.path().join("compose.marketplace.yml").is_file());
-        assert!(human(&report).contains("run `chaps up`"));
+        assert!(human(&report, &[]).contains("run `chaps up`"));
+    }
+
+    /// The same seam for the second page: Tab, space, save - and a component
+    /// compose file on disk.
+    #[test]
+    fn what_the_browser_selects_on_the_components_page_applies_too() {
+        use crate::components::{Component, OCS_COMPOSE};
+        use crate::project::Project;
+        use crate::registry::load_embedded;
+        use crate::tui::app::{App, Outcome};
+        use crate::tui::keys::action_for;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let registry = load_embedded().expect("embedded snapshot parses");
+        let mut project = Project {
+            dir: dir.path().to_path_buf(),
+            state: Default::default(),
+        };
+
+        let mut app = App::new(&registry, &project.state);
+        let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+
+        // Tab to the components page, down to ocs, space, save.
+        app.reduce(action_for(app.mode, &press(KeyCode::Tab)));
+        app.reduce(action_for(app.mode, &press(KeyCode::Char('j'))));
+        assert_eq!(app.selected_component(), Component::Ocs);
+        app.reduce(action_for(app.mode, &press(KeyCode::Char(' '))));
+        assert_eq!(
+            app.reduce(action_for(app.mode, &press(KeyCode::Char('s')))),
+            Some(Outcome::Save)
+        );
+
+        let selection = app.selection();
+        assert!(selection.enable.is_empty() && selection.disable.is_empty());
+        assert!(!selection.is_empty(), "the component set is the change");
+        let report = crate::compose::apply::apply_with(
+            &mut project,
+            &registry,
+            &selection,
+            &|_| false,
+            &crate::compose::resolve::from_table,
+        )
+        .expect("the browser's component set is applicable");
+
+        assert_eq!(
+            report.components_enabled,
+            vec![("ocs".to_string(), Some(9000))]
+        );
+        assert!(dir.path().join(OCS_COMPOSE).is_file());
+        assert!(dir.path().join(".chaps/components.yaml").is_file());
+        let text = human(&report, &["stopped nothing".to_string()]);
+        assert!(
+            text.contains("components on:\n  ocs  http://localhost:9000\n"),
+            "{text}"
+        );
+        assert!(text.contains("note: stopped nothing\n"), "{text}");
+        assert!(
+            text.ends_with("run `chaps up` to apply the new compose files\n"),
+            "{text}"
+        );
+    }
+
+    /// A component that was switched off is reported as off, with the notes
+    /// from stopping its containers under it.
+    #[test]
+    fn the_report_names_the_components_that_were_switched_off() {
+        let report = ApplyReport {
+            components_disabled: vec!["ocs".to_string()],
+            removed: vec![std::path::PathBuf::from("compose.ocs.yml")],
+            ..ApplyReport::default()
+        };
+        let text = human(
+            &report,
+            &[
+                "stopped ocs".to_string(),
+                "kept the volume ocs_data".to_string(),
+            ],
+        );
+        assert!(text.contains("components off:\n  ocs\n"), "{text}");
+        assert!(text.contains("note: stopped ocs\n"), "{text}");
+        assert!(text.contains("note: kept the volume ocs_data\n"), "{text}");
+        assert!(
+            text.ends_with("run `chaps up` to apply the new compose files\n"),
+            "{text}"
+        );
     }
 }

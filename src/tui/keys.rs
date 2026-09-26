@@ -2,10 +2,8 @@
 //!
 //! Keys avoid `[`, `]`, `{`, `}`, `|` and `\`, which need Alt on a Norwegian
 //! keyboard layout.
-//!
-//! Owned by agent C.
 
-use crate::tui::app::{Action, Mode};
+use crate::tui::app::{Action, Mode, Page};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Translate a key press into an [`Action`] for the current [`Mode`].
@@ -95,6 +93,10 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         KeyCode::Char('G') | KeyCode::End => Action::Bottom,
         KeyCode::PageDown => Action::PageDown,
         KeyCode::PageUp => Action::PageUp,
+        // Tab walks the pages, shift-Tab walks them the other way; with two
+        // pages either one is "the other list".
+        KeyCode::Tab => Action::NextPage,
+        KeyCode::BackTab => Action::PrevPage,
         KeyCode::Char(' ') => Action::Toggle,
         KeyCode::Char('p') => Action::PortPrompt,
         // Shift-P is the prompt's answer without the prompt: the one thing
@@ -211,7 +213,8 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("g / G", "first / last model"),
         ("PageUp / PageDown", "jump a page"),
         ("ctrl-u / ctrl-d", "jump a page"),
-        ("space", "enable or disable the model"),
+        ("tab / shift-tab", "the other page: models or components"),
+        ("space", "enable or disable the row"),
         ("i / Enter", "the full details, which j/k scroll"),
         ("p", "publish a host port: a number, auto, or none"),
         ("P", "take the host port away"),
@@ -250,29 +253,32 @@ fn hint(key: &'static str, what: &str, rank: u8) -> Hint {
     }
 }
 
-/// The key bar under the list for a mode.
+/// The key bar under the list for a page and a mode.
 ///
 /// `pending` and `filtering` are what the browser is in the middle of: with
 /// changes to save the bar grows a save chip and a way to throw them away,
 /// and with a filter on it offers to clear it rather than to hide templates.
-pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
+pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
     match mode {
         Mode::Browse => {
             // The rank is what the bar gives up first when the terminal is
             // too narrow for all of it: the two display toggles before the
-            // two things that act on the model under the cursor.
-            let mut hints = vec![
-                hint("j/k", "move", 10),
-                hint("space", "toggle", 8),
-                hint("i", "info", 5),
-                hint("p", "port", 3),
-                hint("v", "channel", 2),
-            ];
-            if filtering {
-                hints.push(hint("esc", "clear filter", 7));
-            } else {
-                hints.push(hint("t", "templates", 0));
-                hints.push(hint("/", "filter", 1));
+            // two things that act on the row under the cursor. `tab` outranks
+            // both, because it is the only way to the other list.
+            let mut hints = vec![hint("j/k", "move", 10), hint("tab", "page", 7)];
+            hints.push(hint("space", "toggle", 8));
+            hints.push(hint("i", "info", 5));
+            hints.push(hint("p", "port", 3));
+            // Neither belongs to a component: it follows no channel, and three
+            // rows are not a list to filter.
+            if page == Page::Models {
+                hints.push(hint("v", "channel", 2));
+                if filtering {
+                    hints.push(hint("esc", "clear filter", 7));
+                } else {
+                    hints.push(hint("t", "templates", 0));
+                    hints.push(hint("/", "filter", 1));
+                }
             }
             if pending > 0 {
                 hints.push(Hint {
@@ -300,6 +306,11 @@ pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
             hint("n", "keep editing", 9),
         ],
         Mode::Help => vec![hint("? or esc", "closes this help", 9)],
+        // A component has no repository to open and no image reference to
+        // copy, so its overlay names neither.
+        Mode::Info if page == Page::Components => {
+            vec![hint("esc", "close", 9), hint("j/k", "scroll", 8)]
+        }
         Mode::Info => vec![
             hint("esc", "close", 9),
             hint("j/k", "scroll", 8),
@@ -318,13 +329,16 @@ pub fn keybar(mode: Mode, pending: usize, filtering: bool) -> Vec<Hint> {
 }
 
 /// The key line inside the port dialog.
-pub fn port_dialog_keys() -> Vec<Hint> {
-    vec![
-        hint("enter", "apply", 9),
-        hint("esc", "cancel", 9),
-        hint("auto", "any free port", 5),
-        hint("none", "no host port", 5),
-    ]
+///
+/// `auto` is only offered on the models page: it means the lowest free port in
+/// the project's model range, which a component is not in.
+pub fn port_dialog_keys(page: Page) -> Vec<Hint> {
+    let mut hints = vec![hint("enter", "apply", 9), hint("esc", "cancel", 9)];
+    if page == Page::Models {
+        hints.push(hint("auto", "any free port", 5));
+    }
+    hints.push(hint("none", "no host port", 5));
+    hints
 }
 
 /// The key line inside the channel dialog.
@@ -347,7 +361,12 @@ mod tests {
 
     /// The key bar as one line, the way it reads on screen.
     fn bar(mode: Mode, pending: usize, filtering: bool) -> String {
-        keybar(mode, pending, filtering)
+        page_bar(Page::Models, mode, pending, filtering)
+    }
+
+    /// The same, for a named page.
+    fn page_bar(page: Page, mode: Mode, pending: usize, filtering: bool) -> String {
+        keybar(page, mode, pending, filtering)
             .iter()
             .map(|hint| format!("{} {}", hint.key, hint.what))
             .collect::<Vec<String>>()
@@ -358,8 +377,14 @@ mod tests {
     fn every_mode_has_a_key_bar_that_names_its_way_out() {
         assert_eq!(
             bar(Mode::Browse, 0, false),
-            "j/k move   space toggle   i info   p port   v channel   t templates   \
-             / filter   s save   ctrl+k commands   ? help   q quit"
+            "j/k move   tab page   space toggle   i info   p port   v channel   \
+             t templates   / filter   s save   ctrl+k commands   ? help   q quit"
+        );
+        // The components page drops the two keys a component has no use for.
+        assert_eq!(
+            page_bar(Page::Components, Mode::Browse, 0, false),
+            "j/k move   tab page   space toggle   i info   p port   s save   \
+             ctrl+k commands   ? help   q quit"
         );
         assert_eq!(
             bar(Mode::Filter, 0, false),
@@ -390,7 +415,7 @@ mod tests {
         assert!(pending.contains("u discard"), "{pending}");
         assert!(!pending.contains("s save   "), "{pending}");
         assert_eq!(
-            keybar(Mode::Browse, 2, false)
+            keybar(Page::Models, Mode::Browse, 2, false)
                 .iter()
                 .filter(|hint| hint.chip)
                 .count(),
@@ -398,7 +423,11 @@ mod tests {
             "the save chip is the only filled thing on the bar"
         );
         assert!(bar(Mode::Browse, 1, false).contains("s save 1 change"));
-        assert!(keybar(Mode::Browse, 0, false).iter().all(|h| !h.chip));
+        assert!(
+            keybar(Page::Models, Mode::Browse, 0, false)
+                .iter()
+                .all(|h| !h.chip)
+        );
 
         let filtering = bar(Mode::Browse, 0, true);
         assert!(filtering.contains("esc clear filter"), "{filtering}");
@@ -524,7 +553,7 @@ mod tests {
     fn a_dialog_names_its_keys_and_the_bar_under_it_says_cancel() {
         assert_eq!(bar(Mode::Port, 0, false), "esc cancel");
         assert_eq!(bar(Mode::Channel, 2, true), "esc cancel");
-        let port: Vec<String> = port_dialog_keys()
+        let port: Vec<String> = port_dialog_keys(Page::Models)
             .iter()
             .map(|h| format!("{} {}", h.key, h.what))
             .collect();
@@ -540,7 +569,7 @@ mod tests {
             channel.join("   "),
             "enter apply   esc cancel   j/k move   s/l pick one"
         );
-        for hint in port_dialog_keys()
+        for hint in port_dialog_keys(Page::Models)
             .iter()
             .chain(channel_dialog_keys().iter())
         {
@@ -587,7 +616,19 @@ mod tests {
     fn unbound_browse_keys_do_nothing() {
         assert_eq!(browse_action(KeyCode::Char('x')), Action::None);
         assert_eq!(browse_action(KeyCode::F(5)), Action::None);
-        assert_eq!(browse_action(KeyCode::Tab), Action::None);
+        assert_eq!(
+            browse_action(KeyCode::Tab),
+            Action::NextPage,
+            "Tab is the other page now"
+        );
+        assert_eq!(
+            action_for(
+                Mode::Browse,
+                &KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)
+            ),
+            Action::PrevPage,
+            "and shift-Tab walks them the other way"
+        );
         assert_eq!(
             action_for(Mode::Browse, &ctrl('v')),
             Action::None,
