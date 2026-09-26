@@ -709,7 +709,7 @@ mod tests {
         };
         let sel = Selection {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
-            disable: Vec::new(),
+            ..Selection::default()
         };
         apply_with(
             &mut project,

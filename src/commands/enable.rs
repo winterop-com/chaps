@@ -1,7 +1,7 @@
 //! `chaps models enable|disable` — the two single-model write commands.
 //!
-//! Owned by agent B. Both go through [`crate::compose::apply`], the same path
-//! `init` and the TUI use.
+//! Both go through [`crate::compose::apply()`], the same path `init` and the
+//! TUI use.
 
 use crate::cli::{ModelsDisableArgs, ModelsEnableArgs, ModelsExposeArgs, ModelsUnexposeArgs};
 use crate::commands::Ctx;
@@ -44,7 +44,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
             // a bare run follows the stable channel.
             keep_version: false,
         }],
-        disable: Vec::new(),
+        ..Selection::default()
     };
 
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
@@ -99,8 +99,8 @@ pub(crate) fn disable_enabled(
     let id = id.to_string();
     let service_id = project.state.models[&id].service_id.clone();
     let selection = Selection {
-        enable: Vec::new(),
         disable: vec![id.clone()],
+        ..Selection::default()
     };
     // Nothing is written before this passes, so the container is only touched
     // for a disable that is going through.

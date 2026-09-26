@@ -98,11 +98,11 @@ pub fn claims(project: &Project) -> Vec<PortClaim> {
     // The components are read from `.chaps/components.yaml` rather than from
     // the rendered files, so a port is checked even before the first sync.
     // The same claim coming back out of the files below is deduplicated.
-    for (component, service) in [
-        (Component::Ocs, crate::compose::OCS_SERVICE),
-        (Component::S3, crate::compose::S3_SERVICE),
-    ] {
-        if let Some(port) = project.state.components.port_of(component) {
+    for component in Component::ALL {
+        if let (Some(service), Some(port)) = (
+            service_of(*component),
+            project.state.components.port_of(*component),
+        ) {
             claims.push(PortClaim {
                 service: service.to_string(),
                 port,
@@ -127,6 +127,18 @@ pub fn claims(project: &Project) -> Vec<PortClaim> {
         }
     }
     claims
+}
+
+/// The compose service that publishes a component's host port.
+///
+/// `None` for chap-core, whose host port is the API port of a service this CLI
+/// does not name for it.
+fn service_of(component: Component) -> Option<&'static str> {
+    match component {
+        Component::Ocs => Some(crate::compose::OCS_SERVICE),
+        Component::S3 => Some(crate::compose::S3_SERVICE),
+        Component::ChapCore => None,
+    }
 }
 
 /// The claims `busy` reports as taken, leaving out services `running` says
@@ -224,6 +236,77 @@ pub fn claimed_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Opti
         ways_out(claim, suggestion),
         port = claim.port,
     )
+}
+
+/// One line about a host port a component is being told to publish, or `None`
+/// when the port can be had.
+///
+/// The decision `chaps components enable NAME --port PORT` makes is the same
+/// decision `chaps init --api-port` makes, so it gets the same two answers:
+/// something on this machine is listening on that port now, or another chaps
+/// deployment beside this one publishes it and the two cannot be up at once.
+/// Neither is a refusal - the deployment is not up yet, and the port is still
+/// easy to change - so the caller reports the line as a warning and carries on,
+/// exactly as `chaps init` does.
+///
+/// Best-effort about docker, like everything else that asks it a question: no
+/// docker CLI means no running services and no other deployments, which is the
+/// answer that reports the conflict rather than hiding it.
+pub fn component_port_warning(
+    project: &Project,
+    component: Component,
+    port: u16,
+    busy: &dyn Fn(u16) -> bool,
+) -> Option<String> {
+    let running = crate::docker::running_services(project);
+    let others = other_deployments(&project.dir, &crate::docker::compose_ls_json);
+    component_port_line(project, component, port, busy, &running, &others)
+}
+
+/// [`component_port_warning`] with the two docker answers handed in, so the
+/// tests never need a daemon.
+fn component_port_line(
+    project: &Project,
+    component: Component,
+    port: u16,
+    busy: &dyn Fn(u16) -> bool,
+    running: &BTreeSet<String>,
+    others: &[Deployment],
+) -> Option<String> {
+    // A component with no host port of its own has nothing to collide over,
+    // and port 0 is not a port [`is_busy`] can answer about.
+    if !component.takes_port() || port == 0 {
+        return None;
+    }
+    let claim = PortClaim {
+        service: service_of(component)?.to_string(),
+        port,
+    };
+    // A port one of this deployment's own running services already publishes is
+    // ours: `docker compose up` on a service that is already up is a no-op
+    // rather than a conflict. The same exemption [`busy_claims`] makes, but by
+    // port as well as by service - a component being *moved* onto some other
+    // process's port is a conflict however much of this deployment is up.
+    if claims(project)
+        .iter()
+        .any(|held| held.port == port && running.contains(&held.service))
+    {
+        return None;
+    }
+    // A port another deployment publishes is as good as taken when suggesting
+    // one: moving onto it would trade one collision for another.
+    let taken = |port: u16| busy(port) || others.iter().any(|other| other.holds(port));
+    let suggestion = first_free(port.saturating_add(1), u16::MAX, &taken);
+    // One line either way, and the listener is the half that is in the way
+    // today.
+    if busy(port) {
+        return Some(busy_line(&claim, suggestion));
+    }
+    let holders: Vec<&Deployment> = others.iter().filter(|other| other.holds(port)).collect();
+    if holders.is_empty() {
+        return None;
+    }
+    Some(claimed_line(&claim, &holders, suggestion))
 }
 
 /// Another chaps deployment on this machine: where it is, and the host ports
@@ -622,6 +705,156 @@ mod tests {
         );
         assert!(!line.contains("--api-port"), "{line}");
         assert!(!line.contains("models unexpose"), "{line}");
+    }
+
+    /// `components enable ocs --port 18010` on a machine where something else
+    /// is listening: the same line `init` would have printed, so the two places
+    /// a component's port is decided read alike.
+    #[test]
+    fn a_component_port_warning_names_the_listener_and_the_way_out() {
+        let (_dir, project) = project();
+        let free = |_: u16| false;
+        assert_eq!(
+            component_port_line(
+                &project,
+                Component::Ocs,
+                18010,
+                &free,
+                &BTreeSet::new(),
+                &[]
+            ),
+            None,
+            "nothing is listening, so there is nothing to say"
+        );
+
+        let line = component_port_line(
+            &project,
+            Component::Ocs,
+            18010,
+            &|port| port == 18010,
+            &BTreeSet::new(),
+            &[],
+        )
+        .expect("a warning");
+        assert_eq!(
+            line,
+            busy_line(
+                &PortClaim {
+                    service: "ocs".into(),
+                    port: 18010
+                },
+                Some(18011)
+            )
+        );
+        assert!(
+            line.contains("`chaps components enable ocs --port <free>`"),
+            "{line}"
+        );
+    }
+
+    /// The other half of what `init` covers: a port no listener holds, but the
+    /// deployment next door publishes. Nothing is wrong today, which is exactly
+    /// why nothing else would catch it until the second `chaps up`.
+    #[test]
+    fn a_component_port_another_deployment_publishes_is_reported_too() {
+        let (_dir, project) = project();
+        let claim = PortClaim {
+            service: "ocs".into(),
+            port: 18010,
+        };
+        let neighbour = Deployment {
+            dir: PathBuf::from("/t/hello1"),
+            claims: vec![claim.clone()],
+        };
+        let line = component_port_line(
+            &project,
+            Component::Ocs,
+            18010,
+            &|_| false,
+            &BTreeSet::new(),
+            std::slice::from_ref(&neighbour),
+        )
+        .expect("a warning");
+        assert_eq!(line, claimed_line(&claim, &[&neighbour], Some(18011)));
+
+        // A deployment that publishes some other port is no one's problem.
+        assert_eq!(
+            component_port_line(
+                &project,
+                Component::Ocs,
+                18011,
+                &|_| false,
+                &BTreeSet::new(),
+                std::slice::from_ref(&neighbour)
+            ),
+            None
+        );
+    }
+
+    /// The port our own running OCS is listening on is ours, so re-running
+    /// `components enable ocs` with the port it already has must say nothing -
+    /// while a port it is being *moved* onto is a conflict however much of this
+    /// deployment is up.
+    #[test]
+    fn a_component_keeps_the_port_its_own_running_service_holds() {
+        let (_dir, mut project) = project();
+        project.state.components.ocs.enabled = true;
+        project.state.components.ocs.port = Some(18010);
+        let running = BTreeSet::from(["ocs".to_string()]);
+
+        assert_eq!(
+            component_port_line(&project, Component::Ocs, 18010, &|_| true, &running, &[]),
+            None,
+            "that listener is our own instance"
+        );
+        assert!(
+            component_port_line(
+                &project,
+                Component::Ocs,
+                18011,
+                &|port| port == 18011,
+                &running,
+                &[]
+            )
+            .is_some(),
+            "a port we are moving onto is somebody else's listener"
+        );
+        // And with nothing of ours up, our own recorded port is contested like
+        // any other.
+        assert!(
+            component_port_line(
+                &project,
+                Component::Ocs,
+                18010,
+                &|_| true,
+                &BTreeSet::new(),
+                &[]
+            )
+            .is_some()
+        );
+    }
+
+    /// chap-core publishes the API port, which `--api-port` moves, and port 0
+    /// is a question [`is_busy`] has no answer to.
+    #[test]
+    fn a_component_with_no_host_port_of_its_own_is_never_warned_about() {
+        let (_dir, project) = project();
+        let all_busy = |_: u16| true;
+        assert_eq!(
+            component_port_line(
+                &project,
+                Component::ChapCore,
+                18010,
+                &all_busy,
+                &BTreeSet::new(),
+                &[]
+            ),
+            None
+        );
+        assert_eq!(
+            component_port_line(&project, Component::S3, 0, &all_busy, &BTreeSet::new(), &[]),
+            None
+        );
     }
 
     #[test]

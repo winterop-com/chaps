@@ -1,12 +1,12 @@
 //! `chaps init` — write a deployment directory.
-//!
-//! Owned by agent B.
 
 use crate::auth;
 use crate::chapcore;
-use crate::cli::InitArgs;
+use crate::cli::{ComponentPortArg, InitArgs};
 use crate::commands::Ctx;
-use crate::components::{COMPONENTS_FILE, Component, Components, S3_SOON_NOTE};
+use crate::components::{
+    COMPONENTS_FILE, Component, Components, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE,
+};
 use crate::compose::spec::EnvSpec;
 use crate::compose::sync::write_ocs_config;
 use crate::compose::{API_SERVICE, ApplyReport, EnableRequest, Selection, apply, render_env};
@@ -14,7 +14,7 @@ use crate::error::{ChapError, Result};
 use crate::output::{Out, PanelKind};
 use crate::project::{
     API_PORT_ENV_VAR, AuthState, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE,
-    MODELS_FILE, PROJECT_FILE, Project, ProjectState, cached_compose_file,
+    EnabledModel, MODELS_FILE, PROJECT_FILE, Project, ProjectState, cached_compose_file,
 };
 use crate::registry::{self, Registry};
 use serde::Serialize;
@@ -27,6 +27,31 @@ pub const MOVING_DEFAULT_TAG: &str = "latest";
 /// Database user and database name of the generated `.env`.
 const POSTGRES_USER: &str = "chap";
 const POSTGRES_DB: &str = "chap_core";
+
+/// What the summary says for a deployment that enables no models.
+const NO_MODELS: &str = "No models enabled; run `chaps models enable ID` to add one.";
+
+/// The same for a deployment chap-core is not a component of.
+///
+/// A model service registers with chap-core and is reached through it, so
+/// `chaps models enable` there is refused with
+/// [`crate::components::MODELS_NEED_CHAP_CORE`]. Naming it as the next step
+/// would cost the reader a command to find that out, which is worse than
+/// naming none: the line says why there are no models and names the one
+/// command that changes it. Where the deployment goes next - its addresses and
+/// its OCS config file - the block of addresses above has already said.
+const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models: they register with chap-core, which this deployment leaves out; \
+     `chaps components enable chap-core` adds it.";
+
+/// Which of the two the summary prints, as a pure function of the component
+/// set so the choice is testable without a deployment on disk.
+fn no_models_line(components: &Components) -> &'static str {
+    if components.chap_core.enabled {
+        NO_MODELS
+    } else {
+        NO_MODELS_WITHOUT_CHAP_CORE
+    }
+}
 
 /// Create compose.yml, compose.marketplace.yml, the model overlays, .env and
 /// the `.chaps/` directory in the target directory.
@@ -57,11 +82,22 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // What the deployment is made of is settled first: it decides which
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
-    let components = parse_components(
-        args.with.as_deref(),
-        args.without.as_deref(),
-        args.ocs_base_url.as_deref(),
-    )?;
+    let components = parse_components(&ComponentFlags::from_args(args))?;
+    // The deployment this run is writing over, when there is one: `--force`
+    // starts the state over, so anything it had and this run does not ask for is
+    // going, and the operator hears which before the directory is rewritten.
+    let previous = Project::load(&dir).ok();
+    let dropped = match &previous {
+        Some(previous) => dropped_components(
+            &previous.state.components,
+            &components,
+            &parse_component_list(args.without.as_deref()).unwrap_or_default(),
+        ),
+        None => Vec::new(),
+    };
+    for component in &dropped {
+        crate::output::warn(&component_dropped(*component));
+    }
     // Settle the chap-core tag and the compose file that goes with it before
     // anything is written: both need the network, and a failure of either is a
     // warning plus a fallback, never a half-written directory.
@@ -130,10 +166,31 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // out. apply() checks again; this is the run that has something to lose.
     crate::compose::apply::validate(&project, &registry, &selection)?;
 
+    // The containers of everything this run takes away go first, while the
+    // compose files that define them are still on disk: a service whose
+    // definition has been removed cannot be stopped by name any more, and one
+    // left running keeps its host port published long after the deployment
+    // stopped asking for it. Read from the previous project, because that is the
+    // one whose `-f` list still names those files.
+    let mut dropped_notes = Vec::new();
+    if let Some(previous) = &previous {
+        dropped_notes.extend(stop_dropped(previous, &components, &selection));
+    }
+
     // --force starts the state over, so overlays the previous project owned
     // would otherwise linger: unreferenced by the umbrella, but still holding
-    // their host port against the allocator.
-    let stale = remove_stale_overlays(&dir, &selection);
+    // their host port against the allocator. The compose file of a component
+    // that is not coming back is the same problem, and worse: nothing in
+    // `.chaps/` would mention it afterwards, so no later `chaps sync` would ever
+    // remove it either.
+    let mut stale = remove_stale_overlays(&dir, &selection);
+    if let Some(previous) = &previous {
+        stale.extend(remove_dropped_component_files(
+            &dir,
+            &previous.state.components,
+            &components,
+        ));
+    }
 
     // `.env` is operator-owned state - the database password, the API token,
     // the registration key, the image pins - so `init` decides its fate before
@@ -235,13 +292,23 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // The OCS instance config goes in before the sync inside apply(), so the
     // `--ocs-*` values land in it rather than the example ones sync falls
     // back to. Like `.env`, an existing file is kept: it is the operator's.
-    if components.ocs.enabled
-        && let Some(path) = write_ocs_config(
+    if components.ocs.enabled {
+        if let Some(path) = write_ocs_config(
             &dir,
             &crate::commands::components::request(&args.ocs).into_spec(),
-        )?
-    {
-        written.push(path);
+        )? {
+            written.push(path);
+        }
+        // And `--ocs-read-only` after it, on the file this run just scaffolded
+        // or on the one that was already there: the scaffold does not carry the
+        // key, and one function owns that edit. A file that already says so is
+        // left untouched, so it is not reported as written either.
+        if components.ocs.read_only
+            && let Some(edit) = crate::compose::sync::set_read_only(&dir, true)?
+            && edit != crate::compose::sync::KeyEdit::Unchanged
+        {
+            written.push(project.ocs_config_path());
+        }
     }
 
     // apply() writes the overlays, compose.marketplace.yml (even with no
@@ -276,6 +343,10 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "claimed_ports": ports.claimed.iter().map(|c| c.port).collect::<Vec<u16>>(),
         "port_warnings": ports.lines,
         "components": project.state.components,
+        // What the previous deployment in this directory lost, for a `--force`
+        // that a script is driving rather than a person reading the warnings.
+        "dropped_components": dropped.iter().map(|c| c.name()).collect::<Vec<&str>>(),
+        "dropped_notes": dropped_notes,
         // Whether the deployment is protected, never the secrets themselves:
         // `--json` output is the kind of thing that ends up in a log.
         "auth": project.state.auth,
@@ -292,6 +363,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
             &chap_core,
             &project,
             secrets.as_ref(),
+            &dropped_notes,
         )
     })
 }
@@ -429,19 +501,42 @@ fn warn_about_ports(
     found
 }
 
-/// Expand `--with`, `--without` and `--ocs-base-url` into a component set.
+/// The `init` flags that shape the component set, so [`parse_components`] takes
+/// one argument per concern rather than one per flag.
+#[derive(Debug, Clone, Default)]
+struct ComponentFlags<'a> {
+    with: Option<&'a str>,
+    without: Option<&'a str>,
+    ocs_base_url: Option<&'a str>,
+    ocs_port: Option<ComponentPortArg>,
+    s3_port: Option<ComponentPortArg>,
+    ocs_read_only: bool,
+}
+
+impl<'a> ComponentFlags<'a> {
+    fn from_args(args: &'a InitArgs) -> ComponentFlags<'a> {
+        ComponentFlags {
+            with: args.with.as_deref(),
+            without: args.without.as_deref(),
+            ocs_base_url: args.ocs_base_url.as_deref(),
+            ocs_port: args.ocs_port,
+            s3_port: args.s3_port,
+            ocs_read_only: args.ocs_read_only,
+        }
+    }
+}
+
+/// Expand `--with`, `--without` and the per-component `--ocs-*` / `--s3-*`
+/// flags into a component set.
 ///
 /// chap-core is on unless `--without chap-core` says otherwise; everything
 /// else is off until `--with` names it. A name in both lists is a
-/// contradiction rather than a silent winner, and so is a base URL for a
-/// component this deployment is not getting.
-fn parse_components(
-    with: Option<&str>,
-    without: Option<&str>,
-    ocs_base_url: Option<&str>,
-) -> Result<Components> {
-    let on = parse_component_list(with)?;
-    let off = parse_component_list(without)?;
+/// contradiction rather than a silent winner, and so is a setting for a
+/// component this deployment is not getting: an `--ocs-port` that quietly did
+/// nothing would leave the operator waiting for OCS on a port no file mentions.
+fn parse_components(flags: &ComponentFlags) -> Result<Components> {
+    let on = parse_component_list(flags.with)?;
+    let off = parse_component_list(flags.without)?;
     if let Some(both) = on.iter().find(|c| off.contains(c)) {
         return Err(anyhow::anyhow!(
             "`{}` is in both --with and --without; it cannot be on and off at once",
@@ -455,7 +550,11 @@ fn parse_components(
     for component in off {
         components.set_enabled(component, false);
     }
-    if let Some(base_url) = ocs_base_url.map(str::trim).filter(|url| !url.is_empty()) {
+    if let Some(base_url) = flags
+        .ocs_base_url
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
         if !components.ocs.enabled {
             return Err(anyhow::anyhow!(
                 "--ocs-base-url needs the ocs component; add `--with ocs`"
@@ -468,6 +567,32 @@ fn parse_components(
             ));
         }
         components.ocs.base_url = Some(base_url.trim_end_matches('/').to_string());
+    }
+    if let Some(port) = flags.ocs_port {
+        if !components.ocs.enabled {
+            return Err(anyhow::anyhow!(
+                "--ocs-port needs the ocs component; add `--with ocs`"
+            ));
+        }
+        components.ocs.port = port.0;
+    }
+    if let Some(port) = flags.s3_port {
+        if !components.s3.enabled {
+            return Err(anyhow::anyhow!(
+                "--s3-port needs the s3 component; add `--with s3`"
+            ));
+        }
+        components.s3.port = port.0;
+    }
+    if flags.ocs_read_only {
+        if !components.ocs.enabled {
+            return Err(anyhow::anyhow!(
+                "--ocs-read-only needs the ocs component; add `--with ocs`"
+            ));
+        }
+        // The record only; the file it records is settled once the scaffold is
+        // on disk, by the one function that edits it.
+        components.ocs.read_only = true;
     }
     Ok(components)
 }
@@ -641,17 +766,123 @@ fn parse_models(spec: &str, registry: &Registry) -> Result<Selection> {
     Ok(Selection {
         enable: ids.into_iter().map(EnableRequest::new).collect(),
         disable: Vec::new(),
+        // `init` settles the component set through `parse_components` before the
+        // selection is built, so there is nothing here for apply() to change.
+        components: None,
     })
+}
+
+/// The components the previous deployment had that this run does not ask for.
+///
+/// `init` starts the component set over from the flags, exactly as it starts the
+/// model set over from `--models`. That is worth saying out loud, because the
+/// default for everything but chap-core is *off*: a directory that had `ocs` and
+/// is re-initialised without `--with ocs` loses it without the run mentioning
+/// the component at all. One named in `--without` was asked for, so it gets no
+/// warning, and chap-core has no compose file of its own to take away.
+fn dropped_components(
+    previous: &Components,
+    now: &Components,
+    asked_off: &[Component],
+) -> Vec<Component> {
+    crate::commands::components::disabled_between(previous, now)
+        .into_iter()
+        .filter(|component| component.compose_file().is_some())
+        .filter(|component| !asked_off.contains(component))
+        .collect()
+}
+
+/// The warning one dropped component gets: what goes, and how to keep it.
+fn component_dropped(component: Component) -> String {
+    format!(
+        "this directory had the {name} component and this run does not ask for it, so {file} \
+         is removed and its data volume is left behind; re-run with `--with {name}` to keep it",
+        name = component.name(),
+        file = component.compose_file().unwrap_or(COMPONENTS_FILE),
+    )
+}
+
+/// Stop and remove the containers of everything this re-init takes away: the
+/// components that are going, and the model services whose overlays are about to
+/// be deleted.
+///
+/// Best-effort about docker like every other step that needs it, and asked
+/// nothing at all when there is nothing going, so the common `init` over a fresh
+/// directory spawns no docker at all.
+fn stop_dropped(previous: &Project, components: &Components, selection: &Selection) -> Vec<String> {
+    let mut notes = crate::commands::components::stop_disabled_components(
+        previous,
+        &previous.state.components,
+        components,
+    );
+    // The overlays of models that are not coming back are removed a moment
+    // later, so their containers are stopped on the same terms a component's
+    // are. A model the new selection keeps is rewritten by apply() instead and
+    // stays up.
+    let going: Vec<String> = previous
+        .state
+        .models
+        .iter()
+        .filter(|(id, model)| !kept_by(selection, id, model))
+        .map(|(_, model)| model.service_id.clone())
+        .collect();
+    if going.is_empty() {
+        return notes;
+    }
+    notes.extend(crate::commands::docker::stop_and_remove(
+        previous,
+        &|service| {
+            going
+                .iter()
+                .any(|id| service == id || service == format!("{id}-init"))
+        },
+    ));
+    notes
+}
+
+/// Whether the new selection brings a model the previous project had back, by
+/// either of the two names it can be asked for.
+fn kept_by(selection: &Selection, id: &str, model: &EnabledModel) -> bool {
+    selection
+        .enable
+        .iter()
+        .any(|req| req.id == id || req.id == model.service_id)
+}
+
+/// Delete the component compose files the previous deployment had and the new
+/// component set does not bring back, and report them.
+///
+/// Nothing else would: once `.chaps/project.yaml` has been rewritten without
+/// them they are in neither `compose_files` nor `rendered_files`, so `chaps
+/// sync` does not see them as its own any more and would leave them in the
+/// directory for good.
+fn remove_dropped_component_files(
+    dir: &Path,
+    previous: &Components,
+    now: &Components,
+) -> Vec<PathBuf> {
+    let keeping = now.compose_files();
+    let mut removed = Vec::new();
+    for file in previous.compose_files() {
+        if keeping.contains(&file) {
+            continue;
+        }
+        let path = dir.join(&file);
+        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 /// Delete every overlay a previous project in `dir` owned.
 ///
 /// All of them go: `init` starts the state over, so a model the new selection
-/// keeps is rewritten by [`apply`] a moment later, and one it drops would
+/// keeps is rewritten by [`apply()`] a moment later, and one it drops would
 /// otherwise linger unreferenced while still holding its host port against the
-/// allocator. Only files the old `.chaps/models.yaml` lists are touched; a hand-written
-/// overlay is none of `init`'s business, and a directory without a readable
-/// state file has nothing to clean up.
+/// allocator. Only files the old `.chaps/models.yaml` lists are touched; a
+/// hand-written overlay is none of `init`'s business, and a directory without
+/// a readable state file has nothing to clean up.
 ///
 /// Returns the ones that are not coming back, for the report.
 fn remove_stale_overlays(dir: &Path, selection: &Selection) -> Vec<PathBuf> {
@@ -664,11 +895,7 @@ fn remove_stale_overlays(dir: &Path, selection: &Selection) -> Vec<PathBuf> {
         if !path.is_file() || std::fs::remove_file(&path).is_err() {
             continue;
         }
-        let rewritten = selection
-            .enable
-            .iter()
-            .any(|req| req.id == *id || req.id == model.service_id);
-        if !rewritten {
+        if !kept_by(selection, id, model) {
             removed.push(path);
         }
     }
@@ -764,6 +991,7 @@ fn summary(
     chap_core: &ChapCore,
     project: &Project,
     secrets: Option<&Secrets>,
+    dropped_notes: &[String],
 ) -> String {
     let mut text = format!(
         "{}\n\n{}\n",
@@ -852,7 +1080,7 @@ fn summary(
     if report.enabled.is_empty() {
         text.push_str(&format!(
             "\n{}\n",
-            out.backticks("No models enabled; run `chaps models enable ID` to add one.")
+            out.backticks(no_models_line(components))
         ));
     } else {
         text.push_str(&format!("\n{}\n", out.heading("Enabled:")));
@@ -883,6 +1111,17 @@ fn summary(
     if components.ocs.enabled && !components.s3.enabled {
         text.push_str(&format!("\n{} {S3_SOON_NOTE}\n", out.dim("note:")));
     }
+    // The same soft dependency the other way round, in the same words
+    // `components enable s3` uses: a store with nothing to put in it.
+    if components.s3.enabled && !components.ocs.enabled {
+        text.push_str(&format!("\n{} {S3_WITHOUT_OCS_NOTE}\n", out.dim("note:")));
+    }
+    // What the containers of a dropped component or model did on the way out.
+    // The warnings above already said which components are going; this says what
+    // was actually stopped, which is the half a reader cannot infer.
+    for note in dropped_notes {
+        text.push_str(&format!("\n{} {note}\n", out.dim("note:")));
+    }
     for warning in &report.warnings {
         text.push_str(&format!("\n{} {warning}\n", out.warn("warning:")));
     }
@@ -911,6 +1150,31 @@ fn file_label(dir: &Path, path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::registry::load_embedded;
+
+    /// The next step a summary names has to be one that works. `chaps models
+    /// enable` on a deployment without chap-core is refused, so naming it
+    /// would cost the reader a command to find that out.
+    #[test]
+    fn a_deployment_without_chap_core_is_not_told_to_enable_a_model() {
+        let mut components = Components::default();
+        assert_eq!(no_models_line(&components), NO_MODELS);
+        assert!(no_models_line(&components).contains("`chaps models enable ID`"));
+
+        components.set_enabled(Component::ChapCore, false);
+        let line = no_models_line(&components);
+        assert!(!line.contains("chaps models enable"), "{line}");
+        assert!(
+            line.contains("`chaps components enable chap-core`"),
+            "{line}"
+        );
+        // The same command the refusal it pre-empts names, so the reader is
+        // sent to one place and not two.
+        assert!(
+            crate::components::MODELS_NEED_CHAP_CORE
+                .contains("`chaps components enable chap-core`"),
+            "the line and the refusal name the same command"
+        );
+    }
 
     #[test]
     fn models_none_enables_nothing() {
@@ -946,34 +1210,41 @@ mod tests {
         ));
     }
 
+    /// `parse_components` from the two list flags alone, which is what most of
+    /// these cases are about.
+    fn components_of(with: Option<&str>, without: Option<&str>) -> Result<Components> {
+        parse_components(&ComponentFlags {
+            with,
+            without,
+            ..ComponentFlags::default()
+        })
+    }
+
     #[test]
     fn the_with_and_without_lists_shape_the_component_set() {
-        let plain = parse_components(None, None, None).unwrap();
+        let plain = components_of(None, None).unwrap();
         assert_eq!(plain, Components::default());
         assert!(plain.chap_core.enabled && !plain.ocs.enabled);
 
-        let both = parse_components(Some("ocs,s3"), None, None).unwrap();
+        let both = components_of(Some("ocs,s3"), None).unwrap();
         assert!(both.chap_core.enabled && both.ocs.enabled && both.s3.enabled);
         assert_eq!(both.label(), "chap-core, ocs, s3");
         // Whitespace and case are the shell's, not part of the name.
-        assert_eq!(
-            parse_components(Some(" OCS , s3 "), None, None).unwrap(),
-            both
-        );
+        assert_eq!(components_of(Some(" OCS , s3 "), None).unwrap(), both);
 
-        let standalone = parse_components(Some("ocs"), Some("chap-core"), None).unwrap();
+        let standalone = components_of(Some("ocs"), Some("chap-core")).unwrap();
         assert!(!standalone.chap_core.enabled && standalone.ocs.enabled);
         assert_eq!(standalone.label(), "ocs");
 
         // An unknown name is a typo to report before anything is written.
-        let err = parse_components(Some("ocs,nope"), None, None).expect_err("unknown component");
+        let err = components_of(Some("ocs,nope"), None).expect_err("unknown component");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
             Some(ChapError::UnknownComponent(name)) if name == "nope"
         ));
 
         // And a name on both lists is a contradiction, not a silent winner.
-        let err = parse_components(Some("ocs"), Some("ocs"), None).expect_err("on and off at once");
+        let err = components_of(Some("ocs"), Some("ocs")).expect_err("on and off at once");
         assert!(
             err.to_string().contains("both --with and --without"),
             "{err}"
@@ -982,8 +1253,14 @@ mod tests {
 
     #[test]
     fn the_ocs_base_url_needs_the_component_and_has_to_be_absolute() {
-        let proxied =
-            parse_components(Some("ocs"), None, Some("https://ocs.example.org/")).unwrap();
+        let base_url = |with, url| {
+            parse_components(&ComponentFlags {
+                with,
+                ocs_base_url: Some(url),
+                ..ComponentFlags::default()
+            })
+        };
+        let proxied = base_url(Some("ocs"), "https://ocs.example.org/").unwrap();
         assert_eq!(
             proxied.ocs.base_url.as_deref(),
             Some("https://ocs.example.org"),
@@ -991,21 +1268,253 @@ mod tests {
         );
 
         // An empty value is no value, not a refusal.
-        assert_eq!(
-            parse_components(Some("ocs"), None, Some("  "))
-                .unwrap()
-                .ocs
-                .base_url,
-            None
-        );
+        assert_eq!(base_url(Some("ocs"), "  ").unwrap().ocs.base_url, None);
 
-        let err = parse_components(None, None, Some("https://ocs.example.org"))
-            .expect_err("no component to set it on");
+        let err = base_url(None, "https://ocs.example.org").expect_err("no component to set it on");
         assert!(err.to_string().contains("--with ocs"), "{err}");
 
-        let err =
-            parse_components(Some("ocs"), None, Some("ocs.example.org")).expect_err("no scheme");
+        let err = base_url(Some("ocs"), "ocs.example.org").expect_err("no scheme");
         assert!(err.to_string().contains("absolute URL"), "{err}");
+    }
+
+    /// A port for a component this deployment is not getting is the same mistake
+    /// as a base URL for one: it has to be a refusal, because a flag that
+    /// quietly did nothing leaves the operator waiting for OCS on a port no file
+    /// mentions.
+    #[test]
+    fn the_component_ports_and_the_read_only_switch_need_their_component() {
+        let with_ocs = |flags: ComponentFlags| {
+            parse_components(&ComponentFlags {
+                with: Some("ocs,s3"),
+                ..flags
+            })
+        };
+
+        let moved = with_ocs(ComponentFlags {
+            ocs_port: Some(ComponentPortArg(Some(18010))),
+            s3_port: Some(ComponentPortArg(Some(18011))),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(moved.ocs.port, Some(18010));
+        assert_eq!(moved.s3.port, Some(18011));
+
+        // `none` is how a component is reached inside the deployment alone, and
+        // it has to survive the flag as well as the record.
+        let internal = with_ocs(ComponentFlags {
+            ocs_port: Some(ComponentPortArg(None)),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(internal.ocs.port, None);
+        assert_eq!(internal.ocs_reach(), "internal");
+
+        let read_only = with_ocs(ComponentFlags {
+            ocs_read_only: true,
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert!(read_only.ocs.read_only);
+        // Left alone without the flag: the file says what it says, and this is
+        // only a record of it.
+        assert!(!with_ocs(ComponentFlags::default()).unwrap().ocs.read_only);
+
+        for (flags, wanted) in [
+            (
+                ComponentFlags {
+                    ocs_port: Some(ComponentPortArg(Some(18010))),
+                    ..ComponentFlags::default()
+                },
+                "--ocs-port needs the ocs component; add `--with ocs`",
+            ),
+            (
+                ComponentFlags {
+                    with: Some("ocs"),
+                    s3_port: Some(ComponentPortArg(Some(18011))),
+                    ..ComponentFlags::default()
+                },
+                "--s3-port needs the s3 component; add `--with s3`",
+            ),
+            (
+                ComponentFlags {
+                    ocs_read_only: true,
+                    ..ComponentFlags::default()
+                },
+                "--ocs-read-only needs the ocs component; add `--with ocs`",
+            ),
+        ] {
+            let err = parse_components(&flags).expect_err("no component to set it on");
+            assert_eq!(err.to_string(), wanted);
+        }
+    }
+
+    /// The new ports have to reach the warning `init` already prints, which they
+    /// do by being recorded on the component: `wanted_claims` reads the set, not
+    /// the flags.
+    #[test]
+    fn a_moved_component_port_is_the_one_that_gets_probed() {
+        let components = parse_components(&ComponentFlags {
+            with: Some("ocs,s3"),
+            ocs_port: Some(ComponentPortArg(Some(18010))),
+            s3_port: Some(ComponentPortArg(Some(18011))),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+
+        let ports: Vec<(String, u16)> = wanted_claims(&components, 18000)
+            .into_iter()
+            .map(|claim| (claim.service, claim.port))
+            .collect();
+        assert_eq!(
+            ports,
+            vec![
+                (API_SERVICE.to_string(), 18000),
+                ("ocs".to_string(), 18010),
+                ("s3".to_string(), 18011),
+            ]
+        );
+
+        let warned = warn_about_ports(&components, 18000, &|port| port == 18010, &[]);
+        assert_eq!(warned.busy.len(), 1);
+        assert!(warned.lines[0].contains("(needed by ocs)"), "{warned:?}");
+
+        // `--ocs-port none` publishes nothing, so there is nothing to probe.
+        let internal = parse_components(&ComponentFlags {
+            with: Some("ocs"),
+            ocs_port: Some(ComponentPortArg(None)),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(
+            wanted_claims(&internal, 18000).len(),
+            1,
+            "the API port only"
+        );
+    }
+
+    /// A `--force` re-init resets the component set from the flags, the way it
+    /// resets the model set from `--models`. The default for everything but
+    /// chap-core is off, so the components go without the run mentioning them -
+    /// which is exactly why each one has to be said out loud.
+    #[test]
+    fn a_re_init_says_which_components_it_is_taking_away() {
+        let mut previous = Components::default();
+        previous.set_enabled(Component::Ocs, true);
+        previous.set_enabled(Component::S3, true);
+
+        let both = dropped_components(&previous, &Components::default(), &[]);
+        assert_eq!(both, vec![Component::Ocs, Component::S3]);
+
+        // One the operator asked to leave out needs no warning: they typed it.
+        assert_eq!(
+            dropped_components(&previous, &Components::default(), &[Component::Ocs]),
+            vec![Component::S3]
+        );
+        // And nothing is dropped when the flags bring them back.
+        assert!(dropped_components(&previous, &previous, &[]).is_empty());
+
+        // chap-core has no compose file of its own to take away, and can only go
+        // off because `--without chap-core` said so.
+        let mut core_off = previous.clone();
+        core_off.set_enabled(Component::ChapCore, false);
+        assert_eq!(dropped_components(&previous, &core_off, &[]), Vec::new());
+
+        let line = component_dropped(Component::Ocs);
+        assert!(line.contains("compose.ocs.yml is removed"), "{line}");
+        assert!(line.contains("`--with ocs`"), "{line}");
+        assert!(!line.contains('\n'), "one line: {line}");
+    }
+
+    /// The compose file of a component that is not coming back has to go with
+    /// it. Nothing else would ever remove it: the new `project.yaml` lists it in
+    /// neither `compose_files` nor `rendered_files`, so `chaps sync` does not see
+    /// it as its own any more.
+    #[test]
+    fn the_compose_file_of_a_dropped_component_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut previous = Components::default();
+        previous.set_enabled(Component::Ocs, true);
+        previous.set_enabled(Component::S3, true);
+        let write = |file: &str| {
+            std::fs::write(dir.path().join(file), "services: {}\n").unwrap();
+            dir.path().join(file)
+        };
+        let ocs = write(crate::components::OCS_COMPOSE);
+        let s3 = write(crate::components::S3_COMPOSE);
+
+        // The store stays, so only OCS's file goes.
+        let mut kept = Components::default();
+        kept.set_enabled(Component::S3, true);
+        assert_eq!(
+            remove_dropped_component_files(dir.path(), &previous, &kept),
+            vec![ocs.clone()]
+        );
+        assert!(!ocs.is_file() && s3.is_file());
+
+        // A file that is already gone is not reported twice, and one the new set
+        // keeps is left for the sync to re-render.
+        assert!(
+            remove_dropped_component_files(dir.path(), &previous, &kept).is_empty(),
+            "nothing left to remove"
+        );
+        assert_eq!(
+            remove_dropped_component_files(dir.path(), &previous, &Components::default()),
+            vec![s3.clone()]
+        );
+        assert!(!s3.is_file());
+    }
+
+    /// Which of the previous project's models the new selection brings back, by
+    /// either of the two names one can be asked for. It decides both which
+    /// overlays are reported as removed and which containers are stopped, so the
+    /// two can never disagree.
+    #[test]
+    fn a_model_is_kept_by_either_of_its_two_names() {
+        let model = crate::project::EnabledModel {
+            service_id: "chapkit-ewars-model".to_string(),
+            ..model_record()
+        };
+        let selection = |id: &str| Selection {
+            enable: vec![EnableRequest::new(id)],
+            ..Selection::default()
+        };
+        assert!(kept_by(
+            &selection("chapkit_ewars_model"),
+            "chapkit_ewars_model",
+            &model
+        ));
+        assert!(kept_by(
+            &selection("chapkit-ewars-model"),
+            "chapkit_ewars_model",
+            &model
+        ));
+        assert!(!kept_by(
+            &selection("auto-arima-chapkit"),
+            "chapkit_ewars_model",
+            &model
+        ));
+        assert!(!kept_by(
+            &Selection::default(),
+            "chapkit_ewars_model",
+            &model
+        ));
+    }
+
+    /// An enabled-model record with nothing in it that these tests care about.
+    fn model_record() -> crate::project::EnabledModel {
+        crate::project::EnabledModel {
+            service_id: "x".to_string(),
+            image: "ghcr.io/chap-models/x".into(),
+            image_tag: "sha-1111111".into(),
+            version: "1.0.0".into(),
+            channel: None,
+            host_port: None,
+            data_dir: "/app/data".into(),
+            user: "chapkit:chapkit".into(),
+            user_from: Default::default(),
+            platform: None,
+            compose_file: "compose.x.yml".into(),
+        }
     }
 
     #[test]

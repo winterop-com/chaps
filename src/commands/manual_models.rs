@@ -132,7 +132,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
             allow_template: false,
             keep_version: false,
         }],
-        disable: Vec::new(),
+        ..Selection::default()
     };
     let applied = apply(&mut project, &registry, &selection, &endpoints)?;
 

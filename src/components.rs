@@ -145,6 +145,20 @@ impl Component {
         matches!(self, Component::Ocs | Component::S3)
     }
 
+    /// The compose file `chaps sync` renders for this component.
+    ///
+    /// `None` for chap-core: its services come from upstream's `compose.yml`
+    /// and `compose.chaps.yml`, which are the deployment itself rather than one
+    /// component's file, so there is nothing a `disable` or a re-init could
+    /// remove on its own.
+    pub fn compose_file(self) -> Option<&'static str> {
+        match self {
+            Component::ChapCore => None,
+            Component::Ocs => Some(OCS_COMPOSE),
+            Component::S3 => Some(S3_COMPOSE),
+        }
+    }
+
     /// The named volume this component keeps its data in, as the compose file
     /// `chaps sync` renders declares it.
     ///
@@ -299,20 +313,22 @@ impl Components {
     /// belong in the `-f` list: after `compose.chaps.yml`, before the
     /// marketplace umbrella.
     pub fn compose_files(&self) -> Vec<String> {
-        let mut files = Vec::new();
-        if self.ocs.enabled {
-            files.push(OCS_COMPOSE.to_string());
-        }
-        if self.s3.enabled {
-            files.push(S3_COMPOSE.to_string());
-        }
-        files
+        self.enabled()
+            .into_iter()
+            .filter_map(Component::compose_file)
+            .map(str::to_string)
+            .collect()
     }
 
     /// The URL a human reaches OCS at from this machine, or `None` for an
-    /// instance that publishes no host port.
+    /// instance that publishes no host port - or none at all.
+    ///
+    /// A disabled component reaches nothing, so this answers on the same terms
+    /// as [`Components::port_of`]: a recorded port belongs to an instance that
+    /// is switched off until something turns it on.
     pub fn ocs_url(&self) -> Option<String> {
-        self.ocs.port.map(|port| format!("http://localhost:{port}"))
+        self.port_of(Component::Ocs)
+            .map(|port| format!("http://localhost:{port}"))
     }
 
     /// The one cell that says how OCS is reached: its own host port, or the
@@ -337,6 +353,36 @@ impl Components {
 /// does not exist would be worse than saying it is coming.
 pub const S3_SOON_NOTE: &str = "OCS will soon need an S3-compatible object store; `chaps components enable s3` \
      adds one, and the OCS service then gets the S3_* variables it will read";
+
+/// The note `components enable s3` prints on a deployment with no OCS.
+///
+/// The store is there for OCS to keep its objects in, and nothing else in a
+/// chaps deployment writes to it - so a deployment that has one and no OCS runs
+/// a container with nothing to put in it. The mirror image of
+/// [`S3_SOON_NOTE`], and a note for the same reason: it is a container the
+/// operator may well be adding first on purpose.
+pub const S3_WITHOUT_OCS_NOTE: &str = "the object store is for OCS to keep its objects in, and this deployment has no OCS; \
+     `chaps components enable ocs` adds one, and nothing else here writes to the store";
+
+/// The note `components disable s3` prints while OCS is still enabled.
+///
+/// The next sync re-renders `compose.ocs.yml` without the `S3_*` block, which
+/// is a change to a service the operator did not name. OCS does not read those
+/// variables yet, so this says what went rather than warning about a breakage
+/// there is not.
+pub const S3_LEAVES_OCS_NOTE: &str = "the OCS service loses its S3_* variables on this sync; OCS does not read them yet, \
+     and `chaps components enable s3` puts them back";
+
+/// The note `components enable ocs` prints on the run that puts the data source
+/// variables into `.env`.
+///
+/// `chaps sync` appends them commented out, and until now the only sign of it
+/// was `written .env`. Which datasets need which key is the thing an operator
+/// cannot guess from the variable names, so the line says that much and names
+/// the command that reports what is set.
+pub const OCS_DATA_SOURCE_NOTE: &str = "the OCS data source variables are now in `.env`, commented out: WorldPop and \
+     CHIRPS3 need none of them and ERA5-Land needs one; `chaps auth show` reports \
+     which are set";
 
 /// Why a model cannot be enabled while `chap-core` is off.
 ///
@@ -504,6 +550,68 @@ mod tests {
         let components = Components::default();
         assert_eq!(components.port_of(Component::Ocs), None);
         assert_eq!(components.port_of(Component::S3), None);
+    }
+
+    /// The port field keeps its value while the component is off - that is how
+    /// a re-enable puts the instance back where it was - so every reader of it
+    /// has to filter on `enabled`. An address for a component nothing is going
+    /// to start is a lie a caller would print.
+    #[test]
+    fn a_disabled_ocs_has_no_address_although_its_port_is_remembered() {
+        let mut components = Components::default();
+        components.ocs.port = Some(9010);
+        assert!(!components.ocs.enabled);
+        assert_eq!(components.ocs_url(), None);
+        assert_eq!(components.ocs_reach(), "internal");
+
+        components.ocs.enabled = true;
+        assert_eq!(
+            components.ocs_url().as_deref(),
+            Some("http://localhost:9010")
+        );
+    }
+
+    /// The compose file a component contributes is also the file a `disable` or
+    /// a re-init has to delete, so the two answers come from one place.
+    #[test]
+    fn the_component_compose_files_are_the_enabled_ones_own_files() {
+        assert_eq!(Component::ChapCore.compose_file(), None);
+        assert_eq!(Component::Ocs.compose_file(), Some(OCS_COMPOSE));
+        assert_eq!(Component::S3.compose_file(), Some(S3_COMPOSE));
+
+        let mut components = Components::default();
+        assert!(components.compose_files().is_empty());
+        components.set_enabled(Component::S3, true);
+        assert_eq!(components.compose_files(), vec![S3_COMPOSE]);
+        components.set_enabled(Component::Ocs, true);
+        assert_eq!(
+            components.compose_files(),
+            vec![OCS_COMPOSE, S3_COMPOSE],
+            "in the order they belong in the -f list"
+        );
+    }
+
+    /// Every note about the two components names the command that acts on it,
+    /// which is the project's message rule, and none of them overstates the S3
+    /// contract OCS does not have yet.
+    #[test]
+    fn the_component_notes_name_the_command_that_answers_them() {
+        assert!(S3_WITHOUT_OCS_NOTE.contains("`chaps components enable ocs`"));
+        assert!(S3_LEAVES_OCS_NOTE.contains("`chaps components enable s3`"));
+        assert!(
+            S3_LEAVES_OCS_NOTE.contains("does not read them yet"),
+            "the S3_* block is forward-looking, and the note says so"
+        );
+        assert!(OCS_DATA_SOURCE_NOTE.contains("`chaps auth show`"));
+        assert!(OCS_DATA_SOURCE_NOTE.contains("ERA5-Land needs one"));
+        for note in [
+            S3_SOON_NOTE,
+            S3_WITHOUT_OCS_NOTE,
+            S3_LEAVES_OCS_NOTE,
+            OCS_DATA_SOURCE_NOTE,
+        ] {
+            assert!(!note.contains('\n'), "one line each: {note}");
+        }
     }
 
     #[test]

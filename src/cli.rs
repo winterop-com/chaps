@@ -257,6 +257,18 @@ pub struct InitArgs {
     #[arg(long = "ocs-base-url", value_name = "URL")]
     pub ocs_base_url: Option<String>,
 
+    /// Host port to publish OCS on, or none to keep it internal
+    #[arg(long = "ocs-port", value_name = "PORT|none")]
+    pub ocs_port: Option<ComponentPortArg>,
+
+    /// Host port to publish the object store on, or none
+    #[arg(long = "s3-port", value_name = "PORT|none")]
+    pub s3_port: Option<ComponentPortArg>,
+
+    /// Refuse ingestion over HTTP on the new OCS instance
+    #[arg(long = "ocs-read-only")]
+    pub ocs_read_only: bool,
+
     #[command(flatten)]
     pub ocs: OcsConfigArgs,
 }
@@ -1500,6 +1512,35 @@ mod tests {
             Cli::try_parse_from(["chap", "init", "x", "--ocs-bbox"]).is_err(),
             "a value is required"
         );
+    }
+
+    /// `init` settles the component ports too, so a deployment whose OCS port is
+    /// taken is one command rather than two. The value parser is the one
+    /// `components enable --port` uses, so `none` means the same thing in both.
+    #[test]
+    fn init_takes_the_component_ports_and_the_read_only_switch() {
+        let plain = init_args(&["x"]);
+        assert_eq!(plain.ocs_port, None, "the flag was absent");
+        assert_eq!(plain.s3_port, None);
+        assert!(!plain.ocs_read_only);
+
+        let given = init_args(&[
+            "x",
+            "--with",
+            "ocs,s3",
+            "--ocs-port",
+            "9010",
+            "--s3-port",
+            "none",
+            "--ocs-read-only",
+        ]);
+        assert_eq!(given.ocs_port, Some(ComponentPortArg(Some(9010))));
+        assert_eq!(given.s3_port, Some(ComponentPortArg(None)));
+        assert!(given.ocs_read_only);
+
+        // The same refusals the shared parser gives everywhere else.
+        assert!(Cli::try_parse_from(["chap", "init", "x", "--ocs-port", "auto"]).is_err());
+        assert!(Cli::try_parse_from(["chap", "init", "x", "--s3-port"]).is_err());
     }
 
     /// The three ways to spell a component's host port, and the one that takes

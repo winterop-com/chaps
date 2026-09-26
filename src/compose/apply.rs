@@ -1,8 +1,8 @@
 //! The single state-edit path shared by `init`, `enable`, `disable` and the
 //! TUI. It updates `.chaps/models.yaml` in memory and then hands over to
-//! [`crate::compose::sync`], which renders the compose files and saves.
+//! [`crate::compose::sync()`], which renders the compose files and saves.
 
-use crate::components::{Component, MODELS_NEED_CHAP_CORE};
+use crate::components::{Component, Components, MODELS_NEED_CHAP_CORE, models_need_chap_core};
 use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
 use crate::compose::ports::allocator_for;
@@ -84,17 +84,29 @@ impl EnableRequest {
     }
 }
 
-/// A batch of enables and disables applied together.
+/// A batch of enables, disables and a component set applied together.
 #[derive(Debug, Clone, Default)]
 pub struct Selection {
     pub enable: Vec<EnableRequest>,
     pub disable: Vec<String>,
+    /// The component set the caller wants, or `None` to leave it alone.
+    ///
+    /// A `Some` that matches what the project already has applies as a no-op:
+    /// [`apply_with`] compares the two and reports neither an enable nor a
+    /// disable. Whether such a set counts as a change at all is the producer's
+    /// question, because only the producer knows the set it started from - the
+    /// browser sets this only once a session has moved something, so a
+    /// component toggled off and on again still saves nothing.
+    pub components: Option<Components>,
 }
 
 impl Selection {
     /// Whether the selection would change anything at all.
+    ///
+    /// A wanted component set counts: nothing here can see the project, so a
+    /// caller with nothing to say about components leaves it `None`.
     pub fn is_empty(&self) -> bool {
-        self.enable.is_empty() && self.disable.is_empty()
+        self.enable.is_empty() && self.disable.is_empty() && self.components.is_none()
     }
 }
 
@@ -104,6 +116,10 @@ pub struct ApplyReport {
     pub enabled: Vec<(String, EnabledModel)>,
     pub updated: Vec<(String, EnabledModel)>,
     pub disabled: Vec<String>,
+    /// Components this run turned on, with the host port each publishes.
+    pub components_enabled: Vec<(String, Option<u16>)>,
+    /// Components it turned off, by name.
+    pub components_disabled: Vec<String>,
     pub written: Vec<PathBuf>,
     pub removed: Vec<PathBuf>,
     pub warnings: Vec<String>,
@@ -115,6 +131,8 @@ impl ApplyReport {
         self.enabled.is_empty()
             && self.updated.is_empty()
             && self.disabled.is_empty()
+            && self.components_enabled.is_empty()
+            && self.components_disabled.is_empty()
             && self.written.is_empty()
             && self.removed.is_empty()
     }
@@ -138,13 +156,26 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
             return Err(ChapError::UnknownModel(wanted.clone()).into());
         }
     }
+    // The component set this selection would leave behind: what the caller
+    // asks for, or what the project has when it asks for nothing.
+    let components = sel.components.as_ref().unwrap_or(&project.state.components);
     // A model service registers with chap-core and is reached through it, so a
     // deployment with models and no chap-core would start and do nothing.
     // `init` and `components disable` each say this in their own words, about
     // the flag or the component the caller named; this is the one that catches
-    // `models enable` and the browser.
-    if !sel.enable.is_empty() && !project.state.components.is_enabled(Component::ChapCore) {
+    // `models enable` and the browser - a browser session that enables a model
+    // and turns chap-core off in the same save included.
+    if !sel.enable.is_empty() && !components.is_enabled(Component::ChapCore) {
         return Err(anyhow::anyhow!(MODELS_NEED_CHAP_CORE));
+    }
+    // The same dependency from the other side, in the words `components
+    // disable` already uses: the models this selection leaves enabled are what
+    // stands in the way of turning chap-core off.
+    if !components.is_enabled(Component::ChapCore) {
+        let staying = models_left_enabled(project, sel);
+        if !staying.is_empty() {
+            return Err(anyhow::anyhow!(models_need_chap_core(&staying)));
+        }
     }
     for req in &sel.enable {
         let model = registry
@@ -362,6 +393,40 @@ pub fn apply_with(
         project.state.models.insert(model.id.clone(), entry);
     }
 
+    // The wanted component set goes in before the sync, so the component
+    // compose files are rendered by the same run that renders the overlays:
+    // one rendering path stays one rendering path.
+    if let Some(wanted) = &sel.components {
+        let before = project.state.components.clone();
+        for component in Component::ALL {
+            match (before.is_enabled(*component), wanted.is_enabled(*component)) {
+                (false, true) => report
+                    .components_enabled
+                    .push((component.name().to_string(), wanted.port_of(*component))),
+                (true, false) => report
+                    .components_disabled
+                    .push(component.name().to_string()),
+                _ => {}
+            }
+        }
+        project.state.components = wanted.clone();
+        // A component publishes its host port straight from
+        // `.chaps/components.yaml`, so every one of them gets the same "is
+        // anything listening on it" question a model's port does. It is a
+        // warning and never a refusal, which is what `init` does with a busy
+        // component port too; a port one of this deployment's own running
+        // services already holds is not a conflict, and
+        // `component_port_warning` is where that is known.
+        for component in Component::ALL {
+            if let Some(port) = wanted.port_of(*component)
+                && let Some(line) =
+                    crate::ports::component_port_warning(project, *component, port, busy)
+            {
+                report.warnings.push(line);
+            }
+        }
+    }
+
     // One rendering path: sync writes the overlays, the umbrella and the .env
     // pins, removes the overlays of disabled models, and saves .chaps/.
     let synced = sync(project, registry, false)?;
@@ -369,6 +434,27 @@ pub fn apply_with(
     report.removed = synced.removed;
     report.warnings.extend(synced.warnings);
     Ok(report)
+}
+
+/// The models that would still be enabled once this selection is applied, by
+/// marketplace id.
+///
+/// The models being enabled by the same selection are left out: they are
+/// caught by [`MODELS_NEED_CHAP_CORE`] before this, which is the refusal that
+/// names the component rather than the models.
+fn models_left_enabled(project: &Project, sel: &Selection) -> Vec<String> {
+    let going: BTreeSet<String> = sel
+        .disable
+        .iter()
+        .filter_map(|wanted| enabled_id(project, wanted))
+        .collect();
+    project
+        .state
+        .models
+        .keys()
+        .filter(|id| !going.contains(*id))
+        .cloned()
+        .collect()
 }
 
 /// The state key for a marketplace id or a compose service id, when that
@@ -421,7 +507,17 @@ mod tests {
     fn enable(ids: &[&str]) -> Selection {
         Selection {
             enable: ids.iter().map(|id| EnableRequest::new(*id)).collect(),
-            disable: Vec::new(),
+            ..Selection::default()
+        }
+    }
+
+    /// A selection that only asks for a component set.
+    fn components(build: impl Fn(&mut Components)) -> Selection {
+        let mut wanted = Components::default();
+        build(&mut wanted);
+        Selection {
+            components: Some(wanted),
+            ..Selection::default()
         }
     }
 
@@ -640,8 +736,8 @@ mod tests {
 
         // The service id is accepted as well as the marketplace id.
         let sel = Selection {
-            enable: Vec::new(),
             disable: vec!["chapkit-ewars-model".into()],
+            ..Selection::default()
         };
         let report = apply(&mut project, &registry, &sel).unwrap();
         assert_eq!(report.disabled, vec!["chapkit_ewars_model"]);
@@ -667,8 +763,8 @@ mod tests {
         let registry = load_embedded().unwrap();
         let (_dir, mut project) = project();
         let sel = Selection {
-            enable: Vec::new(),
             disable: vec!["auto_arima_chapkit".into()],
+            ..Selection::default()
         };
         let err = apply(&mut project, &registry, &sel).expect_err("not enabled");
         assert!(matches!(
@@ -814,8 +910,8 @@ mod tests {
             Some(ChapError::UnknownModel(id)) if id == "nope"
         ));
         let sel = Selection {
-            enable: Vec::new(),
             disable: vec!["auto_arima_chapkit".into()],
+            ..Selection::default()
         };
         let err = validate(&project, &registry, &sel).expect_err("not enabled");
         assert!(matches!(
@@ -904,6 +1000,133 @@ mod tests {
         let (dir, mut project) = project();
         apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
         assert!(!dir.path().join(ENV_FILE).exists());
+    }
+
+    /// A selection that says nothing about models still applies: the component
+    /// set goes into `.chaps/components.yaml` and the same sync renders the
+    /// file for it.
+    #[test]
+    fn a_selection_that_only_changes_a_component_renders_its_compose_file() {
+        let registry = load_embedded().unwrap();
+        let (dir, mut project) = project();
+        let sel = components(|wanted| wanted.set_enabled(Component::Ocs, true));
+        assert!(!sel.is_empty(), "a wanted component set is a change");
+
+        let report = apply(&mut project, &registry, &sel).unwrap();
+        assert_eq!(
+            report.components_enabled,
+            vec![("ocs".to_string(), Some(crate::components::OCS_DEFAULT_PORT))]
+        );
+        assert!(report.components_disabled.is_empty());
+        assert!(report.enabled.is_empty() && report.disabled.is_empty());
+        assert!(project.state.components.ocs.enabled);
+        assert!(dir.path().join(crate::components::OCS_COMPOSE).is_file());
+        // And it is written, not just held in memory.
+        let reloaded = Project::load(dir.path()).unwrap();
+        assert!(reloaded.state.components.ocs.enabled);
+
+        // Turning it off again removes what was rendered for it, and says so.
+        let report = apply(
+            &mut project,
+            &registry,
+            &components(|wanted| wanted.set_enabled(Component::Ocs, false)),
+        )
+        .unwrap();
+        assert_eq!(report.components_disabled, vec!["ocs".to_string()]);
+        assert!(report.components_enabled.is_empty());
+        assert!(!dir.path().join(crate::components::OCS_COMPOSE).exists());
+
+        // A set that matches what the project has changes nothing about it.
+        let report = apply(&mut project, &registry, &components(|_| {})).unwrap();
+        assert!(report.components_enabled.is_empty());
+        assert!(report.components_disabled.is_empty());
+    }
+
+    /// The mirror of [`MODELS_NEED_CHAP_CORE`]: a selection cannot turn
+    /// chap-core off while it leaves a model enabled, and the refusal is the
+    /// one `components disable` gives.
+    #[test]
+    fn chap_core_cannot_be_turned_off_while_a_model_stays_enabled() {
+        let registry = load_embedded().unwrap();
+        let (_dir, mut project) = project();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
+
+        let off = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
+        let err = apply(&mut project, &registry, &off).expect_err("a model is in the way");
+        assert_eq!(
+            err.to_string(),
+            models_need_chap_core(&["chapkit_ewars_model".to_string()])
+        );
+        assert!(
+            project.state.components.chap_core.enabled,
+            "and nothing was written"
+        );
+
+        // Disabling the model in the same selection is what clears the way.
+        let mut both = off.clone();
+        both.disable = vec!["chapkit_ewars_model".to_string()];
+        let report = apply(&mut project, &registry, &both).unwrap();
+        assert_eq!(report.disabled, vec!["chapkit_ewars_model"]);
+        assert_eq!(report.components_disabled, vec!["chap-core".to_string()]);
+    }
+
+    /// The other side of the same dependency: a selection that enables a model
+    /// and turns chap-core off in one go is refused in the words that name the
+    /// component, because the component is what is missing.
+    #[test]
+    fn a_model_enabled_by_a_selection_that_turns_chap_core_off_is_refused() {
+        let registry = load_embedded().unwrap();
+        let (dir, mut project) = project();
+        let mut clash = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
+        clash.enable = vec![EnableRequest::new("chapkit_ewars_model")];
+
+        let err = apply(&mut project, &registry, &clash).expect_err("nowhere to register");
+        assert_eq!(err.to_string(), MODELS_NEED_CHAP_CORE);
+        assert!(project.state.models.is_empty());
+        assert!(!dir.path().join(".chaps").exists());
+    }
+
+    /// A component's host port gets the same question a model's does, and the
+    /// answer is a warning rather than a refusal - the deployment is not up
+    /// yet, and the port is still easy to change.
+    #[test]
+    fn a_component_port_something_is_listening_on_is_a_warning() {
+        let registry = load_embedded().unwrap();
+        let (_dir, mut project) = project();
+        let sel = components(|wanted| {
+            wanted.set_enabled(Component::Ocs, true);
+            wanted.ocs.port = Some(18094);
+        });
+        let report = apply_with(
+            &mut project,
+            &registry,
+            &sel,
+            &|port| port == 18094,
+            &resolve::from_table,
+        )
+        .unwrap();
+        assert!(
+            report.warnings.iter().any(|line| line.contains("18094")),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(
+            project.state.components.ocs.port,
+            Some(18094),
+            "it went through anyway"
+        );
+
+        // A port nothing holds says nothing.
+        let report = apply(
+            &mut project,
+            &registry,
+            &components(|wanted| {
+                wanted.set_enabled(Component::Ocs, true);
+                wanted.ocs.port = Some(18095);
+            }),
+        )
+        .unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
     }
 
     #[test]
