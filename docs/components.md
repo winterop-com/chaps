@@ -76,7 +76,7 @@ written  .env
 note: port 9000 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port <free>`
 note: wrote ocs/climate-service.yaml; it is yours to edit, and chaps never rewrites it
 note: OCS will soon need an S3-compatible object store; `chaps components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
-note: the OCS data source variables are now in `.env`, commented out: WorldPop and CHIRPS3 need none of them and ERA5-Land needs one; `chaps auth show` reports which are set
+note: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `chaps auth show` reports which are set
 run `chaps up` to apply
 ```
 
@@ -224,8 +224,9 @@ only. It ships its own `HEALTHCHECK`, so the compose file declares none.
 OCS serves a web interface as well as an API, so it is published on a host port
 by default (9000). chap-core reaches it inside the deployment at
 `http://ocs:9000`, on the compose default network, which is what makes OCS
-usable as a data source for CHAP: OCS's own configuration has a
-`chirps-to-chap` workflow trigger for exactly that.
+usable as a data source for CHAP: OCS's own example configuration carries a
+commented-out `chirps-to-chap` workflow trigger for exactly that, and the file
+scaffolded here leaves it out, so adding it is yours.
 
 There is no `depends_on` between OCS and chap-core. They are independent
 services and either one is useful without the other.
@@ -279,17 +280,26 @@ need nothing at all, so a deployment that only wants those needs none of this.
 
 | Source | Variables | Datasets |
 | --- | --- | --- |
-| [Copernicus Climate Data Store](https://cds.climate.copernicus.eu/) | `ECMWF_DATASTORES_URL`, `ECMWF_DATASTORES_KEY` | ERA5-Land, monthly |
-| [Earth Data Hub](https://earthdatahub.destine.eu/) | `EDH_API_KEY` | ERA5-Land, hourly and daily |
+| [Copernicus Climate Data Store](https://cds.climate.copernicus.eu/) | `ECMWF_DATASTORES_URL`, `ECMWF_DATASTORES_KEY` | ERA5-Land monthly, and the recent tail of the daily ones |
+| [Earth Data Hub](https://earthdatahub.destine.eu/) | `EDH_API_KEY` | ERA5-Land daily, and the 1991-2020 day-of-year normals |
 | [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu/) | `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | the CLMS GPP dataset plugin |
 | WorldPop, CHIRPS3 | none | population, precipitation |
+
+The two ERA5-Land rows are not alternatives. The monthly datasets come from the
+Climate Data Store alone and the day-of-year normals from the Earth Data Hub
+alone, but every daily dataset reads both, choosing per period: the Earth Data
+Hub store for the history, and the Climate Data Store for the roughly four weeks
+the hub has not published yet. So a daily ingestion that reaches into the present
+needs both accounts, while one that stops short of the hub's coverage needs only
+the hub.
 
 `chaps` writes the five as commented placeholders into `.env` when the `ocs`
 component is enabled, and appends the section to a `.env` that does not have it
 yet - it never rewrites the file, exactly as with the image pins:
 
 ```ini
-# OCS data sources (optional): ERA5-Land needs one of these; WorldPop and CHIRPS3 need none.
+# OCS data sources (optional): ERA5-Land needs one or both of ECMWF_DATASTORES_*
+# and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none.
 # ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api
 # ECMWF_DATASTORES_KEY=
 # EDH_API_KEY=
@@ -301,13 +311,38 @@ Uncomment the ones you have, fill them in, and run `chaps up`: a container
 reads `.env` when compose creates it, so a running OCS does not pick up a
 credential that was added after it started.
 
+A deployment whose `.env` already had the section keeps the heading it was
+written with, so one created before this wording still carries it as a single
+line saying `ERA5-Land needs one of these` - the old summary, and the wrong one:
+it made the two ERA5-Land rows look like alternatives. What says the section is
+already there is the five variables, not the heading, so an older `.env` is left
+exactly as it is rather than appended to a second time. Nothing below the heading
+changed, and `chaps` never rewrites `.env`: the stale line is a comment, so
+correct it by hand or leave it.
+
 `compose.ocs.yml` passes all five unconditionally, as `${VAR:-}`. That is safe
-because OCS reads each of them as `os.getenv(...) or <the credentials file>`, so
-a variable that arrives empty is one it does not have: a deployment that sets
-none of them behaves exactly as one whose compose file never mentioned them.
-Without either the variables or the file, an ERA5-Land ingestion fails with
+because each of them is read as `os.getenv(...) or <a credentials file>`, so a
+variable that arrives empty is one nothing has: a deployment that sets none of
+them behaves exactly as one whose compose file never mentioned them. Which code
+does the reading, and which file it falls back to, differs per source:
+
+| Variables | Read by | Falls back to |
+| --- | --- | --- |
+| `ECMWF_DATASTORES_URL`, `ECMWF_DATASTORES_KEY` | the `ecmwf-datastores-client` library OCS calls | `~/.ecmwfdatastoresrc` |
+| `EDH_API_KEY` | OCS itself | `~/.netrc`, for `api.earthdatahub.destine.eu` |
+| `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` | the CLMS GPP dataset plugin, which is yours rather than part of OCS | the `[cdse]` profile in `~/.aws/credentials` |
+
+Nothing in OCS reads the `CDSE_S3_*` pair - the plugin that does is one you
+bring. That plugin reads two more variables of its own, `CDSE_S3_PROFILE` and
+`CDSE_S3_ENDPOINT`; `chaps` writes neither into `.env`, and `compose.ocs.yml`
+names only the five above, so neither reaches the container. A plugin that needs
+a profile or an endpoint other than its own default has to carry it itself.
+
+Without either the variables or the file, an ERA5-Land ingestion that reaches the
+Climate Data Store fails with
 `No such file or directory: '/home/ocs/.ecmwfdatastoresrc'` - that is the
-container looking for the file form of the same credential.
+container looking for the file form of the same credential, in the home directory
+of the image's `ocs` user.
 
 `chaps auth show` reports which of them `.env` sets, masked:
 
@@ -376,9 +411,14 @@ availability, and `POST /result` is still an unbounded compute endpoint.
 ### Read-only instances
 
 `read_only: true` in `ocs/climate-service.yaml` makes OCS refuse every write
-over HTTP: ingestion and sync, the `/manage` console, stored process graphs and
-batch jobs. The catalogue, the data endpoints, the map viewer and synchronous
-`POST /result` stay open. This is how a public instance runs.
+over HTTP: ingestion and sync under `/manage` - `POST /manage/ingest` and
+`POST /manage/sync`, which are what the data source and dataset pages post their
+forms to rather than a console of their own - plus stored process graphs, batch
+jobs and operator export delivery. `/manage`, `/jobs` and `/exports` are closed
+as whole trees, `GET` included, so nothing added under one of them in a later
+release is open by default. The catalogue, the data endpoints, the map viewer and
+synchronous `POST /result` stay open, and so do the pages themselves, which
+simply leave their forms out. This is how a public instance runs.
 
 ```sh
 chaps components enable ocs --read-only
@@ -570,10 +610,16 @@ rather than naming `chaps models enable`, which such a deployment refuses.
 - **`chaps up`** checks the components' host ports in its preflight, alongside
   the API port, and names the command that moves each one.
 - **`chaps status`** prints one line per enabled component under the chap-core
-  line: OCS from its `/health` endpoint, the object store from whether its
-  container is up. An OCS instance with no host port cannot be asked from out
-  here at all, so it is judged by its container too, and the line says
-  `internal (proxy: <base_url>)` and `read-only` where those apply. An OCS
+  line, each judged by its container first, exactly as `chaps doctor` does: a
+  component with no container reads `not running`, and only OCS is asked
+  anything beyond that - its `/health` endpoint, and only while its container is
+  up. That gate is what keeps a stopped OCS from being reported `up` because
+  another process answered on its host port: OCS defaults to 9000, so two
+  deployments on one machine collide there, which is the clash the `up`
+  preflight and `chaps doctor` already warn about. An OCS instance with no host
+  port cannot be asked from out here at all, so its container is the whole
+  answer, and the line says `internal (proxy: <base_url>)` and `read-only`
+  where those apply. An OCS
   instance that answered also reports what it holds, `3 datasets` and
   `212.0 MB data`. The rows come from `.chaps/components.yaml` rather than from
   docker, so they are printed with nothing running too, each reading
