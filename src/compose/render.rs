@@ -6,12 +6,16 @@
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::components::{
-    OCS_BASE_URL_ENV_VAR, OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR,
-    OCS_IMAGE, OCS_PLUGINS_DIR, OCS_PLUGINS_TARGET, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR,
-    S3_BUCKET, S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
+    DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_IMAGE, DHIS2_TAG_ENV_VAR, OCS_BASE_URL_ENV_VAR,
+    OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_IMAGE,
+    OCS_PLUGINS_DIR, OCS_PLUGINS_TARGET, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR, S3_BUCKET,
+    S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
 };
 use crate::compose::overrides;
-use crate::compose::spec::{BaseSpec, EnvSpec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec};
+use crate::compose::spec::{
+    BaseSpec, Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec, EnvSpec, OcsConfigSpec, OcsSpec,
+    OverlaySpec, S3Spec,
+};
 use crate::project::API_PORT_ENV_VAR;
 use std::sync::LazyLock;
 
@@ -61,6 +65,83 @@ static S3_TEMPLATE: LazyLock<String> =
 /// The OCS instance config `init --with ocs` scaffolds.
 static OCS_CONFIG_TEMPLATE: LazyLock<String> =
     LazyLock::new(|| normalize_newlines(include_str!("templates/climate-service.yaml")));
+/// The `dhis2` component, as a compose file of its own.
+static DHIS2_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/compose.dhis2.yml")));
+/// The `dhis.conf` a `dhis2` component is scaffolded with.
+static DHIS2_CONFIG_TEMPLATE: LazyLock<String> =
+    LazyLock::new(|| normalize_newlines(include_str!("templates/dhis.conf")));
+
+/// The one-shot that prepares the seed dump. A fragment rather than a file of
+/// its own, like the model overlay's init container: a deployment that wants an
+/// empty DHIS2 has no such service at all.
+///
+/// The two things it does that are not obvious are commented in place, because
+/// both were learned from a restore that failed: published dumps are
+/// `pg_dump --clean` without `--if-exists`, and a truncated download that gets
+/// cached looks exactly like a dump with some of the data missing.
+const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
+    # One-shot: fetches the seed dump, rewrites it so it loads into a fresh
+    # database, and exits. dhis2-db mounts the same volume at
+    # /docker-entrypoint-initdb.d/, so the restore is the stock postgres
+    # entrypoint's - which runs it once, on a data directory it has just created,
+    # and never again.
+    image: @DUMP_IMAGE@
+    restart: "no"
+    working_dir: /opt/dump
+    environment:
+      DHIS2_DB_DUMP_URL: ${DHIS2_DB_DUMP_URL:-@SEED_URL@}
+    volumes:
+      - type: volume
+        source: @DUMP_VOLUME@
+        target: /opt/dump
+@SEED_MOUNT@    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ -f dump.sql.gz ]; then
+          echo "dump.sql.gz is already prepared"
+          exit 0
+        fi
+        rm -f raw.part out.part
+        # A value that names a file is the one mounted above, which is copied in
+        # place of the download; everything after this line is the same either
+        # way, so an operator's own dump gets the same verification and the same
+        # rewriting a published one does.
+        if [ -f "$${DHIS2_DB_DUMP_URL}" ]; then
+          echo "copying $${DHIS2_DB_DUMP_URL}"
+          cp "$${DHIS2_DB_DUMP_URL}" raw.part
+        else
+          echo "downloading $${DHIS2_DB_DUMP_URL}"
+          wget -O raw.part "$${DHIS2_DB_DUMP_URL}"
+        fi
+        # Never cache a truncated download: verify the gzip before transforming
+        # it, verify the result, and publish with one atomic move. A half-finished
+        # download that gets cached is a dump that restores without an error and
+        # leaves most of the data out.
+        gzip -t raw.part
+        # Published dumps are `pg_dump --clean` WITHOUT `--if-exists`, so they
+        # open on DROP and ALTER statements that assume the schema is already
+        # there, and the postgres entrypoint runs init scripts under
+        # `psql -v ON_ERROR_STOP=1`: the first missing object aborts the whole
+        # restore. Retrofitting --if-exists makes that opening block a no-op on
+        # an empty database. The substitutions are idempotent, so a dump that
+        # already carries --if-exists is normalised rather than doubled, and each
+        # one is anchored to the start of a line, so COPY data rows are left
+        # alone. DROP EXTENSION and DROP SCHEMA go entirely: the postgis image
+        # owns those objects, dropping them fails on the dependency, and the dump
+        # recreates what it needs with CREATE EXTENSION IF NOT EXISTS.
+        gunzip -c raw.part | sed -E '
+          s/^ALTER TABLE (IF EXISTS )?(ONLY )?/ALTER TABLE IF EXISTS \2/
+          s/^DROP (TABLE|INDEX|SEQUENCE|FUNCTION|VIEW|MATERIALIZED VIEW|TYPE|DOMAIN|AGGREGATE|TRIGGER) (IF EXISTS )?/DROP \1 IF EXISTS /
+          /^DROP EXTENSION /d
+          /^DROP SCHEMA /d
+          s/^CREATE SCHEMA (IF NOT EXISTS )?/CREATE SCHEMA IF NOT EXISTS /
+        ' | gzip > out.part
+        gzip -t out.part
+        mv out.part dump.sql.gz
+        rm -f raw.part
+        echo "wrote dump.sql.gz ($$(wc -c < dump.sql.gz) bytes)""#;
 
 /// Named volume holding OCS's data directory.
 pub const OCS_VOLUME: &str = "ocs_data";
@@ -69,6 +150,49 @@ pub const S3_VOLUME: &str = "s3_data";
 /// Region the bucket request is signed for. RustFS ignores it, but SigV4 has
 /// to name one.
 const S3_REGION: &str = "us-east-1";
+
+/// Container port DHIS2 listens on. Fixed, not a preference: the image's
+/// `server.xml` declares one connector, on 8080, with the context path at the
+/// root.
+pub const DHIS2_CONTAINER_PORT: u16 = 8080;
+/// Database image the component runs. PostGIS is not an optimisation here:
+/// DHIS2's own startup check throws without the `postgis`, `pg_trgm` and
+/// `btree_gin` extensions. This is the tag both `dhis2-core`'s own compose file
+/// and the CHAP team's DHIS2 deployment use.
+pub const DHIS2_DB_IMAGE: &str = "ghcr.io/baosystems/postgis:16-3.5";
+/// Image the seed-dump one-shot runs: it needs `wget`, `gzip` and `sed -E` and
+/// nothing else.
+pub const DHIS2_DUMP_IMAGE: &str = "alpine:3.22";
+/// Where a seed dump that is a file rather than a URL is mounted inside the
+/// one-shot.
+///
+/// One fixed path, whatever the file is called on the host, so the script has a
+/// single name to test for: `[ -f ]` on the value of `DHIS2_DB_DUMP_URL` is what
+/// tells a mounted file from a URL to download, and no second variable decides
+/// it.
+pub const DHIS2_SEED_MOUNT: &str = "/opt/seed.sql.gz";
+/// Named volume holding `/opt/dhis2`: the installed apps and the file store,
+/// measured at about 429 MB on a real instance. Not optional - without it both
+/// are lost on every recreate.
+pub const DHIS2_HOME_VOLUME: &str = "dhis2_home";
+/// Named volume holding the DHIS2 database's data directory.
+pub const DHIS2_DB_VOLUME: &str = "dhis2_db";
+/// Named volume the seed dump is prepared in, mounted into the database at
+/// `/docker-entrypoint-initdb.d/`.
+///
+/// A download cache rather than data: the one-shot fetches the dump again when
+/// this is empty. [`crate::components::Component::volumes`] still names it, so
+/// the doctor does not call it a leftover and `--purge` takes it;
+/// [`crate::backup::COMPONENT_VOLUMES`] leaves it out, so no archive carries it.
+pub const DHIS2_DUMP_VOLUME: &str = "dhis2_dump";
+/// The dump the `2.42` line is seeded from unless `.env` names another: the
+/// DHIS2 climate demo, which is the database the Modeling App's own walkthrough
+/// assumes.
+///
+/// The entry for that line in [`crate::components::DHIS2_SEED_DUMPS`], which is
+/// where the other lines' dumps are and where a tag is looked up.
+pub const DHIS2_DEFAULT_SEED_URL: &str =
+    "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz";
 
 /// The marker line the scaffolded `ocs/climate-service.yaml` carries while it
 /// still holds OCS's example values.
@@ -310,6 +434,153 @@ pub fn render_s3(spec: &S3Spec) -> String {
             ("REGION", S3_REGION),
             ("VOLUME", S3_VOLUME),
         ],
+    )
+}
+
+/// Render `compose.dhis2.yml`: the `dhis2` component.
+///
+/// Four services and three volumes when the database is seeded from a dump, and
+/// three of each without one. `dhis2` is the web service and everything else is
+/// `dhis2-<something>`, so one glance at a container name says which component
+/// owns it.
+///
+/// The seed is the only conditional part, and it is four blocks that travel
+/// together: the one-shot that prepares the dump, the volume it writes into, the
+/// database's mount of that volume at `/docker-entrypoint-initdb.d/`, and the
+/// database's wait on the one-shot. Without a seed none of them is rendered, and
+/// DHIS2 migrates an empty database on first boot instead.
+///
+/// A seed that is a file rather than a URL adds one bind mount to the one-shot
+/// and changes nothing else: the mounted path is what `DHIS2_DB_DUMP_URL`
+/// carries, and the script's `[ -f ]` on that value is what picks the copy over
+/// the download. So both shapes go through the same verification and the same
+/// rewriting, and `.env` can still move either of them.
+///
+/// The host port is published only when the component records one, as with
+/// `ocs`: an instance behind a reverse proxy is `expose`d on the compose network
+/// and nowhere else. There is no `platform:` line anywhere in the file - both
+/// images are multi-arch, unlike the model images every overlay has to pin.
+pub fn render_dhis2(spec: &Dhis2Spec) -> String {
+    let mut port_lines = format!("    expose:\n      - \"{DHIS2_CONTAINER_PORT}\"\n");
+    if let Some(port) = spec.host_port {
+        port_lines.push_str(&format!(
+            "    ports:\n      - \"{port}:{DHIS2_CONTAINER_PORT}\"\n"
+        ));
+    }
+    // Every seed block starts at the beginning of its line and carries its own
+    // newlines, so a deployment without one leaves neither a comment nor a blank
+    // line behind.
+    let (dump_mount, dump_depends, dump_service, dump_volume_line) = match &spec.seed {
+        None => (
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ),
+        Some(seed) => (
+            format!(
+                "      # Where the postgres entrypoint looks for init scripts: the restore is\n\
+                 \x20     # its own, on a data directory it has just created, and happens once.\n\
+                 \x20     # Docker copies the image's postgis script into this volume as the\n\
+                 \x20     # container is created, so that still runs, ahead of the dump.\n\
+                 \x20     - type: volume\n\
+                 \x20       source: {DHIS2_DUMP_VOLUME}\n\
+                 \x20       target: /docker-entrypoint-initdb.d/\n"
+            ),
+            "    depends_on:\n      dhis2-dump:\n        condition: service_completed_successfully\n"
+                .to_string(),
+            format!(
+                "\n{}\n",
+                fill(
+                    DHIS2_DUMP_TEMPLATE,
+                    &[
+                        ("DUMP_IMAGE", DHIS2_DUMP_IMAGE),
+                        ("SEED_URL", seed_value(seed)),
+                        ("SEED_MOUNT", &seed_mount_line(seed)),
+                        ("DUMP_VOLUME", DHIS2_DUMP_VOLUME),
+                    ],
+                )
+            ),
+            format!("  {DHIS2_DUMP_VOLUME}: {{}}\n"),
+        ),
+    };
+    fill(
+        &DHIS2_TEMPLATE,
+        &[
+            ("IMAGE", DHIS2_IMAGE),
+            ("TAG_VAR", DHIS2_TAG_ENV_VAR),
+            ("IMAGE_TAG", &spec.image_tag),
+            ("PORT_LINES", &port_lines),
+            ("CONTAINER_PORT", &DHIS2_CONTAINER_PORT.to_string()),
+            ("CONFIG_PATH", &format!("{DHIS2_DIR}/{DHIS2_CONFIG_FILE}")),
+            ("DB_IMAGE", DHIS2_DB_IMAGE),
+            ("HOME_VOLUME", DHIS2_HOME_VOLUME),
+            ("DB_VOLUME", DHIS2_DB_VOLUME),
+            ("DUMP_MOUNT", &dump_mount),
+            ("DUMP_DEPENDS", &dump_depends),
+            ("DUMP_SERVICE", &dump_service),
+            ("DUMP_VOLUME_LINE", &dump_volume_line),
+        ],
+    )
+}
+
+/// What the one-shot's `DHIS2_DB_DUMP_URL` default carries: the URL to download,
+/// or the path the mounted file has inside the container.
+///
+/// Public because `.env` writes the same value as the commented pin an operator
+/// uncomments to move the seed. A mounted file's *host* path there would be a
+/// path nothing inside the container can read, so both come from here.
+pub fn seed_value(seed: &Dhis2SeedSource) -> &str {
+    match seed {
+        Dhis2SeedSource::Url(url) => url,
+        Dhis2SeedSource::File(_) => DHIS2_SEED_MOUNT,
+    }
+}
+
+/// The bind mount a file seed needs, and nothing at all for a URL.
+///
+/// The token sits at the start of its line and carries its own newline, so a URL
+/// seed leaves no blank line in the volume list.
+///
+/// A relative path is spelled with a leading `./`: compose resolves it against
+/// the project directory either way, but only that spelling is the one its own
+/// documentation guarantees, and it is the spelling an operator recognises as a
+/// path rather than a named volume.
+fn seed_mount_line(seed: &Dhis2SeedSource) -> String {
+    match seed {
+        Dhis2SeedSource::Url(_) => String::new(),
+        Dhis2SeedSource::File(path) => {
+            let absolute = std::path::Path::new(path).is_absolute();
+            let path = path.replace('\\', "/");
+            let source = if absolute || path.starts_with('.') {
+                path
+            } else {
+                format!("./{path}")
+            };
+            format!("      - {source}:{DHIS2_SEED_MOUNT}:ro\n")
+        }
+    }
+}
+
+/// Render the scaffolded `dhis2/dhis.conf`.
+///
+/// Written once, when the component is enabled, and never again: it is the
+/// operator's file from that moment on, exactly like `ocs/climate-service.yaml`.
+///
+/// The file is mandatory - DHIS2 throws on startup without it, and there is no
+/// environment-only mode - and what the environment does is substitute `${...}`
+/// placeholders into it, so the placeholders are written literally and the
+/// compose file passes the matching variables. `fill` only ever replaces `@KEY@`,
+/// which is why the two notations can share one file.
+///
+/// The only value filled here is the route allowlist, because it is the only one
+/// a caller has to decide: DHIS2 v42 and later default it to `https://*` and then
+/// refuse the `http://` target the Modeling App needs, since it reaches chap-core
+/// through a DHIS2 Route rather than directly.
+pub fn render_dhis2_config(spec: &Dhis2ConfigSpec) -> String {
+    fill(
+        &DHIS2_CONFIG_TEMPLATE,
+        &[("ROUTE_ALLOWED", &spec.route_allowed)],
     )
 }
 
@@ -1039,6 +1310,7 @@ mod tests {
             &*OVERLAY_TEMPLATE,
             &*OCS_TEMPLATE,
             &*S3_TEMPLATE,
+            &*DHIS2_TEMPLATE,
         ] {
             assert_eq!(template.lines().next(), Some(GENERATED_HEADER));
         }
@@ -1418,6 +1690,568 @@ mod tests {
         assert_eq!(doc["extent"]["country_code"].as_str(), Some("MWI"));
         assert_eq!(doc["extent"]["bbox"][1].as_f64(), Some(-17.2));
         assert_eq!(doc["data_dir"].as_str(), Some("/app/data"));
+    }
+
+    /// A seeded deployment publishing the container port on the host: what
+    /// `init --with dhis2` would ask for.
+    fn dhis2_spec() -> Dhis2Spec {
+        Dhis2Spec {
+            host_port: Some(DHIS2_CONTAINER_PORT),
+            image_tag: crate::components::DHIS2_DEFAULT_TAG.to_string(),
+            seed: Some(Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())),
+        }
+    }
+
+    /// The same without a seed: an empty DHIS2 that migrates itself.
+    fn unseeded_dhis2_spec() -> Dhis2Spec {
+        Dhis2Spec {
+            seed: None,
+            ..dhis2_spec()
+        }
+    }
+
+    #[test]
+    fn a_seeded_dhis2_renders_four_services_and_three_volumes() {
+        let text = render_dhis2(&dhis2_spec());
+        assert_no_tokens(&text);
+        assert_eq!(text.lines().next(), Some(GENERATED_HEADER));
+        assert!(
+            text.lines().nth(1).unwrap().starts_with("# dhis2: DHIS2, "),
+            "{text}"
+        );
+        assert!(text.ends_with('\n'));
+
+        let doc = parse(&text);
+        let services = doc["services"].as_mapping().unwrap();
+        assert_eq!(services.len(), 4, "{text}");
+        for name in ["dhis2", "dhis2-db", "dhis2-dump", "dhis2-prep"] {
+            assert!(services.contains_key(name), "no {name}: {text}");
+        }
+        // Everything but the web service is `dhis2-<something>`, so a container
+        // name says which component owns it.
+        for name in services.keys() {
+            let name = name.as_str().unwrap();
+            assert!(
+                name == "dhis2" || name.starts_with("dhis2-"),
+                "{name} breaks the naming convention"
+            );
+        }
+
+        let volumes = doc["volumes"].as_mapping().unwrap();
+        assert_eq!(volumes.len(), 3, "{text}");
+        for volume in [DHIS2_HOME_VOLUME, DHIS2_DB_VOLUME, DHIS2_DUMP_VOLUME] {
+            assert!(volumes.contains_key(volume), "{volume} is not declared");
+        }
+
+        // Rendering is a pure function of the spec, which is what lets
+        // `chaps sync` compare the file byte for byte with what is on disk.
+        assert_eq!(render_dhis2(&dhis2_spec()), text);
+    }
+
+    #[test]
+    fn dhis2_without_a_seed_drops_the_one_shot_the_volume_and_the_wait() {
+        let text = render_dhis2(&unseeded_dhis2_spec());
+        assert_no_tokens(&text);
+        assert!(!text.contains("dhis2-dump"), "{text}");
+        assert!(!text.contains("docker-entrypoint-initdb.d"), "{text}");
+        assert!(!text.contains(DHIS2_DUMP_VOLUME), "{text}");
+        assert!(!text.contains(DHIS2_DEFAULT_SEED_URL), "{text}");
+
+        let doc = parse(&text);
+        let services = doc["services"].as_mapping().unwrap();
+        assert_eq!(services.len(), 3, "{text}");
+        let volumes = doc["volumes"].as_mapping().unwrap();
+        assert_eq!(volumes.len(), 2, "{text}");
+        // The database waits for nothing once there is no dump to wait for.
+        assert!(service(&doc, "dhis2-db").get("depends_on").is_none());
+        // And dropping four blocks leaves no blank line and no dangling comment
+        // behind.
+        assert!(!text.contains("\n\n\n"), "{text}");
+        assert!(
+            text.ends_with(&format!("  {DHIS2_HOME_VOLUME}: {{}}\n")),
+            "{text}"
+        );
+        assert_eq!(render_dhis2(&unseeded_dhis2_spec()), text);
+    }
+
+    #[test]
+    fn dhis2_publishes_a_port_only_when_one_was_asked_for() {
+        // The reverse-proxy shape: exposed on the compose network, nothing bound
+        // on the host.
+        let internal = render_dhis2(&Dhis2Spec {
+            host_port: None,
+            ..dhis2_spec()
+        });
+        assert_no_tokens(&internal);
+        let svc = &parse(&internal)["services"]["dhis2"];
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("8080".into())])
+        );
+        assert!(svc.get("ports").is_none(), "{internal}");
+        // Dropping the ports block must not leave a blank line behind.
+        assert!(internal.contains("\n    environment:\n"));
+        assert!(!internal.contains("\n\n    environment:"));
+
+        // With a port, both keys: `expose` still documents the container port.
+        let published = render_dhis2(&Dhis2Spec {
+            host_port: Some(8081),
+            ..dhis2_spec()
+        });
+        assert_no_tokens(&published);
+        let svc = &parse(&published)["services"]["dhis2"];
+        assert_eq!(
+            svc["expose"],
+            Value::Sequence(vec![Value::String("8080".into())])
+        );
+        assert_eq!(
+            svc["ports"],
+            Value::Sequence(vec![Value::String("8081:8080".into())])
+        );
+    }
+
+    /// The container port never moves: 8080 is the one connector the image's
+    /// `server.xml` declares, and the context path is the root.
+    #[test]
+    fn dhis2_pins_no_platform_and_pulls_the_tag_env_can_move() {
+        let text = render_dhis2(&dhis2_spec());
+        // Both images are multi-arch, so unlike a model overlay nothing here
+        // pins an architecture.
+        assert!(!text.contains("platform:"), "{text}");
+
+        let doc = parse(&text);
+        for name in ["dhis2", "dhis2-db", "dhis2-dump", "dhis2-prep"] {
+            assert!(
+                service(&doc, name).get("platform").is_none(),
+                "{name} pins a platform"
+            );
+        }
+        let svc = service(&doc, "dhis2");
+        assert_eq!(
+            svc["image"].as_str(),
+            Some("dhis2/core:${DHIS2_IMAGE_TAG:-2.42}")
+        );
+        assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
+        assert_eq!(svc["init"].as_bool(), Some(true));
+        // The recorded tag is the variable's default, so the file stands on its
+        // own and `.env` still moves the pin without a sync.
+        let pinned = render_dhis2(&Dhis2Spec {
+            image_tag: "2.43.1.0".to_string(),
+            ..dhis2_spec()
+        });
+        assert!(
+            pinned.contains("    image: dhis2/core:${DHIS2_IMAGE_TAG:-2.43.1.0}\n"),
+            "{pinned}"
+        );
+    }
+
+    /// The config is a file mount inside the volume that covers its directory.
+    /// Docker orders mounts by destination depth, so `/opt/dhis2` is mounted
+    /// first and `/opt/dhis2/dhis.conf` lands on top of it; verified against
+    /// docker itself, not assumed.
+    #[test]
+    fn dhis2_mounts_the_config_read_only_inside_the_volume_that_covers_it() {
+        let text = render_dhis2(&dhis2_spec());
+        let svc = &parse(&text)["services"]["dhis2"];
+        let volumes = svc["volumes"].as_sequence().unwrap();
+        assert_eq!(volumes.len(), 2, "{text}");
+        assert_eq!(
+            volumes[0].as_str(),
+            Some("./dhis2/dhis.conf:/opt/dhis2/dhis.conf:ro")
+        );
+        assert_eq!(volumes[1]["source"].as_str(), Some(DHIS2_HOME_VOLUME));
+        assert_eq!(volumes[1]["target"].as_str(), Some("/opt/dhis2"));
+    }
+
+    #[test]
+    fn dhis2_sizes_the_heap_through_java_tool_options() {
+        let text = render_dhis2(&dhis2_spec());
+        let env = &parse(&text)["services"]["dhis2"]["environment"];
+        // JAVA_OPTS is silently ignored by the distroless image variant, which
+        // then takes a quarter of the machine's memory as its heap.
+        assert!(env.get("JAVA_OPTS").is_none(), "{text}");
+        assert_eq!(
+            env["JAVA_TOOL_OPTIONS"].as_str(),
+            Some("${DHIS2_JAVA_TOOL_OPTIONS:--Xms2g -Xmx4g -XX:+UseG1GC}")
+        );
+        // And the five variables dhis.conf substitutes are all there, the
+        // encryption password included, so no placeholder is left standing as a
+        // literal string.
+        for var in [
+            "DHIS2_DB_HOST",
+            "DHIS2_DB_NAME",
+            "DHIS2_DB_USER",
+            "DHIS2_DB_PASSWORD",
+            "DHIS2_ENCRYPTION_PASSWORD",
+        ] {
+            assert!(env.get(var).is_some(), "{var} is not passed: {text}");
+        }
+        assert_eq!(
+            env["DHIS2_ENCRYPTION_PASSWORD"].as_str(),
+            Some("${DHIS2_ENCRYPTION_PASSWORD:-}")
+        );
+    }
+
+    #[test]
+    fn dhis2_waits_for_the_database_and_for_the_prep_one_shot() {
+        let doc = parse(&render_dhis2(&dhis2_spec()));
+        let depends = &service(&doc, "dhis2")["depends_on"];
+        assert_eq!(
+            depends["dhis2-db"]["condition"].as_str(),
+            Some("service_healthy")
+        );
+        assert_eq!(
+            depends["dhis2-prep"]["condition"].as_str(),
+            Some("service_completed_successfully")
+        );
+        // /api/ping is the one route that answers unauthenticated, and the boot
+        // budget is long because a cold start under emulation is minutes.
+        let health = &service(&doc, "dhis2")["healthcheck"];
+        assert_eq!(
+            health["test"],
+            Value::Sequence(vec![
+                "CMD".into(),
+                "curl".into(),
+                "-fsS".into(),
+                "http://localhost:8080/api/ping".into(),
+            ])
+        );
+        assert_eq!(health["start_period"].as_str(), Some("240s"));
+        assert_eq!(health["retries"].as_i64(), Some(60));
+    }
+
+    #[test]
+    fn the_database_is_postgis_and_answers_over_tcp_once_the_restore_is_done() {
+        let doc = parse(&render_dhis2(&dhis2_spec()));
+        let svc = service(&doc, "dhis2-db");
+        assert_eq!(svc["image"].as_str(), Some(DHIS2_DB_IMAGE));
+        assert_eq!(svc["restart"].as_str(), Some("unless-stopped"));
+        let env = &svc["environment"];
+        assert_eq!(env["POSTGRES_DB"].as_str(), Some("${DHIS2_DB_NAME:-dhis}"));
+        assert_eq!(
+            env["POSTGRES_USER"].as_str(),
+            Some("${DHIS2_DB_USER:-dhis}")
+        );
+        assert_eq!(
+            env["POSTGRES_PASSWORD"].as_str(),
+            Some("${DHIS2_DB_PASSWORD:-dhis}")
+        );
+        // -h makes it a TCP probe. Over the unix socket the entrypoint's own
+        // temporary server would answer while the dump was still restoring, and
+        // DHIS2 would start against half a database.
+        let test = svc["healthcheck"]["test"][1].as_str().unwrap();
+        assert!(test.starts_with("pg_isready -h 127.0.0.1 "), "{test}");
+        assert!(test.contains("${POSTGRES_USER}"), "{test}");
+
+        // The data directory is a named volume, and the dump volume is mounted
+        // where the postgres entrypoint looks for init scripts.
+        let volumes = svc["volumes"].as_sequence().unwrap();
+        assert_eq!(volumes[0]["source"].as_str(), Some(DHIS2_DB_VOLUME));
+        assert_eq!(
+            volumes[0]["target"].as_str(),
+            Some("/var/lib/postgresql/data")
+        );
+        assert_eq!(volumes[1]["source"].as_str(), Some(DHIS2_DUMP_VOLUME));
+        assert_eq!(
+            volumes[1]["target"].as_str(),
+            Some("/docker-entrypoint-initdb.d/")
+        );
+        // And it waits for the dump to be prepared before it starts restoring.
+        assert_eq!(
+            svc["depends_on"]["dhis2-dump"]["condition"].as_str(),
+            Some("service_completed_successfully")
+        );
+    }
+
+    #[test]
+    fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
+        let text = render_dhis2(&dhis2_spec());
+        let doc = parse(&text);
+        let svc = service(&doc, "dhis2-dump");
+        assert_eq!(svc["image"].as_str(), Some(DHIS2_DUMP_IMAGE));
+        assert_eq!(svc["restart"].as_str(), Some("no"));
+        assert_eq!(
+            svc["environment"]["DHIS2_DB_DUMP_URL"].as_str(),
+            Some(format!("${{DHIS2_DB_DUMP_URL:-{DHIS2_DEFAULT_SEED_URL}}}").as_str())
+        );
+        assert_eq!(
+            svc["volumes"][0]["source"].as_str(),
+            Some(DHIS2_DUMP_VOLUME)
+        );
+        assert_eq!(svc["volumes"][0]["target"].as_str(), Some("/opt/dump"));
+
+        let script = svc["command"][0].as_str().unwrap();
+        // A truncated download must never become the cached dump: verify the
+        // gzip, verify the transformed gzip, then publish with one atomic move.
+        assert!(script.contains("gzip -t raw.part"), "{script}");
+        assert!(script.contains("gzip -t out.part"), "{script}");
+        assert!(script.contains("mv out.part dump.sql.gz"), "{script}");
+        assert!(
+            script.find("gzip -t out.part") < script.find("mv out.part"),
+            "the move must come after the check"
+        );
+        // Published dumps are `pg_dump --clean` without `--if-exists`, and the
+        // entrypoint runs init scripts under ON_ERROR_STOP=1.
+        assert!(
+            script.contains("s/^ALTER TABLE (IF EXISTS )?(ONLY )?/ALTER TABLE IF EXISTS \\2/"),
+            "{script}"
+        );
+        assert!(script.contains("/^DROP EXTENSION /d"), "{script}");
+        assert!(script.contains("/^DROP SCHEMA /d"), "{script}");
+        assert!(
+            script.contains("s/^CREATE SCHEMA (IF NOT EXISTS )?/CREATE SCHEMA IF NOT EXISTS /"),
+            "{script}"
+        );
+        // An already prepared dump is left alone, so a restart re-downloads
+        // nothing.
+        assert!(script.contains("if [ -f dump.sql.gz ]; then"), "{script}");
+        // `$$` in the file is one `$` for the container's shell; a single one
+        // would have been expanded away by compose.
+        assert!(text.contains("$${DHIS2_DB_DUMP_URL}"), "{text}");
+        assert!(text.contains("$$(wc -c < dump.sql.gz)"), "{text}");
+    }
+
+    /// A dump that is a file is bind-mounted and copied; a URL is downloaded.
+    /// One variable either way, and the script's `[ -f ]` on it is what decides,
+    /// so both shapes get the same verification and the same rewriting.
+    #[test]
+    fn a_file_seed_is_mounted_and_copied_where_a_url_is_downloaded() {
+        let text = render_dhis2(&Dhis2Spec {
+            seed: Some(Dhis2SeedSource::File("dumps/laos.sql.gz".to_string())),
+            ..dhis2_spec()
+        });
+        assert_no_tokens(&text);
+        let doc = parse(&text);
+        let svc = service(&doc, "dhis2-dump");
+        assert_eq!(
+            svc["environment"]["DHIS2_DB_DUMP_URL"].as_str(),
+            Some(
+                format!(
+                    "${{{}:-{DHIS2_SEED_MOUNT}}}",
+                    crate::components::DHIS2_SEED_ENV_VAR
+                )
+                .as_str()
+            ),
+            "the value names the mount, not the host path: {text}"
+        );
+        let volumes = svc["volumes"].as_sequence().unwrap();
+        assert_eq!(volumes[0]["source"].as_str(), Some(DHIS2_DUMP_VOLUME));
+        assert_eq!(
+            volumes[1].as_str(),
+            Some(format!("./dumps/laos.sql.gz:{DHIS2_SEED_MOUNT}:ro").as_str()),
+            "a relative path is spelled with ./, as compose documents it"
+        );
+        // The branch that reads it, and the download that is still there for a URL.
+        let script = svc["command"][0].as_str().unwrap();
+        assert!(
+            script.contains("if [ -f \"$${DHIS2_DB_DUMP_URL}\" ]; then"),
+            "{script}"
+        );
+        assert!(
+            script.contains("cp \"$${DHIS2_DB_DUMP_URL}\" raw.part"),
+            "{script}"
+        );
+        assert!(
+            script.contains("wget -O raw.part \"$${DHIS2_DB_DUMP_URL}\""),
+            "{script}"
+        );
+        // Everything after the fetch is shared, so an operator's own dump is
+        // verified and rewritten exactly as a published one is.
+        assert!(script.contains("gzip -t raw.part"), "{script}");
+        assert!(script.contains("mv out.part dump.sql.gz"), "{script}");
+
+        // An absolute path is passed through, and a URL adds no mount at all.
+        let absolute = render_dhis2(&Dhis2Spec {
+            seed: Some(Dhis2SeedSource::File("/srv/dumps/laos.sql.gz".to_string())),
+            ..dhis2_spec()
+        });
+        assert!(
+            absolute.contains(&format!(
+                "      - /srv/dumps/laos.sql.gz:{DHIS2_SEED_MOUNT}:ro\n"
+            )),
+            "{absolute}"
+        );
+        let url = render_dhis2(&dhis2_spec());
+        assert!(!url.contains(DHIS2_SEED_MOUNT), "{url}");
+        assert_eq!(
+            parse(&url)["services"]["dhis2-dump"]["volumes"]
+                .as_sequence()
+                .unwrap()
+                .len(),
+            1,
+            "the dump volume and nothing else"
+        );
+        // Dropping the mount leaves no blank line in the volume list.
+        assert!(
+            url.contains("        target: /opt/dump\n    entrypoint:"),
+            "{url}"
+        );
+
+        // The scheme is the whole of the rule, and nothing touches the disk to
+        // apply it: a dump the operator has not copied in yet still renders.
+        assert_eq!(
+            Dhis2SeedSource::of(DHIS2_DEFAULT_SEED_URL),
+            Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())
+        );
+        assert_eq!(
+            Dhis2SeedSource::of("dumps/x.sql.gz"),
+            Dhis2SeedSource::File("dumps/x.sql.gz".to_string())
+        );
+    }
+
+    /// The `.env` block names the variables the rendered file actually reads, so
+    /// the constants and the template cannot drift apart: a pin an operator
+    /// uncomments has to be one compose substitutes.
+    #[test]
+    fn the_dhis2_env_variables_are_the_ones_the_compose_file_reads() {
+        let text = render_dhis2(&dhis2_spec());
+        for var in [
+            crate::components::DHIS2_TAG_ENV_VAR,
+            crate::components::DHIS2_DB_PASSWORD_ENV_VAR,
+            crate::components::DHIS2_ENCRYPTION_PASSWORD_ENV_VAR,
+            crate::components::DHIS2_SEED_ENV_VAR,
+            crate::components::DHIS2_JAVA_ENV_VAR,
+        ] {
+            assert!(
+                text.contains(&format!("${{{var}:-")),
+                "{var} is not a default the file reads: {text}"
+            );
+        }
+        // And the value `.env` offers as the starting point is the one the file
+        // already defaults to, so uncommenting the line changes nothing.
+        assert!(
+            text.contains(&format!(
+                "${{{}:-{}}}",
+                crate::components::DHIS2_JAVA_ENV_VAR,
+                crate::components::DHIS2_DEFAULT_JAVA_OPTIONS
+            )),
+            "{text}"
+        );
+    }
+
+    /// Every volume a backup archives has to be read from where the compose file
+    /// mounts it, so the `data_dir`s in that table come from this file rather
+    /// than from memory.
+    #[test]
+    fn the_archived_dhis2_volumes_are_mounted_where_the_backup_table_says() {
+        let doc = parse(&render_dhis2(&dhis2_spec()));
+        let target = |service: &str, volume: &str| -> String {
+            doc["services"][service]["volumes"]
+                .as_sequence()
+                .unwrap()
+                .iter()
+                .find(|mount| mount.get("source").and_then(|s| s.as_str()) == Some(volume))
+                .unwrap_or_else(|| panic!("{service} mounts {volume}"))["target"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        for part in crate::backup::COMPONENT_VOLUMES
+            .iter()
+            .filter(|part| part.name == "dhis2")
+        {
+            assert_eq!(
+                target(part.service, part.volume),
+                part.data_dir,
+                "{} is mounted elsewhere",
+                part.volume
+            );
+        }
+    }
+
+    #[test]
+    fn the_prep_one_shot_analyzes_and_clears_a_job_left_running() {
+        let doc = parse(&render_dhis2(&dhis2_spec()));
+        let svc = service(&doc, "dhis2-prep");
+        // The same image as the database, so nothing extra is pulled.
+        assert_eq!(svc["image"].as_str(), Some(DHIS2_DB_IMAGE));
+        assert_eq!(svc["restart"].as_str(), Some("no"));
+        assert_eq!(svc["entrypoint"], Value::Sequence(vec!["psql".into()]));
+        let command: Vec<&str> = svc["command"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        // ON_ERROR_STOP=0: a database DHIS2 has not migrated yet has no
+        // jobconfiguration table, and that has to be a no-op.
+        assert_eq!(command[0..2], ["-v", "ON_ERROR_STOP=0"]);
+        assert!(
+            command.contains(
+                &"UPDATE jobconfiguration SET jobstatus='SCHEDULED' WHERE jobstatus='RUNNING';"
+            ),
+            "{command:?}"
+        );
+        assert!(command.contains(&"ANALYZE;"), "{command:?}");
+        assert_eq!(
+            svc["depends_on"]["dhis2-db"]["condition"].as_str(),
+            Some("service_healthy")
+        );
+    }
+
+    #[test]
+    fn the_dhis2_config_scaffold_keeps_the_placeholders_dhis2_substitutes() {
+        let text = render_dhis2_config(&Dhis2ConfigSpec::default());
+        assert_no_tokens(&text);
+        assert_eq!(
+            text.lines().next(),
+            Some(
+                "# Written once by chaps when the dhis2 component was enabled; \
+                 chaps never rewrites it."
+            )
+        );
+        assert!(text.ends_with('\n'));
+
+        // The three mandatory keys and the placeholders DHIS2 replaces from its
+        // own environment: filling them here would be filling them twice.
+        assert!(
+            text.contains(
+                "\nconnection.url = jdbc:postgresql://${DHIS2_DB_HOST}/${DHIS2_DB_NAME}\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nconnection.username = ${DHIS2_DB_USER}\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nconnection.password = ${DHIS2_DB_PASSWORD}\n"),
+            "{text}"
+        );
+        // Not required to boot, but unset DHIS2 encrypts with a password
+        // compiled into its own source, and under 24 characters it refuses.
+        assert!(
+            text.contains("\nencryption.password = ${DHIS2_ENCRYPTION_PASSWORD}\n"),
+            "{text}"
+        );
+        // The driver class already defaults correctly, so it is there as a
+        // comment rather than as a value to keep in step.
+        assert!(text.contains("\n# connection.driver_class = "), "{text}");
+        assert!(text.contains("\nconnection.dialect = "), "{text}");
+
+        // The one value the spec decides, narrowed to chap-core's address on the
+        // compose network rather than a wildcard.
+        assert!(
+            text.contains("\nroute.remote_servers_allowed = http://chap:8000\n"),
+            "{text}"
+        );
+        assert_eq!(render_dhis2_config(&Dhis2ConfigSpec::default()), text);
+    }
+
+    #[test]
+    fn the_route_allowlist_is_whatever_the_caller_narrowed_it_to() {
+        let text = render_dhis2_config(&Dhis2ConfigSpec {
+            route_allowed: "https://chap.example.org".to_string(),
+        });
+        assert_no_tokens(&text);
+        assert!(
+            text.contains("\nroute.remote_servers_allowed = https://chap.example.org\n"),
+            "{text}"
+        );
+        assert!(!text.contains("http://chap:8000"));
+        // The reason the value is not just left at DHIS2's default, in the file
+        // the operator reads, and the one rule it has to obey.
+        assert!(text.contains("may carry a path"), "{text}");
     }
 
     fn env_spec() -> EnvSpec {

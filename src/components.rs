@@ -1,8 +1,8 @@
 //! `.chaps/components.yaml` — which pieces a deployment is made of.
 //!
 //! A deployment is chap-core plus whatever else was asked for. chap-core is a
-//! component like the others, on by default; OCS (Open Climate Service) and an
-//! S3-compatible object store are opt-in. The file is intent, like
+//! component like the others, on by default; OCS (Open Climate Service), an
+//! S3-compatible object store and DHIS2 are opt-in. The file is intent, like
 //! `project.yaml` and `models.yaml`: `chaps sync` renders one compose file per
 //! enabled component from it.
 //!
@@ -20,6 +20,8 @@ pub const COMPONENTS_FILE: &str = "components.yaml";
 pub const OCS_COMPOSE: &str = "compose.ocs.yml";
 /// Compose file rendered for the `s3` component.
 pub const S3_COMPOSE: &str = "compose.s3.yml";
+/// Compose file rendered for the `dhis2` component.
+pub const DHIS2_COMPOSE: &str = "compose.dhis2.yml";
 
 /// Directory, relative to the project, holding the OCS instance config.
 pub const OCS_DIR: &str = "ocs";
@@ -101,6 +103,156 @@ pub const S3_SECRET_KEY_ENV_VAR: &str = "S3_SECRET_KEY";
 /// Bucket the one-shot init service creates for OCS.
 pub const S3_BUCKET: &str = "ocs";
 
+/// Directory, relative to the project, holding the DHIS2 instance config.
+pub const DHIS2_DIR: &str = "dhis2";
+/// The DHIS2 instance config, inside [`DHIS2_DIR`]. Mounted read-only at
+/// `/opt/dhis2/dhis.conf`, where DHIS2 requires it.
+pub const DHIS2_CONFIG_FILE: &str = "dhis.conf";
+
+/// Image the `dhis2` component runs. Multi-arch since 2.39.1-rc, so no overlay
+/// or component file pins a platform for it.
+pub const DHIS2_IMAGE: &str = "dhis2/core";
+/// Minor line `dhis2` follows unless `.env` pins another. A two-part tag rather
+/// than a full version, so a patch release arrives with a `docker pull`.
+pub const DHIS2_DEFAULT_TAG: &str = "2.42";
+/// The `.env` variable that moves the DHIS2 image pin.
+pub const DHIS2_TAG_ENV_VAR: &str = "DHIS2_IMAGE_TAG";
+/// Host port `dhis2` publishes unless something says otherwise: the container
+/// port unchanged, because every DHIS2 instruction anyone reads says 8080.
+pub const DHIS2_DEFAULT_PORT: u16 = crate::compose::render::DHIS2_CONTAINER_PORT;
+/// The `.env` variable holding the DHIS2 database password, generated once and
+/// never rewritten: the database volume was created with it.
+pub const DHIS2_DB_PASSWORD_ENV_VAR: &str = "DHIS2_DB_PASSWORD";
+/// The `.env` variable holding the key DHIS2 encrypts stored credentials with.
+///
+/// At least 24 characters, or DHIS2 stops on `ENCRYPTION_PASSWORD_TOO_SHORT`;
+/// empty and it encrypts with a password compiled into its own source, which
+/// every other DHIS2 in the world also has.
+pub const DHIS2_ENCRYPTION_PASSWORD_ENV_VAR: &str = "DHIS2_ENCRYPTION_PASSWORD";
+/// The `.env` variable that moves the seed dump the one-shot fetches.
+pub const DHIS2_SEED_ENV_VAR: &str = "DHIS2_DB_DUMP_URL";
+/// The `.env` variable that replaces the JVM options, the heap sizes among them.
+pub const DHIS2_JAVA_ENV_VAR: &str = "DHIS2_JAVA_TOOL_OPTIONS";
+/// What the compose file passes when [`DHIS2_JAVA_ENV_VAR`] is unset, written
+/// into `.env` as the commented starting point an operator edits.
+pub const DHIS2_DEFAULT_JAVA_OPTIONS: &str = "-Xms2g -Xmx4g -XX:+UseG1GC";
+
+/// The DHIS2 climate demo database published for each minor line, keyed by the
+/// minor.
+///
+/// A table rather than a URL built from the tag, because the published path does
+/// not follow from it: the 2.42 line publishes `climate/laos/2.42/laos.sql.gz`
+/// and the 2.41 line `climate/laos/2.41.7/demo.sql.gz` - a patch version in the
+/// path and a different basename. A minor this does not list has no dump chaps
+/// can name, so such a deployment starts empty and is told so.
+pub const DHIS2_SEED_DUMPS: &[(&str, &str)] = &[
+    ("2.42", crate::compose::render::DHIS2_DEFAULT_SEED_URL),
+    (
+        "2.41",
+        "https://databases.dhis2.org/climate/laos/2.41.7/demo.sql.gz",
+    ),
+];
+
+/// The minor line of a DHIS2 tag: everything up to the second dot.
+///
+/// `2.42`, `2.42.1` and `2.42.1.1` are all the `2.42` line, which is what
+/// [`DHIS2_SEED_DUMPS`] is keyed on. A tag with fewer than two dots is its own
+/// key, so a `dev` or a `latest` someone pinned answers rather than panicking.
+pub fn dhis2_minor(tag: &str) -> &str {
+    let tag = tag.trim();
+    let mut dots = tag.match_indices('.');
+    match (dots.next(), dots.next()) {
+        (Some(_), Some((at, _))) => &tag[..at],
+        _ => tag,
+    }
+}
+
+/// The dump a pinned tag is seeded from, or `None` when chaps knows of none for
+/// that minor line.
+pub fn dhis2_seed_dump(tag: &str) -> Option<&'static str> {
+    let minor = dhis2_minor(tag);
+    DHIS2_SEED_DUMPS
+        .iter()
+        .find(|(line, _)| *line == minor)
+        .map(|(_, url)| *url)
+}
+
+/// What a `dhis2` component's database is restored from the first time it is
+/// created.
+///
+/// Three answers, written in `components.yaml` with the same words
+/// `--dhis2-seed` takes: `default`, `none`, or the dump itself. A dump is a URL
+/// the one-shot downloads or a path in the project directory it reads, and the
+/// value decides which rather than a second setting: an `http://` or `https://`
+/// prefix is the whole of the rule.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Dhis2Seed {
+    /// The dump the pinned minor line publishes, from [`DHIS2_SEED_DUMPS`].
+    #[default]
+    Default,
+    /// An empty database, which DHIS2 migrates itself on the first start.
+    None,
+    /// This dump, whatever the tag says.
+    From(String),
+}
+
+impl Dhis2Seed {
+    /// The value as `components.yaml` writes it and `--dhis2-seed` takes it.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Dhis2Seed::Default => "default",
+            Dhis2Seed::None => "none",
+            Dhis2Seed::From(source) => source,
+        }
+    }
+
+    /// The seed one written value names.
+    ///
+    /// The two words are matched trimmed and without case, because they arrive
+    /// from a command line as well as from YAML, and an empty value is the
+    /// default rather than a dump whose name is nothing.
+    pub fn parse(value: &str) -> Dhis2Seed {
+        let value = value.trim();
+        match value.to_ascii_lowercase().as_str() {
+            "" | "default" => Dhis2Seed::Default,
+            "none" => Dhis2Seed::None,
+            _ => Dhis2Seed::From(value.to_string()),
+        }
+    }
+
+    /// Whether this seed is a URL something has to download, which is the one
+    /// shape `--offline` refuses.
+    pub fn is_url(&self) -> bool {
+        matches!(self, Dhis2Seed::From(source)
+            if source.starts_with("http://") || source.starts_with("https://"))
+    }
+}
+
+impl Serialize for Dhis2Seed {
+    /// One string, so the file reads as `seed: default` rather than as a tagged
+    /// enum nobody would type by hand.
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Dhis2Seed {
+    /// An `Option<String>` rather than a `String`, so a hand-edited `seed:` with
+    /// nothing after it is the default rather than a type error: YAML reads that
+    /// as null, and "no value" is exactly what the default means.
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Dhis2Seed, D::Error> {
+        Ok(match Option::<String>::deserialize(deserializer)? {
+            Some(value) => Dhis2Seed::parse(&value),
+            None => Dhis2Seed::Default,
+        })
+    }
+}
+
 /// One component, by name.
 ///
 /// The names are what `chaps components enable NAME` and `init --with NAME`
@@ -113,11 +265,18 @@ pub enum Component {
     Ocs,
     /// An S3-compatible object store, for OCS to keep its objects in.
     S3,
+    /// DHIS2 and its own database, beside CHAP.
+    Dhis2,
 }
 
 impl Component {
     /// Every component, in the order they are listed and rendered.
-    pub const ALL: &'static [Component] = &[Component::ChapCore, Component::Ocs, Component::S3];
+    pub const ALL: &'static [Component] = &[
+        Component::ChapCore,
+        Component::Ocs,
+        Component::S3,
+        Component::Dhis2,
+    ];
 
     /// The name this component is spelled with everywhere.
     pub fn name(self) -> &'static str {
@@ -125,6 +284,7 @@ impl Component {
             Component::ChapCore => "chap-core",
             Component::Ocs => "ocs",
             Component::S3 => "s3",
+            Component::Dhis2 => "dhis2",
         }
     }
 
@@ -134,6 +294,7 @@ impl Component {
             Component::ChapCore => "CHAP itself: chap-core, its worker, Valkey and PostgreSQL",
             Component::Ocs => "Open Climate Service: climate data, reachable at http://ocs:9000",
             Component::S3 => "RustFS, an S3-compatible object store OCS will keep objects in",
+            Component::Dhis2 => "DHIS2 and its own database, for a deployment that wants one",
         }
     }
 
@@ -152,7 +313,7 @@ impl Component {
 
     /// Whether this component takes a host port at all.
     pub fn takes_port(self) -> bool {
-        matches!(self, Component::Ocs | Component::S3)
+        matches!(self, Component::Ocs | Component::S3 | Component::Dhis2)
     }
 
     /// The compose file `chaps sync` renders for this component.
@@ -166,6 +327,7 @@ impl Component {
             Component::ChapCore => None,
             Component::Ocs => Some(OCS_COMPOSE),
             Component::S3 => Some(S3_COMPOSE),
+            Component::Dhis2 => Some(DHIS2_COMPOSE),
         }
     }
 
@@ -179,10 +341,23 @@ impl Component {
     /// this CLI does not write, and `chaps down --volumes` is what removes
     /// them. So an empty slice is "nothing chaps names here", which is what
     /// `components disable --purge` refuses on.
+    ///
+    /// Every volume the component's compose file declares belongs here, whether
+    /// or not it holds anything worth keeping: this is the list `chaps doctor`
+    /// decides leftovers by, so a volume left out would be reported as one on a
+    /// deployment that legitimately has it, and `--purge` would leave it behind.
+    /// `dhis2_dump` is the case in point - a download cache the one-shot refills
+    /// on its own - and [`crate::backup::COMPONENT_VOLUMES`] is where it is left
+    /// out, because an archive is the one place it costs something.
     pub fn volumes(self) -> &'static [&'static str] {
         match self {
             Component::Ocs => &[crate::compose::render::OCS_VOLUME],
             Component::S3 => &[crate::compose::render::S3_VOLUME],
+            Component::Dhis2 => &[
+                crate::compose::render::DHIS2_HOME_VOLUME,
+                crate::compose::render::DHIS2_DB_VOLUME,
+                crate::compose::render::DHIS2_DUMP_VOLUME,
+            ],
             Component::ChapCore => &[],
         }
     }
@@ -298,6 +473,44 @@ pub struct S3Component {
     pub port: Option<u16>,
 }
 
+fn default_dhis2_port() -> Option<u16> {
+    Some(DHIS2_DEFAULT_PORT)
+}
+
+fn default_dhis2_tag() -> String {
+    DHIS2_DEFAULT_TAG.to_string()
+}
+
+/// The `dhis2` block.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Dhis2Component {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Host port DHIS2 is published on. DHIS2 is a web application people log
+    /// into, so it is published by default rather than hidden on the compose
+    /// network; `None` keeps it inside, for a deployment whose way in is a
+    /// reverse proxy.
+    #[serde(default = "default_dhis2_port")]
+    pub port: Option<u16>,
+    /// The tag the compose file defaults to, and the one `.env` pins.
+    #[serde(default = "default_dhis2_tag")]
+    pub image_tag: String,
+    /// What the database is restored from the first time it is created.
+    #[serde(default)]
+    pub seed: Dhis2Seed,
+}
+
+impl Default for Dhis2Component {
+    fn default() -> Dhis2Component {
+        Dhis2Component {
+            enabled: false,
+            port: Some(DHIS2_DEFAULT_PORT),
+            image_tag: DHIS2_DEFAULT_TAG.to_string(),
+            seed: Dhis2Seed::Default,
+        }
+    }
+}
+
 /// The whole of `components.yaml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Components {
@@ -307,6 +520,8 @@ pub struct Components {
     pub ocs: OcsComponent,
     #[serde(default)]
     pub s3: S3Component,
+    #[serde(default)]
+    pub dhis2: Dhis2Component,
 }
 
 impl Components {
@@ -316,6 +531,7 @@ impl Components {
             Component::ChapCore => self.chap_core.enabled,
             Component::Ocs => self.ocs.enabled,
             Component::S3 => self.s3.enabled,
+            Component::Dhis2 => self.dhis2.enabled,
         }
     }
 
@@ -325,6 +541,7 @@ impl Components {
             Component::ChapCore => self.chap_core.enabled = on,
             Component::Ocs => self.ocs.enabled = on,
             Component::S3 => self.s3.enabled = on,
+            Component::Dhis2 => self.dhis2.enabled = on,
         }
     }
 
@@ -334,6 +551,7 @@ impl Components {
             Component::ChapCore => None,
             Component::Ocs => self.ocs.port.filter(|_| self.ocs.enabled),
             Component::S3 => self.s3.port.filter(|_| self.s3.enabled),
+            Component::Dhis2 => self.dhis2.port.filter(|_| self.dhis2.enabled),
         }
     }
 
@@ -390,6 +608,46 @@ impl Components {
             (None, None) => "internal".to_string(),
         }
     }
+
+    /// The one cell that says how DHIS2 is reached: its own host port, or the
+    /// compose network.
+    ///
+    /// The same terms [`Components::ocs_reach`] answers on, minus the proxy: the
+    /// origin DHIS2 builds absolute links from is `server.base.url` in
+    /// `dhis2/dhis.conf`, which is the operator's file, so chaps records no
+    /// second copy of it to print here.
+    pub fn dhis2_reach(&self) -> String {
+        match self.port_of(Component::Dhis2) {
+            Some(port) => format!("http://localhost:{port}"),
+            None => "internal".to_string(),
+        }
+    }
+
+    /// The dump the first `chaps up` would restore, or `None` for a database
+    /// DHIS2 migrates from empty.
+    ///
+    /// `Dhis2Seed::Default` resolves through [`dhis2_seed_dump`], so a minor line
+    /// with no published dump answers `None` exactly as `none` does - and
+    /// [`dhis2_unknown_seed`] is the line that tells the operator which of the
+    /// two happened.
+    pub fn dhis2_seed_source(&self) -> Option<&str> {
+        match &self.dhis2.seed {
+            Dhis2Seed::Default => dhis2_seed_dump(&self.dhis2.image_tag),
+            Dhis2Seed::None => None,
+            Dhis2Seed::From(source) => Some(source.as_str()),
+        }
+    }
+
+    /// Whether the seed was left at `default` and the pinned minor line has no
+    /// dump chaps knows of.
+    ///
+    /// The database then starts empty, and [`dhis2_unknown_seed`] is the line
+    /// that says so *with the reason*. One rule in one place, because that line
+    /// and the general seed note would otherwise both say "starts empty" and a
+    /// reader would get the same sentence twice.
+    pub fn dhis2_seed_is_unknown(&self) -> bool {
+        self.dhis2.seed == Dhis2Seed::Default && self.dhis2_seed_source().is_none()
+    }
 }
 
 /// The note `components enable ocs` prints while there is no object store.
@@ -431,6 +689,65 @@ pub const S3_LEAVES_OCS_NOTE: &str = "the OCS service loses its S3_* variables o
 pub const OCS_DATA_SOURCE_NOTE: &str = "the OCS data source variables are now in `.env`, commented out: ERA5-Land needs \
      one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and \
      CHIRPS3 need none. `chaps auth show` reports which are set";
+
+/// The note `components enable dhis2` and `init --with dhis2` print about what
+/// the first start will do with the database.
+///
+/// The restore is the postgres entrypoint's own, so it happens once, on a data
+/// directory it has just created, and never again - which is the half an
+/// operator cannot see from the compose file and the half that decides whether
+/// changing the seed later does anything. So the line says "once" and names the
+/// command that makes the volume fresh again.
+pub fn dhis2_seed_note(seed: Option<&str>) -> String {
+    match seed {
+        Some(source) => format!(
+            "the first `chaps up` restores {source} into `dhis2_db`, once, on the database it \
+             creates; after that only `chaps components disable dhis2 --purge` makes it happen again"
+        ),
+        None => "`dhis2_db` starts empty and DHIS2 migrates a new database into it; `seed:` in \
+             `.chaps/components.yaml` names a dump instead, then run `chaps sync`"
+            .to_string(),
+    }
+}
+
+/// The note printed when the seed was left at `default` and the pinned minor
+/// line publishes no dump chaps knows of.
+///
+/// Said rather than guessed: the published path does not follow from the tag
+/// (see [`DHIS2_SEED_DUMPS`]), so constructing one would download a 404 on the
+/// first start and leave the operator with an empty DHIS2 and no explanation.
+pub fn dhis2_unknown_seed(tag: &str) -> String {
+    format!(
+        "chaps knows no DHIS2 demo dump for {}, so `dhis2_db` starts empty; name one with \
+         `seed:` in `.chaps/components.yaml` (a URL or a path) and run `chaps sync`",
+        dhis2_minor(tag)
+    )
+}
+
+/// The note about how long the first start takes.
+///
+/// Every other service in a deployment answers in seconds; DHIS2 migrates its
+/// whole schema before it serves a request, and under emulation that is a
+/// quarter of an hour. An operator who does not know that reads the first
+/// `chaps status` as a broken deployment.
+pub const DHIS2_FIRST_START_NOTE: &str = "the first `chaps up` takes minutes before DHIS2 answers - it migrates its schema on the \
+     way up - and `chaps logs dhis2` is where that shows";
+
+/// The warning for a DHIS2 image tag that is moving while the database volume
+/// is already there.
+///
+/// DHIS2 migrates a schema forward only. Starting an older image on a database a
+/// newer one has migrated gives an instance that passes its own health check
+/// while every API request answers 404, which is the worst shape a deployment
+/// can be in: up, and wrong. So the line names `chaps backup` before anything
+/// else.
+pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
+    format!(
+        "the DHIS2 image moves from {from} to {to} and `dhis2_db` is already there: DHIS2 \
+         migrates a schema forward only, so run `chaps backup` first - an older image on a \
+         migrated database answers healthy while every API request 404s"
+    )
+}
 
 /// Why a model cannot be enabled while `chap-core` is off.
 ///
@@ -483,6 +800,12 @@ mod tests {
                 enabled: true,
                 port: None,
             },
+            dhis2: Dhis2Component {
+                enabled: true,
+                port: Some(18080),
+                image_tag: "2.41.7".into(),
+                seed: Dhis2Seed::From("dumps/laos.sql.gz".into()),
+            },
         };
         let text = serde_yaml_ng::to_string(&components).unwrap();
         assert!(text.contains("chap-core:\n"), "{text}");
@@ -490,16 +813,21 @@ mod tests {
         assert!(text.contains("  port: null\n"), "{text}");
         assert!(text.contains("  base_url: null\n"), "{text}");
         assert!(text.contains("  read_only: false\n"), "{text}");
+        // The seed is one string, whichever of the three it is, so the block
+        // reads as something an operator would type.
+        assert!(text.contains("  seed: dumps/laos.sql.gz\n"), "{text}");
         assert_eq!(
             serde_yaml_ng::from_str::<Components>(&text).unwrap(),
             components
         );
 
-        assert_eq!(components.label(), "chap-core, ocs, s3");
+        assert_eq!(components.label(), "chap-core, ocs, s3, dhis2");
         assert_eq!(
             components.compose_files(),
-            vec!["compose.ocs.yml", "compose.s3.yml"]
+            vec!["compose.ocs.yml", "compose.s3.yml", "compose.dhis2.yml"]
         );
+        assert_eq!(components.port_of(Component::Dhis2), Some(18080));
+        assert_eq!(components.dhis2_reach(), "http://localhost:18080");
         assert_eq!(components.port_of(Component::Ocs), Some(9010));
         assert_eq!(components.port_of(Component::S3), None);
         assert_eq!(
@@ -552,6 +880,170 @@ mod tests {
         assert_eq!(omitted.ocs.port, Some(OCS_DEFAULT_PORT));
     }
 
+    /// The same invariant on the DHIS2 block: the port defaults to 8080, so a
+    /// recorded `null` that read back as the default would republish the port on
+    /// the next sync - and put a DHIS2 login page on the host of a deployment
+    /// that deliberately keeps it behind a proxy.
+    #[test]
+    fn a_null_dhis2_port_survives_the_round_trip_and_a_missing_one_is_the_default() {
+        let explicit: Components =
+            serde_yaml_ng::from_str("dhis2:\n  enabled: true\n  port: null\n").unwrap();
+        assert_eq!(explicit.dhis2.port, None);
+        assert_eq!(explicit.dhis2_reach(), "internal");
+        let text = serde_yaml_ng::to_string(&explicit).unwrap();
+        assert_eq!(
+            serde_yaml_ng::from_str::<Components>(&text)
+                .unwrap()
+                .dhis2
+                .port,
+            None
+        );
+
+        let omitted: Components = serde_yaml_ng::from_str("dhis2:\n  enabled: true\n").unwrap();
+        assert_eq!(omitted.dhis2.port, Some(DHIS2_DEFAULT_PORT));
+    }
+
+    /// A `components.yaml` written before the block existed, and one written
+    /// before a field in it did: both load, and neither turns DHIS2 on.
+    #[test]
+    fn a_components_file_from_before_dhis2_loads_with_the_block_off() {
+        let old: Components =
+            serde_yaml_ng::from_str("chap-core:\n  enabled: true\nocs:\n  enabled: true\n")
+                .unwrap();
+        assert!(!old.dhis2.enabled);
+        assert_eq!(old.dhis2, Dhis2Component::default());
+        assert_eq!(old.label(), "chap-core, ocs");
+        assert!(!old.compose_files().contains(&DHIS2_COMPOSE.to_string()));
+
+        // And a block with nothing but `enabled` keeps every default under it,
+        // the seed among them.
+        let partial: Components = serde_yaml_ng::from_str("dhis2:\n  enabled: true\n").unwrap();
+        assert_eq!(partial.dhis2.image_tag, DHIS2_DEFAULT_TAG);
+        assert_eq!(partial.dhis2.seed, Dhis2Seed::Default);
+        assert_eq!(partial.compose_files(), vec![DHIS2_COMPOSE]);
+    }
+
+    /// The three seeds, in the spelling `components.yaml` holds and
+    /// `--dhis2-seed` takes.
+    #[test]
+    fn a_seed_is_one_string_and_reads_back_as_what_was_written() {
+        assert_eq!(Dhis2Seed::parse("default"), Dhis2Seed::Default);
+        assert_eq!(Dhis2Seed::parse("  DEFAULT "), Dhis2Seed::Default);
+        assert_eq!(Dhis2Seed::parse(""), Dhis2Seed::Default, "no value is none");
+        assert_eq!(Dhis2Seed::parse("none"), Dhis2Seed::None);
+        assert_eq!(Dhis2Seed::parse("None"), Dhis2Seed::None);
+        let url = "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz";
+        assert_eq!(Dhis2Seed::parse(url), Dhis2Seed::From(url.to_string()));
+        assert_eq!(
+            Dhis2Seed::parse(" dumps/mine.sql.gz "),
+            Dhis2Seed::From("dumps/mine.sql.gz".to_string()),
+            "the shell's whitespace is not part of the path"
+        );
+
+        // Only a URL is a download, which is the one shape --offline refuses.
+        assert!(Dhis2Seed::parse(url).is_url());
+        assert!(Dhis2Seed::parse("http://example.org/d.sql.gz").is_url());
+        assert!(!Dhis2Seed::parse("dumps/mine.sql.gz").is_url());
+        assert!(
+            !Dhis2Seed::Default.is_url(),
+            "the table decides, not the flag"
+        );
+        assert!(!Dhis2Seed::None.is_url());
+
+        // A `seed:` with nothing after it is null in YAML, and "no value" is
+        // what the default means - not a type error on a hand-edited file.
+        let bare: Components =
+            serde_yaml_ng::from_str("dhis2:\n  enabled: true\n  seed:\n").unwrap();
+        assert_eq!(bare.dhis2.seed, Dhis2Seed::Default);
+
+        // Round trip through YAML as one scalar each.
+        for seed in [
+            Dhis2Seed::Default,
+            Dhis2Seed::None,
+            Dhis2Seed::From(url.to_string()),
+        ] {
+            let text = serde_yaml_ng::to_string(&seed).unwrap();
+            assert_eq!(text.trim(), seed.as_str(), "{text}");
+            assert_eq!(serde_yaml_ng::from_str::<Dhis2Seed>(&text).unwrap(), seed);
+        }
+    }
+
+    /// The published dump is looked up, never built from the tag: the 2.42 line
+    /// publishes `2.42/laos.sql.gz` and the 2.41 line `2.41.7/demo.sql.gz`, so a
+    /// URL assembled from a version would 404 on the first start.
+    #[test]
+    fn the_seed_dump_comes_from_the_table_and_an_unlisted_minor_has_none() {
+        assert_eq!(dhis2_minor("2.42"), "2.42");
+        assert_eq!(dhis2_minor("2.42.1"), "2.42");
+        assert_eq!(dhis2_minor("2.42.1.1"), "2.42");
+        assert_eq!(dhis2_minor(" 2.41.7 "), "2.41");
+        assert_eq!(dhis2_minor("latest"), "latest", "a tag with no dots at all");
+
+        assert_eq!(
+            dhis2_seed_dump(DHIS2_DEFAULT_TAG),
+            Some(crate::compose::render::DHIS2_DEFAULT_SEED_URL),
+            "the minor chaps pins by default has a dump"
+        );
+        assert_eq!(dhis2_seed_dump("2.42.3"), dhis2_seed_dump("2.42"));
+        assert!(
+            dhis2_seed_dump("2.41")
+                .expect("the 2.41 line publishes one")
+                .ends_with("/2.41.7/demo.sql.gz"),
+            "a patch version in the path and a different basename"
+        );
+        // Nothing is guessed for a line the table does not list.
+        assert_eq!(dhis2_seed_dump("2.40"), None);
+        assert_eq!(dhis2_seed_dump("latest"), None);
+
+        // No two entries claim one minor, or the lookup would have two answers.
+        let mut lines: Vec<&str> = DHIS2_SEED_DUMPS.iter().map(|(line, _)| *line).collect();
+        let count = lines.len();
+        lines.sort_unstable();
+        lines.dedup();
+        assert_eq!(lines.len(), count, "one minor, one dump");
+        for (line, url) in DHIS2_SEED_DUMPS {
+            assert_eq!(dhis2_minor(line), *line, "{line} is a minor line");
+            assert!(url.starts_with("https://"), "{url}");
+        }
+    }
+
+    /// What the first `chaps up` will restore, which is the seed setting and the
+    /// pinned minor together.
+    #[test]
+    fn the_resolved_seed_follows_the_setting_and_then_the_pin() {
+        let mut components = Components::default();
+        components.dhis2.enabled = true;
+        assert_eq!(
+            components.dhis2_seed_source(),
+            dhis2_seed_dump(DHIS2_DEFAULT_TAG)
+        );
+
+        assert!(!components.dhis2_seed_is_unknown());
+
+        // A pin the table does not know leaves the database empty, which is the
+        // same answer `none` gives - and `dhis2_unknown_seed` is what tells the
+        // two apart on the screen, which is what this flag is for.
+        components.dhis2.image_tag = "2.40".to_string();
+        assert_eq!(components.dhis2_seed_source(), None);
+        assert!(components.dhis2_seed_is_unknown());
+
+        components.dhis2.seed = Dhis2Seed::From("dumps/mine.sql.gz".to_string());
+        assert_eq!(components.dhis2_seed_source(), Some("dumps/mine.sql.gz"));
+        components.dhis2.image_tag = DHIS2_DEFAULT_TAG.to_string();
+        assert_eq!(
+            components.dhis2_seed_source(),
+            Some("dumps/mine.sql.gz"),
+            "an explicit dump outranks the table"
+        );
+
+        components.dhis2.seed = Dhis2Seed::None;
+        assert_eq!(components.dhis2_seed_source(), None);
+        assert!(
+            !components.dhis2_seed_is_unknown(),
+            "an empty database that was asked for is not one chaps has no dump for"
+        );
+    }
+
     #[test]
     fn a_partial_block_keeps_the_defaults_of_the_fields_it_omits() {
         let components: Components = serde_yaml_ng::from_str("ocs:\n  enabled: true\n").unwrap();
@@ -586,6 +1078,8 @@ mod tests {
             Component::ChapCore
         );
         assert_eq!(Component::from_name("s3").unwrap(), Component::S3);
+        assert_eq!(Component::from_name("dhis2").unwrap(), Component::Dhis2);
+        assert_eq!(Component::from_name(" DHIS2 ").unwrap(), Component::Dhis2);
         let err = Component::from_name("nope").expect_err("not a component");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
@@ -648,6 +1142,14 @@ mod tests {
         assert_eq!(Component::Ocs.volumes(), ["ocs_data"].as_slice());
         assert_eq!(Component::S3.volumes(), ["s3_data"].as_slice());
         assert!(Component::ChapCore.volumes().is_empty());
+        // Every volume `compose.dhis2.yml` declares, the download cache
+        // included: this is the list the doctor decides leftovers by, so one left
+        // out would be reported as a leftover on a deployment that has it and
+        // `--purge` would leave it behind.
+        assert_eq!(
+            Component::Dhis2.volumes(),
+            ["dhis2_home", "dhis2_db", "dhis2_dump"].as_slice()
+        );
 
         // No two components may claim one volume: the doctor decides whether a
         // volume is a leftover by asking every component whether it is one of
@@ -740,6 +1242,63 @@ mod tests {
             S3_WITHOUT_OCS_NOTE,
             S3_LEAVES_OCS_NOTE,
             OCS_DATA_SOURCE_NOTE,
+        ] {
+            assert!(!note.contains('\n'), "one line each: {note}");
+        }
+    }
+
+    /// Each DHIS2 note says one thing an operator cannot see for themselves, and
+    /// names the command or the file that answers it.
+    #[test]
+    fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
+        let seeded = dhis2_seed_note(Some("https://databases.dhis2.org/x.sql.gz"));
+        assert!(
+            seeded.contains("https://databases.dhis2.org/x.sql.gz"),
+            "{seeded}"
+        );
+        // The restore is the postgres entrypoint's, so it happens once - which is
+        // the half that decides whether changing the seed later does anything.
+        assert!(seeded.contains("once"), "{seeded}");
+        assert!(
+            seeded.contains("`chaps components disable dhis2 --purge`"),
+            "{seeded}"
+        );
+
+        let empty = dhis2_seed_note(None);
+        assert!(empty.contains("starts empty"), "{empty}");
+        assert!(empty.contains("`.chaps/components.yaml`"), "{empty}");
+        assert!(empty.contains("`chaps sync`"), "{empty}");
+
+        let unknown = dhis2_unknown_seed("2.40.1");
+        assert!(
+            unknown.contains("2.40"),
+            "the minor line, not the tag: {unknown}"
+        );
+        assert!(!unknown.contains("2.40.1"), "{unknown}");
+        assert!(unknown.contains("`.chaps/components.yaml`"), "{unknown}");
+
+        assert!(
+            DHIS2_FIRST_START_NOTE.contains("minutes"),
+            "{DHIS2_FIRST_START_NOTE}"
+        );
+        assert!(
+            DHIS2_FIRST_START_NOTE.contains("`chaps logs dhis2`"),
+            "{DHIS2_FIRST_START_NOTE}"
+        );
+
+        // A downgrade is the one case that has to be stopped before `chaps up`,
+        // so the line leads with the command that makes it recoverable.
+        let moved = dhis2_tag_change_note("2.42", "2.41");
+        assert!(moved.contains("from 2.42 to 2.41"), "{moved}");
+        assert!(moved.contains("`chaps backup`"), "{moved}");
+        assert!(moved.contains("404"), "{moved}");
+
+        for note in [
+            seeded,
+            empty,
+            unknown,
+            DHIS2_FIRST_START_NOTE.to_string(),
+            moved,
         ] {
             assert!(!note.contains('\n'), "one line each: {note}");
         }

@@ -250,11 +250,11 @@ pub struct InitArgs {
     #[arg(long, value_name = "PATH")]
     pub source: Option<PathBuf>,
 
-    /// Components to add: ocs, s3
+    /// Components to add: ocs, s3, dhis2
     #[arg(long = "with", value_name = "LIST")]
     pub with: Option<String>,
 
-    /// Components to leave out: chap-core, ocs, s3
+    /// Components to leave out: chap-core, ocs, s3, dhis2
     #[arg(long = "without", value_name = "LIST")]
     pub without: Option<String>,
 
@@ -269,6 +269,14 @@ pub struct InitArgs {
     /// Host port to publish the object store on, or none
     #[arg(long = "s3-port", value_name = "PORT|none")]
     pub s3_port: Option<ComponentPortArg>,
+
+    /// Host port to publish DHIS2 on, or none to keep it internal
+    #[arg(long = "dhis2-port", value_name = "PORT|none")]
+    pub dhis2_port: Option<ComponentPortArg>,
+
+    /// Dump to seed the DHIS2 database from: default, none, URL or path
+    #[arg(long = "dhis2-seed", value_name = "SPEC")]
+    pub dhis2_seed: Option<String>,
 
     /// Refuse ingestion over HTTP on the new OCS instance
     #[arg(long = "ocs-read-only")]
@@ -330,7 +338,7 @@ pub struct ComponentsListArgs {}
 /// Turn a component on, or change the settings of one that is
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsEnableArgs {
-    /// Component name: ocs, s3 or chap-core
+    /// Component name: ocs, s3, dhis2 or chap-core
     #[arg(value_name = "NAME")]
     pub name: String,
 
@@ -357,7 +365,7 @@ pub struct ComponentsEnableArgs {
 /// Turn a component off and remove its compose file
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsDisableArgs {
-    /// Component name: ocs, s3 or chap-core
+    /// Component name: ocs, s3, dhis2 or chap-core
     #[arg(value_name = "NAME")]
     pub name: String,
 

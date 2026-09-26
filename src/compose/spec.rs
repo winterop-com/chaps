@@ -101,6 +101,96 @@ impl S3Spec {
     }
 }
 
+/// Where the seed dump comes from, which is the one thing about it the compose
+/// file has to render differently.
+///
+/// A URL is downloaded by the one-shot; a file is bind-mounted into it. Both end
+/// up in the same `DHIS2_DB_DUMP_URL`, and the script decides by testing whether
+/// the value names a file, so there is one code path in the container and one
+/// variable `.env` can move.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dhis2SeedSource {
+    /// An `http://` or `https://` URL.
+    Url(String),
+    /// A path, absolute or relative to the deployment directory.
+    File(String),
+}
+
+impl Dhis2SeedSource {
+    /// Which of the two a written value is: the scheme is the whole of the rule,
+    /// so nothing has to touch the filesystem to decide, and a path that is not
+    /// there yet still renders (the operator may be about to copy the dump in).
+    pub fn of(source: &str) -> Dhis2SeedSource {
+        if source.starts_with("http://") || source.starts_with("https://") {
+            Dhis2SeedSource::Url(source.to_string())
+        } else {
+            Dhis2SeedSource::File(source.to_string())
+        }
+    }
+}
+
+/// Values for `compose.dhis2.yml`.
+#[derive(Debug, Clone)]
+pub struct Dhis2Spec {
+    /// Host port DHIS2's web UI and API are published on, or `None` for an
+    /// instance that is only `expose`d on the compose network - the
+    /// reverse-proxy shape.
+    pub host_port: Option<u16>,
+    /// The tag the `${DHIS2_IMAGE_TAG:-...}` default carries.
+    pub image_tag: String,
+    /// The dump the database is seeded from, behind the
+    /// `${DHIS2_DB_DUMP_URL:-...}` default. `None` renders no seed one-shot and
+    /// no dump volume at all, which is an empty DHIS2 that migrates itself on
+    /// first boot.
+    pub seed: Option<Dhis2SeedSource>,
+}
+
+impl Dhis2Spec {
+    /// The spec a project's components describe.
+    ///
+    /// The seed is resolved here rather than recorded already resolved, because
+    /// `Dhis2Seed::Default` means "whatever the pinned minor line publishes" and
+    /// the pin can move without the seed setting changing. A minor line with no
+    /// dump in [`crate::components::DHIS2_SEED_DUMPS`] resolves to `None`, which
+    /// renders an empty database;
+    /// [`crate::components::dhis2_unknown_seed`] is the line that says so.
+    pub fn from_components(components: &Components) -> Dhis2Spec {
+        Dhis2Spec {
+            host_port: components.dhis2.port,
+            image_tag: components.dhis2.image_tag.clone(),
+            seed: components.dhis2_seed_source().map(Dhis2SeedSource::of),
+        }
+    }
+}
+
+/// Values for the scaffolded `dhis2/dhis.conf`.
+///
+/// One field, because every other value in that file is a literal `${...}` DHIS2
+/// substitutes from the environment the compose file hands the service. The
+/// compose file is where those are decided; this is the one setting that has to
+/// be in the file itself.
+#[derive(Debug, Clone)]
+pub struct Dhis2ConfigSpec {
+    /// What `route.remote_servers_allowed` allows: one origin per entry, comma
+    /// separated, and no path on any of them - DHIS2 throws on startup if one
+    /// carries a path.
+    pub route_allowed: String,
+}
+
+impl Default for Dhis2ConfigSpec {
+    /// chap-core's address on the compose network and nothing else.
+    ///
+    /// Narrower than the `http://*` a DHIS2 deployment beside CHAP usually
+    /// settles for: the only route this deployment needs is the one the Modeling
+    /// App uses to reach chap-core, and a wildcard is an open server-side request
+    /// forgery hole that DHIS2 itself warns about on every start.
+    fn default() -> Dhis2ConfigSpec {
+        Dhis2ConfigSpec {
+            route_allowed: format!("http://{}:8000", crate::compose::API_SERVICE),
+        }
+    }
+}
+
 /// Values for the scaffolded `ocs/climate-service.yaml`.
 ///
 /// Everything but `example` comes from the `--ocs-*` flags; without them the

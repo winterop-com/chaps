@@ -767,6 +767,7 @@ fn compose_of(component: Component) -> String {
         ),
         Component::Ocs => crate::components::OCS_COMPOSE.to_string(),
         Component::S3 => crate::components::S3_COMPOSE.to_string(),
+        Component::Dhis2 => crate::components::DHIS2_COMPOSE.to_string(),
     }
 }
 
@@ -2990,7 +2991,7 @@ mod tests {
         let screen = render(&app, 120, 40);
         assert!(screen.contains("chaps · components"), "{screen}");
         assert!(
-            screen.contains("3 components · 2 enabled · 0 pending"),
+            screen.contains("4 components · 2 enabled · 0 pending"),
             "{screen}"
         );
         assert!(screen.contains("Components"), "{screen}");

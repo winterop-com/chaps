@@ -49,11 +49,13 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--no-env` | Do not write a .env file. |
 | `--fresh-env` | Regenerate .env, rotating the database password. |
 | `--source <PATH>` | Build chap-core from a local checkout (not supported yet). |
-| `--with <LIST>` | Components to add: ocs, s3. |
-| `--without <LIST>` | Components to leave out: chap-core, ocs, s3. |
+| `--with <LIST>` | Components to add: ocs, s3, dhis2. |
+| `--without <LIST>` | Components to leave out: chap-core, ocs, s3, dhis2. |
 | `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--ocs-port <PORT\|none>` | Host port to publish OCS on, or none to keep it internal. |
 | `--s3-port <PORT\|none>` | Host port to publish the object store on, or none. |
+| `--dhis2-port <PORT\|none>` | Host port to publish DHIS2 on, or none to keep it internal. |
+| `--dhis2-seed <SPEC>` | Dump to seed the DHIS2 database from: default, none, URL or path. |
 | `--ocs-read-only` | Refuse ingestion over HTTP on the new OCS instance. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
@@ -240,7 +242,7 @@ Usage: chaps components enable [OPTIONS] <NAME>
 
 | Argument | Description |
 | --- | --- |
-| `<NAME>` | Component name: ocs, s3 or chap-core. |
+| `<NAME>` | Component name: ocs, s3, dhis2 or chap-core. |
 | `--port <PORT\|none>` | Host port to publish on, or none to keep it internal. |
 | `--base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--read-only` | Refuse ingestion over HTTP on this OCS instance. |
@@ -259,7 +261,7 @@ Usage: chaps components disable [OPTIONS] <NAME>
 
 | Argument | Description |
 | --- | --- |
-| `<NAME>` | Component name: ocs, s3 or chap-core. |
+| `<NAME>` | Component name: ocs, s3, dhis2 or chap-core. |
 | `--purge` | Delete the component's data volume as well. |
 
 ## chaps ui

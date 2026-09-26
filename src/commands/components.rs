@@ -9,11 +9,12 @@
 use crate::cli::{ComponentsDisableArgs, ComponentsEnableArgs, ComponentsListArgs, OcsConfigArgs};
 use crate::commands::Ctx;
 use crate::components::{
-    Component, Components, OCS_DATA_SOURCE_ENV_VARS, OCS_DATA_SOURCE_NOTE, S3_LEAVES_OCS_NOTE,
-    S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE, models_need_chap_core,
+    Component, Components, DHIS2_COMPOSE, DHIS2_FIRST_START_NOTE, DHIS2_TAG_ENV_VAR,
+    OCS_DATA_SOURCE_ENV_VARS, OCS_DATA_SOURCE_NOTE, S3_LEAVES_OCS_NOTE, S3_SOON_NOTE,
+    S3_WITHOUT_OCS_NOTE, dhis2_seed_note, models_need_chap_core,
 };
-use crate::compose::spec::OcsConfigRequest;
-use crate::compose::sync::{sync, write_ocs_config};
+use crate::compose::spec::{Dhis2ConfigSpec, OcsConfigRequest};
+use crate::compose::sync::{sync, write_dhis2_config, write_ocs_config};
 use crate::error::Result;
 use crate::output::Out;
 use crate::project::{ENV_FILE, Project};
@@ -157,9 +158,32 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
             notes.push(note);
         }
     }
+    // DHIS2's config is scaffolded the same way and for a harder reason: without
+    // `dhis.conf` DHIS2 does not start at all. Nothing is filled in from flags,
+    // so there is no "values were not used" case to report - a file that is
+    // already there is simply the operator's.
+    if component == Component::Dhis2
+        && let Some(path) = write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?
+    {
+        notes.push(format!(
+            "wrote {}; it is yours to edit, and chaps never rewrites it",
+            label(&project, &path)
+        ));
+    }
     let after = project.state.components.clone();
     if component == Component::Ocs && !after.s3.enabled {
         notes.push(S3_SOON_NOTE.to_string());
+    }
+    if component == Component::Dhis2 {
+        // The pin first: it is the one line that asks the reader to stop and run
+        // something else before `chaps up`.
+        notes.extend(dhis2_tag_moved(&project, &after));
+        // The sync below says it with the reason when the pinned minor has no
+        // dump, so this line would be the same sentence twice.
+        if !after.dhis2_seed_is_unknown() {
+            notes.push(dhis2_seed_note(after.dhis2_seed_source()));
+        }
+        notes.push(DHIS2_FIRST_START_NOTE.to_string());
     }
     // The other half of the same soft dependency: a store with nothing to put
     // in it is worth a line, because the operator may have meant to add OCS too.
@@ -270,6 +294,9 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     }
     if component == Component::Ocs {
         notes.push("the ocs/ directory is left alone; it is yours".to_string());
+    }
+    if component == Component::Dhis2 {
+        notes.push("the dhis2/ directory is left alone; it is yours".to_string());
     }
     // The store going takes the `S3_*` block out of `compose.ocs.yml`, which is
     // a change to a service this command was not asked about. Only on the run
@@ -409,9 +436,51 @@ fn wanted_port(
         None => match component {
             Component::Ocs => components.ocs.port,
             Component::S3 => components.s3.port,
+            Component::Dhis2 => components.dhis2.port,
             Component::ChapCore => None,
         },
     }
+}
+
+/// The warning for a run that moves the DHIS2 image pin while `dhis2_db` is
+/// already there, or `None` when nothing is moving.
+///
+/// The tag that is *deployed* is the one the rendered `compose.dhis2.yml` on disk
+/// defaults to, not the one the state records: the file is what compose reads, so
+/// it is what the existing database was created and migrated by. No file means no
+/// deployment yet, and nothing to warn about.
+///
+/// Best-effort about docker like every other step that needs it: no CLI or no
+/// daemon answers "no such volume", which is the quiet answer - a warning about
+/// a database that may not exist would be worse than none.
+pub fn dhis2_tag_moved(project: &Project, wanted: &Components) -> Option<String> {
+    if !wanted.dhis2.enabled {
+        return None;
+    }
+    let deployed = rendered_dhis2_tag(project)?;
+    if deployed == wanted.dhis2.image_tag {
+        return None;
+    }
+    let volume = project.prefixed_volume(crate::compose::render::DHIS2_DB_VOLUME)?;
+    if !crate::docker::volume_exists(&volume) {
+        return None;
+    }
+    Some(crate::components::dhis2_tag_change_note(
+        &deployed,
+        &wanted.dhis2.image_tag,
+    ))
+}
+
+/// The tag the rendered `compose.dhis2.yml` in this deployment defaults to, read
+/// out of its `${DHIS2_IMAGE_TAG:-<tag>}`.
+///
+/// Text rather than a YAML round trip: one variable's default in one image line
+/// is all that is wanted, and the file is generated, so its shape is ours.
+fn rendered_dhis2_tag(project: &Project) -> Option<String> {
+    let body = std::fs::read_to_string(project.dir.join(DHIS2_COMPOSE)).ok()?;
+    let opening = format!("${{{DHIS2_TAG_ENV_VAR}:-");
+    let rest = &body[body.find(&opening)? + opening.len()..];
+    Some(rest[..rest.find('}')?].to_string())
 }
 
 /// This deployment's `.env`, or an empty string when it has none.
@@ -457,6 +526,7 @@ fn set_port(components: &mut Components, component: Component, port: Option<u16>
     match component {
         Component::Ocs => components.ocs.port = port,
         Component::S3 => components.s3.port = port,
+        Component::Dhis2 => components.dhis2.port = port,
         Component::ChapCore => {
             return Err(anyhow::anyhow!(
                 "chap-core's host port is the API port; set it with \
@@ -648,8 +718,8 @@ mod tests {
     fn the_rows_cover_every_component_in_order() {
         let rows = rows(&Components::default(), 8000);
         let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["chap-core", "ocs", "s3"]);
-        assert!(rows[0].enabled && !rows[1].enabled && !rows[2].enabled);
+        assert_eq!(names, ["chap-core", "ocs", "s3", "dhis2"]);
+        assert!(rows[0].enabled && rows[1..].iter().all(|r| !r.enabled));
         assert!(
             rows[0].compose_file.is_none(),
             "chap-core is the base stack"
@@ -685,6 +755,10 @@ mod tests {
         assert_eq!(components.ocs.port, Some(9010));
         set_port(&mut components, Component::S3, Some(9011)).unwrap();
         assert_eq!(components.s3.port, Some(9011));
+        set_port(&mut components, Component::Dhis2, Some(18080)).unwrap();
+        assert_eq!(components.dhis2.port, Some(18080));
+        set_port(&mut components, Component::Dhis2, None).unwrap();
+        assert_eq!(components.dhis2.port, None);
 
         // `--port none` is how a published component becomes an internal one,
         // and it reads the same on both.
@@ -836,6 +910,28 @@ mod tests {
             vec!["hello1-abc123_ocs_data".to_string()]
         );
 
+        // A component with three volumes names all three, each on its own line
+        // with its own `docker volume rm`: an operator removing them by hand
+        // needs every name, and the download cache is one of them because the
+        // compose file declares it.
+        let notes = kept_volume_notes(&project, Component::Dhis2);
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert_eq!(
+            component_volumes(&project, Component::Dhis2),
+            vec![
+                "hello1-abc123_dhis2_home".to_string(),
+                "hello1-abc123_dhis2_db".to_string(),
+                "hello1-abc123_dhis2_dump".to_string(),
+            ]
+        );
+        for note in &notes {
+            assert!(
+                note.contains("`chaps components disable dhis2 --purge`"),
+                "{note}"
+            );
+            assert!(note.contains("docker volume rm"), "{note}");
+        }
+
         // chap-core's volumes are upstream's own, so there is nothing here to
         // name; `chaps down --volumes` is what removes them.
         assert!(kept_volume_notes(&project, Component::ChapCore).is_empty());
@@ -920,6 +1016,61 @@ mod tests {
             Some(18012),
             "the value is read; set_port is what refuses it"
         );
+    }
+
+    /// The DHIS2 pin that is deployed is the one the rendered compose file
+    /// defaults to, because that is the file compose reads and therefore the
+    /// image the existing database was migrated by.
+    #[test]
+    fn the_deployed_dhis2_tag_is_read_out_of_the_rendered_compose_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut project = Project {
+            dir: dir.path().to_path_buf(),
+            state: crate::project::ProjectState {
+                compose_project: "hello1-abc123".to_string(),
+                ..crate::project::ProjectState::default()
+            },
+        };
+        // No file: no deployment yet, so nothing to warn about.
+        assert_eq!(rendered_dhis2_tag(&project), None);
+        project.state.components.dhis2.enabled = true;
+        assert_eq!(dhis2_tag_moved(&project, &project.state.components), None);
+
+        let spec = crate::compose::spec::Dhis2Spec::from_components(&project.state.components);
+        std::fs::write(
+            dir.path().join(DHIS2_COMPOSE),
+            crate::compose::render::render_dhis2(&spec),
+        )
+        .unwrap();
+        assert_eq!(
+            rendered_dhis2_tag(&project).as_deref(),
+            Some(crate::components::DHIS2_DEFAULT_TAG)
+        );
+        // The same tag is not a move, so there is nothing to say - and the
+        // volume is never even asked about.
+        assert_eq!(dhis2_tag_moved(&project, &project.state.components), None);
+
+        // A component that is going off is not a component whose image moves.
+        let mut off = project.state.components.clone();
+        off.dhis2.enabled = false;
+        off.dhis2.image_tag = "2.41".to_string();
+        assert_eq!(dhis2_tag_moved(&project, &off), None);
+
+        // A file from some other chaps, or a hand-edited one, still reads.
+        std::fs::write(
+            dir.path().join(DHIS2_COMPOSE),
+            "services:\n  dhis2:\n    image: dhis2/core:${DHIS2_IMAGE_TAG:-2.41.7}\n",
+        )
+        .unwrap();
+        assert_eq!(rendered_dhis2_tag(&project).as_deref(), Some("2.41.7"));
+        // And one that does not carry the variable at all answers nothing
+        // rather than guessing.
+        std::fs::write(
+            dir.path().join(DHIS2_COMPOSE),
+            "services:\n  dhis2:\n    image: dhis2/core:2.42\n",
+        )
+        .unwrap();
+        assert_eq!(rendered_dhis2_tag(&project), None);
     }
 
     #[test]

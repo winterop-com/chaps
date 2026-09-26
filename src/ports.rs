@@ -137,6 +137,7 @@ fn service_of(component: Component) -> Option<&'static str> {
     match component {
         Component::Ocs => Some(crate::compose::OCS_SERVICE),
         Component::S3 => Some(crate::compose::S3_SERVICE),
+        Component::Dhis2 => Some(crate::compose::DHIS2_SERVICE),
         Component::ChapCore => None,
     }
 }

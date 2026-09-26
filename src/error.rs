@@ -24,7 +24,7 @@ pub enum ChapError {
     #[error("unknown model `{0}`")]
     UnknownModel(String),
 
-    #[error("unknown component `{0}`; the components are chap-core, ocs and s3")]
+    #[error("unknown component `{0}`; the components are chap-core, ocs, s3 and dhis2")]
     UnknownComponent(String),
 
     #[error(

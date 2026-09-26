@@ -689,9 +689,17 @@ pub struct ComponentVolume {
 /// chap-core's state is the database and the model volumes, each captured in
 /// its own right. `ocs` keeps a data directory and `s3` its object store, and
 /// the `data_dir`s here are the `target:` of the volume mount in
-/// `compose.ocs.yml` and `compose.s3.yml`. The two tables are checked against
-/// each other by `the_table_and_the_component_agree_on_every_volume`, so a
-/// component that gains a volume cannot gain it in only one of them.
+/// `compose.ocs.yml`, `compose.s3.yml` and `compose.dhis2.yml`.
+///
+/// This is the list an archive is made of, which is not quite the list a
+/// component *keeps*: `dhis2_dump` is declared by `compose.dhis2.yml` and named
+/// by [`crate::components::Component::volumes`], and it is deliberately not here.
+/// It is a download cache - the one-shot fetches the dump again when it is
+/// missing - so archiving it would add the whole dump to every backup of that
+/// deployment for nothing.
+/// `the_table_and_the_component_agree_on_every_volume` checks the two tables
+/// against each other in the direction that always holds, and pins that one
+/// omission with its reason.
 pub const COMPONENT_VOLUMES: &[ComponentVolume] = &[
     ComponentVolume {
         name: "ocs",
@@ -706,6 +714,20 @@ pub const COMPONENT_VOLUMES: &[ComponentVolume] = &[
         service: crate::compose::S3_SERVICE,
         volume: crate::compose::render::S3_VOLUME,
         data_dir: "/data",
+    },
+    ComponentVolume {
+        name: "dhis2",
+        member: "dhis2-home",
+        service: crate::compose::DHIS2_SERVICE,
+        volume: crate::compose::render::DHIS2_HOME_VOLUME,
+        data_dir: "/opt/dhis2",
+    },
+    ComponentVolume {
+        name: "dhis2",
+        member: "dhis2-db",
+        service: "dhis2-db",
+        volume: crate::compose::render::DHIS2_DB_VOLUME,
+        data_dir: "/var/lib/postgresql/data",
     },
 ];
 
@@ -1755,26 +1777,55 @@ mod tests {
         assert_eq!(parts[0].service, "ocs");
         assert_eq!(parts[0].data_dir, "/app/data");
         assert_eq!(parts[1].data_dir, "/data");
+
+        // A component with two archived volumes contributes two entries under
+        // the one name, each with its own member and its own service to hold
+        // still. The download cache it also keeps is not one of them.
+        components.dhis2.enabled = true;
+        let parts = component_volumes(&components);
+        assert_eq!(
+            parts.iter().map(|p| p.name).collect::<Vec<_>>(),
+            vec!["ocs", "s3", "dhis2", "dhis2"]
+        );
+        assert_eq!(
+            parts[2..]
+                .iter()
+                .map(|p| (p.member, p.service, p.volume, p.data_dir))
+                .collect::<Vec<_>>(),
+            vec![
+                ("dhis2-home", "dhis2", "dhis2_home", "/opt/dhis2"),
+                (
+                    "dhis2-db",
+                    "dhis2-db",
+                    "dhis2_db",
+                    "/var/lib/postgresql/data"
+                ),
+            ]
+        );
+        assert!(
+            !parts.iter().any(|p| p.volume == "dhis2_dump"),
+            "the seed cache is not archived"
+        );
+        assert_eq!(component_member("dhis2-home"), "components/dhis2-home.tar");
     }
 
-    /// The two places a component's volumes are written down have to agree:
-    /// [`crate::components::Component::volumes`] is what a `disable` names and
-    /// the doctor judges leftovers by, and [`COMPONENT_VOLUMES`] is what a
-    /// backup reads, so a volume that arrived in one of them alone would be a
-    /// volume that is kept and never captured.
+    /// Every entry of this table names one of its own component's volumes.
+    ///
+    /// The strict direction, and the only one that holds:
+    /// [`crate::components::Component::volumes`] is what a `disable` names, what
+    /// `--purge` removes and what the doctor judges leftovers by, so it has to
+    /// list every volume the component's compose file declares. This table is
+    /// what a backup reads, and a volume worth declaring is not always a volume
+    /// worth archiving - so it is a subset, and an entry naming a volume no
+    /// component keeps would be an archive member of something nothing declares.
+    ///
+    /// The one volume that is in the component and not in the table is pinned
+    /// below with its reason, so it is not "fixed" by adding it: `dhis2_dump` is
+    /// a download cache the one-shot refills by itself, and putting it in an
+    /// archive would add the whole dump to every backup for nothing.
     #[test]
     fn the_table_and_the_component_agree_on_every_volume() {
         use crate::components::Component;
-
-        let expected: Vec<&str> = Component::ALL
-            .iter()
-            .flat_map(|c| c.volumes().iter().copied())
-            .collect();
-        let table: Vec<&str> = COMPONENT_VOLUMES.iter().map(|part| part.volume).collect();
-        assert_eq!(
-            table, expected,
-            "one entry per volume, in component order and then in volume order"
-        );
 
         for part in COMPONENT_VOLUMES {
             let component = Component::from_name(part.name).expect("an entry names a component");
@@ -1785,6 +1836,44 @@ mod tests {
                 part.name
             );
         }
+
+        // In component order, and within a component in the order that
+        // component lists its volumes: the manifest and the archive are read in
+        // this order, and a backup holds still one service at a time.
+        let mut ordered: Vec<&str> = Vec::new();
+        for component in Component::ALL {
+            for volume in component.volumes() {
+                if COMPONENT_VOLUMES.iter().any(|part| part.volume == *volume) {
+                    ordered.push(volume);
+                }
+            }
+        }
+        let table: Vec<&str> = COMPONENT_VOLUMES.iter().map(|part| part.volume).collect();
+        assert_eq!(table, ordered, "one entry per archived volume, in order");
+
+        // The deliberate omission, and the reason it stays one. A dump that is
+        // fetched again when it is missing is not state; every other volume a
+        // component declares has to be here.
+        let cache = crate::compose::render::DHIS2_DUMP_VOLUME;
+        assert!(
+            Component::Dhis2.volumes().contains(&cache),
+            "the component still declares it, so the doctor does not call it a leftover"
+        );
+        assert!(
+            !COMPONENT_VOLUMES.iter().any(|part| part.volume == cache),
+            "{cache} is a download cache the dhis2-dump one-shot refetches; archiving it \
+             would add the whole dump to every backup for nothing"
+        );
+        let missing: Vec<&str> = Component::ALL
+            .iter()
+            .flat_map(|c| c.volumes().iter().copied())
+            .filter(|volume| !COMPONENT_VOLUMES.iter().any(|part| part.volume == *volume))
+            .collect();
+        assert_eq!(
+            missing,
+            vec![cache],
+            "that cache is the only volume a component keeps and a backup leaves out"
+        );
     }
 
     /// One member per volume, and the name of the one a component with a single

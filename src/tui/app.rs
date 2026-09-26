@@ -953,6 +953,7 @@ impl<'a> App<'a> {
                 Some(port) => format!("http://localhost:{port}"),
                 None => "internal".to_string(),
             },
+            Component::Dhis2 => self.components.dhis2_reach(),
         }
     }
 
@@ -977,6 +978,7 @@ impl<'a> App<'a> {
             Component::ChapCore => None,
             Component::Ocs => self.components.ocs.port,
             Component::S3 => self.components.s3.port,
+            Component::Dhis2 => self.components.dhis2.port,
         }
     }
 
@@ -985,6 +987,7 @@ impl<'a> App<'a> {
             Component::ChapCore => {}
             Component::Ocs => self.components.ocs.port = port,
             Component::S3 => self.components.s3.port = port,
+            Component::Dhis2 => self.components.dhis2.port = port,
         }
     }
 
@@ -2409,7 +2412,7 @@ mod tests {
         app.reduce(Action::Palette);
         assert_eq!(app.mode, Mode::Palette);
         assert_eq!(app.palette_matches().len(), app.commands().len());
-        assert_eq!(app.commands().len(), 18);
+        assert_eq!(app.commands().len(), 19);
 
         for c in "PORT".chars() {
             app.reduce(Action::PaletteChar(c));

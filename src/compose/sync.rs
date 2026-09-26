@@ -12,17 +12,20 @@
 //! is rendered from is kept in `.chaps/`; nothing here touches the network.
 
 use crate::components::{
-    Components, OCS_COMPOSE, OCS_CONFIG_FILE, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_PLUGINS_KEY,
-    OCS_PLUGINS_TARGET, OCS_READ_ONLY_KEY, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR, S3_COMPOSE,
-    S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
+    Components, DHIS2_COMPOSE, DHIS2_CONFIG_FILE, DHIS2_DB_PASSWORD_ENV_VAR,
+    DHIS2_DEFAULT_JAVA_OPTIONS, DHIS2_DIR, DHIS2_ENCRYPTION_PASSWORD_ENV_VAR, DHIS2_JAVA_ENV_VAR,
+    DHIS2_SEED_ENV_VAR, DHIS2_TAG_ENV_VAR, OCS_COMPOSE, OCS_CONFIG_FILE, OCS_DATA_SOURCE_ENV_VARS,
+    OCS_DIR, OCS_PLUGINS_KEY, OCS_PLUGINS_TARGET, OCS_READ_ONLY_KEY, OCS_TAG_ENV_VAR,
+    S3_ACCESS_KEY_ENV_VAR, S3_COMPOSE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
 };
 use crate::compose::overrides;
 use crate::compose::render::{
-    NO_TAG_PINS, render_base, render_chaps_overlay, render_ocs, render_ocs_config, render_overlay,
-    render_s3, render_umbrella,
+    NO_TAG_PINS, render_base, render_chaps_overlay, render_dhis2, render_dhis2_config, render_ocs,
+    render_ocs_config, render_overlay, render_s3, render_umbrella,
 };
 use crate::compose::spec::{
-    BaseSpec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
+    BaseSpec, Dhis2ConfigSpec, Dhis2Spec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec,
+    UpstreamCompose,
 };
 use crate::compose::tag_env_var;
 use crate::error::Result;
@@ -135,6 +138,31 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
             render_s3(&S3Spec::from_components(&components)),
         ));
     }
+    if components.dhis2.enabled {
+        let spec = Dhis2Spec::from_components(&components);
+        // The seed was left at `default` and the pinned minor line publishes no
+        // dump chaps knows the path of, so this deployment starts empty. Said on
+        // every sync, because nothing else on the screen would show it and the
+        // way out is one line in `.chaps/components.yaml`.
+        if components.dhis2_seed_is_unknown() {
+            report
+                .warnings
+                .push(crate::components::dhis2_unknown_seed(&spec.image_tag));
+        }
+        // A dump that is a file is a bind mount, and compose refuses to start a
+        // service whose bind source does not exist - so a path that is not there
+        // is a `chaps up` that fails, reported now instead.
+        if let Some(crate::compose::spec::Dhis2SeedSource::File(path)) = &spec.seed
+            && !dir.join(path).exists()
+        {
+            report.warnings.push(format!(
+                "the dhis2 seed names {path}, which is not in {}; copy the dump there before \
+                 `chaps up`, or set `seed: none` in .chaps/components.yaml",
+                dir.display()
+            ));
+        }
+        desired.push((DHIS2_COMPOSE.to_string(), render_dhis2(&spec)));
+    }
     // Every overlay carries the registration key line when the deployment has
     // a key, because chap-core then requires it from each service that
     // registers. The value stays in `.env`, which compose reads from the
@@ -231,6 +259,12 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     // operator's file the moment it exists, so sync only ever creates a
     // missing one.
     if let Some(path) = ensure_ocs_config(project, check)? {
+        report.written.push(path);
+    }
+    // And DHIS2's, on exactly the same terms: DHIS2 will not start without
+    // `dhis.conf`, so a missing one is scaffolded, and one that is there is the
+    // operator's.
+    if let Some(path) = ensure_dhis2_config(project, check)? {
         report.written.push(path);
     }
     // And once it is there, the one key that has to follow the project rather
@@ -424,6 +458,41 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
             crate::components::S3_DEFAULT_TAG,
         ));
     }
+    // Two generated secrets, and the same rule the object store's follow: the
+    // volume was created with them, so they are written once and never touched
+    // again. `random_hex(16)` is 32 characters, comfortably past the 24 DHIS2
+    // demands of the encryption password - under that it stops on
+    // ENCRYPTION_PASSWORD_TOO_SHORT rather than starting with a weak key.
+    //
+    // The three commented lines below them are the pins an operator goes looking
+    // for: the image, the dump the one-shot fetches and the JVM options the
+    // compose file reads, each with the value the rendered file already defaults
+    // to, so uncommenting one changes nothing until it is edited.
+    if components.dhis2.enabled
+        && !(mentions_var(body, DHIS2_DB_PASSWORD_ENV_VAR)
+            || mentions_var(body, DHIS2_ENCRYPTION_PASSWORD_ENV_VAR))
+    {
+        // The value the rendered file already defaults to, which for a dump that
+        // is a file is the path *inside* the container: the host path would be
+        // one nothing in there can read.
+        let spec = Dhis2Spec::from_components(components);
+        let seed = spec
+            .seed
+            .as_ref()
+            .map(crate::compose::render::seed_value)
+            .unwrap_or_default();
+        sections.push(format!(
+            "# DHIS2 (component). Generated once; the database volume was created with them.\n\
+             {DHIS2_DB_PASSWORD_ENV_VAR}={}\n\
+             {DHIS2_ENCRYPTION_PASSWORD_ENV_VAR}={}\n\
+             # {DHIS2_TAG_ENV_VAR}={}\n\
+             # {DHIS2_SEED_ENV_VAR}={seed}\n\
+             # {DHIS2_JAVA_ENV_VAR}={DHIS2_DEFAULT_JAVA_OPTIONS}\n",
+            crate::auth::random_hex(16)?,
+            crate::auth::random_hex(16)?,
+            spec.image_tag,
+        ));
+    }
     Ok(sections)
 }
 
@@ -462,6 +531,51 @@ pub fn write_ocs_config(dir: &Path, spec: &OcsConfigSpec) -> Result<Option<PathB
     std::fs::create_dir_all(&ocs)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", ocs.display()))?;
     std::fs::write(&path, render_ocs_config(spec))
+        .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    Ok(Some(path))
+}
+
+/// Scaffold `dhis2/dhis.conf` when the `dhis2` component is on and the file is
+/// not there yet.
+///
+/// Never overwrites: `chaps components enable dhis2` writes it the first time,
+/// and this covers the case where the component is on and the file has gone -
+/// a fresh checkout of a deployment whose `dhis2/` was never committed, most of
+/// all. Without the file DHIS2 does not start at all, so a missing one is worth
+/// putting back.
+fn ensure_dhis2_config(project: &Project, check: bool) -> Result<Option<PathBuf>> {
+    if !project.state.components.dhis2.enabled {
+        return Ok(None);
+    }
+    let path = dhis2_config_path(&project.dir);
+    if path.is_file() {
+        return Ok(None);
+    }
+    if check {
+        return Ok(Some(path));
+    }
+    write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?;
+    Ok(Some(path))
+}
+
+/// Where a deployment keeps its DHIS2 instance config.
+pub fn dhis2_config_path(dir: &Path) -> PathBuf {
+    dir.join(DHIS2_DIR).join(DHIS2_CONFIG_FILE)
+}
+
+/// Write `dhis2/dhis.conf`, creating `dhis2/` around it.
+///
+/// Returns the path when the file was written and `None` when one was already
+/// there: the scaffold is a starting point, not something to put back.
+pub fn write_dhis2_config(dir: &Path, spec: &Dhis2ConfigSpec) -> Result<Option<PathBuf>> {
+    let dhis2 = dir.join(DHIS2_DIR);
+    let path = dhis2.join(DHIS2_CONFIG_FILE);
+    if path.is_file() {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(&dhis2)
+        .map_err(|e| anyhow::anyhow!("creating {}: {e}", dhis2.display()))?;
+    std::fs::write(&path, render_dhis2_config(spec))
         .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
     Ok(Some(path))
 }
@@ -1105,6 +1219,242 @@ mod tests {
             vec!["compose.ocs.yml", "compose.marketplace.yml"]
         );
         assert!(!sync(&mut project, &registry, true).unwrap().drift);
+    }
+
+    /// The component is rendered, listed, scaffolded and removed again, exactly
+    /// as `ocs` is - and the file it scaffolds is the operator's from then on,
+    /// because DHIS2 does not start without it.
+    #[test]
+    fn the_dhis2_component_is_rendered_scaffolded_and_removed_again() {
+        let mut components = Components::default();
+        components.dhis2.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+
+        let compose = dir.path().join(DHIS2_COMPOSE);
+        assert!(compose.is_file());
+        assert_eq!(
+            project.state.compose_files,
+            vec![
+                "compose.yml",
+                "compose.chaps.yml",
+                "compose.dhis2.yml",
+                "compose.marketplace.yml"
+            ],
+            "a component file sits between the override and the umbrella"
+        );
+        assert!(
+            project
+                .state
+                .rendered_files
+                .contains(&DHIS2_COMPOSE.to_string())
+        );
+        // The four services and the config mount the file needs.
+        let body = read(&compose);
+        assert!(body.contains("\n  dhis2-db:\n"), "{body}");
+        assert!(body.contains("\n  dhis2-dump:\n"), "{body}");
+        assert!(body.contains("\n  dhis2-prep:\n"), "{body}");
+        assert!(
+            body.contains("./dhis2/dhis.conf:/opt/dhis2/dhis.conf:ro"),
+            "{body}"
+        );
+
+        let config = dhis2_config_path(&project.dir);
+        assert!(
+            config.is_file(),
+            "dhis.conf is mandatory, so it is scaffolded"
+        );
+        assert!(read(&config).contains("route.remote_servers_allowed = http://chap:8000"));
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+
+        // An operator's own file is never rewritten, by this or by anything else.
+        std::fs::write(&config, "connection.username = mine\n").unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(read(&config), "connection.username = mine\n");
+
+        // Turning it off removes the compose file and leaves the directory.
+        project.state.components.dhis2.enabled = false;
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert_eq!(names(&report.removed), vec![DHIS2_COMPOSE]);
+        assert!(!compose.exists());
+        assert_eq!(project.state.compose_files, default_compose_files());
+        assert!(
+            config.is_file(),
+            "the operator's file is not ours to delete"
+        );
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+    }
+
+    /// A seed left at `default` on a minor line with no published dump is an
+    /// empty database, and the operator is told rather than left to find out.
+    #[test]
+    fn an_unknown_dhis2_minor_starts_empty_and_says_so() {
+        let mut components = Components::default();
+        components.dhis2.enabled = true;
+        let (dir, mut project, registry) = project_with_components(components);
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert!(read(&dir.path().join(DHIS2_COMPOSE)).contains("dhis2-dump"));
+
+        project.state.components.dhis2.image_tag = "2.40".to_string();
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.warnings[0].contains("2.40"), "{report:?}");
+        assert!(
+            report.warnings[0].contains(".chaps/components.yaml"),
+            "{report:?}"
+        );
+        // And the file rendered for it has no one-shot and no dump volume.
+        let body = read(&dir.path().join(DHIS2_COMPOSE));
+        assert!(!body.contains("dhis2-dump"), "{body}");
+        assert!(!body.contains("dhis2_dump"), "{body}");
+
+        // `seed: none` is the same rendering with nothing to report.
+        project.state.components.dhis2.seed = crate::components::Dhis2Seed::None;
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
+    }
+
+    /// A dump that is a file is a bind mount, and compose refuses to start a
+    /// service whose bind source is missing - so a path that is not there yet is
+    /// reported now instead of at `chaps up`.
+    #[test]
+    fn a_file_seed_that_is_not_there_yet_is_reported() {
+        let mut components = Components::default();
+        components.dhis2.enabled = true;
+        components.dhis2.seed = crate::components::Dhis2Seed::From("dumps/laos.sql.gz".into());
+        let (dir, mut project, registry) = project_with_components(components);
+
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(
+            report.warnings[0].contains("dumps/laos.sql.gz"),
+            "{report:?}"
+        );
+        assert!(report.warnings[0].contains("seed: none"), "{report:?}");
+        // The mount is rendered either way: the operator may be about to copy
+        // the dump in, and a compose file that changed shape when a file
+        // appeared would be drift nobody asked for.
+        assert!(
+            read(&dir.path().join(DHIS2_COMPOSE))
+                .contains("- ./dumps/laos.sql.gz:/opt/seed.sql.gz:ro"),
+        );
+
+        std::fs::create_dir_all(dir.path().join("dumps")).unwrap();
+        std::fs::write(dir.path().join("dumps/laos.sql.gz"), "not really a dump").unwrap();
+        let report = sync(&mut project, &registry, false).unwrap();
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert!(!report.drift, "{report:?}");
+    }
+
+    /// The DHIS2 secrets are generated once and never rewritten - the database
+    /// volume was created with them - and the encryption password has to clear
+    /// DHIS2's own 24-character floor.
+    #[test]
+    fn the_dhis2_env_block_is_appended_once_with_secrets_long_enough_for_dhis2() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
+
+        project.state.components.dhis2.enabled = true;
+        let report = sync(&mut project, &registry, true).unwrap();
+        assert!(report.drift, "the missing block is drift");
+        assert_eq!(
+            std::fs::read_to_string(&env).unwrap(),
+            "POSTGRES_PASSWORD=secret\n",
+            "--check writes nothing"
+        );
+
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.starts_with("POSTGRES_PASSWORD=secret\n"));
+        let password =
+            crate::auth::active_value(&body, DHIS2_DB_PASSWORD_ENV_VAR).expect("a password");
+        let encryption = crate::auth::active_value(&body, DHIS2_ENCRYPTION_PASSWORD_ENV_VAR)
+            .expect("an encryption password");
+        assert_eq!(password.len(), 32);
+        assert_ne!(password, encryption);
+        // Under 24 and DHIS2 stops on ENCRYPTION_PASSWORD_TOO_SHORT.
+        assert!(encryption.len() >= 24, "{encryption}");
+        // The pins an operator goes looking for, commented, each holding the
+        // value the rendered file already defaults to.
+        assert!(body.contains("\n# DHIS2_IMAGE_TAG=2.42\n"), "{body}");
+        assert!(
+            body.contains(&format!(
+                "\n# {DHIS2_SEED_ENV_VAR}={}\n",
+                crate::compose::render::DHIS2_DEFAULT_SEED_URL
+            )),
+            "{body}"
+        );
+        assert!(
+            body.contains(&format!(
+                "\n# {DHIS2_JAVA_ENV_VAR}={DHIS2_DEFAULT_JAVA_OPTIONS}\n"
+            )),
+            "{body}"
+        );
+
+        // A second sync adds nothing and rotates nothing.
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), body);
+    }
+
+    /// The commented dump pin has to be the value the rendered file defaults to,
+    /// or uncommenting it breaks the seed: for a dump that is a file, that is the
+    /// path inside the container, not the one on the host.
+    #[test]
+    fn the_dump_pin_in_env_is_the_path_the_container_reads() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
+
+        project.state.components.dhis2.enabled = true;
+        project.state.components.dhis2.seed =
+            crate::components::Dhis2Seed::From("dumps/laos.sql.gz".into());
+        sync(&mut project, &registry, false).unwrap();
+
+        let body = std::fs::read_to_string(&env).unwrap();
+        let pinned = format!(
+            "\n# {DHIS2_SEED_ENV_VAR}={}\n",
+            crate::compose::render::DHIS2_SEED_MOUNT
+        );
+        assert!(body.contains(&pinned), "{body}");
+        assert!(!body.contains("# DHIS2_DB_DUMP_URL=dumps/"), "{body}");
+        // And it is the same string the compose file substitutes into.
+        assert!(read(&dir.path().join(DHIS2_COMPOSE)).contains(&format!(
+            "${{{DHIS2_SEED_ENV_VAR}:-{}}}",
+            crate::compose::render::DHIS2_SEED_MOUNT
+        )));
+    }
+
+    /// `.env` is written once by `init`, so a deployment that enables the
+    /// component later has the block appended below whatever is already there -
+    /// and nothing above it is touched.
+    #[test]
+    fn a_deployment_that_enables_dhis2_later_gets_the_block_appended() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        let before = "POSTGRES_PASSWORD=secret\nCHAP_API_TOKEN=abc\n";
+        std::fs::write(&env, before).unwrap();
+
+        project.state.components.dhis2.enabled = true;
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.starts_with(before), "{body}");
+        assert!(
+            body.contains("\n# DHIS2 (component). Generated once;"),
+            "{body}"
+        );
+        assert_eq!(body.matches("DHIS2_DB_PASSWORD").count(), 1, "{body}");
+
+        // And a password the operator replaced is theirs: the block is not
+        // appended a second time, whatever else changed in the file.
+        let mine = body.replace(
+            &format!("{DHIS2_DB_PASSWORD_ENV_VAR}="),
+            &format!("{DHIS2_DB_PASSWORD_ENV_VAR}=mine-"),
+        );
+        std::fs::write(&env, &mine).unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), mine);
     }
 
     #[test]

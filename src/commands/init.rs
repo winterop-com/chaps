@@ -5,10 +5,11 @@ use crate::chapcore;
 use crate::cli::{ComponentPortArg, InitArgs};
 use crate::commands::Ctx;
 use crate::components::{
-    COMPONENTS_FILE, Component, Components, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE,
+    COMPONENTS_FILE, Component, Components, DHIS2_FIRST_START_NOTE, S3_SOON_NOTE,
+    S3_WITHOUT_OCS_NOTE,
 };
 use crate::compose::spec::EnvSpec;
-use crate::compose::sync::write_ocs_config;
+use crate::compose::sync::{write_dhis2_config, write_ocs_config};
 use crate::compose::{API_SERVICE, ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::output::{Out, PanelKind};
@@ -82,7 +83,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // What the deployment is made of is settled first: it decides which
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
-    let components = parse_components(&ComponentFlags::from_args(args))?;
+    let components = parse_components(&ComponentFlags::from_args(args, ctx.registry.offline))?;
     // The deployment this run is writing over, when there is one: `--force`
     // starts the state over, so anything it had and this run does not ask for is
     // going, and the operator hears which before the directory is rewritten.
@@ -97,6 +98,15 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     };
     for component in &dropped {
         crate::output::warn(&component_dropped(*component));
+    }
+    // A re-init resets the component set from the flags and the defaults, so the
+    // DHIS2 pin it records can move while the database the previous one created
+    // is still on this machine. DHIS2 migrates a schema forward only, so that is
+    // said before anything is written rather than found out at `chaps up`.
+    if let Some(previous) = &previous
+        && let Some(note) = crate::commands::components::dhis2_tag_moved(previous, &components)
+    {
+        crate::output::warn(&note);
     }
     // Settle the chap-core tag and the compose file that goes with it before
     // anything is written: both need the network, and a failure of either is a
@@ -311,6 +321,16 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         }
     }
 
+    // DHIS2's instance config goes in on the same terms, and before apply() for
+    // the same reason: `dhis.conf` is mandatory - DHIS2 does not start without it
+    // - and it is the operator's from the moment it exists.
+    if components.dhis2.enabled
+        && let Some(path) =
+            write_dhis2_config(&dir, &crate::compose::spec::Dhis2ConfigSpec::default())?
+    {
+        written.push(path);
+    }
+
     // apply() writes the overlays, compose.marketplace.yml (even with no
     // models) and .chaps/.
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
@@ -439,6 +459,7 @@ fn wanted_claims(components: &Components, api_port: u16) -> Vec<crate::ports::Po
     for (component, service) in [
         (Component::Ocs, crate::compose::OCS_SERVICE),
         (Component::S3, crate::compose::S3_SERVICE),
+        (Component::Dhis2, crate::compose::DHIS2_SERVICE),
     ] {
         if let Some(port) = components.port_of(component) {
             claims.push(crate::ports::PortClaim {
@@ -510,18 +531,27 @@ struct ComponentFlags<'a> {
     ocs_base_url: Option<&'a str>,
     ocs_port: Option<ComponentPortArg>,
     s3_port: Option<ComponentPortArg>,
+    dhis2_port: Option<ComponentPortArg>,
+    dhis2_seed: Option<&'a str>,
     ocs_read_only: bool,
+    /// The global `--offline`, which is not a component flag but decides one
+    /// thing here: a seed that has to be downloaded cannot be asked for by a run
+    /// that was told not to touch the network.
+    offline: bool,
 }
 
 impl<'a> ComponentFlags<'a> {
-    fn from_args(args: &'a InitArgs) -> ComponentFlags<'a> {
+    fn from_args(args: &'a InitArgs, offline: bool) -> ComponentFlags<'a> {
         ComponentFlags {
             with: args.with.as_deref(),
             without: args.without.as_deref(),
             ocs_base_url: args.ocs_base_url.as_deref(),
             ocs_port: args.ocs_port,
             s3_port: args.s3_port,
+            dhis2_port: args.dhis2_port,
+            dhis2_seed: args.dhis2_seed.as_deref(),
             ocs_read_only: args.ocs_read_only,
+            offline,
         }
     }
 }
@@ -583,6 +613,36 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
             ));
         }
         components.s3.port = port.0;
+    }
+    if let Some(port) = flags.dhis2_port {
+        if !components.dhis2.enabled {
+            return Err(anyhow::anyhow!(
+                "--dhis2-port needs the dhis2 component; add `--with dhis2`"
+            ));
+        }
+        components.dhis2.port = port.0;
+    }
+    if let Some(given) = flags.dhis2_seed {
+        if !components.dhis2.enabled {
+            return Err(anyhow::anyhow!(
+                "--dhis2-seed needs the dhis2 component; add `--with dhis2`"
+            ));
+        }
+        let seed = crate::components::Dhis2Seed::parse(given);
+        // The dump is downloaded by the one-shot on the first `chaps up`, not
+        // here, so this refusal is about the deployment being written rather than
+        // about this run's network: `--offline` is a deployment that does not
+        // reach out, and recording a URL would make its first start do exactly
+        // that.
+        if flags.offline && seed.is_url() {
+            return Err(anyhow::anyhow!(
+                "--offline and `--dhis2-seed {}` ask for opposite things: the first `chaps up` \
+                 would download that dump; pass a path to a dump you already have, or \
+                 `--dhis2-seed none`",
+                seed.as_str()
+            ));
+        }
+        components.dhis2.seed = seed;
     }
     if flags.ocs_read_only {
         if !components.ocs.enabled {
@@ -1042,6 +1102,22 @@ fn summary(
             ))
         ));
     }
+    if components.dhis2.enabled {
+        let reach = components.dhis2_reach();
+        addresses.push_str(&format!(
+            "{}     {} {}\n",
+            out.key("DHIS2:"),
+            match components.dhis2.port {
+                Some(_) => out.value(&reach),
+                None => out.dim(&reach),
+            },
+            out.dim(&format!(
+                "(config in {}/{})",
+                crate::components::DHIS2_DIR,
+                crate::components::DHIS2_CONFIG_FILE
+            ))
+        ));
+    }
     if components.s3.enabled {
         addresses.push_str(&format!(
             "{}        {}\n",
@@ -1115,6 +1191,24 @@ fn summary(
     // `components enable s3` uses: a store with nothing to put in it.
     if components.s3.enabled && !components.ocs.enabled {
         text.push_str(&format!("\n{} {S3_WITHOUT_OCS_NOTE}\n", out.dim("note:")));
+    }
+    // What the first start does with the database, and how long it takes. Both
+    // are things nothing else on the screen says and the reader has to know
+    // before they run `chaps up`.
+    if components.dhis2.enabled {
+        let mut dhis2 = Vec::new();
+        // The warning block below says it with the reason when the pinned minor
+        // has no dump, so this line would be the same sentence twice.
+        if !components.dhis2_seed_is_unknown() {
+            dhis2.push(crate::components::dhis2_seed_note(
+                components.dhis2_seed_source(),
+            ));
+        }
+        dhis2.push(DHIS2_FIRST_START_NOTE.to_string());
+        text.push('\n');
+        for note in dhis2 {
+            text.push_str(&format!("{} {note}\n", out.dim("note:")));
+        }
     }
     // What the containers of a dropped component or model did on the way out.
     // The warnings above already said which components are going; this says what
@@ -1342,10 +1436,102 @@ mod tests {
                 },
                 "--ocs-read-only needs the ocs component; add `--with ocs`",
             ),
+            (
+                ComponentFlags {
+                    dhis2_port: Some(ComponentPortArg(Some(18080))),
+                    ..ComponentFlags::default()
+                },
+                "--dhis2-port needs the dhis2 component; add `--with dhis2`",
+            ),
+            (
+                ComponentFlags {
+                    dhis2_seed: Some("none"),
+                    ..ComponentFlags::default()
+                },
+                "--dhis2-seed needs the dhis2 component; add `--with dhis2`",
+            ),
         ] {
             let err = parse_components(&flags).expect_err("no component to set it on");
             assert_eq!(err.to_string(), wanted);
         }
+    }
+
+    /// The DHIS2 flags, and the one contradiction between a flag and a global
+    /// one: a seed that has to be downloaded on a deployment told not to reach
+    /// out.
+    #[test]
+    fn the_dhis2_flags_record_the_port_and_the_seed() {
+        use crate::components::{DHIS2_DEFAULT_PORT, Dhis2Seed};
+        let with_dhis2 = |flags: ComponentFlags| {
+            parse_components(&ComponentFlags {
+                with: Some("dhis2"),
+                ..flags
+            })
+        };
+
+        // The defaults: published on 8080, seeded from the table.
+        let plain = with_dhis2(ComponentFlags::default()).unwrap();
+        assert_eq!(plain.dhis2.port, Some(DHIS2_DEFAULT_PORT));
+        assert_eq!(plain.dhis2.seed, Dhis2Seed::Default);
+        assert_eq!(plain.dhis2.image_tag, crate::components::DHIS2_DEFAULT_TAG);
+        assert_eq!(plain.dhis2_reach(), "http://localhost:8080");
+
+        let moved = with_dhis2(ComponentFlags {
+            dhis2_port: Some(ComponentPortArg(Some(18080))),
+            dhis2_seed: Some("none"),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(moved.dhis2.port, Some(18080));
+        assert_eq!(moved.dhis2.seed, Dhis2Seed::None);
+        assert_eq!(moved.dhis2_seed_source(), None);
+
+        // The reverse-proxy shape, and a dump of the operator's own.
+        let internal = with_dhis2(ComponentFlags {
+            dhis2_port: Some(ComponentPortArg(None)),
+            dhis2_seed: Some("dumps/laos.sql.gz"),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(internal.dhis2.port, None);
+        assert_eq!(internal.dhis2_reach(), "internal");
+        assert_eq!(internal.dhis2_seed_source(), Some("dumps/laos.sql.gz"));
+
+        // A URL under --offline asks for the opposite of what --offline asks
+        // for, and the refusal names both ways out on the line.
+        let err = parse_components(&ComponentFlags {
+            with: Some("dhis2"),
+            dhis2_seed: Some("https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz"),
+            offline: true,
+            ..ComponentFlags::default()
+        })
+        .expect_err("--offline and a download");
+        assert!(err.to_string().contains("--offline"), "{err}");
+        assert!(err.to_string().contains("`--dhis2-seed none`"), "{err}");
+        assert!(err.to_string().contains("a path to a dump"), "{err}");
+
+        // A path is fine offline: nothing is downloaded.
+        let offline_path = parse_components(&ComponentFlags {
+            with: Some("dhis2"),
+            dhis2_seed: Some("dumps/laos.sql.gz"),
+            offline: true,
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(
+            offline_path.dhis2.seed,
+            Dhis2Seed::From("dumps/laos.sql.gz".to_string())
+        );
+        // And so is the built-in default: the table is compiled in, so nothing
+        // has to be looked up to record it.
+        assert!(
+            parse_components(&ComponentFlags {
+                with: Some("dhis2"),
+                offline: true,
+                ..ComponentFlags::default()
+            })
+            .is_ok()
+        );
     }
 
     /// The new ports have to reach the warning `init` already prints, which they
@@ -1354,9 +1540,10 @@ mod tests {
     #[test]
     fn a_moved_component_port_is_the_one_that_gets_probed() {
         let components = parse_components(&ComponentFlags {
-            with: Some("ocs,s3"),
+            with: Some("ocs,s3,dhis2"),
             ocs_port: Some(ComponentPortArg(Some(18010))),
             s3_port: Some(ComponentPortArg(Some(18011))),
+            dhis2_port: Some(ComponentPortArg(Some(18012))),
             ..ComponentFlags::default()
         })
         .unwrap();
@@ -1371,6 +1558,7 @@ mod tests {
                 (API_SERVICE.to_string(), 18000),
                 ("ocs".to_string(), 18010),
                 ("s3".to_string(), 18011),
+                ("dhis2".to_string(), 18012),
             ]
         );
 

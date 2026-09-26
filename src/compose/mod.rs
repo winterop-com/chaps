@@ -17,6 +17,10 @@ pub use sync::{SyncReport, sync};
 pub const OCS_SERVICE: &str = "ocs";
 /// Compose service name of the object store component.
 pub const S3_SERVICE: &str = "s3";
+/// Compose service name of the DHIS2 component: the web service, which is the
+/// one that publishes a host port. Its database and its two one-shots are
+/// `dhis2-<something>` and belong to the same component by that name alone.
+pub const DHIS2_SERVICE: &str = "dhis2";
 
 /// Platform pinned for services built on the R-INLA runtime.
 pub const AMD64_PLATFORM: &str = "linux/amd64";
