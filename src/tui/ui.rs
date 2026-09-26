@@ -1148,8 +1148,9 @@ fn component_info_title<'a>(app: &App, width: usize, theme: &Theme) -> Line<'a> 
 }
 
 /// Everything the browser knows about a component: what it is, what `sync`
-/// renders for it, where its data lives, and - for OCS - the config file and
-/// the two settings this page deliberately leaves to the CLI.
+/// renders for it, where its data lives, and - for a component with a config
+/// file of its own - that file plus the settings this page deliberately leaves
+/// to `.chaps/`.
 fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let component = app.selected_component();
     let enabled = app.components.is_enabled(component);
@@ -1206,31 +1207,80 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
         lines.push(Line::raw(""));
         // The two OCS settings the browser has no dialog for, named here so
         // this overlay is where someone learns they exist.
-        lines.push(Line::from(Span::styled(
-            "not on this page:",
-            theme.label_style(),
-        )));
-        for (command, what) in [
-            (
-                "chaps components enable ocs --base-url URL",
-                "the public origin OCS builds its STAC and openEO links from",
+        lines.extend(not_on_this_page(
+            theme,
+            width,
+            &[
+                (
+                    "`chaps components enable ocs --base-url URL`",
+                    "the public origin OCS builds its STAC and openEO links from",
+                ),
+                (
+                    "`chaps components enable ocs --read-only`",
+                    "refuse ingestion over HTTP (--read-write allows it again)",
+                ),
+            ],
+        ));
+    }
+    if component == Component::Dhis2 {
+        lines.extend(wrapped_field(
+            theme,
+            "config",
+            &format!(
+                "{}/{} · yours to edit, and DHIS2 will not start without it",
+                crate::components::DHIS2_DIR,
+                crate::components::DHIS2_CONFIG_FILE
             ),
-            (
-                "chaps components enable ocs --read-only",
-                "refuse ingestion over HTTP (--read-write allows it again)",
+            width,
+        ));
+        lines.extend(wrapped_field(
+            theme,
+            "seed",
+            &dhis2_seed_field(&app.components),
+            width,
+        ));
+        // The `volume` field above names all three, so this says which of them
+        // is not data: the one an operator would otherwise try to keep.
+        lines.extend(wrapped_field(
+            theme,
+            "cache",
+            &format!(
+                "{} holds the downloaded dump rather than data; the dhis2-dump one-shot \
+                 fetches it again when the volume is empty",
+                crate::compose::render::DHIS2_DUMP_VOLUME
             ),
-        ] {
-            lines.push(Line::from(Span::styled(
-                format!("  `{command}`"),
-                theme.accent_style(),
-            )));
-            for chunk in wrap(what, width.saturating_sub(4).max(1)) {
-                lines.push(Line::from(Span::styled(
-                    format!("    {chunk}"),
-                    theme.dim_style(),
-                )));
-            }
-        }
+            width,
+        ));
+        lines.extend(wrapped_field(
+            theme,
+            "first start",
+            "minutes, not seconds: DHIS2 migrates its schema on the way up, and \
+             `chaps logs dhis2` is where that shows",
+            width,
+        ));
+        lines.push(Line::raw(""));
+        // The seed and the image tag, which no flag moves after `init`: they are
+        // an edit to `.chaps/components.yaml` and a sync, and this overlay is
+        // where someone finds that out rather than in the YAML.
+        lines.extend(not_on_this_page(
+            theme,
+            width,
+            &[
+                (
+                    "`seed:` in .chaps/components.yaml, then `chaps sync`",
+                    "the dump a database being created is restored from: default, none, \
+                     a URL, or a path in the deployment directory",
+                ),
+                (
+                    "`image_tag:` in .chaps/components.yaml, then `chaps sync`",
+                    &format!(
+                        "the DHIS2 version, {} here; it migrates a schema forward only, \
+                         so run `chaps backup` first",
+                        app.components.dhis2.image_tag
+                    ),
+                ),
+            ],
+        ));
     }
     if component == Component::ChapCore {
         lines.push(Line::raw(""));
@@ -1240,6 +1290,56 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
         )));
     }
     lines
+}
+
+/// The closing block of a component's overlay: the settings the browser has no
+/// dialog for, each with what it does.
+///
+/// Named rather than left out, so this overlay is where someone learns they
+/// exist. Each `how` carries its own backticks, because one component's are
+/// whole commands and another's are a key in `.chaps/components.yaml` followed
+/// by a sync, and the reader has to see which of the two they are looking at.
+fn not_on_this_page<'a>(theme: &Theme, width: usize, settings: &[(&str, &str)]) -> Vec<Line<'a>> {
+    let mut lines = vec![Line::from(Span::styled(
+        "not on this page:",
+        theme.label_style(),
+    ))];
+    for (how, what) in settings {
+        lines.push(Line::from(Span::styled(
+            format!("  {how}"),
+            theme.accent_style(),
+        )));
+        for chunk in wrap(what, width.saturating_sub(4).max(1)) {
+            lines.push(Line::from(Span::styled(
+                format!("    {chunk}"),
+                theme.dim_style(),
+            )));
+        }
+    }
+    lines
+}
+
+/// The `seed` field of the DHIS2 overlay: what the first start restores, and
+/// that a restore only ever happens to a database being created.
+///
+/// Four answers rather than the three `.chaps/components.yaml` records, because
+/// a `default` on a minor line chaps publishes no dump for starts empty as well,
+/// and for a reason worth saying: it otherwise looks exactly like `none`, and
+/// nothing else on this page would explain it.
+fn dhis2_seed_field(components: &crate::components::Components) -> String {
+    let volume = crate::compose::render::DHIS2_DB_VOLUME;
+    if components.dhis2_seed_is_unknown() {
+        return format!(
+            "default · chaps knows no dump for {}, so {volume} starts empty",
+            crate::components::dhis2_minor(&components.dhis2.image_tag)
+        );
+    }
+    match components.dhis2_seed_source() {
+        Some(source) => {
+            format!("{source} · restored once, into the database the first `chaps up` creates")
+        }
+        None => format!("none · {volume} starts empty and DHIS2 migrates a new database into it"),
+    }
 }
 
 /// The `volume` field of the component overlay: every volume the component
@@ -2969,6 +3069,14 @@ mod tests {
         state
     }
 
+    /// A project state with OCS and DHIS2 enabled beside chap-core, DHIS2 on
+    /// its default port and its default seed.
+    fn state_with_dhis2() -> ProjectState {
+        let mut state = state_with_ocs(Some(9000));
+        state.components.set_enabled(Component::Dhis2, true);
+        state
+    }
+
     /// Put the browser on the components page, with the cursor on one of them.
     fn on_components(app: &mut App, component: Component) {
         app.page = Page::Components;
@@ -3022,6 +3130,16 @@ mod tests {
         assert!(s3.contains("off"), "{s3}");
         assert!(s3.contains("RustFS"), "{s3}");
         assert!(!s3.contains('✓'), "{s3}");
+        // The fourth row, off here: the name fits the column and the sentence
+        // is what `components list` says.
+        let dhis2 = line_with(&screen, " dhis2 ");
+        assert!(dhis2.contains("off"), "{dhis2}");
+        assert!(dhis2.contains("DHIS2 and its own database"), "{dhis2}");
+        assert_eq!(
+            column_of(head, "COMPONENT"),
+            column_of(dhis2, "dhis2"),
+            "the name column still holds the longest name"
+        );
 
         // The strip under it describes the row, and the bar offers the page.
         assert!(screen.contains("i for details"), "{screen}");
@@ -3157,6 +3275,123 @@ mod tests {
         );
     }
 
+    /// The DHIS2 overlay, which carries what only it can say: that the config
+    /// file is not optional, that one of the three volumes is a cache, what the
+    /// seed is and when it applies, how long the first start takes, and that the
+    /// two settings no flag moves are a key in `.chaps/components.yaml`.
+    #[test]
+    fn the_dhis2_overlay_names_its_config_its_cache_and_the_keys_no_flag_moves() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_dhis2());
+        on_components(&mut app, Component::Dhis2);
+        app.reduce(Action::Info);
+
+        let screen = render(&app, 120, 40);
+        for needle in [
+            "dhis2",
+            "enabled here",
+            "http://localhost:8080",
+            "compose.dhis2.yml · rendered from .chaps/components.yaml by `chaps",
+            "dhis2_home, dhis2_db, dhis2_dump · kept when the component is disabled",
+            "dhis2/dhis.conf · yours to edit, and DHIS2 will not start without it",
+            "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz · restored",
+            "once, into the database the first `chaps up` creates",
+            "dhis2_dump holds the downloaded dump rather than data",
+            "minutes, not seconds: DHIS2 migrates its schema on the way up",
+            "`chaps logs dhis2` is where that shows",
+            "not on this page:",
+            "`seed:` in .chaps/components.yaml, then `chaps sync`",
+            "`image_tag:` in .chaps/components.yaml, then `chaps sync`",
+            "the DHIS2 version, 2.42 here; it migrates a schema forward only",
+            "backup` first",
+        ] {
+            assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
+        }
+        // The OCS block is OCS's alone, and DHIS2's is DHIS2's.
+        assert!(
+            !screen.contains("--base-url"),
+            "an OCS-only setting:\n{screen}"
+        );
+        assert!(!screen.contains("climate-service.yaml"), "{screen}");
+
+        app.reduce(Action::Info);
+        on_components(&mut app, Component::Ocs);
+        app.reduce(Action::Info);
+        let ocs = render(&app, 120, 40);
+        assert!(!ocs.contains("dhis.conf"), "{ocs}");
+        assert!(!ocs.contains("first start"), "{ocs}");
+    }
+
+    /// The `seed` field's four answers: a dump, `none`, and a `default` on a
+    /// minor line chaps publishes no dump for - which starts empty like `none`
+    /// and has to say why.
+    #[test]
+    fn the_seed_field_says_which_of_the_four_answers_this_deployment_gave() {
+        let mut components = crate::components::Components::default();
+        components.dhis2.enabled = true;
+
+        assert_eq!(
+            dhis2_seed_field(&components),
+            "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz · restored once, \
+             into the database the first `chaps up` creates"
+        );
+
+        components.dhis2.seed = crate::components::Dhis2Seed::None;
+        assert_eq!(
+            dhis2_seed_field(&components),
+            "none · dhis2_db starts empty and DHIS2 migrates a new database into it"
+        );
+
+        components.dhis2.seed = crate::components::Dhis2Seed::From("dumps/laos.sql.gz".into());
+        assert!(
+            dhis2_seed_field(&components).starts_with("dumps/laos.sql.gz · restored once,"),
+            "{}",
+            dhis2_seed_field(&components)
+        );
+
+        // A pinned minor with no published dump: the reason, not just the fact.
+        components.dhis2.seed = crate::components::Dhis2Seed::Default;
+        components.dhis2.image_tag = "2.40.1".to_string();
+        assert_eq!(
+            dhis2_seed_field(&components),
+            "default · chaps knows no dump for 2.40, so dhis2_db starts empty"
+        );
+    }
+
+    /// `p` on the DHIS2 row behaves as it does on OCS: a number or `none`, no
+    /// `auto`, and the dialog names where the component answers today.
+    #[test]
+    fn the_port_dialog_treats_dhis2_as_it_treats_ocs() {
+        let registry = registry();
+        let mut app = App::new(&registry, &state_with_dhis2());
+        on_components(&mut app, Component::Dhis2);
+        app.reduce(Action::PortPrompt);
+
+        let screen = render(&app, 120, 40);
+        assert!(screen.contains("Host port for dhis2"), "{screen}");
+        assert!(screen.contains("port  › 8080_"), "{screen}");
+        assert!(
+            screen.contains("now: http://localhost:8080 · api port 8000 is taken"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("[enter] apply  [esc] cancel  [none] no host port"),
+            "and it does not offer auto:\n{screen}"
+        );
+
+        app.port_input.clear();
+        for c in "auto".chars() {
+            app.reduce(Action::PortChar(c));
+        }
+        app.reduce(Action::PortApply);
+        let screen = render(&app, 120, 40);
+        assert!(
+            screen.contains("Host port for dhis2"),
+            "still open:\n{screen}"
+        );
+        assert!(screen.contains("model port range"), "{screen}");
+    }
+
     /// The overlay's `volume` field, including the shape no component has yet:
     /// one volume is the field it has always been, and several are all listed,
     /// because the field is there to say where the data is.
@@ -3252,12 +3487,12 @@ mod tests {
         let registry = registry();
         let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
         app.reduce(Action::NextPage);
-        eprintln!("=== COMPONENTS 120x14 ===");
-        eprintln!("{}", render(&app, 120, 14));
+        eprintln!("=== COMPONENTS 120x15 ===");
+        eprintln!("{}", render(&app, 120, 15));
         on_components(&mut app, Component::S3);
         app.reduce(Action::Toggle);
-        eprintln!("=== COMPONENTS PENDING 120x14 ===");
-        eprintln!("{}", render(&app, 120, 14));
+        eprintln!("=== COMPONENTS PENDING 120x15 ===");
+        eprintln!("{}", render(&app, 120, 15));
         app.reduce(Action::Info);
         eprintln!("=== COMPONENT OVERLAY 120x30 ===");
         eprintln!("{}", render(&app, 120, 30));
@@ -3265,6 +3500,17 @@ mod tests {
         on_components(&mut app, Component::Ocs);
         app.reduce(Action::Info);
         eprintln!("=== OCS OVERLAY 120x30 ===");
+        eprintln!("{}", render(&app, 120, 30));
+
+        // The DHIS2 row and its overlay, on a deployment that has one: the
+        // component with the most to say behind `i`, and the one whose summary
+        // strip carries the longest sentence.
+        let mut app = App::new(&registry, &state_with_dhis2());
+        on_components(&mut app, Component::Dhis2);
+        eprintln!("=== COMPONENTS DHIS2 120x15 ===");
+        eprintln!("{}", render(&app, 120, 15));
+        app.reduce(Action::Info);
+        eprintln!("=== DHIS2 OVERLAY 120x30 ===");
         eprintln!("{}", render(&app, 120, 30));
     }
 

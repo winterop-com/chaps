@@ -941,7 +941,12 @@ impl<'a> App<'a> {
     /// The same three answers `chaps components list` gives: its own host port,
     /// the compose network, or a dash for a component this deployment does not
     /// have. chap-core's port is the API port, which lives in `project.yaml`
-    /// rather than in the component block.
+    /// rather than in the component block, and OCS and DHIS2 answer through
+    /// [`Components::ocs_reach`] and [`Components::dhis2_reach`], so the browser
+    /// and `components list` cannot word the same state differently.
+    ///
+    /// [`Components::ocs_reach`]: crate::components::Components::ocs_reach
+    /// [`Components::dhis2_reach`]: crate::components::Components::dhis2_reach
     pub fn component_reach(&self, component: Component) -> String {
         if !self.components.is_enabled(component) {
             return "-".to_string();
@@ -2412,6 +2417,10 @@ mod tests {
         app.reduce(Action::Palette);
         assert_eq!(app.mode, Mode::Palette);
         assert_eq!(app.palette_matches().len(), app.commands().len());
+        // Fifteen entries that do not depend on the component set, plus one
+        // toggle per component, so a fifth component moves this number and
+        // nothing else in the palette has to be counted again.
+        assert_eq!(app.commands().len(), 15 + Component::ALL.len());
         assert_eq!(app.commands().len(), 19);
 
         for c in "PORT".chars() {
@@ -2981,6 +2990,52 @@ mod tests {
         assert_eq!(app.components.ocs.port, None);
     }
 
+    /// The DHIS2 row goes through the same three accessors OCS does, so `p`,
+    /// `P` and the REACH cell read its own `port:` and nothing else.
+    #[test]
+    fn the_dhis2_row_publishes_and_unpublishes_like_the_ocs_one() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Dhis2, true);
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Dhis2);
+        assert_eq!(
+            app.component_reach(Component::Dhis2),
+            "http://localhost:8080"
+        );
+
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.port_input, "8080", "prefilled with what it publishes");
+        ask_for_port(&mut app, "none");
+        assert_eq!(app.components.dhis2.port, None);
+        assert_eq!(
+            app.component_reach(Component::Dhis2),
+            "internal",
+            "a DHIS2 behind a proxy is reached somewhere else, not nowhere"
+        );
+        let wanted = app.selection().components.expect("a set is selected");
+        assert_eq!(wanted.dhis2.port, None);
+        assert!(wanted.dhis2.enabled);
+
+        ask_for_port(&mut app, "18080");
+        assert_eq!(app.components.dhis2.port, Some(18080));
+        assert_eq!(app.changes()[0].detail, "publish port 18080");
+        ask_for_port(&mut app, "auto");
+        assert_eq!(app.port_error.as_deref(), Some(COMPONENT_HAS_NO_AUTO_PORT));
+        app.reduce(Action::FilterCancel);
+
+        // A component that is off is asked to be enabled first, as `s3` is.
+        app.components.set_enabled(Component::Dhis2, false);
+        app.reduce(Action::PortPrompt);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.message.as_deref(), Some(PORT_NEEDS_COMPONENT_HINT));
+        assert_eq!(
+            app.component_reach(Component::Dhis2),
+            "-",
+            "a component this deployment does not have reaches nothing"
+        );
+    }
+
     #[test]
     fn the_component_port_prompt_refuses_chap_core_and_a_component_that_is_off() {
         let registry = registry();
@@ -3116,6 +3171,7 @@ mod tests {
         for (query, component) in [
             ("turn the ocs", Component::Ocs),
             ("turn the s3", Component::S3),
+            ("turn the dhis2", Component::Dhis2),
         ] {
             let mut app = App::new(&registry, &empty_state());
             app.reduce(Action::Palette);

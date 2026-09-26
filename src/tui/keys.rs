@@ -269,8 +269,8 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             hints.push(hint("space", "toggle", 8));
             hints.push(hint("i", "info", 5));
             hints.push(hint("p", "port", 3));
-            // Neither belongs to a component: it follows no channel, and three
-            // rows are not a list to filter.
+            // Neither belongs to a component: it follows no channel, and a
+            // handful of rows is not a list to filter.
             if page == Page::Models {
                 hints.push(hint("v", "channel", 2));
                 if filtering {
