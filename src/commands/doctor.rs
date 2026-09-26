@@ -18,8 +18,9 @@ use crate::chapcore;
 use crate::cli::DoctorArgs;
 use crate::commands::Ctx;
 use crate::components::{
-    COMPONENTS_FILE, Component, Components, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_PLUGINS_DIR,
-    OCS_TAG_ENV_VAR, S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
+    COMPONENTS_FILE, Component, Components, DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_IMAGE,
+    DHIS2_JAVA_ENV_VAR, DHIS2_TAG_ENV_VAR, Dhis2Seed, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE,
+    OCS_PLUGINS_DIR, OCS_TAG_ENV_VAR, S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
 };
 use crate::compose::render::OCS_EXAMPLE_MARKER;
 use crate::compose::{API_SERVICE, sync};
@@ -69,6 +70,16 @@ pub const DISK_WARN: u64 = 10 * GB;
 /// Free space below which `disk` fails outright.
 pub const DISK_FAIL: u64 = 3 * GB;
 
+/// Memory below which `memory` warns on a deployment that runs DHIS2: room for
+/// DHIS2's own default heap and nothing else in the deployment.
+pub const DHIS2_MEMORY_WARN: u64 = 6 * GB;
+
+/// Memory below which it fails. DHIS2 wants about this much to get through the
+/// analytics populate phase, and below it the JVM is killed part-way through -
+/// a failure that looks like anything except memory, because what is left
+/// behind is an analytics run that never finishes.
+pub const DHIS2_MEMORY_FAIL: u64 = 4 * GB;
+
 /// Columns the status word is padded to (`warn`, `fail` and `skip` are the
 /// widest).
 pub const STATUS_WIDTH: usize = 4;
@@ -84,10 +95,11 @@ pub const GHCR_PROBE_URL: &str = "https://ghcr.io/v2/";
 /// `User-Agent` sent with the probes, matching the registry fetch.
 const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
 
-/// The one `docker info` the checklist runs, asked for both fields it needs:
-/// the engine version for the `docker-daemon` line and the data root for
-/// `disk`. Two calls would be two round trips to the same daemon.
-const INFO_FORMAT: &str = "{{.ServerVersion}}\t{{.DockerRootDir}}";
+/// The one `docker info` the checklist runs, asked for every field it needs:
+/// the engine version for the `docker-daemon` line, the data root for `disk`
+/// and the memory for `memory`. One call would otherwise be three round trips
+/// to the same daemon.
+const INFO_FORMAT: &str = "{{.ServerVersion}}\t{{.DockerRootDir}}\t{{.MemTotal}}";
 
 /// What `doctor` says instead of the project section when it was not run
 /// inside a deployment directory.
@@ -362,7 +374,7 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
         } else {
             Outcome::Missing
         };
-        let root_dir = info_fields(info.stdout()).1;
+        let engine = info_fields(info.stdout());
         checks.push(docker_daemon_check(&info, have_cli));
 
         // Nothing to ask compose when there is no CLI to ask it through.
@@ -370,8 +382,15 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
         checks.push(compose_check(have_cli, compose));
         checks.push(arch_check(std::env::consts::OS, std::env::consts::ARCH));
 
-        let measured = disk_path(root_dir.as_deref());
+        let measured = disk_path(engine.root_dir.as_deref());
         checks.push(disk_check(&measured, free_bytes(&measured)));
+        // Only a deployment that runs DHIS2 is asked about memory. It is the
+        // one service here whose failure below a few gigabytes is a silent kill
+        // rather than an error, and a line about a limit nothing else in a
+        // deployment comes near would be noise on every other one.
+        if project.is_some_and(|project| project.state.components.dhis2.enabled) {
+            checks.push(memory_check(have_cli, engine.memory));
+        }
 
         let probed = probes.map(Probes::join);
         checks.extend(network_checks(probed.as_ref()));
@@ -568,7 +587,7 @@ pub fn docker_daemon_check(outcome: &Outcome, have_cli: bool) -> Check {
         } => Check::ok(
             "docker-daemon",
             NAME,
-            format!("Docker Engine {}", info_fields(stdout).0),
+            format!("Docker Engine {}", info_fields(stdout).engine),
         ),
         Outcome::TimedOut => Check::fail(
             "docker-daemon",
@@ -699,6 +718,61 @@ pub fn disk_check(path: &Path, free: Option<u64>) -> Check {
     Check::new("disk", "disk space", status, detail, fix)
 }
 
+/// Whether there is memory for DHIS2.
+///
+/// `memory` is what the docker engine says it can give a container, which is
+/// the only figure that answers the question on every platform: on macOS and
+/// Windows the containers live in a Linux VM whose size the host's own free
+/// memory says nothing about, and on Linux it is the host's memory. An engine
+/// that would not say is a skip - the figure is not one to guess at, and a
+/// wrong answer here sends an operator after a memory problem they do not have,
+/// or leaves them without the one they do.
+pub fn memory_verdict(memory: Option<u64>) -> (Status, String, Option<String>) {
+    let Some(memory) = memory else {
+        return (
+            Status::Skip,
+            "docker did not say how much memory it can give a container".to_string(),
+            None,
+        );
+    };
+    let detail = format!("{} available to docker", human_bytes(memory));
+    if memory < DHIS2_MEMORY_FAIL {
+        return (
+            Status::Fail,
+            detail,
+            Some(format!(
+                "give docker at least {} (Docker Desktop: Settings, Resources), or lower the heap \
+                 with `{DHIS2_JAVA_ENV_VAR}` in `.env`: below {} the JVM is killed part-way \
+                 through the analytics populate phase, and the run never finishes",
+                human_bytes(DHIS2_MEMORY_WARN),
+                human_bytes(DHIS2_MEMORY_FAIL),
+            )),
+        );
+    }
+    if memory < DHIS2_MEMORY_WARN {
+        return (
+            Status::Warn,
+            detail,
+            Some(format!(
+                "keep at least {} for docker: DHIS2 alone wants {} for the analytics populate \
+                 phase, and `{DHIS2_JAVA_ENV_VAR}` in `.env` is where its heap is sized",
+                human_bytes(DHIS2_MEMORY_WARN),
+                human_bytes(DHIS2_MEMORY_FAIL),
+            )),
+        );
+    }
+    (Status::Ok, detail, None)
+}
+
+/// The `memory` line, which has nothing to ask when there is no CLI to ask it
+/// through.
+pub fn memory_check(have_cli: bool, memory: Option<u64>) -> Check {
+    if !have_cli {
+        return Check::skip("memory", "memory", "no docker CLI to ask");
+    }
+    Check::from_verdict("memory", "memory", memory_verdict(memory))
+}
+
 /// `n` as a human-sized string. Always GB: every threshold here is one.
 pub fn human_bytes(n: u64) -> String {
     format!("{:.1} GB", n as f64 / GB as f64)
@@ -772,18 +846,43 @@ fn disk_command(path: &Path) -> Option<DiskCommand> {
     ))
 }
 
-/// The engine version and the data root, split out of what [`INFO_FORMAT`]
-/// asked for. Either may be missing: an engine that does not know a field
-/// prints it empty rather than dropping it.
-pub fn info_fields(stdout: &str) -> (String, Option<String>) {
+/// What the one `docker info` said, split out of what [`INFO_FORMAT`] asked
+/// for.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DockerInfo {
+    /// The engine version, for the `docker-daemon` line.
+    pub engine: String,
+    /// Docker's own data root, for `disk`. `None` when the engine did not say.
+    pub root_dir: Option<String>,
+    /// How much memory the engine can give a container, in bytes. `None` when
+    /// the engine did not say, or said nothing that reads as a number.
+    pub memory: Option<u64>,
+}
+
+/// Split one `docker info` line into [`DockerInfo`].
+///
+/// Any field may be missing: an engine that does not know one prints it empty
+/// rather than dropping it, and an older engine may print fewer fields than
+/// were asked for. A memory of `0` is "would not say" rather than a machine
+/// with no memory, which is not a thing.
+pub fn info_fields(stdout: &str) -> DockerInfo {
     let mut fields = stdout.trim().split('\t');
-    let version = fields.next().unwrap_or_default().trim().to_string();
-    let root = fields
+    let engine = fields.next().unwrap_or_default().trim().to_string();
+    let root_dir = fields
         .next()
         .map(str::trim)
         .filter(|root| !root.is_empty())
         .map(str::to_string);
-    (version, root)
+    let memory = fields
+        .next()
+        .map(str::trim)
+        .and_then(|bytes| bytes.parse::<u64>().ok())
+        .filter(|bytes| *bytes > 0);
+    DockerInfo {
+        engine,
+        root_dir,
+        memory,
+    }
 }
 
 /// The filesystem to measure: Docker's own data root when this host can see
@@ -1096,12 +1195,23 @@ impl ReachSummary for std::result::Result<String, String> {
 // Project checks
 // ---------------------------------------------------------------------------
 
-/// The files a deployment directory holds, as `chaps init` writes them.
+/// The files a deployment directory holds, as `chaps init` writes them: the
+/// `.chaps/` state, `.env` and the compose files rendered from them.
 ///
 /// The base stack is only one of them when chap-core is a component of this
 /// deployment: `--without chap-core` renders neither `compose.yml` nor the
 /// chaps-owned override, so looking for them would report a deployment that is
 /// exactly as asked for as broken.
+///
+/// What a component keeps in its own directory
+/// ([`crate::components::Component::dir`]) is deliberately not in here. Those
+/// files are the operator's rather than rendered, and the `components` line
+/// already judges each of them with the one thing to do about it - `chaps sync`
+/// scaffolds a missing `dhis2/dhis.conf`, and it says why DHIS2 will not start
+/// without it - so counting them here would report one fault on two lines and
+/// offer `chaps init --force` for a file `sync` writes on its own.
+/// [`files_verdict`] names the directories instead, so the count cannot be read
+/// as covering them.
 pub fn project_files(components: &Components) -> Vec<String> {
     let mut files = vec![
         format!("{CHAPS_DIR}/{PROJECT_FILE}"),
@@ -1119,9 +1229,28 @@ pub fn project_files(components: &Components) -> Vec<String> {
 }
 
 /// Whether every file a deployment is made of is still there.
-pub fn files_verdict(total: usize, missing: &[String]) -> (Status, String, Option<String>) {
+///
+/// `elsewhere` is the directories of the enabled components, which this check
+/// does not look in. They are named on the `ok` line so the count is read for
+/// what it is: `all 8 present` on a deployment whose `dhis2/dhis.conf` had been
+/// deleted was a true count of a set that did not include the one file DHIS2
+/// cannot start without, which is a line stating something untrue while the
+/// `components` line right under it fails.
+///
+/// The `fail` carries none of it, for the reason [`ocs_part`]'s does not: the
+/// one thing to do is the fix, and a deployment missing its rendered files is
+/// told to render them again whatever else is also gone.
+pub fn files_verdict(
+    total: usize,
+    missing: &[String],
+    elsewhere: &[&str],
+) -> (Status, String, Option<String>) {
     if missing.is_empty() {
-        return (Status::Ok, format!("all {total} present"), None);
+        return (
+            Status::Ok,
+            format!("all {total} present{}", elsewhere_note(elsewhere)),
+            None,
+        );
     }
     (
         Status::Fail,
@@ -1134,6 +1263,25 @@ pub fn files_verdict(total: usize, missing: &[String]) -> (Status, String, Optio
     )
 }
 
+/// The tail that keeps `all N present` from claiming the component directories
+/// it did not count: `; ocs/ and dhis2/ are on the `components` line`.
+///
+/// Empty for a deployment that has no such component, where there is nothing
+/// left out and a tail would be noise.
+fn elsewhere_note(dirs: &[&str]) -> String {
+    let named: Vec<String> = dirs.iter().map(|dir| format!("{dir}/")).collect();
+    let Some((last, rest)) = named.split_last() else {
+        return String::new();
+    };
+    if rest.is_empty() {
+        return format!("; {last} is on the `components` line");
+    }
+    format!(
+        "; {} and {last} are on the `components` line",
+        rest.join(", ")
+    )
+}
+
 /// The `project-files` line for a directory on disk.
 pub fn files_check(dir: &Path, components: &Components) -> Check {
     let wanted = project_files(components);
@@ -1142,10 +1290,18 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
         .filter(|name| !dir.join(name).is_file())
         .cloned()
         .collect();
+    // Only the enabled ones: the `components` line reports a component that is
+    // on, so pointing at it for a directory left behind by one that is off would
+    // send the reader to a line that says nothing about it.
+    let elsewhere: Vec<&str> = Component::ALL
+        .iter()
+        .filter(|component| components.is_enabled(**component))
+        .filter_map(|component| component.dir())
+        .collect();
     Check::from_verdict(
         "project-files",
         "project files",
-        files_verdict(wanted.len(), &missing),
+        files_verdict(wanted.len(), &missing, &elsewhere),
     )
 }
 
@@ -1173,7 +1329,70 @@ pub struct OcsFacts<'a> {
     pub data_bytes: Option<u64>,
 }
 
-/// `facts.config` is what is on disk at `ocs/climate-service.yaml`: `None` when
+/// Everything about the `dhis2` component that is on disk rather than in
+/// `components.yaml`. The seed is not here: it is recorded state, so it is read
+/// off [`Components`] itself.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Dhis2Facts {
+    /// Whether `dhis2/dhis.conf` is there. Its absence is fatal: DHIS2 throws
+    /// on startup without it, and there is no environment-only mode.
+    pub config: bool,
+}
+
+/// What one component contributes to the `components` line: the status it
+/// forces, the text that goes after the enabled set, and the one thing to do
+/// about it.
+///
+/// A value rather than an early return, and deliberately so. The line carries
+/// every enabled component, so an `ocs` whose config file has gone must not be
+/// able to swallow what the `dhis2` beside it had to say - which is the same
+/// mistake the OCS tail itself was fixed for, one level down, when the warning
+/// arm returned before printing it.
+struct ComponentPart {
+    status: Status,
+    detail: String,
+    fix: Option<String>,
+}
+
+/// How bad one status is, for keeping the worst of several parts.
+fn severity(status: Status) -> u8 {
+    match status {
+        Status::Ok => 0,
+        Status::Skip => 1,
+        Status::Warn => 2,
+        Status::Fail => 3,
+    }
+}
+
+/// The enabled set, plus what each enabled component's own files say.
+///
+/// Every part is appended, and the line's status is the worst of them: two
+/// components can each have something to report, and either one going quiet
+/// because the other is worse is the one outcome this must not have.
+pub fn components_verdict(
+    components: &Components,
+    ocs: &OcsFacts,
+    dhis2: &Dhis2Facts,
+) -> (Status, String, Option<String>) {
+    let mut detail = components.label();
+    let mut status = Status::Ok;
+    let mut fixes: Vec<String> = Vec::new();
+    for part in [ocs_part(components, ocs), dhis2_part(components, dhis2)]
+        .into_iter()
+        .flatten()
+    {
+        detail.push_str("; ");
+        detail.push_str(&part.detail);
+        if severity(part.status) > severity(status) {
+            status = part.status;
+        }
+        fixes.extend(part.fix);
+    }
+    let fix = (!fixes.is_empty()).then(|| fixes.join("; "));
+    (status, detail, fix)
+}
+
+/// `ocs.config` is what is on disk at `ocs/climate-service.yaml`: `None` when
 /// there is none, which is a real fault (the container would start with no
 /// instance configuration), and a body that still carries the example marker,
 /// which is a warning - it deploys, it just deploys Sierra Leone.
@@ -1196,43 +1415,93 @@ pub struct OcsFacts<'a> {
 /// one next step either way, and the dataset count and the data size are only
 /// ever read out of a running container, which a deployment in that state does
 /// not have.
-pub fn components_verdict(
-    components: &Components,
-    facts: &OcsFacts,
-) -> (Status, String, Option<String>) {
-    let label = components.label();
+fn ocs_part(components: &Components, facts: &OcsFacts) -> Option<ComponentPart> {
     if !components.ocs.enabled {
-        return (Status::Ok, label, None);
+        return None;
     }
     let config = format!("{OCS_DIR}/{OCS_CONFIG_FILE}");
     let Some(body) = facts.config else {
-        return (
-            Status::Fail,
-            format!("{label}; {config} is missing"),
-            Some(
+        return Some(ComponentPart {
+            status: Status::Fail,
+            detail: format!("{config} is missing"),
+            fix: Some(
                 "run `chaps sync` to scaffold it again, then edit it for your country".to_string(),
             ),
-        );
+        });
     };
     if body.contains(OCS_EXAMPLE_MARKER) {
-        return (
-            Status::Warn,
-            format!(
-                "{label}; {config} still holds OCS's example values{}",
+        return Some(ComponentPart {
+            status: Status::Warn,
+            detail: format!(
+                "{config} still holds OCS's example values{}",
                 ocs_notes(facts)
             ),
-            Some(format!(
+            fix: Some(format!(
                 "edit {config} for your own country or region and delete the note at the top; \
                  `chaps components enable ocs --ocs-name NAME --ocs-country CODE --ocs-bbox \
                  xmin,ymin,xmax,ymax` writes it for a project that has none"
             )),
+        });
+    }
+    Some(ComponentPart {
+        status: Status::Ok,
+        detail: format!("{config} present{}", ocs_notes(facts)),
+        fix: None,
+    })
+}
+
+/// The `dhis2` half: whether its one mandatory file is there, and what the
+/// database will be seeded from.
+///
+/// The missing file is the only thing here that is judged, and it is a fault
+/// with nothing arguable about it - DHIS2 throws on startup without
+/// `dhis2/dhis.conf` and there is no environment-only mode, so the container
+/// would come up and stop. The seed is the OCS credentials line's counterpart:
+/// reported, never judged. An empty database is a deployment that brings its own
+/// data, not a deployment that is wrong.
+fn dhis2_part(components: &Components, facts: &Dhis2Facts) -> Option<ComponentPart> {
+    if !components.dhis2.enabled {
+        return None;
+    }
+    let config = format!("{DHIS2_DIR}/{DHIS2_CONFIG_FILE}");
+    if !facts.config {
+        return Some(ComponentPart {
+            status: Status::Fail,
+            detail: format!("{config} is missing"),
+            fix: Some(format!(
+                "run `chaps sync` to scaffold {config} again: DHIS2 throws on startup without it, \
+                 and there is no environment-only mode"
+            )),
+        });
+    }
+    Some(ComponentPart {
+        status: Status::Ok,
+        detail: format!("{config} present; {}", dhis2_seed_note(components)),
+        fix: None,
+    })
+}
+
+/// What the `dhis2` part says about the seed: which of the three answers
+/// `.chaps/components.yaml` holds, and what `default` resolves to.
+///
+/// The resolution is worth printing because it is the half that does not follow
+/// from the setting: a minor line chaps publishes no dump for resolves to
+/// nothing, and `chaps doctor` is the last place to learn that before the first
+/// `chaps up` brings up an empty DHIS2 with no explanation.
+fn dhis2_seed_note(components: &Components) -> String {
+    if components.dhis2_seed_is_unknown() {
+        return format!(
+            "seed: default, and chaps knows no dump for {} (the database starts empty)",
+            crate::components::dhis2_minor(&components.dhis2.image_tag)
         );
     }
-    (
-        Status::Ok,
-        format!("{label}; {config} present{}", ocs_notes(facts)),
-        None,
-    )
+    match components.dhis2_seed_source() {
+        None => "seed: none (the database starts empty)".to_string(),
+        Some(source) if components.dhis2.seed == Dhis2Seed::Default => {
+            format!("seed: default ({source})")
+        }
+        Some(source) => format!("seed: {source}"),
+    }
 }
 
 /// The informational tail of the `components` line: what the OCS instance has
@@ -1285,10 +1554,16 @@ pub fn components_check(project: &Project, running: &BTreeSet<String>) -> Check 
             .and_then(|url| crate::status::ocs_datasets(&url)),
         data_bytes: live.then(|| docker::ocs_data_bytes(project)).flatten(),
     };
+    // Nothing is asked of a running DHIS2 here. What `chaps status` can learn
+    // over HTTP it has already put on the `dhis2` line, and everything past that
+    // - the version most of all - is behind a login this CLI does not hold.
+    let dhis2 = Dhis2Facts {
+        config: sync::dhis2_config_path(&project.dir).is_file(),
+    };
     Check::from_verdict(
         "components",
         "components",
-        components_verdict(&project.state.components, &facts),
+        components_verdict(&project.state.components, &facts, &dhis2),
     )
 }
 
@@ -2319,14 +2594,23 @@ pub fn component_image_verdict(name: &str, reference: &str, outcome: &Outcome) -
             check_name,
             format!("{reference} was not found: {}", first_line(stderr)),
             format!(
-                "check the tag: `{OCS_TAG_ENV_VAR}` and `{S3_TAG_ENV_VAR}` in .env pin the \
-                 component images"
+                "check the tag: `{OCS_TAG_ENV_VAR}`, `{S3_TAG_ENV_VAR}` and \
+                 `{DHIS2_TAG_ENV_VAR}` in .env pin the component images"
             ),
         ),
     }
 }
 
 /// The images the enabled components pull, as `(component, reference)`.
+///
+/// One image per component: the one whose tag a deployment can move. A
+/// component that is several services pulls more than that - `dhis2` brings a
+/// PostGIS database and an alpine one-shot beside its web image - but those two
+/// references are exact and compiled into this binary, the same on every
+/// deployment, so a check on them would spend a registry round trip per
+/// `chaps doctor` to report a chaps bug as the operator's problem, and the
+/// `fix` line would name a variable that does not exist. chap-core's own
+/// postgres and valkey are left out on the same rule.
 pub fn component_images(components: &Components) -> Vec<(String, String)> {
     let mut images = Vec::new();
     if components.ocs.enabled {
@@ -2339,6 +2623,12 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
         images.push((
             crate::compose::S3_SERVICE.to_string(),
             format!("{S3_IMAGE}:{S3_DEFAULT_TAG}"),
+        ));
+    }
+    if components.dhis2.enabled {
+        images.push((
+            crate::compose::DHIS2_SERVICE.to_string(),
+            format!("{DHIS2_IMAGE}:{}", components.dhis2.image_tag),
         ));
     }
     images
@@ -3417,13 +3707,35 @@ mod tests {
     #[test]
     fn docker_info_is_asked_once_and_split_afterwards() {
         assert_eq!(
-            info_fields("29.8.0\t/var/lib/docker"),
-            ("29.8.0".to_string(), Some("/var/lib/docker".to_string()))
+            info_fields("29.8.0\t/var/lib/docker\t33598197760"),
+            DockerInfo {
+                engine: "29.8.0".to_string(),
+                root_dir: Some("/var/lib/docker".to_string()),
+                memory: Some(33_598_197_760),
+            }
         );
-        // A field the engine does not know comes back empty, not absent.
-        assert_eq!(info_fields("29.8.0\t"), ("29.8.0".to_string(), None));
-        assert_eq!(info_fields("29.8.0"), ("29.8.0".to_string(), None));
-        assert_eq!(info_fields(""), (String::new(), None));
+        // A field the engine does not know comes back empty, not absent - and
+        // an engine older than the format asked of it prints fewer of them.
+        assert_eq!(
+            info_fields("29.8.0\t\t"),
+            DockerInfo {
+                engine: "29.8.0".to_string(),
+                ..DockerInfo::default()
+            }
+        );
+        assert_eq!(
+            info_fields("29.8.0"),
+            DockerInfo {
+                engine: "29.8.0".to_string(),
+                ..DockerInfo::default()
+            }
+        );
+        assert_eq!(info_fields(""), DockerInfo::default());
+        // A memory of zero is an engine that would not say, not a machine with
+        // no memory, which is not a thing.
+        assert_eq!(info_fields("29.8.0\t/var/lib/docker\t0").memory, None);
+        // Nor is a figure that does not read as a number.
+        assert_eq!(info_fields("29.8.0\t/var/lib/docker\t<nil>").memory, None);
     }
 
     #[test]
@@ -3649,10 +3961,170 @@ mod tests {
         }
     }
 
+    /// [`components_verdict`] for the OCS half of it, whose deployments have no
+    /// DHIS2 to have facts about.
+    fn ocs_verdict(components: &Components, facts: &OcsFacts) -> (Status, String, Option<String>) {
+        components_verdict(components, facts, &Dhis2Facts::default())
+    }
+
+    /// A deployment with `dhis2` on and nothing else but chap-core.
+    fn dhis2_components() -> Components {
+        let mut components = Components::default();
+        components.set_enabled(Component::Dhis2, true);
+        components
+    }
+
+    /// The DHIS2 half of the line: one file that has to be there, and one fact
+    /// that is only ever reported.
+    #[test]
+    fn the_components_line_reports_the_dhis2_config_and_the_seed() {
+        let components = dhis2_components();
+
+        // The file is mandatory. Without it DHIS2 throws on startup, so this is
+        // a fault rather than something to keep an eye on.
+        let (status, detail, fix) =
+            components_verdict(&components, &facts(None), &Dhis2Facts { config: false });
+        assert_eq!(status, Status::Fail);
+        assert_eq!(detail, "chap-core, dhis2; dhis2/dhis.conf is missing");
+        let fix = fix.unwrap();
+        assert!(fix.contains("chaps sync"), "{fix}");
+        assert!(fix.contains("dhis2/dhis.conf"), "{fix}");
+
+        // There, and the seed is the default the pinned minor line publishes.
+        let (status, detail, fix) =
+            components_verdict(&components, &facts(None), &Dhis2Facts { config: true });
+        assert_eq!(status, Status::Ok, "the seed is never a fault: {detail}");
+        assert_eq!(fix, None, "nothing here is something to do");
+        assert_eq!(
+            detail,
+            format!(
+                "chap-core, dhis2; dhis2/dhis.conf present; seed: default ({})",
+                crate::compose::render::DHIS2_DEFAULT_SEED_URL
+            )
+        );
+    }
+
+    /// The three other answers the seed can have, each reported and none of
+    /// them judged: an empty database is a deployment that brings its own data.
+    #[test]
+    fn the_seed_note_says_which_of_the_answers_this_deployment_holds() {
+        let present = Dhis2Facts { config: true };
+
+        let mut components = dhis2_components();
+        components.dhis2.seed = Dhis2Seed::None;
+        let (status, detail, fix) = components_verdict(&components, &facts(None), &present);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(fix, None);
+        assert!(
+            detail.ends_with("seed: none (the database starts empty)"),
+            "{detail}"
+        );
+
+        // A dump of the operator's own, whether a URL or a path in the project.
+        components.dhis2.seed = Dhis2Seed::parse("dumps/mine.sql.gz");
+        let (_, detail, _) = components_verdict(&components, &facts(None), &present);
+        assert!(detail.ends_with("seed: dumps/mine.sql.gz"), "{detail}");
+
+        // A minor line chaps publishes no dump for: the setting still says
+        // `default`, and the database still starts empty, which is the half
+        // that does not follow from the setting.
+        components.dhis2.seed = Dhis2Seed::Default;
+        components.dhis2.image_tag = "2.43".to_string();
+        let (status, detail, fix) = components_verdict(&components, &facts(None), &present);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(fix, None);
+        assert!(
+            detail.ends_with(
+                "seed: default, and chaps knows no dump for 2.43 (the database starts empty)"
+            ),
+            "{detail}"
+        );
+    }
+
+    /// The line carries every enabled component. An `ocs` with something to
+    /// report used to be able to return before the rest of the line was
+    /// written, which is the shape this must never take again.
+    #[test]
+    fn a_failing_ocs_does_not_swallow_what_the_dhis2_beside_it_says() {
+        let mut components = dhis2_components();
+        components.set_enabled(Component::Ocs, true);
+        let example = crate::compose::render::render_ocs_config(
+            &crate::compose::spec::OcsConfigSpec::default(),
+        );
+
+        // OCS is only warning, and the DHIS2 fault is the worse of the two, so
+        // it is the one the line's status comes from - and both are printed.
+        let (status, detail, fix) = components_verdict(
+            &components,
+            &facts(Some(&example)),
+            &Dhis2Facts { config: false },
+        );
+        assert_eq!(status, Status::Fail);
+        assert!(
+            detail.contains("ocs/climate-service.yaml still holds"),
+            "{detail}"
+        );
+        assert!(detail.contains("dhis2/dhis.conf is missing"), "{detail}");
+        // One next step per fault, and both of them on the line.
+        let fix = fix.unwrap();
+        assert!(fix.contains("--ocs-country"), "{fix}");
+        assert!(fix.contains("dhis2/dhis.conf"), "{fix}");
+
+        // And the other way round: OCS's own config gone is the fault, and the
+        // DHIS2 seed still rides on the line.
+        let (status, detail, fix) =
+            components_verdict(&components, &facts(None), &Dhis2Facts { config: true });
+        assert_eq!(status, Status::Fail);
+        assert!(
+            detail.contains("ocs/climate-service.yaml is missing"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("dhis2/dhis.conf present; seed:"),
+            "{detail}"
+        );
+        assert!(fix.unwrap().contains("chaps sync"));
+    }
+
+    /// The memory line exists for one failure: DHIS2's JVM being killed part-way
+    /// through the analytics populate phase, which looks like anything except
+    /// memory. The figure is docker's own, because on macOS and Windows the
+    /// containers live in a VM whose size the host's free memory says nothing
+    /// about.
+    #[test]
+    fn the_memory_thresholds_are_six_and_four_gigabytes() {
+        assert_eq!(memory_verdict(Some(32 * GB)).0, Status::Ok);
+        assert_eq!(memory_verdict(Some(DHIS2_MEMORY_WARN)).0, Status::Ok);
+        assert_eq!(memory_verdict(Some(DHIS2_MEMORY_WARN - 1)).0, Status::Warn);
+        assert_eq!(memory_verdict(Some(DHIS2_MEMORY_FAIL)).0, Status::Warn);
+        assert_eq!(memory_verdict(Some(DHIS2_MEMORY_FAIL - 1)).0, Status::Fail);
+
+        // The detail says what was measured and whose figure it is.
+        assert_eq!(memory_verdict(Some(8 * GB)).1, "8.0 GB available to docker");
+        // Both arms name the one file an operator can change without touching
+        // Docker's own settings.
+        for memory in [DHIS2_MEMORY_FAIL - 1, DHIS2_MEMORY_WARN - 1] {
+            let fix = memory_verdict(Some(memory)).2.expect("something to do");
+            assert!(fix.contains(DHIS2_JAVA_ENV_VAR), "{fix}");
+            assert!(fix.contains("`.env`"), "{fix}");
+        }
+
+        // A platform, or an engine, that would not say is a reported skip
+        // rather than a guess: a wrong answer here sends an operator after a
+        // memory problem they do not have.
+        let (status, detail, fix) = memory_verdict(None);
+        assert_eq!(status, Status::Skip);
+        assert!(detail.contains("docker did not say"), "{detail}");
+        assert_eq!(fix, None);
+        // And no docker at all is the same kind of skip.
+        assert_eq!(memory_check(false, Some(32 * GB)).status, Status::Skip);
+        assert_eq!(memory_check(true, Some(32 * GB)).status, Status::Ok);
+    }
+
     #[test]
     fn the_components_line_reports_the_set_and_the_ocs_config() {
         // Nothing but chap-core: there is no config file to have an opinion on.
-        let (status, detail, fix) = components_verdict(&Components::default(), &facts(None));
+        let (status, detail, fix) = ocs_verdict(&Components::default(), &facts(None));
         assert_eq!(status, Status::Ok);
         assert_eq!(detail, "chap-core");
         assert_eq!(fix, None);
@@ -3662,7 +4134,7 @@ mod tests {
 
         // The component is on and its instance config is gone: the container
         // would start with nothing to be an instance of.
-        let (status, detail, fix) = components_verdict(&components, &facts(None));
+        let (status, detail, fix) = ocs_verdict(&components, &facts(None));
         assert_eq!(status, Status::Fail);
         assert!(
             detail.contains("ocs/climate-service.yaml is missing"),
@@ -3675,14 +4147,14 @@ mod tests {
         let example = crate::compose::render::render_ocs_config(
             &crate::compose::spec::OcsConfigSpec::default(),
         );
-        let (status, detail, fix) = components_verdict(&components, &facts(Some(&example)));
+        let (status, detail, fix) = ocs_verdict(&components, &facts(Some(&example)));
         assert_eq!(status, Status::Warn);
         assert!(detail.starts_with("chap-core, ocs; "), "{detail}");
         assert!(detail.contains("example values"), "{detail}");
         assert!(fix.unwrap().contains("--ocs-country"));
 
         // Edited, note deleted: nothing left to say.
-        let (status, detail, fix) = components_verdict(&components, &facts(Some("id: mine\n")));
+        let (status, detail, fix) = ocs_verdict(&components, &facts(Some("id: mine\n")));
         assert_eq!(status, Status::Ok);
         assert!(
             detail.ends_with("ocs/climate-service.yaml present"),
@@ -3699,7 +4171,7 @@ mod tests {
         let mut components = Components::default();
         components.set_enabled(crate::components::Component::Ocs, true);
 
-        let (status, detail, fix) = components_verdict(
+        let (status, detail, fix) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3718,7 +4190,7 @@ mod tests {
         assert!(detail.ends_with("plugins/: 2 files"), "{detail}");
 
         // One file is singular, and a set credential says nothing at all.
-        let (_, detail, _) = components_verdict(
+        let (_, detail, _) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3750,7 +4222,7 @@ mod tests {
 
         // A freshly enabled OCS: the scaffolded config, no credentials in
         // `.env`, and a plugin directory the operator has started filling.
-        let (status, detail, fix) = components_verdict(
+        let (status, detail, fix) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some(&example),
@@ -3773,7 +4245,7 @@ mod tests {
         assert!(!fix.contains("credentials"), "{fix}");
 
         // Credentials set: the warning says nothing about them either way.
-        let (status, detail, _) = components_verdict(
+        let (status, detail, _) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some(&example),
@@ -3786,7 +4258,7 @@ mod tests {
         assert!(detail.ends_with("example values"), "{detail}");
 
         // The operator's own file: the same tail, after the same separator.
-        let (status, edited, _) = components_verdict(
+        let (status, edited, _) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3800,7 +4272,7 @@ mod tests {
 
         // A missing config keeps none of it: nothing holds datasets or reads a
         // credential until the file is back, and `chaps sync` is the one step.
-        let (status, detail, fix) = components_verdict(
+        let (status, detail, fix) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: None,
@@ -3821,7 +4293,7 @@ mod tests {
         let mut components = Components::default();
         components.set_enabled(crate::components::Component::Ocs, true);
 
-        let (status, detail, fix) = components_verdict(
+        let (status, detail, fix) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3840,7 +4312,7 @@ mod tests {
 
         // One dataset is singular, and an instance that is not running, or
         // did not answer, says neither thing rather than saying nothing.
-        let (_, detail, _) = components_verdict(
+        let (_, detail, _) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3850,7 +4322,7 @@ mod tests {
             },
         );
         assert!(detail.ends_with("; 1 dataset"), "{detail}");
-        let (_, detail, _) = components_verdict(
+        let (_, detail, _) = ocs_verdict(
             &components,
             &OcsFacts {
                 config: Some("id: mine\n"),
@@ -3883,6 +4355,7 @@ mod tests {
         let mut components = Components::default();
         components.set_enabled(crate::components::Component::Ocs, true);
         components.set_enabled(crate::components::Component::S3, true);
+        components.set_enabled(Component::Dhis2, true);
         assert_eq!(
             component_images(&components),
             vec![
@@ -3891,7 +4364,17 @@ mod tests {
                     "ghcr.io/dhis2/open-climate-service:main".to_string()
                 ),
                 ("s3".to_string(), "rustfs/rustfs:latest".to_string()),
+                // The web image, at the tag the component records. Its PostGIS
+                // database and its alpine one-shot are exact references in this
+                // binary, so there is no tag of theirs to get wrong.
+                ("dhis2".to_string(), "dhis2/core:2.42".to_string()),
             ]
+        );
+        assert!(
+            !component_images(&components)
+                .iter()
+                .any(|(_, reference)| reference.contains("postgis")),
+            "the database image has no tag a deployment can move"
         );
     }
 
@@ -4007,17 +4490,84 @@ mod tests {
             ]
         );
 
-        let (status, detail, fix) = files_verdict(6, &[]);
+        let (status, detail, fix) = files_verdict(6, &[], &[]);
         assert_eq!(status, Status::Ok);
         assert_eq!(detail, "all 6 present");
         assert_eq!(fix, None);
 
         let (status, detail, fix) =
-            files_verdict(6, &[".env".to_string(), "compose.yml".to_string()]);
+            files_verdict(6, &[".env".to_string(), "compose.yml".to_string()], &[]);
         assert_eq!(status, Status::Fail);
         assert_eq!(detail, "missing .env, compose.yml");
         let fix = fix.unwrap();
         assert!(fix.contains("chaps sync") && fix.contains("chaps init --force"));
+    }
+
+    /// The count is of the files this check looks for, and the line says so
+    /// rather than reading as "nothing is missing from this deployment": a
+    /// component's own directory is not in the list, and `dhis2/dhis.conf` is a
+    /// file DHIS2 will not start without.
+    #[test]
+    fn the_files_line_names_the_component_directories_it_did_not_count() {
+        assert_eq!(files_verdict(8, &[], &[]).1, "all 8 present");
+        assert_eq!(
+            files_verdict(8, &[], &["dhis2"]).1,
+            "all 8 present; dhis2/ is on the `components` line"
+        );
+        assert_eq!(
+            files_verdict(9, &[], &["ocs", "dhis2"]).1,
+            "all 9 present; ocs/ and dhis2/ are on the `components` line"
+        );
+        assert_eq!(
+            files_verdict(9, &[], &["ocs", "s3", "dhis2"]).1,
+            "all 9 present; ocs/, s3/ and dhis2/ are on the `components` line"
+        );
+        // The fail has no room for it: the fix is the one thing to do.
+        assert_eq!(
+            files_verdict(8, &["compose.dhis2.yml".to_string()], &["dhis2"]).1,
+            "missing compose.dhis2.yml"
+        );
+    }
+
+    /// Which directories the line names: the enabled components' own, taken
+    /// from [`Component::dir`] so a component added later is named without this
+    /// check learning it.
+    #[test]
+    fn the_files_check_points_at_the_directories_of_the_enabled_components() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let mut components = Components::default();
+        components.set_enabled(Component::Dhis2, true);
+        for name in project_files(&components) {
+            let path = root.join(&name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "written\n").unwrap();
+        }
+
+        // Every mandatory file is there and the line still says where the
+        // DHIS2 config is judged, which is the whole of what was untrue before.
+        let check = files_check(root, &components);
+        assert_eq!(check.status, Status::Ok);
+        assert_eq!(
+            check.detail, "all 8 present; dhis2/ is on the `components` line",
+            "{check:?}"
+        );
+
+        // Whether the operator's file is there changes nothing on this line -
+        // the `components` line is where that is judged - and the tail is what
+        // sends the reader to it. It was absent for the assertion above.
+        std::fs::create_dir_all(root.join(DHIS2_DIR)).unwrap();
+        std::fs::write(root.join(DHIS2_DIR).join(DHIS2_CONFIG_FILE), "x\n").unwrap();
+        assert_eq!(files_check(root, &components).detail, check.detail);
+
+        // A deployment with no such component gets no tail.
+        let plain = Components::default();
+        for name in project_files(&plain) {
+            let path = root.join(&name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "written\n").unwrap();
+        }
+        assert_eq!(files_check(root, &plain).detail, "all 7 present");
     }
 
     #[test]
