@@ -25,6 +25,14 @@ pub const INFO_PATHS: &[&str] = &["/system/info", "/v2/info"];
 /// landing page as HTML, and the landing page is not something to count.
 pub const DATASETS_PATH: &str = "/datasets?f=json";
 
+/// The one route DHIS2 answers without credentials: `PingController`, which
+/// `DhisWebApiWebSecurityConfig` permits. So it can be asked of an instance
+/// this CLI holds no login for, which is every instance.
+///
+/// It is also the route `compose.dhis2.yml` builds the container's own
+/// healthcheck out of, and judged the same way: the status code, not the body.
+pub const DHIS2_PING_PATH: &str = "/api/ping";
+
 /// How long the OCS dataset count may take.
 ///
 /// Its own bound rather than `--timeout`: this is one extra fact on a line
@@ -455,11 +463,12 @@ pub fn status(
 
 /// One row per enabled component other than chap-core.
 ///
-/// OCS is asked over HTTP, because it publishes a host port and a `/health`
-/// endpoint of its own; the object store publishes nothing by default, so the
-/// only thing that can be said about it from out here is whether its container
-/// is up. A component with no container at all is `not running` rather than
-/// down: there is nothing wrong with a deployment that has not been started.
+/// OCS and DHIS2 are asked over HTTP, because each publishes a host port and an
+/// endpoint of its own that answers without credentials; the object store
+/// publishes nothing by default, so the only thing that can be said about it
+/// from out here is whether its container is up. A component with no container
+/// at all is `not running` rather than down: there is nothing wrong with a
+/// deployment that has not been started.
 ///
 /// Nothing is asked of a component whose container is not running. `chaps
 /// status` is the command run most often, and an instance that is not there
@@ -518,6 +527,56 @@ fn component_rows(
                 None => "internal".to_string(),
             },
             health_url: None,
+            read_only: false,
+            datasets: None,
+            data_bytes: None,
+        });
+    }
+    if components.dhis2.enabled {
+        // Judged by its container first and only then asked anything, exactly
+        // as OCS is - and then asked, for a reason OCS does not have.
+        //
+        // A DHIS2 container can report healthy while the instance is entirely
+        // broken. A Spring context that failed to come up - an unreadable
+        // `dhis2/dhis.conf`, a PostgreSQL extension the image cannot find, a
+        // Flyway checksum that does not match the database - leaves Tomcat
+        // running and serving pages, and every `/api/*` request then answers
+        // 404. So a 200 from `/api/ping` is the only honest evidence that this
+        // instance works, and a container that is up while `/api/ping` does not
+        // answer is `starting` at best.
+        //
+        // Nothing beyond that is asked, because nothing more can honestly be
+        // had: what is worth knowing past up or down is the version the
+        // instance is running, and `/api/system/info` answers that only to a
+        // session, which this CLI holds no credentials for. Its 401 would prove
+        // the API layer is alive, which is what a 404 disproves - and
+        // `/api/ping` has established exactly that already, for one request.
+        let url = components
+            .port_of(crate::components::Component::Dhis2)
+            .map(|port| format!("http://localhost:{port}"));
+        let up = running.contains(crate::compose::DHIS2_SERVICE);
+        let state = match (&url, up) {
+            // The same reasoning that gates the OCS request on its container:
+            // with nothing running there is no answer to wait for, only a
+            // timeout to spend on a port this deployment has nobody on - and
+            // whatever else holds it would answer in its place.
+            (_, false) => ComponentState::NotRunning,
+            (Some(url), true) => {
+                component_state(get(agent, url, DHIS2_PING_PATH, None).is_ok(), up)
+            }
+            (None, true) => ComponentState::Up,
+        };
+        rows.push(ComponentStatus {
+            name: crate::compose::DHIS2_SERVICE.to_string(),
+            state,
+            reach: components.dhis2_reach(),
+            // The address, not the answer, as the OCS row reports it: the field
+            // says where this instance answers, and that is as true of one that
+            // is switched off.
+            health_url: url.map(|url| format!("{url}{DHIS2_PING_PATH}")),
+            // None of the three is a DHIS2 fact, and each is reported on the
+            // same terms it is for the object store: absent, whatever the
+            // container is doing, rather than a field that comes and goes.
             read_only: false,
             datasets: None,
             data_bytes: None,
@@ -1782,9 +1841,20 @@ mod tests {
         }
     }
 
-    /// Something listening on the OCS host port, answering `/health` and the
-    /// dataset list the way OCS does and recording what it was asked - so a
-    /// test can tell "no request was made" from "a request came back empty".
+    /// A deployment with DHIS2 enabled, published on `port` when it has one.
+    fn dhis2_project(port: Option<u16>) -> Project {
+        let mut state = crate::project::ProjectState::default();
+        state.components.dhis2.enabled = true;
+        state.components.dhis2.port = port;
+        Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state,
+        }
+    }
+
+    /// Something listening on a component's host port, answering the way that
+    /// component does and recording what it was asked - so a test can tell "no
+    /// request was made" from "a request came back empty".
     struct StandIn {
         port: u16,
         asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -1797,7 +1867,9 @@ mod tests {
         }
     }
 
-    fn stand_in_ocs() -> StandIn {
+    /// A loopback server that logs every path it is asked for and answers each
+    /// one with whatever `answer` gives back: a status code and a body.
+    fn stand_in(answer: fn(&str) -> (u16, &'static str)) -> StandIn {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .expect("a loopback port");
@@ -1816,21 +1888,41 @@ mod tests {
                     .nth(1)
                     .unwrap_or_default()
                     .to_string();
-                let body = if path.starts_with("/datasets") {
-                    DATASETS
-                } else {
-                    r#"{"status":"success","message":"healthy"}"#
-                };
+                let (code, body) = answer(&path);
                 log.lock().expect("the request log").push(path);
+                let reason = if code == 200 { "OK" } else { "Not Found" };
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                    "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
                      Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
             }
         });
         StandIn { port, asked }
+    }
+
+    /// An OCS: `/health` and the dataset list, both 200.
+    fn stand_in_ocs() -> StandIn {
+        stand_in(|path| match path.starts_with("/datasets") {
+            true => (200, DATASETS),
+            false => (200, r#"{"status":"success","message":"healthy"}"#),
+        })
+    }
+
+    /// A DHIS2 whose API layer is alive: `/api/ping` answers, as the container's
+    /// own healthcheck asks it to.
+    fn stand_in_dhis2() -> StandIn {
+        stand_in(|path| match path == DHIS2_PING_PATH {
+            true => (200, "pong"),
+            false => (404, r#"{"httpStatusCode":404}"#),
+        })
+    }
+
+    /// The falsely healthy DHIS2: Tomcat is up and serving, and every `/api/*`
+    /// request answers 404 because the Spring context never came up.
+    fn stand_in_broken_dhis2() -> StandIn {
+        stand_in(|_| (404, "<html><body>Not Found</body></html>"))
     }
 
     /// A port nothing is listening on: taken to learn a free number, then let
@@ -1940,6 +2032,118 @@ mod tests {
         let rows = component_rows(&project, &probe_agent(), &BTreeSet::new());
         assert_eq!(rows[0].state, ComponentState::NotRunning);
         assert_eq!(rows[0].health_url, None);
+    }
+
+    /// The DHIS2 row is judged the same way the OCS one is: the container first,
+    /// then one request - and the request is `/api/ping`, which is the only
+    /// route an instance this CLI has no login for will answer.
+    #[test]
+    fn a_running_dhis2_is_up_only_once_api_ping_answers() {
+        let stand_in = stand_in_dhis2();
+        let rows = component_rows(
+            &dhis2_project(Some(stand_in.port)),
+            &probe_agent(),
+            &running(&[crate::compose::DHIS2_SERVICE]),
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "dhis2");
+        assert_eq!(rows[0].state, ComponentState::Up);
+        assert_eq!(stand_in.asked(), vec![DHIS2_PING_PATH.to_string()]);
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
+        );
+        assert_eq!(rows[0].reach, format!("http://localhost:{}", stand_in.port));
+        // None of the OCS fields is a DHIS2 fact, and none of them appears.
+        assert!(!rows[0].read_only);
+        assert_eq!(rows[0].datasets, None);
+        assert_eq!(rows[0].data_bytes, None);
+    }
+
+    /// The failure the request exists to catch, and the whole reason the row
+    /// does not stop at the container: DHIS2 reports itself healthy while every
+    /// `/api/*` request 404s, which is what a failed Spring context looks like
+    /// from outside. `up` would be the one wrong answer here.
+    #[test]
+    fn a_dhis2_that_serves_pages_but_no_api_is_not_up() {
+        let stand_in = stand_in_broken_dhis2();
+        let rows = component_rows(
+            &dhis2_project(Some(stand_in.port)),
+            &probe_agent(),
+            &running(&[crate::compose::DHIS2_SERVICE]),
+        );
+        assert_eq!(rows[0].state, ComponentState::Starting);
+        assert_ne!(rows[0].state, ComponentState::Up);
+        assert_eq!(stand_in.asked(), vec![DHIS2_PING_PATH.to_string()]);
+        // The address is recorded state, so the field says the same thing
+        // whatever the instance answered.
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
+        );
+    }
+
+    /// A DHIS2 that was never started costs no request, for the reason the OCS
+    /// row costs none: the only thing a probe could buy is a timeout, or an
+    /// answer from whatever else holds that host port.
+    #[test]
+    fn a_dhis2_that_is_not_running_is_not_asked() {
+        let stand_in = stand_in_dhis2();
+        let rows = component_rows(
+            &dhis2_project(Some(stand_in.port)),
+            &probe_agent(),
+            &BTreeSet::new(),
+        );
+        assert_eq!(rows[0].state, ComponentState::NotRunning);
+        assert!(
+            stand_in.asked().is_empty(),
+            "no request was worth making: {:?}",
+            stand_in.asked()
+        );
+        assert_eq!(
+            rows[0].health_url.as_deref(),
+            Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
+        );
+    }
+
+    /// An instance behind a reverse proxy publishes no host port, so there is no
+    /// address out here to ask and the container is the whole answer.
+    #[test]
+    fn a_dhis2_with_no_host_port_is_judged_by_its_container() {
+        let project = dhis2_project(None);
+        let rows = component_rows(
+            &project,
+            &probe_agent(),
+            &running(&[crate::compose::DHIS2_SERVICE]),
+        );
+        assert_eq!(rows[0].state, ComponentState::Up);
+        assert_eq!(rows[0].reach, "internal");
+        assert_eq!(rows[0].health_url, None);
+
+        let rows = component_rows(&project, &probe_agent(), &BTreeSet::new());
+        assert_eq!(rows[0].state, ComponentState::NotRunning);
+        assert_eq!(rows[0].health_url, None);
+    }
+
+    /// The rows come in the order the components are rendered, which is the
+    /// order the lines are printed in.
+    #[test]
+    fn the_component_rows_follow_the_render_order() {
+        let mut state = crate::project::ProjectState::default();
+        state.components.ocs.enabled = true;
+        state.components.ocs.port = None;
+        state.components.s3.enabled = true;
+        state.components.dhis2.enabled = true;
+        state.components.dhis2.port = None;
+        let project = Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state,
+        };
+        let names: Vec<String> = component_rows(&project, &probe_agent(), &BTreeSet::new())
+            .into_iter()
+            .map(|row| row.name)
+            .collect();
+        assert_eq!(names, vec!["ocs", "s3", "dhis2"]);
     }
 
     /// One component row, for the lines a deployment without chap-core adds up

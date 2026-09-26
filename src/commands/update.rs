@@ -185,7 +185,51 @@ pub fn plan_components(project: &Project) -> Vec<ComponentUpdate> {
             &env,
         ));
     }
+    if components.dhis2.enabled {
+        out.push(component_update(
+            crate::compose::DHIS2_SERVICE,
+            components::DHIS2_IMAGE,
+            components::DHIS2_TAG_ENV_VAR,
+            &components.dhis2.image_tag,
+            &env,
+        ));
+    }
     out
+}
+
+/// What a run that is about to re-pull the DHIS2 image is told while `dhis2_db`
+/// is already there.
+///
+/// Not the line `chaps components enable dhis2` prints. That one is about a tag
+/// an operator asked to change, and names the two tags. Here nothing on the
+/// screen moves at all: `dhis2/core:2.42` is a minor line, so the same tag is a
+/// newer patch release tomorrow, and a pin an operator set by hand is re-pulled
+/// too. That is the whole reason the line exists - the pull is silent, the next
+/// `chaps up` migrates the schema, and DHIS2 migrates forward only, so the only
+/// way back from a migration that was not wanted is the archive taken before it.
+pub fn dhis2_pull_warning(image: &str, tag: &str) -> String {
+    format!(
+        "this pull can bring a newer `{image}:{tag}`, and a newer DHIS2 migrates `dhis2_db` \
+         irreversibly on the next `chaps up`: run `chaps backup create` first - an older image \
+         on a migrated database answers healthy while every API request 404s"
+    )
+}
+
+/// That warning, when this run has earned it: the component is enabled and its
+/// database volume is already on this machine.
+///
+/// Best-effort about docker like every other step that needs it: no CLI and no
+/// daemon both answer "no such volume", which is the quiet answer - a warning
+/// about a database that may not exist would be worse than none.
+fn dhis2_pull_note(project: &Project, components: &[ComponentUpdate]) -> Option<String> {
+    let row = components
+        .iter()
+        .find(|c| c.name == crate::compose::DHIS2_SERVICE)?;
+    let volume = project.prefixed_volume(crate::compose::render::DHIS2_DB_VOLUME)?;
+    if !docker::volume_exists(&volume) {
+        return None;
+    }
+    Some(dhis2_pull_warning(&row.image, &row.tag))
 }
 
 fn component_update(
@@ -361,6 +405,13 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             &report.chap_core.old_tag,
             &report.chap_core.new_tag,
         ));
+    }
+    // And the same for DHIS2, which needs no move to be at risk: the pull alone
+    // can bring an image that migrates `dhis2_db` on the next `chaps up`, and
+    // nothing in the plan above would show it. In the dry run too, where it is
+    // the only thing this run has to say about that.
+    if let Some(warning) = dhis2_pull_note(&project, &report.components) {
+        output::warn(&warning);
     }
     if args.dry_run {
         return ctx
@@ -2070,6 +2121,77 @@ mod tests {
             backwards_warning("dev", "v2.3.1"),
             "moving chap-core from dev to v2.3.1 can run an older schema against a database \
              migrated by the newer one; run `chaps backup create` first"
+        );
+    }
+
+    /// The DHIS2 warning is its own line, not the one `components enable`
+    /// prints: there is no move to name here, and the risk is the pull itself.
+    #[test]
+    fn the_dhis2_pull_warning_names_the_archive_and_no_move() {
+        let warning = dhis2_pull_warning("dhis2/core", "2.42");
+        assert_eq!(
+            warning,
+            "this pull can bring a newer `dhis2/core:2.42`, and a newer DHIS2 migrates \
+             `dhis2_db` irreversibly on the next `chaps up`: run `chaps backup create` first - \
+             an older image on a migrated database answers healthy while every API request 404s"
+        );
+        // Not the `components enable dhis2` wording, which names two tags.
+        assert!(!warning.contains("moves from"), "{warning}");
+    }
+
+    /// Every enabled component gets a row, in the order they are rendered, and
+    /// DHIS2's tag comes from the component rather than from a constant.
+    #[test]
+    fn the_component_rows_cover_every_enabled_component() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut state = crate::project::ProjectState::default();
+        state.components.ocs.enabled = true;
+        state.components.s3.enabled = true;
+        state.components.dhis2.enabled = true;
+        state.components.dhis2.image_tag = "2.41".to_string();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state,
+        };
+
+        let rows = plan_components(&project);
+        let named: Vec<(&str, &str, &str, bool)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.name.as_str(),
+                    row.image.as_str(),
+                    row.tag.as_str(),
+                    row.pinned,
+                )
+            })
+            .collect();
+        assert_eq!(
+            named,
+            vec![
+                ("ocs", components::OCS_IMAGE, "main", false),
+                ("s3", components::S3_IMAGE, "latest", false),
+                ("dhis2", components::DHIS2_IMAGE, "2.41", false),
+            ]
+        );
+        assert_eq!(
+            component_line(&rows[2]),
+            "dhis2  2.41  moving tag, re-pulled"
+        );
+
+        // An active `.env` line is the operator's own pin, and is reported as
+        // such rather than quietly overridden - exactly as OCS's is.
+        std::fs::write(
+            project.dir.join(crate::project::ENV_FILE),
+            format!("{}=2.42.1.0\n", components::DHIS2_TAG_ENV_VAR),
+        )
+        .expect("an .env");
+        let rows = plan_components(&project);
+        assert_eq!(rows[2].tag, "2.42.1.0");
+        assert!(rows[2].pinned);
+        assert_eq!(
+            component_line(&rows[2]),
+            "dhis2  2.42.1.0  pinned in .env, re-pulled at that tag"
         );
     }
 
