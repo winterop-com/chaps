@@ -52,18 +52,28 @@ pub const OCS_TAG_ENV_VAR: &str = "OCS_IMAGE_TAG";
 /// from, which is what a deployment behind a reverse proxy needs.
 pub const OCS_BASE_URL_ENV_VAR: &str = "CLIMATE_SERVICE_BASE_URL";
 
-/// The variables OCS reads its dataset credentials from, in the order they are
-/// written and reported.
+/// The dataset credential variables an OCS deployment is given, in the order
+/// they are written and reported.
 ///
-/// `ECMWF_DATASTORES_*` is the Copernicus Climate Data Store, for the ERA5-Land
-/// monthly datasets; `EDH_API_KEY` is Earth Data Hub, for the hourly and daily
-/// ones; `CDSE_S3_*` is the Copernicus Data Space Ecosystem, for the CLMS GPP
-/// dataset plugin. WorldPop and CHIRPS3 are public and need none of them.
+/// `ECMWF_DATASTORES_*` is the Copernicus Climate Data Store and `EDH_API_KEY`
+/// is the Earth Data Hub. They are not alternatives: the ERA5-Land monthly
+/// datasets come from the store alone, the 1991-2020 day-of-year normals from
+/// the hub alone, and every daily dataset reads both, choosing per period, so a
+/// daily ingestion reaching into the present needs both accounts. `CDSE_S3_*` is
+/// the Copernicus Data Space Ecosystem, for the CLMS GPP dataset plugin - which
+/// is the operator's own, in `ocs/plugins/`, not part of OCS. WorldPop and
+/// CHIRPS3 are public and need none of them. `docs/components.md` maps each
+/// dataset family to the account it needs.
 ///
-/// OCS reads every one of them as `os.getenv(...) or <the file>`, so a variable
-/// that arrives empty is a variable it does not have: the compose file can pass
-/// all five unconditionally and a deployment that sets none behaves exactly as
-/// one whose compose file never mentioned them.
+/// Each of the five is read as `os.getenv(...) or <a credentials file>`, so a
+/// variable that arrives empty is a variable nothing has: the compose file can
+/// pass all five unconditionally and a deployment that sets none behaves exactly
+/// as one whose compose file never mentioned them. Which code does the reading
+/// differs, and only one of them is OCS: the `ecmwf-datastores-client` library
+/// OCS calls reads `ECMWF_DATASTORES_*` and falls back to `~/.ecmwfdatastoresrc`,
+/// OCS itself reads `EDH_API_KEY` and falls back to `~/.netrc`, and the GPP
+/// plugin reads `CDSE_S3_*` and falls back to the `[cdse]` profile in
+/// `~/.aws/credentials`.
 pub const OCS_DATA_SOURCE_ENV_VARS: &[&str] = &[
     "ECMWF_DATASTORES_URL",
     "ECMWF_DATASTORES_KEY",
@@ -379,10 +389,12 @@ pub const S3_LEAVES_OCS_NOTE: &str = "the OCS service loses its S3_* variables o
 /// `chaps sync` appends them commented out, and until now the only sign of it
 /// was `written .env`. Which datasets need which key is the thing an operator
 /// cannot guess from the variable names, so the line says that much and names
-/// the command that reports what is set.
-pub const OCS_DATA_SOURCE_NOTE: &str = "the OCS data source variables are now in `.env`, commented out: WorldPop and \
-     CHIRPS3 need none of them and ERA5-Land needs one; `chaps auth show` reports \
-     which are set";
+/// the command that reports what is set. "One or both" is as much of it as fits
+/// on a line: the store alone, the hub alone and both together are each some
+/// ERA5-Land dataset's answer, and `docs/components.md` says which is which.
+pub const OCS_DATA_SOURCE_NOTE: &str = "the OCS data source variables are now in `.env`, commented out: ERA5-Land needs \
+     one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and \
+     CHIRPS3 need none. `chaps auth show` reports which are set";
 
 /// Why a model cannot be enabled while `chap-core` is off.
 ///
@@ -603,7 +615,17 @@ mod tests {
             "the S3_* block is forward-looking, and the note says so"
         );
         assert!(OCS_DATA_SOURCE_NOTE.contains("`chaps auth show`"));
-        assert!(OCS_DATA_SOURCE_NOTE.contains("ERA5-Land needs one"));
+        // The two ERA5-Land accounts are not alternatives, and the note must not
+        // read as though picking one were enough.
+        assert!(
+            OCS_DATA_SOURCE_NOTE
+                .contains("ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY"),
+            "{OCS_DATA_SOURCE_NOTE}"
+        );
+        assert!(
+            !OCS_DATA_SOURCE_NOTE.contains("needs one of"),
+            "{OCS_DATA_SOURCE_NOTE}"
+        );
         for note in [
             S3_SOON_NOTE,
             S3_WITHOUT_OCS_NOTE,

@@ -4110,8 +4110,8 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
     assert!(env.contains("\n# OCS_IMAGE_TAG=main\n"), "{env}");
     assert!(
         env.contains(
-            "\n# OCS data sources (optional): ERA5-Land needs one of these; \
-             WorldPop and CHIRPS3 need none.\n"
+            "\n# OCS data sources (optional): ERA5-Land needs one or both of ECMWF_DATASTORES_*\n\
+             # and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none.\n"
         ),
         "{env}"
     );

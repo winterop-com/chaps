@@ -445,8 +445,8 @@ fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> Str
     let mut text = format!("\n{}\n", out.heading("OCS data sources"));
     text.push_str(&output::fields_with(2, &rows, &|label| out.key(label)));
     text.push_str(&out.backticks(
-        "ERA5-Land needs one of these; WorldPop and CHIRPS3 need none. \
-         Set them in .env and run `chaps up`.",
+        "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; \
+         WorldPop and CHIRPS3 need none. Set them in .env and run `chaps up`.",
     ));
     text.push('\n');
     text
@@ -572,7 +572,17 @@ mod tests {
                 "a third-party credential leaked at reveal={reveal}: {text}"
             );
             assert!(text.contains("EDH_API_KEY           unset"), "{text}");
-            assert!(text.contains("WorldPop and CHIRPS3 need none"), "{text}");
+            // The advice under the rows says which account a dataset needs, and
+            // the two ERA5-Land accounts are not alternatives: a daily dataset
+            // reads both. Picking one is not something to tell an operator.
+            assert!(
+                text.contains(
+                    "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, \
+                     per dataset; WorldPop and CHIRPS3 need none."
+                ),
+                "{text}"
+            );
+            assert!(!text.contains("needs one of"), "{text}");
         }
 
         // Off does not skip it: the block is the answer to a different

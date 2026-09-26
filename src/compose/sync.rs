@@ -385,14 +385,21 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     // this CLI has no business reading. The section exists so the variable
     // names are in the file an operator already edits rather than in the docs
     // alone, and so `chaps auth show` has something to report on.
+    //
+    // The heading wraps at 80 columns, unlike the notes this same fact is
+    // printed in: a note scrolls past in a terminal, and `.env` is opened in an
+    // editor. Neither line is what decides whether the section is already here -
+    // that is `mentions_var` over the five variables below - so a deployment
+    // whose `.env` carries the one-line heading this replaced is left alone
+    // exactly as one carrying this heading is.
     if components.ocs.enabled
         && !OCS_DATA_SOURCE_ENV_VARS
             .iter()
             .any(|var| mentions_var(body, var))
     {
         let mut section = String::from(
-            "# OCS data sources (optional): ERA5-Land needs one of these; \
-             WorldPop and CHIRPS3 need none.\n",
+            "# OCS data sources (optional): ERA5-Land needs one or both of ECMWF_DATASTORES_*\n\
+             # and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none.\n",
         );
         for var in OCS_DATA_SOURCE_ENV_VARS {
             let value = if *var == "ECMWF_DATASTORES_URL" {
@@ -1155,11 +1162,23 @@ mod tests {
         let body = std::fs::read_to_string(&env).unwrap();
         assert!(
             body.contains(
-                "\n# OCS data sources (optional): ERA5-Land needs one of these; \
-                 WorldPop and CHIRPS3 need none.\n"
+                "\n# OCS data sources (optional): ERA5-Land needs one or both of ECMWF_DATASTORES_*\n\
+                 # and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none.\n"
             ),
             "{body}"
         );
+        // The heading is read in an editor, so it wraps where an editor does.
+        // Neither line carries a `=`, which is what keeps both of them comments
+        // to every reader in `crate::dotenv` as well as to compose.
+        let heading: Vec<&str> = body
+            .lines()
+            .filter(|line| line.contains("ERA5-Land") || line.contains("CHIRPS3"))
+            .collect();
+        assert_eq!(heading.len(), 2, "{body}");
+        for line in heading {
+            assert!(line.len() <= 80, "{} columns: {line}", line.len());
+            assert!(!line.contains('='), "{line}");
+        }
         assert!(
             body.contains("# ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api\n"),
             "the endpoint is the same for everyone, so it is pre-filled: {body}"
@@ -1182,6 +1201,60 @@ mod tests {
         sync(&mut project, &registry, false).unwrap();
         assert_eq!(std::fs::read_to_string(&env).unwrap(), filled);
         assert_eq!(filled.matches("OCS data sources").count(), 1);
+    }
+
+    /// A `.env` written before the heading wrapped keeps it, and is not appended
+    /// to a second time.
+    ///
+    /// The heading is prose and has changed once already; the five variables
+    /// under it are what says the section is there. A sync that went looking for
+    /// the heading text instead would append the whole block again to every
+    /// deployment written before the wording changed - five commented
+    /// placeholders below five the operator may have filled in, and compose
+    /// reading the last of each.
+    #[test]
+    fn an_env_carrying_the_heading_from_an_older_chaps_is_left_alone() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        // The `.env` of a deployment that enabled `ocs` under chaps 0.3.0: the
+        // image pin section as well, so nothing at all is left to append and the
+        // file can be compared byte for byte.
+        let old = "POSTGRES_PASSWORD=secret\n\n\
+             # OCS (component). Uncomment to pin a build; the default follows `main`.\n\
+             # OCS_IMAGE_TAG=main\n\n\
+             # OCS data sources (optional): ERA5-Land needs one of these; \
+             WorldPop and CHIRPS3 need none.\n\
+             # ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api\n\
+             # ECMWF_DATASTORES_KEY=\n\
+             # EDH_API_KEY=\n\
+             # CDSE_S3_ACCESS_KEY=\n\
+             # CDSE_S3_SECRET_KEY=\n";
+        std::fs::write(&env, old).unwrap();
+
+        project.state.components.ocs.enabled = true;
+        sync(&mut project, &registry, false).unwrap();
+
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert_eq!(body, old, "the file is not rewritten: {body}");
+        assert_eq!(body.matches("OCS data sources").count(), 1, "{body}");
+        for var in OCS_DATA_SOURCE_ENV_VARS {
+            assert_eq!(
+                body.matches(&format!("# {var}=")).count(),
+                1,
+                "{var}: {body}"
+            );
+        }
+        // And the same holds once a value has been pasted in under the old
+        // heading, which is the state that has something to lose.
+        let filled = old.replace("# EDH_API_KEY=", "EDH_API_KEY=mine");
+        std::fs::write(&env, &filled).unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert_eq!(body, filled, "{body}");
+        assert_eq!(
+            crate::dotenv::non_empty(&body, "EDH_API_KEY").as_deref(),
+            Some("mine")
+        );
     }
 
     /// The mount and the config key arrive together: a plugin directory that
