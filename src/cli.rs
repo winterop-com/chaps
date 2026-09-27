@@ -194,6 +194,9 @@ pub enum Command {
     /// Turn API authentication on or off, and show the token
     Auth(AuthArgs),
 
+    /// Let the DHIS2 Modeling App reach this deployment's CHAP
+    Dhis2(Dhis2Args),
+
     /// Update chaps itself, and report what this build is
     #[command(name = "self")]
     SelfCmd(SelfArgs),
@@ -1072,6 +1075,100 @@ pub struct AuthDisableArgs {}
 #[derive(Debug, Clone, Args)]
 pub struct AuthRotateArgs {}
 
+/// Let the DHIS2 Modeling App reach this deployment's CHAP
+#[derive(Debug, Args)]
+#[command(arg_required_else_help = true)]
+pub struct Dhis2Args {
+    #[command(subcommand)]
+    pub command: Dhis2Sub,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Dhis2Sub {
+    /// Say what DHIS2 has: the chap route, analytics and the apps
+    Show(Dhis2ShowArgs),
+
+    /// Point DHIS2's chap route at this deployment's chap-core
+    Route(Dhis2RouteArgs),
+
+    /// Generate DHIS2's analytics tables and wait for them
+    Analytics(Dhis2AnalyticsArgs),
+
+    /// Install the Modeling and Climate apps from the App Hub
+    Apps(Dhis2AppsArgs),
+
+    /// Do all three: the route, the apps, then analytics
+    Connect(Dhis2ConnectArgs),
+}
+
+/// The two things every verb in the group needs.
+///
+/// Flattened rather than repeated, so the user and the wait are spelled and
+/// documented once. There is deliberately no `--password`: it would sit in the
+/// shell history and in `ps`, and `.env` or `CHAPS_DHIS2_PASSWORD` is where it
+/// belongs.
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2CommonArgs {
+    /// DHIS2 user to authenticate as; admin unless .env names one
+    #[arg(long, value_name = "NAME")]
+    pub user: Option<String>,
+
+    /// Seconds to wait for DHIS2's API to start answering
+    #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_API_WAIT)]
+    pub wait: u64,
+}
+
+/// Say what DHIS2 has: the chap route, analytics and the apps
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2ShowArgs {
+    #[command(flatten)]
+    pub common: Dhis2CommonArgs,
+}
+
+/// Point DHIS2's chap route at this deployment's chap-core
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2RouteArgs {
+    #[command(flatten)]
+    pub common: Dhis2CommonArgs,
+}
+
+/// Generate DHIS2's analytics tables and wait for them
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2AnalyticsArgs {
+    #[command(flatten)]
+    pub common: Dhis2CommonArgs,
+
+    /// Seconds to wait for the analytics run to finish
+    #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_ANALYTICS_TIMEOUT)]
+    pub timeout: u64,
+
+    /// Start the run and leave it going instead of waiting
+    #[arg(long)]
+    pub no_wait: bool,
+}
+
+/// Install the Modeling and Climate apps from the App Hub
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2AppsArgs {
+    #[command(flatten)]
+    pub common: Dhis2CommonArgs,
+}
+
+/// Do all three: the route, the apps, then analytics
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2ConnectArgs {
+    #[command(flatten)]
+    pub common: Dhis2CommonArgs,
+
+    /// Seconds to wait for the analytics run to finish
+    #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_ANALYTICS_TIMEOUT)]
+    pub timeout: u64,
+
+    /// Start the run and leave it going instead of waiting
+    #[arg(long)]
+    pub no_wait: bool,
+}
+
 /// Update chaps itself, and report what this build is
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
@@ -1210,10 +1307,10 @@ mod tests {
         /// One screen of `--help`, and one clause of option help.
         ///
         /// The root listing is the only thing near the line: it grows by one
-        /// row per top-level command, and there are now twenty-two of them.
+        /// row per top-level command, and there are now twenty-three of them.
         /// Outside a deployment the listing is shorter still, because the
         /// commands that need a project are hidden from it.
-        const MAX_LINES: usize = 43;
+        const MAX_LINES: usize = 44;
         const MAX_CHARS: usize = 90;
 
         fn check(command: &mut clap::Command, path: &str) {

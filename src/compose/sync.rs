@@ -493,6 +493,32 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
             spec.image_tag,
         ));
     }
+    // The credentials `chaps dhis2` authenticates with, as placeholders holding
+    // the values it already falls back to - so uncommenting one changes nothing
+    // until it is edited, the same rule the pins above follow.
+    //
+    // A section of its own rather than two more lines in the block above, so a
+    // deployment that enabled DHIS2 before these commands existed gets them on
+    // its next sync: the two variable names are the whole answer to "where do
+    // the credentials come from", and a name nobody can find is a name nobody
+    // sets. Nothing here is a secret: both lines are commented, `admin` and
+    // `district` are what a seeded dump and an empty database both give, and no
+    // container is passed either variable.
+    if components.dhis2.enabled
+        && !(mentions_var(body, crate::dhis2::ADMIN_USERNAME_ENV_VAR)
+            || mentions_var(body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR))
+    {
+        sections.push(format!(
+            "# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given\n\
+             # them - and commented out means the DHIS2 default below.\n\
+             # {}={}\n\
+             # {}={}\n",
+            crate::dhis2::ADMIN_USERNAME_ENV_VAR,
+            crate::dhis2::DEFAULT_USERNAME,
+            crate::dhis2::ADMIN_PASSWORD_ENV_VAR,
+            crate::dhis2::DEFAULT_PASSWORD,
+        ));
+    }
     Ok(sections)
 }
 
@@ -1396,6 +1422,44 @@ mod tests {
         assert!(!sync(&mut project, &registry, true).unwrap().drift);
         sync(&mut project, &registry, false).unwrap();
         assert_eq!(std::fs::read_to_string(&env).unwrap(), body);
+    }
+
+    /// The login `chaps dhis2` authenticates with is named in `.env`, commented
+    /// out and holding the value the commands already fall back to - so the two
+    /// variables are discoverable and nothing that runs is changed by them.
+    #[test]
+    fn the_dhis2_login_variables_are_named_in_env_as_commented_placeholders() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
+
+        project.state.components.dhis2.enabled = true;
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.contains("\n# DHIS2_ADMIN_USERNAME=admin\n"), "{body}");
+        assert!(
+            body.contains("\n# DHIS2_ADMIN_PASSWORD=district\n"),
+            "{body}"
+        );
+        // Commented out means unset, so neither is a password on disk.
+        assert_eq!(
+            crate::auth::active_value(&body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR),
+            None
+        );
+        // And no container is passed either of them.
+        let compose = read(&dir.path().join(DHIS2_COMPOSE));
+        assert!(!compose.contains("DHIS2_ADMIN"), "{compose}");
+
+        // A second sync adds nothing, and a value the operator filled in is
+        // left exactly as it is.
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+        let mine = body.replace(
+            "# DHIS2_ADMIN_PASSWORD=district",
+            "DHIS2_ADMIN_PASSWORD=mine",
+        );
+        std::fs::write(&env, &mine).unwrap();
+        sync(&mut project, &registry, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), mine);
     }
 
     /// The commented dump pin has to be the value the rendered file defaults to,

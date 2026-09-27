@@ -6,6 +6,8 @@ CHAP, for a deployment that wants one.
 ```sh
 chaps init mychap --with dhis2
 chaps components enable dhis2      # or afterwards
+chaps dhis2 connect                # once DHIS2 answers, so the Modeling App can
+                                   # reach CHAP
 ```
 
 ## What this component is for
@@ -16,8 +18,9 @@ production, and that is upstream's own judgement of the images rather than a
 limitation of `chaps` - `docker/DOCKERHUB.md` in `dhis2/dhis2-core` says *"We
 cannot recommend the images for use in production"*. A production DHIS2 is
 deployed by other means, and a CHAP deployment can be pointed at one without
-this component: see [What is not here yet](#what-is-not-here-yet) for what
-connecting the two still takes.
+this component: see [Connecting the Modeling App to CHAP](#connecting-the-modeling-app-to-chap)
+for what the connection is made of, all of which is requests to DHIS2 that you
+can make against an instance `chaps` did not deploy.
 
 CHAP is often deployed **with** DHIS2 and not always. A deployment that already
 has a DHIS2, or does not want one, leaves this component off and loses nothing:
@@ -344,40 +347,241 @@ Moving the seed does not need this care and moving the tag does, which is why th
 two are the settings the browser's components page deliberately does not edit:
 its `i` overlay names both and sends you to `.chaps/components.yaml`.
 
-## What is not here yet
+## Connecting the Modeling App to CHAP
 
-**A DHIS2 with CHAP beside it is not yet usable from the Modeling App.** The app
-does not talk to chap-core directly: it goes through a DHIS2 Route with
-`code: "chap"`, and nothing in `chaps` creates that Route. Three pieces are
-Phase 2:
+A DHIS2 and a CHAP started side by side cannot talk, and the reason is worth
+understanding before the commands make sense: **chap-core never calls DHIS2 and
+DHIS2 never calls chap-core.** The only thing that talks to both is the Modeling
+App running in a browser, and it reaches chap-core through **DHIS2's Route API** -
+a reverse proxy configured as a `Route` row inside DHIS2, with `code: "chap"`,
+that DHIS2 then serves under `/api/routes/chap/run/`.
 
-- the `chap` Route itself, pointing at `http://chap:8000/**`;
-- analytics generation, which the Modeling and Climate apps read through the
-  `analytics_*` tables;
-- installing the Modeling and Climate apps.
+Three things follow from that, and they are the three the commands do:
 
-Worse than absent: **it will look configured.** The climate demo dumps ship a
-`chap` route of their own, aimed at an external CHAP server, so a seeded instance
-has a route named `chap` that resolves to somebody else's chap-core. It has to be
-repointed, not created.
-
-Until `chaps` does it, by hand:
+| Without it | What the app does |
+| --- | --- |
+| the `chap` route | redirects to `/get-started`; it cannot see CHAP at all |
+| the `analytics_*` tables | has no data to send, and nothing on screen says why |
+| the apps themselves | there is no CHAP user interface in DHIS2 |
 
 ```sh
-# the route the demo dump shipped, and where it points
-curl -u admin:district http://localhost:8080/api/routes/chap
-
-# repoint it at this deployment's chap-core
-curl -u admin:district -X PUT http://localhost:8080/api/routes/<id> \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"chap","code":"chap","url":"http://chap:8000/**"}'
-
-# and check it proxies through
-curl -u admin:district http://localhost:8080/api/routes/chap/run/health
+chaps dhis2 show        # what this instance has, changing nothing
+chaps dhis2 connect     # the route, the apps, then analytics
 ```
 
-`route.remote_servers_allowed` in `dhis2/dhis.conf` is already set to that
-target, so the allowlist is not what stands in the way.
+| Command | What it does |
+| --- | --- |
+| `chaps dhis2 show` | Asks and reports: where the `chap` route points, when analytics last succeeded, which apps are installed, and each piece that is missing. Writes nothing. |
+| `chaps dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
+| `chaps dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
+| `chaps dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
+| `chaps dhis2 connect` | All three, in that order. |
+
+Every one of them is idempotent and meant to be re-run: a second `chaps dhis2
+connect` repoints nothing, reinstalls nothing and says so. A step that found
+nothing to do still reports it.
+
+### `chaps up` does none of this, on purpose
+
+`chaps up` is a thin wrapper around `docker compose up`, and three things make
+this the wrong work to hang off it:
+
+- it needs **DHIS2 credentials**, which are not chaps' to invent;
+- it reaches the **network** - the App Hub, twice - and `chaps up` never does;
+- DHIS2's API is **not ready when `up` returns**. Tomcat serves pages while every
+  `/api/*` request 404s, which is the shape `chaps status`'s `dhis2` row already
+  knows about, and analytics then takes tens of seconds on demo data and much
+  longer on real data. An `up` that waited for that would be an `up` that takes
+  an hour.
+
+So `chaps init --with dhis2` and `chaps components enable dhis2` each end with the
+line that names the command instead:
+
+```text
+note: the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `chaps dhis2 connect` adds it, generates analytics and installs the apps
+```
+
+### The credentials, and where they come from
+
+`chaps` holds no DHIS2 credentials, and every request above needs one. Three
+places are read, in this order, and the first that has a value wins:
+
+| Source | Notes |
+| --- | --- |
+| `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env` | The deployment's own answer, and where its other secrets already live. |
+| `CHAPS_DHIS2_PASSWORD` in the environment | For an operator who will not keep the password on disk: `export` it for one shell. |
+| `admin` / `district` | The DHIS2 default, which is what both shapes of this component give. |
+
+The default is not a guess. A seeded demo dump ships that user, and a
+Flyway-bootstrapped empty database gets it from `DefaultAdminUserPopulator`, which
+has both words compiled in. `.env` carries the two variable names as commented
+placeholders holding exactly those values, so uncommenting one changes nothing
+until it is edited:
+
+```ini
+# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
+# them - and commented out means the DHIS2 default below.
+# DHIS2_ADMIN_USERNAME=admin
+# DHIS2_ADMIN_PASSWORD=district
+```
+
+Only `chaps` reads them. Neither reaches a container, so neither appears in a
+generated compose file. `--user NAME` names a different user for one run; there
+is deliberately **no `--password` flag**, because a password on a command line is
+in the shell history and in `ps`. Nothing ever prints the password: a report names
+the user and says where the password was found - from `.env`, from
+`CHAPS_DHIS2_PASSWORD`, or the DHIS2 default - and no more, and `-v` traces the
+header as `Authorization: Basic <admin and its password>`.
+
+A password DHIS2 does not accept is a sentence rather than "request failed":
+
+```text
+error: DHIS2 at http://localhost:8080 did not accept the credentials for `admin` (the DHIS2 default); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+```
+
+### The route is repointed, not created
+
+**A seeded instance already has a `chap` route, and it points at a stranger's
+CHAP.** The climate demo dumps ship one - right code, right authority, not
+disabled - aimed at an external server, so it looks fully configured. A
+"create if absent" implementation would skip it and the deployment would quietly
+send its data somewhere else.
+
+`chaps dhis2 route` therefore compares and rewrites. It leaves the route alone
+only when all three are already true, and names whichever is not:
+
+- the URL is this deployment's chap-core;
+- it is not disabled;
+- it carries the `F_CHAP_MODELING_APP` authority.
+
+```text
+repointed the `chap` route at http://chap:8000/**
+  it pointed at http://158.39.75.126/stable/**
+  verified chap-core answered through it: healthy
+```
+
+The target is `http://chap:8000/**` - the compose service alias, never
+`localhost`, because the request is made by DHIS2 from inside the deployment, and
+`localhost` there is DHIS2's own container. The `/**` suffix is what makes DHIS2
+proxy the paths *under* the route; without it exactly one path is proxied and
+everything the app asks for after `/health` answers 404. A deployment that sets
+`CHAP_ROOT_PATH` gets it in the middle (`http://chap:8000/master/**`), because
+that prefix moves every chap-core route with it.
+
+Then the route is **proved rather than assumed**: `GET
+/api/routes/chap/run/health` goes through DHIS2 to chap-core and back, which is
+the same address the Modeling App uses. A row in DHIS2's database says nothing
+about whether DHIS2 can resolve the hostname, is allowed to reach it, or gets an
+answer. If nothing answers, the route is still correct and the command still
+succeeds - a chap-core that is down is `chaps up`'s problem - so the line is a
+warning and `--json` carries `"verified": false`:
+
+```text
+warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `chaps status` to see whether chap-core is up
+```
+
+`route.remote_servers_allowed` in
+[`dhis2/dhis.conf`](#routeremote_servers_allowed) already permits the target, so
+the allowlist is not normally in the way. On an instance whose file was narrowed
+or replaced it is, and DHIS2's refusal is turned into the line that says so:
+
+```text
+error: DHIS2 refused the route: version 42 and later only allow the targets `route.remote_servers_allowed` lists, and http://chap:8000/** has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart dhis2`
+```
+
+### Analytics, and the parameter that populates nothing
+
+The Modeling and Climate apps read their figures out of DHIS2's `analytics_*`
+tables, which exist only once analytics has been generated.
+
+```sh
+chaps dhis2 analytics
+```
+
+is `POST /api/resourceTables/analytics?skipTrackedEntities=true`, followed by
+polling `GET /api/system/tasks/ANALYTICS_TABLE/{id}` until DHIS2 says the run
+completed.
+
+**No `lastYears`, ever.** It reads as an obvious optimisation and it is a trap:
+measured on the climate demo, `&lastYears=8` produced **zero rows in every
+analytics table** while reporting success in 16.9 seconds, where the same run
+without it wrote 146,129 rows into `analytics_2024` in 15.7. A silent success
+that populates nothing leaves the app with no data and nothing explaining why, so
+there is no flag for it here. An instance so large that the years have to be
+limited is a `curl` against DHIS2 rather than a footgun in this command.
+
+DHIS2 runs **one** analytics job at a time, and a second `POST` queues behind the
+first with an empty notifier - so a wait on it would report nothing for as long
+as the first one takes. `chaps dhis2 analytics` therefore adopts a run that is
+already going instead of asking for another:
+
+```text
+the analytics run that was already going finished in 4 minutes (job jFxL1tE0pAy)
+```
+
+A job left `RUNNING` by a hard stop blocks every future run for good;
+[`dhis2-prep`](#four-services-and-three-volumes) resets those on every start,
+which is why that is not a state you have to get out of by hand.
+
+The run is not silent: a step is printed to stderr every half minute, and `-v`
+prints every one DHIS2 announces. `--timeout SECONDS` is how long to wait, an
+hour by default, and running out of it is not a cancellation - DHIS2 carries on,
+and the same command watches the same job again.
+
+### The apps come from the App Hub, server-side
+
+```sh
+chaps dhis2 apps
+```
+
+resolves each app's newest version that this DHIS2 can run from
+`https://apps.dhis2.org/api/v1/apps/{id}`, then `POST /api/appHub/{versionId}` -
+and **DHIS2 downloads the app itself.** Nothing is fetched here and no multipart
+upload is built.
+
+| App | What it is for |
+| --- | --- |
+| Modeling App | the CHAP user interface inside DHIS2 |
+| DHIS2 Climate App | imports climate data into DHIS2 through Google Earth Engine, which is where the Modeling App's covariates come from - chap-core does not fetch them |
+
+A version whose `minDhisVersion` is newer than the instance is skipped: DHIS2
+installs it happily and the app then fails in the browser. An app already
+installed at that version is left alone, and one at another version is moved to
+it.
+
+Installed apps live in `/opt/dhis2`, which is the `dhis2_home` volume, so they
+survive a recreate and [a backup](#backing-it-up) carries them.
+
+This is the one step that cannot work `--offline`, and it needs the network twice:
+here for the version id, and from DHIS2 for the app. Under `--offline` it is
+refused with what it would have needed, and `chaps dhis2 connect --offline` does
+the other two steps and reports the skip rather than failing:
+
+```text
+skipped: installing an app needs the DHIS2 App Hub, twice: chaps resolves the version there and DHIS2 downloads the app itself; run the command without `--offline`, or install both apps from DHIS2's own App Management page
+```
+
+### The waits are long, and they are refusals first
+
+Before a single request, three things are refused with what is true instead: a
+deployment without the component, one whose DHIS2 publishes no host port and so
+cannot be reached from this machine at all, and one whose `dhis2` container docker
+says is not running. A docker that cannot be asked is not a refusal - that would
+refuse on every machine docker is absent from - so the container check degrades
+to a trace line and DHIS2 is asked directly.
+
+Then `/api/ping` is polled until it answers, for twenty minutes by default
+(`--wait SECONDS`), because that is what a first start can take. A DHIS2 that is
+already answering says nothing at all; one that is not says so once:
+
+```text
+DHIS2 at http://localhost:8080 is not answering /api/ping yet; waiting up to 20 minutes, and `chaps logs dhis2` is where the migration shows
+```
+
+`/api/ping` is the only route DHIS2 answers without credentials, so it is the
+honest probe for "the API layer is up"; the authenticated `/api/system/info` right
+after it is what settles whether the password is right, and its answer is the
+version every report opens with.
 
 ## The files
 
@@ -388,7 +592,7 @@ mychap/
   compose.dhis2.yml      artifact: the four services and the three volumes
   dhis2/
     dhis.conf            the DHIS2 instance configuration - yours, written once
-  .env                   the two generated secrets and three commented pins
+  .env                   the two generated secrets, three commented pins and the login
 ```
 
 The `.env` block is appended once, when the component is first enabled, and never
@@ -401,10 +605,19 @@ DHIS2_ENCRYPTION_PASSWORD=217ab7126f92244466434ebc5a4c7c16
 # DHIS2_IMAGE_TAG=2.42
 # DHIS2_DB_DUMP_URL=https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz
 # DHIS2_JAVA_TOOL_OPTIONS=-Xms2g -Xmx4g -XX:+UseG1GC
+
+# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
+# them - and commented out means the DHIS2 default below.
+# DHIS2_ADMIN_USERNAME=admin
+# DHIS2_ADMIN_PASSWORD=district
 ```
 
-The three commented lines each carry the value the rendered compose file already
-defaults to, so uncommenting one changes nothing until it is edited. For a seed
+The commented lines each carry the value the command that reads them already
+falls back to, so uncommenting one changes nothing until it is edited. The login
+block is [a section of its own](#the-credentials-and-where-they-come-from) so that
+a deployment which enabled DHIS2 before `chaps dhis2` existed gets it appended on
+its next `chaps sync`; the two variables are the whole answer to where the
+credentials come from, and a name nobody can find is a name nobody sets. For a seed
 that is a file rather than a URL, `DHIS2_DB_DUMP_URL` carries the path *inside*
 the container (`/opt/seed.sql.gz`), because the host path would be one nothing in
 there can read.

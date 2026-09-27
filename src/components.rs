@@ -780,6 +780,20 @@ pub fn dhis2_unknown_seed(tag: &str) -> String {
 pub const DHIS2_FIRST_START_NOTE: &str = "the first `chaps up` takes minutes before DHIS2 answers - it migrates its schema on the \
      way up - and `chaps logs dhis2` is where that shows";
 
+/// The note that says the two halves are not connected yet, and what connects
+/// them.
+///
+/// A DHIS2 and a CHAP started side by side cannot talk: the Modeling App
+/// reaches chap-core through a DHIS2 route, which this deployment does not have
+/// until something creates it. `chaps up` does not, on purpose - it is a thin
+/// wrapper around compose, DHIS2's API is not ready when it returns, and the
+/// steps need DHIS2 credentials and the network - so the command is named here,
+/// where the component is added and the reader is already being told what the
+/// first start does.
+pub const DHIS2_CONNECT_NOTE: &str = "the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none \
+     yet; once DHIS2 answers, `chaps dhis2 connect` adds it, generates analytics and installs \
+     the apps";
+
 /// The warning for a DHIS2 image tag that is moving while the database volume
 /// is already there.
 ///
@@ -1331,6 +1345,19 @@ mod tests {
         assert!(
             DHIS2_FIRST_START_NOTE.contains("`chaps logs dhis2`"),
             "{DHIS2_FIRST_START_NOTE}"
+        );
+
+        // A DHIS2 beside a CHAP cannot talk to it until the route exists, so
+        // the note that says so names the command that makes it.
+        assert!(
+            DHIS2_CONNECT_NOTE.contains("`chaps dhis2 connect`"),
+            "{DHIS2_CONNECT_NOTE}"
+        );
+        assert!(DHIS2_CONNECT_NOTE.contains("route"), "{DHIS2_CONNECT_NOTE}");
+        // CHAP is not a DHIS2 product, and nothing here is a "stack".
+        assert!(
+            !DHIS2_CONNECT_NOTE.contains("stack"),
+            "{DHIS2_CONNECT_NOTE}"
         );
 
         // A downgrade is the one case that has to be stopped before `chaps up`,

@@ -63,6 +63,16 @@ pub enum ChapError {
     /// tell "CHAP is not up" from "CHAP said no".
     #[error("chap-core at {url} is not responding: {reason}; run `chaps status`")]
     Unreachable { url: String, reason: String },
+
+    /// The same for DHIS2, in its own words: a DHIS2 that is not answering is
+    /// a different problem from a chap-core that is not, and the sentence has
+    /// to send the reader to the right container. Its own exit code for the
+    /// same reason [`ChapError::Unreachable`] has one.
+    #[error(
+        "DHIS2 at {url} is not responding: {reason}; run `chaps status` to see whether its \
+         container is up"
+    )]
+    Dhis2Unreachable { url: String, reason: String },
 }
 
 /// Who holds a host port that was asked for, so the error can say where to

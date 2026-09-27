@@ -546,23 +546,120 @@ is `DHIS2_JAVA_TOOL_OPTIONS` in `.env`, commented with the default
 
 ## The Modeling App does not see CHAP
 
-Because nothing has connected the two yet. The app does not reach chap-core
-directly: it goes through a DHIS2 Route with `code: "chap"`, and `chaps` does not
-create that Route - it is Phase 2, along with analytics generation and installing
-the apps.
-
-The trap is that it will **look** configured. The climate demo dumps ship a
-`chap` route of their own, aimed at an external CHAP server, so a seeded instance
-has a route by that name pointing somewhere else entirely:
+Because nothing has connected the two yet, and one command does all of it:
 
 ```sh
-curl -u admin:district http://localhost:8080/api/routes/chap | head
+chaps dhis2 show        # which of the three pieces is missing
+chaps dhis2 connect     # the route, the apps, then analytics
 ```
 
-It has to be repointed at `http://chap:8000/**`, not created.
-`route.remote_servers_allowed` in `dhis2/dhis.conf` is already set to that target,
-so the allowlist is not what is in the way. See
-[What is not here yet](./dhis2.md#what-is-not-here-yet).
+The app does not reach chap-core directly. It goes through a DHIS2 Route with
+`code: "chap"`, and until that row points at this deployment the app redirects to
+`/get-started`.
+
+The trap is that it will **look** configured. The climate demo dumps ship a
+`chap` route of their own - right code, right authority, not disabled - aimed at
+an external CHAP server, so a seeded instance has a route by that name resolving
+to somebody else's chap-core. `chaps dhis2 route` repoints it rather than skipping
+it, and says where it pointed:
+
+```text
+repointed the `chap` route at http://chap:8000/**
+  it pointed at http://158.39.75.126/stable/**
+  verified chap-core answered through it: healthy
+```
+
+`chaps dhis2 show` is the one to run first: it names each piece that is missing
+and changes nothing. If the route is right and the app still shows no figures,
+analytics has not been generated - `chaps dhis2 analytics`. If there is no CHAP
+entry in DHIS2's apps menu at all, the app is not installed -
+`chaps dhis2 apps`. See
+[Connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap).
+
+## The route is there but nothing answers through it
+
+`chaps dhis2 route` wrote the row and then could not prove the path:
+
+```text
+warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `chaps status` to see whether chap-core is up
+```
+
+The route is correct, so this is not a route problem. Three things it is, in the
+order worth checking:
+
+1. **chap-core is not running.** `chaps status` settles it, `chaps up` fixes it,
+   and `chaps dhis2 route` then verifies on the next run.
+2. **`route.remote_servers_allowed` does not list the target.** DHIS2 42 and later
+   default that setting to `https://*` and refuse an `http://` target. The
+   scaffolded `dhis2/dhis.conf` already permits `http://chap:8000`, so this is an
+   instance whose file was narrowed or replaced; DHIS2 refuses the write outright
+   in that case and the error names the line. After editing it,
+   `chaps restart dhis2`.
+3. **Something else answers on that hostname.** A 200 that is not chap-core's
+   health document is reported as such rather than as success.
+
+## The analytics tables are empty but the run reported success
+
+Almost certainly `lastYears`. Measured on the climate demo,
+`POST /api/resourceTables/analytics?lastYears=8` reported success in 16.9 seconds
+and wrote **zero rows into every analytics table**; the same request without it
+wrote 146,129 rows into `analytics_2024` in 15.7 seconds.
+
+`chaps dhis2 analytics` never sends it, so a run made with
+
+```sh
+chaps dhis2 analytics
+```
+
+populates what the database holds. A reference deployment's own
+`trigger-analytics.sh` does send `&lastYears=8`, which is where this comes from.
+
+If the tables are still empty afterwards, the database has no data in the period
+the apps are asking about: the [Climate App](./dhis2.md#the-apps-come-from-the-app-hub-server-side)
+is what imports climate data into DHIS2, and analytics has to run again after an
+import.
+
+## `chaps dhis2` says DHIS2 did not accept the credentials
+
+```text
+error: DHIS2 at http://localhost:8080 did not accept the credentials for `admin` (the DHIS2 default); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+```
+
+`chaps` holds no DHIS2 credentials of its own. It falls back to `admin` /
+`district`, which is what a seeded demo dump and a Flyway-bootstrapped empty
+database both give - so this is an instance whose password has been changed, or
+one restored from a dump of your own. Either uncomment and edit the two lines in
+`.env`:
+
+```ini
+DHIS2_ADMIN_USERNAME=admin
+DHIS2_ADMIN_PASSWORD=the-one-that-works
+```
+
+or keep it out of the file entirely:
+
+```sh
+export CHAPS_DHIS2_PASSWORD=the-one-that-works
+```
+
+`--user NAME` names a different user for one run. There is no `--password` flag,
+because a password on a command line is in the shell history and in `ps`. A
+**403** rather than a 401 means the opposite problem: the password is right and
+that user is not allowed to write a route or run analytics, which a DHIS2
+superuser is. See
+[The credentials](./dhis2.md#the-credentials-and-where-they-come-from).
+
+## `chaps dhis2` waited twenty minutes and gave up
+
+```text
+error: DHIS2 at http://localhost:8080 did not answer /api/ping within 20 minutes; `chaps logs dhis2` is where the migration shows, and `--wait SECONDS` waits longer
+```
+
+Either DHIS2 is still migrating - under emulation a first start is a quarter of an
+hour, and a seeded one is that plus the restore - or it has stopped. `chaps logs
+dhis2` tells the two apart, and
+[DHIS2 never becomes healthy](#dhis2-never-becomes-healthy) is the rest of the
+list. `--wait 3600` waits an hour.
 
 ## `chaps update` said a restart is needed
 

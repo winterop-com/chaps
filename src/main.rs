@@ -11,6 +11,7 @@ mod cli;
 mod commands;
 mod components;
 mod compose;
+mod dhis2;
 mod diagnose;
 mod docker;
 mod dotenv;
@@ -31,7 +32,8 @@ mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
 use cli::{
-    AuthSub, BackupSub, Cli, Command, ComponentsCmd, DockerCmd, JobsCmd, ModelsCmd, SelfSub,
+    AuthSub, BackupSub, Cli, Command, ComponentsCmd, Dhis2Sub, DockerCmd, JobsCmd, ModelsCmd,
+    SelfSub,
 };
 use commands::Ctx;
 use error::ChapError;
@@ -56,6 +58,7 @@ const PROJECT_ONLY: &[&str] = &[
     "auth",
     "components",
     "open",
+    "dhis2",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -78,7 +81,7 @@ const OUTSIDE_ONLY: &[&str] = &["init"];
 /// the missing project is the answer instead - the same one `chaps components
 /// list` gives. `jobs` is not here: its bare form is `list`, which already
 /// says so. `models` and `registry` are not project-only at all.
-const PROJECT_ONLY_GROUPS: &[&str] = &["auth", "backup", "components", "docker"];
+const PROJECT_ONLY_GROUPS: &[&str] = &["auth", "backup", "components", "dhis2", "docker"];
 
 fn main() {
     // Windows cannot rename over a running image, so `chaps self update`
@@ -191,6 +194,14 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             AuthSub::Enable(args) => commands::auth::enable(ctx, args),
             AuthSub::Disable(args) => commands::auth::disable(ctx, args),
             AuthSub::Rotate(args) => commands::auth::rotate(ctx, args),
+        },
+
+        Command::Dhis2(d) => match &d.command {
+            Dhis2Sub::Show(args) => commands::dhis2::show(ctx, args),
+            Dhis2Sub::Route(args) => commands::dhis2::route(ctx, args),
+            Dhis2Sub::Analytics(args) => commands::dhis2::analytics(ctx, args),
+            Dhis2Sub::Apps(args) => commands::dhis2::apps(ctx, args),
+            Dhis2Sub::Connect(args) => commands::dhis2::connect(ctx, args),
         },
 
         Command::SelfCmd(s) => match &s.command {
@@ -371,7 +382,7 @@ fn exit_code(err: &anyhow::Error) -> i32 {
         Some(ChapError::Usage(_)) => 2,
         // "CHAP is not up" is a different answer from "CHAP said no", and a
         // script driving `chaps api` has to be able to tell them apart.
-        Some(ChapError::Unreachable { .. }) => 2,
+        Some(ChapError::Unreachable { .. } | ChapError::Dhis2Unreachable { .. }) => 2,
         _ => 1,
     }
 }

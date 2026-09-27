@@ -1205,6 +1205,7 @@ fn summary(
             ));
         }
         dhis2.push(DHIS2_FIRST_START_NOTE.to_string());
+        dhis2.push(crate::components::DHIS2_CONNECT_NOTE.to_string());
         text.push('\n');
         for note in dhis2 {
             text.push_str(&format!("{} {note}\n", out.dim("note:")));

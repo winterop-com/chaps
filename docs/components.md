@@ -762,11 +762,12 @@ and the `--port` flag do not cover. It has a chapter of its own:
   starts with `chaps backup`.
 
 One thing to read before deploying it:
-[a DHIS2 with CHAP beside it is not yet usable from the Modeling
-App](./dhis2.md#what-is-not-here-yet). The app reaches chap-core through a DHIS2
-Route with `code: "chap"`, and nothing here creates it - and a seeded instance
-carries a `chap` route from the demo dump that points at somebody else's server,
-so it looks configured and is not.
+[connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap)
+is a step of its own. The app reaches chap-core through a DHIS2 Route with
+`code: "chap"`, `chaps up` does not create it, and a seeded instance carries a
+`chap` route from the demo dump that points at somebody else's server - so it
+looks configured and is not. `chaps dhis2 connect` is the command that settles
+all of it.
 
 ## Standalone OCS
 

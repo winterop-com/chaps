@@ -4594,7 +4594,7 @@ fn open_refuses_a_component_that_is_off_and_the_object_store() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "dhis2 is not a component of this deployment",
+            "dhis2 is not a component of this deployment, so there is nothing to open",
         ))
         .stderr(predicates::str::contains(
             "run `chaps components enable dhis2`",
@@ -8423,4 +8423,900 @@ fn update_lists_the_dhis2_image_and_warns_about_the_migration() {
         .stdout(predicates::str::contains(
             "dhis2  2.41  pinned in .env, re-pulled at that tag",
         ));
+}
+
+// ---------------------------------------------------------------------------
+// chaps dhis2: the route, analytics and the apps
+// ---------------------------------------------------------------------------
+
+/// What the DHIS2 stand-in holds and what it has been asked.
+///
+/// A real DHIS2 cannot be started in a test - it wants several gigabytes and
+/// many minutes - so the instance is this: one thread, the handful of endpoints
+/// `chaps dhis2` talks to, and a record of every request, which is what lets a
+/// test assert that the route was *repointed* rather than created and that
+/// nothing ever sent `lastYears`.
+#[derive(Default)]
+struct Dhis2State {
+    /// `METHOD path` for every request it answered, in order.
+    asked: Vec<String>,
+    /// The `Authorization` header of every authenticated request.
+    auth: Vec<String>,
+    /// The `chap` route row, as DHIS2 would store it.
+    route: Option<Json>,
+    /// The apps `GET /api/apps` lists.
+    apps: Vec<Json>,
+    /// Whether an analytics run has been asked for.
+    analytics_started: bool,
+    /// A run that is already going when the command arrives.
+    analytics_running: bool,
+    /// Answer every authenticated request with a 401.
+    unauthorized: bool,
+}
+
+/// A stand-in for one DHIS2 instance and for the App Hub beside it.
+struct Dhis2StandIn {
+    port: u16,
+    state: std::sync::Arc<std::sync::Mutex<Dhis2State>>,
+}
+
+impl Dhis2StandIn {
+    /// A stand-in on a port of its own, with nothing configured.
+    fn new() -> Dhis2StandIn {
+        Dhis2StandIn::with(Dhis2State::default())
+    }
+
+    fn with(state: Dhis2State) -> Dhis2StandIn {
+        use std::io::{BufRead, BufReader, Read, Write};
+
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+        let port = listener.local_addr().expect("a local address").port();
+        let state = std::sync::Arc::new(std::sync::Mutex::new(state));
+        let shared = std::sync::Arc::clone(&state);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                let mut reader = BufReader::new(&stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let mut parts = line.split_whitespace();
+                let method = parts.next().unwrap_or_default().to_string();
+                let path = parts.next().unwrap_or_default().to_string();
+                // The headers have to be read before the answer, and the body
+                // with them, or the client sees a reset instead of a response.
+                let mut length = 0usize;
+                let mut authorization = String::new();
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    if header.trim().is_empty() {
+                        break;
+                    }
+                    let lower = header.to_ascii_lowercase();
+                    if let Some(value) = lower.strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                    if let Some((name, value)) = header.split_once(':')
+                        && name.trim().eq_ignore_ascii_case("authorization")
+                    {
+                        authorization = value.trim().to_string();
+                    }
+                }
+                let mut body = vec![0u8; length];
+                if length > 0 && reader.read_exact(&mut body).is_err() {
+                    continue;
+                }
+                let body = String::from_utf8_lossy(&body).to_string();
+
+                let (code, answer) = {
+                    let mut state = shared.lock().expect("the stand-in outlives its panics");
+                    state.asked.push(format!("{method} {path}"));
+                    if !authorization.is_empty() {
+                        state.auth.push(authorization);
+                    }
+                    dhis2_answer(&mut state, &method, &path, &body)
+                };
+                let reason = match code {
+                    200 => "OK",
+                    201 => "Created",
+                    401 => "Unauthorized",
+                    502 => "Bad Gateway",
+                    _ => "Not Found",
+                };
+                let response = format!(
+                    "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+                let mut out = &stream;
+                let _ = out.write_all(response.as_bytes());
+                let _ = out.flush();
+            }
+        });
+        Dhis2StandIn { port, state }
+    }
+
+    /// Every request it answered, in order.
+    fn asked(&self) -> Vec<String> {
+        self.state.lock().expect("the request log").asked.clone()
+    }
+
+    /// Whether it was asked this exact `METHOD path`.
+    fn was_asked(&self, request: &str) -> bool {
+        self.asked().iter().any(|seen| seen == request)
+    }
+
+    /// The `chap` route it holds now.
+    fn route(&self) -> Option<Json> {
+        self.state.lock().expect("the route").route.clone()
+    }
+
+    /// The `Authorization` header of the first authenticated request.
+    fn authorization(&self) -> String {
+        self.state
+            .lock()
+            .expect("the headers")
+            .auth
+            .first()
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
+/// The version ids the App Hub stand-in publishes, and what each one installs.
+const STAND_IN_APPS: &[(&str, &str, &str, &str)] = &[
+    (
+        "a29851f9-82a7-4ecd-8b2c-58e0f220bc75",
+        "mv-7.1.0",
+        "Modeling App",
+        "7.1.0",
+    ),
+    (
+        "effb986c-a3c7-485e-a2f6-5e54ff9df7c3",
+        "cv-1.16.2",
+        "DHIS2 Climate App",
+        "1.16.2",
+    ),
+];
+
+/// The one route DHIS2 answers unauthenticated, and the shape of everything
+/// else `chaps dhis2` asks for.
+fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) -> (u16, String) {
+    if path == "/api/ping" {
+        return (200, "pong".to_string());
+    }
+    // The App Hub is not DHIS2 and is never authenticated.
+    if let Some(id) = path.strip_prefix("/apphub/") {
+        return match STAND_IN_APPS.iter().find(|(app, ..)| *app == id) {
+            Some((_, version_id, name, version)) => (
+                200,
+                serde_json::json!({
+                    "name": name,
+                    "versions": [{
+                        "id": version_id,
+                        "version": version,
+                        "minDhisVersion": "2.40",
+                    }],
+                })
+                .to_string(),
+            ),
+            None => (404, "{}".to_string()),
+        };
+    }
+    if state.unauthorized {
+        return (
+            401,
+            serde_json::json!({"httpStatus": "Unauthorized", "message": "Unauthorized"})
+                .to_string(),
+        );
+    }
+    if path == "/api/system/info" {
+        let mut info = serde_json::json!({"version": "2.42.6"});
+        if state.analytics_started {
+            info["lastAnalyticsTableSuccess"] = serde_json::json!("2026-09-25T10:01:00.000");
+        }
+        return (200, info.to_string());
+    }
+    if path == "/api/apps" {
+        return (
+            200,
+            serde_json::Value::Array(state.apps.clone()).to_string(),
+        );
+    }
+    if let Some(version_id) = path.strip_prefix("/api/appHub/") {
+        return match STAND_IN_APPS
+            .iter()
+            .find(|(_, published, ..)| *published == version_id)
+        {
+            Some((_, _, name, version)) => {
+                state
+                    .apps
+                    .retain(|app| app["name"] != serde_json::json!(name));
+                state
+                    .apps
+                    .push(serde_json::json!({"name": name, "version": version}));
+                (201, "{}".to_string())
+            }
+            None => (
+                404,
+                serde_json::json!({"message": "no such version"}).to_string(),
+            ),
+        };
+    }
+    if path.starts_with("/api/routes/chap/run/") {
+        // The proxy answers only when the route points at this deployment's
+        // chap-core, which is what makes the verification worth making.
+        let ours = state.route.as_ref().map(|route| route["url"].clone())
+            == Some(serde_json::json!("http://chap:8000/**"));
+        return match ours {
+            true => (
+                200,
+                serde_json::json!({"status": "success", "message": "healthy"}).to_string(),
+            ),
+            false => (
+                502,
+                serde_json::json!({"message": "could not reach the route target"}).to_string(),
+            ),
+        };
+    }
+    if method == "POST" && path == "/api/routes" {
+        let mut route: Json = serde_json::from_str(body).unwrap_or(serde_json::json!({}));
+        route["id"] = serde_json::json!("route-1");
+        state.route = Some(route);
+        return (201, serde_json::json!({"status": "OK"}).to_string());
+    }
+    if method == "PUT" && path.starts_with("/api/routes/") {
+        let mut route: Json = serde_json::from_str(body).unwrap_or(serde_json::json!({}));
+        route["id"] = serde_json::json!("route-1");
+        state.route = Some(route);
+        return (200, serde_json::json!({"status": "OK"}).to_string());
+    }
+    if method == "GET" && path.starts_with("/api/routes") {
+        let routes: Vec<Json> = state.route.clone().into_iter().collect();
+        return (200, serde_json::json!({"routes": routes}).to_string());
+    }
+    if method == "POST" && path.starts_with("/api/resourceTables/analytics") {
+        state.analytics_started = true;
+        return (
+            200,
+            serde_json::json!({"response": {"id": "job-1", "jobType": "ANALYTICS_TABLE"}})
+                .to_string(),
+        );
+    }
+    if path == "/api/system/tasks/ANALYTICS_TABLE" {
+        let mut tasks = serde_json::json!({});
+        if state.analytics_running {
+            tasks["job-0"] = serde_json::json!([
+                {"time": "2026-09-25T09:59:00.000", "level": "INFO", "message": "analytics_2023",
+                 "completed": false},
+            ]);
+        }
+        if state.analytics_started {
+            tasks["job-1"] = dhis2_finished_job();
+        }
+        return (200, tasks.to_string());
+    }
+    if let Some(job) = path.strip_prefix("/api/system/tasks/ANALYTICS_TABLE/") {
+        // A run that was already going finishes on the first poll, so the test
+        // asserts the adoption rather than the sleeping.
+        return match job {
+            "job-0" | "job-1" => (200, dhis2_finished_job().to_string()),
+            _ => (200, "[]".to_string()),
+        };
+    }
+    (
+        404,
+        serde_json::json!({"message": "no such endpoint"}).to_string(),
+    )
+}
+
+/// The notifications of an analytics run that has finished.
+fn dhis2_finished_job() -> Json {
+    serde_json::json!([
+        {"time": "2026-09-25T10:00:00.000", "level": "INFO", "message": "started",
+         "completed": false},
+        {"time": "2026-09-25T10:01:00.000", "level": "INFO",
+         "message": "Analytics tables updated", "completed": true},
+    ])
+}
+
+/// The `chap` route a climate demo dump ships: right code, right authority, not
+/// disabled, and pointed at somebody else's CHAP.
+fn external_chap_route() -> Json {
+    serde_json::json!({
+        "id": "route-demo",
+        "name": "chap",
+        "code": "chap",
+        "url": "http://158.39.75.126/stable/**",
+        "disabled": false,
+        "authorities": ["F_CHAP_MODELING_APP"],
+    })
+}
+
+/// `chaps -C <project> dhis2 ...` against a stand-in, with the fake docker on
+/// PATH so the container check finds `dhis2` running.
+///
+/// With no `hub` the run is `--offline`, which is exactly what `route`,
+/// `analytics` and `show` have to work under; a hub port is the App Hub
+/// stand-in, and then the run is not offline because installing an app cannot be.
+#[cfg(unix)]
+fn dhis2_chap(
+    sandbox: &Sandbox,
+    dir: &Path,
+    bin: &Path,
+    hub: Option<u16>,
+    args: &[&str],
+) -> Command {
+    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
+    cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_NO_UPDATE_CHECK", "1")
+        .env("CHAPS_NO_DOCKER_PROBE", "1")
+        // A password in the developer's own shell would otherwise decide which
+        // source these tests report.
+        .env_remove("CHAPS_DHIS2_PASSWORD")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .current_dir(dir);
+    match hub {
+        Some(port) => {
+            cmd.env("CHAPS_APP_HUB", format!("http://127.0.0.1:{port}/apphub"));
+        }
+        None => {
+            cmd.arg("--offline");
+        }
+    }
+    cmd.arg("-C").arg(dir).arg("dhis2").args(args);
+    cmd
+}
+
+/// A deployment with a DHIS2 published where the stand-in is listening, plus
+/// the fake docker that says its container is up.
+#[cfg(unix)]
+fn dhis2_connected(stand_in: &Dhis2StandIn) -> (Sandbox, PathBuf, TempDir, PathBuf) {
+    let (sandbox, dir) = dhis2_sandbox(stand_in.port);
+    let (temp, bin) = docker_running("dhis2");
+    (sandbox, dir, temp, bin)
+}
+
+/// No route at all: one is created, and the report says so and proves the path
+/// through it. `--offline` is the whole run: nothing here needs the network.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_creates_the_route_when_there_is_none() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "created the `chap` route at http://chap:8000/**",
+        ))
+        .stdout(predicates::str::contains(
+            "verified chap-core answered through it: healthy",
+        ))
+        .stdout(predicates::str::contains(
+            "DHIS2 2.42.6 at http://localhost:",
+        ))
+        .stdout(predicates::str::contains("as `admin` (the DHIS2 default)"));
+
+    // The payload is the one that works, and the target is the compose alias.
+    let route = stand_in.route().expect("a route was written");
+    assert_eq!(route["code"], "chap");
+    assert_eq!(route["url"], "http://chap:8000/**");
+    assert_eq!(route["authorities"][0], "F_CHAP_MODELING_APP");
+    assert_eq!(route["headers"]["Content-Type"], "application/json");
+    assert_eq!(route["responseTimeoutSeconds"], 30);
+    assert!(
+        stand_in.was_asked("POST /api/routes"),
+        "{:?}",
+        stand_in.asked()
+    );
+    // The whole path was proved, not just the row.
+    assert!(
+        stand_in.was_asked("GET /api/routes/chap/run/health"),
+        "{:?}",
+        stand_in.asked()
+    );
+    // And the credentials went out as HTTP Basic for admin:district.
+    assert_eq!(stand_in.authorization(), "Basic YWRtaW46ZGlzdHJpY3Q=");
+}
+
+/// The trap the step exists for: the demo dumps ship a `chap` route aimed at an
+/// external CHAP server, with the right code and the right authority, so a
+/// "create if absent" implementation would leave the deployment sending its
+/// data to a stranger.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_repoints_a_route_that_points_at_another_chap_core() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(external_chap_route()),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "repointed the `chap` route at http://chap:8000/**",
+        ))
+        .stdout(predicates::str::contains(
+            "it pointed at http://158.39.75.126/stable/**",
+        ));
+
+    assert_eq!(
+        stand_in.route().expect("the route")["url"],
+        "http://chap:8000/**"
+    );
+    // Replaced in place, by id: the id is what DHIS2's own rows point at.
+    assert!(
+        stand_in.was_asked("PUT /api/routes/route-demo"),
+        "{:?}",
+        stand_in.asked()
+    );
+    assert!(
+        !stand_in.was_asked("POST /api/routes"),
+        "{:?}",
+        stand_in.asked()
+    );
+}
+
+/// A route that already points here is left alone - and said to be, because a
+/// command that found nothing to do still reports.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_leaves_a_route_that_already_matches_alone() {
+    let mut ours = external_chap_route();
+    ours["url"] = serde_json::json!("http://chap:8000/**");
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(ours),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "the `chap` route already points at http://chap:8000/**; nothing to change",
+        ));
+
+    let asked = stand_in.asked();
+    assert!(
+        !asked.iter().any(|seen| seen.starts_with("POST /api/routes")
+            || seen.starts_with("PUT /api/routes")),
+        "{asked:?}"
+    );
+    // It is still verified: the point is whether the path works, not whether
+    // this run wrote anything.
+    assert!(
+        stand_in.was_asked("GET /api/routes/chap/run/health"),
+        "{asked:?}"
+    );
+}
+
+/// A 401 says which two variables to set and names neither the password nor a
+/// default that would be one.
+#[cfg(unix)]
+#[test]
+fn dhis2_reports_what_to_fix_when_the_credentials_are_refused() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        unauthorized: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    let assert = dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "did not accept the credentials for `admin`",
+        ))
+        .stderr(predicates::str::contains("DHIS2_ADMIN_USERNAME"))
+        .stderr(predicates::str::contains("DHIS2_ADMIN_PASSWORD"))
+        .stderr(predicates::str::contains("CHAPS_DHIS2_PASSWORD"));
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(!stderr.contains("district"), "{stderr}");
+    assert!(!stderr.contains("request failed"), "{stderr}");
+
+    // And `--user` names another user, which the message then names too.
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "--user", "ops"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "did not accept the credentials for `ops`",
+        ));
+}
+
+/// The analytics request is the one that was measured: tracked entities out,
+/// and **no `lastYears`**, which wrote zero rows into every table while
+/// reporting success.
+#[cfg(unix)]
+#[test]
+fn dhis2_analytics_runs_the_request_that_populates_and_waits_for_it() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("analytics finished in"))
+        .stdout(predicates::str::contains("Analytics tables updated"))
+        .stdout(predicates::str::contains(
+            "DHIS2 records its last analytics success as 2026-09-25T10:01:00.000",
+        ));
+
+    let asked = stand_in.asked();
+    assert!(
+        asked
+            .iter()
+            .any(|seen| seen == "POST /api/resourceTables/analytics?skipTrackedEntities=true"),
+        "{asked:?}"
+    );
+    assert!(
+        !asked.iter().any(|seen| seen.contains("lastYears")),
+        "lastYears populates nothing: {asked:?}"
+    );
+    // The job was polled, by the id the answer carried.
+    assert!(
+        stand_in.was_asked("GET /api/system/tasks/ANALYTICS_TABLE/job-1"),
+        "{asked:?}"
+    );
+}
+
+/// DHIS2 runs one analytics job at a time, so a run that is already going is
+/// watched rather than queued behind.
+#[cfg(unix)]
+#[test]
+fn dhis2_analytics_watches_a_run_that_is_already_going() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        analytics_running: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "the analytics run that was already going finished",
+        ));
+
+    let asked = stand_in.asked();
+    assert!(
+        !asked
+            .iter()
+            .any(|seen| seen.starts_with("POST /api/resourceTables/analytics")),
+        "a second run would have queued behind the first: {asked:?}"
+    );
+    assert!(
+        stand_in.was_asked("GET /api/system/tasks/ANALYTICS_TABLE/job-0"),
+        "{asked:?}"
+    );
+}
+
+/// `--no-wait` starts the run and says how to watch it, rather than sitting on
+/// it for an hour.
+#[cfg(unix)]
+#[test]
+fn dhis2_analytics_no_wait_starts_the_run_and_names_the_way_back() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics", "--no-wait"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "started the analytics run (job job-1)",
+        ))
+        .stdout(predicates::str::contains(
+            "run `chaps dhis2 analytics` again to watch the same run",
+        ));
+
+    assert!(
+        !stand_in.was_asked("GET /api/system/tasks/ANALYTICS_TABLE/job-1"),
+        "{:?}",
+        stand_in.asked()
+    );
+}
+
+/// The version id is resolved from the App Hub and DHIS2 is told to install it:
+/// no download here and no multipart upload.
+#[cfg(unix)]
+#[test]
+fn dhis2_apps_resolves_the_version_on_the_app_hub_and_has_dhis2_install_it() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    let hub = Some(stand_in.port);
+
+    dhis2_chap(&sandbox, &dir, &bin, hub, &["apps"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("installed Modeling App 7.1.0"))
+        .stdout(predicates::str::contains(
+            "installed DHIS2 Climate App 1.16.2",
+        ))
+        .stdout(predicates::str::contains("`chaps open dhis2`"));
+
+    let asked = stand_in.asked();
+    assert!(
+        asked
+            .iter()
+            .any(|seen| seen == "GET /apphub/a29851f9-82a7-4ecd-8b2c-58e0f220bc75"),
+        "{asked:?}"
+    );
+    assert!(
+        asked.iter().any(|seen| seen == "POST /api/appHub/mv-7.1.0"),
+        "{asked:?}"
+    );
+    assert!(
+        asked
+            .iter()
+            .any(|seen| seen == "POST /api/appHub/cv-1.16.2"),
+        "{asked:?}"
+    );
+
+    // And a second run installs nothing: the version this instance can run is
+    // already there.
+    dhis2_chap(&sandbox, &dir, &bin, hub, &["apps"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Modeling App 7.1.0 is already installed",
+        ));
+}
+
+/// Installing needs the App Hub twice - here for the version, and from DHIS2
+/// for the app - so `--offline` refuses it and says what it would have needed.
+#[cfg(unix)]
+#[test]
+fn dhis2_apps_is_refused_offline_and_says_why() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["apps"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("App Hub"))
+        .stderr(predicates::str::contains("`--offline`"))
+        .stderr(predicates::str::contains("App Management"));
+
+    // Refused before a single request: the deployment was never even asked.
+    assert!(stand_in.asked().is_empty(), "{:?}", stand_in.asked());
+}
+
+/// `show` changes nothing and names each piece that is missing, plus the one
+/// command that does all three.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_reports_every_piece_that_is_missing() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "missing: there is no `chap` route",
+        ))
+        .stdout(predicates::str::contains(
+            "missing: analytics has never run",
+        ))
+        .stdout(predicates::str::contains(
+            "missing: the Modeling App is not installed",
+        ))
+        .stdout(predicates::str::contains(
+            "run `chaps dhis2 connect` to do the rest",
+        ));
+
+    let asked = stand_in.asked();
+    assert!(
+        !asked.iter().any(|seen| seen.starts_with("POST")
+            || seen.starts_with("PUT")
+            || seen.starts_with("DELETE")),
+        "show writes nothing: {asked:?}"
+    );
+}
+
+/// A route pointing at another chap-core is marked as such in the row, not only
+/// in the list of what is missing.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_marks_a_route_that_points_somewhere_else() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(external_chap_route()),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["show", "--json"],
+    ));
+    assert_eq!(report["route"]["url"], "http://158.39.75.126/stable/**");
+    assert_eq!(report["route"]["ours"], false);
+    assert_eq!(report["route"]["verified"], false);
+    assert_eq!(report["target"], "http://chap:8000/**");
+    assert_eq!(report["instance"]["version"], "2.42.6");
+    assert_eq!(report["instance"]["user"], "admin");
+    assert_eq!(report["instance"]["password_from"], "default");
+    // Never the password, in any field of the document.
+    assert!(!report.to_string().contains("district"), "{report}");
+    let missing = report["missing"].to_string();
+    assert!(missing.contains("not at this deployment"), "{missing}");
+
+    // Nothing was proxied: an answer from somebody else's chap-core would say
+    // nothing about this deployment.
+    assert!(
+        !stand_in.was_asked("GET /api/routes/chap/run/health"),
+        "{:?}",
+        stand_in.asked()
+    );
+}
+
+/// `connect` does the three steps in order, and `--offline` turns the one that
+/// needs the App Hub into a reported skip rather than a failure.
+#[cfg(unix)]
+#[test]
+fn dhis2_connect_does_the_route_the_apps_and_then_analytics() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("created the `chap` route"))
+        .stdout(predicates::str::contains("installed Modeling App 7.1.0"))
+        .stdout(predicates::str::contains("analytics finished in"))
+        .stdout(predicates::str::contains(
+            "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`",
+        ));
+
+    // The order is the route, then the apps, then the long one.
+    let asked = stand_in.asked();
+    let at = |request: &str| {
+        asked
+            .iter()
+            .position(|seen| seen == request)
+            .unwrap_or_else(|| panic!("{request} was never asked: {asked:?}"))
+    };
+    assert!(
+        at("POST /api/routes") < at("POST /api/appHub/mv-7.1.0"),
+        "{asked:?}"
+    );
+    assert!(
+        at("POST /api/appHub/mv-7.1.0")
+            < at("POST /api/resourceTables/analytics?skipTrackedEntities=true"),
+        "{asked:?}"
+    );
+}
+
+/// The apps step is the only one that cannot work offline, so `connect
+/// --offline` does the other two and says which one it left out.
+#[cfg(unix)]
+#[test]
+fn dhis2_connect_offline_skips_the_apps_and_reports_the_skip() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("created the `chap` route"))
+        .stdout(predicates::str::contains("analytics finished in"))
+        .stdout(predicates::str::contains("skipped:"))
+        .stdout(predicates::str::contains("App Hub"))
+        .stdout(predicates::str::contains(
+            "run `chaps dhis2 show` to see what is still missing",
+        ));
+
+    assert!(
+        !stand_in
+            .asked()
+            .iter()
+            .any(|seen| seen.starts_with("GET /apphub/")),
+        "{:?}",
+        stand_in.asked()
+    );
+}
+
+/// A deployment this DHIS2 is not part of, and one whose DHIS2 keeps its port
+/// to itself: each refusal names what is true instead and the way out.
+#[test]
+fn dhis2_refuses_a_deployment_without_a_reachable_dhis2() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+
+    // No component at all.
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["dhis2", "show"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "dhis2 is not a component of this deployment, so there is no DHIS2 to ask",
+        ))
+        .stderr(predicates::str::contains("`chaps components enable dhis2`"));
+
+    // Enabled, publishing no host port: there is nothing to reach from here.
+    sandbox
+        .components(&["enable", "dhis2", "--port", "none"])
+        .assert()
+        .success();
+    sandbox
+        .chap()
+        .arg("-C")
+        .arg(sandbox.project())
+        .args(["dhis2", "show"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "publishes no host port, so its API cannot be reached from this machine",
+        ))
+        .stderr(predicates::str::contains("http://dhis2:8080"))
+        .stderr(predicates::str::contains(
+            "`chaps components enable dhis2 --port N`",
+        ));
+}
+
+/// Outside a deployment there is no DHIS2 to talk to, and the bare group says
+/// so rather than listing subcommands that cannot run.
+#[test]
+fn dhis2_outside_a_project_says_so() {
+    let sandbox = Sandbox::new();
+    chap_in(&sandbox, sandbox.home.path(), &["dhis2"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
+    chap_in(&sandbox, sandbox.home.path(), &["dhis2", "show"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
+}
+
+/// Enabling the component says the two halves cannot talk yet and names the one
+/// command that connects them. `chaps up` does not do it: see the chapter.
+#[test]
+fn enabling_dhis2_names_the_command_that_connects_it_to_chap() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &free_port().to_string()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("`chaps dhis2 connect`"))
+        .stdout(predicates::str::contains(
+            "the Modeling App reaches chap-core through a DHIS2 route",
+        ));
+
+    // And the login variables are in `.env`, commented out, so the two names
+    // are somewhere an operator will find them.
+    let env = read(&sandbox.project().join(".env"));
+    assert!(env.contains("# DHIS2_ADMIN_USERNAME=admin"), "{env}");
+    assert!(env.contains("# DHIS2_ADMIN_PASSWORD=district"), "{env}");
+    assert_eq!(env_value(&env, "DHIS2_ADMIN_PASSWORD"), None, "{env}");
 }

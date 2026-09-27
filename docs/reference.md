@@ -26,7 +26,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -679,6 +679,85 @@ Replace both secrets with freshly generated ones.
 ```text
 Usage: chaps auth rotate [OPTIONS]
 ```
+
+## chaps dhis2
+
+Let the DHIS2 Modeling App reach this deployment's CHAP.
+
+```text
+Usage: chaps dhis2 [OPTIONS] <COMMAND>
+```
+
+Subcommands: [`chaps dhis2 show`](#chaps-dhis2-show), [`chaps dhis2 route`](#chaps-dhis2-route), [`chaps dhis2 analytics`](#chaps-dhis2-analytics), [`chaps dhis2 apps`](#chaps-dhis2-apps), [`chaps dhis2 connect`](#chaps-dhis2-connect)
+
+## chaps dhis2 show
+
+Say what DHIS2 has: the chap route, analytics and the apps.
+
+```text
+Usage: chaps dhis2 show [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+
+## chaps dhis2 route
+
+Point DHIS2's chap route at this deployment's chap-core.
+
+```text
+Usage: chaps dhis2 route [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+
+## chaps dhis2 analytics
+
+Generate DHIS2's analytics tables and wait for them.
+
+```text
+Usage: chaps dhis2 analytics [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
+| `--no-wait` | Start the run and leave it going instead of waiting. |
+
+## chaps dhis2 apps
+
+Install the Modeling and Climate apps from the App Hub.
+
+```text
+Usage: chaps dhis2 apps [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+
+## chaps dhis2 connect
+
+Do all three: the route, the apps, then analytics.
+
+```text
+Usage: chaps dhis2 connect [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
+| `--no-wait` | Start the run and leave it going instead of waiting. |
 
 ## chaps self
 

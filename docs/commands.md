@@ -24,6 +24,7 @@ lists every command, every flag and every default.
 | `chaps api METHOD PATH [--data JSON\|@FILE\|-] [--url URL] [--raw]` | One authenticated request to chap-core's API, with this deployment's base URL and token filled in. JSON comes back pretty-printed; the exit code is 0 for a 2xx, 1 for a 4xx/5xx and 2 when chap-core is not answering. |
 | `chaps update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. `--chap-tag` moves chap-core to another tag (a release, `latest`, `master` or `dev`) instead, asking first when the move goes backwards, which `--yes` answers; `--list-tags` lists where it can go and writes nothing. |
 | `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts CHAP pulls from, and - inside a project - the files, the ports, the pins, the images and whether CHAP is up. Works anywhere. |
+| `chaps dhis2 connect` | Let the DHIS2 Modeling App reach this deployment's CHAP: the `chap` route, the apps, then analytics. `show`, `route`, `analytics` and `apps` are the same work one step at a time. |
 
 `chaps up` starts what is on disk, `chaps update` fetches newer versions, and
 `chaps restart` applies them to the services that are running. That is the
@@ -96,6 +97,29 @@ set it at creation time. `chaps open NAME` opens one of them in a browser, and
 [Components](./components.md),
 [Reaching a component from a browser](./components.md#reaching-a-component-from-a-browser)
 and [DHIS2](./dhis2.md).
+
+## DHIS2
+
+Only for a deployment with the [`dhis2` component](./dhis2.md). Nothing here
+touches Docker or a file: every verb is requests to DHIS2's own API.
+
+| Command | What it does |
+| --- | --- |
+| `chaps dhis2 show [--user NAME]` | Where the `chap` route points, when analytics last succeeded, which apps are installed, and each piece that is missing. Writes nothing. |
+| `chaps dhis2 route` | Create the `chap` route, or repoint one that points elsewhere, is disabled or has lost the `F_CHAP_MODELING_APP` authority - then proxy a request through it to prove chap-core answers. |
+| `chaps dhis2 analytics [--timeout SECONDS] [--no-wait]` | Generate the analytics tables the Modeling and Climate apps read, and wait for the run; a run that is already going is watched rather than queued behind, since DHIS2 runs one at a time. |
+| `chaps dhis2 apps` | Install the Modeling App and the DHIS2 Climate App from the App Hub, at the newest version this DHIS2 can run. The one verb that needs the network. |
+| `chaps dhis2 connect [--timeout SECONDS] [--no-wait]` | The route, the apps, then analytics. Under `--offline` the apps are a reported skip and the other two still happen. |
+
+Every one of them is idempotent: a second run repoints nothing, reinstalls nothing
+and says so. All of them take `--user NAME` and `--wait SECONDS` (how long to wait
+for DHIS2's API, twenty minutes by default, because a first start takes minutes).
+The credentials come from `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
+`.env`, else `CHAPS_DHIS2_PASSWORD` in the environment, else the DHIS2 default -
+and there is no `--password` flag, because a password on a command line is in the
+shell history. `chaps up` does none of this and
+[the chapter says why](./dhis2.md#chaps-up-does-none-of-this-on-purpose). See
+[Connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap).
 
 ## Authentication
 
