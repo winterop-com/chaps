@@ -74,6 +74,17 @@ pub fn resolve(component: Component, components: &Components, api_base: &str) ->
     if component == Component::S3 {
         return Openable::NoWeb;
     }
+    // A DHIS2 recorded by `chaps dhis2 use` is this deployment's DHIS2 as far
+    // as anyone opening it is concerned, component or not.
+    if component == Component::Dhis2
+        && let Some(external) = &components.dhis2_external
+    {
+        return Openable::Url {
+            url: external.url.trim_end_matches('/').to_string(),
+            what: DHIS2_PAGE,
+            proxied: true,
+        };
+    }
     if !components.is_enabled(component) {
         return Openable::Off;
     }

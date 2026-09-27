@@ -746,17 +746,17 @@ the apps are asking about: the [Climate App](./dhis2.md#the-apps-come-from-the-a
 is what imports climate data into DHIS2, and analytics has to run again after an
 import.
 
-## `chaps dhis2` says DHIS2 did not accept the credentials
+## `chaps dhis2` says DHIS2 did not accept the password
 
 ```text
-error: DHIS2 at http://localhost:8080 did not accept the credentials for `admin` (the DHIS2 default); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at http://localhost:8080 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
 ```
 
-`chaps` holds no DHIS2 credentials of its own. It falls back to `admin` /
-`district`, which is what a seeded demo dump and a Flyway-bootstrapped empty
-database both give - so this is an instance whose password has been changed, or
-one restored from a dump of your own. Either uncomment and edit the two lines in
-`.env`:
+`chaps` holds no DHIS2 credentials of its own. On a DHIS2 it deployed it falls
+back to `admin` / `district`, which is what a seeded demo dump and a
+Flyway-bootstrapped empty database both give. So this is an instance whose
+password has been changed, or one restored from a dump of your own. Either
+uncomment and edit the lines in `.env`:
 
 ```ini
 DHIS2_ADMIN_USERNAME=admin
@@ -769,12 +769,64 @@ or keep it out of the file entirely:
 export CHAPS_DHIS2_PASSWORD=the-one-that-works
 ```
 
-`--user NAME` names a different user for one run. There is no `--password` flag,
-because a password on a command line is in the shell history and in `ps`. A
-**403** rather than a 401 means the opposite problem: the password is right and
-that user is not allowed to write a route or run analytics, which a DHIS2
-superuser is. See
+or use a personal access token instead (`DHIS2_API_TOKEN` in `.env`, or
+`CHAPS_DHIS2_TOKEN`). There is no `--password` flag, because a password on a
+command line is in the shell history and in `ps`. A **403** rather than a 401
+means the opposite problem: the credential is right, but that user is not
+allowed to write a route or run analytics, which a DHIS2 superuser is. See
 [The credentials](./dhis2.md#the-credentials-and-where-they-come-from).
+
+## `chaps dhis2` says DHIS2 did not accept the API token
+
+```text
+error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
+```
+
+DHIS2 answers 401 for a token that has expired or been revoked, and for one
+whose allowed IP addresses or referrers leave out the machine chaps runs on.
+Create a new one under **Profile > Personal access tokens** in DHIS2. The 401
+also covers a value that was never a token, such as one pasted with the
+`ApiToken ` prefix: `DHIS2_API_TOKEN` holds the token alone.
+
+## `chaps has no password for DHIS2 user`
+
+```text
+error: chaps has no password for DHIS2 user `alice`: `.env` and `CHAPS_DHIS2_USERNAME` give theirs to other users; export `CHAPS_DHIS2_PASSWORD` for this run
+error: chaps has no password for DHIS2 user `ops`: `.env` names the user and sets no `DHIS2_ADMIN_PASSWORD`; set it there, or export `CHAPS_DHIS2_PASSWORD`
+```
+
+A password belongs to the user it was set with, and chaps will not send one
+user's password in another's name. `--user alice` finds only a password that is
+alice's, and the default `district` is `admin`'s alone. For a one-off run as
+someone else, export theirs for the command:
+
+```sh
+CHAPS_DHIS2_PASSWORD=theirs chaps dhis2 show --user alice
+```
+
+## `chaps has no credentials for this DHIS2, and did not deploy it`
+
+```text
+error: chaps has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
+```
+
+The DHIS2 was recorded with `chaps dhis2 use`, so `admin` / `district` is not
+known to be anybody's password there, and chaps does not try it. Set a personal
+access token (or a username and password) as in
+[The credentials](./dhis2.md#the-credentials-and-where-they-come-from), then run
+`chaps dhis2 use` again to check that DHIS2 accepts it.
+
+## `this deployment already uses the external DHIS2`
+
+```text
+error: this deployment already uses the external DHIS2 at https://dhis2.example.org; run `chaps dhis2 use --clear` first to deploy one of its own
+```
+
+A deployment has one DHIS2, either the `dhis2` component or an external one, so
+`chaps dhis2` never has to guess which. The opposite direction is refused the
+same way (`the dhis2 component is on, and it is this deployment's DHIS2`). Clear
+the one you no longer want, then add the other. See
+[A DHIS2 that runs elsewhere](./dhis2.md#a-dhis2-that-runs-elsewhere).
 
 ## `chaps dhis2` waited twenty minutes and gave up
 

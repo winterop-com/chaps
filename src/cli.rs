@@ -1099,17 +1099,20 @@ pub enum Dhis2Sub {
 
     /// Do all three: the route, the apps, then analytics
     Connect(Dhis2ConnectArgs),
+
+    /// Use a DHIS2 that runs elsewhere, or show which DHIS2 is used
+    Use(Dhis2UseArgs),
 }
 
 /// The two things every verb in the group needs.
 ///
 /// Flattened rather than repeated, so the user and the wait are spelled and
-/// documented once. There is deliberately no `--password`: it would sit in the
-/// shell history and in `ps`, and `.env` or `CHAPS_DHIS2_PASSWORD` is where it
-/// belongs.
+/// documented once. There is deliberately no `--password` or `--token`: either
+/// would sit in the shell history and in `ps`, and `.env` or the `CHAPS_DHIS2_*`
+/// variables are where they belong.
 #[derive(Debug, Clone, Args)]
 pub struct Dhis2CommonArgs {
-    /// DHIS2 user to authenticate as; admin unless .env names one
+    /// DHIS2 user to authenticate as, with a password rather than a token
     #[arg(long, value_name = "NAME")]
     pub user: Option<String>,
 
@@ -1167,6 +1170,22 @@ pub struct Dhis2ConnectArgs {
     /// Start the run and leave it going instead of waiting
     #[arg(long)]
     pub no_wait: bool,
+}
+
+/// Use a DHIS2 that runs elsewhere, or show which DHIS2 is used
+#[derive(Debug, Clone, Args)]
+pub struct Dhis2UseArgs {
+    /// DHIS2's URL, as this machine reaches it
+    #[arg(value_name = "URL", conflicts_with = "clear")]
+    pub url: Option<String>,
+
+    /// chap-core's URL, as that DHIS2 reaches it; the route points here
+    #[arg(long, value_name = "URL", conflicts_with = "clear")]
+    pub chap_url: Option<String>,
+
+    /// Forget the external DHIS2 and use the dhis2 component again
+    #[arg(long)]
+    pub clear: bool,
 }
 
 /// Update chaps itself, and report what this build is

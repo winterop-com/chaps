@@ -1039,6 +1039,13 @@ impl<'a> App<'a> {
                 return;
             }
         }
+        if wanted
+            && component == Component::Dhis2
+            && let Some(external) = &self.components.dhis2_external
+        {
+            self.message = Some(crate::components::dhis2_external_refusal(&external.url));
+            return;
+        }
         // The port it publishes is left alone, so a component switched off and
         // on again in one session comes back exactly as the project has it.
         self.components.set_enabled(component, wanted);

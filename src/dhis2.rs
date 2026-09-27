@@ -35,6 +35,9 @@ use std::time::{Duration, Instant};
 /// The one route DHIS2 answers without credentials, and what the wait polls.
 pub const PING_PATH: &str = crate::status::DHIS2_PING_PATH;
 
+/// Who the credential belongs to, for a token that does not say.
+pub const ME_PATH: &str = "/api/me?fields=username";
+
 /// Where DHIS2 reports its own version, behind authentication.
 pub const SYSTEM_INFO_PATH: &str = "/api/system/info";
 
@@ -133,11 +136,23 @@ pub const ADMIN_USERNAME_ENV_VAR: &str = "DHIS2_ADMIN_USERNAME";
 /// The `.env` variable holding that user's password. Also chaps' alone.
 pub const ADMIN_PASSWORD_ENV_VAR: &str = "DHIS2_ADMIN_PASSWORD";
 
-/// The environment variable a password is read from when `.env` sets none.
+/// The `.env` variable holding a DHIS2 personal access token. Also chaps'
+/// alone, and preferred to the password pair when both are set.
+pub const API_TOKEN_ENV_VAR: &str = "DHIS2_API_TOKEN";
+
+/// The environment variable a password is read from when `.env` has none for
+/// the user being asked as.
 ///
 /// For an operator who will not have the password on disk: exporting it for
 /// one shell is the way to run these commands without writing it down.
 pub const PASSWORD_ENV_VAR: &str = "CHAPS_DHIS2_PASSWORD";
+
+/// The user [`PASSWORD_ENV_VAR`] belongs to, when it is not the one `.env`
+/// names.
+pub const USERNAME_ENV_VAR: &str = "CHAPS_DHIS2_USERNAME";
+
+/// The environment variable a personal access token is read from.
+pub const TOKEN_ENV_VAR: &str = "CHAPS_DHIS2_TOKEN";
 
 /// The user a DHIS2 with no `.env` line is asked as.
 pub const DEFAULT_USERNAME: &str = "admin";
@@ -149,6 +164,10 @@ pub const DEFAULT_USERNAME: &str = "admin";
 /// from `DefaultAdminUserPopulator`, which has it compiled in. It is a default,
 /// not a secret - every DHIS2 tutorial in the world prints it - and an instance
 /// whose password has been changed says so with [`ADMIN_PASSWORD_ENV_VAR`].
+///
+/// Never tried against an external DHIS2: chaps did not create that instance,
+/// so it knows nothing about its passwords, and sending the tutorial one to a
+/// production server is a failed login in its audit log and nothing else.
 pub const DEFAULT_PASSWORD: &str = "district";
 
 /// The two apps a CHAP deployment wants, in the order they are installed.
@@ -188,104 +207,292 @@ pub struct HubAppRef {
 // Credentials
 // ---------------------------------------------------------------------------
 
-/// Where the password came from, which is all a report may say about it.
+/// Where the credential came from, which is all a report may say about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum PasswordSource {
-    /// An active `DHIS2_ADMIN_PASSWORD=` line in this deployment's `.env`.
+pub enum CredentialSource {
+    /// An active line in this deployment's `.env`: [`API_TOKEN_ENV_VAR`], or
+    /// [`ADMIN_PASSWORD_ENV_VAR`] for the user `.env` names.
     EnvFile,
-    /// [`PASSWORD_ENV_VAR`] in the environment this command ran in.
+    /// [`TOKEN_ENV_VAR`] or [`PASSWORD_ENV_VAR`] in the environment this
+    /// command ran in.
     Environment,
     /// Neither, so [`DEFAULT_PASSWORD`] - which is what a seeded dump and an
-    /// empty database both give.
+    /// empty database both give, on a DHIS2 chaps deployed and nowhere else.
     Default,
 }
 
-impl PasswordSource {
-    /// The phrase a report names it with.
-    pub fn describe(self) -> &'static str {
-        match self {
-            PasswordSource::EnvFile => "from `.env`",
-            PasswordSource::Environment => "from CHAPS_DHIS2_PASSWORD",
-            PasswordSource::Default => "the DHIS2 default",
+/// Which `Authorization` scheme a request goes out with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthKind {
+    /// `Basic`, a username and its password.
+    Basic,
+    /// `ApiToken`, a DHIS2 personal access token.
+    Token,
+}
+
+/// The phrase a report names a credential by: what it is and where it was
+/// found, never what it is worth.
+pub fn describe_credential(kind: AuthKind, source: CredentialSource) -> String {
+    match (kind, source) {
+        (AuthKind::Basic, CredentialSource::EnvFile) => "password from `.env`".to_string(),
+        (AuthKind::Basic, CredentialSource::Environment) => {
+            format!("password from {PASSWORD_ENV_VAR}")
         }
+        (AuthKind::Basic, CredentialSource::Default) => "the DHIS2 default password".to_string(),
+        (AuthKind::Token, CredentialSource::EnvFile) => "API token from `.env`".to_string(),
+        (AuthKind::Token, _) => format!("API token from {TOKEN_ENV_VAR}"),
     }
 }
 
-/// A DHIS2 user and password, and where the password was found.
+/// The secret half of [`Credentials`].
+#[derive(Clone)]
+enum Secret {
+    Basic { user: String, password: String },
+    Token(String),
+}
+
+/// A DHIS2 user and password, or a personal access token, and where it was
+/// found.
 ///
 /// `Debug` is written by hand: a derived one would put the password into every
 /// `-d` line and every panic message that carries this value.
 #[derive(Clone)]
 pub struct Credentials {
-    pub user: String,
-    password: String,
-    pub source: PasswordSource,
+    secret: Secret,
+    pub source: CredentialSource,
 }
 
 impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Credentials")
-            .field("user", &self.user)
-            .field("password", &"<hidden>")
-            .field("source", &self.source)
-            .finish()
+        let mut debug = f.debug_struct("Credentials");
+        match &self.secret {
+            Secret::Basic { user, .. } => debug.field("user", user).field("password", &"<hidden>"),
+            Secret::Token(_) => debug.field("token", &"<hidden>"),
+        };
+        debug.field("source", &self.source).finish()
     }
 }
 
 impl Credentials {
-    /// A pair, however they were arrived at.
-    pub fn new(user: &str, password: &str, source: PasswordSource) -> Credentials {
+    /// A username and password, however they were arrived at.
+    pub fn new(user: &str, password: &str, source: CredentialSource) -> Credentials {
         Credentials {
-            user: user.to_string(),
-            password: password.to_string(),
+            secret: Secret::Basic {
+                user: user.to_string(),
+                password: password.to_string(),
+            },
             source,
         }
     }
 
+    /// A personal access token.
+    pub fn token(token: &str, source: CredentialSource) -> Credentials {
+        Credentials {
+            secret: Secret::Token(token.to_string()),
+            source,
+        }
+    }
+
+    /// Which scheme this is.
+    pub fn kind(&self) -> AuthKind {
+        match self.secret {
+            Secret::Basic { .. } => AuthKind::Basic,
+            Secret::Token(_) => AuthKind::Token,
+        }
+    }
+
+    /// The username, for a password. A token carries none that chaps can
+    /// read; DHIS2 says whose it is when asked ([`ME_PATH`]).
+    pub fn user(&self) -> Option<&str> {
+        match &self.secret {
+            Secret::Basic { user, .. } => Some(user),
+            Secret::Token(_) => None,
+        }
+    }
+
     /// The `Authorization` header value, which is the only thing that reads
-    /// the password.
+    /// the secret.
     pub fn header(&self) -> String {
-        format!(
-            "Basic {}",
-            base64(format!("{}:{}", self.user, self.password).as_bytes())
-        )
+        match &self.secret {
+            Secret::Basic { user, password } => {
+                format!("Basic {}", base64(format!("{user}:{password}").as_bytes()))
+            }
+            Secret::Token(token) => format!("ApiToken {token}"),
+        }
+    }
+
+    /// What a trace line says went out, in place of the header.
+    fn traced(&self) -> String {
+        match &self.secret {
+            Secret::Basic { user, .. } => format!("Basic <{user} and its password>"),
+            Secret::Token(_) => "ApiToken <the token>".to_string(),
+        }
+    }
+
+    /// The phrase a report names this by.
+    pub fn describe(&self) -> String {
+        describe_credential(self.kind(), self.source)
     }
 }
 
-/// The credentials for this deployment's DHIS2.
-///
-/// `.env` first, because that is the deployment's own answer and the file every
-/// other secret of it lives in; then [`PASSWORD_ENV_VAR`], for an operator who
-/// will not keep it on disk; then the DHIS2 default. The same order
-/// [`crate::api::token_for`] uses for chap-core's token, so one CLI has one
-/// rule.
-///
-/// `user` overrides the username for one run - a username is not a secret, so
-/// it can be a flag; a password on a command line would be in the shell history
-/// and in `ps`, so there is no flag for that.
-pub fn credentials_for(project_dir: &Path, user: Option<&str>) -> Credentials {
-    let body =
-        std::fs::read_to_string(project_dir.join(crate::project::ENV_FILE)).unwrap_or_default();
-    credentials_of(&body, user, std::env::var(PASSWORD_ENV_VAR).ok().as_deref())
+/// Everything [`credentials_of`] decides between, handed in so the rule can be
+/// tested without an environment.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CredentialInputs<'a> {
+    /// The deployment's `.env`, as text.
+    pub env_body: &'a str,
+    /// `--user NAME`.
+    pub user: Option<&'a str>,
+    /// [`USERNAME_ENV_VAR`].
+    pub env_username: Option<&'a str>,
+    /// [`PASSWORD_ENV_VAR`].
+    pub env_password: Option<&'a str>,
+    /// [`TOKEN_ENV_VAR`].
+    pub env_token: Option<&'a str>,
+    /// Whether chaps deployed this DHIS2, which is the only case in which
+    /// [`DEFAULT_PASSWORD`] is known to be anybody's password.
+    pub deployed: bool,
 }
 
-/// [`credentials_for`]'s rule, with both sources handed in.
-pub fn credentials_of(env_body: &str, user: Option<&str>, from_env: Option<&str>) -> Credentials {
-    let user = user
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| crate::dotenv::non_empty(env_body, ADMIN_USERNAME_ENV_VAR))
-        .unwrap_or_else(|| DEFAULT_USERNAME.to_string());
-    let (password, source) = match crate::dotenv::non_empty(env_body, ADMIN_PASSWORD_ENV_VAR) {
-        Some(password) => (password, PasswordSource::EnvFile),
-        None => match from_env.map(str::trim).filter(|value| !value.is_empty()) {
-            Some(password) => (password.to_string(), PasswordSource::Environment),
-            None => (DEFAULT_PASSWORD.to_string(), PasswordSource::Default),
-        },
+/// The credentials for this deployment's DHIS2, read from `.env` and the
+/// environment this command runs in.
+pub fn credentials_for(
+    project_dir: &Path,
+    user: Option<&str>,
+    deployed: bool,
+) -> Result<Credentials> {
+    let body =
+        std::fs::read_to_string(project_dir.join(crate::project::ENV_FILE)).unwrap_or_default();
+    let var = |name: &str| std::env::var(name).ok();
+    let (env_username, env_password, env_token) = (
+        var(USERNAME_ENV_VAR),
+        var(PASSWORD_ENV_VAR),
+        var(TOKEN_ENV_VAR),
+    );
+    credentials_of(&CredentialInputs {
+        env_body: &body,
+        user,
+        env_username: env_username.as_deref(),
+        env_password: env_password.as_deref(),
+        env_token: env_token.as_deref(),
+        deployed,
+    })
+}
+
+/// [`credentials_for`]'s rule.
+///
+/// **A password belongs to the user it was set with.** Each source is a pair,
+/// and the first pair that has a value wins:
+///
+/// 1. `.env`: [`API_TOKEN_ENV_VAR`], then [`ADMIN_PASSWORD_ENV_VAR`] for the
+///    user [`ADMIN_USERNAME_ENV_VAR`] names (`admin` when it names none);
+/// 2. the environment: [`TOKEN_ENV_VAR`], then [`PASSWORD_ENV_VAR`] for
+///    [`USERNAME_ENV_VAR`], or for the `.env` user when that is unset;
+/// 3. `admin` / [`DEFAULT_PASSWORD`], on a DHIS2 chaps deployed only.
+///
+/// `.env` first, because that is the deployment's own answer and the file every
+/// other secret of it lives in - the same order [`crate::api::token_for`] uses
+/// for chap-core's token. Within a source the token comes first: it is the
+/// credential that can be scoped and revoked, and an operator who wrote one
+/// down meant it to be used.
+///
+/// `user` (`--user NAME`) asks for one user by name, so it is always a
+/// password, and only a password that belongs to `NAME` is sent:
+/// [`ADMIN_PASSWORD_ENV_VAR`] when `.env` names that user,
+/// [`PASSWORD_ENV_VAR`] unless [`USERNAME_ENV_VAR`] gives it to someone else,
+/// and the default for `admin` on a deployed DHIS2. Anything else is an error
+/// before a request is made, rather than another user's password sent in
+/// `NAME`'s name to fail in DHIS2's audit log.
+pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
+    let clean = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     };
-    Credentials::new(&user, &password, source)
+    let body = inputs.env_body;
+    let file_user = crate::dotenv::non_empty(body, ADMIN_USERNAME_ENV_VAR);
+    let file_password = crate::dotenv::non_empty(body, ADMIN_PASSWORD_ENV_VAR);
+    let file_token = crate::dotenv::non_empty(body, API_TOKEN_ENV_VAR);
+    let env_user = clean(inputs.env_username);
+    let env_password = clean(inputs.env_password);
+    let env_token = clean(inputs.env_token);
+    // Whose each password is.
+    let file_owner = file_user
+        .clone()
+        .unwrap_or_else(|| DEFAULT_USERNAME.to_string());
+    let default_allowed = inputs.deployed && file_owner == DEFAULT_USERNAME;
+
+    if let Some(name) = clean(inputs.user) {
+        if let Some(password) = file_password.filter(|_| file_owner == name) {
+            return Ok(Credentials::new(
+                &name,
+                &password,
+                CredentialSource::EnvFile,
+            ));
+        }
+        if let Some(password) =
+            env_password.filter(|_| env_user.as_ref().is_none_or(|u| *u == name))
+        {
+            return Ok(Credentials::new(
+                &name,
+                &password,
+                CredentialSource::Environment,
+            ));
+        }
+        if inputs.deployed && name == DEFAULT_USERNAME {
+            return Ok(Credentials::new(
+                &name,
+                DEFAULT_PASSWORD,
+                CredentialSource::Default,
+            ));
+        }
+        return Err(anyhow::anyhow!(
+            "chaps has no password for DHIS2 user `{name}`: `.env` and `{USERNAME_ENV_VAR}` \
+             give theirs to other users; export `{PASSWORD_ENV_VAR}` for this run"
+        ));
+    }
+
+    if let Some(token) = file_token {
+        return Ok(Credentials::token(&token, CredentialSource::EnvFile));
+    }
+    if let Some(password) = file_password {
+        return Ok(Credentials::new(
+            &file_owner,
+            &password,
+            CredentialSource::EnvFile,
+        ));
+    }
+    if let Some(token) = env_token {
+        return Ok(Credentials::token(&token, CredentialSource::Environment));
+    }
+    if let Some(password) = env_password {
+        let user = env_user.unwrap_or(file_owner);
+        return Ok(Credentials::new(
+            &user,
+            &password,
+            CredentialSource::Environment,
+        ));
+    }
+    if default_allowed {
+        return Ok(Credentials::new(
+            DEFAULT_USERNAME,
+            DEFAULT_PASSWORD,
+            CredentialSource::Default,
+        ));
+    }
+    Err(anyhow::anyhow!(match inputs.deployed {
+        true => format!(
+            "chaps has no password for DHIS2 user `{file_owner}`: `.env` names the user and sets \
+             no `{ADMIN_PASSWORD_ENV_VAR}`; set it there, or export `{PASSWORD_ENV_VAR}`"
+        ),
+        false => format!(
+            "chaps has no credentials for this DHIS2, and did not deploy it, so there is no \
+             default to try; set `{API_TOKEN_ENV_VAR}` in `.env`, or export `{TOKEN_ENV_VAR}`"
+        ),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +505,9 @@ pub struct Dhis2 {
     base: String,
     credentials: Credentials,
     timeout: Duration,
+    /// Whether this is the deployment's own `dhis2` container, whose logs
+    /// `chaps logs dhis2` shows, rather than an external instance.
+    deployed: bool,
 }
 
 impl Dhis2 {
@@ -307,6 +517,15 @@ impl Dhis2 {
             base: base.trim_end_matches('/').to_string(),
             credentials,
             timeout,
+            deployed: true,
+        }
+    }
+
+    /// The same client, for a DHIS2 this deployment did not start.
+    pub fn external(self) -> Dhis2 {
+        Dhis2 {
+            deployed: false,
+            ..self
         }
     }
 
@@ -323,14 +542,9 @@ impl Dhis2 {
         &self.base
     }
 
-    /// The user requests are sent as.
-    pub fn user(&self) -> &str {
-        &self.credentials.user
-    }
-
-    /// Where the password came from, for the line that says so.
-    pub fn password_source(&self) -> PasswordSource {
-        self.credentials.source
+    /// The credential requests carry, for the line that says what it is.
+    pub fn credentials(&self) -> &Credentials {
+        &self.credentials
     }
 
     /// The full URL `path` is asked at.
@@ -395,12 +609,9 @@ impl Dhis2 {
         crate::output::verbose(&format!("{method} {url}"));
         if authenticated {
             request = request.header("Authorization", self.credentials.header());
-            // Never the value, and never the password anywhere near a trace
-            // line: they end up in bug reports.
-            crate::output::verbose(&format!(
-                "  Authorization: Basic <{} and its password>",
-                self.credentials.user
-            ));
+            // Never the value, and never the password or the token anywhere
+            // near a trace line: they end up in bug reports.
+            crate::output::verbose(&format!("  Authorization: {}", self.credentials.traced()));
         }
         // DHIS2 answers HTML to a request that does not ask for JSON.
         request = request.header("Accept", crate::api::JSON);
@@ -424,6 +635,12 @@ impl Dhis2 {
             ChapError::Dhis2Unreachable {
                 url: self.base.clone(),
                 reason: e.to_string(),
+                next: match self.deployed {
+                    true => "run `chaps status` to see whether its container is up",
+                    false => {
+                        "check the URL with `chaps dhis2 use`, and that this machine can reach it"
+                    }
+                },
             }
         })?;
         let status = response.status();
@@ -471,23 +688,32 @@ impl Dhis2 {
 
     /// The sentence a 401 or a 403 deserves, naming the file to change.
     ///
-    /// The two are different problems: a 401 is the wrong password, a 403 is
-    /// the right password on a user DHIS2 will not let do this. Neither ever
-    /// prints the password.
+    /// The two are different problems: a 401 is the wrong password or a token
+    /// DHIS2 no longer honours, a 403 is the right credential on a user DHIS2
+    /// will not let do this. Neither ever prints the secret.
     pub fn refusal(&self, answer: &Answer) -> Option<String> {
-        match answer.status {
-            401 => Some(format!(
-                "DHIS2 at {} did not accept the credentials for `{}` ({}); set \
+        let who = match self.credentials.user() {
+            Some(user) => format!("`{user}`"),
+            None => "the token's user".to_string(),
+        };
+        match (answer.status, self.credentials.kind()) {
+            (401, AuthKind::Basic) => Some(format!(
+                "DHIS2 at {} did not accept the password for {who} ({}); set \
                  `{ADMIN_USERNAME_ENV_VAR}` and `{ADMIN_PASSWORD_ENV_VAR}` in `.env`, or export \
                  `{PASSWORD_ENV_VAR}`",
                 self.base,
-                self.credentials.user,
-                self.credentials.source.describe()
+                self.credentials.describe()
             )),
-            403 => Some(format!(
-                "DHIS2 refused the request as `{}` (HTTP 403): that user is authenticated but not \
-                 allowed to do this, and a DHIS2 superuser is; name another with `--user NAME`",
-                self.credentials.user
+            (401, AuthKind::Token) => Some(format!(
+                "DHIS2 at {} did not accept the API token ({}): it is expired, revoked, or not \
+                 allowed from this address; set a current one as `{API_TOKEN_ENV_VAR}` in \
+                 `.env`, or export `{TOKEN_ENV_VAR}`",
+                self.base,
+                self.credentials.describe()
+            )),
+            (403, _) => Some(format!(
+                "DHIS2 refused the request as {who} (HTTP 403): that user is authenticated but \
+                 not allowed to do this, and a DHIS2 superuser is; name another with `--user NAME`"
             )),
             _ => None,
         }
@@ -528,10 +754,14 @@ impl Dhis2 {
             }
             if Instant::now() + interval >= until {
                 return Err(anyhow::anyhow!(
-                    "DHIS2 at {} did not answer {PING_PATH} within {}; `chaps logs dhis2` is \
-                     where the migration shows, and `--wait SECONDS` waits longer",
+                    "DHIS2 at {} did not answer {PING_PATH} within {}; {}, and `--wait SECONDS` \
+                     waits longer",
                     self.base,
-                    crate::output::human_age(wait)
+                    crate::output::human_age(wait),
+                    match self.deployed {
+                        true => "`chaps logs dhis2` is where the migration shows",
+                        false => "check that the URL recorded by `chaps dhis2 use` is right",
+                    }
                 ));
             }
             std::thread::sleep(interval);
@@ -544,8 +774,31 @@ impl Dhis2 {
         Ok(Ready {
             version: text_at(&info, "version"),
             last_analytics: text_at(&info, "lastAnalyticsTableSuccess"),
+            user: self.whoami(),
             waited: started.elapsed(),
         })
+    }
+
+    /// Who the requests are sent as: the username for a password, and for a
+    /// token whatever [`ME_PATH`] says, since the token itself does not tell.
+    ///
+    /// A token whose user cannot be read is not a failure - the request that
+    /// proved the token works has already been answered - so it is named for
+    /// what it is instead.
+    fn whoami(&self) -> String {
+        if let Some(user) = self.credentials.user() {
+            return user.to_string();
+        }
+        match self.get_json(ME_PATH) {
+            Ok(me) if !text_at(&me, "username").is_empty() => text_at(&me, "username"),
+            Ok(_) => "the token's user".to_string(),
+            Err(why) => {
+                crate::output::verbose(&format!(
+                    "{ME_PATH} could not be read ({why}), so the token's user is not named"
+                ));
+                "the token's user".to_string()
+            }
+        }
     }
 }
 
@@ -558,6 +811,8 @@ pub struct Ready {
     /// When analytics last succeeded, as DHIS2 records it. Empty for an
     /// instance that has never run it.
     pub last_analytics: String,
+    /// Who the requests are sent as. See [`Dhis2::whoami`].
+    pub user: String,
     /// How long the wait took, which is the fact a slow first start needs.
     pub waited: Duration,
 }
@@ -644,6 +899,12 @@ pub fn route_target(root: &str) -> String {
         crate::open::internal_url(crate::components::Component::ChapCore),
         root.trim_end_matches('/')
     )
+}
+
+/// Where the route has to point for an external DHIS2: chap-core's own URL as
+/// that DHIS2 reaches it, recorded by `chaps dhis2 use --chap-url`.
+pub fn external_route_target(chap_url: &str) -> String {
+    format!("{}{ROUTE_SUFFIX}", chap_url.trim_end_matches('/'))
 }
 
 /// The route as DHIS2 is asked to store it.
@@ -759,13 +1020,23 @@ pub fn route_run_path(path: &str) -> String {
 /// 2.42.6: after editing the line, `chaps restart dhis2` answers `nothing needed
 /// a restart` and the route is refused again, where `chaps restart --all dhis2`
 /// force-recreates the one service and the write goes through.
-pub fn allowlist_hint(target: &str) -> String {
-    format!(
-        "DHIS2 refused the route: version 42 and later only allow the targets \
-         `route.remote_servers_allowed` lists, and {target} has to be one of them; check that \
-         line in `dhis2/dhis.conf` and run `chaps restart --all dhis2` (a plain `chaps restart` \
-         does not: the file is a bind mount, so compose sees nothing to recreate)"
-    )
+///
+/// An external DHIS2 has its own `dhis.conf`, which is its operator's and not
+/// in this directory, so that one is only named.
+pub fn allowlist_hint(target: &str, deployed: bool) -> String {
+    match deployed {
+        true => format!(
+            "DHIS2 refused the route: version 42 and later only allow the targets \
+             `route.remote_servers_allowed` lists, and {target} has to be one of them; check \
+             that line in `dhis2/dhis.conf` and run `chaps restart --all dhis2` (a plain `chaps \
+             restart` does not: the file is a bind mount, so compose sees nothing to recreate)"
+        ),
+        false => format!(
+            "DHIS2 refused the route: version 42 and later only allow the targets \
+             `route.remote_servers_allowed` lists, and {target} has to be one of them; add it to \
+             that line in the `dhis.conf` of the DHIS2 server and restart DHIS2 there"
+        ),
+    }
 }
 
 /// The half of DHIS2's refusal that is the allowlist and nothing else.
@@ -1366,61 +1637,233 @@ mod tests {
 
     #[test]
     fn the_authorization_header_is_basic_and_the_password_is_nowhere_else() {
-        let credentials = Credentials::new("admin", "district", PasswordSource::Default);
+        let credentials = Credentials::new("admin", "district", CredentialSource::Default);
         assert_eq!(credentials.header(), "Basic YWRtaW46ZGlzdHJpY3Q=");
         // Debug is written by hand precisely so this holds.
         let shown = format!("{credentials:?}");
         assert!(!shown.contains("district"), "{shown}");
         assert!(shown.contains("admin"), "{shown}");
         assert!(shown.contains("<hidden>"), "{shown}");
+        assert!(!credentials.traced().contains("district"));
+    }
+
+    /// DHIS2's scheme for a personal access token, and the token nowhere a
+    /// trace line or a panic could carry it.
+    #[test]
+    fn a_token_goes_out_as_apitoken_and_nowhere_else() {
+        let credentials = Credentials::token("d2p_sekret", CredentialSource::EnvFile);
+        assert_eq!(credentials.header(), "ApiToken d2p_sekret");
+        assert_eq!(credentials.kind(), AuthKind::Token);
+        assert_eq!(credentials.user(), None);
+        for shown in [format!("{credentials:?}"), credentials.traced()] {
+            assert!(!shown.contains("sekret"), "{shown}");
+        }
+        assert_eq!(credentials.describe(), "API token from `.env`");
+    }
+
+    /// Only the environment half of the inputs, over `body`.
+    fn inputs<'a>(body: &'a str) -> CredentialInputs<'a> {
+        CredentialInputs {
+            env_body: body,
+            deployed: true,
+            ..CredentialInputs::default()
+        }
+    }
+
+    fn resolved(inputs: CredentialInputs) -> Credentials {
+        credentials_of(&inputs).expect("credentials")
     }
 
     #[test]
     fn credentials_come_from_env_then_the_environment_then_the_default() {
         // Nothing anywhere: the DHIS2 default, which a seeded dump and an
         // empty database both give.
-        let plain = credentials_of("", None, None);
-        assert_eq!(plain.user, "admin");
-        assert_eq!(plain.source, PasswordSource::Default);
+        let plain = resolved(inputs(""));
+        assert_eq!(plain.user(), Some("admin"));
+        assert_eq!(plain.source, CredentialSource::Default);
         assert_eq!(plain.header(), "Basic YWRtaW46ZGlzdHJpY3Q=");
 
         // The environment, for an operator who will not have it on disk.
-        let exported = credentials_of("", None, Some("sekret"));
-        assert_eq!(exported.source, PasswordSource::Environment);
-        assert_eq!(exported.user, "admin");
+        let exported = resolved(CredentialInputs {
+            env_password: Some("sekret"),
+            ..inputs("")
+        });
+        assert_eq!(exported.source, CredentialSource::Environment);
+        assert_eq!(exported.user(), Some("admin"));
 
         // `.env` is the deployment's own answer and wins, the way
         // `api::token_for` reads the chap-core token.
         let body = "DHIS2_ADMIN_USERNAME=ops\nDHIS2_ADMIN_PASSWORD=from-the-file\n";
-        let from_file = credentials_of(body, None, Some("sekret"));
-        assert_eq!(from_file.user, "ops");
-        assert_eq!(from_file.source, PasswordSource::EnvFile);
+        let from_file = resolved(CredentialInputs {
+            env_password: Some("sekret"),
+            ..inputs(body)
+        });
+        assert_eq!(from_file.user(), Some("ops"));
+        assert_eq!(from_file.source, CredentialSource::EnvFile);
 
         // A commented placeholder sets nothing, and neither does an empty one.
-        let commented = credentials_of("# DHIS2_ADMIN_PASSWORD=district\n", None, None);
-        assert_eq!(commented.source, PasswordSource::Default);
-        assert_eq!(
-            credentials_of("DHIS2_ADMIN_PASSWORD=\n", None, Some(" ")).source,
-            PasswordSource::Default
+        let commented = resolved(inputs("# DHIS2_ADMIN_PASSWORD=district\n"));
+        assert_eq!(commented.source, CredentialSource::Default);
+        let empty = resolved(CredentialInputs {
+            env_password: Some(" "),
+            ..inputs("DHIS2_ADMIN_PASSWORD=\n")
+        });
+        assert_eq!(empty.source, CredentialSource::Default);
+    }
+
+    /// The bug `--user` used to have: it replaced the username and kept the
+    /// password, so `--user alice` sent admin's password in alice's name.
+    #[test]
+    fn a_password_is_only_ever_sent_as_the_user_it_belongs_to() {
+        let body = "DHIS2_ADMIN_USERNAME=ops\nDHIS2_ADMIN_PASSWORD=from-the-file\n";
+
+        // `.env`'s password is `ops`'s, so `--user ops` gets it...
+        let ops = resolved(CredentialInputs {
+            user: Some("ops"),
+            ..inputs(body)
+        });
+        assert_eq!(ops.user(), Some("ops"));
+        assert_eq!(ops.source, CredentialSource::EnvFile);
+
+        // ...and `--user alice` does not, and nothing else is found for her.
+        let err = credentials_of(&CredentialInputs {
+            user: Some("alice"),
+            ..inputs(body)
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("no password for DHIS2 user `alice`"), "{err}");
+        assert!(err.contains("CHAPS_DHIS2_PASSWORD"), "{err}");
+        assert!(!err.contains("from-the-file"), "{err}");
+
+        // An exported password with no owner named is the one for this run's
+        // user, which is how a one-off run as someone else works.
+        let alice = resolved(CredentialInputs {
+            user: Some("alice"),
+            env_password: Some("hers"),
+            ..inputs(body)
+        });
+        assert_eq!(alice.user(), Some("alice"));
+        assert_eq!(alice.source, CredentialSource::Environment);
+
+        // Unless CHAPS_DHIS2_USERNAME gives it to somebody else.
+        assert!(
+            credentials_of(&CredentialInputs {
+                user: Some("alice"),
+                env_username: Some("bob"),
+                env_password: Some("his"),
+                ..inputs(body)
+            })
+            .is_err()
         );
 
-        // `--user` names a user for one run and nothing else.
-        let flagged = credentials_of(body, Some("someone"), None);
-        assert_eq!(flagged.user, "someone");
-        assert_eq!(flagged.source, PasswordSource::EnvFile);
-        assert_eq!(credentials_of(body, Some("  "), None).user, "ops");
+        // The default is admin's, on a DHIS2 chaps deployed.
+        let admin = resolved(CredentialInputs {
+            user: Some("admin"),
+            ..inputs(body)
+        });
+        assert_eq!(admin.source, CredentialSource::Default);
+
+        // A blank `--user` is no `--user` at all.
+        let blank = resolved(CredentialInputs {
+            user: Some("  "),
+            ..inputs(body)
+        });
+        assert_eq!(blank.user(), Some("ops"));
     }
 
     #[test]
-    fn every_password_source_says_where_it_came_from() {
-        for source in [
-            PasswordSource::EnvFile,
-            PasswordSource::Environment,
-            PasswordSource::Default,
-        ] {
-            assert!(!source.describe().is_empty());
+    fn the_environment_pair_names_its_own_user() {
+        let pair = resolved(CredentialInputs {
+            env_username: Some("bob"),
+            env_password: Some("his"),
+            ..inputs("")
+        });
+        assert_eq!(pair.user(), Some("bob"));
+        assert_eq!(pair.source, CredentialSource::Environment);
+
+        // `.env` naming a user with no password, and nothing else: that user
+        // has no password chaps knows, and the default is admin's, not theirs.
+        let err = credentials_of(&inputs("DHIS2_ADMIN_USERNAME=ops\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no password for DHIS2 user `ops`"), "{err}");
+        assert!(err.contains("DHIS2_ADMIN_PASSWORD"), "{err}");
+    }
+
+    #[test]
+    fn a_token_wins_within_its_source_and_loses_to_an_earlier_one() {
+        let token = resolved(inputs(
+            "DHIS2_API_TOKEN=d2p_file\nDHIS2_ADMIN_PASSWORD=pw\n",
+        ));
+        assert_eq!(token.header(), "ApiToken d2p_file");
+        assert_eq!(token.source, CredentialSource::EnvFile);
+
+        // `.env`'s password is an earlier source than an exported token.
+        let file_password = resolved(CredentialInputs {
+            env_token: Some("d2p_env"),
+            ..inputs("DHIS2_ADMIN_PASSWORD=pw\n")
+        });
+        assert_eq!(file_password.kind(), AuthKind::Basic);
+
+        // An exported token beats an exported password and the default.
+        let env_token = resolved(CredentialInputs {
+            env_token: Some("d2p_env"),
+            env_password: Some("pw"),
+            ..inputs("")
+        });
+        assert_eq!(env_token.header(), "ApiToken d2p_env");
+        assert_eq!(env_token.describe(), "API token from CHAPS_DHIS2_TOKEN");
+
+        // `--user` asks for a user by name, so it is a password even with a
+        // token on offer.
+        let flagged = resolved(CredentialInputs {
+            user: Some("admin"),
+            ..inputs("DHIS2_API_TOKEN=d2p_file\n")
+        });
+        assert_eq!(flagged.kind(), AuthKind::Basic);
+    }
+
+    /// chaps did not create an external DHIS2, so `admin` / `district` is
+    /// nobody's password there, and is never sent.
+    #[test]
+    fn an_external_dhis2_gets_no_default() {
+        let external = |inputs: CredentialInputs| {
+            credentials_of(&CredentialInputs {
+                deployed: false,
+                ..inputs
+            })
+        };
+        let err = external(inputs("")).unwrap_err().to_string();
+        assert!(err.contains("did not deploy it"), "{err}");
+        assert!(err.contains("DHIS2_API_TOKEN"), "{err}");
+        assert!(
+            external(CredentialInputs {
+                user: Some("admin"),
+                ..inputs("")
+            })
+            .is_err()
+        );
+        // What is set is used as anywhere else.
+        let token = external(inputs("DHIS2_API_TOKEN=d2p_file\n")).unwrap();
+        assert_eq!(token.kind(), AuthKind::Token);
+    }
+
+    #[test]
+    fn every_credential_says_what_it_is_and_where_it_came_from() {
+        for kind in [AuthKind::Basic, AuthKind::Token] {
+            for source in [
+                CredentialSource::EnvFile,
+                CredentialSource::Environment,
+                CredentialSource::Default,
+            ] {
+                assert!(!describe_credential(kind, source).is_empty());
+            }
         }
-        assert_eq!(PasswordSource::EnvFile.describe(), "from `.env`");
+        assert_eq!(
+            describe_credential(AuthKind::Basic, CredentialSource::EnvFile),
+            "password from `.env`"
+        );
     }
 
     /// The target is the compose alias and the `/**` suffix, never localhost:
@@ -1540,7 +1983,7 @@ mod tests {
 
     #[test]
     fn the_allowlist_refusal_names_the_file_and_the_way_out() {
-        let text = allowlist_hint("http://chap:8000/**");
+        let text = allowlist_hint("http://chap:8000/**", true);
         assert!(text.contains("`dhis2/dhis.conf`"), "{text}");
         assert!(text.contains("route.remote_servers_allowed"), "{text}");
         // `--all`, because `dhis.conf` is a bind mount: a plain restart is
@@ -1599,12 +2042,12 @@ mod tests {
     fn a_dhis2_refusal_names_the_user_and_never_the_password() {
         let dhis2 = Dhis2::new(
             "http://localhost:18080",
-            Credentials::new("admin", "district", PasswordSource::Default),
+            Credentials::new("admin", "district", CredentialSource::Default),
             DEFAULT_TIMEOUT,
         );
         let text = dhis2.refusal(&answer(401, "{}")).expect("a 401 sentence");
         assert!(
-            text.contains("did not accept the credentials for `admin`"),
+            text.contains("did not accept the password for `admin`"),
             "{text}"
         );
         assert!(text.contains("DHIS2_ADMIN_PASSWORD"), "{text}");
@@ -1615,6 +2058,21 @@ mod tests {
         let text = dhis2.refusal(&answer(403, "{}")).expect("a 403 sentence");
         assert!(text.contains("--user NAME"), "{text}");
         assert!(!text.contains("district"), "{text}");
+
+        // A token is refused as a token, with the two places a current one
+        // goes, and never quoted.
+        let dhis2 = Dhis2::new(
+            "http://localhost:18080",
+            Credentials::token("d2p_sekret", CredentialSource::EnvFile),
+            DEFAULT_TIMEOUT,
+        );
+        let text = dhis2.refusal(&answer(401, "{}")).expect("a 401 sentence");
+        assert!(text.contains("did not accept the API token"), "{text}");
+        assert!(text.contains("DHIS2_API_TOKEN"), "{text}");
+        assert!(text.contains("CHAPS_DHIS2_TOKEN"), "{text}");
+        assert!(!text.contains("sekret"), "{text}");
+        let text = dhis2.refusal(&answer(403, "{}")).expect("a 403 sentence");
+        assert!(text.contains("as the token's user"), "{text}");
 
         assert_eq!(dhis2.refusal(&answer(404, "{}")), None);
         // And the generic error keeps DHIS2's own message.
@@ -2093,14 +2551,14 @@ mod tests {
     fn the_url_is_the_base_and_the_path_with_one_slash_between_them() {
         let dhis2 = Dhis2::new(
             "http://localhost:18080/",
-            Credentials::new("admin", "district", PasswordSource::Default),
+            Credentials::new("admin", "district", CredentialSource::Default),
             DEFAULT_TIMEOUT,
         );
         assert_eq!(dhis2.base(), "http://localhost:18080");
         assert_eq!(dhis2.url("/api/me"), "http://localhost:18080/api/me");
         assert_eq!(dhis2.url("api/me"), "http://localhost:18080/api/me");
-        assert_eq!(dhis2.user(), "admin");
-        assert_eq!(dhis2.password_source(), PasswordSource::Default);
+        assert_eq!(dhis2.credentials().user(), Some("admin"));
+        assert_eq!(dhis2.credentials().source, CredentialSource::Default);
         assert_eq!(
             dhis2.with_timeout(INSTALL_TIMEOUT).url("/api/me"),
             "http://localhost:18080/api/me"
@@ -2113,7 +2571,7 @@ mod tests {
     fn an_unreachable_dhis2_says_so_in_its_own_words() {
         let dhis2 = Dhis2::new(
             "http://127.0.0.1:9",
-            Credentials::new("admin", "district", PasswordSource::Default),
+            Credentials::new("admin", "district", CredentialSource::Default),
             Duration::from_secs(2),
         );
         let err = dhis2
@@ -2138,7 +2596,7 @@ mod tests {
     fn a_wait_that_runs_out_names_the_logs_and_the_flag() {
         let dhis2 = Dhis2::new(
             "http://127.0.0.1:9",
-            Credentials::new("admin", "district", PasswordSource::Default),
+            Credentials::new("admin", "district", CredentialSource::Default),
             Duration::from_millis(200),
         );
         let mut said = 0;

@@ -31,6 +31,9 @@ pub enum Running {
     /// Docker could not be asked at all, so there is nothing to claim either
     /// way.
     Unknown,
+    /// It is not a container of this deployment: an external DHIS2 recorded
+    /// by `chaps dhis2 use`, which no docker here can say anything about.
+    External,
 }
 
 /// What `chaps open NAME` did.
@@ -93,9 +96,14 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
     // Docker is only asked once there is something to open, so a refusal costs
     // no `docker compose ps` - and so the tests for those refusals need no
     // docker at all.
-    let running = running(&project, component);
+    let external =
+        component == Component::Dhis2 && project.state.components.dhis2_external.is_some();
+    let running = match external {
+        true => Running::External,
+        false => running(&project, component),
+    };
     let mut notes = Vec::new();
-    notes.extend(proxy_note(proxied, component));
+    notes.extend(proxy_note(proxied && !external, component));
     notes.extend(running_note(running, component));
     notes.extend(auth_note(&project, component));
 
@@ -149,7 +157,7 @@ fn proxy_note(proxied: bool, component: Component) -> Option<String> {
 /// the reason is said here, before the browser has a chance to be blamed for it.
 fn running_note(running: Running, component: Component) -> Option<String> {
     match running {
-        Running::Yes => None,
+        Running::Yes | Running::External => None,
         Running::No => Some(format!(
             "no {} container is running, so the page will not load yet; \
              run `chaps up` to start this deployment",
@@ -186,6 +194,11 @@ fn list(ctx: &Ctx, project: &Project) -> Result<()> {
                 Openable::Url { url, what, proxied } => (
                     Some(url),
                     match proxied {
+                        true if *component == Component::Dhis2
+                            && project.state.components.dhis2_external.is_some() =>
+                        {
+                            format!("{what}, external, recorded by `chaps dhis2 use`")
+                        }
                         true => format!("{what}, at the origin it records"),
                         false => what.to_string(),
                     },
@@ -228,12 +241,22 @@ fn human(report: &OpenReport, out: &Out) -> String {
     for note in &report.notes {
         text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
     }
-    if report.running == Running::Yes {
-        text.push_str(&out.backticks(&format!(
-            "the {} container is running; `chaps status` says whether it is answering yet",
-            report.name
-        )));
-        text.push('\n');
+    match report.running {
+        Running::Yes => {
+            text.push_str(&out.backticks(&format!(
+                "the {} container is running; `chaps status` says whether it is answering yet",
+                report.name
+            )));
+            text.push('\n');
+        }
+        Running::External => {
+            text.push_str(&out.backticks(
+                "this is the external DHIS2 recorded by `chaps dhis2 use`; `chaps dhis2 show` \
+                 says whether CHAP is connected to it",
+            ));
+            text.push('\n');
+        }
+        Running::No | Running::Unknown => {}
     }
     text
 }

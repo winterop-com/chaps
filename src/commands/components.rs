@@ -98,6 +98,13 @@ fn rows(components: &Components, api_port: u16) -> Vec<ComponentRow> {
 pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
     let mut project = ctx.project()?;
+    if component == Component::Dhis2
+        && let Some(external) = &project.state.components.dhis2_external
+    {
+        return Err(anyhow::anyhow!(crate::components::dhis2_external_refusal(
+            &external.url
+        )));
+    }
     let before = project.state.components.clone();
 
     // The port preflight runs on the state as recorded, before anything moves:

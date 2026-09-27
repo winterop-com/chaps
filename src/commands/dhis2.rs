@@ -7,13 +7,16 @@
 //! it is installed. [`crate::dhis2`] holds the protocol and the rules; this
 //! module is the command surface, the waits and what is said about them.
 //!
-//! Four verbs that change something and one that does not:
+//! Four verbs that change DHIS2, one that does not, and one that changes
+//! only this deployment's record of which DHIS2 it is:
 //!
 //! - `show` asks and reports, and is safe on anything;
 //! - `route` creates the `chap` route, or **repoints** one that is there;
 //! - `analytics` generates the tables and waits for them;
 //! - `apps` installs the Modeling App and the Climate App from the App Hub;
-//! - `connect` does the route, the apps and then analytics, in that order.
+//! - `connect` does the route, the apps and then analytics, in that order;
+//! - `use` records a DHIS2 that runs elsewhere, which the others then talk to
+//!   in place of the `dhis2` component.
 //!
 //! Every one of them is idempotent: run twice and the second run says there was
 //! nothing to do. Nothing here is done by `chaps up`, and
@@ -21,11 +24,13 @@
 
 use crate::cli::{
     Dhis2AnalyticsArgs, Dhis2AppsArgs, Dhis2CommonArgs, Dhis2ConnectArgs, Dhis2RouteArgs,
-    Dhis2ShowArgs,
+    Dhis2ShowArgs, Dhis2UseArgs,
 };
 use crate::commands::Ctx;
 use crate::components::Component;
-use crate::dhis2::{self, Dhis2, HubAppRef, PasswordSource, Progress, Ready, RouteAction};
+use crate::dhis2::{
+    self, AuthKind, CredentialSource, Dhis2, HubAppRef, Progress, Ready, RouteAction,
+};
 use crate::docker;
 use crate::error::Result;
 use crate::open::{Openable, resolve};
@@ -70,15 +75,21 @@ fn no_host_port(inside: &str) -> String {
 /// The instance every verb opens with: where it is, what it is, and who it was
 /// asked as.
 ///
-/// `password_from` is where the password was found and never the password
-/// itself, which is also the only thing about it a human report prints.
+/// `credential_from` is where the password or token was found and never the
+/// secret itself, which is also the only thing about it a human report prints.
 #[derive(Debug, Clone, Serialize)]
 pub struct Instance {
     pub url: String,
     /// DHIS2's own version, or empty when it did not say.
     pub version: String,
+    /// Who the requests went as. For a token, whoever DHIS2 said owns it.
     pub user: String,
-    pub password_from: PasswordSource,
+    /// Whether this is an external DHIS2 recorded by `chaps dhis2 use`,
+    /// rather than the deployment's own `dhis2` component.
+    pub external: bool,
+    /// A password or a personal access token.
+    pub auth: AuthKind,
+    pub credential_from: CredentialSource,
 }
 
 /// What `route` did to the `chap` route.
@@ -265,14 +276,26 @@ impl Session {
         Instance {
             url: self.dhis2.base().to_string(),
             version: self.ready.version.clone(),
-            user: self.dhis2.user().to_string(),
-            password_from: self.dhis2.password_source(),
+            user: self.ready.user.clone(),
+            external: self.external().is_some(),
+            auth: self.dhis2.credentials().kind(),
+            credential_from: self.dhis2.credentials().source,
         }
     }
 
-    /// Where this deployment's route has to point.
+    /// The external DHIS2 this session talks to, if that is what it is.
+    fn external(&self) -> Option<&crate::components::ExternalDhis2> {
+        self.project.state.components.dhis2_external.as_ref()
+    }
+
+    /// Where this deployment's route has to point: the compose network's name
+    /// for chap-core for a DHIS2 on that network, and the recorded URL for one
+    /// that is not.
     fn target(&self) -> String {
-        dhis2::route_target(&self.project.root_path())
+        match self.external() {
+            Some(external) => dhis2::external_route_target(&external.chap_url),
+            None => dhis2::route_target(&self.project.root_path()),
+        }
     }
 }
 
@@ -288,24 +311,38 @@ impl Session {
 fn open_session(ctx: &Ctx, common: &Dhis2CommonArgs) -> Result<Session> {
     let project = ctx.project()?;
     let components = &project.state.components;
-    let base = match resolve(Component::Dhis2, components, &project.api_base()) {
-        Openable::Url { url, .. } => url,
-        Openable::Internal { inside } => return Err(anyhow::anyhow!(no_host_port(&inside))),
-        Openable::Off | Openable::NoWeb => return Err(anyhow::anyhow!(NO_DHIS2)),
-    };
-    match docker::running_containers_or_why(&project) {
-        Ok(containers) => {
-            if !docker::running_of(&containers).contains(Component::Dhis2.service()) {
-                return Err(anyhow::anyhow!(NOT_RUNNING));
-            }
+    // An external DHIS2 has no container to look for: its URL is what was
+    // recorded, and the wait below is the whole of the check.
+    let client = match &components.dhis2_external {
+        Some(external) => {
+            let credentials = dhis2::credentials_for(&project.dir, common.user.as_deref(), false)?;
+            Dhis2::new(&external.url, credentials, dhis2::DEFAULT_TIMEOUT).external()
         }
-        Err(why) => ctx.out.verbose(&format!(
-            "docker could not be asked whether dhis2 is running ({why}), so DHIS2 is asked directly"
-        )),
-    }
-
-    let credentials = dhis2::credentials_for(&project.dir, common.user.as_deref());
-    let client = Dhis2::new(&base, credentials, dhis2::DEFAULT_TIMEOUT);
+        None => {
+            let base = match resolve(Component::Dhis2, components, &project.api_base()) {
+                Openable::Url { url, .. } => url,
+                Openable::Internal { inside } => {
+                    return Err(anyhow::anyhow!(no_host_port(&inside)));
+                }
+                Openable::Off | Openable::NoWeb => return Err(anyhow::anyhow!(NO_DHIS2)),
+            };
+            match docker::running_containers_or_why(&project) {
+                Ok(containers) => {
+                    if !docker::running_of(&containers).contains(Component::Dhis2.service()) {
+                        return Err(anyhow::anyhow!(NOT_RUNNING));
+                    }
+                }
+                Err(why) => ctx.out.verbose(&format!(
+                    "docker could not be asked whether dhis2 is running ({why}), so DHIS2 is \
+                     asked directly"
+                )),
+            }
+            let credentials = dhis2::credentials_for(&project.dir, common.user.as_deref(), true)?;
+            Dhis2::new(&base, credentials, dhis2::DEFAULT_TIMEOUT)
+        }
+    };
+    let base = client.base().to_string();
+    let external = components.dhis2_external.is_some();
     let ready = client.wait_for_api(
         Duration::from_secs(common.wait),
         dhis2::POLL_INTERVAL,
@@ -314,10 +351,13 @@ fn open_session(ctx: &Ctx, common: &Dhis2CommonArgs) -> Result<Session> {
         // already answering says nothing at all.
         &mut |wait| {
             crate::output::notice(&format!(
-                "DHIS2 at {base} is not answering {} yet; waiting up to {}, and `chaps logs dhis2` \
-                 is where the migration shows",
+                "DHIS2 at {base} is not answering {} yet; waiting up to {}{}",
                 dhis2::PING_PATH,
-                crate::output::human_age(wait)
+                crate::output::human_age(wait),
+                match external {
+                    true => "",
+                    false => ", and `chaps logs dhis2` is where the migration shows",
+                }
             ));
         },
     )?;
@@ -481,16 +521,16 @@ fn analytics_evidence(ctx: &Ctx, session: &Session) -> dhis2::AnalyticsEvidence 
             false
         }
     };
-    dhis2::analytics_evidence(
-        &session.ready.last_analytics,
-        ran_here,
-        session
+    // A seed dump is something chaps restores into its own `dhis2_db`; an
+    // external DHIS2 came with nothing of chaps', so its timestamp is its own.
+    let seeded = session.external().is_none()
+        && session
             .project
             .state
             .components
             .dhis2_seed_source()
-            .is_some(),
-    )
+            .is_some();
+    dhis2::analytics_evidence(&session.ready.last_analytics, ran_here, seeded)
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +638,10 @@ fn send_route(
         return Ok(());
     }
     if dhis2::is_allowlist_refusal(&answer) {
-        return Err(anyhow::anyhow!(dhis2::allowlist_hint(target)));
+        return Err(anyhow::anyhow!(dhis2::allowlist_hint(
+            target,
+            session.external().is_none()
+        )));
     }
     Err(session.dhis2.status_error(path, &answer))
 }
@@ -1029,7 +1072,7 @@ fn judge(route: &RouteReport, apps: Option<&AppsReport>) -> Judgement {
 /// The file is only written when the value moves, so re-running `connect` on a
 /// deployment that was never connected touches nothing.
 fn record_connect(ctx: &Ctx, project: &mut Project, judgement: Judgement) -> Result<ConnectRecord> {
-    let was = project.state.components.dhis2.connected_at.is_some();
+    let was = project.state.components.dhis2_connected_at_mut().is_some();
     let at = match (judgement, was) {
         (Judgement::Unknown, _) | (Judgement::Broken, false) => {
             return Ok(ConnectRecord::Unchanged);
@@ -1045,9 +1088,311 @@ fn record_connect(ctx: &Ctx, project: &mut Project, judgement: Judgement) -> Res
         true => ConnectRecord::Recorded,
         false => ConnectRecord::Cleared,
     };
-    project.state.components.dhis2.connected_at = at;
+    *project.state.components.dhis2_connected_at_mut() = at;
     project.save()?;
     Ok(record)
+}
+
+// ---------------------------------------------------------------------------
+// use
+// ---------------------------------------------------------------------------
+
+/// How long `use` gives DHIS2 to answer: it asks once, and a DHIS2 that is
+/// still migrating is `chaps dhis2 show`'s to wait for.
+const USE_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Why an external DHIS2 cannot be recorded beside the component.
+const COMPONENT_IS_ON: &str = "the `dhis2` component is on, and it is this deployment's DHIS2; \
+     run `chaps components disable dhis2` first, then `chaps dhis2 use` again";
+
+/// What `use` did to the record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UseOutcome {
+    /// There was no external DHIS2, and now there is one.
+    Recorded,
+    /// There was one, and its URL or its chap-core URL moved.
+    Changed,
+    /// What was asked for is what was recorded. Nothing was written.
+    Unchanged,
+    /// The record was removed.
+    Cleared,
+    /// Nothing was asked for, so the record was reported and not touched.
+    Shown,
+}
+
+/// What `use` found when it asked the DHIS2 it recorded.
+#[derive(Debug, Clone, Serialize)]
+pub struct UseProbe {
+    /// Whether [`dhis2::PING_PATH`] answered.
+    pub answered: bool,
+    /// What it said, or why nothing did.
+    pub answer: String,
+    /// The credential `chaps dhis2` would send, by what it is and where it was
+    /// found; `null` when there is none.
+    pub credential: Option<String>,
+    /// Whether DHIS2 accepted it. `null` when it was not tried: no
+    /// credential, or no DHIS2 answering to try it on.
+    pub accepted: Option<bool>,
+    /// Why there is no credential, or why DHIS2 did not accept it.
+    pub problem: Option<String>,
+}
+
+/// What `chaps dhis2 use` did.
+#[derive(Debug, Clone, Serialize)]
+pub struct UseReport {
+    pub outcome: UseOutcome,
+    /// The external DHIS2 recorded now, or `null` for none.
+    pub external: Option<crate::components::ExternalDhis2>,
+    /// The one recorded before, for a change or a clear.
+    pub previous: Option<crate::components::ExternalDhis2>,
+    /// Where the `chap` route has to point for it.
+    pub target: Option<String>,
+    /// Whether the `dhis2` component is on, which is what `chaps dhis2` talks
+    /// to when nothing is recorded.
+    pub component: bool,
+    /// What asking it just now found; `null` when there is nothing to ask.
+    pub probe: Option<UseProbe>,
+    pub notes: Vec<String>,
+    pub next: String,
+}
+
+/// `chaps dhis2 use` — record a DHIS2 that runs elsewhere, change it, forget
+/// it, or say which DHIS2 `chaps dhis2` talks to.
+///
+/// Every shape that records something also asks: [`dhis2::PING_PATH`] to
+/// prove the URL, and one authenticated request to prove the credential. A
+/// record that is wrong is still written - the URL can be right for a DHIS2
+/// that is down for maintenance - and the report says what did not answer.
+pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
+    let mut project = ctx.project()?;
+    let before = project.state.components.dhis2_external.clone();
+    let component = project.state.components.dhis2.enabled;
+
+    if args.clear {
+        let outcome = match before {
+            Some(_) => {
+                project.state.components.dhis2_external = None;
+                project.save()?;
+                UseOutcome::Cleared
+            }
+            None => UseOutcome::Unchanged,
+        };
+        let report = UseReport {
+            outcome,
+            external: None,
+            previous: before,
+            target: None,
+            component,
+            probe: None,
+            notes: Vec::new(),
+            next: match component {
+                true => "`chaps dhis2` talks to the `dhis2` component; run `chaps dhis2 show`",
+                false => {
+                    "run `chaps dhis2 use URL --chap-url URL` to record a DHIS2, or `chaps \
+                     components enable dhis2` to deploy one"
+                }
+            }
+            .to_string(),
+        };
+        return ctx.out.emit(&report, || human_use(&report, &ctx.out));
+    }
+
+    let (external, outcome) = match (&args.url, &args.chap_url) {
+        (None, None) => (before.clone(), UseOutcome::Shown),
+        (url, chap_url) => {
+            if component {
+                return Err(anyhow::anyhow!(COMPONENT_IS_ON));
+            }
+            let url = match (url, &before) {
+                (Some(url), _) => external_url(url)?,
+                (None, Some(before)) => before.url.clone(),
+                (None, None) => {
+                    return Err(anyhow::anyhow!(
+                        "no external DHIS2 is recorded yet, so there is no URL to keep; run \
+                         `chaps dhis2 use URL --chap-url URL`"
+                    ));
+                }
+            };
+            let chap_url = match (chap_url, &before) {
+                (Some(chap_url), _) => external_url(chap_url)?,
+                (None, Some(before)) => before.chap_url.clone(),
+                (None, None) => {
+                    return Err(anyhow::anyhow!(
+                        "`--chap-url URL` is needed the first time: the route points at \
+                         chap-core as DHIS2 reaches it, which chaps cannot know; run `chaps \
+                         dhis2 use {url} --chap-url https://chap.example.org`"
+                    ));
+                }
+            };
+            let same = before
+                .as_ref()
+                .is_some_and(|before| before.url == url && before.chap_url == chap_url);
+            let external = crate::components::ExternalDhis2 {
+                url,
+                chap_url,
+                // A connect is a fact about one DHIS2 and one route target;
+                // either moving is a DHIS2 no connect has been recorded for.
+                connected_at: match same {
+                    true => before.as_ref().and_then(|b| b.connected_at.clone()),
+                    false => None,
+                },
+            };
+            let outcome = match (&before, same) {
+                (None, _) => UseOutcome::Recorded,
+                (Some(_), true) => UseOutcome::Unchanged,
+                (Some(_), false) => UseOutcome::Changed,
+            };
+            if outcome != UseOutcome::Unchanged {
+                ctx.out
+                    .verbose("recording `dhis2-external` in `.chaps/components.yaml`");
+                project.state.components.dhis2_external = Some(external.clone());
+                project.save()?;
+            }
+            (Some(external), outcome)
+        }
+    };
+
+    let Some(recorded) = &external else {
+        let report = UseReport {
+            outcome,
+            external: None,
+            previous: None,
+            target: None,
+            component,
+            probe: None,
+            notes: Vec::new(),
+            next: match component {
+                true => "`chaps dhis2` talks to the `dhis2` component; run `chaps dhis2 show`",
+                false => {
+                    "run `chaps dhis2 use URL --chap-url URL` to record a DHIS2, or `chaps \
+                     components enable dhis2` to deploy one"
+                }
+            }
+            .to_string(),
+        };
+        return ctx.out.emit(&report, || human_use(&report, &ctx.out));
+    };
+
+    let probe = probe_external(&project, recorded);
+    let mut notes = Vec::new();
+    if is_loopback(&recorded.chap_url) {
+        notes.push(format!(
+            "{} is this machine's own address, and DHIS2 resolves it to its own server; give \
+             `--chap-url` the address chap-core is served at on the network",
+            recorded.chap_url
+        ));
+    }
+    if !project.state.components.is_enabled(Component::ChapCore) {
+        notes.push(NO_CHAP_CORE.to_string());
+    }
+    let next = match (&probe, &recorded.connected_at) {
+        (probe, _) if !probe.answered => {
+            "check the URL, then run `chaps dhis2 use` again to ask it".to_string()
+        }
+        (probe, _) if probe.credential.is_none() => format!(
+            "set `{}` in `.env`, or export `{}`, then run `chaps dhis2 connect`",
+            dhis2::API_TOKEN_ENV_VAR,
+            dhis2::TOKEN_ENV_VAR
+        ),
+        (probe, _) if probe.accepted == Some(false) => {
+            "fix the credential named above, then run `chaps dhis2 use` again to ask it".to_string()
+        }
+        (_, None) => "run `chaps dhis2 connect` to point its route at this CHAP".to_string(),
+        (_, Some(_)) => "run `chaps dhis2 show` to see what it has".to_string(),
+    };
+    let report = UseReport {
+        outcome,
+        target: Some(dhis2::external_route_target(&recorded.chap_url)),
+        external: external.clone(),
+        previous: before.filter(|_| outcome == UseOutcome::Changed),
+        component,
+        probe: Some(probe),
+        notes,
+        next,
+    };
+    ctx.out.emit(&report, || human_use(&report, &ctx.out))
+}
+
+/// A URL as it is recorded: `http://` or `https://` with a host, and without a
+/// trailing slash.
+fn external_url(raw: &str) -> Result<String> {
+    let url = raw.trim().trim_end_matches('/');
+    let host = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .map(|rest| rest.split('/').next().unwrap_or_default())
+        .unwrap_or_default();
+    if host.is_empty() {
+        return Err(anyhow::anyhow!(
+            "`{raw}` is not a URL chaps can record; give it with http:// or https://, like \
+             `https://dhis2.example.org`"
+        ));
+    }
+    Ok(url.to_string())
+}
+
+/// Whether a URL names this machine, which is a different machine for DHIS2.
+fn is_loopback(url: &str) -> bool {
+    let host = url
+        .split("://")
+        .nth(1)
+        .unwrap_or_default()
+        .split(['/', ':'])
+        .next()
+        .unwrap_or_default();
+    host == "localhost" || host.starts_with("127.") || host == "[::1]"
+}
+
+/// Ask the recorded DHIS2 whether it answers, and whether it takes the
+/// credential `chaps dhis2` would send it.
+fn probe_external(project: &Project, external: &crate::components::ExternalDhis2) -> UseProbe {
+    let credentials = dhis2::credentials_for(&project.dir, None, false);
+    // `send_open` carries no credential, so a placeholder serves for the ping
+    // when there is none to carry.
+    let client = Dhis2::new(
+        &external.url,
+        credentials
+            .as_ref()
+            .ok()
+            .cloned()
+            .unwrap_or_else(|| dhis2::Credentials::token("", CredentialSource::Default)),
+        USE_PROBE_TIMEOUT,
+    )
+    .external();
+    let (answered, answer) = match client.send_open(dhis2::PING_PATH) {
+        Ok(answer) if answer.is_success() => (true, format!("answers {}", dhis2::PING_PATH)),
+        Ok(answer) => (
+            false,
+            format!("{} answered {}", dhis2::PING_PATH, answer.status_line()),
+        ),
+        Err(err) => (false, first_line(&err.to_string())),
+    };
+    let (credential, accepted, problem) = match credentials {
+        Err(why) => (None, None, Some(why.to_string())),
+        Ok(credentials) if !answered => (Some(credentials.describe()), None, None),
+        Ok(credentials) => {
+            let described = credentials.describe();
+            match client.send("GET", dhis2::ME_PATH, None) {
+                Ok(answer) if answer.is_success() => (Some(described), Some(true), None),
+                Ok(answer) => (
+                    Some(described),
+                    Some(false),
+                    Some(client.refusal(&answer).unwrap_or_else(|| {
+                        client.status_error(dhis2::ME_PATH, &answer).to_string()
+                    })),
+                ),
+                Err(err) => (Some(described), None, Some(first_line(&err.to_string()))),
+            }
+        }
+    };
+    UseProbe {
+        answered,
+        answer,
+        credential,
+        accepted,
+        problem,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,13 +1402,107 @@ fn record_connect(ctx: &Ctx, project: &mut Project, judgement: Judgement) -> Res
 /// The line every verb opens with: where DHIS2 is, what it is, and who it was
 /// asked as. Never the password, only where it was found.
 fn instance_line(instance: &Instance, out: &Out) -> String {
+    let what = match instance.external {
+        true => format!("external DHIS2 {}", display_version(&instance.version)),
+        false => format!("DHIS2 {}", display_version(&instance.version)),
+    };
     format!(
         "{} at {}, as {} ({})\n",
-        out.value(&format!("DHIS2 {}", display_version(&instance.version))),
+        out.value(&what),
         out.value(&instance.url),
         out.value(&format!("`{}`", instance.user)),
-        out.dim(instance.password_from.describe()),
+        out.dim(&dhis2::describe_credential(
+            instance.auth,
+            instance.credential_from
+        )),
     )
+}
+
+/// What `use` prints.
+fn human_use(report: &UseReport, out: &Out) -> String {
+    let mut text = String::new();
+    let headline = match (report.outcome, &report.external, &report.previous) {
+        (UseOutcome::Cleared, _, Some(previous)) => {
+            format!("forgot the external DHIS2 at {}", out.value(&previous.url))
+        }
+        (UseOutcome::Unchanged, None, _) => {
+            "no external DHIS2 is recorded; nothing to clear".to_string()
+        }
+        (UseOutcome::Recorded, Some(external), _) => format!(
+            "recorded the external DHIS2 at {} in `.chaps/components.yaml`",
+            out.value(&external.url)
+        ),
+        (UseOutcome::Changed, Some(external), _) => format!(
+            "changed the external DHIS2 to {} in `.chaps/components.yaml`",
+            out.value(&external.url)
+        ),
+        (UseOutcome::Unchanged, Some(external), _) => format!(
+            "the external DHIS2 at {} is already recorded; nothing changed",
+            out.value(&external.url)
+        ),
+        (_, Some(external), _) => format!(
+            "`chaps dhis2` talks to the external DHIS2 at {}",
+            out.value(&external.url)
+        ),
+        (_, None, _) => match report.component {
+            true => "no external DHIS2 is recorded; `chaps dhis2` talks to the `dhis2` component"
+                .to_string(),
+            false => "no external DHIS2 is recorded, and the `dhis2` component is off".to_string(),
+        },
+    };
+    text.push_str(&out.backticks(&headline));
+    text.push('\n');
+    if let (Some(external), Some(probe)) = (&report.external, &report.probe) {
+        let dhis2 = match probe.answered {
+            true => format!(
+                "{} {}",
+                out.value(&external.url),
+                out.ok(&format!("({})", probe.answer))
+            ),
+            false => format!(
+                "{} {}",
+                out.value(&external.url),
+                out.warn(&format!("({})", probe.answer))
+            ),
+        };
+        let login = match (&probe.credential, probe.accepted) {
+            (None, _) => out.warn("none"),
+            (Some(credential), Some(true)) => format!("{credential} {}", out.ok("(accepted)")),
+            (Some(credential), Some(false)) => format!("{credential} {}", out.warn("(refused)")),
+            (Some(credential), None) => format!("{credential} {}", out.dim("(not tried)")),
+        };
+        let connected = match &external.connected_at {
+            Some(at) => out.value(at),
+            None => out.dim("never recorded"),
+        };
+        text.push_str(&crate::output::fields_with(
+            0,
+            &[
+                ("dhis2", dhis2),
+                ("chap-url", out.value(&external.chap_url)),
+                (
+                    "route",
+                    out.dim(report.target.as_deref().unwrap_or_default()),
+                ),
+                ("login", login),
+                ("connected", connected),
+            ],
+            &|label| out.key(label),
+        ));
+        if let Some(problem) = &probe.problem {
+            text.push_str(&format!(
+                "{} {}\n",
+                out.dim("problem:"),
+                out.backticks(problem)
+            ));
+        }
+    }
+    for note in &report.notes {
+        text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
+    }
+    text.push_str(&out.backticks(&report.next));
+    text.push('\n');
+    text
 }
 
 /// A version to print, or the words for an instance that did not say.
@@ -1342,7 +1781,9 @@ mod tests {
             url: "http://localhost:18080".to_string(),
             version: "2.42.6".to_string(),
             user: "admin".to_string(),
-            password_from: PasswordSource::Default,
+            external: false,
+            auth: AuthKind::Basic,
+            credential_from: CredentialSource::Default,
         }
     }
 
@@ -1543,15 +1984,30 @@ mod tests {
         let text = instance_line(&instance(), &out());
         assert_eq!(
             text,
-            "DHIS2 2.42.6 at http://localhost:18080, as `admin` (the DHIS2 default)\n"
+            "DHIS2 2.42.6 at http://localhost:18080, as `admin` (the DHIS2 default password)\n"
         );
         assert!(!text.contains("district"), "{text}");
 
         let from_file = Instance {
-            password_from: PasswordSource::EnvFile,
+            credential_from: CredentialSource::EnvFile,
             ..instance()
         };
-        assert!(instance_line(&from_file, &out()).contains("(from `.env`)"));
+        assert!(instance_line(&from_file, &out()).contains("(password from `.env`)"));
+
+        // A token is named by what it is, with the user DHIS2 said owns it,
+        // and an external DHIS2 says that it is one.
+        let token = Instance {
+            user: "ops".to_string(),
+            external: true,
+            auth: AuthKind::Token,
+            credential_from: CredentialSource::Environment,
+            ..instance()
+        };
+        assert_eq!(
+            instance_line(&token, &out()),
+            "external DHIS2 2.42.6 at http://localhost:18080, as `ops` (API token from \
+             CHAPS_DHIS2_TOKEN)\n"
+        );
 
         // An instance that did not say its version still gets a line.
         let bare = Instance {

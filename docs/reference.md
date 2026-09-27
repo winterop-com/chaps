@@ -688,7 +688,7 @@ Let the DHIS2 Modeling App reach this deployment's CHAP.
 Usage: chaps dhis2 [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps dhis2 show`](#chaps-dhis2-show), [`chaps dhis2 route`](#chaps-dhis2-route), [`chaps dhis2 analytics`](#chaps-dhis2-analytics), [`chaps dhis2 apps`](#chaps-dhis2-apps), [`chaps dhis2 connect`](#chaps-dhis2-connect)
+Subcommands: [`chaps dhis2 show`](#chaps-dhis2-show), [`chaps dhis2 route`](#chaps-dhis2-route), [`chaps dhis2 analytics`](#chaps-dhis2-analytics), [`chaps dhis2 apps`](#chaps-dhis2-apps), [`chaps dhis2 connect`](#chaps-dhis2-connect), [`chaps dhis2 use`](#chaps-dhis2-use)
 
 ## chaps dhis2 show
 
@@ -700,7 +700,7 @@ Usage: chaps dhis2 show [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
 
 ## chaps dhis2 route
@@ -713,7 +713,7 @@ Usage: chaps dhis2 route [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
 
 ## chaps dhis2 analytics
@@ -726,7 +726,7 @@ Usage: chaps dhis2 analytics [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
@@ -741,7 +741,7 @@ Usage: chaps dhis2 apps [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
 
 ## chaps dhis2 connect
@@ -754,10 +754,24 @@ Usage: chaps dhis2 connect [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--user <NAME>` | DHIS2 user to authenticate as; admin unless .env names one. |
+| `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
+
+## chaps dhis2 use
+
+Use a DHIS2 that runs elsewhere, or show which DHIS2 is used.
+
+```text
+Usage: chaps dhis2 use [OPTIONS] [URL]
+```
+
+| Argument | Description |
+| --- | --- |
+| `<URL>` | DHIS2's URL, as this machine reaches it. |
+| `--chap-url <URL>` | chap-core's URL, as that DHIS2 reaches it; the route points here. |
+| `--clear` | Forget the external DHIS2 and use the dhis2 component again. |
 
 ## chaps self
 

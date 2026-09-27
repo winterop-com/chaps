@@ -499,24 +499,46 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     //
     // A section of its own rather than two more lines in the block above, so a
     // deployment that enabled DHIS2 before these commands existed gets them on
-    // its next sync: the two variable names are the whole answer to "where do
-    // the credentials come from", and a name nobody can find is a name nobody
-    // sets. Nothing here is a secret: both lines are commented, `admin` and
-    // `district` are what a seeded dump and an empty database both give, and no
-    // container is passed either variable.
-    if components.dhis2.enabled
-        && !(mentions_var(body, crate::dhis2::ADMIN_USERNAME_ENV_VAR)
-            || mentions_var(body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR))
-    {
+    // its next sync: the variable names are the whole answer to "where do the
+    // credentials come from", and a name nobody can find is a name nobody sets.
+    // Nothing here is a secret: every line is commented, `admin` and `district`
+    // are what a seeded dump and an empty database both give, and no container
+    // is passed any of them. An external DHIS2 gets no `district`: chaps did not
+    // create it, so there is no default to write down.
+    let deployed = components.dhis2.enabled && components.dhis2_external.is_none();
+    let wanted = components.dhis2.enabled || components.dhis2_external.is_some();
+    let login_named = mentions_var(body, crate::dhis2::ADMIN_USERNAME_ENV_VAR)
+        || mentions_var(body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR);
+    let token_named = mentions_var(body, crate::dhis2::API_TOKEN_ENV_VAR);
+    if wanted && !login_named {
         sections.push(format!(
             "# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given\n\
-             # them - and commented out means the DHIS2 default below.\n\
+             # them - and {}. A personal access token,\n\
+             # when set, is used instead of the username and password.\n\
+             # {}=\n\
              # {}={}\n\
              # {}={}\n",
+            match deployed {
+                true => "commented out means the DHIS2 default below",
+                false => "chaps has no default for a DHIS2 it did not deploy",
+            },
+            crate::dhis2::API_TOKEN_ENV_VAR,
             crate::dhis2::ADMIN_USERNAME_ENV_VAR,
             crate::dhis2::DEFAULT_USERNAME,
             crate::dhis2::ADMIN_PASSWORD_ENV_VAR,
-            crate::dhis2::DEFAULT_PASSWORD,
+            match deployed {
+                true => crate::dhis2::DEFAULT_PASSWORD,
+                false => "",
+            },
+        ));
+    } else if wanted && !token_named {
+        // A deployment whose `.env` got the login lines before tokens were
+        // read gets the one line it is missing, and nothing it already has.
+        sections.push(format!(
+            "# A DHIS2 personal access token for `chaps dhis2`, used instead of the login\n\
+             # above when set. Only chaps reads it.\n\
+             # {}=\n",
+            crate::dhis2::API_TOKEN_ENV_VAR,
         ));
     }
     Ok(sections)
@@ -1460,6 +1482,43 @@ mod tests {
         std::fs::write(&env, &mine).unwrap();
         sync(&mut project, &registry, false).unwrap();
         assert_eq!(std::fs::read_to_string(&env).unwrap(), mine);
+    }
+
+    /// The token is named beside the login, an older `.env` that has the login
+    /// lines gets the one it is missing, and an external DHIS2 is given no
+    /// `district`: chaps did not create it, so that is nobody's password there.
+    #[test]
+    fn the_dhis2_token_is_named_and_an_external_dhis2_gets_no_default() {
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+
+        std::fs::write(
+            &env,
+            "POSTGRES_PASSWORD=secret\n# DHIS2_ADMIN_USERNAME=admin\n# DHIS2_ADMIN_PASSWORD=district\n",
+        )
+        .unwrap();
+        project.state.components.dhis2.enabled = true;
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.contains("\n# DHIS2_API_TOKEN=\n"), "{body}");
+        assert_eq!(body.matches("DHIS2_ADMIN_USERNAME").count(), 1, "{body}");
+        assert!(!sync(&mut project, &registry, true).unwrap().drift);
+
+        let (dir, mut project, registry) = project_with(&[]);
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();
+        project.state.components.dhis2_external = Some(crate::components::ExternalDhis2 {
+            url: "https://dhis2.example.org".into(),
+            chap_url: "https://chap.example.org".into(),
+            connected_at: None,
+        });
+        sync(&mut project, &registry, false).unwrap();
+        let body = std::fs::read_to_string(&env).unwrap();
+        assert!(body.contains("\n# DHIS2_API_TOKEN=\n"), "{body}");
+        assert!(body.contains("\n# DHIS2_ADMIN_PASSWORD=\n"), "{body}");
+        assert!(!body.contains("district"), "{body}");
+        // No container, so no compose file for it.
+        assert!(!dir.path().join(DHIS2_COMPOSE).exists());
     }
 
     /// The commented dump pin has to be the value the rendered file defaults to,

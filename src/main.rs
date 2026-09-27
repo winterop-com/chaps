@@ -202,6 +202,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             Dhis2Sub::Analytics(args) => commands::dhis2::analytics(ctx, args),
             Dhis2Sub::Apps(args) => commands::dhis2::apps(ctx, args),
             Dhis2Sub::Connect(args) => commands::dhis2::connect(ctx, args),
+            Dhis2Sub::Use(args) => commands::dhis2::use_external(ctx, args),
         },
 
         Command::SelfCmd(s) => match &s.command {

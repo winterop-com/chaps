@@ -8769,6 +8769,9 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
                 .to_string(),
         );
     }
+    if path.starts_with("/api/me") {
+        return (200, serde_json::json!({"username": "ops"}).to_string());
+    }
     if path == "/api/system/info" {
         let mut info = serde_json::json!({"version": "2.42.6"});
         if state.inherited_analytics {
@@ -8808,8 +8811,11 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
     if path.starts_with("/api/routes/chap/run/") {
         // The proxy answers only when the route points at this deployment's
         // chap-core, which is what makes the verification worth making.
-        let ours = state.route.as_ref().map(|route| route["url"].clone())
-            == Some(serde_json::json!("http://chap:8000/**"));
+        // Either this deployment's compose alias, or the chap-core URL the
+        // external-DHIS2 tests record.
+        let url = state.route.as_ref().map(|route| route["url"].clone());
+        let ours = url == Some(serde_json::json!("http://chap:8000/**"))
+            || url == Some(serde_json::json!(EXTERNAL_CHAP_URL_TARGET));
         return match ours {
             true => (
                 200,
@@ -8920,9 +8926,11 @@ fn dhis2_chap(
     cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
         .env("CHAPS_NO_UPDATE_CHECK", "1")
         .env("CHAPS_NO_DOCKER_PROBE", "1")
-        // A password in the developer's own shell would otherwise decide which
-        // source these tests report.
+        // A password or a token in the developer's own shell would otherwise
+        // decide which source these tests report.
         .env_remove("CHAPS_DHIS2_PASSWORD")
+        .env_remove("CHAPS_DHIS2_USERNAME")
+        .env_remove("CHAPS_DHIS2_TOKEN")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
         .env(
@@ -8975,7 +8983,9 @@ fn dhis2_route_creates_the_route_when_there_is_none() {
         .stdout(predicates::str::contains(
             "DHIS2 2.42.6 at http://localhost:",
         ))
-        .stdout(predicates::str::contains("as `admin` (the DHIS2 default)"));
+        .stdout(predicates::str::contains(
+            "as `admin` (the DHIS2 default password)",
+        ));
 
     // The payload is the one that works, and the target is the compose alias.
     let route = stand_in.route().expect("a route was written");
@@ -9130,7 +9140,7 @@ fn dhis2_reports_what_to_fix_when_the_credentials_are_refused() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "did not accept the credentials for `admin`",
+            "did not accept the password for `admin`",
         ))
         .stderr(predicates::str::contains("DHIS2_ADMIN_USERNAME"))
         .stderr(predicates::str::contains("DHIS2_ADMIN_PASSWORD"))
@@ -9139,12 +9149,25 @@ fn dhis2_reports_what_to_fix_when_the_credentials_are_refused() {
     assert!(!stderr.contains("district"), "{stderr}");
     assert!(!stderr.contains("request failed"), "{stderr}");
 
-    // And `--user` names another user, which the message then names too.
+    // `--user` names another user, and admin's password is not sent in that
+    // user's name: nothing is asked until there is a password that is theirs.
+    let asked = stand_in.asked().len();
     dhis2_chap(&sandbox, &dir, &bin, None, &["route", "--user", "ops"])
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "did not accept the credentials for `ops`",
+            "chaps has no password for DHIS2 user `ops`",
+        ))
+        .stderr(predicates::str::contains("CHAPS_DHIS2_PASSWORD"));
+    assert_eq!(stand_in.asked().len(), asked, "{:?}", stand_in.asked());
+
+    // One exported for the run is theirs, and the refusal then names them.
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "--user", "ops"])
+        .env("CHAPS_DHIS2_PASSWORD", "theirs")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "did not accept the password for `ops` (password from CHAPS_DHIS2_PASSWORD)",
         ));
 }
 
@@ -9543,7 +9566,9 @@ fn dhis2_show_marks_a_route_that_points_somewhere_else() {
     assert_eq!(report["target"], "http://chap:8000/**");
     assert_eq!(report["instance"]["version"], "2.42.6");
     assert_eq!(report["instance"]["user"], "admin");
-    assert_eq!(report["instance"]["password_from"], "default");
+    assert_eq!(report["instance"]["credential_from"], "default");
+    assert_eq!(report["instance"]["auth"], "basic");
+    assert_eq!(report["instance"]["external"], false);
     // Never the password, in any field of the document.
     assert!(!report.to_string().contains("district"), "{report}");
     let missing = report["missing"].to_string();
@@ -9785,6 +9810,232 @@ fn disabling_dhis2_forgets_the_connect_it_had_recorded() {
         .assert()
         .success()
         .stdout(predicates::str::contains("chaps dhis2 connect").not());
+}
+
+/// The chap-core URL the external-DHIS2 tests record, as DHIS2 would reach it.
+const EXTERNAL_CHAP_URL: &str = "https://chap.example.org";
+
+/// The route target that URL makes.
+const EXTERNAL_CHAP_URL_TARGET: &str = "https://chap.example.org/**";
+
+/// A deployment of chap-core alone, with nothing on PATH pretending to be
+/// docker: an external DHIS2 has no container, so nothing may ask for one.
+fn external_dhis2_sandbox() -> (Sandbox, PathBuf, TempDir) {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &free_port().to_string()])
+        .assert()
+        .success();
+    let empty = tempfile::tempdir().expect("an empty PATH entry");
+    (sandbox, dir, empty)
+}
+
+/// The shape most real deployments have: CHAP beside a DHIS2 that already runs
+/// elsewhere, reached with a personal access token.
+#[cfg(unix)]
+#[test]
+fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, empty) = external_dhis2_sandbox();
+    let url = format!("http://127.0.0.1:{}", stand_in.port);
+    let env = dir.join(".env");
+    let body = read(&env);
+    std::fs::write(&env, format!("{body}DHIS2_API_TOKEN=d2p_sekret\n")).unwrap();
+
+    let assert = dhis2_chap(
+        &sandbox,
+        &dir,
+        empty.path(),
+        None,
+        &["use", &format!("{url}/"), "--chap-url", EXTERNAL_CHAP_URL],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains(format!(
+        "recorded the external DHIS2 at {url} in `.chaps/components.yaml`"
+    )))
+    .stdout(predicates::str::contains("answers /api/ping"))
+    .stdout(predicates::str::contains(
+        "API token from `.env` (accepted)",
+    ))
+    .stdout(predicates::str::contains(EXTERNAL_CHAP_URL_TARGET))
+    .stdout(predicates::str::contains("run `chaps dhis2 connect`"));
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(!stdout.contains("sekret"), "{stdout}");
+    assert_eq!(stand_in.authorization(), "ApiToken d2p_sekret");
+
+    // Recorded as state, trailing slash and all taken off.
+    let components = read(&dir.join(".chaps").join("components.yaml"));
+    assert!(components.contains("dhis2-external:"), "{components}");
+    assert!(
+        components.contains(&format!("url: {url}\n")),
+        "{components}"
+    );
+
+    // The same thing again is a report, not a write.
+    dhis2_chap(
+        &sandbox,
+        &dir,
+        empty.path(),
+        None,
+        &["use", &url, "--chap-url", EXTERNAL_CHAP_URL],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains(
+        "is already recorded; nothing changed",
+    ));
+
+    // `route` points it at the recorded chap-core URL, not the compose alias
+    // no server outside this deployment could resolve.
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "external DHIS2 2.42.6 at {url}, as `ops` (API token from `.env`)"
+        )))
+        .stdout(predicates::str::contains(format!(
+            "created the `chap` route at {EXTERNAL_CHAP_URL_TARGET}"
+        )));
+    assert_eq!(
+        stand_in.route().expect("a route")["url"],
+        EXTERNAL_CHAP_URL_TARGET
+    );
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        empty.path(),
+        None,
+        &["show", "--json"],
+    ));
+    assert_eq!(report["instance"]["external"], true);
+    assert_eq!(report["instance"]["auth"], "token");
+    assert_eq!(report["instance"]["credential_from"], "env-file");
+    assert_eq!(report["instance"]["user"], "ops");
+    assert_eq!(report["target"], EXTERNAL_CHAP_URL_TARGET);
+    assert_eq!(report["route"]["ours"], true);
+    assert!(!report.to_string().contains("sekret"), "{report}");
+
+    // The component cannot go on beside it: both would be this deployment's
+    // DHIS2.
+    sandbox
+        .components(&["enable", "dhis2"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "run `chaps dhis2 use --clear` first",
+        ));
+
+    // And forgetting it says what `chaps dhis2` talks to now.
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["use", "--clear"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "forgot the external DHIS2 at {url}"
+        )));
+    let components = read(&dir.join(".chaps").join("components.yaml"));
+    assert!(!components.contains("dhis2-external"), "{components}");
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["use", "--clear"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("nothing to clear"));
+}
+
+/// chaps did not create an external DHIS2, so it knows none of its passwords:
+/// `admin` / `district` is never tried, and the report names what to set.
+#[cfg(unix)]
+#[test]
+fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, empty) = external_dhis2_sandbox();
+    let url = format!("http://127.0.0.1:{}", stand_in.port);
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        empty.path(),
+        None,
+        &["use", &url, "--chap-url", EXTERNAL_CHAP_URL, "--json"],
+    ));
+    assert_eq!(report["outcome"], "recorded");
+    assert_eq!(report["probe"]["answered"], true);
+    assert_eq!(report["probe"]["credential"], Json::Null);
+    assert!(
+        report["next"].as_str().unwrap().contains("DHIS2_API_TOKEN"),
+        "{report}"
+    );
+
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("did not deploy it"))
+        .stderr(predicates::str::contains("CHAPS_DHIS2_TOKEN"));
+    assert_eq!(stand_in.authorization(), "", "{:?}", stand_in.asked());
+
+    // A password exported for the run is used, with the user it names.
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
+        .env("CHAPS_DHIS2_USERNAME", "ops")
+        .env("CHAPS_DHIS2_PASSWORD", "theirs")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "as `ops` (password from CHAPS_DHIS2_PASSWORD)",
+        ));
+}
+
+/// The first `use` needs both URLs, a component that is on refuses it, and a
+/// URL that is not one is said to be not one.
+#[test]
+fn dhis2_use_refuses_what_it_cannot_record() {
+    let (sandbox, dir, empty) = external_dhis2_sandbox();
+    let use_ = |args: &[&str]| {
+        let mut cmd = sandbox.chap();
+        cmd.env("PATH", empty.path())
+            .arg("-C")
+            .arg(&dir)
+            .arg("dhis2")
+            .arg("use")
+            .args(args);
+        cmd
+    };
+
+    use_(&["https://dhis2.example.org"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("`--chap-url URL` is needed"));
+    use_(&["dhis2.example.org", "--chap-url", EXTERNAL_CHAP_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "give it with http:// or https://",
+        ));
+    use_(&["--chap-url", EXTERNAL_CHAP_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "no external DHIS2 is recorded yet",
+        ));
+    // Nothing recorded and nothing asked: a report, naming both ways on.
+    use_(&[])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("no external DHIS2 is recorded"))
+        .stdout(predicates::str::contains(
+            "chaps dhis2 use URL --chap-url URL",
+        ));
+
+    sandbox
+        .components(&["enable", "dhis2", "--port", &free_port().to_string()])
+        .assert()
+        .success();
+    use_(&["https://dhis2.example.org", "--chap-url", EXTERNAL_CHAP_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "run `chaps components disable dhis2` first",
+        ));
 }
 
 /// A deployment this DHIS2 is not part of, and one whose DHIS2 keeps its port

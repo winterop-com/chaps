@@ -587,6 +587,29 @@ impl Default for Dhis2Component {
     }
 }
 
+/// A DHIS2 this deployment did not start, which `chaps dhis2` talks to in
+/// place of the `dhis2` component. Recorded by `chaps dhis2 use`.
+///
+/// The shape of most real deployments: CHAP beside a DHIS2 that already runs
+/// somewhere else. Nothing is rendered from it - there is no container - and
+/// it cannot be recorded while the `dhis2` component is on, because the two
+/// would each be "this deployment's DHIS2".
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalDhis2 {
+    /// Where DHIS2 answers, as this machine reaches it: the origin, plus the
+    /// context path of an instance that is served under one.
+    pub url: String,
+    /// Where chap-core answers as DHIS2 reaches it, which is what the `chap`
+    /// route points at. Not the compose network's `http://chap:8000`, which
+    /// only a container of this deployment can resolve.
+    pub chap_url: String,
+    /// When `chaps dhis2 connect` last got as far as a verified route and both
+    /// apps there. The same record, with the same caveats, as
+    /// [`Dhis2Component::connected_at`].
+    #[serde(default)]
+    pub connected_at: Option<String>,
+}
+
 /// The whole of `components.yaml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Components {
@@ -598,6 +621,14 @@ pub struct Components {
     pub s3: S3Component,
     #[serde(default)]
     pub dhis2: Dhis2Component,
+    /// A DHIS2 somewhere else, when one has been recorded. Absent from the
+    /// file otherwise, so a deployment that never used it reads as it did.
+    #[serde(
+        rename = "dhis2-external",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dhis2_external: Option<ExternalDhis2>,
 }
 
 impl Components {
@@ -642,8 +673,24 @@ impl Components {
     /// of it because `chaps dhis2 connect` refuses without one - the route
     /// would aim at a service that is not there - so a `--without chap-core`
     /// deployment is never asked for something it cannot do.
+    ///
+    /// An external DHIS2 ([`ExternalDhis2`]) is asked the same question of its
+    /// own record: it is the DHIS2 `chaps dhis2 connect` would connect.
     pub fn dhis2_needs_connecting(&self) -> bool {
-        self.dhis2.enabled && self.chap_core.enabled && self.dhis2.connected_at.is_none()
+        self.chap_core.enabled
+            && match &self.dhis2_external {
+                Some(external) => external.connected_at.is_none(),
+                None => self.dhis2.enabled && self.dhis2.connected_at.is_none(),
+            }
+    }
+
+    /// The `connected_at` record of whichever DHIS2 `chaps dhis2` talks to:
+    /// the external one when there is one, the component otherwise.
+    pub fn dhis2_connected_at_mut(&mut self) -> &mut Option<String> {
+        match &mut self.dhis2_external {
+            Some(external) => &mut external.connected_at,
+            None => &mut self.dhis2.connected_at,
+        }
     }
 
     /// The host port one component publishes, when it publishes one.
@@ -873,6 +920,17 @@ pub fn dhis2_connect_hint(answering: bool) -> String {
     }
 }
 
+/// Why the `dhis2` component cannot go on while an external DHIS2 is recorded.
+///
+/// Both would be "this deployment's DHIS2", and `chaps dhis2` would have to
+/// pick one without saying so.
+pub fn dhis2_external_refusal(url: &str) -> String {
+    format!(
+        "this deployment already uses the external DHIS2 at {url}; run `chaps dhis2 use --clear` \
+         first to deploy one of its own"
+    )
+}
+
 /// The half of [`dhis2_connect_hint`] both shapes share.
 const DHIS2_NOT_CONNECTED: &str =
     "chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`";
@@ -972,6 +1030,7 @@ mod tests {
                 seed: Dhis2Seed::From("dumps/laos.sql.gz".into()),
                 connected_at: None,
             },
+            dhis2_external: None,
         };
         let text = serde_yaml_ng::to_string(&components).unwrap();
         assert!(text.contains("chap-core:\n"), "{text}");

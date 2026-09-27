@@ -403,6 +403,7 @@ chaps dhis2 connect     # the route, the apps, then analytics
 | `chaps dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
 | `chaps dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
 | `chaps dhis2 connect` | All three, in that order. |
+| `chaps dhis2 use` | Points all of the above at a DHIS2 that runs elsewhere. See [A DHIS2 that runs elsewhere](#a-dhis2-that-runs-elsewhere). |
 
 Every one of them is idempotent and meant to be re-run: a second `chaps dhis2
 connect` repoints nothing, reinstalls nothing and says so. A step that found
@@ -570,41 +571,160 @@ dhis2 show` is that request.
 
 ### The credentials, and where they come from
 
-`chaps` holds no DHIS2 credentials, and every request above needs one. Three
-places are read, in this order, and the first that has a value wins:
+`chaps` holds no DHIS2 credentials, and every request above needs one: a
+username and password (HTTP Basic), or a DHIS2 **personal access token**. The
+rule is that **a password belongs to the user it was set with**, so the places
+chaps reads are pairs, and the first that has a value wins:
 
-| Source | Notes |
-| --- | --- |
-| `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env` | The deployment's own answer, and where its other secrets already live. |
-| `CHAPS_DHIS2_PASSWORD` in the environment | For an operator who will not keep the password on disk: `export` it for one shell. |
-| `admin` / `district` | The DHIS2 default, which is what both shapes of this component give. |
+| Order | Source | Notes |
+| --- | --- | --- |
+| 1 | `DHIS2_API_TOKEN` in `.env` | A personal access token. Preferred to the password beside it: it can be scoped and revoked. |
+| 2 | `DHIS2_ADMIN_PASSWORD` in `.env`, for `DHIS2_ADMIN_USERNAME` | The deployment's own answer, and where its other secrets already live. The user is `admin` when the file names none. |
+| 3 | `CHAPS_DHIS2_TOKEN` in the environment | A token kept off disk: `export` it for one shell. |
+| 4 | `CHAPS_DHIS2_PASSWORD` in the environment, for `CHAPS_DHIS2_USERNAME` | A password kept off disk. Without `CHAPS_DHIS2_USERNAME` it is the password of the user `.env` names. |
+| 5 | `admin` / `district` | The DHIS2 default, and only on a DHIS2 chaps deployed. |
 
 The default is not a guess. A seeded demo dump ships that user, and a
 Flyway-bootstrapped empty database gets it from `DefaultAdminUserPopulator`, which
-has both words compiled in. `.env` carries the two variable names as commented
-placeholders holding exactly those values, so uncommenting one changes nothing
-until it is edited:
+has both words compiled in. It is never sent to an
+[external DHIS2](#a-dhis2-that-runs-elsewhere): chaps did not create that
+instance, so `district` is nobody's password there, and trying it would only be a
+failed login in its audit log. An external DHIS2 with none of the four set is an
+error before any request is made. So is a `.env` that names a user and sets no
+password for them: the default belongs to `admin`, not to whoever the file names.
+
+`.env` carries the variable names as commented placeholders. On a DHIS2 chaps
+deployed they hold exactly the values already used, so uncommenting one changes
+nothing until it is edited:
 
 ```ini
 # DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
-# them - and commented out means the DHIS2 default below.
+# them - and commented out means the DHIS2 default below. A personal access token,
+# when set, is used instead of the username and password.
+# DHIS2_API_TOKEN=
 # DHIS2_ADMIN_USERNAME=admin
 # DHIS2_ADMIN_PASSWORD=district
 ```
 
-Only `chaps` reads them. Neither reaches a container, so neither appears in a
-generated compose file. `--user NAME` names a different user for one run; there
-is deliberately **no `--password` flag**, because a password on a command line is
-in the shell history and in `ps`. Nothing ever prints the password: a report names
-the user and says where the password was found - from `.env`, from
-`CHAPS_DHIS2_PASSWORD`, or the DHIS2 default - and no more, and `-v` traces the
-header as `Authorization: Basic <admin and its password>`.
+For an external DHIS2 the password line is empty, since there is no default to
+write down. `chaps sync` adds the section when a DHIS2 is first used, and adds
+the `DHIS2_API_TOKEN` line alone to a `.env` written before tokens were read.
+Only `chaps` reads these variables. None of them reaches a container, so none
+appears in a generated compose file.
 
-A password DHIS2 does not accept is a sentence rather than "request failed":
+**`--user NAME`** asks for one user by name for one run. That always means a
+password, even when a token is on offer, and only a password that belongs to
+`NAME` is sent:
+
+- `DHIS2_ADMIN_PASSWORD`, when `.env` names `NAME`;
+- `CHAPS_DHIS2_PASSWORD`, unless `CHAPS_DHIS2_USERNAME` gives it to someone else;
+- the default, for `admin` on a DHIS2 chaps deployed.
+
+Anything else is refused before a request is made, rather than sending one user's
+password in another's name. So a one-off run as someone else is:
+
+```sh
+CHAPS_DHIS2_PASSWORD=theirs chaps dhis2 show --user alice
+```
+
+There is deliberately **no `--password` or `--token` flag**, because a secret on
+a command line ends up in the shell history and in `ps`. Nothing ever prints the
+secret. A report names the user and says what the credential is and where it was
+found (`password from .env`, `API token from CHAPS_DHIS2_TOKEN`, `the DHIS2
+default password`). For a token, the user is whoever DHIS2 says owns it
+(`GET /api/me`). `-v` traces the header as `Authorization: Basic <admin and its
+password>` or `Authorization: ApiToken <the token>`.
+
+A token is created in DHIS2 under **Profile > Personal access tokens**. Leave its
+allowed HTTP methods unrestricted, or allow at least `GET`, `POST` and `PUT`:
+`route` writes with `POST` and `PUT`, and `analytics` and `apps` start work with
+`POST`. The token's user needs the same authority a password's would, and a
+superuser has it.
+
+A credential DHIS2 does not accept gets an error that says so, rather than
+"request failed":
 
 ```text
-error: DHIS2 at http://localhost:8080 did not accept the credentials for `admin` (the DHIS2 default); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at http://localhost:8080 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
 ```
+
+### A DHIS2 that runs elsewhere
+
+Most real deployments put CHAP beside a DHIS2 that already runs on a server of
+its own. `chaps dhis2 use` records one, and from then on every `chaps dhis2`
+verb talks to it instead of the `dhis2` component:
+
+```sh
+chaps dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
+```
+
+It takes two URLs because the two directions are different:
+
+| URL | Whose view | What it is for |
+| --- | --- | --- |
+| the DHIS2 URL | this machine's | every request chaps makes: the origin, plus the context path of a DHIS2 served under one (`https://example.org/dhis`) |
+| `--chap-url` | DHIS2's | where the `chap` route points. chap-core as that DHIS2 server reaches it, including any `CHAP_ROOT_PATH` |
+
+The route is the only reason for `--chap-url`, and chaps cannot work it out. The
+compose alias `http://chap:8000` resolves only inside this deployment, and
+`localhost` on the DHIS2 server is that server. So the route becomes
+`<chap-url>/**` (`https://chap.example.org/**`), and a `--chap-url` that names
+`localhost` or `127.x` is recorded with a note that it will not work.
+
+The record lives in `.chaps/components.yaml`, next to the components:
+
+```yaml
+dhis2-external:
+  url: https://dhis2.example.org
+  chap_url: https://chap.example.org
+  connected_at: null
+```
+
+`use` records the URLs and then asks the DHIS2 two things: whether `/api/ping`
+answers, and whether it accepts the credential `chaps dhis2` would send. It
+reports both, and names the next step: the credential to set, or `chaps dhis2
+connect`. A URL that did not answer is still recorded, since the DHIS2 may just
+be down for maintenance. The report says so.
+
+```text
+recorded the external DHIS2 at https://dhis2.example.org in `.chaps/components.yaml`
+dhis2     https://dhis2.example.org (answers /api/ping)
+chap-url  https://chap.example.org
+route     https://chap.example.org/**
+login     API token from `.env` (accepted)
+connected never recorded
+run `chaps dhis2 connect` to point its route at this CHAP
+```
+
+| Form | What it does |
+| --- | --- |
+| `chaps dhis2 use URL --chap-url URL` | Record one, or replace the one recorded. |
+| `chaps dhis2 use URL` / `chaps dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. |
+| `chaps dhis2 use` | Say which DHIS2 `chaps dhis2` talks to, and ask it. Writes nothing. |
+| `chaps dhis2 use --clear` | Forget it; `chaps dhis2` talks to the `dhis2` component again. |
+
+What changes against an external DHIS2:
+
+- **Credentials have no default.** See
+  [the credentials](#the-credentials-and-where-they-come-from). A token is the
+  natural choice for a server you do not own the admin password of.
+- **Nothing asks docker.** There is no container. The wait for `/api/ping` is
+  the whole check, and a DHIS2 that does not answer points you back at the
+  recorded URL rather than at `chaps logs dhis2`.
+- **The analytics timestamp is trusted.** No seed dump of chaps' was restored
+  into it, so `lastAnalyticsTableSuccess` is that instance's own.
+- **The allowlist is that server's.** A refused route names
+  `route.remote_servers_allowed` in the `dhis.conf` on the DHIS2 server, which is
+  its operator's file, not one in this directory.
+- **`chaps open dhis2` opens it**, and `chaps up` names `chaps dhis2 connect`
+  until a connect is recorded against it, just as for the component.
+  `connected_at` is its own record. Moving either URL forgets it, because a
+  connect was a fact about one DHIS2 and one route target.
+
+It is one DHIS2 or the other, never both. `use` refuses while the `dhis2`
+component is on, and `chaps components enable dhis2` refuses while an external
+DHIS2 is recorded. Each names the command that clears the way.
 
 ### The route is repointed, not created
 
@@ -838,7 +958,9 @@ DHIS2_ENCRYPTION_PASSWORD=217ab7126f92244466434ebc5a4c7c16
 # DHIS2_JAVA_TOOL_OPTIONS=-Xms2g -Xmx4g -XX:+UseG1GC
 
 # DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
-# them - and commented out means the DHIS2 default below.
+# them - and commented out means the DHIS2 default below. A personal access token,
+# when set, is used instead of the username and password.
+# DHIS2_API_TOKEN=
 # DHIS2_ADMIN_USERNAME=admin
 # DHIS2_ADMIN_PASSWORD=district
 ```
