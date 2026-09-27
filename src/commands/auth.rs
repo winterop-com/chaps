@@ -145,6 +145,13 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     // already hold the token keep working.
     let token = match args.token.as_deref().map(str::trim) {
         Some(given) if !given.is_empty() => {
+            if let Some(problem) = crate::dotenv::literal_problem(given) {
+                return Err(crate::error::ChapError::Usage(format!(
+                    "--token contains {problem}; choose another, or leave --token out and one is \
+                     generated"
+                ))
+                .into());
+            }
             if given.chars().count() < auth::MIN_TOKEN_LENGTH {
                 output::warn(&auth::weak_token_warning(given.chars().count()));
             }

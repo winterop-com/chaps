@@ -101,10 +101,21 @@ the file Compose reads and the one to keep out of version control. A
 what those deployments were.
 
 A generated secret is 64 lowercase hex characters, the same thing
-`openssl rand -hex 32` produces. An explicit `--api-token VALUE` is used
-verbatim; below 32 characters `chaps` warns, and so does chap-core at startup,
-because its API has no rate limiting and a short token is guessable by anyone
-who can reach the port.
+`openssl rand -hex 32` produces. An explicit `--api-token VALUE` (or `chaps
+auth enable --token VALUE`) is used verbatim; below 32 characters `chaps`
+warns, and so does chap-core at startup, because its API has no rate limiting
+and a short token is guessable by anyone who can reach the port.
+
+Verbatim includes `$`: a token with characters Compose would read as anything
+but themselves is written in single quotes (`CHAP_API_TOKEN='$abc def'`), which
+Compose reads literally. Written bare, `$abc` would be expanded, to an empty
+string when no such variable is set, and an empty `CHAP_API_TOKEN` is
+authentication off. A quote, a backslash or a control character cannot be
+written that way, so a token containing one is refused.
+
+`chaps` reads `.env` by Compose's rules as well: `CHAP_API_PORT=8001 # mine` is
+port `8001` to both, because a `#` after a space starts a comment. A `#`
+without a space before it (`val#ue`) is part of the value.
 
 ## Turning it on and off
 

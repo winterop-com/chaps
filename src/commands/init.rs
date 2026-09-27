@@ -1007,6 +1007,13 @@ fn resolve_secrets(requested: Option<&Option<String>>) -> Result<Option<Secrets>
     };
     let api_token = match value.as_deref().map(str::trim) {
         Some(given) if !given.is_empty() => {
+            if let Some(problem) = crate::dotenv::literal_problem(given) {
+                return Err(crate::error::ChapError::Usage(format!(
+                    "--api-token contains {problem}; choose another, or pass --api-token with no \
+                     value and one is generated"
+                ))
+                .into());
+            }
             let length = given.chars().count();
             if length < auth::MIN_TOKEN_LENGTH {
                 crate::output::warn(&auth::weak_token_warning(length));

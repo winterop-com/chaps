@@ -8,8 +8,18 @@
 //! - `export KEY=value` assigns the same thing as `KEY=value`, and is how a
 //!   file that is also `source`d in a shell gets written;
 //! - a value wrapped in matching single or double quotes does not include
-//!   them;
+//!   them, and anything after the closing quote is ignored;
+//! - single quotes are literal, but for `\'`: no `$VAR` is expanded inside
+//!   them, which is why [`encode`] writes a secret that way;
+//! - an unquoted value ends at a ` #` - a `#` with a space before it - which
+//!   starts a comment, so `PORT=8001 # mine` is `8001` while `val#ue` is all
+//!   one value;
 //! - a line whose first non-blank character is `#` assigns nothing.
+//!
+//! Measured against Compose v5 with `docker compose config`, not recalled.
+//! Two of its rules are not reproduced, because chaps has no environment to
+//! expand them from: `$VAR` in an unquoted or double-quoted value is read as
+//! the text it is, and so is `$$`. Nothing chaps writes contains either.
 //!
 //! Every reader and every writer in this CLI goes through here, because a
 //! reader and a writer that disagree about which line is live is exactly how
@@ -28,7 +38,7 @@
 pub fn value(body: &str, key: &str) -> Option<String> {
     body.lines()
         .filter_map(|line| assignment(line, key))
-        .map(|value| unquote(value).to_string())
+        .map(decode)
         .next_back()
 }
 
@@ -50,7 +60,7 @@ pub fn non_empty(body: &str, key: &str) -> Option<String> {
 pub fn commented_value(body: &str, key: &str) -> Option<String> {
     body.lines()
         .filter_map(|line| assignment(line.trim_start().strip_prefix('#')?, key))
-        .map(|value| unquote(value).to_string())
+        .map(decode)
         .rfind(|value| !value.is_empty())
 }
 
@@ -70,6 +80,10 @@ pub enum Wrote {
 
 /// Assign `value` to `key` in a `.env` split into `lines`, leaving exactly one
 /// active assignment of it behind.
+///
+/// The value goes through [`encode`], so what compose reads back is `value`
+/// exactly - never an expansion of a `$` inside it. An inline comment on the
+/// line that is rewritten stays on it.
 ///
 /// In order: the first active assignment is rewritten and every later
 /// duplicate removed, else the commented placeholder is uncommented in place,
@@ -91,7 +105,10 @@ pub fn set(lines: &mut Vec<String>, key: &str, value: &str) -> Wrote {
         } else {
             ""
         };
-        lines[first] = format!("{prefix}{key}={value}");
+        let comment = assignment(&lines[first], key)
+            .map(trailing_comment)
+            .unwrap_or_default();
+        lines[first] = format!("{prefix}{key}={}{comment}", encode(value));
         // A later duplicate is the line compose would have read instead, so
         // leaving one behind is leaving the old value in force.
         for &at in rest.iter().rev() {
@@ -104,7 +121,7 @@ pub fn set(lines: &mut Vec<String>, key: &str, value: &str) -> Wrote {
 
     match lines.iter().position(|line| is_commented(line, key)) {
         Some(at) => {
-            lines[at] = format!("{key}={value}");
+            lines[at] = format!("{key}={}", encode(value));
             Wrote::Uncommented
         }
         None => Wrote::Absent,
@@ -160,17 +177,96 @@ fn is_export(line: &str) -> bool {
     line.trim_start().starts_with("export ")
 }
 
-/// A value without its matching surrounding quotes, if it had a pair.
-fn unquote(value: &str) -> &str {
-    for quote in ['"', '\''] {
-        if let Some(inner) = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote))
-        {
-            return inner;
-        }
+/// The characters a value may carry unquoted and mean the same thing to
+/// compose and to every shell that sources the file.
+fn is_plain(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "-_.:/+=@,~%".contains(c)
+}
+
+/// `value` as the text after `KEY=` that compose reads back as exactly
+/// `value`.
+///
+/// Plain as it is when every character is one that means nothing to compose
+/// or a shell, which is every secret chaps generates. Otherwise in single
+/// quotes, which compose reads literally: a token of `$HOME` written bare is
+/// expanded - to an empty string for a variable that is not set, which is a
+/// deployment whose API token is empty and therefore off. [`literal_problem`]
+/// is what keeps out the characters single quotes cannot carry.
+pub fn encode(value: &str) -> String {
+    if value.chars().all(is_plain) {
+        return value.to_string();
     }
+    format!("'{}'", value.replace('\'', "\\'"))
+}
+
+/// Why `value` cannot be written into `.env` so that compose reads it back
+/// unchanged, or `None` when it can.
+///
+/// A quote, a backslash, or a control character such as a newline: inside
+/// single quotes compose reads `\'` as a quote, so a value ending in a
+/// backslash would swallow its own closing quote.
+pub fn literal_problem(value: &str) -> Option<&'static str> {
     value
+        .chars()
+        .any(|c| c == '\'' || c == '"' || c == '\\' || c.is_control())
+        .then_some(
+            "a quote, a backslash or a control character, which `.env` cannot hold as written",
+        )
+}
+
+/// The value compose assigns for the text after `KEY=`, already trimmed.
+fn decode(raw: &str) -> String {
+    decoded(raw).0
+}
+
+/// [`decode`], and how many bytes of `raw` the value took up, so the caller
+/// can tell what came after it.
+///
+/// A quote that is never closed is part of the value, the way compose's own
+/// parser leaves it to the rest of the line.
+fn decoded(raw: &str) -> (String, usize) {
+    let mut chars = raw.char_indices().peekable();
+    match chars.next() {
+        Some((_, quote @ ('\'' | '"'))) => {
+            let mut out = String::new();
+            while let Some((at, c)) = chars.next() {
+                match c {
+                    c if c == quote => return (out, at + 1),
+                    '\\' => match (quote, chars.peek().map(|&(_, next)| next)) {
+                        ('\'', Some('\'')) => {
+                            chars.next();
+                            out.push('\'');
+                        }
+                        ('"', Some(next @ ('"' | '\\'))) => {
+                            chars.next();
+                            out.push(next);
+                        }
+                        ('"', Some('n')) => {
+                            chars.next();
+                            out.push('\n');
+                        }
+                        _ => out.push('\\'),
+                    },
+                    c => out.push(c),
+                }
+            }
+            (raw.to_string(), raw.len())
+        }
+        _ => match raw.find(" #") {
+            Some(at) => (raw[..at].trim_end().to_string(), at),
+            None => (raw.to_string(), raw.len()),
+        },
+    }
+}
+
+/// The ` # comment` after a value, with its leading space, or `""`.
+fn trailing_comment(raw: &str) -> String {
+    let (_, used) = decoded(raw);
+    let rest = raw[used..].trim();
+    match rest.starts_with('#') {
+        true => format!(" {rest}"),
+        false => String::new(),
+    }
 }
 
 /// `# KEY=...`, with any amount of whitespace around the `#`.
@@ -227,6 +323,63 @@ mod tests {
         // And an empty pair is an empty value.
         assert_eq!(value("K=\"\"\n", "K").as_deref(), Some(""));
         assert_eq!(non_empty("K=\"\"\n", "K"), None);
+    }
+
+    /// Each case is what `docker compose config` printed for the same line,
+    /// on Compose v5.
+    #[test]
+    fn values_are_read_the_way_compose_reads_them() {
+        let read = |line: &str| value(&format!("K={line}\n"), "K").unwrap();
+        // A `#` with a space before it starts a comment; one without does not.
+        assert_eq!(read("18984 # operator comment"), "18984");
+        assert_eq!(read("val#ue"), "val#ue");
+        assert_eq!(read("x #"), "x");
+        assert_eq!(read("abc\t# tab"), "abc\t# tab");
+        // Anything after a closing quote is not part of the value.
+        assert_eq!(read("'a # b' # c"), "a # b");
+        assert_eq!(read("\"a # b\" # c"), "a # b");
+        // Single quotes are literal but for an escaped quote.
+        assert_eq!(read("'$HOME'"), "$HOME");
+        assert_eq!(read("'it\\'s'"), "it's");
+        assert_eq!(read("'a\\nb'"), "a\\nb");
+        // Double quotes take the escapes compose takes.
+        assert_eq!(read("\"q \\\"x\\\" \\\\\""), "q \"x\" \\");
+        assert_eq!(read("\"a\\nb\""), "a\nb");
+        assert_eq!(read("  spaced value  "), "spaced value");
+        // The port the finding was about.
+        assert_eq!(
+            non_empty("CHAP_API_PORT=18984 # operator comment\n", "CHAP_API_PORT").as_deref(),
+            Some("18984")
+        );
+    }
+
+    /// A value is written so compose reads it back unchanged, `$` included:
+    /// written bare, `$UNSET` became an empty API token.
+    #[test]
+    fn a_value_is_written_so_it_reads_back_as_itself() {
+        assert_eq!(encode("abcDEF-_.:/+=@,~%123"), "abcDEF-_.:/+=@,~%123");
+        assert_eq!(encode("$CHAPS_UNSET"), "'$CHAPS_UNSET'");
+        assert_eq!(encode("a b#c"), "'a b#c'");
+        assert_eq!(encode(""), "");
+        for token in ["$CHAPS_UNSET", "a b # c", "${X:-y}", "semi;colon&", "plain"] {
+            assert_eq!(literal_problem(token), None, "{token}");
+            let mut body = lines("K=old\n");
+            set(&mut body, "K", token);
+            assert_eq!(value(&join(&body), "K").as_deref(), Some(token), "{token}");
+        }
+        for bad in ["it's", "back\\slash", "new\nline", "dq\""] {
+            assert!(literal_problem(bad).is_some(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_rewritten_line_keeps_its_comment() {
+        let mut body = lines("CHAP_API_PORT=8000 # the operator's\n");
+        set(&mut body, "CHAP_API_PORT", "8001");
+        assert_eq!(join(&body), "CHAP_API_PORT=8001 # the operator's\n");
+        let mut body = lines("K='a b' # kept\n");
+        set(&mut body, "K", "c");
+        assert_eq!(join(&body), "K=c # kept\n");
     }
 
     #[test]

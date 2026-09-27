@@ -144,7 +144,7 @@ pub fn write_secrets(body: &str, secrets: &[(&str, &str)]) -> String {
     let mut appended = Vec::new();
     for (var, value) in secrets {
         if crate::dotenv::set(&mut lines, var, value) == crate::dotenv::Wrote::Absent {
-            appended.push(format!("{var}={value}"));
+            appended.push(format!("{var}={}", crate::dotenv::encode(value)));
         }
     }
     if !appended.is_empty() {

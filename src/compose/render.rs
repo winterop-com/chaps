@@ -341,7 +341,7 @@ pub fn render_env(spec: &EnvSpec) -> String {
 /// one at the bottom of the file.
 fn secret_line(var: &str, value: Option<&str>) -> String {
     match value {
-        Some(value) => format!("{var}={value}"),
+        Some(value) => format!("{var}={}", crate::dotenv::encode(value)),
         None => format!("# {var}="),
     }
 }
