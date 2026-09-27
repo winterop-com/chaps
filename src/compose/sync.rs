@@ -497,10 +497,8 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     // the values it already falls back to - so uncommenting one changes nothing
     // until it is edited, the same rule the pins above follow.
     //
-    // A section of its own rather than two more lines in the block above, so a
-    // deployment that enabled DHIS2 before these commands existed gets them on
-    // its next sync: the variable names are the whole answer to "where do the
-    // credentials come from", and a name nobody can find is a name nobody sets.
+    // The variable names are the whole answer to "where do the credentials
+    // come from", and a name nobody can find is a name nobody sets.
     // Nothing here is a secret: every line is commented, `admin` and `district`
     // are what a seeded dump and an empty database both give, and no container
     // is passed any of them. An external DHIS2 gets no `district`: chaps did not
@@ -509,7 +507,6 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     let wanted = components.dhis2.enabled || components.dhis2_external.is_some();
     let login_named = mentions_var(body, crate::dhis2::ADMIN_USERNAME_ENV_VAR)
         || mentions_var(body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR);
-    let token_named = mentions_var(body, crate::dhis2::API_TOKEN_ENV_VAR);
     if wanted && !login_named {
         sections.push(format!(
             "# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given\n\
@@ -530,15 +527,6 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
                 true => crate::dhis2::DEFAULT_PASSWORD,
                 false => "",
             },
-        ));
-    } else if wanted && !token_named {
-        // A deployment whose `.env` got the login lines before tokens were
-        // read gets the one line it is missing, and nothing it already has.
-        sections.push(format!(
-            "# A DHIS2 personal access token for `chaps dhis2`, used instead of the login\n\
-             # above when set. Only chaps reads it.\n\
-             # {}=\n",
-            crate::dhis2::API_TOKEN_ENV_VAR,
         ));
     }
     Ok(sections)
@@ -1484,26 +1472,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&env).unwrap(), mine);
     }
 
-    /// The token is named beside the login, an older `.env` that has the login
-    /// lines gets the one it is missing, and an external DHIS2 is given no
+    /// The token is named beside the login, and an external DHIS2 is given no
     /// `district`: chaps did not create it, so that is nobody's password there.
     #[test]
     fn the_dhis2_token_is_named_and_an_external_dhis2_gets_no_default() {
-        let (dir, mut project, registry) = project_with(&[]);
-        let env = dir.path().join(ENV_FILE);
-
-        std::fs::write(
-            &env,
-            "POSTGRES_PASSWORD=secret\n# DHIS2_ADMIN_USERNAME=admin\n# DHIS2_ADMIN_PASSWORD=district\n",
-        )
-        .unwrap();
-        project.state.components.dhis2.enabled = true;
-        sync(&mut project, &registry, false).unwrap();
-        let body = std::fs::read_to_string(&env).unwrap();
-        assert!(body.contains("\n# DHIS2_API_TOKEN=\n"), "{body}");
-        assert_eq!(body.matches("DHIS2_ADMIN_USERNAME").count(), 1, "{body}");
-        assert!(!sync(&mut project, &registry, true).unwrap().drift);
-
         let (dir, mut project, registry) = project_with(&[]);
         let env = dir.path().join(ENV_FILE);
         std::fs::write(&env, "POSTGRES_PASSWORD=secret\n").unwrap();

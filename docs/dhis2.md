@@ -607,8 +607,7 @@ nothing until it is edited:
 ```
 
 For an external DHIS2 the password line is empty, since there is no default to
-write down. `chaps sync` adds the section when a DHIS2 is first used, and adds
-the `DHIS2_API_TOKEN` line alone to a `.env` written before tokens were read.
+write down. `chaps sync` adds the section when a DHIS2 is first used.
 Only `chaps` reads these variables. None of them reaches a container, so none
 appears in a generated compose file.
 
