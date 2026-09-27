@@ -150,7 +150,8 @@ Then, in order:
    up; once `docker compose ps` reports it healthy, `psql -tAc 'select 1'` has
    to answer before anything is dropped, and then the dump goes in through
    `pg_restore --clean --if-exists --no-owner`,
-4. each model's data directory is emptied and refilled through its init
+4. each model's data directory is emptied, hidden files included, and refilled
+   through its init
    container, then chowned back to the model's numeric uid:gid (busybox resolves
    no account names, which is why the numbers matter),
 5. each component data volume is emptied and refilled the same way, through a

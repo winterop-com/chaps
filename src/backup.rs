@@ -809,16 +809,18 @@ pub fn volume_read_args(volume: &str) -> Vec<String> {
 /// counts.
 pub fn volume_write_args(volume: &str) -> Vec<String> {
     let mut args = docker_run_args(volume, true);
-    args.extend(
-        [
-            "sh",
-            "-c",
-            "rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -",
-        ]
-        .iter()
-        .map(|s| s.to_string()),
-    );
+    args.extend(["sh".to_string(), "-c".to_string(), refill_script("/v")]);
     args
+}
+
+/// The `sh` script that empties `dir` - dotfiles included, see
+/// [`volume_write_args`] - and refills it from a tar on stdin.
+///
+/// One script for component volumes and model data directories alike: a
+/// model restore that cleared `dir/*` alone left every hidden file written
+/// since the backup in the restored volume.
+pub fn refill_script(dir: &str) -> String {
+    format!("rm -rf {dir}/* {dir}/.[!.]* {dir}/..?* 2>/dev/null; tar -C {dir} -xf -")
 }
 
 fn docker_run_args(volume: &str, stdin: bool) -> Vec<String> {
@@ -1234,6 +1236,50 @@ pub fn plan_text(plan: &RestorePlan) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The model restore used to clear `dir/*` alone, so a `.stale` written
+    /// after the backup survived it. Run for real, with the `sh` and `tar` the
+    /// script is written for.
+    #[cfg(unix)]
+    #[test]
+    fn the_refill_script_empties_hidden_files_too() {
+        use std::process::{Command, Stdio};
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("data");
+        let source = temp.path().join("source");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        for name in ["old", ".stale", "..odd"] {
+            std::fs::write(dir.join(name), "after the backup").unwrap();
+        }
+        std::fs::create_dir(dir.join(".hidden-dir")).unwrap();
+        std::fs::write(source.join("restored"), "from the backup").unwrap();
+
+        let tar = Command::new("tar")
+            .arg("-C")
+            .arg(&source)
+            .args(["-cf", "-", "."])
+            .output()
+            .expect("tar");
+        assert!(tar.status.success());
+        let mut sh = Command::new("sh")
+            .arg("-c")
+            .arg(refill_script(&dir.display().to_string()))
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("sh");
+        use std::io::Write;
+        sh.stdin.take().unwrap().write_all(&tar.stdout).unwrap();
+        assert!(sh.wait().unwrap().success());
+
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, vec!["restored".to_string()]);
+    }
 
     /// A restore into another deployment keeps that deployment's database
     /// volume, and the volume only opens with the password it was created

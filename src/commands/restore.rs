@@ -584,10 +584,7 @@ fn restore_models(
         backup::tar_extract_member_to(archive, &member, &tar)?;
 
         let init = format!("{}-init", model.service_id);
-        let script = format!(
-            "rm -rf {}/* && tar xf - -C {}",
-            model.data_dir, model.data_dir
-        );
+        let script = backup::refill_script(&model.data_dir);
         let args = run_args(&init, &["sh".to_string(), "-c".to_string(), script]);
         let piped = docker::run_compose_piped(project, &args, Some(&tar), None)?;
         if piped.code != 0 {
