@@ -8607,6 +8607,9 @@ struct Dhis2State {
     unauthorized: bool,
     /// Refuse every route write the way `route.remote_servers_allowed` does.
     route_not_permitted: bool,
+    /// Answer every request proxied through the route with a 502, the way
+    /// DHIS2 does when chap-core is down behind a route that is right.
+    proxy_fails: bool,
 }
 
 /// A stand-in for one DHIS2 instance and for the App Hub beside it.
@@ -8856,8 +8859,9 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
         // Either this deployment's compose alias, or the chap-core URL the
         // external-DHIS2 tests record.
         let url = state.route.as_ref().map(|route| route["url"].clone());
-        let ours = url == Some(serde_json::json!("http://chap:8000/**"))
-            || url == Some(serde_json::json!(EXTERNAL_CHAP_URL_TARGET));
+        let ours = !state.proxy_fails
+            && (url == Some(serde_json::json!("http://chap:8000/**"))
+                || url == Some(serde_json::json!(EXTERNAL_CHAP_URL_TARGET)));
         return match ours {
             true => (
                 200,
@@ -9622,6 +9626,46 @@ fn dhis2_show_marks_a_route_that_points_somewhere_else() {
         !stand_in.was_asked("GET /api/routes/chap/run/health"),
         "{:?}",
         stand_in.asked()
+    );
+}
+
+/// A route that is right in every field is not a route that works: when
+/// nothing answers through it, `show` says so rather than "the Modeling App can
+/// reach CHAP".
+#[cfg(unix)]
+#[test]
+fn dhis2_show_counts_a_route_nothing_answers_through_as_missing() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(serde_json::json!({
+            "id": "route-1",
+            "code": "chap",
+            "url": "http://chap:8000/**",
+            "disabled": false,
+            "authorities": ["F_CHAP_MODELING_APP"],
+        })),
+        proxy_fails: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["show", "--json"],
+    ));
+    assert_eq!(report["route"]["ours"], true);
+    assert_eq!(report["route"]["verified"], false);
+    let missing = report["missing"].to_string();
+    assert!(
+        missing.contains("nothing answered through the `chap` route"),
+        "{missing}"
+    );
+    assert!(missing.contains("502"), "{missing}");
+    assert!(
+        !report["next"].as_str().unwrap().contains("can reach CHAP"),
+        "{report}"
     );
 }
 

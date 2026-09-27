@@ -398,7 +398,7 @@ chaps dhis2 connect     # the route, the apps, then analytics
 
 | Command | What it does |
 | --- | --- |
-| `chaps dhis2 show` | Asks and reports: where the `chap` route points, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. Writes nothing. |
+| `chaps dhis2 show` | Asks and reports: where the `chap` route points and whether chap-core answers through it, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. A route that is right in every field but that nothing answers through counts as missing. Writes nothing. |
 | `chaps dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
 | `chaps dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
 | `chaps dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |

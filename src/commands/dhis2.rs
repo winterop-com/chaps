@@ -417,6 +417,14 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
             "the `chap` route is missing the {} authority",
             dhis2::ROUTE_AUTHORITY
         )),
+        // A row that is right in every field and that nothing answers through
+        // is the one case the proxied request exists to catch: the app would
+        // be told CHAP is reachable and then fail on its first request.
+        Some(route) if !route.verified => missing.push(format!(
+            "nothing answered through the `chap` route: {}; run `chaps status` to see whether \
+             chap-core is up",
+            route.answered
+        )),
         Some(_) => {}
     }
     match analytics {
@@ -1683,6 +1691,8 @@ fn human_show(report: &ShowReport, out: &Out) -> String {
             }
             if route.verified {
                 cell = format!("{cell} {}", out.ok(&format!("({})", route.answered)));
+            } else if route.ours {
+                cell = format!("{cell} {}", out.warn("(nothing answered through it)"));
             }
             cell
         }
