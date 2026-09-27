@@ -433,6 +433,7 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
     let target = sandbox.init("chapy", &[]);
     let kept = identity(&target);
     assert_ne!(kept, taken_from, "two deployments, two identities");
+    let target_env = read(&target.join(".env"));
 
     let text = String::from_utf8(
         sandbox
@@ -469,7 +470,27 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
         state(&source)["api_port"],
         "the API port is the archive's, like the .env that sets it"
     );
-    assert_eq!(read(&target.join(".env")), read(&source.join(".env")));
+    // The `.env` is the archive's but for the database password: this
+    // deployment keeps its own `postgres` volume, whose role was created with
+    // its own password, and `pg_restore` does not change a role. Taking the
+    // archive's would leave chap-core unable to log in to its database.
+    let password = |env: &str| {
+        env.lines()
+            .find(|line| line.starts_with("POSTGRES_PASSWORD="))
+            .expect("a password line")
+            .to_string()
+    };
+    let restored = read(&target.join(".env"));
+    assert_eq!(password(&restored), password(&target_env));
+    assert_ne!(password(&restored), password(&read(&source.join(".env"))));
+    assert_eq!(
+        restored.replace(&password(&restored), ""),
+        read(&source.join(".env")).replace(&password(&read(&source.join(".env"))), "")
+    );
+    assert!(
+        text.contains("kept this deployment's POSTGRES_PASSWORD in .env"),
+        "{text}"
+    );
 
     // And the re-rendered compose files carry the name this deployment keeps,
     // so `docker compose` still finds its own containers.
@@ -531,6 +552,10 @@ fn adopt_identity_takes_the_archives_name_over() {
     );
     assert_eq!(identity(&target), taken_from);
     assert_eq!(compose_name(&target, "compose.chaps.yml"), taken_from);
+    // Adopting the name is adopting the archive's volumes, and with them the
+    // credentials they open with: the whole `.env` is the archive's.
+    assert_eq!(read(&target.join(".env")), read(&source.join(".env")));
+    assert!(!text.contains("kept this deployment's"), "{text}");
 }
 
 #[test]

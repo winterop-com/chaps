@@ -369,32 +369,49 @@ pub fn file_size(path: &Path) -> u64 {
 /// The value of `key` in a `.env` body, or `None` when it is absent or
 /// commented out.
 ///
-/// Only what docker compose itself reads: `KEY=VALUE`, an optional `export`
-/// prefix, and quotes stripped when they wrap the whole value. A later line
-/// wins, the way compose resolves duplicates.
+/// [`crate::dotenv::value`], so a restore reads the file by compose's rules -
+/// inline comments and quoting included - like every other reader here.
 pub fn env_value(body: &str, key: &str) -> Option<String> {
-    let mut found = None;
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+    crate::dotenv::value(body, key)
+}
+
+/// The `.env` variables whose value is fixed inside chap-core's `postgres`
+/// volume: the role, its password and the database were set when the volume
+/// was created, and a `pg_restore` into it changes none of them.
+pub const CHAP_DB_CREDENTIALS: &[&str] = &[
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+    "CHAP_DATABASE_URL",
+];
+
+/// The same for the `dhis2_db` volume: the database password, and the key
+/// DHIS2 encrypted values in that database with.
+pub const DHIS2_DB_CREDENTIALS: &[&str] = &["DHIS2_DB_PASSWORD", "DHIS2_ENCRYPTION_PASSWORD"];
+
+/// Put `vars` in a restored `.env` back to what `current` - the `.env` of the
+/// deployment being restored into - set them to, and name the ones that moved.
+///
+/// For a database volume the restore leaves in place: its credentials live in
+/// the volume, so the archive's would be a `.env` that no longer opens its own
+/// database. A variable `current` does not set is commented out, so compose's
+/// default - the one that volume was created with - applies again.
+pub fn keep_credentials(restored: &str, current: &str, vars: &[&str]) -> (String, Vec<String>) {
+    let mut body = restored.to_string();
+    let mut moved = Vec::new();
+    for var in vars {
+        let theirs = crate::dotenv::value(&body, var);
+        let ours = crate::dotenv::value(current, var);
+        if theirs == ours {
             continue;
         }
-        let line = line.strip_prefix("export ").unwrap_or(line).trim_start();
-        let Some((name, value)) = line.split_once('=') else {
-            continue;
+        body = match &ours {
+            Some(value) => crate::auth::write_secrets(&body, &[(var, value)]),
+            None => crate::dotenv::comment_out(&body, var),
         };
-        if name.trim() != key {
-            continue;
-        }
-        let value = value.trim();
-        let value = value
-            .strip_prefix('"')
-            .and_then(|v| v.strip_suffix('"'))
-            .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-            .unwrap_or(value);
-        found = Some(value.to_string());
+        moved.push((*var).to_string());
     }
-    found
+    (body, moved)
 }
 
 /// The PostgreSQL user and database a project's `.env` names, with chap-core's
@@ -1217,6 +1234,34 @@ pub fn plan_text(plan: &RestorePlan) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A restore into another deployment keeps that deployment's database
+    /// volume, and the volume only opens with the password it was created
+    /// with - so those lines of `.env` stay this deployment's.
+    #[test]
+    fn a_restore_keeps_the_credentials_of_the_volume_it_keeps() {
+        let current = "POSTGRES_USER=chap\nPOSTGRES_PASSWORD=ours\nCHAP_API_TOKEN=ours-token\n";
+        let archived = "POSTGRES_USER=chap\nPOSTGRES_PASSWORD=theirs\nPOSTGRES_DB=elsewhere\nCHAP_API_TOKEN=theirs-token\n";
+        let (body, moved) = keep_credentials(archived, current, CHAP_DB_CREDENTIALS);
+        assert_eq!(moved, vec!["POSTGRES_PASSWORD", "POSTGRES_DB"]);
+        assert_eq!(
+            env_value(&body, "POSTGRES_PASSWORD").as_deref(),
+            Some("ours")
+        );
+        // Not set here, so compose's default - the one this volume was made
+        // with - applies again.
+        assert_eq!(env_value(&body, "POSTGRES_DB"), None);
+        // Everything else is the archive's to restore.
+        assert_eq!(
+            env_value(&body, "CHAP_API_TOKEN").as_deref(),
+            Some("theirs-token")
+        );
+
+        // The same deployment's own backup changes nothing.
+        let (same, moved) = keep_credentials(current, current, CHAP_DB_CREDENTIALS);
+        assert!(moved.is_empty());
+        assert_eq!(same, current);
+    }
 
     fn manifest() -> Manifest {
         Manifest {

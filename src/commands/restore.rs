@@ -53,6 +53,10 @@ pub struct RestoreReport {
     pub files: Vec<String>,
     /// The copy of the replaced `.env`, when one was kept.
     pub env_backup: Option<String>,
+    /// `.env` variables left at this deployment's values rather than the
+    /// archive's, because the database volume they open stayed. See
+    /// [`backup::keep_credentials`].
+    pub kept_credentials: Vec<String>,
     /// Whether the database was restored.
     pub database: bool,
     /// What `pg_restore` complained about while succeeding.
@@ -105,6 +109,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
     let mut report = RestoreReport {
         files: Vec::new(),
         env_backup: None,
+        kept_credentials: Vec::new(),
         database: false,
         database_warnings: Vec::new(),
         models: Vec::new(),
@@ -332,7 +337,7 @@ fn restore_files(
     let incoming = std::fs::read(from.join(ENV_FILE)).ok();
     if backup::keep_env_copy(current.as_deref(), incoming.as_deref()) {
         let kept = project.dir.join(ENV_BACKUP_FILE);
-        std::fs::write(&kept, current.unwrap_or_default())
+        std::fs::write(&kept, current.clone().unwrap_or_default())
             .map_err(|e| anyhow::anyhow!("writing {}: {e}", kept.display()))?;
         report.env_backup = Some(ENV_BACKUP_FILE.to_string());
     }
@@ -340,6 +345,39 @@ fn restore_files(
     for rel in &report.plan.files {
         backup::copy_file(&from, &project.dir, rel)?;
         report.files.push(rel.clone());
+    }
+
+    // A database's credentials live in its volume as well as in `.env`, and a
+    // restore that keeps the volume has to keep the `.env` half with it:
+    // `pg_restore` puts the archive's rows into this deployment's `postgres`,
+    // whose role still has this deployment's password. Only a volume the
+    // restore replaces wholesale - a component tar, or all of them under
+    // `--adopt-identity`, which points this directory at the archive's
+    // volumes - takes the archive's credentials.
+    if let (Some(current), Some(_)) = (&current, &incoming) {
+        let adopting = args.adopt_identity
+            && archived_identity_differs(&project.state.compose_project, &report.plan);
+        let dhis2_db_replaced = report
+            .plan
+            .components
+            .iter()
+            .any(|c| c.volume == crate::compose::render::DHIS2_DB_VOLUME);
+        let mut kept = Vec::new();
+        if !adopting {
+            kept.extend_from_slice(backup::CHAP_DB_CREDENTIALS);
+            if !dhis2_db_replaced {
+                kept.extend_from_slice(backup::DHIS2_DB_CREDENTIALS);
+            }
+        }
+        let env = project.dir.join(ENV_FILE);
+        let restored_env = std::fs::read_to_string(&env).unwrap_or_default();
+        let (body, moved) =
+            backup::keep_credentials(&restored_env, &String::from_utf8_lossy(current), &kept);
+        if !moved.is_empty() {
+            std::fs::write(&env, body)
+                .map_err(|e| anyhow::anyhow!("writing {}: {e}", env.display()))?;
+            report.kept_credentials = moved;
+        }
     }
 
     // The compose files in the archive are artifacts; re-rendering them from
@@ -379,6 +417,15 @@ fn restore_files(
         output::warn(warning);
     }
     Ok(restored)
+}
+
+/// Whether the archive was taken under a compose project name other than this
+/// deployment's, which is what `--adopt-identity` then switches to.
+fn archived_identity_differs(current: &str, plan: &RestorePlan) -> bool {
+    plan.archived_compose_project
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|archived| !archived.is_empty() && archived != current)
 }
 
 /// `pg_restore --clean --if-exists` the dump into a running postgres.
@@ -689,6 +736,16 @@ fn human(report: &RestoreReport, out: &Out) -> String {
         text.push_str(&format!(
             "          {}\n",
             out.dim(&format!("the previous .env is kept as {kept}"))
+        ));
+    }
+    if !report.kept_credentials.is_empty() {
+        text.push_str(&format!(
+            "          {}\n",
+            out.dim(&format!(
+                "kept this deployment's {} in .env: its database volumes stayed, and they only \
+                 open with these",
+                report.kept_credentials.join(", ")
+            ))
         ));
     }
     if report.database {
@@ -1073,6 +1130,7 @@ mod tests {
             plan: plan_with(&running(&["chap", "worker"]), &[]),
             files: vec![".env".into(), ".chaps/models.yaml".into()],
             env_backup: Some(ENV_BACKUP_FILE.to_string()),
+            kept_credentials: Vec::new(),
             database: true,
             database_warnings: warnings.into_iter().map(str::to_string).collect(),
             models: vec!["chapkit-ewars-model".into()],

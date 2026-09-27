@@ -350,6 +350,14 @@ one gets that name written down, unchanged, by the next `chaps sync`.
 **`init --fresh-env`.** It rotates the PostgreSQL password on purpose, and the
 existing volume was created with the old one.
 
+**A restore into another deployment, made by chaps 0.6.0 or earlier.** Those
+versions copied the archive's `POSTGRES_PASSWORD` into `.env` while keeping
+this deployment's own database volume. Current versions keep this
+deployment's credentials (see [restore](./backup.md)). For a restore that
+already happened, the password the volume opens with is the
+`POSTGRES_PASSWORD` in `.env.before-restore`. Copy that line back into `.env`
+and run `chaps up`.
+
 Either way: drop the volume and start over,
 
 ```sh

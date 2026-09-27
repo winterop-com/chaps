@@ -135,7 +135,15 @@ Then, in order:
    that are actually running, so nothing is woken up just to be stopped,
 2. the files go back over the project directory, and `chaps sync` re-renders
    the compose files from the `.chaps/` that just arrived. A `.env` that differs
-   from the one in the archive is kept as `.env.before-restore`. Every step
+   from the one in the archive is kept as `.env.before-restore`. The database
+   credentials in it stay this deployment's (`POSTGRES_USER`,
+   `POSTGRES_PASSWORD`, `POSTGRES_DB`, `CHAP_DATABASE_URL`, and
+   `DHIS2_DB_PASSWORD` and `DHIS2_ENCRYPTION_PASSWORD` unless the archive's
+   `dhis2_db` volume is restored too). A role and its password live in the
+   database volume, the restore keeps this deployment's volume, and
+   `pg_restore` restores rows, not roles, so the archive's password would not
+   open it. Under `--adopt-identity` the volumes are the archive's, and so are
+   the credentials. Every step
    below works from the deployment as it now is, so a `compose.ocs.yml` that
    arrived with the archive is in the `-f` list the rest of the restore uses,
 3. postgres is started on its own (`docker compose up -d postgres`) if it is not

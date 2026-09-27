@@ -2617,7 +2617,15 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     assert!(text.contains(".env.before-restore"));
     assert!(text.contains("CHAP was left as it is"));
 
-    assert_eq!(read(&target.join(".env")), read(&source.join(".env")));
+    // The archive's `.env`, but for the one line its own `postgres` volume
+    // decides: the role there was created with this deployment's password.
+    let restored = read(&target.join(".env"));
+    assert_eq!(password_line(&restored), password_line(&before));
+    let archived = read(&source.join(".env"));
+    assert_eq!(
+        restored.replace(password_line(&restored), ""),
+        archived.replace(password_line(&archived), "")
+    );
     assert_eq!(read(&target.join(".env.before-restore")), before);
     let models = read(&target.join(".chaps/models.yaml"));
     assert!(models.contains("chapkit_ewars_model"));
