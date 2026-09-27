@@ -8456,6 +8456,8 @@ struct Dhis2State {
     inherited_analytics: bool,
     /// Answer every authenticated request with a 401.
     unauthorized: bool,
+    /// Refuse every route write the way `route.remote_servers_allowed` does.
+    route_not_permitted: bool,
 }
 
 /// A stand-in for one DHIS2 instance and for the App Hub beside it.
@@ -8528,6 +8530,7 @@ impl Dhis2StandIn {
                     200 => "OK",
                     201 => "Created",
                     401 => "Unauthorized",
+                    409 => "Conflict",
                     502 => "Bad Gateway",
                     _ => "Not Found",
                 };
@@ -8613,6 +8616,15 @@ fn stand_in_version(id: &str, version: &str, min: &str) -> Json {
         "channel": "stable",
     })
 }
+
+/// What a live DHIS2 2.42.6 answers a route write its allowlist refuses, as it
+/// comes off the wire.
+///
+/// `errorCode` is in it because it is in the real answer, and because it is the
+/// trap: `E1004` is DHIS2's `API query cannot be performed`, the code every
+/// plain `ConflictException` carries - a malformed URL and a response timeout
+/// out of range answer with it too. The message is what identifies this one.
+const ROUTE_NOT_PERMITTED_BODY: &str = r#"{"httpStatus":"Conflict","httpStatusCode":409,"status":"ERROR","message":"Route URL is not permitted","errorCode":"E1004"}"#;
 
 /// The one route DHIS2 answers unauthenticated, and the shape of everything
 /// else `chaps dhis2` asks for.
@@ -8701,6 +8713,13 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
                 serde_json::json!({"message": "could not reach the route target"}).to_string(),
             ),
         };
+    }
+    // What the allowlist does to a route write, before either verb handles it.
+    if state.route_not_permitted
+        && ((method == "POST" && path == "/api/routes")
+            || (method == "PUT" && path.starts_with("/api/routes/")))
+    {
+        return (409, ROUTE_NOT_PERMITTED_BODY.to_string());
     }
     if method == "POST" && path == "/api/routes" {
         let mut route: Json = serde_json::from_str(body).unwrap_or(serde_json::json!({}));
@@ -8944,6 +8963,48 @@ fn dhis2_route_leaves_a_route_that_already_matches_alone() {
     assert!(
         stand_in.was_asked("GET /api/routes/chap/run/health"),
         "{asked:?}"
+    );
+}
+
+/// The refusal `route.remote_servers_allowed` produces, measured: this is the
+/// body a live DHIS2 2.42.6 answers with.
+///
+/// Up to and including 0.4.0 none of the three phrases `chaps` looked for -
+/// `remote server`, `not allowed`, `allowlist` - were anywhere in it, so the
+/// branch never fired and the operator got the passthrough:
+/// `answered HTTP 409 Conflict: Route URL is not permitted`, which is true and
+/// names neither the cause nor the file to change.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_names_the_allowlist_and_the_restart_that_applies_it() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route_not_permitted: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    let assert = dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "only allow the targets `route.remote_servers_allowed` lists",
+        ))
+        .stderr(predicates::str::contains(
+            "http://chap:8000/** has to be one of them",
+        ))
+        .stderr(predicates::str::contains("`dhis2/dhis.conf`"))
+        // `--all`, because `dhis.conf` is a bind mount: a plain restart
+        // recreates nothing and DHIS2 keeps the config it read at startup.
+        .stderr(predicates::str::contains("`chaps restart --all dhis2`"));
+
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(!stderr.contains("line in `dhis2/dhis.conf` and run `chaps restart dhis2`"));
+    // And not the passthrough it used to be.
+    assert!(!stderr.contains("answered HTTP 409"), "{stderr}");
+    assert!(
+        stand_in.was_asked("POST /api/routes"),
+        "{:?}",
+        stand_in.asked()
     );
 }
 

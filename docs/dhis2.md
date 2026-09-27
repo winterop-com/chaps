@@ -108,6 +108,33 @@ itself carries placeholders. The `dhis2` service passes five:
 The last is passed even when nothing sets it, so the placeholder in the file
 becomes the empty string rather than standing there as a literal `${...}`.
 
+### Applying an edit
+
+**`chaps restart --all dhis2`, never a plain `chaps restart`.** DHIS2 reads this
+file once, at startup, and `chaps` mounts it as a **bind mount** - so an edit is
+inside the container the moment it is saved, and there is nothing for compose to
+compare. A plain `chaps restart` is `docker compose up -d`, which recreates only
+what no longer matches the compose files, and against an edited `dhis.conf` it
+correctly finds nothing to do:
+
+```text
+nothing needed a restart
+```
+
+The file on disk is right, DHIS2 is still running on what it read at startup,
+and every symptom the old value caused is still there. `--all` with the service
+named force-recreates that one container and leaves chap-core and the models
+alone:
+
+```sh
+chaps restart --all dhis2
+```
+
+DHIS2 migrates before it serves a request again, so it is not back the moment
+compose returns; the next `chaps dhis2` command waits for it and says what it
+found. This is the same trap, for the same reason, as
+[`ocs/climate-service.yaml`](./components.md#read-only-instances).
+
 ### `encryption.password`
 
 **24 characters or more.** DHIS2 encrypts stored credentials with it, and it
@@ -486,8 +513,14 @@ the allowlist is not normally in the way. On an instance whose file was narrowed
 or replaced it is, and DHIS2's refusal is turned into the line that says so:
 
 ```text
-error: DHIS2 refused the route: version 42 and later only allow the targets `route.remote_servers_allowed` lists, and http://chap:8000/** has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart dhis2`
+error: DHIS2 refused the route: version 42 and later only allow the targets `route.remote_servers_allowed` lists, and http://chap:8000/** has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart --all dhis2` (a plain `chaps restart` does not: the file is a bind mount, so compose sees nothing to recreate)
 ```
+
+DHIS2's own answer to that write is `409 Conflict` with the message `Route URL
+is not permitted`, which names neither the setting nor the file - and its
+`errorCode`, `E1004`, is DHIS2's general-purpose conflict code rather than this
+one's, so the message above is built from the message alone. `--all` is not a
+flourish: see [Applying an edit](#applying-an-edit).
 
 ### Analytics, and the parameter that populates nothing
 

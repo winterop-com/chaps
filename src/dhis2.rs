@@ -749,18 +749,66 @@ pub fn route_run_path(path: &str) -> String {
 /// permits `http://chap:8000`, so this only happens on an instance whose file
 /// was narrowed or replaced - which is exactly the failure that otherwise looks
 /// like nothing at all.
+///
+/// **`--all`, and for the reason `ocs/climate-service.yaml` needs it too** - the
+/// one `READ_ONLY_APPLY` in [`crate::commands::components`] spells out. A plain
+/// `chaps restart` is `docker compose up -d`, and compose recreates only what no
+/// longer matches the compose files; `dhis.conf` is a bind mount, so an edit to
+/// it changes nothing compose compares. The new text is already inside the
+/// container and DHIS2 simply read the old one at startup. Measured on a live
+/// 2.42.6: after editing the line, `chaps restart dhis2` answers `nothing needed
+/// a restart` and the route is refused again, where `chaps restart --all dhis2`
+/// force-recreates the one service and the write goes through.
 pub fn allowlist_hint(target: &str) -> String {
     format!(
         "DHIS2 refused the route: version 42 and later only allow the targets \
          `route.remote_servers_allowed` lists, and {target} has to be one of them; check that \
-         line in `dhis2/dhis.conf` and run `chaps restart dhis2`"
+         line in `dhis2/dhis.conf` and run `chaps restart --all dhis2` (a plain `chaps restart` \
+         does not: the file is a bind mount, so compose sees nothing to recreate)"
     )
 }
 
-/// Whether a refusal reads like the allowlist rather than anything else.
+/// The half of DHIS2's refusal that is the allowlist and nothing else.
+///
+/// Lowercased, because [`is_allowlist_refusal`] compares that way.
+const ROUTE_NOT_PERMITTED: &str = "route url is not permitted";
+
+/// Whether a refusal is the allowlist rather than anything else.
+///
+/// **The message is the signal, and `errorCode` is not.** Measured against a
+/// live DHIS2 2.42.6, a route write the allowlist refuses answers
+///
+/// ```json
+/// {"httpStatus":"Conflict","httpStatusCode":409,"status":"ERROR",
+///  "message":"Route URL is not permitted","errorCode":"E1004"}
+/// ```
+///
+/// and `E1004` reads as the authoritative half until it is looked up. DHIS2
+/// defines it as `API query cannot be performed` and hands it to every
+/// `ConflictException(String)` there is - 66 of them in the 2.44 source, four of
+/// those inside `validateRoute` itself. A malformed URL, a scheme that is
+/// neither HTTP nor HTTPS, a placeholder in the origin and a response timeout
+/// outside 1..=60 all answer 409 with `E1004`, so keying on the code would send
+/// four other failures to `dhis.conf` to hunt for a line that is not their
+/// problem. It is a general-purpose code, not this one's.
+///
+/// The message is the specific half, and it is a literal in DHIS2's own source
+/// rather than a translated string: 2.42 says exactly `Route URL is not
+/// permitted`, later versions append `. Ask your DHIS2 server administrator to
+/// allow it`, and what is matched here is the part both carry - unchanged since
+/// the commit that added the allowlist.
+///
+/// Nothing corroborates it, deliberately. Requiring `E1004` as well, or a 409,
+/// could only ever stop the good message appearing on an instance that words its
+/// answer slightly differently - and the bug being fixed here is precisely that
+/// the good message never appeared. The phrase is narrow enough alone: the three
+/// this used to guess at - `remote server`, `not allowed`, `allowlist` - matched
+/// no DHIS2 that has ever shipped, and `not allowed` would have matched plenty
+/// that is not this.
 pub fn is_allowlist_refusal(answer: &Answer) -> bool {
-    let text = said(answer).to_ascii_lowercase();
-    text.contains("remote server") || text.contains("not allowed") || text.contains("allowlist")
+    said(answer)
+        .to_ascii_lowercase()
+        .contains(ROUTE_NOT_PERMITTED)
 }
 
 // ---------------------------------------------------------------------------
@@ -1486,21 +1534,65 @@ mod tests {
         );
     }
 
+    /// The body a live DHIS2 2.42.6 answers a refused route write with, exactly
+    /// as it comes off the wire.
+    const REFUSED_ROUTE_WRITE: &str = r#"{"httpStatus":"Conflict","httpStatusCode":409,"status":"ERROR","message":"Route URL is not permitted","errorCode":"E1004"}"#;
+
     #[test]
     fn the_allowlist_refusal_names_the_file_and_the_way_out() {
         let text = allowlist_hint("http://chap:8000/**");
         assert!(text.contains("`dhis2/dhis.conf`"), "{text}");
         assert!(text.contains("route.remote_servers_allowed"), "{text}");
-        assert!(text.contains("`chaps restart dhis2`"), "{text}");
+        // `--all`, because `dhis.conf` is a bind mount: a plain restart is
+        // `up -d`, compose finds nothing to recreate, and DHIS2 goes on running
+        // the config it read at startup. The same trap as
+        // `ocs/climate-service.yaml`, and the same way out.
+        assert!(text.contains("`chaps restart --all dhis2`"), "{text}");
+        assert!(!text.contains("run `chaps restart dhis2`"), "{text}");
+        assert!(text.contains("bind mount"), "{text}");
+    }
 
+    /// Measured, not guessed. The three phrases this used to look for -
+    /// `remote server`, `not allowed`, `allowlist` - appear in no DHIS2 answer
+    /// that has ever shipped, so the branch never fired and the operator got a
+    /// passthrough naming neither the cause nor the file.
+    #[test]
+    fn the_refusal_is_recognised_from_what_dhis2_actually_says() {
+        assert!(is_allowlist_refusal(&answer(409, REFUSED_ROUTE_WRITE)));
+        // 2.43 and later append a sentence to the same refusal.
         assert!(is_allowlist_refusal(&answer(
             409,
-            r#"{"message":"Remote server not allowed"}"#
+            r#"{"message":"Route URL is not permitted. Ask your DHIS2 server administrator to allow it","errorCode":"E1004"}"#
         )));
+
+        // And `errorCode` is why the message is the key rather than the code:
+        // DHIS2 gives `E1004` - `API query cannot be performed` - to every
+        // plain `ConflictException`, these four included, all four raised by
+        // `validateRoute` beside the allowlist check itself. Keying on the code
+        // would send all of them to `dhis.conf`.
+        for other in [
+            "Malformed route URL",
+            "Route URL scheme must be either http or https",
+            "Placeholders are only permitted in the route URL path or query",
+            "Route response timeout must be greater than 0 seconds and less than or equal to 60 \
+             seconds",
+        ] {
+            let body = serde_json::json!({
+                "httpStatus": "Conflict",
+                "httpStatusCode": 409,
+                "status": "ERROR",
+                "message": other,
+                "errorCode": "E1004",
+            })
+            .to_string();
+            assert!(!is_allowlist_refusal(&answer(409, &body)), "{other}");
+        }
+
         assert!(!is_allowlist_refusal(&answer(
             409,
             r#"{"message":"Route with code chap already exists"}"#
         )));
+        assert!(!is_allowlist_refusal(&answer(404, "{}")));
     }
 
     #[test]
