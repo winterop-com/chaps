@@ -320,7 +320,7 @@ fn message_of(answer: &crate::api::Answer, verb: &str) -> String {
 /// This deployment and a client for its API.
 fn connect(ctx: &Ctx) -> Result<(Project, Api)> {
     let project = ctx.project()?;
-    let token = crate::auth::token_in(&project.dir);
+    let token = crate::api::token_for(Some(&project.dir));
     let api = Api::new(&project.api_url(), token, crate::api::DEFAULT_TIMEOUT);
     ctx.out
         .verbose(&format!("asking chap-core at {}", api.base()));

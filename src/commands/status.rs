@@ -59,11 +59,13 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         .map(docker::running_of)
         .unwrap_or_default();
     // A protected deployment needs the token for `/v2/services`; `.env` is
-    // where it lives, and a deployment without one reads as `None`. `--url`
+    // where it lives, `CHAP_API_TOKEN` the fallback every request to chap-core
+    // shares (`api::token_for`), and a deployment without either reads as
+    // `None`. `--url`
     // does not change that: the token belongs to this project either way, and
     // an API that does not want it ignores it.
     ctx.out.verbose(&format!("asking chap-core at {url}"));
-    let token = crate::auth::token_in(&project.dir);
+    let token = crate::api::token_for(Some(&project.dir));
     let mut report = status(
         &project,
         &url,

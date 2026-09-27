@@ -6810,6 +6810,16 @@ fn job_list() -> String {
 /// `detail` object for a 404, a `message` for a cancel - because those are
 /// what the commands render. The thread lives as long as the test process.
 fn chap_core_server(port: u16) {
+    chap_core_server_with(port, false);
+}
+
+/// [`chap_core_server`] behind a token: every request without a Bearer header
+/// is answered 401, the way chap-core answers one when `CHAP_API_TOKEN` is set.
+fn protected_chap_core_server(port: u16) {
+    chap_core_server_with(port, true);
+}
+
+fn chap_core_server_with(port: u16, protected: bool) {
     use std::io::Write;
 
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("a free port");
@@ -6831,8 +6841,14 @@ fn chap_core_server(port: u16) {
                 .map(|(_, rest)| rest.to_string())
                 .unwrap_or_default();
 
-            let (status, content_type, payload) =
-                chap_core_route(&method, &path, authed, &body, &mut recorded);
+            let (status, content_type, payload) = match protected && !authed {
+                true => (
+                    401,
+                    "application/json",
+                    r#"{"detail":"Not authenticated"}"#.to_string(),
+                ),
+                false => chap_core_route(&method, &path, authed, &body, &mut recorded),
+            };
             let reason = match status {
                 200 => "OK",
                 400 => "Bad Request",
@@ -7288,6 +7304,32 @@ fn served_project(sandbox: &Sandbox) -> PathBuf {
         .success();
     chap_core_server(port);
     sandbox.project()
+}
+
+/// Every request to chap-core takes the token the way `chaps api` does:
+/// `.env` first, then an exported `CHAP_API_TOKEN`. `jobs` used to read `.env`
+/// alone, so on a deployment whose token lives in the shell `chaps api GET
+/// /v1/jobs` worked and `chaps jobs` was refused.
+#[test]
+fn jobs_sends_the_exported_token_when_env_has_none() {
+    let sandbox = Sandbox::new();
+    let port = free_port();
+    sandbox
+        .init(&["--models", "none", "--api-port", &port.to_string()])
+        .assert()
+        .success();
+    protected_chap_core_server(port);
+    let dir = sandbox.project();
+
+    chap_in(&sandbox, &dir, &["jobs"])
+        .env_remove("CHAP_API_TOKEN")
+        .assert()
+        .failure();
+    chap_in(&sandbox, &dir, &["jobs"])
+        .env("CHAP_API_TOKEN", "from-the-shell")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("3 jobs"));
 }
 
 #[test]

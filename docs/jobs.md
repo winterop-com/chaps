@@ -216,8 +216,10 @@ For reading rather than capturing, `chaps auth show --reveal` prints the same
 value inside the report that says what it protects. See
 [Authentication](./auth.md).
 
-Outside a deployment, `chaps api --url` reads `CHAP_API_TOKEN` from the
-environment, which is the same variable `.env` sets:
+Every command that asks chap-core - `jobs`, `models test`, `status`, `doctor`
+and `api` - takes the token from `.env` first and, when `.env` sets none, from
+`CHAP_API_TOKEN` in the environment. Outside a deployment, `chaps api --url`
+reads only the environment, which is the same variable `.env` sets:
 
 ```sh
 CHAP_API_TOKEN=$(chaps -C ~/mychap auth token) \

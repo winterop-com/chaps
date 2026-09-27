@@ -41,8 +41,9 @@ the running image was pulled at, and the commit chap-core reports at
 chap-core   up   http://localhost:8190   2.4.0.dev0   master: running cc09e3654ff2, revision 7bf2a98739f4   auth: off
 ```
 
-`auth: on` means `.env` sets `CHAP_API_TOKEN`, and that `status` sent it as
-`Authorization: Bearer` on every request; `auth: off` means the API is open to
+`auth: on` means `status` had a token - `CHAP_API_TOKEN` from `.env`, or from
+the environment when `.env` sets none - and sent it as `Authorization: Bearer`
+on every request; `auth: off` means the API is open to
 anyone who can reach the port. See [Authentication](./auth.md).
 
 Each enabled [component](./components.md) other than chap-core gets a line of

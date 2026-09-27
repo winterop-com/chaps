@@ -76,7 +76,7 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
         Level::Backtest => modeltest::BACKTEST_TIMEOUT,
     }));
 
-    let token = crate::auth::token_in(&project.dir);
+    let token = crate::api::token_for(Some(&project.dir));
     let api = Api::new(&project.api_url(), token, REQUEST_TIMEOUT);
     ctx.out
         .verbose(&format!("asking chap-core at {}", api.base()));

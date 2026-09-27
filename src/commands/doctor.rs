@@ -2955,7 +2955,7 @@ fn stack_check(
     }
     let url = project.api_url();
     crate::output::verbose(&format!("asking chap-core at {url}"));
-    let token = auth::token_in(&project.dir);
+    let token = crate::api::token_for(Some(&project.dir));
     let mut report = crate::status::status(project, &url, STACK_TIMEOUT, running, token.as_deref());
     // The same diagnosis `chaps status` makes: when the API does not answer,
     // its container has been saying why in its own log.
