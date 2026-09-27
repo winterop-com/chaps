@@ -84,21 +84,35 @@ fi
 subjects="$(git log --no-merges --format='%s' "$range" --)"
 
 # The groups, in the order they are printed: heading, then the Conventional
-# Commit types that land in it. Anything left over goes under "Other changes",
-# so a type nobody thought of here is still reported rather than dropped.
+# Commit types that land in it. What changed for a user comes first, then the
+# docs, then the changes that alter no behaviour, then the repository's own
+# plumbing. A refactor belongs in that second-to-last group and not in the
+# tooling one: it is usually the groundwork a later feature sits on, and filed
+# as tooling a reader scanning the notes takes it for build noise. Anything
+# left over goes under "Other changes", so a type nobody thought of here is
+# still reported rather than dropped.
 group_headings=(
   "Features"
   "Fixes"
+  "Performance"
+  "Reverts"
   "Documentation"
+  "Internal changes"
   "CI and tooling"
 )
 group_types=(
   "feat"
   "fix"
+  "perf"
+  "revert"
   "docs"
-  "ci chore build test refactor"
+  "refactor style test"
+  "ci build chore"
 )
-known_types="feat fix docs ci chore build test refactor"
+# Every type the groups above claim, derived rather than repeated: a type
+# listed here but in no group would be dropped from the notes silently, and one
+# in a group but not here would be reported twice.
+known_types="${group_types[*]}"
 
 # The bullets for one group, or nothing at all when no commit belongs to it.
 # $1 is a space-separated list of types, or "other" for the leftovers.

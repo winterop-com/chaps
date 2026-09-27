@@ -329,11 +329,27 @@ workflow.
 
 A tagged release leads with `## What's changed`: the commit subjects between
 the previous version tag and this one, grouped by their Conventional Commit
-type into Features, Fixes, Documentation and CI and tooling, with a scope kept
-as a bold prefix and the `chore: release` commit left out. A type none of those
-claim lands under Other changes rather than being dropped. Then a compare link,
-the install one-liner and the checksum and signature checks. The `dev` shape
-keeps the unstable header, lists the same grouped commits under
+type, with a scope kept as a bold prefix and the `chore: release` commit left
+out. The groups print in this order, and one with nothing in it is not printed
+at all:
+
+| Heading | Types |
+| --- | --- |
+| Features | `feat` |
+| Fixes | `fix` |
+| Performance | `perf` |
+| Reverts | `revert` |
+| Documentation | `docs` |
+| Internal changes | `refactor`, `style`, `test` |
+| CI and tooling | `ci`, `build`, `chore` |
+
+What changed for a user comes first. A refactor is an internal change rather
+than tooling: it is usually the groundwork a later feature sits on, and filed
+under CI and tooling a reader scanning the notes takes it for build noise. A
+type no group claims, and a subject that is not a Conventional Commit at all,
+lands under Other changes rather than being dropped. Then a compare link, the
+install one-liner and the checksum and signature checks. The `dev` shape keeps
+the unstable header, lists the same grouped commits under
 `## Since <last tag>`, and installs with `--version dev`.
 
 The previous tag is `git describe --tags --abbrev=0 --match 'v[0-9]*'`. The
