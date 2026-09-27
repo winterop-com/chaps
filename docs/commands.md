@@ -105,7 +105,7 @@ touches Docker or a file: every verb is requests to DHIS2's own API.
 
 | Command | What it does |
 | --- | --- |
-| `chaps dhis2 show [--user NAME]` | Where the `chap` route points, when analytics last succeeded, which apps are installed, and each piece that is missing. Writes nothing. |
+| `chaps dhis2 show [--user NAME]` | Where the `chap` route points, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. Writes nothing. |
 | `chaps dhis2 route` | Create the `chap` route, or repoint one that points elsewhere, is disabled or has lost the `F_CHAP_MODELING_APP` authority - then proxy a request through it to prove chap-core answers. |
 | `chaps dhis2 analytics [--timeout SECONDS] [--no-wait]` | Generate the analytics tables the Modeling and Climate apps read, and wait for the run; a run that is already going is watched rather than queued behind, since DHIS2 runs one at a time. |
 | `chaps dhis2 apps` | Install the Modeling App and the DHIS2 Climate App from the App Hub, at the newest version this DHIS2 can run. The one verb that needs the network. |

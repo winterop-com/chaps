@@ -8450,6 +8450,10 @@ struct Dhis2State {
     analytics_started: bool,
     /// A run that is already going when the command arrives.
     analytics_running: bool,
+    /// A `lastAnalyticsTableSuccess` that came with the seed dump: the setting
+    /// is a database row, so a restored deployment inherits it while its
+    /// notifier - which lives in the process - stays empty.
+    inherited_analytics: bool,
     /// Answer every authenticated request with a 401.
     unauthorized: bool,
 }
@@ -8568,11 +8572,15 @@ impl Dhis2StandIn {
 }
 
 /// The version ids the App Hub stand-in publishes, and what each one installs.
+///
+/// The names are the App Hub's own, which are not the names chaps prints: it
+/// publishes the Modeling App as `Modeling`, and a real instance lists it under
+/// that name again.
 const STAND_IN_APPS: &[(&str, &str, &str, &str)] = &[
     (
         "a29851f9-82a7-4ecd-8b2c-58e0f220bc75",
         "mv-7.1.0",
-        "Modeling App",
+        "Modeling",
         "7.1.0",
     ),
     (
@@ -8583,6 +8591,29 @@ const STAND_IN_APPS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// One published version, in the shape the App Hub actually sends.
+///
+/// **`maxDhisVersion` is an empty string and not an absent field.** Every one
+/// of the 32 published versions of the Modeling App carries it that way, and a
+/// stub tidier than that hid the bug where no app could ever be installed: the
+/// blank was read as a maximum, 2.42.6 compared above it, and every version was
+/// filtered out. The rest of the fields are here for the same reason - this is
+/// what comes off the wire, not a convenient subset of it.
+fn stand_in_version(id: &str, version: &str, min: &str) -> Json {
+    serde_json::json!({
+        "created": 1789983819971i64,
+        "demoUrl": "",
+        "changeSummary": "",
+        "downloadUrl": format!("https://apps.dhis2.org/api/v1/apps/download/dhis2/{version}.zip"),
+        "id": id,
+        "lastUpdated": 1789983819971i64,
+        "maxDhisVersion": "",
+        "minDhisVersion": min,
+        "version": version,
+        "channel": "stable",
+    })
+}
+
 /// The one route DHIS2 answers unauthenticated, and the shape of everything
 /// else `chaps dhis2` asks for.
 fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) -> (u16, String) {
@@ -8592,15 +8623,20 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
     // The App Hub is not DHIS2 and is never authenticated.
     if let Some(id) = path.strip_prefix("/apphub/") {
         return match STAND_IN_APPS.iter().find(|(app, ..)| *app == id) {
-            Some((_, version_id, name, version)) => (
+            Some((app, version_id, name, version)) => (
                 200,
                 serde_json::json!({
+                    "appType": "APP",
+                    "status": "APPROVED",
+                    "id": app,
                     "name": name,
-                    "versions": [{
-                        "id": version_id,
-                        "version": version,
-                        "minDhisVersion": "2.40",
-                    }],
+                    "coreApp": false,
+                    "versions": [
+                        stand_in_version(version_id, version, "2.40"),
+                        // An older one that wants a newer DHIS2 than the
+                        // instance, so the pick is a pick and not the only row.
+                        stand_in_version(&format!("{version_id}-old"), "0.9.0", "2.43"),
+                    ],
                 })
                 .to_string(),
             ),
@@ -8616,6 +8652,9 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
     }
     if path == "/api/system/info" {
         let mut info = serde_json::json!({"version": "2.42.6"});
+        if state.inherited_analytics {
+            info["lastAnalyticsTableSuccess"] = serde_json::json!("2026-06-16T07:51:00.093");
+        }
         if state.analytics_started {
             info["lastAnalyticsTableSuccess"] = serde_json::json!("2026-09-25T10:01:00.000");
         }
@@ -9035,6 +9074,10 @@ fn dhis2_analytics_no_wait_starts_the_run_and_names_the_way_back() {
 
 /// The version id is resolved from the App Hub and DHIS2 is told to install it:
 /// no download here and no multipart upload.
+///
+/// The App Hub stand-in answers in the shape the real one does, blank
+/// `maxDhisVersion` strings and all, so this is also the regression test for
+/// the bug where no app could ever be installed.
 #[cfg(unix)]
 #[test]
 fn dhis2_apps_resolves_the_version_on_the_app_hub_and_has_dhis2_install_it() {
@@ -9049,7 +9092,9 @@ fn dhis2_apps_resolves_the_version_on_the_app_hub_and_has_dhis2_install_it() {
         .stdout(predicates::str::contains(
             "installed DHIS2 Climate App 1.16.2",
         ))
-        .stdout(predicates::str::contains("`chaps open dhis2`"));
+        .stdout(predicates::str::contains("`chaps open dhis2`"))
+        // The sentence the blank bound produced, which was false.
+        .stdout(predicates::str::contains("no version of").not());
 
     let asked = stand_in.asked();
     assert!(
@@ -9118,6 +9163,10 @@ fn dhis2_show_reports_every_piece_that_is_missing() {
         .stdout(predicates::str::contains(
             "missing: the Modeling App is not installed",
         ))
+        // Both apps are a row, absent as much as present.
+        .stdout(predicates::str::contains(
+            "apps       Modeling App not installed, DHIS2 Climate App not installed",
+        ))
         .stdout(predicates::str::contains(
             "run `chaps dhis2 connect` to do the rest",
         ));
@@ -9129,6 +9178,177 @@ fn dhis2_show_reports_every_piece_that_is_missing() {
             || seen.starts_with("DELETE")),
         "show writes nothing: {asked:?}"
     );
+}
+
+/// The `apps` row is the two apps chaps installs, and never the instance's own
+/// thirty. A real 2.42.6 lists 29 bundled apps, and they buried the answer.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_reports_only_the_two_apps_chaps_installs() {
+    let bundled = |name: &str, key: &str, version: &str| serde_json::json!({"name": name, "key": key, "version": version, "bundled": true});
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        apps: vec![
+            bundled("Reports", "reports", "100.2.4"),
+            bundled("Cache Cleaner", "cache-cleaner", "100.2.2"),
+            bundled("Maintenance app", "maintenance", "32.34.1-v42.0"),
+            // The instance's own spelling of the Modeling App, which is the
+            // App Hub's and not chaps'.
+            serde_json::json!({"name": "Modeling", "key": "modeling", "version": "7.1.0"}),
+        ],
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "apps       Modeling App 7.1.0, DHIS2 Climate App not installed",
+        ))
+        .stdout(predicates::str::contains(
+            "missing: the Climate App is not installed",
+        ))
+        // DHIS2's own bundled apps are DHIS2's business.
+        .stdout(predicates::str::contains("Reports").not())
+        .stdout(predicates::str::contains("Cache Cleaner").not())
+        .stdout(predicates::str::contains("100.2.4").not())
+        // And no count of them, which would be a number that never means
+        // anything.
+        .stdout(predicates::str::contains("3 others").not());
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["show", "--json"],
+    ));
+    let apps = report["apps"].as_array().expect("an apps array");
+    assert_eq!(apps.len(), 2, "{report}");
+    assert_eq!(apps[0]["name"], "Modeling App");
+    assert_eq!(apps[0]["installed"], true);
+    assert_eq!(apps[0]["version"], "7.1.0");
+    assert_eq!(apps[1]["name"], "DHIS2 Climate App");
+    assert_eq!(apps[1]["installed"], false);
+}
+
+/// A seeded deployment inherits `lastAnalyticsTableSuccess` from the dump, so
+/// the timestamp is a fact about somebody else's database.
+///
+/// Measured on a real 2.42.6 with the Laos climate demo: `show` reported a last
+/// success of 2026-06-16 while `analytics_2024` did not exist at all - the
+/// table was absent, not empty. chaps cannot look at the tables, so it says
+/// what it checked and puts the question in front of the operator.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_does_not_call_an_inherited_analytics_timestamp_evidence() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        inherited_analytics: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)",
+        ))
+        .stdout(predicates::str::contains(
+            "missing: analytics may never have run on this deployment",
+        ))
+        .stdout(predicates::str::contains("`chaps dhis2 analytics`"))
+        // Not the sentence for an instance that has never run it: it may well
+        // have, and chaps has no way to tell.
+        .stdout(predicates::str::contains("analytics has never run").not());
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["show", "--json"],
+    ));
+    assert_eq!(report["analytics"], "unconfirmed", "{report}");
+    assert_eq!(report["last_analytics"], "2026-06-16T07:51:00.093");
+
+    // The notifier is what settles it, and `show` asks: a run it remembers is
+    // a run that happened on this DHIS2, because the notifier is in the
+    // process and nothing a dump carries can put an entry in it.
+    assert!(
+        stand_in.was_asked("GET /api/system/tasks/ANALYTICS_TABLE"),
+        "{:?}",
+        stand_in.asked()
+    );
+}
+
+/// A database DHIS2 migrated from empty has no dump to inherit a timestamp
+/// from, so what it records was recorded against it and stands as it is.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_trusts_the_timestamp_where_no_dump_could_have_brought_it() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        inherited_analytics: true,
+        ..Dhis2State::default()
+    });
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--api-port",
+            &free_port().to_string(),
+            "--with",
+            "dhis2",
+            "--dhis2-port",
+            &stand_in.port.to_string(),
+            "--dhis2-seed",
+            "none",
+        ])
+        .assert()
+        .success();
+    let (_temp, bin) = docker_running("dhis2");
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "analytics  2026-06-16T07:51:00.093",
+        ))
+        .stdout(predicates::str::contains("unconfirmed").not())
+        .stdout(predicates::str::contains("missing: analytics").not());
+
+    let report = json_of(&mut dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["show", "--json"],
+    ));
+    assert_eq!(report["analytics"], "recorded", "{report}");
+}
+
+/// Once a run has finished on this DHIS2, the same timestamp is worth
+/// something and `show` says which of the two it is.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_credits_an_analytics_run_that_finished_on_this_deployment() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        inherited_analytics: true,
+        analytics_started: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "analytics  2026-09-25T10:01:00.000 (a run finished on this deployment)",
+        ))
+        .stdout(predicates::str::contains("unconfirmed").not())
+        .stdout(predicates::str::contains("missing: analytics").not());
 }
 
 /// A route pointing at another chap-core is marked as such in the row, not only

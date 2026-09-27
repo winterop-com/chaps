@@ -371,7 +371,7 @@ chaps dhis2 connect     # the route, the apps, then analytics
 
 | Command | What it does |
 | --- | --- |
-| `chaps dhis2 show` | Asks and reports: where the `chap` route points, when analytics last succeeded, which apps are installed, and each piece that is missing. Writes nothing. |
+| `chaps dhis2 show` | Asks and reports: where the `chap` route points, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. Writes nothing. |
 | `chaps dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
 | `chaps dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
 | `chaps dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
@@ -528,6 +528,42 @@ prints every one DHIS2 announces. `--timeout SECONDS` is how long to wait, an
 hour by default, and running out of it is not a cancellation - DHIS2 carries on,
 and the same command watches the same job again.
 
+### What `show` can say about analytics, and what it cannot
+
+DHIS2 reports a `lastAnalyticsTableSuccess` in `/api/system/info`, and on a
+[seeded](#the-seed) deployment **that timestamp is not about this deployment.**
+It is a settings row, so it is restored with everything else: measured on a
+2.42.6 with the Laos climate demo, a freshly seeded instance reported a last
+success of `2026-06-16T07:51:00.093` while `analytics_2024` did not exist at all -
+the table was absent, not empty. It is a fact about the database the dump was
+taken from.
+
+`chaps` reaches DHIS2 over HTTP and cannot look at the tables, so `show` reports
+what it checked and labels the timestamp with what it is worth:
+
+| Row | What chaps checked |
+| --- | --- |
+| `analytics  never run` | DHIS2 records no successful run at all. |
+| `analytics  2026-09-27T10:10:40.043 (a run finished on this deployment)` | An analytics run has finished on this DHIS2 since it started, which `GET /api/system/tasks/ANALYTICS_TABLE` says. That notifier lives in the running process, so nothing a dump carries can put an entry in it. |
+| `analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)` | DHIS2 records a success, this deployment was seeded, and no run has finished here since DHIS2 started. The timestamp proves nothing either way. |
+| `analytics  2026-09-27T10:10:40.043` | DHIS2 records a success and this deployment has no seed, so its database was migrated from empty and the record was made against it. |
+
+The third of those is a question and not a verdict, and it is put as one:
+
+```text
+missing: analytics may never have run on this deployment: the timestamp above came with the seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+```
+
+Restarting DHIS2 empties the notifier, so a seeded deployment whose run was made
+before the last restart is reported `unconfirmed` again. That is the cautious
+answer rather than a wrong one: running `chaps dhis2 analytics` a second time is
+idempotent and cheap, and reading `show` as "analytics is done" when the tables
+are absent is the failure this whole command exists to catch.
+
+**A run that finished is not the same as tables with rows in them.** Nothing
+here can see a row count, so nothing here claims one - which is the same
+distinction the `lastYears` trap above turns on.
+
 ### The apps come from the App Hub, server-side
 
 ```sh
@@ -548,6 +584,28 @@ A version whose `minDhisVersion` is newer than the instance is skipped: DHIS2
 installs it happily and the app then fails in the browser. An app already
 installed at that version is left alone, and one at another version is moved to
 it.
+
+**A blank bound is no bound.** The App Hub sends a bound it has not set as an
+empty string rather than as an absent field - every one of the Modeling App's
+published versions carries `"maxDhisVersion": ""` - and chaps treats missing,
+empty, whitespace and unreadable the same on both sides. A bound it cannot
+compare against is one it cannot honour, and refusing on it would refuse
+everything.
+
+Three names for the same app, and they all differ: the App Hub publishes the
+Modeling App as `Modeling`, an instance lists it under `Modeling` with the key
+`dhis2-chapmodeling-app`, and `chaps` calls it the **Modeling App** everywhere it
+prints. Matching takes the punctuation and the case out and accepts one name
+containing the other, so all three spellings find each other.
+
+`chaps dhis2 show` reports those two apps and no others. A 2.42.6 ships 29
+bundled apps of its own, identical on every DHIS2, and they are not what this
+command answers for:
+
+```text
+apps       Modeling App 7.1.0, DHIS2 Climate App not installed
+missing: the Climate App is not installed
+```
 
 Installed apps live in `/opt/dhis2`, which is the `dhis2_home` volume, so they
 survive a recreate and [a backup](#backing-it-up) carries them.

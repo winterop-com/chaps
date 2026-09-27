@@ -189,10 +189,18 @@ pub struct ShownRoute {
     pub answered: String,
 }
 
-/// One installed app, for `show`.
+/// One of the two apps chaps installs, as `show` found it.
+///
+/// One row per app chaps is about, present or not - never a row per app the
+/// instance happens to have. A real DHIS2 ships 29 bundled apps of its own, and
+/// listing them buried the two this command answers for.
 #[derive(Debug, Clone, Serialize)]
 pub struct ShownApp {
+    /// The name chaps knows it by, which is also what the docs call it.
     pub name: String,
+    /// Whether this instance has it at all.
+    pub installed: bool,
+    /// The version it has, empty when it does not have it.
     pub version: String,
 }
 
@@ -207,6 +215,10 @@ pub struct ShowReport {
     /// When analytics last succeeded, as DHIS2 records it. Empty for an
     /// instance that has never run it.
     pub last_analytics: String,
+    /// What that timestamp is worth. A seeded deployment inherits it from the
+    /// dump, so on its own it says nothing about this deployment's tables.
+    pub analytics: dhis2::AnalyticsEvidence,
+    /// The two apps chaps installs, in order, present or not.
     pub apps: Vec<ShownApp>,
     /// Whichever of the three is missing, one clause each.
     pub missing: Vec<String>,
@@ -327,7 +339,8 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
             answered,
         }
     });
-    let apps = installed_apps(&session)?;
+    let apps = chap_apps(&session)?;
+    let analytics = analytics_evidence(ctx, &session);
 
     let mut missing = Vec::new();
     match &shown {
@@ -343,8 +356,18 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         )),
         Some(_) => {}
     }
-    if session.ready.last_analytics.trim().is_empty() {
-        missing.push("analytics has never run".to_string());
+    match analytics {
+        dhis2::AnalyticsEvidence::Never => missing.push("analytics has never run".to_string()),
+        // Not "analytics has never run": it may well have, and chaps cannot
+        // see the tables to tell. What it can say is that the timestamp beside
+        // it proves nothing, and that one command settles the question.
+        dhis2::AnalyticsEvidence::Unconfirmed => missing.push(
+            "analytics may never have run on this deployment: the timestamp above came with the \
+             seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` \
+             to settle it"
+                .to_string(),
+        ),
+        dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded => {}
     }
     missing.extend(missing_apps(&apps));
 
@@ -353,6 +376,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         target,
         route: shown,
         last_analytics: session.ready.last_analytics.clone(),
+        analytics,
         apps,
         next: String::new(),
         missing,
@@ -369,50 +393,81 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     ctx.out.emit(&report, || human_show(&report, &ctx.out))
 }
 
-/// The apps the instance lists, as `show` prints them.
-fn installed_apps(session: &Session) -> Result<Vec<ShownApp>> {
-    let listing = session.dhis2.get_json(dhis2::APPS_PATH)?;
-    Ok(listing
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| serde_json::from_value::<dhis2::InstalledApp>(row.clone()).ok())
-                .map(|app| ShownApp {
-                    name: match app.name.trim().is_empty() {
-                        true => app.key,
-                        false => app.name,
-                    },
-                    version: app.version,
-                })
-                .collect()
-        })
-        .unwrap_or_default())
-}
-
-/// The name one of [`dhis2::HUB_APPS`] is installed under, if it is.
+/// The two apps chaps installs, as this instance has them.
+///
+/// **The two, and not the rest.** `show` exists to say whether DHIS2 has what
+/// CHAP needs; the climate demo ships 29 bundled apps of its own, the same 29
+/// every DHIS2 ships, and printing them turned the one row that answers the
+/// question into an inventory with the answer somewhere in the middle of it.
+/// A count of the others would be a number that is always about thirty and
+/// never means anything, so there is none: `GET /api/apps` is one request away
+/// for anybody who wants the list.
 ///
 /// Matched on the App Hub's own name rather than on the label a sentence uses,
 /// because the two differ: the app published as `DHIS2 Climate App` is `the
-/// Climate App` in prose.
-fn app_name_of(installed: &[ShownApp], app: &HubAppRef) -> String {
-    let listing = serde_json::Value::Array(
-        installed
-            .iter()
-            .map(|app| serde_json::json!({"name": app.name, "version": app.version}))
-            .collect(),
-    );
-    dhis2::installed_app(&listing, app.name)
-        .map(|found| found.name)
-        .unwrap_or_default()
+/// Climate App` in prose. [`dhis2::installed_app`] is what copes with the third
+/// spelling, the instance's own - it lists the Modeling App as `Modeling`.
+fn chap_apps(session: &Session) -> Result<Vec<ShownApp>> {
+    let listing = session.dhis2.get_json(dhis2::APPS_PATH)?;
+    Ok(dhis2::HUB_APPS
+        .iter()
+        .map(|app| shown_app(app, dhis2::installed_app(&listing, app.name)))
+        .collect())
+}
+
+/// One [`dhis2::HUB_APPS`] row, found or not.
+fn shown_app(app: &HubAppRef, found: Option<dhis2::InstalledApp>) -> ShownApp {
+    ShownApp {
+        name: app.name.to_string(),
+        installed: found.is_some(),
+        version: found.map(|found| found.version).unwrap_or_default(),
+    }
 }
 
 /// Which of the two apps this instance does not have.
-fn missing_apps(installed: &[ShownApp]) -> Vec<String> {
+fn missing_apps(apps: &[ShownApp]) -> Vec<String> {
     dhis2::HUB_APPS
         .iter()
-        .filter(|app| app_name_of(installed, app).is_empty())
+        .filter(|app| {
+            !apps
+                .iter()
+                .any(|shown| shown.installed && shown.name == app.name)
+        })
         .map(|app| format!("{} is not installed", app.label))
         .collect()
+}
+
+/// What this deployment's `lastAnalyticsTableSuccess` is actually worth.
+///
+/// Two things it is not read against: DHIS2's notifier, which says whether a
+/// run has finished on *this* instance since it started, and
+/// `.chaps/components.yaml`, which says whether the database was restored from
+/// a seed dump and so came with somebody else's timestamp in it.
+///
+/// A notifier that cannot be read is a trace line and not a failure - `show`
+/// reaches DHIS2 and stops there - and it leaves the verdict on the cautious
+/// side, which is the side that does not claim analytics is done.
+fn analytics_evidence(ctx: &Ctx, session: &Session) -> dhis2::AnalyticsEvidence {
+    let ran_here = match session.dhis2.get_json(&dhis2::jobs_path()) {
+        Ok(tasks) => dhis2::finished_here(&tasks),
+        Err(why) => {
+            ctx.out.verbose(&format!(
+                "{} could not be read ({why}), so no analytics run is counted as seen here",
+                dhis2::jobs_path()
+            ));
+            false
+        }
+    };
+    dhis2::analytics_evidence(
+        &session.ready.last_analytics,
+        ran_here,
+        session
+            .project
+            .state
+            .components
+            .dhis2_seed_source()
+            .is_some(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -744,9 +799,15 @@ fn install_app(
     listing: &serde_json::Value,
 ) -> Result<AppReport> {
     let published = dhis2::fetch_hub_app(hub, app.id, dhis2::DEFAULT_TIMEOUT)?;
-    let name = match published.name.trim().is_empty() {
-        true => app.name.to_string(),
-        false => published.name.clone(),
+    // One name in the report, whichever spelling each side uses: the App Hub
+    // publishes the Modeling App as `Modeling` and an instance lists it under a
+    // third name again, so a report that used all three would read as three
+    // apps. The App Hub's own is still what the instance's listing is matched
+    // on, because that is the spelling the instance got its name from.
+    let name = app.name.to_string();
+    let published_as = match published.name.trim().is_empty() {
+        true => app.name,
+        false => published.name.trim(),
     };
     let Some(version) = dhis2::pick_version(&published.versions, &session.ready.version) else {
         return Err(anyhow::anyhow!(
@@ -755,7 +816,7 @@ fn install_app(
             display_version(&session.ready.version)
         ));
     };
-    let installed = dhis2::installed_app(listing, &name);
+    let installed = dhis2::installed_app(listing, published_as);
     if let Some(installed) = &installed
         && dhis2::compare_versions(&installed.version, &version.version)
             == std::cmp::Ordering::Equal
@@ -1032,7 +1093,7 @@ fn human_show(report: &ShowReport, out: &Out) -> String {
         false => report
             .apps
             .iter()
-            .map(|app| format!("{} {}", app.name, app.version))
+            .map(|app| app_cell(app, out))
             .collect::<Vec<String>>()
             .join(", "),
     };
@@ -1043,10 +1104,7 @@ fn human_show(report: &ShowReport, out: &Out) -> String {
             ("target", out.dim(&report.target)),
             (
                 "analytics",
-                match report.last_analytics.is_empty() {
-                    true => out.warn("never run"),
-                    false => out.value(&report.last_analytics),
-                },
+                analytics_cell(report.analytics, &report.last_analytics, out),
             ),
             ("apps", apps),
         ],
@@ -1058,6 +1116,39 @@ fn human_show(report: &ShowReport, out: &Out) -> String {
     text.push_str(&out.backticks(&report.next));
     text.push('\n');
     text
+}
+
+/// One of the two apps in the `apps` row: the version, or that it is absent.
+fn app_cell(app: &ShownApp, out: &Out) -> String {
+    match app.installed {
+        true => format!("{} {}", app.name, out.value(&app.version)),
+        false => format!("{} {}", app.name, out.warn("not installed")),
+    }
+}
+
+/// The `analytics` row: what DHIS2 records, and what chaps knows it is worth.
+///
+/// A timestamp on its own reads as "analytics is done", and on a seeded
+/// deployment it is not that at all - it is the dump's. So the row says which
+/// of the two it is, and never claims more than chaps checked: a run that
+/// finished is a run that finished, which is not the same as tables with rows
+/// in them. Nothing here can see a row count; `lastYears` is the reason that
+/// distinction is worth keeping, and `docs/dhis2.md` carries it.
+fn analytics_cell(evidence: dhis2::AnalyticsEvidence, last: &str, out: &Out) -> String {
+    let when = out.value(last.trim());
+    match evidence {
+        dhis2::AnalyticsEvidence::Never => out.warn("never run"),
+        dhis2::AnalyticsEvidence::Recorded => when,
+        dhis2::AnalyticsEvidence::RanHere if last.trim().is_empty() => {
+            out.ok("a run finished on this deployment")
+        }
+        dhis2::AnalyticsEvidence::RanHere => {
+            format!("{when} {}", out.ok("(a run finished on this deployment)"))
+        }
+        dhis2::AnalyticsEvidence::Unconfirmed => {
+            format!("{when} {}", out.warn("(from the seed dump, unconfirmed)"))
+        }
+    }
 }
 
 /// The first line of an error, for a cell that has one line to say it in.
@@ -1291,6 +1382,19 @@ mod tests {
         assert!(text.contains("App Hub"), "{text}");
     }
 
+    /// The two apps chaps is about, in the order it installs them.
+    fn shown_apps(versions: &[&str]) -> Vec<ShownApp> {
+        dhis2::HUB_APPS
+            .iter()
+            .zip(versions)
+            .map(|(app, version)| ShownApp {
+                name: app.name.to_string(),
+                installed: !version.is_empty(),
+                version: version.to_string(),
+            })
+            .collect()
+    }
+
     #[test]
     fn show_names_every_missing_piece_and_the_command_that_fixes_them() {
         let report = ShowReport {
@@ -1298,7 +1402,8 @@ mod tests {
             target: "http://chap:8000/**".to_string(),
             route: None,
             last_analytics: String::new(),
-            apps: Vec::new(),
+            analytics: dhis2::AnalyticsEvidence::Never,
+            apps: shown_apps(&["", ""]),
             missing: vec![
                 "there is no `chap` route".to_string(),
                 "analytics has never run".to_string(),
@@ -1309,9 +1414,83 @@ mod tests {
         let text = human_show(&report, &out());
         assert!(text.contains("route      none"), "{text}");
         assert!(text.contains("analytics  never run"), "{text}");
-        assert!(text.contains("apps       none"), "{text}");
+        assert!(
+            text.contains("apps       Modeling App not installed, DHIS2 Climate App not installed"),
+            "{text}"
+        );
         assert!(text.contains("missing: there is no `chap` route"), "{text}");
         assert!(text.contains("run `chaps dhis2 connect`"), "{text}");
+    }
+
+    /// The row is the two apps and nothing else. A real instance lists 29
+    /// bundled apps of its own, and they are not what this command answers for.
+    #[test]
+    fn the_apps_row_is_the_two_apps_chaps_installs_and_no_others() {
+        let bundled = serde_json::json!([
+            {"name": "Reports", "key": "reports", "version": "100.2.4"},
+            {"name": "Maintenance app", "key": "maintenance", "version": "32.34.1-v42.0"},
+            // The instance's own spelling of the Modeling App, which is not
+            // the App Hub's and not chaps'.
+            {"name": "Modeling", "key": "modeling", "version": "7.1.0"},
+        ]);
+        let apps: Vec<ShownApp> = dhis2::HUB_APPS
+            .iter()
+            .map(|app| shown_app(app, dhis2::installed_app(&bundled, app.name)))
+            .collect();
+        assert_eq!(apps.len(), 2, "{apps:?}");
+        assert_eq!(apps[0].name, "Modeling App");
+        assert!(apps[0].installed);
+        assert_eq!(apps[0].version, "7.1.0");
+        assert!(!apps[1].installed, "{apps:?}");
+
+        let text = human_show(
+            &ShowReport {
+                instance: instance(),
+                target: "http://chap:8000/**".to_string(),
+                route: None,
+                last_analytics: String::new(),
+                analytics: dhis2::AnalyticsEvidence::Never,
+                apps,
+                missing: Vec::new(),
+                next: String::new(),
+            },
+            &out(),
+        );
+        assert!(
+            text.contains("apps       Modeling App 7.1.0, DHIS2 Climate App not installed"),
+            "{text}"
+        );
+        for other in ["Reports", "Maintenance", "100.2.4"] {
+            assert!(!text.contains(other), "{other} is DHIS2's business: {text}");
+        }
+    }
+
+    /// The row a seeded deployment gets must not read as "analytics is done",
+    /// and the one chaps watched finish must not read as more than that.
+    #[test]
+    fn the_analytics_row_says_what_the_timestamp_is_worth() {
+        let when = "2026-06-16T07:51:00.093";
+        let inherited = analytics_cell(dhis2::AnalyticsEvidence::Unconfirmed, when, &out());
+        assert_eq!(
+            inherited,
+            format!("{when} (from the seed dump, unconfirmed)")
+        );
+
+        let here = analytics_cell(dhis2::AnalyticsEvidence::RanHere, when, &out());
+        assert_eq!(here, format!("{when} (a run finished on this deployment)"));
+        // What chaps saw is a run finishing, which is not a row count: a run
+        // can finish having written nothing, which is why it says neither
+        // "done" nor anything about the tables.
+        assert!(!here.contains("done"), "{here}");
+
+        assert_eq!(
+            analytics_cell(dhis2::AnalyticsEvidence::Recorded, when, &out()),
+            when
+        );
+        assert_eq!(
+            analytics_cell(dhis2::AnalyticsEvidence::Never, "", &out()),
+            "never run"
+        );
     }
 
     #[test]
@@ -1328,16 +1507,21 @@ mod tests {
                 answered: "healthy".to_string(),
             }),
             last_analytics: "2026-09-25T10:01:00.000".to_string(),
-            apps: vec![ShownApp {
-                name: "Modeling App".to_string(),
-                version: "7.1.0".to_string(),
-            }],
+            analytics: dhis2::AnalyticsEvidence::RanHere,
+            apps: shown_apps(&["7.1.0", "1.16.2"]),
             missing: Vec::new(),
             next: "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`".to_string(),
         };
         let text = human_show(&report, &out());
         assert!(text.contains("http://chap:8000/** (healthy)"), "{text}");
-        assert!(text.contains("Modeling App 7.1.0"), "{text}");
+        assert!(
+            text.contains("Modeling App 7.1.0, DHIS2 Climate App 1.16.2"),
+            "{text}"
+        );
+        assert!(
+            text.contains("2026-09-25T10:01:00.000 (a run finished on this deployment)"),
+            "{text}"
+        );
         assert!(!text.contains("missing:"), "{text}");
         assert!(text.contains("`chaps open dhis2`"), "{text}");
     }
@@ -1358,7 +1542,8 @@ mod tests {
                 answered: "it points at another chap-core".to_string(),
             }),
             last_analytics: "2026-09-25T10:01:00.000".to_string(),
-            apps: Vec::new(),
+            analytics: dhis2::AnalyticsEvidence::Recorded,
+            apps: shown_apps(&["", ""]),
             missing: vec![
                 "the `chap` route points at http://158.39.75.126/stable/**, not at this deployment"
                     .to_string(),
@@ -1371,32 +1556,32 @@ mod tests {
     }
 
     #[test]
-    fn the_missing_apps_are_the_ones_the_listing_does_not_have() {
-        let none: Vec<ShownApp> = Vec::new();
-        let missing = missing_apps(&none);
+    fn the_missing_apps_are_the_ones_the_instance_does_not_have() {
+        let missing = missing_apps(&shown_apps(&["", ""]));
         assert_eq!(missing.len(), 2, "{missing:?}");
         assert!(missing[0].contains("the Modeling App"), "{missing:?}");
+        assert!(missing[1].contains("the Climate App"), "{missing:?}");
 
-        let both = vec![
-            ShownApp {
-                name: "Modeling App".to_string(),
-                version: "7.1.0".to_string(),
-            },
-            ShownApp {
-                name: "DHIS2 Climate App".to_string(),
-                version: "1.16.2".to_string(),
-            },
-        ];
-        assert!(missing_apps(&both).is_empty(), "{:?}", missing_apps(&both));
+        assert!(missing_apps(&shown_apps(&["7.1.0", "1.16.2"])).is_empty());
 
-        // The installed key is the name in another spelling, and still counts.
-        let keyed = vec![ShownApp {
-            name: "dhis2-climate-app".to_string(),
-            version: "1.16.2".to_string(),
-        }];
-        let missing = missing_apps(&keyed);
+        // A row that is there but not installed is a missing app, not a
+        // present one: the row exists either way.
+        let missing = missing_apps(&shown_apps(&["7.1.0", ""]));
         assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(missing[0].contains("the Modeling App"), "{missing:?}");
+        assert!(missing[0].contains("the Climate App"), "{missing:?}");
+
+        // The instance's own spelling is matched, not compared as text: it
+        // lists the Modeling App as `Modeling`, and an installed key is the
+        // name in a third spelling again.
+        let keyed = serde_json::json!([
+            {"name": "Modeling", "key": "modeling", "version": "7.1.0"},
+            {"name": "", "key": "dhis2-climate-app", "version": "1.16.2"},
+        ]);
+        let found: Vec<ShownApp> = dhis2::HUB_APPS
+            .iter()
+            .map(|app| shown_app(app, dhis2::installed_app(&keyed, app.name)))
+            .collect();
+        assert!(missing_apps(&found).is_empty(), "{found:?}");
     }
 
     /// Every refusal names what is true instead and the command that changes

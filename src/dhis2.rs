@@ -867,6 +867,70 @@ fn latest_time(notifications: &serde_json::Value) -> String {
         .unwrap_or_default()
 }
 
+/// Whether an analytics run has finished on this DHIS2 since it started.
+///
+/// `GET /api/system/tasks/ANALYTICS_TABLE` is DHIS2's notifier, and the
+/// notifier lives in the running process rather than in the database. That is
+/// exactly what makes it useful here: a deployment seeded from a dump starts
+/// with it empty however much analytics the instance the dump was taken from
+/// ever ran, so a completed run in it is a run that happened *here*.
+///
+/// It is evidence one way only. A restart empties it, so a `false` means chaps
+/// has not seen a run rather than that there was none, and every sentence built
+/// on it has to say so.
+pub fn finished_here(tasks: &serde_json::Value) -> bool {
+    tasks
+        .as_object()
+        .into_iter()
+        .flatten()
+        .any(|(_, notifications)| matches!(progress_of(notifications), Some(Progress::Done(_))))
+}
+
+/// What chaps actually knows about a deployment's analytics tables.
+///
+/// **`lastAnalyticsTableSuccess` is not a fact about this deployment.** It is a
+/// row of DHIS2's own settings, so a seeded deployment inherits it from the
+/// dump: measured on the Laos climate demo, a freshly seeded instance reported
+/// a last success of `2026-06-16T07:51:00.093` while `analytics_2024` did not
+/// exist at all - the table was absent, not empty. That is the failure this
+/// command exists to catch, and the timestamp on its own hides it.
+///
+/// chaps talks HTTP and cannot look at the tables, so it reports what it
+/// checked and no more. Two questions settle which of these four it is: what
+/// DHIS2 records, and whether a run has finished here, which [`finished_here`]
+/// answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AnalyticsEvidence {
+    /// DHIS2 records no successful run at all, neither here nor in a dump.
+    Never,
+    /// A run finished on this DHIS2 since it started. chaps saw it happen.
+    RanHere,
+    /// DHIS2 records a success and no dump could have brought it: this
+    /// deployment's database was migrated from empty, so the record was made
+    /// against it.
+    Recorded,
+    /// DHIS2 records a success, the database was restored from a seed dump
+    /// that carries that timestamp, and no run has finished here since DHIS2
+    /// started. The timestamp is not evidence either way.
+    Unconfirmed,
+}
+
+/// Which of the four this deployment is in.
+///
+/// `ran_here` outranks everything, because it is the only first-hand answer.
+/// `seeded` is read from `.chaps/components.yaml` rather than from DHIS2: chaps
+/// knows whether it restored a dump into this database, and DHIS2 does not know
+/// where its rows came from.
+pub fn analytics_evidence(last_success: &str, ran_here: bool, seeded: bool) -> AnalyticsEvidence {
+    match (ran_here, last_success.trim().is_empty(), seeded) {
+        (true, _, _) => AnalyticsEvidence::RanHere,
+        (false, true, _) => AnalyticsEvidence::Never,
+        (false, false, true) => AnalyticsEvidence::Unconfirmed,
+        (false, false, false) => AnalyticsEvidence::Recorded,
+    }
+}
+
 /// The job id a `POST /api/resourceTables/analytics` answered with.
 ///
 /// Three spellings, because the shape of that `WebMessage` has moved: the id
@@ -1045,17 +1109,34 @@ pub fn pick_version<'a>(versions: &'a [HubVersion], dhis_version: &str) -> Optio
 
 /// Whether one published version runs on an instance of these parts.
 fn fits(version: &HubVersion, instance: &[u64]) -> bool {
-    let at_least = version
-        .min_dhis_version
-        .as_deref()
-        .map(|min| compare_parts(instance, &dhis_version_parts(min)) != std::cmp::Ordering::Less)
+    let at_least = bound(version.min_dhis_version.as_deref())
+        .map(|min| compare_parts(instance, &min) != std::cmp::Ordering::Less)
         .unwrap_or(true);
-    let at_most = version
-        .max_dhis_version
-        .as_deref()
-        .map(|max| compare_parts(instance, &dhis_version_parts(max)) != std::cmp::Ordering::Greater)
+    let at_most = bound(version.max_dhis_version.as_deref())
+        .map(|max| compare_parts(instance, &max) != std::cmp::Ordering::Greater)
         .unwrap_or(true);
     at_least && at_most
+}
+
+/// The version a declared bound names, or `None` where it names none.
+///
+/// **A blank bound is no bound, on both sides.** The App Hub sends a bound it
+/// has not set as an empty string rather than as an absent field: every one of
+/// the 32 published versions of the Modeling App carries
+/// `"maxDhisVersion": ""`, and `#[serde(default)]` turns that into `Some("")`
+/// and not into `None`. Read as a version, `""` has no parts at all, which
+/// compares below every instance - so `2.42.6` sat *above* a maximum of
+/// nothing, every version was filtered out, and `chaps dhis2 apps` reported
+/// that the App Hub publishes no version this DHIS2 can run while a plain
+/// `POST /api/appHub/{versionId}` installed it fine.
+///
+/// Missing, empty, whitespace and unreadable are therefore one answer. A bound
+/// chaps cannot compare against is a bound it cannot honour, and refusing on it
+/// would refuse everything - the same reason [`pick_version`] takes the newest
+/// version when the instance itself did not say what it is.
+fn bound(value: Option<&str>) -> Option<Vec<u64>> {
+    let parts = dhis_version_parts(value.unwrap_or_default());
+    (!parts.is_empty()).then_some(parts)
 }
 
 /// The app of that name the instance already has, if any.
@@ -1646,6 +1727,192 @@ mod tests {
         }];
         assert_eq!(pick_version(&capped, "2.42"), None);
         assert_eq!(pick_version(&capped, "2.41").unwrap().id, "capped");
+    }
+
+    /// A bound the App Hub has not set arrives as `""`, which is not a bound.
+    ///
+    /// Read as a version it has no parts, and an instance compares above it -
+    /// so a blank maximum used to exclude every instance there is.
+    #[test]
+    fn a_blank_bound_is_no_bound_on_either_side() {
+        let blank = |min: &str, max: &str| {
+            vec![HubVersion {
+                id: "only".into(),
+                version: "7.1.0".into(),
+                min_dhis_version: Some(min.to_string()),
+                max_dhis_version: Some(max.to_string()),
+            }]
+        };
+        // The shape the App Hub actually sends: a minimum, and a maximum that
+        // is an empty string rather than an absent field.
+        assert_eq!(
+            pick_version(&blank("2.40", ""), "2.42.6").unwrap().id,
+            "only"
+        );
+        // Both blank, whitespace-only, and text with no digits in it: chaps
+        // cannot compare against any of them, so none of them is a bound.
+        assert_eq!(pick_version(&blank("", ""), "2.42.6").unwrap().id, "only");
+        assert_eq!(
+            pick_version(&blank("  ", " \t"), "2.42.6").unwrap().id,
+            "only"
+        );
+        assert_eq!(
+            pick_version(&blank("none", "none"), "2.42.6").unwrap().id,
+            "only"
+        );
+        // A blank minimum is the same rule: it never excludes an old instance.
+        assert_eq!(pick_version(&blank("", "2.43"), "2.30").unwrap().id, "only");
+        // And a bound that is set is still a bound.
+        assert_eq!(pick_version(&blank("2.43", ""), "2.42.6"), None);
+        assert_eq!(pick_version(&blank("", "2.41"), "2.42.6"), None);
+    }
+
+    /// The App Hub's real answer for the Modeling App, trimmed to three of its
+    /// thirty-two versions and to a one-line description, and otherwise exactly
+    /// what `apps.dhis2.org` returned for
+    /// `a29851f9-82a7-4ecd-8b2c-58e0f220bc75`.
+    ///
+    /// **The empty `maxDhisVersion` strings are the point.** A stub that leaves
+    /// the field out is tidier than reality and hides the one bug that stopped
+    /// any app from ever being installed, so the regression test is written
+    /// against the payload as it comes off the wire.
+    const REAL_MODELING_APP: &str = r#"{
+      "appType": "APP",
+      "status": "APPROVED",
+      "id": "a29851f9-82a7-4ecd-8b2c-58e0f220bc75",
+      "created": 1738081755106,
+      "lastUpdated": 1789983819971,
+      "name": "Modeling",
+      "description": "Modeling App provides a general user interface in DHIS2.",
+      "hasChangelog": true,
+      "hasPlugin": null,
+      "pluginType": null,
+      "coreApp": false,
+      "developer": {"address": "", "email": "herman@dhis2.org",
+                    "organisation": "DHIS2", "organisation_slug": "dhis2"},
+      "owner": "4d8eae29-d2a2-4dfa-ad94-ed0746129b32",
+      "images": [],
+      "sourceUrl": "https://github.com/dhis2-chap/chap-frontend",
+      "reviews": [],
+      "userCanEditApp": false,
+      "versions": [
+        {"created": 1789983819971, "demoUrl": "", "changeSummary": "",
+         "downloadUrl": "https://apps.dhis2.org/api/v1/apps/download/dhis2/modeling_7.1.0.zip",
+         "id": "4c895dd5-e121-43ab-af44-c853c3ea3297", "lastUpdated": 1789983819971,
+         "maxDhisVersion": "", "minDhisVersion": "2.40", "version": "7.1.0",
+         "channel": "stable"},
+        {"created": 1756467119465, "demoUrl": "", "changeSummary": "",
+         "downloadUrl": "https://apps.dhis2.org/api/v1/apps/download/dhis2/modeling_2.2.4.zip",
+         "id": "eac4cb12-a1f7-4351-8ba7-e12361b9d917", "lastUpdated": 1756467119465,
+         "maxDhisVersion": "", "minDhisVersion": "2.40", "version": "2.2.4",
+         "channel": "stable"},
+        {"created": 1738081755106, "demoUrl": "", "changeSummary": "",
+         "downloadUrl": "https://apps.dhis2.org/api/v1/apps/download/dhis2/modeling_1.0.2.zip",
+         "id": "0fc03933-54cd-4fe3-9285-59ffec6f6c09", "lastUpdated": 1738081755106,
+         "maxDhisVersion": "", "minDhisVersion": "2.41", "version": "1.0.2",
+         "channel": "stable"}
+      ]
+    }"#;
+
+    /// The headline capability, against the payload that broke it: DHIS2
+    /// 2.42.6 can run the Modeling App, and chaps has to say which version.
+    #[test]
+    fn the_app_hubs_own_answer_yields_a_version_for_a_real_instance() {
+        let app: HubApp =
+            serde_json::from_str(REAL_MODELING_APP).expect("the App Hub's own answer parses");
+        // The App Hub publishes it as `Modeling`; `Modeling App` is what a
+        // sentence and an installed instance call it.
+        assert_eq!(app.name, "Modeling");
+        assert_eq!(app.versions.len(), 3);
+        // Every published version, without exception, carries a blank maximum.
+        assert!(
+            app.versions
+                .iter()
+                .all(|version| version.max_dhis_version.as_deref() == Some("")),
+            "{:?}",
+            app.versions
+        );
+
+        let picked = pick_version(&app.versions, "2.42.6")
+            .expect("2.42.6 can run the Modeling App; a blank maximum is no maximum");
+        assert_eq!(picked.version, "7.1.0");
+        assert_eq!(picked.id, "4c895dd5-e121-43ab-af44-c853c3ea3297");
+
+        // The minimum, which the App Hub does set, is still honoured: 1.0.2
+        // wants 2.41, and an instance below that gets nothing.
+        let oldest = &app.versions[2..];
+        assert_eq!(oldest[0].min_dhis_version.as_deref(), Some("2.41"));
+        assert_eq!(pick_version(oldest, "2.40"), None);
+        assert_eq!(pick_version(oldest, "2.41").unwrap().version, "1.0.2");
+    }
+
+    /// A notifier that remembers a finished run is a run that happened on this
+    /// DHIS2: the notifier is in the process, not in the database, so nothing a
+    /// dump carries can put an entry in it.
+    #[test]
+    fn a_finished_run_in_the_notifier_is_a_run_that_happened_here() {
+        let done = serde_json::json!({
+            "lGTLZ5HrhHL": [
+                {"time": "2026-09-27T10:10:40.063", "level": "INFO",
+                 "message": "Analytics table update process", "completed": false},
+                {"time": "2026-09-27T10:10:56.185", "level": "INFO",
+                 "message": "Analytics tables updated: 00:00:16.098", "completed": true},
+            ],
+        });
+        assert!(finished_here(&done));
+
+        // A run still going is not one that finished, and neither is a failure.
+        let running = serde_json::json!({
+            "job": [{"time": "2026-09-27T10:10:40.063", "message": "analytics_2024"}],
+        });
+        assert!(!finished_here(&running));
+        let failed = serde_json::json!({
+            "job": [{"time": "2026-09-27T10:10:40.063", "level": "ERROR", "message": "no memory"}],
+        });
+        assert!(!finished_here(&failed));
+
+        // An empty notifier is what a seeded deployment starts with, and what
+        // every deployment has again after a restart.
+        assert!(!finished_here(&serde_json::json!({})));
+        assert!(!finished_here(&serde_json::json!("nope")));
+    }
+
+    /// The timestamp alone is worth nothing on a seeded deployment: it comes
+    /// out of the dump, and the tables it talks about were never restored.
+    #[test]
+    fn an_inherited_analytics_timestamp_is_not_evidence_of_analytics() {
+        // The measured case: a freshly seeded Laos demo, reporting a last
+        // success from the dump while `analytics_2024` did not exist at all.
+        assert_eq!(
+            analytics_evidence("2026-06-16T07:51:00.093", false, true),
+            AnalyticsEvidence::Unconfirmed
+        );
+        // The same deployment once a run has finished on it.
+        assert_eq!(
+            analytics_evidence("2026-09-27T10:10:40.043", true, true),
+            AnalyticsEvidence::RanHere
+        );
+        // A database DHIS2 migrated from empty has no dump to inherit from, so
+        // what it records was recorded here.
+        assert_eq!(
+            analytics_evidence("2026-09-27T10:10:40.043", false, false),
+            AnalyticsEvidence::Recorded
+        );
+        // Nothing recorded anywhere is the one unambiguous answer.
+        assert_eq!(
+            analytics_evidence("", false, true),
+            AnalyticsEvidence::Never
+        );
+        assert_eq!(
+            analytics_evidence("   ", false, false),
+            AnalyticsEvidence::Never
+        );
+        // A run seen here outranks a missing record rather than contradicting
+        // it: chaps watched it happen.
+        assert_eq!(
+            analytics_evidence("", true, true),
+            AnalyticsEvidence::RanHere
+        );
     }
 
     #[test]

@@ -598,6 +598,55 @@ order worth checking:
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
 
+## `the App Hub publishes no version of ... that DHIS2 ... can run`
+
+```text
+failed Modeling App was not installed: the App Hub publishes no version of Modeling that DHIS2 2.42.6 can run; install it from DHIS2's own App Management page
+```
+
+**Upgrade `chaps`.** Up to and including 0.4.0 this sentence was wrong for every
+instance there is. The App Hub sends a version bound it has not set as an empty
+string rather than as an absent field, and `""` was read as a maximum: every
+published version looked capped below the instance, so every one was filtered
+out. `chaps` now treats a missing, empty, whitespace or unreadable bound as no
+bound, on both sides.
+
+If it appears on a current `chaps`, it is what it says: check the app's own page
+on [apps.dhis2.org](https://apps.dhis2.org) for a version that lists this
+instance's release under `minDhisVersion`. `chaps dhis2 apps -v` prints the
+version it resolved and the id it installed.
+
+`POST /api/appHub/{versionId}` is idempotent, so installing from DHIS2's own App
+Management page in the meantime costs nothing: `chaps dhis2 apps` afterwards
+reports the app as already installed rather than fighting it.
+
+## `analytics may never have run on this deployment`
+
+```text
+analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)
+missing: analytics may never have run on this deployment: the timestamp above came with the seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+```
+
+This is not an error, and it is not `chaps` saying the tables are missing. It is
+`chaps` declining to say they are there.
+
+`lastAnalyticsTableSuccess` is a row of DHIS2's own settings, so a
+[seeded](./dhis2.md#the-seed) deployment restores it with the rest of the dump.
+Measured on a 2.42.6 with the Laos climate demo, a freshly seeded instance
+reported a last success of `2026-06-16T07:51:00.093` while `analytics_2024` did
+not exist at all - the table was absent, not empty, and the Modeling App saw
+nothing. The timestamp was a fact about the database the dump was taken from.
+
+```sh
+chaps dhis2 analytics
+```
+
+settles it, and the row afterwards reads `(a run finished on this deployment)`.
+Restarting DHIS2 empties the notifier `chaps` reads that from, so the line can
+come back on a deployment where analytics really has been generated; running it
+again is idempotent and takes tens of seconds on demo data. See
+[What `show` can say about analytics](./dhis2.md#what-show-can-say-about-analytics-and-what-it-cannot).
+
 ## The analytics tables are empty but the run reported success
 
 Almost certainly `lastYears`. Measured on the climate demo,
