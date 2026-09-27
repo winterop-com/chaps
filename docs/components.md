@@ -241,11 +241,21 @@ dhis2:
   port: 8080
   image_tag: '2.42'
   seed: default
+  connected_at: null
 ```
 
 Every field has a default, so a deployment created before components existed
 loads as "chap-core on, nothing else" - which is exactly what it was. There is
 nothing to migrate; the file simply appears the next time `chaps sync` runs.
+
+Two keys in there are records rather than intent, and each is marked as such
+where it appears. `ocs.read_only` mirrors what `ocs/climate-service.yaml` says,
+because OCS reads that file and not this one; `dhis2.connected_at` notes when
+`chaps dhis2 connect` last finished, and its only job is to stop `chaps up` and
+`chaps status` asking for a connect that has already happened. Neither is ever
+read as evidence - see [`connected_at`, and what it is
+not](./dhis2.md#connected_at-and-what-it-is-not), which names the command that
+does ask DHIS2.
 
 The component compose files sit in the `-f` list between `compose.chaps.yml`
 and `compose.marketplace.yml`:

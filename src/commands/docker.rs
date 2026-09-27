@@ -8,6 +8,7 @@
 
 use crate::cli::{DockerCmd, DownArgs};
 use crate::commands::Ctx;
+use crate::components::{Components, DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME, dhis2_connect_hint};
 use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
@@ -135,7 +136,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     if code != 0 {
         return Err(docker_failed(code, unasked));
     }
-    report_what_changed(ctx, &project, cmd, &before, &volumes);
+    report_what_changed(ctx, &mut project, cmd, &before, &volumes);
     Ok(())
 }
 
@@ -479,7 +480,7 @@ fn reject_unknown_services(project: &Project, names: &[String]) -> Result<()> {
 /// for every other wrapper.
 fn report_what_changed(
     ctx: &Ctx,
-    project: &Project,
+    project: &mut Project,
     cmd: &DockerCmd,
     before: &[docker::Container],
     volumes: &[String],
@@ -489,7 +490,10 @@ fn report_what_changed(
         // there is nothing left running to summarise.
         DockerCmd::Up(args) if !args.attach => {
             let after = docker::running_containers(project).unwrap_or_default();
-            note(ctx, &up_summary(&ctx.out, before, &after));
+            note(
+                ctx,
+                &up_summary(&ctx.out, before, &after, &project.state.components),
+            );
         }
         DockerCmd::Restart(_) => {
             let after = docker::running_containers(project).unwrap_or_default();
@@ -508,7 +512,14 @@ fn report_what_changed(
                     },
                     project.compose_project_name().as_deref(),
                 ),
-            )
+            );
+            // Said after the line that names what went, because it is a
+            // consequence of it.
+            if let Some(names) = &removed
+                && let Some(line) = forget_dhis2_connect(project, names)
+            {
+                note(ctx, &ctx.out.backticks(&line));
+            }
         }
         DockerCmd::Pull(_) => note(
             ctx,
@@ -516,6 +527,41 @@ fn report_what_changed(
         ),
         _ => {}
     }
+}
+
+/// Forget a recorded `chaps dhis2 connect` when this run has just removed the
+/// database it was true of, and give back the line that says so.
+///
+/// `chaps down --volumes` is the one wrapper that destroys data, and `dhis2_db`
+/// is one of the volumes it takes. The record left behind would then be a
+/// record of a route in a database that no longer exists, suppressing the hint
+/// on the next `chaps up` - which restores the seed dump, and that dump ships a
+/// `chap` route pointing at a CHAP this deployment has nothing to do with.
+///
+/// Measured against what docker no longer holds rather than against the flag on
+/// the command line: compose removes the volumes its own files declare, so a
+/// `down --volumes` on a deployment whose `compose.dhis2.yml` has already gone
+/// leaves `dhis2_db` exactly where it was. `None` when there was no record,
+/// when this deployment can name no volumes, or when that volume survived - in
+/// each case nothing was changed and there is nothing to say.
+fn forget_dhis2_connect(project: &mut Project, removed: &[String]) -> Option<String> {
+    project.state.components.dhis2.connected_at.as_ref()?;
+    let volume = project.prefixed_volume(crate::compose::render::DHIS2_DB_VOLUME)?;
+    if !removed.contains(&volume) {
+        return None;
+    }
+    project.state.components.dhis2.connected_at = None;
+    // A state file that could not be written is worth a line of its own: the
+    // record is still there, and the next `chaps up` will still be quiet about
+    // connecting. The `down` itself succeeded and is not failed for it.
+    if let Err(why) = project.save() {
+        crate::output::warn(&format!(
+            "the record of `chaps dhis2 connect` could not be cleared from \
+             `.chaps/components.yaml`: {why}; run `chaps dhis2 connect` after the next `chaps up`"
+        ));
+        return None;
+    }
+    Some(DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME.to_string())
 }
 
 /// Print a line of the wrapper's own, as opposed to docker's output.
@@ -535,7 +581,22 @@ fn note(ctx: &Ctx, line: &str) {
 /// Compose prints one line per service as it goes, in no particular order and
 /// in the language of its own steps ("Created", "Running"); this is the one
 /// line that says which services are new to this run.
-pub fn up_summary(out: &Out, before: &[docker::Container], after: &[docker::Container]) -> String {
+///
+/// A deployment with a DHIS2 nothing has connected gets one more line under
+/// that, because this is the run the reader is about to wait minutes for and
+/// the line that named `chaps dhis2 connect` scrolled past when the component
+/// was added. It comes off `.chaps/components.yaml` alone - `up` asks DHIS2
+/// nothing, and there would be nothing to ask yet - so it says what chaps has
+/// recorded rather than what DHIS2 is. See [`dhis2_connect_hint`].
+///
+/// Not on the run that started nothing at all: there is no deployment up to
+/// connect, and the line above already says to go and read the logs.
+pub fn up_summary(
+    out: &Out,
+    before: &[docker::Container],
+    after: &[docker::Container],
+    components: &Components,
+) -> String {
     let (started, unchanged) = docker::diff_containers(before, after);
     let started_cell = |names: &[String]| {
         format!(
@@ -553,7 +614,12 @@ pub fn up_summary(out: &Out, before: &[docker::Container], after: &[docker::Cont
         (true, false) => unchanged_cell(&unchanged),
         (false, false) => format!("{}; {}", started_cell(&started), unchanged_cell(&unchanged)),
     };
-    format!("{summary}\n{}", out.backticks(AFTER_UP))
+    let mut text = format!("{summary}\n{}", out.backticks(AFTER_UP));
+    if components.dhis2_needs_connecting() {
+        text.push('\n');
+        text.push_str(&out.backticks(&dhis2_connect_hint(false)));
+    }
+    text
 }
 
 /// What `restart` recreated, from the containers before and after.
@@ -1375,6 +1441,10 @@ mod tests {
 
     #[test]
     fn up_summarises_what_it_started_and_what_it_left_alone() {
+        let plain = Components::default();
+        let summary = |before: &[docker::Container], after: &[docker::Container]| {
+            up_summary(&Out::default(), before, after, &plain)
+        };
         let before = vec![
             container("chap", "aaa", "t1"),
             container("postgres", "bbb", "t1"),
@@ -1385,24 +1455,114 @@ mod tests {
             container("chapkit-ewars-model", "ddd", "t2"),
         ];
         assert_eq!(
-            up_summary(&Out::default(), &before, &after),
+            summary(&before, &after),
             "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
              run `chaps status` to check chap-core and the models"
         );
 
         // A first start has nothing to leave alone.
-        assert!(up_summary(&Out::default(), &[], &after).starts_with(
+        assert!(summary(&[], &after).starts_with(
             "started/recreated: chap, postgres, chapkit-ewars-model\nrun `chaps status`"
         ));
         // A no-op `up` says so rather than printing an empty list.
-        assert!(
-            up_summary(&Out::default(), &after, &after)
-                .starts_with("unchanged: chap, postgres, chapkit")
-        );
+        assert!(summary(&after, &after).starts_with("unchanged: chap, postgres, chapkit"));
         // And an `up` that left nothing running is a problem, not a summary.
         assert_eq!(
-            up_summary(&Out::default(), &[], &[]),
+            summary(&[], &[]),
             "nothing is running after `up`; run `chaps logs` to see why"
+        );
+    }
+
+    /// A deployment with a DHIS2 nothing has connected is told so by the one
+    /// command that has just spent minutes starting it - and stops being told
+    /// the moment a connect is recorded.
+    #[test]
+    fn up_names_the_connect_a_dhis2_deployment_still_needs() {
+        let mut components = Components::default();
+        components.set_enabled(crate::components::Component::Dhis2, true);
+        let after = vec![
+            container("chap", "aaa", "t1"),
+            container("dhis2", "bbb", "t1"),
+        ];
+
+        let asked = up_summary(&Out::default(), &[], &after, &components);
+        assert!(
+            asked.ends_with(
+                "\nchaps has not connected this DHIS2 to CHAP; \
+                 run `chaps dhis2 connect` once DHIS2 answers"
+            ),
+            "{asked}"
+        );
+        // Under the line that is always there, not instead of it.
+        assert!(
+            asked.contains("run `chaps status` to check chap-core"),
+            "{asked}"
+        );
+
+        components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+        let recorded = up_summary(&Out::default(), &[], &after, &components);
+        assert!(!recorded.contains("chaps dhis2 connect"), "{recorded}");
+
+        // An `up` that started nothing has no deployment to connect, and the
+        // line above already says to go and read the logs.
+        components.dhis2.connected_at = None;
+        assert_eq!(
+            up_summary(&Out::default(), &[], &[], &components),
+            "nothing is running after `up`; run `chaps logs` to see why"
+        );
+
+        // And a deployment without chap-core is never asked: the route would
+        // point at a service that is not there.
+        components.set_enabled(crate::components::Component::ChapCore, false);
+        let standalone = up_summary(&Out::default(), &[], &after, &components);
+        assert!(!standalone.contains("chaps dhis2 connect"), "{standalone}");
+    }
+
+    /// `down --volumes` takes `dhis2_db` with it, and the next `chaps up`
+    /// restores the seed dump into a new one - which ships a `chap` route
+    /// pointing at somebody else's CHAP. So the record of a connect goes with
+    /// the volume it was true of, and the line says why.
+    #[test]
+    fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut project = Project {
+            dir: temp.path().to_path_buf(),
+            state: crate::project::ProjectState {
+                compose_project: "demo-1ab2c3".to_string(),
+                ..Default::default()
+            },
+        };
+        project
+            .state
+            .components
+            .set_enabled(crate::components::Component::Dhis2, true);
+        project.state.components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+        project.save().unwrap();
+        let db = project
+            .prefixed_volume(crate::compose::render::DHIS2_DB_VOLUME)
+            .unwrap();
+
+        // A `down` that took other volumes and left the database leaves the
+        // record where it was: the route it was true of is still there.
+        assert_eq!(
+            forget_dhis2_connect(&mut project, &["demo-1ab2c3_dhis2_home".to_string()]),
+            None
+        );
+        assert!(project.state.components.dhis2.connected_at.is_some());
+
+        let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db)).unwrap();
+        assert!(line.contains("`dhis2_db`"), "{line}");
+        assert!(line.contains("`chaps dhis2 connect`"), "{line}");
+        assert_eq!(project.state.components.dhis2.connected_at, None);
+        // And on disk, not only in memory: the next command reads the file.
+        let reloaded = Project::load(temp.path()).unwrap();
+        assert_eq!(reloaded.state.components.dhis2.connected_at, None);
+        assert!(reloaded.state.components.dhis2_needs_connecting());
+
+        // Nothing recorded, nothing to say - however many volumes went.
+        assert_eq!(
+            forget_dhis2_connect(&mut project, std::slice::from_ref(&db)),
+            None
         );
     }
 

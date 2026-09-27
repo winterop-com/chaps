@@ -340,7 +340,35 @@ fn human(report: &StatusReport, out: &Out) -> String {
     for hint in hints(&report.models, report.auth) {
         text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
+    if let Some(hint) = connect_hint(report) {
+        text.push_str(&format!("  {}\n", out.backticks(&hint)));
+    }
     text
+}
+
+/// The hint that this deployment's DHIS2 has still to be connected to CHAP,
+/// for a run where it is worth acting on.
+///
+/// Two conditions, and the second is the one worth arguing about. The first is
+/// [`StatusReport::dhis2_needs_connecting`], which is `.chaps/components.yaml`
+/// and no request at all. The second is that the `dhis2` row says `up`: telling
+/// someone to connect to a DHIS2 that is not running is advice they cannot
+/// take, and `chaps status` has just asked `/api/ping` and knows the answer, so
+/// the line waits for the run where the command it names would work. A DHIS2
+/// that is `starting` is one whose API is not answering yet, which is exactly
+/// the wait `chaps dhis2 connect` would sit in.
+///
+/// It sits with the model hints, under the verdict, because it is the same kind
+/// of thing: one line per row that still needs something done about it.
+fn connect_hint(report: &crate::status::StatusReport) -> Option<String> {
+    if !report.dhis2_needs_connecting {
+        return None;
+    }
+    let up = report.components.iter().any(|component| {
+        component.name == crate::compose::DHIS2_SERVICE
+            && component.state == crate::status::ComponentState::Up
+    });
+    up.then(|| crate::components::dhis2_connect_hint(true))
 }
 
 /// The STATE cell of the chap-core line.
@@ -497,6 +525,7 @@ mod tests {
             unmanaged,
             auth: false,
             components: Vec::new(),
+            dhis2_needs_connecting: false,
             unhealthy: Vec::new(),
         }
     }
@@ -537,6 +566,54 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("read-only"), "{text}");
+    }
+
+    /// The `dhis2` row a `chaps dhis2 connect` has never been recorded for
+    /// carries the hint under the verdict - but only while the row says `up`,
+    /// because a DHIS2 that is not answering cannot be connected to anything.
+    #[test]
+    fn the_verdict_names_the_connect_a_running_dhis2_still_needs() {
+        use crate::status::{ComponentState, ComponentStatus};
+
+        let dhis2 = |state| ComponentStatus {
+            name: "dhis2".to_string(),
+            state,
+            reach: "http://localhost:8080".to_string(),
+            health_url: Some("http://localhost:8080/api/ping".to_string()),
+            read_only: false,
+            datasets: None,
+            data_bytes: None,
+        };
+        let mut report = up(Vec::new(), &[], &["chap", "dhis2"]);
+        report.dhis2_needs_connecting = true;
+        report.components = vec![dhis2(ComponentState::Up)];
+
+        let text = human(&report, &Out::default());
+        assert_eq!(
+            text,
+            "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
+             dhis2       up   http://localhost:8080\n\
+             \n\
+             no models enabled; run `chaps models enable ID` to add one\n  \
+             chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`\n"
+        );
+
+        // Still starting is still not answering, which is the wait the command
+        // would sit in; the line waits for the run where it can be acted on.
+        report.components = vec![dhis2(ComponentState::Starting)];
+        let starting = human(&report, &Out::default());
+        assert!(!starting.contains("chaps dhis2 connect"), "{starting}");
+
+        report.components = vec![dhis2(ComponentState::NotRunning)];
+        let down = human(&report, &Out::default());
+        assert!(!down.contains("chaps dhis2 connect"), "{down}");
+
+        // And a deployment that has been through a connect is never asked
+        // again, however the row reads.
+        report.dhis2_needs_connecting = false;
+        report.components = vec![dhis2(ComponentState::Up)];
+        let recorded = human(&report, &Out::default());
+        assert!(!recorded.contains("chaps dhis2 connect"), "{recorded}");
     }
 
     /// What OCS holds goes on its line when it could be had, and nothing takes

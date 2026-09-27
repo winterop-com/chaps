@@ -118,8 +118,13 @@ The credentials come from `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
 `.env`, else `CHAPS_DHIS2_PASSWORD` in the environment, else the DHIS2 default -
 and there is no `--password` flag, because a password on a command line is in the
 shell history. `chaps up` does none of this and
-[the chapter says why](./dhis2.md#chaps-up-does-none-of-this-on-purpose). See
-[Connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap).
+[the chapter says why](./dhis2.md#chaps-up-does-none-of-this-on-purpose) - so
+`chaps up` and `chaps status` each end by naming `chaps dhis2 connect` until one
+has been recorded in `.chaps/components.yaml`. That record suppresses the hint
+and is never evidence that the route is right; `chaps dhis2 show` is what asks
+DHIS2. See [Connecting the Modeling App to
+CHAP](./dhis2.md#connecting-the-modeling-app-to-chap) and [`connected_at`, and
+what it is not](./dhis2.md#connected_at-and-what-it-is-not).
 
 ## Authentication
 

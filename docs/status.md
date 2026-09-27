@@ -75,6 +75,26 @@ that container is not. The recorded tag is `chaps doctor`'s `image dhis2` line,
 and moving it is an edit to `.chaps/components.yaml` and a `chaps sync`; see
 [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
 
+A `dhis2` line that reads `up` gets one more line under the verdict while
+nothing has recorded a `chaps dhis2 connect` for this deployment:
+
+```text
+no models enabled; run `chaps models enable ID` to add one
+  chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+```
+
+Being `up` is not being connected: the Modeling App reaches chap-core through a
+DHIS2 route that nothing creates on its own, and a deployment can otherwise sit
+with both rows `up` and the app unable to see CHAP at all. The line is read off
+`.chaps/components.yaml` and asks DHIS2 nothing, which is why it says what
+*chaps* has recorded; it waits for the row to read `up`, because a DHIS2 that is
+not answering cannot be connected to anything. It is not printed on a deployment
+without chap-core, where `chaps dhis2 connect` refuses. Once a connect is
+recorded the line stops - which is a suppressed hint and not a verdict on the
+route, and [`connected_at`, and what it is
+not](./dhis2.md#connected_at-and-what-it-is-not) says what that record is worth
+and which command actually asks DHIS2.
+
 See [DHIS2](./dhis2.md) for the component, and [a DHIS2 that answers but 404s
 every API request](./troubleshooting.md#a-dhis2-that-answers-but-404s-every-api-request)
 for what that failure looks like from the outside.

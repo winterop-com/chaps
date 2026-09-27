@@ -576,6 +576,45 @@ entry in DHIS2's apps menu at all, the app is not installed -
 `chaps dhis2 apps`. See
 [Connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap).
 
+Do not read a **silent** `chaps up` or `chaps status` as an answer here. Those
+two name `chaps dhis2 connect` only until one has been recorded, and the record
+is a note that the command ran rather than a check of the route - see
+[`connected_at`, and what it is not](./dhis2.md#connected_at-and-what-it-is-not).
+`chaps dhis2 show` is the command that asks DHIS2.
+
+## `chaps has not connected this DHIS2 to CHAP`
+
+`chaps up` and `chaps status` close with this while `.chaps/components.yaml`
+records no `chaps dhis2 connect` for this deployment:
+
+```text
+chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+```
+
+Do what it says, once DHIS2 answers. The command is idempotent, so running it on
+a deployment that is already connected repoints nothing, reinstalls nothing and
+says so - which is also why the line is safe to print without asking DHIS2
+anything.
+
+It keeps coming back in three cases, all of them deliberate:
+
+- **the component was disabled and enabled again.** The record is about a DHIS2
+  instance, so it is forgotten with the component. A re-enabled `dhis2_db` can be
+  restored from the seed dump, and [that dump ships a `chap` route of its
+  own](#the-modeling-app-does-not-see-chap) pointing at an external server.
+- **`chaps down --volumes` removed `dhis2_db`.** Same hazard, said on the spot:
+  the record of `chaps dhis2 connect` went with `dhis2_db`.
+- **the last `connect` found something wrong.** A route nothing answered on, or
+  an app that would not install, clears the record and the report says
+  `cleared` - `chaps dhis2 show` names which of the two it was. A run that could
+  not look is not one of these: `chaps dhis2 connect --offline` skips the apps,
+  judges nothing and leaves the record exactly as it found it.
+
+Connecting the instance by hand, in DHIS2's own Route administration and App
+Management, does not record anything either, and the line then stays. `chaps
+dhis2 connect` against that instance is the way to settle it: it will find
+nothing to change and record that it ran.
+
 ## The route is there but nothing answers through it
 
 `chaps dhis2 route` wrote the row and then could not prove the path:

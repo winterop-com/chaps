@@ -160,6 +160,25 @@ pub struct AppsReport {
     pub apps: Vec<AppReport>,
 }
 
+/// What one `connect` left in `.chaps/components.yaml` about itself.
+///
+/// The record is [`crate::components::Dhis2Component::connected_at`], and its
+/// only job is to stop `chaps up` and `chaps status` asking for a connect that
+/// has already happened. It is never read as evidence that the route is right:
+/// `chaps dhis2 show` is the one command that asks DHIS2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConnectRecord {
+    /// Written now: the route is verified and both apps are in place.
+    Recorded,
+    /// An earlier record was cleared, because this run found something broken.
+    /// The hint comes back, which is the answer that errs the safe way.
+    Cleared,
+    /// The file was not touched: either the run judged nothing (see
+    /// [`Judgement::Unknown`]) or there was nothing recorded to clear.
+    Unchanged,
+}
+
 /// What one run of `route`, `analytics`, `apps` or `connect` did.
 ///
 /// One shape for all four, so `--json` reads the same whichever was typed and a
@@ -173,6 +192,10 @@ pub struct Dhis2Report {
     /// Steps that were not attempted, and why. A skip is reported, never
     /// swallowed.
     pub skipped: Vec<String>,
+    /// What this run left recorded about itself. `null` for `route`,
+    /// `analytics` and `apps`, none of which records anything: one step is not
+    /// a connection, and a route with no apps is a DHIS2 nobody can use.
+    pub record: Option<ConnectRecord>,
     /// The command to run next.
     pub next: String,
 }
@@ -487,6 +510,7 @@ pub fn route(ctx: &Ctx, args: &Dhis2RouteArgs) -> Result<()> {
         apps: None,
         analytics: None,
         skipped: Vec::new(),
+        record: None,
     };
     ctx.out.emit(&report, || human_report(&report, &ctx.out))
 }
@@ -637,6 +661,7 @@ pub fn analytics(ctx: &Ctx, args: &Dhis2AnalyticsArgs) -> Result<()> {
         apps: None,
         analytics: Some(analytics),
         skipped: Vec::new(),
+        record: None,
     };
     ctx.out.emit(&report, || human_report(&report, &ctx.out))
 }
@@ -754,6 +779,7 @@ pub fn apps(ctx: &Ctx, args: &Dhis2AppsArgs) -> Result<()> {
         apps: Some(apps),
         analytics: None,
         skipped: Vec::new(),
+        record: None,
     };
     ctx.out.emit(&report, || human_report(&report, &ctx.out))?;
     match failed {
@@ -879,7 +905,7 @@ fn failed_apps(report: &AppsReport) -> Option<String> {
 /// nothing else waits on it: with the route and the apps already in place, the
 /// deployment is usable the moment the tables land.
 pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
-    let session = open_session(ctx, &args.common)?;
+    let mut session = open_session(ctx, &args.common)?;
     let mut skipped = Vec::new();
 
     let route = write_route(ctx, &session)?;
@@ -899,6 +925,9 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     let analytics = run_analytics(ctx, &session, args.timeout, args.no_wait)?;
 
     let done = route.verified && failed.is_none() && analytics.finished && skipped.is_empty();
+    // Written before the report is printed, so what the screen says and what
+    // `.chaps/components.yaml` holds cannot disagree.
+    let record = record_connect(ctx, &mut session.project, judge(&route, apps.as_ref()))?;
     let report = Dhis2Report {
         instance: session.instance(),
         next: match done {
@@ -911,12 +940,114 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         apps,
         analytics: Some(analytics),
         skipped,
+        record: Some(record),
     };
     ctx.out.emit(&report, || human_report(&report, &ctx.out))?;
     match failed {
         Some(why) => Err(anyhow::anyhow!(why)),
         None => Ok(()),
     }
+}
+
+/// What one `connect` run is entitled to say about the deployment it ran
+/// against.
+///
+/// Three states rather than two, because a run can also fail to look. Clearing
+/// a record is an assertion that something is broken, and an assertion needs
+/// evidence: a step this run skipped is not evidence of anything, and a skip is
+/// a reported skip everywhere else in chaps rather than a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Judgement {
+    /// The route was proved and both apps are in place. Stamp the time.
+    Connected,
+    /// This run found something wrong - a route nothing answered through, or an
+    /// app missing or failed. Forget any earlier record, so the hint comes
+    /// back.
+    Broken,
+    /// This run did not get far enough to have an opinion: the route was proved
+    /// but the apps were never attempted, which is `--offline`. Leave the
+    /// record exactly as it was found, in either direction.
+    Unknown,
+}
+
+/// What this run proved about the shape the hint exists to ask for: a route
+/// chap-core answered through, and both apps installed.
+///
+/// **Two of the three steps, and deliberately so.** The hint is there because a
+/// DHIS2 beside a CHAP cannot be used at all - the Modeling App redirects to
+/// `/get-started` without the route, and there is no CHAP user interface in
+/// DHIS2 without the apps. Neither is true of analytics: the app is installed,
+/// reaches chap-core and works, and empty `analytics_*` tables are a deployment
+/// with no data rather than one that cannot talk to itself. `chaps dhis2 show`
+/// reports the analytics question separately and with the evidence it is worth,
+/// which is where it belongs, and `chaps dhis2 analytics --no-wait` is a
+/// supported shape in which nothing here could ever wait for a finished run.
+///
+/// The route is judged by `verified` rather than by `outcome`: a row written
+/// into DHIS2 proves nothing, and the proxied request proves DHIS2 resolved the
+/// hostname, was allowed to reach it and got chap-core's health document back.
+/// A route that did not verify is [`Judgement::Broken`] whether or not the apps
+/// were attempted, because the failure is this run's own evidence.
+///
+/// The apps are judged as a set, and only when there was a set to judge. An
+/// `--offline` run installs none of them and reports the skip, which says
+/// nothing whatever about the apps in DHIS2 - they are very likely the two this
+/// command put there - so it is [`Judgement::Unknown`] rather than a verdict of
+/// breakage built out of a step that was never run.
+fn judge(route: &RouteReport, apps: Option<&AppsReport>) -> Judgement {
+    match (route.verified, apps) {
+        (false, _) => Judgement::Broken,
+        (true, None) => Judgement::Unknown,
+        (true, Some(apps)) => {
+            let all_there = apps.apps.len() == dhis2::HUB_APPS.len()
+                && apps
+                    .apps
+                    .iter()
+                    .all(|app| app.outcome != AppOutcome::Failed);
+            match all_there {
+                true => Judgement::Connected,
+                false => Judgement::Broken,
+            }
+        }
+    }
+}
+
+/// Write what this run is worth into `.chaps/components.yaml`, and say which of
+/// the three things happened to the file.
+///
+/// A run that got there stamps the time; a run that found it broken forgets
+/// whatever was recorded before. Forgetting is the half worth arguing for: it
+/// brings the hint back on a deployment whose connect has stopped working, and
+/// the cost of being wrong is one line naming an idempotent command, where the
+/// cost of the other mistake is a deployment that reports itself healthy while
+/// the Modeling App cannot reach CHAP. That trade only holds when the run
+/// actually found something wrong, which is why [`Judgement::Unknown`] writes
+/// nothing in either direction: absence of evidence would otherwise make
+/// `chaps up` say "chaps has not connected this DHIS2 to CHAP" about a
+/// deployment chaps did connect, because of a flag on an unrelated step.
+///
+/// The file is only written when the value moves, so re-running `connect` on a
+/// deployment that was never connected touches nothing.
+fn record_connect(ctx: &Ctx, project: &mut Project, judgement: Judgement) -> Result<ConnectRecord> {
+    let was = project.state.components.dhis2.connected_at.is_some();
+    let at = match (judgement, was) {
+        (Judgement::Unknown, _) | (Judgement::Broken, false) => {
+            return Ok(ConnectRecord::Unchanged);
+        }
+        (Judgement::Broken, true) => None,
+        (Judgement::Connected, _) => Some(crate::backup::timestamp(crate::backup::now())),
+    };
+    ctx.out.verbose(&match &at {
+        Some(at) => format!("recording `connected_at: {at}` in `.chaps/components.yaml`"),
+        None => "clearing `connected_at` in `.chaps/components.yaml`".to_string(),
+    });
+    let record = match at.is_some() {
+        true => ConnectRecord::Recorded,
+        false => ConnectRecord::Cleared,
+    };
+    project.state.components.dhis2.connected_at = at;
+    project.save()?;
+    Ok(record)
 }
 
 // ---------------------------------------------------------------------------
@@ -962,9 +1093,38 @@ fn human_report(report: &Dhis2Report, out: &Out) -> String {
             out.backticks(skip)
         ));
     }
+    if let Some(record) = report.record {
+        text.push_str(&record_lines(record, out));
+    }
     text.push_str(&out.backticks(&report.next));
     text.push('\n');
     text
+}
+
+/// What `connect` says about the note it left behind, in the shape the route
+/// block uses: what happened, then the indented line that says what it is
+/// worth.
+///
+/// The caveat is printed where the record is, rather than left to the chapter,
+/// because this is the one moment a reader could take it for a verdict. It is a
+/// note that this command ran; `chaps dhis2 show` is what asks DHIS2.
+fn record_lines(record: ConnectRecord, out: &Out) -> String {
+    match record {
+        ConnectRecord::Unchanged => String::new(),
+        ConnectRecord::Recorded => format!(
+            "{} in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking\n  {}\n",
+            out.ok("recorded"),
+            out.dim(
+                "a note that this ran, not proof the route is still right; \
+                 `chaps dhis2 show` asks DHIS2"
+            )
+        ),
+        ConnectRecord::Cleared => format!(
+            "{} the earlier `chaps dhis2 connect` from `.chaps/components.yaml`\n  {}\n",
+            out.warn("cleared"),
+            out.dim("`chaps up` and `chaps status` ask for it again")
+        ),
+    }
 }
 
 fn route_lines(route: &RouteReport, out: &Out) -> String {
@@ -1164,6 +1324,19 @@ mod tests {
         Out::detect(false, true)
     }
 
+    /// A [`Ctx`] for the one thing in here that writes a file.
+    fn ctx(dir: &std::path::Path) -> Ctx {
+        Ctx {
+            out: Out::default(),
+            project_dir: dir.to_path_buf(),
+            registry: crate::registry::RegistryOptions::default(),
+            cli_version: "0.1.0",
+        }
+    }
+
+    /// A timestamp in the shape [`record_connect`] writes.
+    const CONNECTED: &str = "2026-09-27T09:12:33Z";
+
     fn instance() -> Instance {
         Instance {
             url: "http://localhost:18080".to_string(),
@@ -1193,8 +1366,174 @@ mod tests {
             apps: None,
             analytics: None,
             skipped: Vec::new(),
+            record: None,
             next: "run `chaps dhis2 show` to see what is still missing".to_string(),
         }
+    }
+
+    fn apps_report(outcomes: &[AppOutcome]) -> AppsReport {
+        AppsReport {
+            apps: outcomes
+                .iter()
+                .zip(dhis2::HUB_APPS)
+                .map(|(outcome, app)| AppReport {
+                    name: app.name.to_string(),
+                    outcome: *outcome,
+                    version: "7.1.0".to_string(),
+                    previous: None,
+                    reason: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// What a `connect` has to have got through before anything is recorded:
+    /// the route proved, and both apps in place. Analytics is not part of it -
+    /// the Modeling App reaches chap-core and works without the tables, and an
+    /// empty `analytics_*` is a deployment with no data rather than one that
+    /// cannot talk to itself.
+    ///
+    /// And the third answer, which is the one that keeps `connect` honest: a
+    /// run that did not look. `--offline` skips the app install and reports the
+    /// skip, so it knows nothing about the apps in DHIS2 - very likely the two
+    /// an earlier run put there - and says so rather than calling the
+    /// deployment broken over a flag on an unrelated step.
+    #[test]
+    fn only_a_proved_route_with_both_apps_counts_as_connected() {
+        let both = apps_report(&[AppOutcome::Installed, AppOutcome::Unchanged]);
+        let created = route_report(RouteOutcome::Created);
+        assert_eq!(judge(&created, Some(&both)), Judgement::Connected);
+        // A route that was already right is as good as one just written.
+        assert_eq!(
+            judge(&route_report(RouteOutcome::Unchanged), Some(&both)),
+            Judgement::Connected
+        );
+
+        // A row in DHIS2's database proves nothing; the proxied request does.
+        let unverified = RouteReport {
+            verified: false,
+            answered: "HTTP 502 Bad Gateway".to_string(),
+            ..route_report(RouteOutcome::Created)
+        };
+        assert_eq!(judge(&unverified, Some(&both)), Judgement::Broken);
+        // A failed request is this run's own evidence, so it counts whether or
+        // not the apps were attempted.
+        assert_eq!(judge(&unverified, None), Judgement::Broken);
+
+        // One app short is a DHIS2 with no CHAP user interface in it.
+        assert_eq!(
+            judge(
+                &created,
+                Some(&apps_report(&[AppOutcome::Installed, AppOutcome::Failed])),
+            ),
+            Judgement::Broken
+        );
+        assert_eq!(
+            judge(&created, Some(&apps_report(&[AppOutcome::Installed]))),
+            Judgement::Broken
+        );
+
+        // And `--offline`, which installs none of them and reports the skip:
+        // nothing was looked at, so nothing is judged.
+        assert_eq!(judge(&created, None), Judgement::Unknown);
+    }
+
+    /// The record moves on evidence, in either direction, and a run with no
+    /// evidence leaves it alone.
+    ///
+    /// The transition that matters is the middle one: a deployment that has
+    /// been connected, then `chaps dhis2 connect --offline`, which proves the
+    /// route and skips the apps. The record is still there afterwards, because
+    /// nothing that run saw says it stopped being true. The same deployment
+    /// with a route nothing answered through loses it, and the hint comes back.
+    #[test]
+    fn a_run_that_could_not_look_leaves_the_record_as_it_found_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let ctx = ctx(temp.path());
+        let mut project = Project {
+            dir: temp.path().to_path_buf(),
+            state: crate::project::ProjectState::default(),
+        };
+        project.state.components.set_enabled(Component::Dhis2, true);
+        project.state.components.dhis2.connected_at = Some(CONNECTED.to_string());
+        project.save().unwrap();
+        let on_disk = || {
+            Project::load(temp.path())
+                .unwrap()
+                .state
+                .components
+                .dhis2
+                .connected_at
+        };
+
+        // The `--offline` shape, on a deployment chaps did connect.
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Unknown).unwrap(),
+            ConnectRecord::Unchanged
+        );
+        assert_eq!(on_disk().as_deref(), Some(CONNECTED));
+
+        // Evidence of breakage, on the same deployment.
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Broken).unwrap(),
+            ConnectRecord::Cleared
+        );
+        assert_eq!(project.state.components.dhis2.connected_at, None);
+        // On disk, not only in memory: the next command reads the file.
+        assert_eq!(on_disk(), None);
+        assert!(project.state.components.dhis2_needs_connecting());
+
+        // A deployment with no record is given none by a run that judged
+        // nothing, and a broken run has nothing left to forget.
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Unknown).unwrap(),
+            ConnectRecord::Unchanged
+        );
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Broken).unwrap(),
+            ConnectRecord::Unchanged
+        );
+        assert_eq!(on_disk(), None);
+
+        // And a run that got there stamps the time it ran.
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Connected).unwrap(),
+            ConnectRecord::Recorded
+        );
+        let at = on_disk().expect("recorded");
+        assert!(at.ends_with('Z'), "a UTC timestamp: {at}");
+        assert!(!project.state.components.dhis2_needs_connecting());
+
+        // Which an `--offline` run after it keeps exactly as it is.
+        assert_eq!(
+            record_connect(&ctx, &mut project, Judgement::Unknown).unwrap(),
+            ConnectRecord::Unchanged
+        );
+        assert_eq!(on_disk().as_deref(), Some(at.as_str()));
+    }
+
+    /// The record says what it is and what it is not, in the place a reader
+    /// could otherwise take it for a verdict.
+    #[test]
+    fn the_record_line_never_claims_the_route_is_right() {
+        let recorded = record_lines(ConnectRecord::Recorded, &out());
+        assert_eq!(
+            recorded,
+            "recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking\n  \
+             a note that this ran, not proof the route is still right; \
+             `chaps dhis2 show` asks DHIS2\n"
+        );
+
+        let cleared = record_lines(ConnectRecord::Cleared, &out());
+        assert!(
+            cleared.starts_with("cleared the earlier `chaps dhis2 connect`"),
+            "{cleared}"
+        );
+        assert!(cleared.contains("ask for it again"), "{cleared}");
+
+        // Nothing moved, nothing said: the report is already a full account of
+        // what the run did.
+        assert_eq!(record_lines(ConnectRecord::Unchanged, &out()), "");
     }
 
     /// The opening line says where, what and who - and nothing whatsoever

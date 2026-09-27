@@ -428,6 +428,146 @@ line that names the command instead:
 note: the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `chaps dhis2 connect` adds it, generates analytics and installs the apps
 ```
 
+### `up` and `status` keep asking until a connect is recorded
+
+That note is printed at the one moment DHIS2 does not exist yet. What follows it
+is `chaps up`, then several minutes of restoring a dump and migrating a schema,
+and by the time anything can be connected the note is far up the scrollback. A
+deployment can therefore sit for good with every row `up`, `chaps doctor`
+reporting no problem, and the Modeling App unable to reach CHAP at all.
+
+So the two commands that report on a running deployment say it again, and go on
+saying it until a connect has been recorded. `chaps up` closes with it, under
+the line it always ends on:
+
+```text
+unchanged: chap, dhis2
+run `chaps status` to check chap-core and the models
+chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect` once DHIS2 answers
+```
+
+and `chaps status` puts it under its verdict, with the model hints:
+
+```text
+chap-core   up   http://localhost:8000   2.42.6   auth: off
+dhis2       up   http://localhost:8080
+
+no models enabled; run `chaps models enable ID` to add one
+  chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+```
+
+Both lines come off `.chaps/components.yaml` and nothing else. Neither asks
+DHIS2 anything, which is why each says what **chaps** has recorded rather than
+what DHIS2 is - and naming the command is safe either way, because every `chaps
+dhis2` verb is idempotent and a second run changes nothing.
+
+`chaps status` says it only while the `dhis2` row reads `up`, since a DHIS2 that
+is not answering cannot be connected to anything and the advice could not be
+taken. `chaps up` has asked nothing at all and DHIS2 is minutes from its first
+request, so it says *once DHIS2 answers*. Neither says it on a deployment
+[without chap-core](./components.md), where `chaps dhis2 connect` refuses: the
+route would point at a service that is not there.
+
+### `connected_at`, and what it is not
+
+The line stops once `chaps dhis2 connect` has got through, and that is recorded
+in the `dhis2` block of `.chaps/components.yaml`:
+
+```yaml
+dhis2:
+  enabled: true
+  port: 8080
+  image_tag: '2.42'
+  seed: default
+  connected_at: 2026-09-27T12:09:53Z
+```
+
+**It is a note that the command ran, and it is not evidence.** Nothing decides
+anything by it except whether those two lines are printed. The route can be
+deleted, repointed at another server or disabled in DHIS2's own Route
+administration a minute later, and this timestamp will not move, because nothing
+reads DHIS2 to check it.
+
+**[`chaps dhis2 show`](#connecting-the-modeling-app-to-chap) is the command that
+asks DHIS2.** It reads the route out of the instance, proxies a request through
+it to prove chap-core answers, lists which of the two apps are installed and
+says what the analytics timestamp is worth - and it writes nothing, so it is
+safe to run on anything. If the question is *can the Modeling App reach CHAP*,
+that is the command; `connected_at` cannot answer it and does not try.
+
+`connect` says as much where it writes the record:
+
+```text
+recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking
+  a note that this ran, not proof the route is still right; `chaps dhis2 show` asks DHIS2
+```
+
+#### What sets it
+
+A run of `chaps dhis2 connect` that ended with a **verified route and both apps
+in place**. Two of the three steps, and deliberately so: the hint exists because
+a DHIS2 beside a CHAP cannot be used at all without them - the app redirects to
+`/get-started` with no route, and there is no CHAP user interface in DHIS2 with
+no apps. Analytics is not part of it. The Modeling App reaches chap-core and
+works without the `analytics_*` tables; empty tables are a deployment with no
+data rather than one that cannot talk to itself, `chaps dhis2 analytics
+--no-wait` is a supported shape in which no run has finished, and `chaps dhis2
+show` reports the analytics question separately and with the evidence it is
+worth.
+
+The route is judged by the **proxied request**, not by the row: `connect` asks
+chap-core for its health through `/api/routes/chap/run/`, the way the app does.
+
+The single-step verbs record nothing. `chaps dhis2 route` alone leaves a
+deployment with a route and no apps, which is still one nobody can use CHAP
+from.
+
+`chaps dhis2 connect --offline` is the third answer, and it is neither of the
+other two. It skips the app install and says so, so the run has looked at
+nothing that could tell it whether the apps are in DHIS2 - it **judges nothing,
+and leaves the record exactly as it found it**, in either direction. A
+deployment nothing has connected still records no connect. A deployment that
+was connected keeps the timestamp it has: the apps are still installed, this
+run simply did not ask, and a flag that turned off an unrelated step is not
+evidence that anything broke. Clearing on it would make `chaps up` say chaps
+has not connected a DHIS2 that chaps connected.
+
+#### What clears it
+
+| When | What happens |
+| --- | --- |
+| `chaps components disable dhis2`, with or without `--purge` | Forgotten with the component, and the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
+| `chaps down --volumes`, when `dhis2_db` was actually removed | Forgotten with the database, and the line says why. |
+| A `chaps dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through, or an app missing or failed: the hint comes back, which is the answer that errs the safe way. |
+| A `chaps dhis2 connect` that could not look | Nothing. `--offline` skips the apps, so the run has nothing to say about them and the timestamp stays where it was. |
+
+The `chaps down --volumes` row is the one worth understanding. `dhis2_db` going
+means the next `chaps up` restores [the seed dump](#the-seed) into a database
+being created **and that dump ships a `chap` route of its own, pointed at an
+external server**. A record that survived would suppress the one line asking the
+operator to repoint it, on a deployment whose Modeling App is quietly talking to
+somebody else's CHAP. Disabling the component is the same hazard by another
+route, which is why it clears the record whether or not `--purge` was given: a
+`dhis2_db` kept on disk may be re-created from the dump later anyway.
+
+```text
+note: the record of `chaps dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
+```
+
+#### What does not clear it
+
+Nothing that happens inside DHIS2. Deleting the route, repointing it, disabling
+it, dropping the `F_CHAP_MODELING_APP` authority, uninstalling either app, or
+restoring a different database into the same volume by hand all leave the
+timestamp exactly where it is, and the two hint lines stay quiet. So does a
+restored [backup](./backup.md), which brings `.chaps/` and the volumes back
+together and is therefore consistent, but says nothing about what has happened
+to that DHIS2 since.
+
+None of that is a gap to be closed by reading more state: a record can only ever
+say what happened at one moment, and the live answer needs a request. `chaps
+dhis2 show` is that request.
+
 ### The credentials, and where they come from
 
 `chaps` holds no DHIS2 credentials, and every request above needs one. Three

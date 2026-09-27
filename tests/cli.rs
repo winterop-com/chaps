@@ -2820,6 +2820,51 @@ fn dhis2_without_an_api() -> u16 {
     routed(None, "Not Found")
 }
 
+/// A stand-in for the two endpoints `chaps status` decides `up` by, on a port
+/// of its own.
+///
+/// `up` means chap-core answered *as* chap-core: `/health` has to be JSON with
+/// a `status` field and `/v2/services` has to parse as `{count, services}`. So
+/// a report that gets as far as its closing line - which is where the hints
+/// under it live - needs both, and no test can start a real chap-core. The port
+/// comes back so the deployment can be created with `--api-port` pointing here.
+fn chap_core_lookalike() -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+    let port = listener.local_addr().expect("a local address").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            let mut request = String::new();
+            // The request has to be read before the answer, or the client sees
+            // a reset instead of the response.
+            if BufReader::new(&stream).read_line(&mut request).is_err() {
+                continue;
+            }
+            let path = request.split_whitespace().nth(1).unwrap_or_default();
+            let body = match path.split('?').next().unwrap_or_default() {
+                "/health" => r#"{"status":"success","message":"healthy"}"#,
+                "/v2/services" => r#"{"count":0,"services":[]}"#,
+                _ => "",
+            };
+            let (code, reason) = match body.is_empty() {
+                true => (404, "Not Found"),
+                false => (200, "OK"),
+            };
+            let response = format!(
+                "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let mut out = &stream;
+            let _ = out.write_all(response.as_bytes());
+            let _ = out.flush();
+        }
+    });
+    port
+}
+
 /// A `docker` on PATH that reports one service of this deployment as running,
 /// and knows nothing else.
 ///
@@ -2916,6 +2961,68 @@ fn status_calls_dhis2_up_once_api_ping_answers() {
         text.contains(&format!("dhis2       up   http://localhost:{port}")),
         "{text}"
     );
+}
+
+/// The gap this closes. A deployment can sit for good with chap-core `up`, the
+/// `dhis2` row `up` and the Modeling App unable to reach CHAP at all, because
+/// the only line that ever named `chaps dhis2 connect` was printed minutes
+/// earlier, when the component was added and DHIS2 did not exist yet.
+///
+/// So `chaps status` says it under its verdict while `.chaps/components.yaml`
+/// records no connect - and stops the moment one is recorded. It is local
+/// knowledge and no request: what chaps has recorded, never what DHIS2 is.
+#[cfg(unix)]
+#[test]
+fn status_names_the_connect_a_running_dhis2_has_not_had() {
+    let dhis2_port = dhis2_lookalike();
+    let api_port = chap_core_lookalike();
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &api_port.to_string()])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &dhis2_port.to_string()])
+        .assert()
+        .success();
+    let (_temp, bin) = docker_running("dhis2");
+    let status = |sandbox: &Sandbox| {
+        let mut cmd = chap_with_docker(sandbox, &dir, &bin, &["status", "--timeout", "2"]);
+        cmd.env("CHAPS_NO_DOCKER_PROBE", "1");
+        String::from_utf8_lossy(&cmd.assert().get_output().stdout).into_owned()
+    };
+
+    let text = status(&sandbox);
+    assert!(
+        text.contains(&format!("dhis2       up   http://localhost:{dhis2_port}")),
+        "{text}"
+    );
+    assert!(
+        text.contains("chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`"),
+        "{text}"
+    );
+    // Under the verdict, with the model hints, rather than on the row.
+    let verdict = text.find("no models enabled").expect(&text);
+    let hint = text.find("chaps has not connected").expect(&text);
+    assert!(hint > verdict, "{text}");
+
+    // A record of a connect stops it. Written here the way `chaps dhis2
+    // connect` writes it, because this test has no DHIS2 to connect to.
+    let components = dir.join(".chaps").join("components.yaml");
+    let body = std::fs::read_to_string(&components).expect("components.yaml");
+    std::fs::write(
+        &components,
+        body.replace("connected_at: null", "connected_at: 2026-09-27T09:12:33Z"),
+    )
+    .expect("the record");
+
+    let text = status(&sandbox);
+    assert!(
+        text.contains(&format!("dhis2       up   http://localhost:{dhis2_port}")),
+        "{text}"
+    );
+    assert!(!text.contains("chaps dhis2 connect"), "{text}");
 }
 
 /// The failure the request exists to catch. A DHIS2 container reports itself
@@ -9515,6 +9622,169 @@ fn dhis2_connect_offline_skips_the_apps_and_reports_the_skip() {
         "{:?}",
         stand_in.asked()
     );
+}
+
+/// The record `connect` leaves behind, which is the whole of what stops
+/// `chaps up` and `chaps status` asking for it again.
+///
+/// It is written only when the run got as far as a verified route and both
+/// apps, it says in the report what it is worth, and it names `chaps dhis2
+/// show` as the thing that actually asks DHIS2.
+#[cfg(unix)]
+#[test]
+fn dhis2_connect_records_that_it_ran_and_says_what_the_record_is_worth() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    let recorded = || {
+        let body = std::fs::read_to_string(dir.join(".chaps").join("components.yaml"))
+            .expect("components.yaml");
+        body.lines()
+            .find(|line| line.trim_start().starts_with("connected_at:"))
+            .expect(&body)
+            .trim()
+            .to_string()
+    };
+
+    // Nothing has connected it yet, and the file says so in the words every
+    // other field in it is written in.
+    assert_eq!(recorded(), "connected_at: null");
+
+    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking",
+        ))
+        // The caveat sits where the record is, because this is the one moment
+        // it could be taken for a verdict.
+        .stdout(predicates::str::contains(
+            "a note that this ran, not proof the route is still right; `chaps dhis2 show` asks DHIS2",
+        ));
+
+    let at = recorded();
+    assert!(at.starts_with("connected_at: 20"), "{at}");
+    assert!(at.ends_with('Z'), "a UTC timestamp: {at}");
+
+    // And `chaps status` stops asking for it. chap-core is not answering in
+    // this sandbox, so the row is what proves the state was read at all.
+    let mut status = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["status", "--json", "--timeout", "2"],
+    );
+    status.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = status.assert().get_output().stdout.clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    assert_eq!(report["dhis2_needs_connecting"], false, "{report}");
+}
+
+/// A `connect --offline` skips the app install and reports the skip, so it
+/// knows nothing about the apps in DHIS2 - and writes nothing in either
+/// direction.
+///
+/// A deployment nothing has connected keeps its empty record, because one step
+/// is not a connection. A deployment that **was** connected keeps the record it
+/// has: the apps are still in DHIS2, this run simply did not look, and clearing
+/// on a flag that turned off an unrelated step would make `chaps up` say chaps
+/// has not connected a DHIS2 chaps connected.
+#[cfg(unix)]
+#[test]
+fn dhis2_connect_offline_leaves_the_record_as_it_found_it() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    let recorded = || {
+        std::fs::read_to_string(dir.join(".chaps").join("components.yaml"))
+            .expect("components.yaml")
+    };
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("created the `chap` route"))
+        .stdout(predicates::str::contains("skipped:"))
+        .stdout(predicates::str::contains("recorded in").not())
+        .stdout(predicates::str::contains("cleared the earlier").not());
+    assert!(recorded().contains("connected_at: null"), "{}", recorded());
+
+    // The three single-step verbs record nothing either: one step is not a
+    // connection.
+    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["apps"])
+        .assert()
+        .success();
+    assert!(recorded().contains("connected_at: null"), "{}", recorded());
+
+    // Now a full connect, and then the same offline run on top of it: the
+    // record it wrote is still there afterwards, and nothing was said about it.
+    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("recorded in"));
+    let at = recorded()
+        .lines()
+        .find(|line| line.trim_start().starts_with("connected_at:"))
+        .expect("a recorded connect")
+        .trim()
+        .to_string();
+    assert!(at.starts_with("connected_at: 20"), "{at}");
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("skipped:"))
+        .stdout(predicates::str::contains("cleared the earlier").not());
+    assert!(recorded().contains(&at), "{}", recorded());
+}
+
+/// The record is about a DHIS2 instance, so it dies with the component.
+///
+/// `chaps components disable dhis2 --purge` removes `dhis2_db`; re-enabling
+/// restores the seed dump, **which ships its own `chap` route pointing at an
+/// external server**. A record that survived that would suppress the one line
+/// asking the operator to repoint it, so `disable` forgets it either way round
+/// and says it did.
+#[cfg(unix)]
+#[test]
+fn disabling_dhis2_forgets_the_connect_it_had_recorded() {
+    let stand_in = Dhis2StandIn::new();
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
+        .assert()
+        .success();
+    let body = std::fs::read_to_string(dir.join(".chaps").join("components.yaml"))
+        .expect("components.yaml");
+    assert!(!body.contains("connected_at: null"), "{body}");
+
+    sandbox
+        .components(&["disable", "dhis2"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "the record of `chaps dhis2 connect` is forgotten with the component; \
+             a DHIS2 enabled here again is asked to connect afresh",
+        ));
+
+    let body = std::fs::read_to_string(dir.join(".chaps").join("components.yaml"))
+        .expect("components.yaml");
+    assert!(body.contains("connected_at: null"), "{body}");
+
+    // And the DHIS2 that comes back is asked to connect afresh.
+    sandbox
+        .components(&["enable", "dhis2", "--port", &stand_in.port.to_string()])
+        .assert()
+        .success();
+    let body = std::fs::read_to_string(dir.join(".chaps").join("components.yaml"))
+        .expect("components.yaml");
+    assert!(body.contains("connected_at: null"), "{body}");
+
+    // A deployment that was never connected has nothing to report, so the line
+    // is not printed on every disable.
+    sandbox
+        .components(&["disable", "dhis2"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chaps dhis2 connect").not());
 }
 
 /// A deployment this DHIS2 is not part of, and one whose DHIS2 keeps its port

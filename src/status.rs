@@ -92,6 +92,17 @@ pub struct StatusReport {
     /// One row per enabled component other than chap-core, which has the
     /// chap-core line of its own. Empty on a deployment that has none.
     pub components: Vec<ComponentStatus>,
+    /// Whether this deployment has a DHIS2 that no `chaps dhis2 connect` has
+    /// been recorded for, from [`Components::dhis2_needs_connecting`].
+    ///
+    /// Read off `.chaps/components.yaml` and nothing else. It says what chaps
+    /// has recorded, never what DHIS2 has: the route can have been deleted,
+    /// repointed or disabled since, and `false` here is not evidence that the
+    /// Modeling App can reach CHAP. `chaps dhis2 show` is the command that
+    /// asks DHIS2.
+    ///
+    /// [`Components::dhis2_needs_connecting`]: crate::components::Components::dhis2_needs_connecting
+    pub dhis2_needs_connecting: bool,
     /// Containers of this deployment that are failing, with the lines of their
     /// logs that say why.
     ///
@@ -457,6 +468,7 @@ pub fn status(
         unmanaged,
         auth: token.is_some(),
         components,
+        dhis2_needs_connecting: project.state.components.dhis2_needs_connecting(),
         unhealthy: Vec::new(),
     }
 }
@@ -2180,6 +2192,7 @@ mod tests {
             unmanaged: Vec::new(),
             auth: false,
             components,
+            dhis2_needs_connecting: false,
             unhealthy: Vec::new(),
         }
     }
@@ -2481,6 +2494,7 @@ mod tests {
             unmanaged: Vec::new(),
             auth: false,
             components: Vec::new(),
+            dhis2_needs_connecting: false,
             unhealthy: Vec::new(),
         };
         assert!(!report.is_up());

@@ -9,9 +9,9 @@
 use crate::cli::{ComponentsDisableArgs, ComponentsEnableArgs, ComponentsListArgs, OcsConfigArgs};
 use crate::commands::Ctx;
 use crate::components::{
-    Component, Components, DHIS2_COMPOSE, DHIS2_CONNECT_NOTE, DHIS2_FIRST_START_NOTE,
-    DHIS2_TAG_ENV_VAR, OCS_DATA_SOURCE_ENV_VARS, OCS_DATA_SOURCE_NOTE, S3_LEAVES_OCS_NOTE,
-    S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE, dhis2_seed_note, models_need_chap_core,
+    Component, Components, DHIS2_COMPOSE, DHIS2_CONNECT_FORGOTTEN, DHIS2_CONNECT_NOTE,
+    DHIS2_FIRST_START_NOTE, DHIS2_TAG_ENV_VAR, OCS_DATA_SOURCE_ENV_VARS, OCS_DATA_SOURCE_NOTE,
+    S3_LEAVES_OCS_NOTE, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE, dhis2_seed_note, models_need_chap_core,
 };
 use crate::compose::spec::{Dhis2ConfigSpec, OcsConfigRequest};
 use crate::compose::sync::{sync, write_dhis2_config, write_ocs_config};
@@ -298,6 +298,12 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     }
     if component == Component::Dhis2 {
         notes.push("the dhis2/ directory is left alone; it is yours".to_string());
+        // `set_enabled` forgot it a few lines up, where every caller goes
+        // through. Only said on the run that had something to forget: a
+        // deployment that was never connected has nothing to report here.
+        if before.dhis2.connected_at.is_some() {
+            notes.push(DHIS2_CONNECT_FORGOTTEN.to_string());
+        }
     }
     // The store going takes the `S3_*` block out of `compose.ocs.yml`, which is
     // a change to a service this command was not asked about. Only on the run

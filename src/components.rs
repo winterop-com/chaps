@@ -9,6 +9,12 @@
 //! Every field carries a `serde` default, so a project written before this
 //! file existed loads as "chap-core on, nothing else" — which is exactly what
 //! it was. Nothing has to be migrated.
+//!
+//! Two fields in here are records rather than intent, and each says so where it
+//! is declared: [`OcsComponent::read_only`] mirrors what
+//! `ocs/climate-service.yaml` says, and [`Dhis2Component::connected_at`] notes
+//! when `chaps dhis2 connect` last finished. Neither is ever read as evidence -
+//! OCS reads its own config file, and only `chaps dhis2 show` asks DHIS2.
 
 use crate::error::{ChapError, Result};
 use serde::{Deserialize, Serialize};
@@ -545,6 +551,28 @@ pub struct Dhis2Component {
     /// What the database is restored from the first time it is created.
     #[serde(default)]
     pub seed: Dhis2Seed,
+    /// When `chaps dhis2 connect` last got as far as a verified route and both
+    /// apps here, as a UTC timestamp. `None` for a deployment no such run has
+    /// been recorded for, which is every deployment until one happens.
+    ///
+    /// **A record of a command that ran, not a fact about DHIS2, and never
+    /// evidence.** It exists for one purpose: to stop `chaps up` and
+    /// `chaps status` naming [`dhis2_connect_hint`] on a deployment that has
+    /// already been through it. Nothing decides anything else by it. The route
+    /// can be deleted, repointed or disabled in DHIS2's own interface a minute
+    /// later and this timestamp will not move, because nothing here asks - only
+    /// `chaps dhis2 show` does, and it asks DHIS2 rather than this file.
+    ///
+    /// So it is cleared wherever the thing it was true of can have gone:
+    /// [`Components::set_enabled`] forgets it when the component is switched
+    /// off - the seed dump a re-enabled DHIS2 restores ships a `chap` route
+    /// pointing at somebody else's CHAP, and a stale record would hide exactly
+    /// that - and `chaps down --volumes` forgets it with `dhis2_db` itself.
+    ///
+    /// A `components.yaml` written before this field loads as `None`, which is
+    /// what it was: nothing had recorded a connect.
+    #[serde(default)]
+    pub connected_at: Option<String>,
 }
 
 impl Default for Dhis2Component {
@@ -554,6 +582,7 @@ impl Default for Dhis2Component {
             port: Some(DHIS2_DEFAULT_PORT),
             image_tag: DHIS2_DEFAULT_TAG.to_string(),
             seed: Dhis2Seed::Default,
+            connected_at: None,
         }
     }
 }
@@ -583,13 +612,38 @@ impl Components {
     }
 
     /// Turn one on or off, leaving its settings alone.
+    ///
+    /// [`Dhis2Component::connected_at`] is the one thing a switch-off does not
+    /// leave alone, and it is not a setting: it records that a
+    /// `chaps dhis2 connect` finished against a DHIS2 this deployment no longer
+    /// has. Forgetting it here rather than in `chaps components disable` is
+    /// what keeps the browser's components page and `chaps init --force` from
+    /// each having to remember to do it.
     pub fn set_enabled(&mut self, component: Component, on: bool) {
         match component {
             Component::ChapCore => self.chap_core.enabled = on,
             Component::Ocs => self.ocs.enabled = on,
             Component::S3 => self.s3.enabled = on,
-            Component::Dhis2 => self.dhis2.enabled = on,
+            Component::Dhis2 => {
+                self.dhis2.enabled = on;
+                if !on {
+                    self.dhis2.connected_at = None;
+                }
+            }
         }
+    }
+
+    /// Whether `chaps up` and `chaps status` should still name
+    /// `chaps dhis2 connect`.
+    ///
+    /// Local knowledge and nothing else: this deployment has a DHIS2, it has a
+    /// chap-core for the route to point at, and
+    /// [`Dhis2Component::connected_at`] records no connect. chap-core is part
+    /// of it because `chaps dhis2 connect` refuses without one - the route
+    /// would aim at a service that is not there - so a `--without chap-core`
+    /// deployment is never asked for something it cannot do.
+    pub fn dhis2_needs_connecting(&self) -> bool {
+        self.dhis2.enabled && self.chap_core.enabled && self.dhis2.connected_at.is_none()
     }
 
     /// The host port one component publishes, when it publishes one.
@@ -794,6 +848,56 @@ pub const DHIS2_CONNECT_NOTE: &str = "the Modeling App reaches chap-core through
      yet; once DHIS2 answers, `chaps dhis2 connect` adds it, generates analytics and installs \
      the apps";
 
+/// The line `chaps up` and `chaps status` close with while
+/// [`Components::dhis2_needs_connecting`] holds.
+///
+/// [`DHIS2_CONNECT_NOTE`] is said where the component is added, which is before
+/// DHIS2 exists: the reader then runs `chaps up`, waits out a restore and a
+/// migration, and lands on a deployment where every row says `up` with that one
+/// line minutes above them. So the two commands that report on a running
+/// deployment say it again, and go on saying it until a connect is recorded.
+///
+/// It claims only what it knows. `chaps` has not connected this DHIS2 - that is
+/// [`Dhis2Component::connected_at`], read off `.chaps/components.yaml` - rather
+/// than "DHIS2 is not connected", which would be a claim about an instance
+/// nothing here asked. Naming the command is safe either way, because every
+/// `chaps dhis2` verb is idempotent.
+///
+/// `answering` is whether the caller has just seen DHIS2 answer. `chaps status`
+/// has asked `/api/ping` and only says this when it answered; `chaps up` has
+/// asked nothing and DHIS2 is minutes from its first request, so it says when.
+pub fn dhis2_connect_hint(answering: bool) -> String {
+    match answering {
+        true => DHIS2_NOT_CONNECTED.to_string(),
+        false => format!("{DHIS2_NOT_CONNECTED} once DHIS2 answers"),
+    }
+}
+
+/// The half of [`dhis2_connect_hint`] both shapes share.
+const DHIS2_NOT_CONNECTED: &str =
+    "chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`";
+
+/// The note `chaps components disable dhis2` prints when it has just forgotten
+/// a recorded connect.
+///
+/// Said only on the run that forgets something: a deployment that was never
+/// connected has nothing to report, and the line would be noise on every
+/// disable. See [`Dhis2Component::connected_at`] for why it is forgotten at
+/// all.
+pub const DHIS2_CONNECT_FORGOTTEN: &str = "the record of `chaps dhis2 connect` is forgotten with the component; a DHIS2 enabled \
+     here again is asked to connect afresh";
+
+/// The note `chaps down --volumes` prints when it has just removed the database
+/// a recorded connect was true of.
+///
+/// The worst shape a stale record could make: `dhis2_db` is gone, the next
+/// `chaps up` restores the seed dump into a new one, and that dump ships its own
+/// `chap` route pointing at a server this deployment has nothing to do with. A
+/// record that survived would suppress the one line that asks the operator to
+/// repoint it.
+pub const DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME: &str = "the record of `chaps dhis2 connect` went with `dhis2_db`; the next `chaps up` restores \
+     the seed dump, which ships a `chap` route of its own, so run `chaps dhis2 connect` again";
+
 /// The warning for a DHIS2 image tag that is moving while the database volume
 /// is already there.
 ///
@@ -866,6 +970,7 @@ mod tests {
                 port: Some(18080),
                 image_tag: "2.41.7".into(),
                 seed: Dhis2Seed::From("dumps/laos.sql.gz".into()),
+                connected_at: None,
             },
         };
         let text = serde_yaml_ng::to_string(&components).unwrap();
@@ -877,6 +982,9 @@ mod tests {
         // The seed is one string, whichever of the three it is, so the block
         // reads as something an operator would type.
         assert!(text.contains("  seed: dumps/laos.sql.gz\n"), "{text}");
+        // The one record in the file, and it is written whichever way round it
+        // is, so a reader can see that nothing has connected this deployment.
+        assert!(text.contains("  connected_at: null\n"), "{text}");
         assert_eq!(
             serde_yaml_ng::from_str::<Components>(&text).unwrap(),
             components
@@ -1376,6 +1484,104 @@ mod tests {
         ] {
             assert!(!note.contains('\n'), "one line each: {note}");
         }
+    }
+
+    /// A `components.yaml` written before the field loads as "no connect
+    /// recorded", which is what such a deployment was, and the rest of the
+    /// block is untouched.
+    #[test]
+    fn an_older_components_file_loads_with_no_connect_recorded() {
+        let before = "chap-core:\n  enabled: true\ndhis2:\n  enabled: true\n  port: 8080\n  \
+                      image_tag: '2.42'\n  seed: default\n";
+        let components: Components = serde_yaml_ng::from_str(before).unwrap();
+        assert!(components.dhis2.enabled);
+        assert_eq!(components.dhis2.port, Some(8080));
+        assert_eq!(components.dhis2.image_tag, "2.42");
+        assert_eq!(components.dhis2.seed, Dhis2Seed::Default);
+        assert_eq!(components.dhis2.connected_at, None);
+        assert!(components.dhis2_needs_connecting());
+    }
+
+    /// The record round-trips as one string, and a deployment that has it is
+    /// not asked to connect again.
+    #[test]
+    fn a_recorded_connect_round_trips_and_stops_the_hint() {
+        let mut components = Components::default();
+        components.set_enabled(Component::Dhis2, true);
+        assert!(components.dhis2_needs_connecting());
+
+        components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+        assert!(!components.dhis2_needs_connecting());
+
+        let text = serde_yaml_ng::to_string(&components).unwrap();
+        assert!(
+            text.contains("connected_at: 2026-09-27T09:12:33Z"),
+            "{text}"
+        );
+        assert_eq!(
+            serde_yaml_ng::from_str::<Components>(&text).unwrap(),
+            components
+        );
+    }
+
+    /// Switching the component off forgets the record, wherever the switch was
+    /// thrown: the CLI, the browser's components page and `init --force` all go
+    /// through this one method.
+    #[test]
+    fn disabling_dhis2_forgets_the_recorded_connect() {
+        let mut components = Components::default();
+        components.set_enabled(Component::Dhis2, true);
+        components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+
+        components.set_enabled(Component::Dhis2, false);
+        assert_eq!(components.dhis2.connected_at, None);
+        // The settings themselves are not touched: a re-enable keeps the port
+        // and the tag it had.
+        assert_eq!(components.dhis2.port, Some(DHIS2_DEFAULT_PORT));
+        assert_eq!(components.dhis2.image_tag, DHIS2_DEFAULT_TAG);
+
+        // And re-enabling asks for a connect again, because the database the
+        // record was true of may be gone and a restored seed dump ships a
+        // `chap` route of its own.
+        components.set_enabled(Component::Dhis2, true);
+        assert!(components.dhis2_needs_connecting());
+    }
+
+    /// A deployment with no chap-core is never asked to connect: the route
+    /// would point at a service that is not there, and `chaps dhis2 connect`
+    /// refuses on exactly those grounds.
+    #[test]
+    fn a_deployment_without_chap_core_is_not_asked_to_connect() {
+        let mut components = Components::default();
+        components.set_enabled(Component::Dhis2, true);
+        components.set_enabled(Component::ChapCore, false);
+        assert!(!components.dhis2_needs_connecting());
+    }
+
+    /// The hint says what chaps knows rather than what DHIS2 is, names the
+    /// command, and says when to run it on the one caller that has not seen
+    /// DHIS2 answer.
+    #[test]
+    fn the_connect_hint_claims_only_what_it_read() {
+        let answering = dhis2_connect_hint(true);
+        let waiting = dhis2_connect_hint(false);
+        for line in [&answering, &waiting] {
+            assert!(line.contains("`chaps dhis2 connect`"), "{line}");
+            assert!(line.starts_with("chaps has not connected"), "{line}");
+            assert!(!line.contains("stack"), "{line}");
+            assert!(!line.contains('\n'), "one line each: {line}");
+        }
+        assert!(!answering.contains("once DHIS2 answers"), "{answering}");
+        assert!(waiting.contains("once DHIS2 answers"), "{waiting}");
+
+        for note in [DHIS2_CONNECT_FORGOTTEN, DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME] {
+            assert!(note.contains("`chaps dhis2 connect`"), "{note}");
+            assert!(!note.contains('\n'), "one line each: {note}");
+        }
+        assert!(
+            DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME.contains("`dhis2_db`"),
+            "{DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME}"
+        );
     }
 
     #[test]

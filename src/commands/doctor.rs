@@ -1450,8 +1450,8 @@ fn ocs_part(components: &Components, facts: &OcsFacts) -> Option<ComponentPart> 
     })
 }
 
-/// The `dhis2` half: whether its one mandatory file is there, and what the
-/// database will be seeded from.
+/// The `dhis2` half: whether its one mandatory file is there, what the database
+/// will be seeded from, and whether a `chaps dhis2 connect` has been recorded.
 ///
 /// The missing file is the only thing here that is judged, and it is a fault
 /// with nothing arguable about it - DHIS2 throws on startup without
@@ -1459,6 +1459,17 @@ fn ocs_part(components: &Components, facts: &OcsFacts) -> Option<ComponentPart> 
 /// would come up and stop. The seed is the OCS credentials line's counterpart:
 /// reported, never judged. An empty database is a deployment that brings its own
 /// data, not a deployment that is wrong.
+///
+/// The connect record is reported on exactly those terms, and for the same
+/// reason it is never judged: a deployment nothing has connected is one with a
+/// step left, not a broken one, and `chaps doctor` holds no DHIS2 credentials
+/// and could not check the route if it wanted to. What it can do is say what
+/// `.chaps/components.yaml` holds, in words that cannot be read as a verdict on
+/// the route - the command and the time it ran - so that an operator whose
+/// Modeling App cannot see CHAP finds the answer on the line they were already
+/// reading. [`crate::commands::status`] is where the same fact turns into a
+/// hint, and only there, because that is the command that has asked DHIS2
+/// whether it is even answering.
 fn dhis2_part(components: &Components, facts: &Dhis2Facts) -> Option<ComponentPart> {
     if !components.dhis2.enabled {
         return None;
@@ -1476,9 +1487,34 @@ fn dhis2_part(components: &Components, facts: &Dhis2Facts) -> Option<ComponentPa
     }
     Some(ComponentPart {
         status: Status::Ok,
-        detail: format!("{config} present; {}", dhis2_seed_note(components)),
+        detail: format!(
+            "{config} present; {}{}",
+            dhis2_seed_note(components),
+            dhis2_connect_note(components)
+        ),
         fix: None,
     })
+}
+
+/// What the `dhis2` part says about the recorded connect: the time
+/// `chaps dhis2 connect` last finished here, or that nothing has.
+///
+/// Named as the command and a timestamp rather than as a state, because that is
+/// all it is. "connected: yes" would be a claim about a DHIS2 nothing here
+/// asked; "last `chaps dhis2 connect`: the time it ran" is a fact about this
+/// file.
+///
+/// Empty on a deployment with no chap-core, where there is nothing to connect
+/// to and `chaps dhis2 connect` refuses - the same line
+/// [`Components::dhis2_needs_connecting`] draws.
+fn dhis2_connect_note(components: &Components) -> String {
+    if !components.chap_core.enabled {
+        return String::new();
+    }
+    match &components.dhis2.connected_at {
+        Some(at) => format!("; last `chaps dhis2 connect`: {at}"),
+        None => "; no `chaps dhis2 connect` recorded".to_string(),
+    }
 }
 
 /// What the `dhis2` part says about the seed: which of the three answers
@@ -3998,10 +4034,49 @@ mod tests {
         assert_eq!(
             detail,
             format!(
-                "chap-core, dhis2; dhis2/dhis.conf present; seed: default ({})",
+                "chap-core, dhis2; dhis2/dhis.conf present; seed: default ({}); \
+                 no `chaps dhis2 connect` recorded",
                 crate::compose::render::DHIS2_DEFAULT_SEED_URL
             )
         );
+    }
+
+    /// The connect record is reported and never judged, and never as a state:
+    /// the clause names the command and the time it ran, because that is the
+    /// whole of what `.chaps/components.yaml` knows. `chaps dhis2 show` is the
+    /// one thing that asks DHIS2.
+    #[test]
+    fn the_components_line_reports_the_recorded_connect_without_judging_it() {
+        let present = Dhis2Facts { config: true };
+        let mut components = dhis2_components();
+
+        let (status, detail, fix) = components_verdict(&components, &facts(None), &present);
+        assert_eq!(status, Status::Ok, "a step left is not a fault: {detail}");
+        assert_eq!(
+            fix, None,
+            "doctor cannot check the route, so it advises none"
+        );
+        assert!(
+            detail.ends_with("; no `chaps dhis2 connect` recorded"),
+            "{detail}"
+        );
+
+        components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+        let (status, detail, fix) = components_verdict(&components, &facts(None), &present);
+        assert_eq!(status, Status::Ok);
+        assert_eq!(fix, None);
+        assert!(
+            detail.ends_with("; last `chaps dhis2 connect`: 2026-09-27T09:12:33Z"),
+            "{detail}"
+        );
+        // Never "connected": nothing here asked DHIS2 anything.
+        assert!(!detail.contains("connected:"), "{detail}");
+
+        // A deployment with no chap-core has nothing to connect to, and
+        // `chaps dhis2 connect` refuses there, so the clause is left off.
+        components.set_enabled(Component::ChapCore, false);
+        let (_, detail, _) = components_verdict(&components, &facts(None), &present);
+        assert!(!detail.contains("chaps dhis2 connect"), "{detail}");
     }
 
     /// The three other answers the seed can have, each reported and none of
@@ -4009,6 +4084,10 @@ mod tests {
     #[test]
     fn the_seed_note_says_which_of_the_answers_this_deployment_holds() {
         let present = Dhis2Facts { config: true };
+        // The clause that follows the seed on every `dhis2` line, tested on its
+        // own above; naming it here keeps these assertions about the tail of
+        // the seed note rather than about the end of the string.
+        const NO_CONNECT: &str = "; no `chaps dhis2 connect` recorded";
 
         let mut components = dhis2_components();
         components.dhis2.seed = Dhis2Seed::None;
@@ -4016,14 +4095,19 @@ mod tests {
         assert_eq!(status, Status::Ok);
         assert_eq!(fix, None);
         assert!(
-            detail.ends_with("seed: none (the database starts empty)"),
+            detail.ends_with(&format!(
+                "seed: none (the database starts empty){NO_CONNECT}"
+            )),
             "{detail}"
         );
 
         // A dump of the operator's own, whether a URL or a path in the project.
         components.dhis2.seed = Dhis2Seed::parse("dumps/mine.sql.gz");
         let (_, detail, _) = components_verdict(&components, &facts(None), &present);
-        assert!(detail.ends_with("seed: dumps/mine.sql.gz"), "{detail}");
+        assert!(
+            detail.ends_with(&format!("seed: dumps/mine.sql.gz{NO_CONNECT}")),
+            "{detail}"
+        );
 
         // A minor line chaps publishes no dump for: the setting still says
         // `default`, and the database still starts empty, which is the half
@@ -4034,9 +4118,10 @@ mod tests {
         assert_eq!(status, Status::Ok);
         assert_eq!(fix, None);
         assert!(
-            detail.ends_with(
-                "seed: default, and chaps knows no dump for 2.43 (the database starts empty)"
-            ),
+            detail.ends_with(&format!(
+                "seed: default, and chaps knows no dump for 2.43 \
+                 (the database starts empty){NO_CONNECT}"
+            )),
             "{detail}"
         );
     }
@@ -5171,6 +5256,7 @@ mod tests {
             unmanaged: Vec::new(),
             auth: false,
             components: Vec::new(),
+            dhis2_needs_connecting: false,
             unhealthy: Vec::new(),
         }
     }
