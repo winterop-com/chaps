@@ -560,6 +560,25 @@ impl Project {
         }
     }
 
+    /// The marketplace registry `project.yaml` under `root` records, which
+    /// `chaps init --registry-url` wrote there.
+    ///
+    /// Read on its own rather than through [`Project::load`], because it is
+    /// asked before any command runs: a deployment whose other state files do
+    /// not load still has a registry, and the command that reports the broken
+    /// file needs it. `None` for a file that is missing or does not parse, and
+    /// the command then goes on with the default.
+    pub fn saved_registry_url(root: &Path) -> Option<String> {
+        let body = std::fs::read_to_string(root.join(CHAPS_DIR).join(PROJECT_FILE)).ok()?;
+        let state: serde_yaml_ng::Value = serde_yaml_ng::from_str(&body).ok()?;
+        state
+            .get("registry_url")?
+            .as_str()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(str::to_string)
+    }
+
     /// Load the project that contains `start`, walking up parent directories.
     ///
     /// Errors with [`ChapError::NotAProject`] naming `start` when no ancestor

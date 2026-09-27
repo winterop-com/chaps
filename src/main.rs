@@ -239,10 +239,19 @@ fn parse() -> Cli {
         Ok(matches) => matches,
         Err(err) => print_and_exit(err),
     };
-    match Cli::from_arg_matches(&matches) {
+    let mut cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
         Err(err) => print_and_exit(err),
+    };
+    // A deployment created with `--registry-url` keeps using that registry:
+    // the flag only has to be typed again to override it for one run.
+    if matches.value_source("registry_url") != Some(clap::parser::ValueSource::CommandLine)
+        && let Some(root) = Project::find_root(&project_dir)
+        && let Some(url) = Project::saved_registry_url(&root)
+    {
+        cli.registry_url = url;
     }
+    cli
 }
 
 /// Print what clap has to say - help, the version, or a usage error - and exit

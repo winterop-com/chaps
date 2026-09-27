@@ -8,7 +8,10 @@ The catalogue is the YAML in the model-marketplace repository, read from
 https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml
 ```
 
-`--registry-url` points somewhere else, for a fork or a mirror. The
+`--registry-url` points somewhere else, for a fork or a mirror. `chaps init
+--registry-url URL` records it as `registry_url` in `.chaps/project.yaml`, and
+every later command in that deployment uses the recorded one; typing the flag
+again overrides it for that one run. The
 marketplace has no JSON API, so the index is one request and each model file it
 lists is one more; the requests are sequential, which is fast enough for a
 handful of small files and makes a failure easy to attribute.

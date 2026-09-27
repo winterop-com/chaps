@@ -8264,6 +8264,45 @@ fn quiet_docker() -> (TempDir, PathBuf, PathBuf) {
     (temp, bin, log)
 }
 
+/// A deployment created with `--registry-url` keeps that registry: the flag is
+/// recorded in `.chaps/project.yaml`, and a later command without it used to
+/// fall back to the default marketplace - here, the snapshot built into the
+/// binary - so the custom registry's models were unknown.
+#[test]
+fn the_registry_a_deployment_was_created_with_is_the_one_it_uses() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = Hub::new().start();
+    let custom = format!("http://127.0.0.1:{port}/registry.yaml");
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success();
+
+    // No `--registry-url`: the recorded one, from the cache `init` filled.
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "registry", "show"],
+    ));
+    assert_eq!(report["url"], custom.as_str(), "{report}");
+
+    // The flag still wins for the run it is typed on.
+    let other = "http://127.0.0.1:1/other.yaml";
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "--registry-url", other, "registry", "show"],
+    ));
+    assert_ne!(report["url"], custom.as_str(), "{report}");
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "registry", "show", "--registry-url", other],
+    ));
+    assert_ne!(report["url"], custom.as_str(), "{report}");
+}
+
 /// A deployment pinned to the hub's newest release, and the fake docker the
 /// update runs through.
 #[cfg(unix)]

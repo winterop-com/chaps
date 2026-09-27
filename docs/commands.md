@@ -206,6 +206,6 @@ They are accepted before or after the subcommand, and the
 | `-v, --verbose` | Narrate on stderr what runs: commands, HTTP requests, the registry source, the files `sync` compared. |
 | `-d, --debug` | Everything `-v` says, plus response bodies and resolved paths. |
 | `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
-| `--registry-url URL` | A different marketplace index, for a fork or a mirror. |
+| `--registry-url URL` | A different marketplace index, for a fork or a mirror. Inside a deployment the default is the one `init` recorded. |
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir DIR` | Override the registry cache directory for one invocation. |
