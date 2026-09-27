@@ -19,6 +19,7 @@ lists every command, every flag and every default.
 | `chaps logs [-f] [SERVICE..]` | `docker compose logs`; says so instead of printing nothing when the project has no containers, and lists the services when `SERVICE` is not one of them. |
 | `chaps restart [SERVICE..] [--all]` | Recreate the running services whose image or configuration changed (`docker compose up -d --remove-orphans`), and say which ones that was. Changes no file and no pin; `--all` recreates the named services anyway. |
 | `chaps status [--url URL] [--timeout SECONDS]` | `GET /health` and `/v2/services`, check that the answers are chap-core's, and diff the registered services against the ones this project enabled. Sends the API token from `.env` when there is one, and says `auth: on` or `auth: off`. |
+| `chaps open [NAME]` | Open a component's web interface in a browser: chap-core's API documentation at `/docs`, the OCS web interface, DHIS2's own. With no name it lists every component and what each one opens. A component this deployment does not have, one that publishes no host port and the object store - which serves no web interface at all - are each refused with what is true instead and the command that changes it. |
 | `chaps jobs [list] [--status S].. [--type T] [--limit N]` | The backtests, predictions and datasets chap-core has run, newest first, with what each one cost and which of them failed. `show`, `logs`, `cancel` and `delete` take one job id, or enough of its start to name one. |
 | `chaps api METHOD PATH [--data JSON\|@FILE\|-] [--url URL] [--raw]` | One authenticated request to chap-core's API, with this deployment's base URL and token filled in. JSON comes back pretty-printed; the exit code is 0 for a 2xx, 1 for a 4xx/5xx and 2 when chap-core is not answering. |
 | `chaps update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. `--chap-tag` moves chap-core to another tag (a release, `latest`, `master` or `dev`) instead, asking first when the move goes backwards, which `--yes` answers; `--list-tags` lists where it can go and writes nothing. |
@@ -90,8 +91,11 @@ compose file for: `chap-core`, which is CHAP itself and is on unless you turn it
 off, `ocs` (Open Climate Service), `s3` (the object store OCS will use) and
 `dhis2` (a demo or development DHIS2 with its own database). The set lives in
 `.chaps/components.yaml`. `chaps init --with ocs,s3` and `--without chap-core`
-set it at creation time. See [Components](./components.md) and
-[DHIS2](./dhis2.md).
+set it at creation time. `chaps open NAME` opens one of them in a browser, and
+`o` does the same from the browser's components page. See
+[Components](./components.md),
+[Reaching a component from a browser](./components.md#reaching-a-component-from-a-browser)
+and [DHIS2](./dhis2.md).
 
 ## Authentication
 

@@ -109,7 +109,10 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         // `s`, which is the one key that writes anything.
         KeyCode::Char('i') | KeyCode::Enter => Action::Info,
         KeyCode::Char('u') => Action::Discard,
-        KeyCode::Char('o') => Action::OpenRepository,
+        // One key, one meaning - hand this row to a browser - and each page
+        // decides what that is: a model's repository, a component's web
+        // interface.
+        KeyCode::Char('o') => Action::Open,
         KeyCode::Char('c') => Action::ImageRef,
         KeyCode::Char('s') => Action::Save,
         KeyCode::Char('?') => Action::Help,
@@ -137,7 +140,7 @@ fn info(key: &KeyEvent, ctrl: bool) -> Action {
         KeyCode::PageUp => Action::PageUp,
         KeyCode::Char('g') | KeyCode::Home => Action::Top,
         KeyCode::Char('G') | KeyCode::End => Action::Bottom,
-        KeyCode::Char('o') => Action::OpenRepository,
+        KeyCode::Char('o') => Action::Open,
         KeyCode::Char('c') => Action::ImageRef,
         KeyCode::Char('i') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => Action::Info,
         _ => Action::None,
@@ -223,7 +226,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("/", "filter; Enter keeps it, Esc clears it"),
         ("s", "save and apply the changes"),
         ("u", "discard the pending changes"),
-        ("o", "open the model's repository"),
+        ("o", "open the repository, or the web interface"),
         ("c", "show the model's image reference"),
         ("ctrl-k / ctrl-p", "the command palette"),
         ("?", "this help"),
@@ -268,6 +271,12 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             let mut hints = vec![hint("j/k", "move", 10), hint("tab", "page", 7)];
             hints.push(hint("space", "toggle", 8));
             hints.push(hint("i", "info", 5));
+            // Only the components page has something of its own to open: a
+            // model's repository is named on its details overlay's bar, where
+            // `o` already sits.
+            if page == Page::Components {
+                hints.push(hint("o", "open", 5));
+            }
             hints.push(hint("p", "port", 3));
             // Neither belongs to a component: it follows no channel, and a
             // handful of rows is not a list to filter.
@@ -306,11 +315,13 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             hint("n", "keep editing", 9),
         ],
         Mode::Help => vec![hint("? or esc", "closes this help", 9)],
-        // A component has no repository to open and no image reference to
-        // copy, so its overlay names neither.
-        Mode::Info if page == Page::Components => {
-            vec![hint("esc", "close", 9), hint("j/k", "scroll", 8)]
-        }
+        // A component has no image reference to copy, and what `o` opens for it
+        // is its web interface rather than a repository.
+        Mode::Info if page == Page::Components => vec![
+            hint("esc", "close", 9),
+            hint("j/k", "scroll", 8),
+            hint("o", "open", 4),
+        ],
         Mode::Info => vec![
             hint("esc", "close", 9),
             hint("j/k", "scroll", 8),
@@ -380,10 +391,11 @@ mod tests {
             "j/k move   tab page   space toggle   i info   p port   v channel   \
              t templates   / filter   s save   ctrl+k commands   ? help   q quit"
         );
-        // The components page drops the two keys a component has no use for.
+        // The components page drops the keys a component has no use for and
+        // gains the one that opens its web interface.
         assert_eq!(
             page_bar(Page::Components, Mode::Browse, 0, false),
-            "j/k move   tab page   space toggle   i info   p port   s save   \
+            "j/k move   tab page   space toggle   i info   o open   p port   s save   \
              ctrl+k commands   ? help   q quit"
         );
         assert_eq!(
@@ -476,7 +488,7 @@ mod tests {
         assert_eq!(browse_action(KeyCode::Char('/')), Action::StartFilter);
         assert_eq!(browse_action(KeyCode::Char('s')), Action::Save);
         assert_eq!(browse_action(KeyCode::Char('u')), Action::Discard);
-        assert_eq!(browse_action(KeyCode::Char('o')), Action::OpenRepository);
+        assert_eq!(browse_action(KeyCode::Char('o')), Action::Open);
         assert_eq!(browse_action(KeyCode::Char('c')), Action::ImageRef);
         assert_eq!(browse_action(KeyCode::Char('?')), Action::Help);
         assert_eq!(browse_action(KeyCode::Char('q')), Action::Quit);
@@ -505,7 +517,7 @@ mod tests {
         assert_eq!(action_for(Mode::Info, &key(KeyCode::Char('k'))), Action::Up);
         assert_eq!(
             action_for(Mode::Info, &key(KeyCode::Char('o'))),
-            Action::OpenRepository
+            Action::Open
         );
         assert_eq!(
             action_for(Mode::Info, &key(KeyCode::Char('c'))),

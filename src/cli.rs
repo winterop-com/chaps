@@ -179,6 +179,9 @@ pub enum Command {
     /// Show chap-core health and which models registered
     Status(StatusArgs),
 
+    /// Open a component's web interface in a browser
+    Open(OpenArgs),
+
     /// List the backtests and predictions chap-core has run
     Jobs(JobsArgs),
 
@@ -884,6 +887,17 @@ pub struct StatusArgs {
     pub timeout: u64,
 }
 
+/// Open a component's web interface in a browser
+#[derive(Debug, Clone, Args)]
+pub struct OpenArgs {
+    // Optional, and `arg_required_else_help` is not what this wants: that is
+    // the convention for a group with no default subcommand, and `open` is a
+    // verb. With nothing named it lists what this deployment has and what each
+    // one opens, which answers the question a bare `chaps open` is asking.
+    /// Component to open: chap-core, ocs or dhis2
+    pub name: Option<String>,
+}
+
 /// List the backtests and predictions chap-core has run
 ///
 /// `args_conflicts_with_subcommands`: the filters below are `list`'s, repeated
@@ -1196,10 +1210,10 @@ mod tests {
         /// One screen of `--help`, and one clause of option help.
         ///
         /// The root listing is the only thing near the line: it grows by one
-        /// row per top-level command, and there are now twenty-one of them.
+        /// row per top-level command, and there are now twenty-two of them.
         /// Outside a deployment the listing is shorter still, because the
         /// commands that need a project are hidden from it.
-        const MAX_LINES: usize = 42;
+        const MAX_LINES: usize = 43;
         const MAX_CHARS: usize = 90;
 
         fn check(command: &mut clap::Command, path: &str) {
@@ -2035,6 +2049,26 @@ mod tests {
             panic!("expected status");
         };
         assert_eq!(args.url.as_deref(), Some("http://host:9000"));
+    }
+
+    /// `open` takes a component name and nothing else, and the bare command is
+    /// not a usage error: it lists what there is to open.
+    #[test]
+    fn open_takes_one_optional_component_name() {
+        let named = Cli::try_parse_from(["chap", "open", "dhis2"]).unwrap();
+        let Command::Open(args) = named.command else {
+            panic!("open parses as itself");
+        };
+        assert_eq!(args.name.as_deref(), Some("dhis2"));
+
+        let bare = Cli::try_parse_from(["chap", "open"]).unwrap();
+        let Command::Open(args) = bare.command else {
+            panic!("the bare command parses");
+        };
+        assert_eq!(args.name, None, "a listing, not a usage error");
+
+        // One name, not a list: opening two pages at once is not what this is.
+        assert!(Cli::try_parse_from(["chap", "open", "ocs", "dhis2"]).is_err());
     }
 
     #[test]

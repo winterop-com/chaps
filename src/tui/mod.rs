@@ -92,7 +92,7 @@ fn event_loop(terminal: &mut TerminalGuard, app: &mut App, theme: &theme::Theme)
         let outcome = app.reduce(keys::action_for(app.mode, &key));
         match app.take_effect() {
             Some(Effect::Refresh) => return Ok(Exit::Refresh),
-            Some(Effect::Open(url)) => app.message = Some(open(&url)),
+            Some(Effect::Open(url)) => app.message = Some(crate::open::launch(&url)),
             Some(Effect::Screenshot) => {
                 // Draw the frame the palette is no longer on, and shoot that
                 // one; the message about the file lands on the frame after.
@@ -184,42 +184,6 @@ impl Carry {
         {
             app.cursor = position;
         }
-    }
-}
-
-/// Hand a URL to whatever this platform opens URLs with.
-///
-/// Best effort on purpose: there is no dependency to do it properly, the
-/// browser must not block on the child, and a machine with no opener at all
-/// (a server over ssh, which is where chaps mostly runs) has to hear the URL
-/// instead of nothing.
-fn open(url: &str) -> String {
-    let (command, args) = opener();
-
-    let spawned = std::process::Command::new(command)
-        .args(args)
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-    match spawned {
-        Ok(_) => format!("opening {url}"),
-        Err(_) => format!("no `{command}` on this machine: {url}"),
-    }
-}
-
-/// The command this platform opens URLs with, and the arguments before the
-/// URL itself.
-fn opener() -> (&'static str, &'static [&'static str]) {
-    if cfg!(target_os = "macos") {
-        ("open", &[])
-    } else if cfg!(target_os = "windows") {
-        // The empty argument is `start`'s window title, which it would
-        // otherwise read the URL as.
-        ("cmd", &["/C", "start", ""])
-    } else {
-        ("xdg-open", &[])
     }
 }
 
@@ -321,14 +285,5 @@ mod tests {
                 .ocs
                 .enabled
         );
-    }
-
-    /// Spawning the opener is not tested - it would open a browser on the
-    /// machine running the suite - but the command it would spawn is.
-    #[test]
-    fn every_platform_names_an_opener() {
-        let (command, args) = opener();
-        assert!(!command.is_empty());
-        assert!(args.iter().all(|arg| !arg.contains("://")));
     }
 }

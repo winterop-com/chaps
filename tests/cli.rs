@@ -74,6 +74,17 @@ impl Sandbox {
         cmd
     }
 
+    /// `chaps -C <project> open ...`.
+    ///
+    /// Only ever called with arguments that open nothing: a test that reached
+    /// the opener would put a browser window on whatever machine runs the
+    /// suite.
+    fn open(&self, args: &[&str]) -> Command {
+        let mut cmd = self.chap();
+        cmd.arg("-C").arg(self.project()).arg("open").args(args);
+        cmd
+    }
+
     /// `chaps -C <project> auth ...`.
     fn auth(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
@@ -4536,6 +4547,121 @@ fn a_component_port_is_recorded_and_published() {
     let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
     assert!(text.contains("http://localhost:9010"), "{text}");
     assert!(text.contains("http://localhost:9002"), "{text}");
+}
+
+/// A bare `chaps open` answers the question it is asking - what is there to
+/// open - rather than printing a usage error, and it says something about every
+/// component, including the ones it cannot open.
+#[test]
+fn a_bare_open_lists_what_there_is_to_open() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs,s3"])
+        .assert()
+        .success();
+
+    let listed = sandbox.open(&[]).assert().success();
+    let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
+    assert!(
+        text.contains("COMPONENT") && text.contains("OPENS"),
+        "{text}"
+    );
+    // chap-core's page is its API documentation, not the origin.
+    assert!(text.contains("http://localhost:8000/docs"), "{text}");
+    assert!(text.contains("http://localhost:9000"), "{text}");
+    assert!(text.contains("no web interface to open"), "{text}");
+    assert!(
+        text.contains("not a component of this deployment"),
+        "{text}"
+    );
+    assert!(text.contains("run `chaps open NAME`"), "{text}");
+}
+
+/// The three answers that open nothing are refusals with the way out on the
+/// same line, and none of them hands a browser an address this deployment has
+/// nobody on.
+#[test]
+fn open_refuses_a_component_that_is_off_and_the_object_store() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "s3"])
+        .assert()
+        .success();
+
+    // Off: the deployment does not have it at all.
+    sandbox
+        .open(&["dhis2"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "dhis2 is not a component of this deployment",
+        ))
+        .stderr(predicates::str::contains(
+            "run `chaps components enable dhis2`",
+        ));
+
+    // On, publishing nothing, and still never opened: the object store speaks
+    // the S3 API and has no interface to show.
+    sandbox
+        .open(&["s3"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("serves no web interface"))
+        .stderr(predicates::str::contains(
+            "`chaps components enable s3 --port N`",
+        ));
+
+    // And a name that is not a component at all is the same refusal every
+    // other component command gives.
+    sandbox
+        .open(&["nope"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("unknown component `nope`"));
+}
+
+/// A component with no host port is reached inside the deployment, so the
+/// refusal names that address and the command that publishes one.
+#[test]
+fn open_names_the_internal_address_of_a_component_with_no_host_port() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs", "--ocs-port", "none"])
+        .assert()
+        .success();
+
+    sandbox
+        .open(&["ocs"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("ocs publishes no host port"))
+        .stderr(predicates::str::contains("http://ocs:9000"))
+        .stderr(predicates::str::contains(
+            "run `chaps components enable ocs --port N`",
+        ));
+
+    // The listing says the same thing in its own column, so the two cannot
+    // drift apart.
+    let listed = sandbox.open(&[]).assert().success();
+    let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
+    assert!(
+        text.contains("reached at http://ocs:9000 inside the deployment"),
+        "{text}"
+    );
+}
+
+/// `open` needs a deployment, so outside one it says which file is missing
+/// rather than opening anything.
+#[test]
+fn open_outside_a_deployment_says_there_is_none() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .chap()
+        .arg("open")
+        .arg("ocs")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not a chaps project"));
 }
 
 /// A western extent starts with a minus sign, and the spelling without `=` is

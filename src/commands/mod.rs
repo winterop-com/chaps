@@ -14,6 +14,7 @@ pub mod jobs;
 pub mod manual_models;
 pub mod models;
 pub mod modeltest;
+pub mod open;
 pub mod registry;
 pub mod restore;
 pub mod selfcmd;

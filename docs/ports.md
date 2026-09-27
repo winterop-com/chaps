@@ -89,6 +89,10 @@ for a port for something this deployment is not getting is refused rather than
 silently ignored, because a port that quietly did nothing would leave you
 waiting for a service on an address no file mentions.
 
+`chaps open NAME` opens the component at that port in a browser - and says so
+rather than opening anything when the component publishes none. See
+[Reaching a component from a browser](./components.md#reaching-a-component-from-a-browser).
+
 8080 is a busy port on a developer's machine, and 8000 - chap-core's own - is
 next to it. Neither the `init` probe nor `chaps components enable` refuses a
 taken one; both warn, and the way out is on the same line:

@@ -255,6 +255,123 @@ docker compose -f compose.yml -f compose.chaps.yml -f compose.ocs.yml \
   -f compose.s3.yml -f compose.dhis2.yml -f compose.marketplace.yml up -d
 ```
 
+## Reaching a component from a browser
+
+`chaps components list` says where each component answers. `chaps open NAME`
+takes you there:
+
+```sh
+chaps open dhis2
+chaps open ocs
+chaps open chap-core
+chaps open              # what is there to open, and at which address
+```
+
+```text
+opening the DHIS2 user interface at http://localhost:18080
+the dhis2 container is running; `chaps status` says whether it is answering yet
+```
+
+The address is not always the component's origin, because the origin is not
+always the useful page:
+
+| Component | What `chaps open` opens | Why |
+| --- | --- | --- |
+| `chap-core` | `/docs` on the API port | The API answers JSON everywhere else; `/docs` is its interactive documentation, and the one page on that port a person reads. |
+| `ocs` | the root of its host port | OCS serves a web interface there as well as its API. |
+| `dhis2` | the root of its host port | That is the DHIS2 login page, and the whole of its UI hangs off it. |
+| `s3` | nothing | The object store speaks the S3 API and serves no web interface; a browser aimed at it gets an XML error document. |
+
+chap-core's address follows `CHAP_API_PORT` and `CHAP_ROOT_PATH` in `.env`, so a
+deployment served under a path prefix opens `/master/docs` rather than `/docs`:
+the prefix moves every route chap-core serves. See
+[How the API port is set](./ports.md#how-the-api-port-is-set) and
+[What `.env` holds](./concepts.md#what-env-holds). A deployment with an API token
+also gets a line saying that `/docs` is behind it, and that
+`chaps auth show --reveal` prints the token to paste into the page's Authorize
+button; see [Authentication](./auth.md).
+
+With no name it lists every component and what each one opens, which is both the
+answer to "what is there" and a reminder of the addresses:
+
+```text
+COMPONENT  OPENS                        WHAT IT IS
+chap-core  http://localhost:18000/docs  chap-core's API documentation
+ocs        -                            not a component of this deployment
+s3         -                            an S3 API; no web interface to open
+dhis2      http://localhost:18080       the DHIS2 user interface
+
+2 of them can be opened: run `chaps open NAME`, or `chaps status` to see what is running first
+```
+
+### What it refuses, and what it only warns about
+
+Three answers open nothing, and each names what is true instead:
+
+```text
+error: ocs is not a component of this deployment, so there is nothing to open; run `chaps components enable ocs` to add it
+error: ocs publishes no host port, so there is nothing to open from this machine: it is reached at http://ocs:9000 inside the deployment; run `chaps components enable ocs --port N` to publish one
+error: the object store speaks the S3 API and serves no web interface, so there is nothing a browser can open; run `chaps components enable s3 --port N` to publish it for an S3 client of your own, and `chaps status` says whether it is running
+```
+
+A component with no host port is reached somewhere else rather than nowhere: see
+[Component ports](./ports.md#component-ports). The one exception is an OCS
+instance with no host port and a recorded `--base-url` - the public origin it
+builds its links from - which *is* an address a browser can be pointed at, so
+that is what `chaps open ocs` opens, with a line saying it is the proxy and not a
+port on this machine. See
+[Behind a reverse proxy](#behind-a-reverse-proxy).
+
+A component that is enabled but **not running** is a note rather than a refusal,
+and the page is opened anyway:
+
+```text
+opening chap-core's API documentation at http://localhost:8000/docs
+note: no chap container is running, so the page will not load yet; run `chaps up` to start this deployment
+```
+
+The container is what decides that, exactly as it does for `chaps status` and
+`chaps doctor`. Three things follow from asking docker rather than the port:
+
+- A component whose container is up gets the closing line above. It says
+  `running`, not `up`: whether it is *answering* is what `chaps status` asks, one
+  request per component, and this command does not spend those.
+- A component with no container gets the note above. It is a note and not a
+  refusal because the browser reloads: the tab is already at the right address
+  when `chaps up` has finished, and DHIS2 in particular takes minutes to answer
+  after its container starts.
+- A machine where docker cannot be asked at all - no CLI, no daemon - gets
+  `docker could not be asked whether dhis2 is running, so this is the address and
+  not a promise`, and the page is still opened. Refusing on a probe that could
+  not be made would refuse everywhere docker is missing, which is not an answer
+  about the component.
+
+### On a server with no browser
+
+The URL is handed to `open` on macOS, `start` on Windows and `xdg-open`
+elsewhere, spawned and not waited for. A machine with none of them - a server
+over ssh, which is where `chaps` mostly runs - is told the address rather than
+that something failed, and the exit code stays 0:
+
+```text
+the DHIS2 user interface is at http://localhost:18080
+there is no `xdg-open` on this machine to open it with, so the address above is the whole of it
+```
+
+`chaps open NAME --json` carries `url`, `page`, `opened`, `running` and the notes,
+which is the shape to read from a script; `chaps open --json` carries the listing
+under `components`.
+
+### From the browser
+
+`o` on the browser's components page does the same thing for the row under the
+cursor, and `Open web interface` in the palette does it by name. It opens what
+this deployment publishes **now**, so a component enabled in this session, or one
+whose port was changed and not yet saved, is said in the footer rather than
+opened: nothing is running behind an address `chaps sync` has not written yet.
+The browser reads no `.env`, so `CHAP_ROOT_PATH` is `chaps open`'s to honour and
+not the page's. See [The components page](./models.md#the-components-page).
+
 ## OCS
 
 The `ocs` component runs `ghcr.io/dhis2/open-climate-service`. OCS publishes no
@@ -622,7 +739,10 @@ one-shot again and changes nothing.
 
 The store publishes no host port: OCS reaches it at `http://s3:9000` on the
 compose default network. `chaps components enable s3 --port 9002` publishes one
-for an S3 client of your own.
+for an S3 client of your own. A published port is for a client and not for a
+browser: RustFS serves no web interface, so `chaps open s3` says that rather than
+opening an XML error document. See
+[Reaching a component from a browser](#reaching-a-component-from-a-browser).
 
 ## DHIS2
 
@@ -736,8 +856,9 @@ rather than naming `chaps models enable`, which such a deployment refuses.
   carries the seed dump. See [Backup and restore](./backup.md).
 - **`chaps ui`** has a components page beside the models one: `Tab` moves
   between them, the rows are the ones `chaps components list` prints, and
-  `space`, `p` and `P` do there what they do for a model. One `s` saves both
-  pages. The settings it deliberately does not edit are named in each
+  `space`, `p` and `P` do there what they do for a model. `o` opens the row's web
+  interface, the same page `chaps open` opens, and says in the footer when there
+  is none. One `s` saves both pages. The settings it deliberately does not edit are named in each
   component's `i` overlay rather than hidden: OCS's `--base-url` and
   `--read-only`, because they write to `ocs/climate-service.yaml`, which is
   yours; and DHIS2's `seed:` and `image_tag:`, because no flag moves either after

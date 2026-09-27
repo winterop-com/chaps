@@ -41,6 +41,9 @@ pub const ENV_FILE: &str = ".env";
 pub const CHAP_TAG_ENV_VAR: &str = "CHAP_IMAGE_TAG";
 /// The `.env` variable [`CHAPS_COMPOSE`] reads the API's host port from.
 pub const API_PORT_ENV_VAR: &str = "CHAP_API_PORT";
+/// The `.env` variable that gives chap-core's API a path prefix, for an
+/// instance served behind a reverse proxy. Never written by `init`.
+pub const ROOT_PATH_ENV_VAR: &str = "CHAP_ROOT_PATH";
 
 /// `project.yaml` schema version written by this CLI.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -825,6 +828,44 @@ impl Project {
         format!("http://localhost:{}", self.effective_api_port())
     }
 
+    /// The path prefix chap-core mounts its whole API under, from this
+    /// project's `.env`, or `""` for the usual deployment that has none.
+    ///
+    /// `CHAP_ROOT_PATH` is never written by `init`: it is what a deployment
+    /// behind a reverse proxy adds by hand, and chap-core passes it to FastAPI
+    /// as `root_path`, so every route moves with it - `/docs` included. Read
+    /// best-effort like every other line of that file, and normalised to a
+    /// leading slash and no trailing one so it can be concatenated.
+    ///
+    /// Only the addresses a person is sent to use it. `chaps status` asks
+    /// `/health`, which the container's own healthcheck reaches without the
+    /// prefix, so nothing that probes the API is changed by this.
+    pub fn root_path(&self) -> String {
+        let Ok(body) = std::fs::read_to_string(self.dir.join(ENV_FILE)) else {
+            return String::new();
+        };
+        let Some(value) = crate::dotenv::non_empty(&body, ROOT_PATH_ENV_VAR) else {
+            return String::new();
+        };
+        let path = value
+            .trim()
+            .trim_end_matches('/')
+            .trim_start_matches('/')
+            .to_string();
+        if path.is_empty() {
+            String::new()
+        } else {
+            format!("/{path}")
+        }
+    }
+
+    /// Where a person reaches chap-core's API from this machine: the origin plus
+    /// whatever [`Project::root_path`] prefixes it with, without a trailing
+    /// slash.
+    pub fn api_base(&self) -> String {
+        format!("{}{}", self.api_url(), self.root_path())
+    }
+
     /// chap-core's read-only proxy to one model service, the way to reach a
     /// model that publishes no host port of its own.
     pub fn proxy_url(&self, service_id: &str) -> String {
@@ -1179,6 +1220,61 @@ mod tests {
             project.proxy_url("chapkit-ewars-model"),
             "http://localhost:8123/v2/services/chapkit-ewars-model/run/"
         );
+    }
+
+    /// `CHAP_ROOT_PATH` moves every route chap-core serves, so the addresses a
+    /// person is sent to have to carry it. Nothing writes that line, so the
+    /// usual answer is no prefix at all.
+    #[test]
+    fn the_root_path_comes_from_env_and_is_normalised() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                api_port: 8123,
+                ..ProjectState::default()
+            },
+        };
+
+        // No `.env`, and an `.env` that does not mention it: no prefix.
+        assert_eq!(project.root_path(), "");
+        assert_eq!(project.api_base(), "http://localhost:8123");
+        let env = dir.path().join(ENV_FILE);
+        std::fs::write(
+            &env,
+            "CHAP_API_PORT=18000
+",
+        )
+        .unwrap();
+        assert_eq!(project.root_path(), "");
+        assert_eq!(project.api_base(), "http://localhost:18000");
+
+        // Every spelling of the same prefix reads as one leading slash and no
+        // trailing one, so it concatenates.
+        for body in [
+            "CHAP_ROOT_PATH=/master\n",
+            "CHAP_ROOT_PATH=master\n",
+            "CHAP_ROOT_PATH=/master/\n",
+            "CHAP_ROOT_PATH=\"/master\"\n",
+        ] {
+            std::fs::write(&env, body).unwrap();
+            assert_eq!(project.root_path(), "/master", "{body:?}");
+            assert_eq!(
+                project.api_base(),
+                "http://localhost:8123/master",
+                "{body:?}"
+            );
+        }
+
+        // A commented, empty or slash-only line is not a prefix.
+        for body in [
+            "# CHAP_ROOT_PATH=/master\n",
+            "CHAP_ROOT_PATH=\n",
+            "CHAP_ROOT_PATH=/\n",
+        ] {
+            std::fs::write(&env, body).unwrap();
+            assert_eq!(project.root_path(), "", "{body:?}");
+        }
     }
 
     /// `.env` is what compose reads, so it is what every URL and every port

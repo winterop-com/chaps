@@ -609,6 +609,8 @@ s                  save            t                show or hide templates
 u                  discard         /                filter (Enter keeps, Esc clears)
 q                  quit            Esc              clear the filter, or quit
 ?                  help            ctrl-k / ctrl-p  the command palette
+o                  open in a browser: the model's repository, or the component's web interface
+c                  the model's image reference, on the status line
 y / n              answer the quit confirmation
 ```
 
@@ -685,7 +687,7 @@ chaps · components                                             registry: embedd
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │ chap-core  enabled here  http://localhost:8000  compose.yml + compose.chaps.yml  CHAP itself: chap-co~  i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [tab] page  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
+ [j/k] move  [tab] page  [space] toggle  [i] info  [o] open  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
 
 The marker column reads the same way it does on the models page: `✓` for a
@@ -714,11 +716,12 @@ chaps · components                                             registry: embedd
 │ 1 pending change  nothing is written until you save                                                                  │
 │ + s3                      enable, on the compose network                                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [tab] page  [space] toggle  [i] info   [s] save 1 change   [u] discard  [?] help  [q] quit
+ [j/k] move  [tab] page  [space] toggle  [i] info  [o] open   [s] save 1 change   [u] discard  [?] help  [q] quit
 ```
 
 `space` toggles the component under the cursor, `p` sets its host port and `P`
-takes it away, and `i` or `Enter` opens the details. The pending counter in the
+takes it away, `o` opens its web interface in a browser, and `i` or `Enter`
+opens the details. The pending counter in the
 header, the summary strip and the quit confirmation all count both pages, so a
 component change cannot be lost by saving from the models page - and `u`
 discards both pages, because it means "nothing I did this session" rather than
@@ -733,6 +736,18 @@ says what to type rather than picking a number nobody asked for. `p` on
 lives in `.chaps/project.yaml`: the footer names
 `chaps init --api-port PORT --force` and `CHAP_API_PORT` in `.env` instead. `p`
 on a component that is off asks you to enable it first.
+
+`o` opens the row's web interface in a browser - chap-core's API documentation,
+the OCS web interface, DHIS2's own - and says in the footer when there is none
+to open: a component this deployment does not have, one that publishes no host
+port (naming the address it is reached at inside the deployment), one this
+session has only just enabled and not saved, and the object store, which speaks
+the S3 API and serves no interface a browser is useful for. It opens what this
+deployment publishes **now**, so a port changed in this session and not yet
+saved is not the port it opens. `Open web interface` in the palette does the
+same thing. It is the same command as
+[`chaps open`](./components.md#reaching-a-component-from-a-browser), which is
+the one that can also say whether the container is running.
 
 `i` opens the details, which say where the component's compose file and data
 volume are, and - for OCS - which of its settings this page deliberately does
@@ -854,14 +869,17 @@ assessment, the citation - wrap under their label rather than being cut.
 
 `j` and `k` scroll it when it is taller than the terminal, `o` opens the
 repository in a browser, `c` puts the image reference on the status line, and
-`esc`, `i` or `q` closes it again.
+`esc`, `i` or `q` closes it again. A component's overlay binds `o` too, where it
+opens that component's web interface, and binds no `c`: a component has no image
+reference of its own.
 
 `ctrl-k` or `ctrl-p` opens a command palette: type to narrow it, `up` and
 `down` to move, `Enter` to run, `esc` to leave. Its first entry is always the
 other page - `Go to the components page`, or `Go to the models page` - and the
 rest follow whichever page you are on, so on the components page it offers
-`Enable or disable the ocs component` and `Set a host port for the ocs
-component` where the models page offers the channel and the template filter.
+`Enable or disable the ocs component`, `Set a host port for the ocs component`
+and `Open the web interface of the ocs component` where the models page offers
+the channel, the template filter and `Open the repository of <model>`.
 
 It offers everything the keys do, plus three the keys do not: refreshing the
 catalogue from the marketplace without leaving the browser, the way

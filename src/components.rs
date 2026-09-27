@@ -311,6 +311,24 @@ impl Component {
             .ok_or_else(|| ChapError::UnknownComponent(name.trim().to_string()).into())
     }
 
+    /// The compose service whose container says whether this component is
+    /// running.
+    ///
+    /// The three opt-in components name their own service, so this is
+    /// [`Component::name`] for them; chap-core's is upstream's `chap`, which is
+    /// the one reason this is a method rather than that one. Every caller that
+    /// asks docker whether a component is up goes through here, so
+    /// `chaps status`, `chaps doctor` and `chaps open` all judge it by the same
+    /// container.
+    pub fn service(self) -> &'static str {
+        match self {
+            Component::ChapCore => crate::compose::API_SERVICE,
+            Component::Ocs => crate::compose::OCS_SERVICE,
+            Component::S3 => crate::compose::S3_SERVICE,
+            Component::Dhis2 => crate::compose::DHIS2_SERVICE,
+        }
+    }
+
     /// Whether this component takes a host port at all.
     pub fn takes_port(self) -> bool {
         matches!(self, Component::Ocs | Component::S3 | Component::Dhis2)

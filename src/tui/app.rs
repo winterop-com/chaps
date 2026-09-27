@@ -11,6 +11,7 @@
 
 use crate::components::{Component, Components, models_need_chap_core};
 use crate::compose::{EnableRequest, PortRequest, Selection};
+use crate::open::Openable;
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Channel, Model, Registry, Version, VersionSelector};
 use std::cell::Cell;
@@ -36,6 +37,18 @@ pub const DISCARDED_HINT: &str = "the pending changes are gone; nothing was writ
 
 /// Footer note shown when `p` is pressed on a component that is not enabled.
 pub const PORT_NEEDS_COMPONENT_HINT: &str = "enable the component first (space), then press p";
+
+/// Footer note shown when `o` is pressed on a component this session has only
+/// just enabled.
+///
+/// The address is a plan until the compose file exists and something is running
+/// behind it, so the browser says what is missing rather than opening a port
+/// nothing is on yet.
+pub const OPEN_NEEDS_SAVING: &str = "press s to apply the change first, then `chaps up` starts it";
+
+/// Footer note shown when `o` is pressed on a component this deployment does
+/// not have.
+pub const OPEN_NEEDS_COMPONENT: &str = "enable the component first (space), then save with s";
 
 /// Footer note shown when `p` is pressed on `chap-core`.
 ///
@@ -151,8 +164,9 @@ pub enum Action {
     PaletteRun,
     /// Throw the pending changes away.
     Discard,
-    /// Hand the selected model's repository to the platform opener.
-    OpenRepository,
+    /// Hand what the row under the cursor points at to the platform opener: a
+    /// model's repository, or a component's web interface.
+    Open,
     /// Put the selected model's image reference on the status line.
     ImageRef,
     Save,
@@ -302,6 +316,8 @@ pub enum CommandId {
     Discard,
     Refresh,
     Repository,
+    /// Open the selected component's web interface.
+    Web,
     Screenshot,
     Docs,
     Help,
@@ -514,7 +530,7 @@ impl<'a> App<'a> {
             Action::PageUp => self.info_scroll = self.info_scroll.saturating_sub(PAGE_JUMP),
             Action::Top => self.info_scroll = 0,
             Action::Bottom => self.info_scroll = last,
-            Action::OpenRepository if self.page == Page::Models => self.open_repository(),
+            Action::Open => self.open_selection(),
             Action::ImageRef if self.page == Page::Models => self.show_image_ref(),
             _ => {}
         }
@@ -590,6 +606,7 @@ impl<'a> App<'a> {
             CommandId::Discard => self.discard(),
             CommandId::Refresh => self.effect = Some(Effect::Refresh),
             CommandId::Repository => self.open_repository(),
+            CommandId::Web => self.open_component(),
             CommandId::Screenshot => self.effect = Some(Effect::Screenshot),
             CommandId::Docs => {
                 let chapter = match self.page {
@@ -695,6 +712,12 @@ impl<'a> App<'a> {
                         format!("Remove the host port of the {name} component"),
                         "P",
                         "Remove port",
+                    ),
+                    entry(
+                        CommandId::Web,
+                        format!("Open the web interface of the {name} component"),
+                        "o",
+                        "Open web interface",
                     ),
                 ]);
             }
@@ -875,9 +898,10 @@ impl<'a> App<'a> {
                     self.message = Some(NOTHING_TO_DISCARD_HINT.to_string());
                 }
             }
-            // Both are about a marketplace model: a component has no
-            // repository of its own and no image reference to copy.
-            Action::OpenRepository if self.page == Page::Models => self.open_repository(),
+            // `o` means the same thing on both pages - hand what this row
+            // points at to a browser - and each page says what that is. An
+            // image reference belongs to a marketplace model alone.
+            Action::Open => self.open_selection(),
             Action::ImageRef if self.page == Page::Models => self.show_image_ref(),
             Action::Help => self.mode = Mode::Help,
             Action::Save => return Some(Outcome::Save),
@@ -1021,6 +1045,15 @@ impl<'a> App<'a> {
         self.dirty = self.has_changes();
     }
 
+    /// Hand what the row under the cursor points at to a browser: the page
+    /// decides whether that is a repository or a web interface.
+    fn open_selection(&mut self) {
+        match self.page {
+            Page::Models => self.open_repository(),
+            Page::Components => self.open_component(),
+        }
+    }
+
     /// Ask the caller to open the selected model's repository.
     fn open_repository(&mut self) {
         let Some(row) = self.selected() else {
@@ -1028,6 +1061,49 @@ impl<'a> App<'a> {
         };
         let url = self.model(row).source.repository.clone();
         self.effect = Some(Effect::Open(url));
+    }
+
+    /// Ask the caller to open the selected component's web interface, or say in
+    /// the footer why there is none to open.
+    ///
+    /// Resolved against the *recorded* set, not the session's: what a browser
+    /// can reach is what this deployment publishes now, and a row toggled or
+    /// re-ported in this session is a plan until `s` has written it and
+    /// `chaps up` has applied it. So a pending change is said rather than
+    /// opened, and a pending port change opens the port that is actually
+    /// published - which is the one the footer then names.
+    fn open_component(&mut self) {
+        let component = self.selected_component();
+        let recorded = crate::open::resolve(component, &self.initial_components, &self.api_base());
+        // A component this session turned on has no compose file yet, so its
+        // address belongs to nothing: that is a different answer from a
+        // component the deployment simply does not have.
+        if recorded == Openable::Off && self.components.is_enabled(component) {
+            self.message = Some(OPEN_NEEDS_SAVING.to_string());
+            return;
+        }
+        match recorded {
+            Openable::Url { url, .. } => self.effect = Some(Effect::Open(url)),
+            Openable::Internal { inside } => {
+                self.message = Some(format!(
+                    "{} publishes no host port; it is reached at {inside} inside the deployment, \
+                     and p publishes one",
+                    component.name()
+                ))
+            }
+            Openable::NoWeb => self.message = Some(crate::open::NO_WEB_INTERFACE.to_string()),
+            Openable::Off => self.message = Some(OPEN_NEEDS_COMPONENT.to_string()),
+        }
+    }
+
+    /// Where chap-core's API is reached from this machine, as this browser knows
+    /// it.
+    ///
+    /// The recorded API port, which is exactly what the REACH column prints:
+    /// the browser reads no `.env`, so a `CHAP_API_PORT` or `CHAP_ROOT_PATH`
+    /// written there is `chaps open`'s to honour and not this page's.
+    fn api_base(&self) -> String {
+        format!("http://localhost:{}", self.api_port)
     }
 
     /// Put the selected model's image reference on the status line, where it
@@ -2396,7 +2472,7 @@ mod tests {
         let mut app = App::new(&registry, &empty_state());
         focus(&mut app, EWARS);
 
-        app.reduce(Action::OpenRepository);
+        app.reduce(Action::Open);
         let expected = registry.get(EWARS).unwrap().source.repository.clone();
         assert_eq!(app.take_effect(), Some(Effect::Open(expected)));
         assert!(app.take_effect().is_none(), "an effect is taken once");
@@ -3252,6 +3328,142 @@ mod tests {
         );
     }
 
+    /// `o` on a published component asks the caller to open it, and every
+    /// other answer goes in the footer instead: the reducer stays pure, so the
+    /// whole of it is testable without a terminal.
+    #[test]
+    fn o_opens_a_published_component_and_says_why_when_it_cannot() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.api_port = 18000;
+        state.components.set_enabled(Component::Dhis2, true);
+        state.components.dhis2.port = Some(18080);
+        let mut app = App::new(&registry, &state);
+
+        // A component with a host port: the web interface at its root.
+        focus_component(&mut app, Component::Dhis2);
+        app.reduce(Action::Open);
+        assert_eq!(
+            app.take_effect(),
+            Some(Effect::Open("http://localhost:18080".to_string()))
+        );
+
+        // chap-core: the API answers JSON everywhere but `/docs`, and the port
+        // is this project's own rather than 8000.
+        focus_component(&mut app, Component::ChapCore);
+        app.reduce(Action::Open);
+        assert_eq!(
+            app.take_effect(),
+            Some(Effect::Open("http://localhost:18000/docs".to_string()))
+        );
+
+        // A component this deployment does not have: nothing is opened, and the
+        // footer names the key that adds it.
+        focus_component(&mut app, Component::Ocs);
+        app.reduce(Action::Open);
+        assert!(app.take_effect().is_none());
+        assert_eq!(app.message.as_deref(), Some(OPEN_NEEDS_COMPONENT));
+
+        // The object store has no web interface, on or off.
+        focus_component(&mut app, Component::S3);
+        app.reduce(Action::Open);
+        assert!(app.take_effect().is_none());
+        assert_eq!(app.message.as_deref(), Some(crate::open::NO_WEB_INTERFACE));
+    }
+
+    /// A component with no host port is reached inside the deployment, so `o`
+    /// says where and names `p` rather than opening a port nothing is on.
+    #[test]
+    fn o_on_a_component_with_no_host_port_names_the_internal_address() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        state.components.ocs.port = None;
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Ocs);
+
+        app.reduce(Action::Open);
+        assert!(app.take_effect().is_none(), "nothing is opened");
+        let message = app.message.clone().expect("a footer note");
+        assert!(message.contains("http://ocs:9000"), "{message}");
+        assert!(message.contains("p publishes one"), "{message}");
+    }
+
+    /// A row this session only just enabled has no compose file and nothing
+    /// running behind it, so its address is a plan: `o` says what is missing
+    /// instead of opening it.
+    #[test]
+    fn o_on_a_pending_component_asks_for_the_save_first() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::Dhis2);
+        app.reduce(Action::Toggle);
+        assert!(app.components.dhis2.enabled && !app.initial_components.dhis2.enabled);
+
+        app.reduce(Action::Open);
+        assert!(app.take_effect().is_none());
+        assert_eq!(app.message.as_deref(), Some(OPEN_NEEDS_SAVING));
+    }
+
+    /// A port changed but not saved is not the port anything is published on,
+    /// so `o` opens the one that is.
+    #[test]
+    fn o_opens_the_port_this_deployment_publishes_not_the_pending_one() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Ocs, true);
+        state.components.ocs.port = Some(9000);
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Ocs);
+        app.components.ocs.port = Some(9010);
+
+        app.reduce(Action::Open);
+        assert_eq!(
+            app.take_effect(),
+            Some(Effect::Open("http://localhost:9000".to_string())),
+            "the wanted port is a plan until `s` and `chaps up`"
+        );
+    }
+
+    /// The palette is where the key is discoverable, so the components page
+    /// offers it there too, on the row under the cursor.
+    #[test]
+    fn the_palette_offers_the_web_interface_on_the_components_page() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Dhis2, true);
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Dhis2);
+
+        let entry = app
+            .commands()
+            .into_iter()
+            .find(|command| command.id == CommandId::Web)
+            .expect("the components page offers it");
+        assert_eq!(entry.label, "Open the web interface of the dhis2 component");
+        assert_eq!(entry.key, "o");
+
+        // Running it from the palette is the same thing the key does.
+        app.reduce(Action::Palette);
+        for c in "web interface".chars() {
+            app.reduce(Action::PaletteChar(c));
+        }
+        app.reduce(Action::PaletteRun);
+        assert_eq!(
+            app.take_effect(),
+            Some(Effect::Open("http://localhost:8080".to_string()))
+        );
+
+        // The models page has a repository to open instead, and does not offer
+        // a component's web interface at all.
+        app.page = Page::Models;
+        assert!(
+            !app.commands()
+                .iter()
+                .any(|command| command.id == CommandId::Web)
+        );
+    }
+
     /// The dependency in the other direction, caught while the browser is
     /// still up: a session with chap-core switched off cannot enable a model,
     /// because the selection it would produce is one apply refuses.
@@ -3299,7 +3511,6 @@ mod tests {
             Action::ChannelPrompt,
             Action::StartFilter,
             Action::ToggleTemplates,
-            Action::OpenRepository,
             Action::ImageRef,
         ] {
             app.reduce(action.clone());

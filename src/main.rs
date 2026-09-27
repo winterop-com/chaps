@@ -19,6 +19,7 @@ mod github;
 mod jobs;
 mod manual;
 mod modeltest;
+mod open;
 mod output;
 mod paths;
 mod ports;
@@ -54,6 +55,7 @@ const PROJECT_ONLY: &[&str] = &[
     "ui",
     "auth",
     "components",
+    "open",
 ];
 
 /// The same, for the subcommands of `models`: browsing the marketplace works
@@ -165,6 +167,8 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         },
 
         Command::Status(args) => commands::status::run(ctx, args),
+
+        Command::Open(args) => commands::open::run(ctx, args),
 
         // No subcommand is `list`: "what has this deployment been doing" is
         // the question `chaps jobs` is typed to answer.
