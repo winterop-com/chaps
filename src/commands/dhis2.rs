@@ -433,9 +433,9 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         // see the tables to tell. What it can say is that the timestamp beside
         // it proves nothing, and that one command settles the question.
         dhis2::AnalyticsEvidence::Unconfirmed => missing.push(
-            "analytics may never have run on this deployment: the timestamp above came with the \
-             seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` \
-             to settle it"
+            "analytics may never have run on this deployment: a seeded database can carry the \
+             dump's timestamp, and no run has finished since DHIS2 started; run \
+             `chaps dhis2 analytics` to settle it"
                 .to_string(),
         ),
         dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded => {}
@@ -1755,7 +1755,7 @@ fn analytics_cell(evidence: dhis2::AnalyticsEvidence, last: &str, out: &Out) -> 
             format!("{when} {}", out.ok("(a run finished on this deployment)"))
         }
         dhis2::AnalyticsEvidence::Unconfirmed => {
-            format!("{when} {}", out.warn("(from the seed dump, unconfirmed)"))
+            format!("{when} {}", out.warn("(unconfirmed on a seeded database)"))
         }
     }
 }
@@ -2278,7 +2278,7 @@ mod tests {
         let inherited = analytics_cell(dhis2::AnalyticsEvidence::Unconfirmed, when, &out());
         assert_eq!(
             inherited,
-            format!("{when} (from the seed dump, unconfirmed)")
+            format!("{when} (unconfirmed on a seeded database)")
         );
 
         let here = analytics_cell(dhis2::AnalyticsEvidence::RanHere, when, &out());

@@ -837,13 +837,13 @@ what it checked and labels the timestamp with what it is worth:
 | --- | --- |
 | `analytics  never run` | DHIS2 records no successful run at all. |
 | `analytics  2026-09-27T10:10:40.043 (a run finished on this deployment)` | An analytics run has finished on this DHIS2 since it started, which `GET /api/system/tasks/ANALYTICS_TABLE` says. That notifier lives in the running process, so nothing a dump carries can put an entry in it. |
-| `analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)` | DHIS2 records a success, this deployment was seeded, and no run has finished here since DHIS2 started. The timestamp proves nothing either way. |
+| `analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)` | DHIS2 records a success, this deployment was seeded, and no run has finished here since DHIS2 started. The timestamp proves nothing either way. |
 | `analytics  2026-09-27T10:10:40.043` | DHIS2 records a success and this deployment has no seed, so its database was migrated from empty and the record was made against it. |
 
 The third of those is a question and not a verdict, and it is put as one:
 
 ```text
-missing: analytics may never have run on this deployment: the timestamp above came with the seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
 ```
 
 Restarting DHIS2 empties the notifier, so a seeded deployment whose run was made

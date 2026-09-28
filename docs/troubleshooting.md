@@ -705,8 +705,8 @@ reports the app as already installed rather than fighting it.
 ## `analytics may never have run on this deployment`
 
 ```text
-analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)
-missing: analytics may never have run on this deployment: the timestamp above came with the seed dump and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)
+missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
 ```
 
 This is not an error, and it is not `chaps` saying the tables are missing. It is

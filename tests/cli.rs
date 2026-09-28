@@ -9638,7 +9638,7 @@ fn dhis2_show_does_not_call_an_inherited_analytics_timestamp_evidence() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "analytics  2026-06-16T07:51:00.093 (from the seed dump, unconfirmed)",
+            "analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)",
         ))
         .stdout(predicates::str::contains(
             "missing: analytics may never have run on this deployment",
