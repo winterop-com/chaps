@@ -1017,14 +1017,17 @@ pub fn updated_phrase(
     if let Some((old, new)) = chap_core {
         parts.push(format!("chap-core {old} -> {new}"));
     }
-    if !pulled_new.is_empty() {
-        parts.push(format!(
-            "new image{} for {}",
-            if pulled_new.len() == 1 { "" } else { "s" },
-            pulled_new.join(", ")
-        ));
+    let pins = (!parts.is_empty()).then(|| parts.join(", "));
+    // The images are a clause of their own, with its own verb: a pull is not
+    // an update of anything, and "updated new image for ocs" is not English.
+    let images = (!pulled_new.is_empty()).then(|| match pulled_new {
+        [one] => format!("pulled a new image for {one}"),
+        many => format!("pulled new images for {}", many.join(", ")),
+    });
+    match (pins, images) {
+        (Some(pins), Some(images)) => Some(format!("{pins} and {images}")),
+        (pins, images) => pins.or(images),
     }
-    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 /// [`updated_phrase`] for a finished report.
@@ -1047,6 +1050,8 @@ pub fn closing_line(
     running: Option<bool>,
 ) -> String {
     let head = match what {
+        // A run that only pulled says so in its own verb.
+        Some(what) if what.starts_with("pulled ") => what.to_string(),
         Some(what) => format!("updated {what}"),
         None => "already up to date".to_string(),
     };
@@ -2110,7 +2115,7 @@ mod tests {
                 &["chap".to_string(), "worker".to_string()],
                 Some(true)
             ),
-            "updated chap-core v2.3.1 -> dev, new images for chap, worker; \
+            "updated chap-core v2.3.1 -> dev and pulled new images for chap, worker; \
              restart needed: chap, worker (run `chaps restart`)"
         );
         // A dry run says the same thing in the conditional, and nothing about
@@ -2379,7 +2384,7 @@ mod tests {
         );
         assert_eq!(
             updated_phrase(0, None, &["ocs".to_string()]).as_deref(),
-            Some("new image for ocs")
+            Some("pulled a new image for ocs")
         );
         assert_eq!(
             updated_phrase(
@@ -2388,7 +2393,7 @@ mod tests {
                 &["chap".to_string(), "worker".to_string()]
             )
             .as_deref(),
-            Some("2 model pins, chap-core v2.3.0 -> v2.3.1, new images for chap, worker")
+            Some("2 model pins, chap-core v2.3.0 -> v2.3.1 and pulled new images for chap, worker")
         );
     }
 
@@ -2424,6 +2429,16 @@ mod tests {
         assert_eq!(
             closing_line(Some("1 model pin"), &[], Some(true)),
             "updated 1 model pin; nothing needs a restart"
+        );
+        // A run that only pulled uses its own verb: the case a moving tag such
+        // as `ocs:main` is in whenever upstream has published since.
+        assert_eq!(
+            closing_line(
+                updated_phrase(0, None, &["ocs".to_string()]).as_deref(),
+                &["ocs".to_string()],
+                Some(true)
+            ),
+            "pulled a new image for ocs; restart needed: ocs (run `chaps restart`)"
         );
         // Docker would not say what is running, so neither do we.
         assert_eq!(

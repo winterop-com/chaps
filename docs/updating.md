@@ -108,6 +108,17 @@ Something moved, CHAP is up, and none of it was affected:
 updated 1 model pin; nothing needs a restart
 ```
 
+Nothing was pinned to move, but a moving tag brought a newer image - `ocs:main`
+after upstream has published, say - and the running container is still on the
+old one:
+
+```text
+pulled a new image for ocs; restart needed: ocs (run `chaps restart`)
+```
+
+`chaps restart` then recreates that service alone, and a second `chaps update`
+says `already up to date`.
+
 The first clause names what actually moved: the model pins, chap-core's tag,
 and the services the pull brought a genuinely different image for. A moving
 tag that pulled the same image this machine already had is not a change and is
