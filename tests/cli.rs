@@ -3936,7 +3936,7 @@ fn self_version_json_carries_the_fields_a_bug_report_needs() {
     );
     assert!(value["path"].as_str().is_some(), "{value}");
     assert!(
-        ["release archive", "cargo install"]
+        ["release archive", "cargo install", "cargo build"]
             .contains(&value["install_method"].as_str().expect("a method")),
         "{value}"
     );

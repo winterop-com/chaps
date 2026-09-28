@@ -32,7 +32,7 @@ struct VersionReport {
     /// The running executable, as the OS reports it.
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<PathBuf>,
-    /// `release archive` or `cargo install`, guessed from the path.
+    /// `release archive`, `cargo install` or `cargo build`, guessed from the path.
     install_method: &'static str,
 }
 

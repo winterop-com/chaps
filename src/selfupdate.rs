@@ -404,7 +404,8 @@ pub fn is_newer_than_current(tag: &str) -> bool {
     crate::chapcore::is_newer(tag, VERSION)
 }
 
-/// Whether `path` looks like `cargo install` put it there.
+/// Whether `path` looks like `cargo install` put it there, or a `cargo build`
+/// left it in a checkout's `target/`.
 pub fn install_method(path: &Path) -> &'static str {
     let parts: Vec<String> = path
         .components()
@@ -413,8 +414,13 @@ pub fn install_method(path: &Path) -> &'static str {
     let from_cargo = parts
         .windows(2)
         .any(|pair| pair[0] == ".cargo" && pair[1] == "bin");
+    let from_build = parts
+        .windows(2)
+        .any(|pair| pair[0] == "target" && matches!(pair[1].as_str(), "release" | "debug"));
     if from_cargo {
         "cargo install"
+    } else if from_build {
+        "cargo build"
     } else {
         "release archive"
     }
@@ -963,6 +969,14 @@ mod tests {
                 "release archive",
                 "{other}"
             );
+        }
+        // A checkout's own build, in either profile and on Windows too.
+        for built in [
+            &["/home/u/chaps", "target", "release", "chaps"][..],
+            &[r"C:\src\chaps", "target", "debug", "chaps.exe"][..],
+        ] {
+            let built: PathBuf = built.iter().collect();
+            assert_eq!(install_method(&built), "cargo build", "{built:?}");
         }
         // `.cargo` without `bin` under it is not a cargo install.
         assert_eq!(

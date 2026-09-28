@@ -186,7 +186,7 @@ work anywhere, inside a project or not.
 | Command | What it does |
 | --- | --- |
 | `chaps self update [--check] [--version TAG] [--yes]` | Replace this binary with the newest release: download the archive for this target, check it against the release's `SHA256SUMS`, rename it over the running one. `--check` only reports. |
-| `chaps self version` | Version, git revision, target triple, binary path and whether it came from a release archive or `cargo install`. |
+| `chaps self version` | Version, git revision, target triple, binary path and whether it came from a release archive, `cargo install` or a `cargo build` in a checkout. |
 | `chaps completions SHELL` | Print a completion script for bash, zsh, fish, PowerShell or elvish. |
 
 `chaps update` moves a deployment's pins; `chaps self update` replaces the
