@@ -452,7 +452,7 @@ added chapkit_dengue_model (chapkit-dengue-model)
   data dir  /work/data  (from the image config)
   user      10001:10001  (from a docker probe)
 enabled chapkit_dengue_model sha-b1d6c31 on http://localhost:5001 (compose.chapkit-dengue-model.yml)
-note: the service must register with chap-core as `chapkit-dengue-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - re-add it with `--service-id <that id>`
+note: the service must register with chap-core as `chapkit-dengue-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - run `chaps models remove chapkit_dengue_model`, then add it again with `--service-id <that id>`
 run `chaps up` to apply
 ```
 

@@ -140,8 +140,8 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
     notes.push(format!(
         "the service must register with chap-core as `{}`; \
          if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - \
-         re-add it with `--service-id <that id>`",
-        resolved.service_id
+         run `chaps models remove {}`, then add it again with `--service-id <that id>`",
+        resolved.service_id, resolved.id
     ));
     let report = AddReport {
         id: resolved.id.clone(),
@@ -295,9 +295,10 @@ fn check_free(project: &Project, marketplace: &Registry, names: &Names) -> Resul
         .find(|m| m.service_id == *service_id)
     {
         return Err(anyhow::anyhow!(
-            "the marketplace model {} already uses the compose service `{service_id}`; \
-             pass `--service-id <other>`",
-            model.id
+            "the marketplace model {id} already uses the compose service `{service_id}`; \
+             if this image is that model, `chaps models enable {id}` runs it, and \
+             otherwise pass `--service-id <other>`",
+            id = model.id
         ));
     }
     if let Some((other, _)) = project
@@ -448,6 +449,13 @@ mod tests {
         )
         .expect_err("the service name is taken");
         assert!(err.to_string().contains("--service-id"), "{err}");
+        // The image may well be that marketplace model, registering under the
+        // id it was built with, and then enabling it is the answer.
+        assert!(
+            err.to_string()
+                .contains("`chaps models enable chapkit_ewars_model` runs it"),
+            "{err}"
+        );
     }
 
     #[test]

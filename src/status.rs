@@ -343,6 +343,50 @@ pub struct ModelStatus {
     pub host_port: Option<u16>,
     /// How long ago chap-core last heard from it, `None` when never.
     pub last_ping: Option<String>,
+    /// For a model that is running and not registered: the id its own
+    /// container did register under, when an unmanaged row turned out to be
+    /// it. That is a service id that does not match, not a model that failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registered_as: Option<String>,
+}
+
+/// Tie each unmanaged row to the model whose container it is, when it is one.
+///
+/// chap-core records the URL a service registered from, and a container's
+/// hostname is the start of its id - so `http://ee5e63ab53bd:8000` is the
+/// container `ee5e63ab53bd...`. When that container is one of this
+/// deployment's models and that model is `running, not registered`, the
+/// model did register, under an id of its own: the fix is `--service-id`, and
+/// a restart would change nothing. `containers` is `(service, id)`.
+pub fn link_strays(rows: &mut [ModelStatus], containers: &[(String, String)]) {
+    let strays: Vec<(String, String)> = rows
+        .iter()
+        .filter(|row| row.state == ModelState::Unmanaged)
+        .filter_map(|row| Some((row.id.clone(), url_host(&row.reach)?)))
+        .collect();
+    for (stray, host) in strays {
+        // Twelve hex digits is how docker names a container's host; anything
+        // shorter would match too much.
+        if host.len() < 12 || !host.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let Some((service, _)) = containers.iter().find(|(_, id)| id.starts_with(&host)) else {
+            continue;
+        };
+        if let Some(row) = rows
+            .iter_mut()
+            .find(|row| &row.id == service && row.state == ModelState::RunningNotRegistered)
+        {
+            row.registered_as = Some(stray);
+        }
+    }
+}
+
+/// `ee5e63ab53bd` out of `http://ee5e63ab53bd:8000/`.
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let host = rest.split(['/', ':']).next()?;
+    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// One entry of `GET /v2/services`.
@@ -684,6 +728,7 @@ pub fn model_rows(
                 },
                 host_port: *host_port,
                 last_ping: found.and_then(|s| ago(now, &s.last_ping_at)),
+                registered_as: None,
             }
         })
         .collect();
@@ -702,6 +747,7 @@ pub fn model_rows(
         // Not this deployment's port to know.
         host_port: None,
         last_ping: ago(now, &s.last_ping_at),
+        registered_as: None,
     }));
     rows
 }
@@ -854,6 +900,13 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
     let hints: Vec<String> = mine
         .iter()
         .filter_map(|row| match row.state {
+            ModelState::RunningNotRegistered if row.registered_as.is_some() => Some(format!(
+                "{}: its container registered as `{}`, the unmanaged row above; \
+                 `chaps models remove` the model and add it again with `--service-id {}`",
+                row.id,
+                row.registered_as.as_deref().unwrap_or_default(),
+                row.registered_as.as_deref().unwrap_or_default()
+            )),
             ModelState::RunningNotRegistered => Some(format!(
                 "{}: restart it with `chaps restart --all {}`{registration_key}",
                 row.id, row.id
@@ -1332,6 +1385,67 @@ struct WireInfo {
 
 #[cfg(test)]
 mod tests {
+    use super::{ModelState, ModelStatus, hints, link_strays};
+
+    fn row(id: &str, state: ModelState, reach: &str) -> ModelStatus {
+        ModelStatus {
+            id: id.to_string(),
+            state,
+            reach: reach.to_string(),
+            host_port: None,
+            last_ping: None,
+            registered_as: None,
+        }
+    }
+
+    #[test]
+    fn a_model_registered_under_its_own_id_is_told_to_take_that_id() {
+        let mut rows = vec![
+            row("my-multistep", ModelState::RunningNotRegistered, "internal"),
+            row("other", ModelState::RunningNotRegistered, "internal"),
+            row(
+                "chapkit-simple-multistep-model",
+                ModelState::Unmanaged,
+                "http://ee5e63ab53bd:8000",
+            ),
+            // A host that is not a container id is somebody else's service.
+            row(
+                "elsewhere",
+                ModelState::Unmanaged,
+                "http://models.example.org:8000",
+            ),
+        ];
+        let containers = vec![
+            (
+                "my-multistep".to_string(),
+                "ee5e63ab53bd0123456789abcdef".to_string(),
+            ),
+            (
+                "other".to_string(),
+                "aaaaaaaaaaaa0123456789abcdef".to_string(),
+            ),
+        ];
+        link_strays(&mut rows, &containers);
+        assert_eq!(
+            rows[0].registered_as.as_deref(),
+            Some("chapkit-simple-multistep-model")
+        );
+        assert_eq!(rows[1].registered_as, None);
+
+        let said = hints(&rows, false);
+        assert!(
+            said[0].contains("its container registered as `chapkit-simple-multistep-model`"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("`--service-id chapkit-simple-multistep-model`"),
+            "{said:?}"
+        );
+        assert!(!said[0].contains("restart"), "{said:?}");
+        // The one that is simply not registered keeps the restart hint.
+        assert!(said[1].contains("chaps restart --all other"), "{said:?}");
+    }
+
     use super::*;
 
     const URL: &str = "http://localhost:8000";

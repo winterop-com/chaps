@@ -73,6 +73,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         &running,
         token.as_deref(),
     );
+    // Which unmanaged row is one of our own models under another name is the
+    // caller's to settle as well: it takes the container ids.
+    if let Some(containers) = containers.as_deref() {
+        let ids: Vec<(String, String)> = containers
+            .iter()
+            .map(|c| (c.service.clone(), c.id.clone()))
+            .collect();
+        crate::status::link_strays(&mut report.models, &ids);
+    }
     // Which build a moving tag is on is the caller's to fill in too: `dev` is
     // the same name whatever it points at today, and the digest the image was
     // pulled at is the only thing on the line that says which one that is.
@@ -961,6 +970,7 @@ mod tests {
             reach: String::new(),
             host_port: None,
             last_ping: None,
+            registered_as: None,
         });
         let text = human(&report, &Out::default());
         let row = text
