@@ -2179,8 +2179,15 @@ pub fn volume_verdict(
         return (
             Status::Warn,
             format!(
-                "leftover volumes from disabled models or components: {}{held}",
-                leftover.join(", ")
+                "leftover volumes from disabled models or components: {}{}",
+                leftover.join(", "),
+                // The OCS size only when that volume is one of them: after
+                // this list, the size of one still in use reads as another
+                // leftover.
+                match ocs_data {
+                    Some((name, _)) if leftover.iter().any(|l| l == name) => held.as_str(),
+                    _ => "",
+                }
             ),
             Some(LEFTOVER_FIX.to_string()),
         );
@@ -4875,6 +4882,16 @@ mod tests {
             "leftover volumes from disabled models or components: \
              demo-1ab2c3_ck_chapkit_ewars_model_data, demo-1ab2c3_ocs_data"
         );
+        // The OCS size stays off this line even when it was measured.
+        let (_, detail, _) = volume_verdict(
+            prefix,
+            db,
+            &volumes(&[(ewars, CREATED + 60)]),
+            Some(CREATED),
+            &[ewars.to_string()],
+            Some(("demo-1ab2c3_ocs_data", 40 * 1024)),
+        );
+        assert!(!detail.contains("holds"), "{detail}");
         let fix = fix.expect("a leftover volume has something to do about it");
         assert!(fix.contains("chaps models disable <id> --purge"), "{fix}");
         assert!(
