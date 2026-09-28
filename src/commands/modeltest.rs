@@ -337,7 +337,7 @@ fn backtest_level(
     // Before anything is built: a service chap-core has nothing configured
     // for cannot be backtested, and finding that out after a dataset has been
     // imported would be a dataset created and deleted for nothing.
-    let Some(model_id) = configured_model(ctx, api, &enabled.service_id) else {
+    let Some((model_id, covariates)) = configured_model(ctx, api, &enabled.service_id) else {
         return run.end(
             Verdict::Skip,
             format!(
@@ -351,7 +351,13 @@ fn backtest_level(
         );
     };
 
-    let sample = match sample_data(api, &enabled.service_id, &period, args.seed) {
+    let sample = match sample_data(
+        api,
+        &enabled.service_id,
+        &period,
+        covariates.len(),
+        args.seed,
+    ) {
         Ok(Some(sample)) => sample,
         Ok(None) => {
             return run.end(
@@ -377,7 +383,8 @@ fn backtest_level(
         }
     };
 
-    let frame = match sample.get("data") {
+    let mut sample = sample;
+    let frame = match sample.get_mut("data") {
         Some(frame) => frame,
         None => {
             return run.end(
@@ -387,6 +394,12 @@ fn backtest_level(
             );
         }
     };
+    for (from, to) in modeltest::fill_covariates(frame, &covariates) {
+        ctx.out.verbose(&format!(
+            "{}: the sample has no `{to}`, which the configured model asks for; `{from}` stands in",
+            enabled.service_id
+        ));
+    }
     let (observations, locations) = match modeltest::observations(frame) {
         Ok(parts) => parts,
         Err(err) => {
@@ -596,13 +609,18 @@ fn service_info(ctx: &Ctx, api: &Api, service_id: &str) -> Option<serde_json::Va
 /// `<service id>:<config name>` and the bare name is gone, so the old spelling
 /// comes back as `ValueError: Configured model with name ... not found` from
 /// inside the job. The row is therefore chosen here, by
-/// [`modeltest::configured_model_for`], and its id is what goes out.
+/// [`modeltest::configured_model_for`], and its id is what goes out, with the
+/// covariates the backtest will hand the model.
 ///
 /// `None` is a chap-core that listed its configured models and had none for
 /// this service, which is a skip. A chap-core that could not be asked at all
 /// is not: the service id is the spelling that worked before this, and a
 /// listing that failed is no reason to refuse to backtest.
-fn configured_model(ctx: &Ctx, api: &Api, service_id: &str) -> Option<serde_json::Value> {
+fn configured_model(
+    ctx: &Ctx,
+    api: &Api,
+    service_id: &str,
+) -> Option<(serde_json::Value, Vec<String>)> {
     const PATH: &str = "/v1/crud/configured-models";
     let listed = match api.send("GET", PATH, None) {
         Ok(answer) if answer.is_success() => answer.json(),
@@ -624,7 +642,7 @@ fn configured_model(ctx: &Ctx, api: &Api, service_id: &str) -> Option<serde_json
         ctx.out.verbose(&format!(
             "{service_id}: could not read chap-core's configured models, sending the service id"
         ));
-        return Some(serde_json::json!(service_id));
+        return Some((serde_json::json!(service_id), Vec::new()));
     };
     let models = modeltest::configured_models(&listed);
     let chosen = modeltest::configured_model_for(&models, service_id)?;
@@ -632,7 +650,7 @@ fn configured_model(ctx: &Ctx, api: &Api, service_id: &str) -> Option<serde_json
         "{service_id}: configured model {} {}",
         chosen.id, chosen.name
     ));
-    Some(serde_json::json!(chosen.id))
+    Some((serde_json::json!(chosen.id), chosen.covariates.clone()))
 }
 
 /// The period type the generated data has to be in.
@@ -673,10 +691,15 @@ fn reported(info: Option<&serde_json::Value>) -> String {
 ///
 /// `Ok(None)` for a 404, which is how a model built before chapkit
 /// [`modeltest::SAMPLE_DATA_CHAPKIT`] says it has no such route.
+///
+/// `covariates` is how many the configured model asks for: at least that many
+/// `feature_N` columns are generated, so each one the sample lacks has a spare
+/// to be renamed from (see [`modeltest::fill_covariates`]).
 fn sample_data(
     api: &Api,
     service_id: &str,
     period: &str,
+    covariates: usize,
     seed: Option<i64>,
 ) -> Result<Option<serde_json::Value>> {
     // `%24` rather than a bare `$`: the proxy forwards the raw sub-path, and
@@ -689,10 +712,11 @@ fn sample_data(
     // have been perfectly happy with none at all. Real polygons are never
     // worse: a model that ignores geometry ignores these too.
     let mut path = format!(
-        "/v2/services/{}/run/api/v1/ml/%24generate-sample-data?kind=train&num_locations={}&num_periods={}&period_type={period}&include_geo=true",
+        "/v2/services/{}/run/api/v1/ml/%24generate-sample-data?kind=train&num_locations={}&num_periods={}&period_type={period}&include_geo=true&num_features={}",
         crate::api::encode(service_id),
         modeltest::SAMPLE_LOCATIONS,
         modeltest::SAMPLE_PERIODS,
+        covariates.max(modeltest::SAMPLE_FEATURES),
     );
     if let Some(seed) = seed {
         path.push_str(&format!("&seed={seed}"));

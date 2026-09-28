@@ -6931,6 +6931,13 @@ fn configured_models_payload() -> String {
     let rows: Vec<Json> = configured_models()
         .into_iter()
         .map(|(id, name, archived)| {
+            // The passing model's config asks for a covariate the sample
+            // data does not carry, as the simple multistep model's does.
+            let covariates: &[&str] = if id == PASSING_CONFIGURED {
+                &["rainfall", "mean_temperature", "mean_relative_humidity"]
+            } else {
+                &[]
+            };
             serde_json::json!({
                 "id": id,
                 "name": name,
@@ -6938,6 +6945,7 @@ fn configured_models_payload() -> String {
                 "archived": archived,
                 "usesChapkit": true,
                 "sourceDigest": "f9a1c0d",
+                "additionalContinuousCovariates": covariates,
             })
         })
         .collect();
@@ -7055,6 +7063,7 @@ fn sample_payload(with_geo: bool) -> String {
         "population",
         "rainfall",
         "mean_temperature",
+        "feature_0",
     ];
     if with_geo {
         columns.push("relative_humidity");
@@ -7097,6 +7106,15 @@ fn analytics_route(
             let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
             recorded.observations = sent["providedData"].as_array().map(Vec::len).unwrap_or(0);
             let name = sent["name"].as_str().unwrap_or_default().to_string();
+            let mut features: Vec<String> = sent["providedData"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|o| o["featureName"].as_str().map(str::to_string))
+                .collect();
+            features.sort();
+            features.dedup();
+            recorded.features.push(features);
             // chap-core drops every org unit whose feature has no top-level
             // `id`, so a geojson without them imports nothing at all - which
             // is what makes this the check that the CLI sets them.
@@ -7126,6 +7144,7 @@ fn analytics_route(
                 "deleted": recorded.deleted,
                 "observations": recorded.observations,
                 "datasets": recorded.datasets,
+                "features": recorded.features,
                 "sampled": recorded.sampled,
                 "backtests": recorded.backtests,
             })
@@ -7191,6 +7210,8 @@ struct Recorded {
     observations: usize,
     /// The `name` of every dataset that was asked for.
     datasets: Vec<String>,
+    /// The feature names each of those datasets carried, in the same order.
+    features: Vec<Vec<String>>,
     /// The services whose sample data was fetched.
     sampled: Vec<String>,
     /// Every `create-backtest` body, whole.
@@ -7928,11 +7949,31 @@ fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
         2,
         "the skipped model posted nothing: {names:?}"
     );
-    assert!(
-        names
+    let ewars = names
+        .iter()
+        .position(|name| name.starts_with("chaps-test-chapkit-ewars-model-"))
+        .unwrap_or_else(|| panic!("{names:?}"));
+    // The covariate its configured model asks for and the sample lacks took
+    // over the spare `feature_0`; the other model's config asks for none, so
+    // its dataset is the sample as it came.
+    let features = |at: usize| -> Vec<&str> {
+        recorded["features"][at]
+            .as_array()
+            .expect("a list")
             .iter()
-            .any(|name| name.starts_with("chaps-test-chapkit-ewars-model-")),
-        "{names:?}"
+            .map(|name| name.as_str().unwrap_or_default())
+            .collect()
+    };
+    assert!(
+        features(ewars).contains(&"mean_relative_humidity")
+            && !features(ewars).contains(&"feature_0"),
+        "{:?}",
+        features(ewars)
+    );
+    assert!(
+        features(1 - ewars).contains(&"feature_0"),
+        "{:?}",
+        features(1 - ewars)
     );
     // The backtest asked for is the small rolling one, against the dataset
     // the job wrote.
@@ -8003,8 +8044,8 @@ fn models_test_keep_leaves_the_dataset_and_says_so() {
     let recorded = recorded(&sandbox, &dir);
     assert_eq!(recorded["deleted"], Json::Array(Vec::new()));
     // One observation per value, and neither index column became one: three
-    // periods times two locations times four feature columns.
-    assert_eq!(recorded["observations"], Json::from(24));
+    // periods times two locations times five feature columns.
+    assert_eq!(recorded["observations"], Json::from(30));
     assert_eq!(recorded["sampled"], serde_json::json!([PASSING_MODEL]));
 }
 

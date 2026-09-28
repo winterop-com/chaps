@@ -42,6 +42,10 @@ pub const SAMPLE_LOCATIONS: usize = 5;
 /// learn.
 pub const SAMPLE_PERIODS: usize = 36;
 
+/// The fewest `feature_N` columns the generated sample data carries, which is
+/// chapkit's own default.
+pub const SAMPLE_FEATURES: usize = 3;
+
 /// The backtest chaps asks for: three periods ahead, two splits, stride one.
 ///
 /// The smallest backtest that still exercises a rolling split, because this
@@ -549,6 +553,44 @@ pub fn observations(frame: &serde_json::Value) -> Result<(Vec<Observation>, Vec<
     Ok((observations, locations))
 }
 
+/// Give the frame every covariate in `wanted`, renaming chapkit's spare
+/// `feature_N` columns into the ones it lacks, and return the renames.
+///
+/// `$generate-sample-data` generates the service's required covariates and a
+/// fixed pair of climate ones, but not a configuration's
+/// `additional_continuous_covariates`: a model whose configuration defaults to
+/// `mean_relative_humidity` gets a frame without it, and the backtest then
+/// fails inside the model with a `KeyError` that says nothing about the model.
+/// The `feature_N` columns are the same kind of synthetic seasonal series, so
+/// one of them stands in. A covariate with no spare column left stays missing,
+/// and the model says so the way it would with real data.
+pub fn fill_covariates(frame: &mut serde_json::Value, wanted: &[String]) -> Vec<(String, String)> {
+    let Some(columns) = frame.get_mut("columns").and_then(|c| c.as_array_mut()) else {
+        return Vec::new();
+    };
+    let has = |columns: &[serde_json::Value], name: &str| {
+        columns.iter().any(|column| column.as_str() == Some(name))
+    };
+    let mut renamed = Vec::new();
+    for name in wanted {
+        if has(columns, name) {
+            continue;
+        }
+        let spare = columns.iter().position(|column| {
+            column.as_str().is_some_and(|text| {
+                text.strip_prefix("feature_")
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                    && !wanted.iter().any(|want| want == text)
+            })
+        });
+        let Some(at) = spare else { continue };
+        let from = columns[at].as_str().unwrap_or_default().to_string();
+        columns[at] = serde_json::json!(name);
+        renamed.push((from, name.clone()));
+    }
+    renamed
+}
+
 /// The column named `want`, or the error that says the frame is not one.
 fn index_of(columns: &[String], want: &str) -> Result<usize> {
     columns
@@ -649,6 +691,9 @@ pub struct ConfiguredModel {
     /// Whether chap-core has retired it. An archived row still has a name and
     /// is still listed; it is simply not a model anything can be run with.
     pub archived: bool,
+    /// Its `additionalContinuousCovariates`: the columns a backtest of it
+    /// hands the model, which the dataset therefore has to carry.
+    pub covariates: Vec<String>,
 }
 
 /// The configured models of one listing, ignoring anything that is not a row.
@@ -665,6 +710,16 @@ pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
                     .get("archived")
                     .and_then(|value| value.as_bool())
                     .unwrap_or(false),
+                covariates: row
+                    .get("additionalContinuousCovariates")
+                    .and_then(|value| value.as_array())
+                    .map(|names| {
+                        names
+                            .iter()
+                            .filter_map(|name| name.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -1173,6 +1228,7 @@ Result: 1 FAILURE(S)
             id,
             name: name.to_string(),
             archived,
+            covariates: Vec::new(),
         }
     }
 
@@ -1257,7 +1313,8 @@ Result: 1 FAILURE(S)
         let listed = serde_json::json!([
             {"id": 15, "name": "chapkit-ewars-model", "archived": true, "usesChapkit": true,
              "version": "1.0.0", "sourceDigest": "cafe"},
-            {"id": 19, "name": "chapkit-ewars-model:cfg", "archived": false},
+            {"id": 19, "name": "chapkit-ewars-model:cfg", "archived": false,
+             "additionalContinuousCovariates": ["rainfall", 7, "mean_temperature"]},
             // No `archived` at all reads as a live row, and a row without an
             // id or a name is not one.
             {"id": 20, "name": "auto-arima-chapkit"},
@@ -1270,12 +1327,64 @@ Result: 1 FAILURE(S)
         assert!(models[0].archived);
         assert_eq!(models[1].id, 19);
         assert_eq!(models[1].name, "chapkit-ewars-model:cfg");
+        // The covariates are the names in the list, and a row without one has none.
+        assert_eq!(models[1].covariates, vec!["rainfall", "mean_temperature"]);
+        assert!(models[0].covariates.is_empty());
         assert!(!models[2].archived);
         // An answer that is not a list at all is no configured model.
         assert!(configured_models(&serde_json::json!({"detail": "Not Found"})).is_empty());
 
         let chosen = configured_model_for(&models, "chapkit-ewars-model").expect("the config");
         assert_eq!(chosen.id, 19);
+    }
+
+    #[test]
+    fn a_covariate_the_sample_lacks_takes_over_a_spare_feature_column() {
+        let mut frame = serde_json::json!({
+            "columns": ["time_period", "location", "disease_cases", "rainfall",
+                        "feature_0", "feature_1"],
+            "data": [["2020-01", "location_0", 3.0, 1.0, 2.0, 4.0]],
+        });
+        let wanted: Vec<String> = ["rainfall", "mean_relative_humidity", "soil", "wind"]
+            .map(String::from)
+            .to_vec();
+        let renamed = fill_covariates(&mut frame, &wanted);
+
+        // One already there is left alone, the next two take the spares in
+        // order, and one with no spare left stays missing.
+        assert_eq!(
+            renamed,
+            vec![
+                (
+                    "feature_0".to_string(),
+                    "mean_relative_humidity".to_string()
+                ),
+                ("feature_1".to_string(), "soil".to_string()),
+            ]
+        );
+        assert_eq!(
+            frame["columns"],
+            serde_json::json!([
+                "time_period",
+                "location",
+                "disease_cases",
+                "rainfall",
+                "mean_relative_humidity",
+                "soil"
+            ])
+        );
+        // The rows are untouched: a rename, not a new series.
+        assert_eq!(frame["data"][0][4], serde_json::json!(2.0));
+
+        // A configuration that asks for a `feature_N` by name keeps it, and a
+        // frame with nothing to rename is left as it was.
+        let mut frame = serde_json::json!({"columns": ["feature_0", "feature_1"]});
+        let wanted = vec!["feature_0".to_string(), "humidity".to_string()];
+        assert_eq!(
+            fill_covariates(&mut frame, &wanted),
+            vec![("feature_1".to_string(), "humidity".to_string())]
+        );
+        assert!(fill_covariates(&mut serde_json::json!({}), &wanted).is_empty());
     }
 
     #[test]

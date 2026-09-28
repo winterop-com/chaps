@@ -323,6 +323,17 @@ out of the service as `<service>:<config>` - a `test_config_` an earlier test
 left behind coming last of all - with a service chap-core has nothing
 configured for skipped rather than backtested.
 
+That configured model's `additionalContinuousCovariates` are the columns the
+backtest hands the model, and the sample data does not always carry them:
+`$generate-sample-data` makes the service's required covariates and a pair of
+climate ones, but not the ones a configuration adds - the simple multistep
+model's defaults include `mean_relative_humidity`, and without it the backtest
+fails inside the model with `KeyError: "['mean_relative_humidity'] not in
+index"`. So at least as many `feature_N` columns are asked for as the
+configuration names, and each covariate the frame lacks takes over a spare one:
+the same kind of synthetic seasonal series under the name the model reads.
+`-v` says which column stood in for which.
+
 Geometry is asked for whatever the service declares (`include_geo=true`).
 chap-core's dataset always carries a GeoJSON collection, so a model that says
 it needs no geometry would otherwise be handed features with none in them - and
