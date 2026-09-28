@@ -46,6 +46,13 @@ the environment when `.env` sets none - and sent it as `Authorization: Bearer`
 on every request; `auth: off` means the API is open to
 anyone who can reach the port. See [Authentication](./auth.md).
 
+A chap-core that answers `401` to that token is `up, token rejected` rather than
+`down`: it answered, and its log says it started fine. The registry is behind
+the same token, so the model table is left out rather than filled with
+`not registered` rows it could not check, and the error line under it is about
+the token. `status` exits non-zero, and `--json` carries `"state": "rejected"`.
+See [401 from the Modeling App](./troubleshooting.md#401-from-the-modeling-app).
+
 Each enabled [component](./components.md) other than chap-core gets a line of
 its own, directly under it and in the order the compose files are rendered. OCS
 is asked over HTTP at `http://localhost:<port>/health`; the object store

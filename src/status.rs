@@ -148,6 +148,13 @@ pub enum ApiHealth {
     Down {
         error: String,
     },
+    /// chap-core answered and refused the API token: it is up, and nothing it
+    /// guards - the service registry among it - could be read. Kept apart from
+    /// [`ApiHealth::Down`] because the cure is the token, not the container,
+    /// and "down" would send an operator to logs that say it started fine.
+    Rejected {
+        error: String,
+    },
     /// chap-core is not a component of this deployment, so there is no API to
     /// ask about. Not a failure: `chaps components disable chap-core` is how a
     /// deployment becomes, say, OCS on its own.
@@ -391,7 +398,7 @@ pub fn status(
             // A 401 is about the token, not about who answered: saying "not
             // chap-core" here would send an operator hunting for a dev server
             // that is not there.
-            Err(Failure::Unauthorized) => ApiHealth::Down {
+            Err(Failure::Unauthorized) => ApiHealth::Rejected {
                 error: token_rejected(&base, HEALTH_PATH, token.is_some()),
             },
             Err(Failure::Other(error)) => ApiHealth::Down { error },
@@ -411,21 +418,25 @@ pub fn status(
                     registered = services;
                     None
                 }
-                Err(_) => Some(services_are_not_chap_core(
-                    &base,
-                    &body_description(&answer.content_type, &answer.body),
-                )),
+                Err(_) => Some(ApiHealth::Down {
+                    error: services_are_not_chap_core(
+                        &base,
+                        &body_description(&answer.content_type, &answer.body),
+                    ),
+                }),
             },
             // The registry is not an open path, so a 401 here is the one place
             // a wrong token usually shows up: `/health` answered happily a
-            // moment ago.
-            Err(Failure::Unauthorized) => {
-                Some(token_rejected(&base, SERVICES_PATH, token.is_some()))
-            }
-            Err(Failure::Other(error)) => Some(services_are_not_chap_core(&base, &error)),
+            // moment ago, so this is chap-core, up, refusing the token.
+            Err(Failure::Unauthorized) => Some(ApiHealth::Rejected {
+                error: token_rejected(&base, SERVICES_PATH, token.is_some()),
+            }),
+            Err(Failure::Other(error)) => Some(ApiHealth::Down {
+                error: services_are_not_chap_core(&base, &error),
+            }),
         };
-        if let Some(error) = wrong {
-            api = ApiHealth::Down { error };
+        if let Some(wrong) = wrong {
+            api = wrong;
         }
     }
 
@@ -775,7 +786,7 @@ pub fn exit_failure(report: &StatusReport) -> bool {
         .iter()
         .any(|component| component.state.is_problem());
     match report.api {
-        ApiHealth::Down { .. } => true,
+        ApiHealth::Down { .. } | ApiHealth::Rejected { .. } => true,
         ApiHealth::Up { .. } => !report.missing.is_empty() || components_failing,
         // chap-core is not part of this deployment, so its API not answering is
         // the expected state rather than a failure.

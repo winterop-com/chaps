@@ -150,11 +150,14 @@ run and `chaps up` was not, so chap-core is still running without the token
 while `.env` already has one. `chaps status` tells the two apart:
 
 ```text
-error: chap-core at http://localhost:8000 is not responding: port 8000 answers
-/v2/services with HTTP 401: the API token in .env is not accepted
+chap-core   up, token rejected   http://localhost:8000   v2.3.1 (pinned)   auth: on
+error: chap-core at http://localhost:8000 is up and did not accept the API token:
+port 8000 answers /v2/services with HTTP 401: the API token in .env is not accepted
 ```
 
-means the running chap-core has a different token, and
+means the running chap-core has a different token - it is up, which is why no
+container log is printed under it and no model table: the registry is behind
+the same token, so whether a model registered cannot be read - and
 
 ```text
 chap-core   up   http://localhost:8000   v2.3.1   auth: on

@@ -3226,6 +3226,58 @@ fn status_does_not_call_something_that_is_not_chap_core_up() {
     assert_eq!(report["version"]["pinned"], true);
 }
 
+/// A chap-core that answers 401 is up and refusing the token, not down: the
+/// row says so, the registry it could not read is not guessed at, and the one
+/// error line is about the token rather than the container.
+#[test]
+fn status_calls_a_refused_token_a_refused_token_and_not_down() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = free_port();
+    sandbox
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--api-port",
+            &port.to_string(),
+        ])
+        .assert()
+        .success();
+    protected_chap_core_server(port);
+    let url = format!("http://127.0.0.1:{port}");
+
+    let out = chap_in(&sandbox, &dir, &["status", "--url", &url])
+        .env_remove("CHAP_API_TOKEN")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains(&format!("chap-core   up, token rejected   {url}")),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("down"), "{stdout}");
+    // No model table: every row would claim a registration it could not see.
+    assert!(!stdout.contains("not registered"), "{stdout}");
+    assert!(
+        stderr.contains("is up and did not accept the API token"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("not responding"), "{stderr}");
+
+    let out = chap_in(&sandbox, &dir, &["--json", "status", "--url", &url])
+        .env_remove("CHAP_API_TOKEN")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    assert_eq!(report["api"]["state"], "rejected");
+}
+
 #[test]
 fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
     if !docker_ready() {

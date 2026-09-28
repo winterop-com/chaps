@@ -97,7 +97,8 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     // When the API does not answer, its container usually knows why and has
     // been saying so in its log. Only asked for when the API is down: a
     // healthy deployment has nothing to diagnose.
-    if !matches!(report.api, ApiHealth::Up { .. })
+    // A refused token is not a container fault: it answered.
+    if matches!(report.api, ApiHealth::Down { .. })
         && let Some(containers) = containers.as_deref()
     {
         report.unhealthy = crate::diagnose::failing_containers(
@@ -126,6 +127,11 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // document on stdout would break single-document parsers.
         ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
         ApiHealth::Down { error } => Err(anyhow::anyhow!(down_message(&report, error))),
+        ApiHealth::Rejected { .. } if ctx.out.json => std::process::exit(1),
+        ApiHealth::Rejected { error } => Err(anyhow::anyhow!(
+            "chap-core at {} is up and did not accept the API token: {error}",
+            report.api_url
+        )),
         // Everything else is the one rule, and it is silent: the model table
         // said which models are missing and the component lines said which
         // component is not up, so an error line would be the third telling.
@@ -201,7 +207,6 @@ fn not_running(report: &StatusReport, out: &Out) -> String {
 /// is to say. The component set is recorded in `.chaps/components.yaml`, so
 /// these rows exist whether anything is running or not.
 fn service_lines(report: &StatusReport, out: &Out) -> String {
-    let up = matches!(report.api, ApiHealth::Up { .. });
     let chap_core = !matches!(report.api, ApiHealth::Off);
     let mut text = String::new();
     // The name column is padded to the widest of the lines that are actually
@@ -223,7 +228,7 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
             "{}{}   {}   {}",
             out.heading(CHAP_CORE_LABEL),
             pad(CHAP_CORE_LABEL),
-            api_cell(out, up, report.api_container_unhealthy()),
+            api_cell(out, &report.api, report.api_container_unhealthy()),
             out.value(&report.api_url)
         ));
         let version = report.version.label();
@@ -289,7 +294,9 @@ fn human(report: &StatusReport, out: &Out) -> String {
     let up = matches!(report.api, ApiHealth::Up { .. });
     let mut text = service_lines(report, out);
 
-    if !report.models.is_empty() {
+    // A refused token hides the registry, so every row would be a guess.
+    let registry_unread = matches!(report.api, ApiHealth::Rejected { .. });
+    if !report.models.is_empty() && !registry_unread {
         let rows: Vec<Vec<String>> = report
             .models
             .iter()
@@ -378,11 +385,12 @@ fn connect_hint(report: &crate::status::StatusReport) -> Option<String> {
 /// A container that is up and failing its healthcheck is a different answer
 /// from a port nobody is listening on, and it is the one that says where to
 /// look: the container is there, and it is the container that is wrong.
-fn api_cell(out: &Out, up: bool, unhealthy: bool) -> String {
-    match (up, unhealthy) {
-        (true, _) => out.ok("up"),
-        (false, true) => out.bad("down (container unhealthy)"),
-        (false, false) => out.bad("down"),
+fn api_cell(out: &Out, api: &ApiHealth, unhealthy: bool) -> String {
+    match (api, unhealthy) {
+        (ApiHealth::Up { .. }, _) => out.ok("up"),
+        (ApiHealth::Rejected { .. }, _) => out.bad("up, token rejected"),
+        (_, true) => out.bad("down (container unhealthy)"),
+        (_, false) => out.bad("down"),
     }
 }
 

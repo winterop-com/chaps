@@ -2911,6 +2911,18 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                     }),
             ),
         ),
+        ApiHealth::Rejected { .. } => (
+            Status::Fail,
+            format!(
+                "chap-core at {} is up and did not accept the API token",
+                report.api_url
+            ),
+            Some(
+                "`chaps auth show --reveal` prints the token in .env; after `chaps auth \
+                 rotate` or `enable`, `chaps up` hands it to chap-core"
+                    .to_string(),
+            ),
+        ),
         ApiHealth::Up { .. } if report.missing.is_empty() => (
             Status::Ok,
             format!(
@@ -2959,7 +2971,7 @@ fn stack_check(
     let mut report = crate::status::status(project, &url, STACK_TIMEOUT, running, token.as_deref());
     // The same diagnosis `chaps status` makes: when the API does not answer,
     // its container has been saying why in its own log.
-    if !matches!(report.api, ApiHealth::Up { .. })
+    if matches!(report.api, ApiHealth::Down { .. })
         && let Some(containers) = containers
     {
         report.unhealthy =
