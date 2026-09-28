@@ -683,7 +683,7 @@ mod tests {
         let err = apply(&mut project, &registry, &out_of_range).expect_err("out of range");
         assert!(matches!(
             err.downcast_ref::<ChapError>(),
-            Some(ChapError::PortOutOfRange(80))
+            Some(ChapError::PortOutOfRange { port: 80, .. })
         ));
     }
 

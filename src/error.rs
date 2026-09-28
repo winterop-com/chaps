@@ -41,8 +41,11 @@ pub enum ChapError {
     #[error("host port {port} is already in use by {holder}")]
     PortInUse { port: u16, holder: PortHolder },
 
-    #[error("host port {0} is outside the allowed range")]
-    PortOutOfRange(u16),
+    #[error(
+        "host port {port} is outside this deployment's model port range {lo}-{hi}; \
+         pick one inside it or `--port auto`, or widen `port_range` in `.chaps/project.yaml`"
+    )]
+    PortOutOfRange { port: u16, lo: u16, hi: u16 },
 
     #[error("model registry unavailable: {0}")]
     RegistryUnavailable(String),

@@ -96,7 +96,12 @@ impl PortAllocator {
     /// says which, because the two are fixed in different places.
     pub fn claim(&mut self, p: u16, busy: &dyn Fn(u16) -> bool) -> Result<()> {
         if p < self.lo || p > self.hi {
-            return Err(ChapError::PortOutOfRange(p).into());
+            return Err(ChapError::PortOutOfRange {
+                port: p,
+                lo: self.lo,
+                hi: self.hi,
+            }
+            .into());
         }
         if self.used.contains(&p) {
             return Err(ChapError::PortInUse {
@@ -340,8 +345,16 @@ mod tests {
         for out in [80, 5000, 6000] {
             let err = alloc.claim(out, &all_free).expect_err("outside the range");
             assert!(
-                matches!(err.downcast_ref::<ChapError>(), Some(ChapError::PortOutOfRange(p)) if *p == out),
+                matches!(err.downcast_ref::<ChapError>(), Some(ChapError::PortOutOfRange { port, .. }) if *port == out),
                 "port {out}"
+            );
+            // The message names the range and every way out of it.
+            let text = err.to_string();
+            assert!(text.contains("range 5001-5999"), "{text}");
+            assert!(text.contains("`--port auto`"), "{text}");
+            assert!(
+                text.contains("`port_range` in `.chaps/project.yaml`"),
+                "{text}"
             );
         }
     }
