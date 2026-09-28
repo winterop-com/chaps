@@ -550,8 +550,13 @@ fn seed_mount_line(seed: &Dhis2SeedSource) -> String {
     match seed {
         Dhis2SeedSource::Url(_) => String::new(),
         Dhis2SeedSource::File(path) => {
-            let absolute = std::path::Path::new(path).is_absolute();
             let path = path.replace('\\', "/");
+            // Judged on the string, not by the host: the compose file reads the
+            // same wherever it was rendered, and `Path::is_absolute` on Windows
+            // calls `/srv/dump.sql.gz` relative and would make it `.//srv/...`.
+            let drive = path.as_bytes();
+            let absolute = path.starts_with('/')
+                || (drive.len() > 2 && drive[0].is_ascii_alphabetic() && &drive[1..3] == b":/");
             let source = if absolute || path.starts_with('.') {
                 path
             } else {
@@ -2070,6 +2075,18 @@ mod tests {
                 "      - /srv/dumps/laos.sql.gz:{DHIS2_SEED_MOUNT}:ro\n"
             )),
             "{absolute}"
+        );
+        // A Windows path with a drive is absolute too, on any host, and comes
+        // out with the forward slashes compose reads on every platform.
+        let drive = render_dhis2(&Dhis2Spec {
+            seed: Some(Dhis2SeedSource::File(r"C:\dumps\laos.sql.gz".to_string())),
+            ..dhis2_spec()
+        });
+        assert!(
+            drive.contains(&format!(
+                "      - C:/dumps/laos.sql.gz:{DHIS2_SEED_MOUNT}:ro\n"
+            )),
+            "{drive}"
         );
         let url = render_dhis2(&dhis2_spec());
         assert!(!url.contains(DHIS2_SEED_MOUNT), "{url}");
