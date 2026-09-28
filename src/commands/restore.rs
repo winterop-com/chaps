@@ -63,7 +63,9 @@ pub struct RestoreReport {
     pub database_warnings: Vec<String>,
     /// Model service ids whose data volume was refilled.
     pub models: Vec<String>,
-    /// Component names whose data volume was refilled.
+    /// The service of each component volume that was refilled, as the plan
+    /// names it: `dhis2` and `dhis2-db` for DHIS2's two, where the component
+    /// name alone would say `dhis2` twice.
     pub components: Vec<String>,
     /// Services that were stopped first.
     pub stopped: Vec<String>,
@@ -678,7 +680,7 @@ fn restore_components(
                 backup::first_line(&piped.stderr)
             ));
         }
-        report.components.push(part.name.clone());
+        report.components.push(part.service.clone());
     }
     Ok(())
 }
