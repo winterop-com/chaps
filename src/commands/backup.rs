@@ -673,6 +673,13 @@ fn human(report: &BackupReport, out: &Out) -> String {
             text.push_str(&format!("  {name}  {}\n", out.warn(why)));
         }
     }
+    // What to do with it: the one command that reads it back. The path is
+    // the one the reader just saw, and a restore prints what it would
+    // overwrite and asks before it does anything.
+    text.push_str(&format!(
+        "\nrestore it with {}\n",
+        out.cmd(&format!("`chaps backup restore {}`", report.path.display()))
+    ));
     text
 }
 
@@ -770,6 +777,10 @@ mod tests {
         );
         assert!(text.contains("parts     ocs  /app/data  (4.0 KB)"));
         assert!(!text.contains("skipped"));
+        // And it ends on the command that reads the archive back.
+        assert!(text.ends_with(
+            "\nrestore it with `chaps backup restore /backups/chaps-backup-e2e-20260923-071000.tar.gz`\n"
+        ));
     }
 
     #[test]
