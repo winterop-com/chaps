@@ -181,7 +181,7 @@ pub fn header(count: usize, level: Level) -> String {
     let what = format!("testing {count} {}", plural(count, "model"));
     match level {
         Level::Model => {
-            format!("{what} (model level; add --backtest to run them through chap-core)")
+            format!("{what} (model level; add --backtest to go through chap-core)")
         }
         Level::Backtest => {
             format!("{what} (through chap-core: a dataset, a backtest and its scores)")
@@ -237,9 +237,10 @@ pub fn closing(runs: &[Run]) -> String {
     );
     let mut line = if skipped == 0 {
         format!(
-            "{passed} of {} {} pass",
+            "{passed} of {} {} {}",
             runs.len(),
-            plural(runs.len(), "model")
+            plural(runs.len(), "model"),
+            if passed == 1 { "passes" } else { "pass" }
         )
     } else {
         let mut parts = vec![format!("{passed} pass")];
@@ -1089,7 +1090,7 @@ Result: 1 FAILURE(S)
     fn the_header_says_which_level_is_being_run() {
         assert_eq!(
             header(5, Level::Model),
-            "testing 5 models (model level; add --backtest to run them through chap-core)"
+            "testing 5 models (model level; add --backtest to go through chap-core)"
         );
         assert!(header(1, Level::Model).starts_with("testing 1 model ("));
         assert_eq!(
@@ -1159,6 +1160,9 @@ Result: 1 FAILURE(S)
         assert_eq!(closing(&only_skip), "0 pass, 1 skipped");
         assert!(!any_failed(&only_skip));
         assert_eq!(closing(&[]), "0 of 0 models pass");
+        // The verb agrees with how many passed, not with how many there were.
+        let one = run("ewars", "chapkit-ewars-model", Verdict::Pass, 1, "");
+        assert_eq!(closing(std::slice::from_ref(&one)), "1 of 1 model passes");
     }
 
     #[test]

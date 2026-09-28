@@ -684,7 +684,7 @@ mod tests {
              MODEL                STATE       REACH      LAST PING\n\
              chapkit-ewars-model  registered  port 5001  12s ago\n\
              \n\
-             all 1 model registered\n\
+             1 model registered\n\
              \u{20}\u{20}run `chaps models test --all` to check they can run\n"
         );
     }

@@ -273,7 +273,7 @@ generates data matching the covariates, period type and geometry the service
 declares, and then validates, trains and predicts against it.
 
 ```text
-testing 5 models (model level; add --backtest to run them through chap-core)
+testing 5 models (model level; add --backtest to go through chap-core)
 auto-arima-chapkit                  pass   12s   1 training, 1 prediction
 chapkit-ewars-model                 pass   18s   1 training, 1 prediction
 chapkit-ghr-model                   pass   24s   1 training, 1 prediction

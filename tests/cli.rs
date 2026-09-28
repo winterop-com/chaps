@@ -8029,7 +8029,7 @@ fn models_test_keep_leaves_the_dataset_and_says_so() {
     .clone();
     let text = String::from_utf8(out.stdout).expect("text");
     let notes = String::from_utf8(out.stderr).expect("text");
-    assert!(text.contains("1 of 1 model pass"), "{text}");
+    assert!(text.contains("1 of 1 model passes"), "{text}");
     // A single row is not padded past its own name.
     assert!(text.contains("chapkit-ewars-model    pass"), "{text}");
     assert!(

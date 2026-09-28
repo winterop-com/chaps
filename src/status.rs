@@ -799,7 +799,9 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
     let problems = mine.iter().filter(|r| r.state.is_problem()).count();
     let noun = if total == 1 { "model" } else { "models" };
     if problems == 0 {
-        return format!("all {total} {noun} registered");
+        // "all" is for more than one; a lone model is simply registered.
+        let all = if total == 1 { "" } else { "all " };
+        return format!("{all}{total} {noun} registered");
     }
     let verb = if problems == 1 { "is" } else { "are" };
     format!("{problems} of {total} {noun} {verb} not registered.")
@@ -1835,7 +1837,7 @@ mod tests {
             &BTreeSet::new(),
             NOW,
         );
-        assert_eq!(closing_line(&one), "all 1 model registered");
+        assert_eq!(closing_line(&one), "1 model registered");
         assert_eq!(
             closing_line(&[]),
             "no models enabled; run `chaps models enable ID` to add one"
