@@ -8697,7 +8697,7 @@ fn update_lists_the_dhis2_image_and_warns_about_the_migration() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "dhis2  2.42  moving tag, re-pulled",
+            "dhis2  2.42  moving tag, would be re-pulled",
         ))
         // No pin moves: the component follows a moving tag, so the plan says
         // nothing would change and the warning beside it is the whole point.
@@ -8719,7 +8719,7 @@ fn update_lists_the_dhis2_image_and_warns_about_the_migration() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "dhis2  2.41  pinned in .env, re-pulled at that tag",
+            "dhis2  2.41  pinned in .env, would be re-pulled at that tag",
         ));
 }
 

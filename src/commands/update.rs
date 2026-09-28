@@ -1113,11 +1113,28 @@ fn plan_text(report: &UpdateReport, out: &Out) -> String {
             text.push_str(&format!("    {}\n", out.dim(&user)));
         }
     }
-    text.push_str(&format!("  {}\n", chap_core_cell(out, &report.chap_core)));
+    let tense = |line: String| would(line, report.dry_run);
+    text.push_str(&format!(
+        "  {}\n",
+        tense(chap_core_cell(out, &report.chap_core))
+    ));
     for component in &report.components {
-        text.push_str(&format!("  {}\n", out.dim(&component_line(component))));
+        text.push_str(&format!(
+            "  {}\n",
+            out.dim(&tense(component_line(component)))
+        ));
     }
     text
+}
+
+/// A plan line in the tense of the run: a dry run pulls nothing, so a moving
+/// tag there *would be* re-pulled rather than being said to have been.
+fn would(line: String, dry_run: bool) -> String {
+    if dry_run {
+        line.replace("re-pulled", "would be re-pulled")
+    } else {
+        line
+    }
 }
 
 /// What a row says about the account the model runs as, when the new tag
@@ -1643,7 +1660,8 @@ mod tests {
         assert!(text.contains("  a  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
         assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
         assert!(text.contains(
-            "  chap-core  latest  moving tag, re-pulled; pin it with `chaps update --pin-chap-core`\n"
+            "  chap-core  latest  moving tag, would be re-pulled; pin it with \
+             `chaps update --pin-chap-core`\n"
         ));
         // The plan is the plan: nothing in it claims anything has happened.
         assert!(!text.contains("restart"), "{text}");
@@ -2412,6 +2430,16 @@ mod tests {
             closing_line(Some("1 model pin"), &[], None),
             "updated 1 model pin; run `chaps restart` to apply it to whatever is running"
         );
+    }
+
+    #[test]
+    fn a_dry_run_does_not_say_a_moving_tag_was_pulled() {
+        let line = "ocs  main  moving tag, re-pulled".to_string();
+        assert_eq!(
+            would(line.clone(), true),
+            "ocs  main  moving tag, would be re-pulled"
+        );
+        assert_eq!(would(line.clone(), false), line);
     }
 
     #[test]
