@@ -545,7 +545,7 @@ fn set_port(components: &mut Components, component: Component, port: Option<u16>
         Component::ChapCore => {
             return Err(anyhow::anyhow!(
                 "chap-core's host port is the API port; set it with \
-                 `chaps init --api-port {} --force` or CHAP_API_PORT in .env",
+                 CHAP_API_PORT={} in `.env`",
                 port.map(|p| p.to_string())
                     .unwrap_or_else(|| "PORT".to_string())
             ));
@@ -784,7 +784,7 @@ mod tests {
 
         let err = set_port(&mut components, Component::ChapCore, Some(8123))
             .expect_err("chap-core's port is the API port");
-        assert!(err.to_string().contains("--api-port 8123"), "{err}");
+        assert!(err.to_string().contains("CHAP_API_PORT=8123"), "{err}");
     }
 
     /// `--base-url` has to be a URL OCS can append a path to, and clearing it

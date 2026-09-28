@@ -1682,7 +1682,6 @@ fn init_warns_when_something_is_already_listening_on_the_api_port() {
         .stderr(predicates::str::contains(format!(
             "port {port} is already in use on this machine (needed by chap)"
         )))
-        .stderr(predicates::str::contains("--api-port"))
         .stderr(predicates::str::contains("set CHAP_API_PORT="));
 
     // The directory is written all the same, at the port that was asked for.
@@ -1751,8 +1750,7 @@ fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
         .success()
         .stderr(predicates::str::contains(format!(
             "port 18400 is also used by a ({first}), which is not running; both cannot be up at \
-             once. Keep it, or run `chaps init --api-port 18401 --force` here / set \
-             CHAP_API_PORT=18401 in .env"
+             once. Keep it, or set CHAP_API_PORT=18401 in `.env`"
         )));
 
     // Written all the same, at the port that was asked for.
@@ -2196,19 +2194,30 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
             "already contains a chaps project; use --force to overwrite",
         ));
 
-    // `chaps init --api-port N --force` is the documented way to move the
-    // API port of a deployment that already exists.
+    // `chaps init --api-port N --force` rewrites the project, but the
+    // `CHAP_API_PORT` line the first init wrote into `.env` is what compose
+    // publishes, and `init` says so rather than claiming the port moved.
     let port = port_base();
     let mut force = sandbox.chap();
     force
         .current_dir(&dir)
         .args(["init", "--force", "--models", "none", "--api-port"])
         .arg(port.to_string());
-    force.assert().success();
+    force
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "so the API stays on 8000 rather than {port}; edit that line to move it"
+        )));
     assert!(
         read(&dir.join(".chaps/project.yaml")).contains(&format!("api_port: {port}")),
         "--force rewrote the project"
     );
+    // And the listing follows `.env`, like every other command does.
+    chap_in(&sandbox, &dir, &["components", "list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("http://localhost:8000"));
 
     // And a nested deployment in a subdirectory still works, warning about
     // the one it is inside.

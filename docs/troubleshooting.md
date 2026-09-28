@@ -19,8 +19,8 @@ project paths.
 
 ```text
 2 host ports CHAP needs are already in use; nothing was started
-  port 8000 is already in use on this machine (needed by chap); free it, or run
-  `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
+  port 8000 is already in use on this machine (needed by chap); free it, or set
+  CHAP_API_PORT=8001 in `.env`
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`

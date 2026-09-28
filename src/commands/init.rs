@@ -1883,7 +1883,7 @@ mod tests {
         assert_eq!(warned.busy.len(), 1);
         assert_eq!(warned.lines.len(), 1);
         assert!(
-            warned.lines[0].contains("--api-port 8002"),
+            warned.lines[0].contains("CHAP_API_PORT=8002"),
             "{:?}",
             warned.lines
         );
@@ -1891,7 +1891,7 @@ mod tests {
         let warned = warn_about_ports(&Components::default(), 8000, &|_| true, &[]);
         assert_eq!(warned.busy.len(), 1);
         assert!(
-            warned.lines[0].contains("--api-port <free>"),
+            warned.lines[0].contains("CHAP_API_PORT=<free>"),
             "{:?}",
             warned.lines
         );

@@ -747,8 +747,7 @@ means "the lowest free port in this project's model range", and a component
 publishes a well-known port of its own that is not in that range, so the prompt
 says what to type rather than picking a number nobody asked for. `p` on
 `chap-core` is refused outright, because its host port is the API port, which
-lives in `.chaps/project.yaml`: the footer names
-`chaps init --api-port PORT --force` and `CHAP_API_PORT` in `.env` instead. `p`
+`CHAP_API_PORT` in `.env` sets: the footer names that line instead. `p`
 on a component that is off asks you to enable it first.
 
 `o` opens the row's web interface in a browser - chap-core's API documentation,

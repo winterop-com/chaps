@@ -183,10 +183,11 @@ fn ways_out(claim: &PortClaim, suggestion: Option<u16>) -> String {
             Some(port) => port.to_string(),
             None => "<free>".to_string(),
         };
-        return format!(
-            "run `chaps init --api-port {free} --force` here / \
-             set {API_PORT_ENV_VAR}={free} in .env"
-        );
+        // `.env` and nothing else: `init` writes an active `CHAP_API_PORT`
+        // line even at the default, and compose reads it last, so an
+        // `init --api-port N --force` would move `.chaps/` and leave the
+        // published port where it was.
+        return format!("set {API_PORT_ENV_VAR}={free} in `.env`");
     }
     // A component publishes its port from `.chaps/components.yaml`, so the
     // way to move it is the command that wrote it there. The port is left as
@@ -886,14 +887,15 @@ mod tests {
         };
         let line = busy_line(&claim, Some(8010));
         assert!(line.starts_with(
-            "port 8000 is already in use on this machine (needed by chap); free it, or run"
+            "port 8000 is already in use on this machine (needed by chap); free it, or set"
         ));
-        assert!(line.contains("`chaps init --api-port 8010 --force`"));
-        assert!(line.contains("set CHAP_API_PORT=8010 in .env"));
+        // Never `init --api-port --force`, which cannot move a port `.env` sets.
+        assert!(!line.contains("--api-port"), "{line}");
+        assert!(line.contains("set CHAP_API_PORT=8010 in `.env`"));
 
         // Without a suggestion the placeholder stays: naming a port we have
         // not probed would be a guess.
-        assert!(busy_line(&claim, None).contains("--api-port <free>"));
+        assert!(busy_line(&claim, None).contains("CHAP_API_PORT=<free>"));
     }
 
     #[test]
@@ -1112,13 +1114,10 @@ mod tests {
         assert_eq!(
             line,
             "port 8000 is also used by hello1 (/Users/x/t/hello1), which is not running; \
-             both cannot be up at once. Keep it, or run `chaps init --api-port 8001 --force` \
-             here / set CHAP_API_PORT=8001 in .env"
+             both cannot be up at once. Keep it, or set CHAP_API_PORT=8001 in `.env`"
         );
         // The same ways out as the live-listener line, so the two read alike.
-        assert!(busy_line(&claim, Some(8001)).ends_with(
-            "run `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env"
-        ));
+        assert!(busy_line(&claim, Some(8001)).ends_with("set CHAP_API_PORT=8001 in `.env`"));
     }
 
     #[test]

@@ -54,8 +54,8 @@ pub const OPEN_NEEDS_COMPONENT: &str = "enable the component first (space), then
 ///
 /// chap-core's host port is the API port, which lives in `project.yaml` rather
 /// than in the component block, so this page is not where it is edited.
-pub const CORE_PORT_IS_API_PORT: &str = "chap-core's host port is the API port; run `chaps init --api-port PORT --force`, \
-     or set CHAP_API_PORT in .env";
+pub const CORE_PORT_IS_API_PORT: &str =
+    "chap-core's host port is the API port; set CHAP_API_PORT in `.env`";
 
 /// Why the component port prompt refuses `auto`.
 pub const COMPONENT_HAS_NO_AUTO_PORT: &str =

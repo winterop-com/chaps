@@ -51,8 +51,7 @@ prompt: a number, or an empty line or `none`, and **not** `auto`. `auto` means
 the lowest free port in the model range, and a component publishes a well-known
 port of its own outside it, so there is nothing for `auto` to pick from. `p` on
 `chap-core` is refused rather than prompted - its host port is the API port,
-which lives in `.chaps/project.yaml` - and the footer names
-`chaps init --api-port PORT --force` and `CHAP_API_PORT` in `.env` instead. See
+which `CHAP_API_PORT` in `.env` sets - and the footer names that line instead. See
 [The components page](./models.md#the-components-page).
 
 Model ports come from the range 5001 to 5999, with 5001 the default lowest
@@ -167,6 +166,11 @@ and then warns that the older `CHAP_API_PORT=` line is still what CHAP
 will use. Edit that line, or pass `--fresh-env` (which rotates the database
 password too; see the [`.env` contract](./concepts.md#the-env-contract)).
 
+That is why every message about a busy API port - from `init`, `up`'s
+preflight and `doctor` - names that `.env` line and not `init --force`: the
+line is there from the first `init` on, so it is the one edit that moves the
+port.
+
 `CHAP_API_PORT` is written as an active line even at 8000, so the one published
 port is discoverable by reading `.env`.
 
@@ -177,8 +181,8 @@ before it calls Docker, and refuses with one line per conflict:
 
 ```text
 2 host ports CHAP needs are already in use; nothing was started
-  port 8000 is already in use on this machine (needed by chap); free it, or run
-  `chaps init --api-port 8001 --force` here / set CHAP_API_PORT=8001 in .env
+  port 8000 is already in use on this machine (needed by chap); free it, or set
+  CHAP_API_PORT=8001 in `.env`
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
