@@ -129,7 +129,8 @@ pub(crate) fn disable_enabled(
             purged.extend(removed);
             notes.push(line);
         }
-        (Some(name), false) => {
+        // A model that was never started has no volume to have kept.
+        (Some(name), false) if crate::docker::volume_exists(name) => {
             notes.push(super::docker::kept_volume_line(
                 name,
                 &format!("chaps models disable {id}"),
@@ -137,7 +138,7 @@ pub(crate) fn disable_enabled(
             kept_volumes.push(name.clone());
         }
         (None, true) => notes.push(super::docker::UNNAMEABLE_VOLUME.to_string()),
-        (None, false) => {}
+        (_, false) => {}
     }
 
     let report = DisableReport {

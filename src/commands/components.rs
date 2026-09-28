@@ -283,8 +283,9 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
             stopped.push(line);
         }
     } else {
-        stopped.extend(kept_volume_notes(&project, component));
-        kept_volumes.extend(component_volumes(&project, component));
+        let exists = crate::docker::volume_exists;
+        stopped.extend(kept_volume_notes(&project, component, &exists));
+        kept_volumes.extend(kept_volumes_of(&project, component, &exists));
     }
 
     project.state.components = after.clone();
@@ -388,7 +389,12 @@ pub fn stop_disabled_components(
 ) -> Vec<String> {
     let going = disabled_between(before, after);
     let mut notes = stop_components(project, &going);
-    notes.extend(going.iter().flat_map(|c| kept_volume_notes(project, *c)));
+    let exists = crate::docker::volume_exists;
+    notes.extend(
+        going
+            .iter()
+            .flat_map(|c| kept_volume_notes(project, *c, &exists)),
+    );
     notes
 }
 
@@ -424,8 +430,15 @@ fn component_volumes(project: &Project, component: Component) -> Vec<String> {
 /// The lines a disable closes with for the data volumes it left in place: one
 /// per volume, because each carries the `docker volume rm` for its own name and
 /// an operator removing them by hand needs every one of them.
-fn kept_volume_notes(project: &Project, component: Component) -> Vec<String> {
-    component_volumes(project, component)
+///
+/// Only the ones `exists` confirms: a component that was never started has no
+/// volume, and saying one was kept would send the reader to remove nothing.
+fn kept_volume_notes(
+    project: &Project,
+    component: Component,
+    exists: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    kept_volumes_of(project, component, exists)
         .iter()
         .map(|name| {
             super::docker::kept_volume_line(
@@ -433,6 +446,19 @@ fn kept_volume_notes(project: &Project, component: Component) -> Vec<String> {
                 &format!("chaps components disable {}", component.name()),
             )
         })
+        .collect()
+}
+
+/// [`component_volumes`] cut to the ones that exist, which are the only ones a
+/// disable can be said to have kept.
+fn kept_volumes_of(
+    project: &Project,
+    component: Component,
+    exists: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    component_volumes(project, component)
+        .into_iter()
+        .filter(|name| exists(name))
         .collect()
 }
 
@@ -911,7 +937,8 @@ mod tests {
         };
         // One volume, one line: every name an operator would have to type is
         // on a line of its own, and a component with one keeps the line it had.
-        let notes = kept_volume_notes(&project, Component::Ocs);
+        let all = |_: &str| true;
+        let notes = kept_volume_notes(&project, Component::Ocs, &all);
         assert_eq!(notes.len(), 1, "ocs keeps one volume");
         let line = &notes[0];
         assert!(line.starts_with("kept volume hello1-abc123_"), "{line}");
@@ -929,7 +956,7 @@ mod tests {
         // with its own `docker volume rm`: an operator removing them by hand
         // needs every name, and the download cache is one of them because the
         // compose file declares it.
-        let notes = kept_volume_notes(&project, Component::Dhis2);
+        let notes = kept_volume_notes(&project, Component::Dhis2, &all);
         assert_eq!(notes.len(), 3, "{notes:?}");
         assert_eq!(
             component_volumes(&project, Component::Dhis2),
@@ -949,7 +976,15 @@ mod tests {
 
         // chap-core's volumes are upstream's own, so there is nothing here to
         // name; `chaps down --volumes` is what removes them.
-        assert!(kept_volume_notes(&project, Component::ChapCore).is_empty());
+        assert!(kept_volume_notes(&project, Component::ChapCore, &all).is_empty());
+
+        // A volume docker does not have was never created, so it was not kept
+        // and is not named; only the one that exists is.
+        let only_db = |name: &str| name.ends_with("_dhis2_db");
+        let notes = kept_volume_notes(&project, Component::Dhis2, &only_db);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("kept volume hello1-abc123_dhis2_db;"));
+        assert!(kept_volume_notes(&project, Component::Ocs, &|_| false).is_empty());
         assert!(component_volumes(&project, Component::ChapCore).is_empty());
     }
 

@@ -156,7 +156,9 @@ component is not limited to one volume, so every one it declares is named on a
 line of its own - `dhis2_dump` included, which is a download cache rather than
 data but is still a name someone would otherwise have to find by hand. Naming
 them is the whole point: the compose file that declared the volume has just been
-removed, so `chaps down --volumes` no longer reaches it. `--purge` removes them
+removed, so `chaps down --volumes` no longer reaches it. A volume docker does
+not have - the component was never started - is not named, since nothing was
+kept. `--purge` removes them
 with the component, after the containers, and
 reports `removed volume <name>` or `volume <name> not found` per volume; `--json` carries
 `purged` and `kept_volumes`. `--purge` works on a component that is already

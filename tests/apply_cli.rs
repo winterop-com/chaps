@@ -10,6 +10,35 @@ use predicates::prelude::PredicateBooleanExt;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+/// A named docker volume a test created, removed again however the test ends.
+///
+/// `None` when docker would not create one, which is a machine without a
+/// daemon: the half of a test that needs a real volume is then skipped.
+struct TestVolume(String);
+
+impl TestVolume {
+    fn create(name: &str) -> Option<TestVolume> {
+        let made = std::process::Command::new("docker")
+            .args(["volume", "create", name])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !made {
+            eprintln!("skipping the half that needs a docker volume: none could be created");
+        }
+        made.then(|| TestVolume(name.to_string()))
+    }
+}
+
+impl Drop for TestVolume {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("docker")
+            .args(["volume", "rm", "-f", &self.0])
+            .stdin(std::process::Stdio::null())
+            .output();
+    }
+}
+
 /// A cache directory plus the project directory the tests write into.
 struct Sandbox {
     cache: TempDir,
@@ -185,8 +214,23 @@ fn disabling_a_model_names_the_data_volume_it_keeps() {
         .success();
     let volume = format!("{}_ck_chapkit_ewars_model_data", compose_project(&dir));
 
-    // The service id is accepted, and the line is about the volume's real
-    // name and the marketplace id that names it again.
+    // Never started, so there is no volume, and none is said to be kept.
+    sandbox
+        .models(&["disable", "chapkit-ewars-model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("kept volume").not());
+
+    // With the volume a `chaps up` would have created, the service id is
+    // accepted, and the line is about the volume's real name and the
+    // marketplace id that names it again.
+    let Some(_created) = TestVolume::create(&volume) else {
+        return;
+    };
+    sandbox
+        .models(&["enable", "chapkit_ewars_model"])
+        .assert()
+        .success();
     sandbox
         .models(&["disable", "chapkit-ewars-model"])
         .assert()
@@ -285,14 +329,25 @@ fn disabling_a_component_names_its_volume_and_chap_core_has_none_to_purge() {
         .success();
     let project = compose_project(&dir);
 
+    // Never started: no volume, and no line claiming one was kept.
     sandbox
         .components(&["disable", "s3"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(format!(
-            "kept volume {project}_s3_data; remove it with `chaps components disable s3 --purge` \
-             or `docker volume rm {project}_s3_data`"
-        )));
+        .stdout(predicates::str::contains("kept volume").not());
+
+    // With the volume there, it is named with both ways to remove it.
+    if let Some(_created) = TestVolume::create(&format!("{project}_s3_data")) {
+        sandbox.components(&["enable", "s3"]).assert().success();
+        sandbox
+            .components(&["disable", "s3"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(format!(
+                "kept volume {project}_s3_data; remove it with \
+                 `chaps components disable s3 --purge` or `docker volume rm {project}_s3_data`"
+            )));
+    }
 
     // `--purge` is accepted on a component that is already off: the volume
     // outlives the component, which is the whole point of the flag.

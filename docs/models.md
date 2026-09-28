@@ -190,7 +190,9 @@ which would have removed the container as an orphan but only once it was run.
 
 What `disable` does not take is the model's data: the named volume
 `<compose project>_ck_<id>_data` stays exactly as it was, so enabling the model
-again finds everything it had. That is why the line above names it. Nothing
+again finds everything it had. That is why the line above names it - when
+docker has it: a model that was never started has no volume, and then there
+is no line, because nothing was kept. Nothing
 else does any more - the overlay that declared the volume has just been
 removed, so `chaps down --volumes` no longer knows about it, and a volume
 nobody names again is kept for as long as the machine lasts.
