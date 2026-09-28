@@ -2833,6 +2833,7 @@ fn dhis2_lookalike() -> u16 {
 }
 
 /// A DHIS2 that is falsely healthy: it serves, and it has no API.
+#[cfg(unix)]
 fn dhis2_without_an_api() -> u16 {
     routed(None, "Not Found")
 }
@@ -2845,6 +2846,7 @@ fn dhis2_without_an_api() -> u16 {
 /// a report that gets as far as its closing line - which is where the hints
 /// under it live - needs both, and no test can start a real chap-core. The port
 /// comes back so the deployment can be created with `--api-port` pointing here.
+#[cfg(unix)]
 fn chap_core_lookalike() -> u16 {
     use std::io::{BufRead, BufReader, Write};
 
@@ -2931,6 +2933,7 @@ fn dhis2_sandbox(port: u16) -> (Sandbox, PathBuf) {
 }
 
 /// The `dhis2` row, out of a `chaps status --json` document.
+#[cfg(unix)]
 fn dhis2_row(report: &Json) -> &Json {
     report["components"]
         .as_array()
@@ -8734,6 +8737,7 @@ fn update_lists_the_dhis2_image_and_warns_about_the_migration() {
 /// `chaps dhis2` talks to, and a record of every request, which is what lets a
 /// test assert that the route was *repointed* rather than created and that
 /// nothing ever sent `lastYears`.
+#[cfg(unix)]
 #[derive(Default)]
 struct Dhis2State {
     /// `METHOD path` for every request it answered, in order.
@@ -8762,11 +8766,13 @@ struct Dhis2State {
 }
 
 /// A stand-in for one DHIS2 instance and for the App Hub beside it.
+#[cfg(unix)]
 struct Dhis2StandIn {
     port: u16,
     state: std::sync::Arc<std::sync::Mutex<Dhis2State>>,
 }
 
+#[cfg(unix)]
 impl Dhis2StandIn {
     /// A stand-in on a port of its own, with nothing configured.
     fn new() -> Dhis2StandIn {
@@ -8880,6 +8886,7 @@ impl Dhis2StandIn {
 /// The names are the App Hub's own, which are not the names chaps prints: it
 /// publishes the Modeling App as `Modeling`, and a real instance lists it under
 /// that name again.
+#[cfg(unix)]
 const STAND_IN_APPS: &[(&str, &str, &str, &str)] = &[
     (
         "a29851f9-82a7-4ecd-8b2c-58e0f220bc75",
@@ -8903,6 +8910,7 @@ const STAND_IN_APPS: &[(&str, &str, &str, &str)] = &[
 /// blank was read as a maximum, 2.42.6 compared above it, and every version was
 /// filtered out. The rest of the fields are here for the same reason - this is
 /// what comes off the wire, not a convenient subset of it.
+#[cfg(unix)]
 fn stand_in_version(id: &str, version: &str, min: &str) -> Json {
     serde_json::json!({
         "created": 1789983819971i64,
@@ -8925,10 +8933,12 @@ fn stand_in_version(id: &str, version: &str, min: &str) -> Json {
 /// trap: `E1004` is DHIS2's `API query cannot be performed`, the code every
 /// plain `ConflictException` carries - a malformed URL and a response timeout
 /// out of range answer with it too. The message is what identifies this one.
+#[cfg(unix)]
 const ROUTE_NOT_PERMITTED_BODY: &str = r#"{"httpStatus":"Conflict","httpStatusCode":409,"status":"ERROR","message":"Route URL is not permitted","errorCode":"E1004"}"#;
 
 /// The one route DHIS2 answers unauthenticated, and the shape of everything
 /// else `chaps dhis2` asks for.
+#[cfg(unix)]
 fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) -> (u16, String) {
     if path == "/api/ping" {
         return (200, "pong".to_string());
@@ -9081,6 +9091,7 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
 }
 
 /// The notifications of an analytics run that has finished.
+#[cfg(unix)]
 fn dhis2_finished_job() -> Json {
     serde_json::json!([
         {"time": "2026-09-25T10:00:00.000", "level": "INFO", "message": "started",
@@ -9092,6 +9103,7 @@ fn dhis2_finished_job() -> Json {
 
 /// The `chap` route a climate demo dump ships: right code, right authority, not
 /// disabled, and pointed at somebody else's CHAP.
+#[cfg(unix)]
 fn external_chap_route() -> Json {
     serde_json::json!({
         "id": "route-demo",
@@ -10051,6 +10063,7 @@ fn disabling_dhis2_forgets_the_connect_it_had_recorded() {
 const EXTERNAL_CHAP_URL: &str = "https://chap.example.org";
 
 /// The route target that URL makes.
+#[cfg(unix)]
 const EXTERNAL_CHAP_URL_TARGET: &str = "https://chap.example.org/**";
 
 /// A deployment of chap-core alone, with nothing on PATH pretending to be
