@@ -71,13 +71,14 @@ pub struct ChangeReport {
 pub fn list(ctx: &Ctx, _args: &ComponentsListArgs) -> Result<()> {
     let project = ctx.project()?;
     let report = ComponentsReport {
-        components: rows(&project.state.components, project.state.api_port),
+        components: rows(&project.state.components, project.effective_api_port()),
     };
     ctx.out.emit(&report, || human_list(&report, &ctx.out))
 }
 
-/// One row per component. chap-core's port is the API port, which lives in
-/// `project.yaml` rather than in the component block, so it is passed in.
+/// One row per component. chap-core's port is the API port, which is not in
+/// the component block - it is `CHAP_API_PORT` in `.env` when that line is set
+/// and `project.yaml`'s otherwise - so it is passed in.
 fn rows(components: &Components, api_port: u16) -> Vec<ComponentRow> {
     Component::ALL
         .iter()

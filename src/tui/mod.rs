@@ -35,6 +35,9 @@ pub fn run_tui(ctx: &Ctx, project: &Project, registry: &Registry) -> Result<Opti
 
     loop {
         let mut app = App::new(&current, &project.state);
+        // The port compose publishes, which `.env` can move away from the
+        // recorded one; the page shows it and the port prompt keeps off it.
+        app.api_port = project.effective_api_port();
         if let Some(carry) = carry.take() {
             carry.restore(&mut app);
         }
