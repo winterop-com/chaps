@@ -27,7 +27,7 @@ use std::time::Duration;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `User-Agent` sent with every request, matching [`crate::chapcore`].
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// The content type a JSON body is sent and read as.
 pub const JSON: &str = "application/json";

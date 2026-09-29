@@ -56,7 +56,7 @@ pub const BUILD_CHANNEL: &str = env!("CHAPS_BUILD_CHANNEL");
 pub const DEV_TAG: &str = "dev";
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// The file inside the cache directory holding the last update check.
 pub const CHECK_FILE: &str = "self-update-check.json";

@@ -24,7 +24,7 @@ use std::time::Duration;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// Where the lookups go, and whether they may go anywhere at all.
 ///

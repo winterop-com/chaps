@@ -1,6 +1,6 @@
 # Working on chaps
 
-chaps is a Rust CLI (crate `chaps-cli`, binary `chaps`) that deploys and
+chaps is a Rust CLI (crate and binary `chaps`) that deploys and
 manages CHAP, the Climate Health Analytics Platform, and the services around
 it, all through docker compose: chap-core, model services from the CHAP model
 marketplace, the Open Climate Service (OCS) with an S3 store, and DHIS2. They

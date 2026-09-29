@@ -93,7 +93,7 @@ const GAP: usize = 2;
 pub const GHCR_PROBE_URL: &str = "https://ghcr.io/v2/";
 
 /// `User-Agent` sent with the probes, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// The one `docker info` the checklist runs, asked for every field it needs:
 /// the engine version for the `docker-daemon` line, the data root for `disk`

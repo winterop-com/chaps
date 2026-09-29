@@ -1,4 +1,4 @@
-# chaps - build & dev tasks for the chaps-cli crate.
+# chaps - build & dev tasks for the chaps crate.
 CARGO  ?= cargo
 ARCHS  := aarch64-apple-darwin x86_64-apple-darwin
 BIN    := bin/chaps

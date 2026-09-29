@@ -33,7 +33,7 @@ pub const MOVING_TAGS: &[&str] = &["dev", "master", LATEST_TAG];
 pub const LIST_LIMIT: usize = 10;
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// Base of the GitHub REST API this run talks to.
 pub fn api_base() -> String {

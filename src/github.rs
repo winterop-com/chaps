@@ -43,7 +43,7 @@ pub const API_VERSION: &str = "2022-11-28";
 pub const API_VERSION_HEADER: &str = "X-GitHub-Api-Version";
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// Requests an hour GitHub gives one unauthenticated address.
 pub const ANON_LIMIT: u64 = 60;

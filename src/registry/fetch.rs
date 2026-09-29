@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// `User-Agent` sent with every registry request, so the marketplace can tell
 /// CLI traffic apart from browsers.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// Fetch `registry.yaml` and every model file it lists over HTTP.
 ///

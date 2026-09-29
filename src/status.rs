@@ -1456,7 +1456,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .timeout_global(Some(timeout))
         // Status codes are reported by the caller, not raised as errors.
         .http_status_as_error(false)
-        .user_agent(concat!("chaps-cli/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("chaps/", env!("CARGO_PKG_VERSION")))
         .build()
         .new_agent()
 }

@@ -89,7 +89,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
 
     let manifest = Manifest {
         schema_version: backup::SCHEMA_VERSION,
-        created_by: format!("chaps-cli {}", ctx.cli_version),
+        created_by: format!("chaps {}", ctx.cli_version),
         created_at: backup::timestamp(backup::now()),
         project: project_name(&project.dir),
         chap_image_tag: project.state.chap_image_tag.clone(),
@@ -749,7 +749,7 @@ mod tests {
             size_bytes: 5 * 1024 * 1024,
             manifest: Manifest {
                 schema_version: crate::backup::SCHEMA_VERSION,
-                created_by: "chaps-cli 0.1.0".into(),
+                created_by: "chaps 0.1.0".into(),
                 created_at: "2026-09-23T07:10:00Z".into(),
                 project: "e2e".into(),
                 chap_image_tag: "latest".into(),

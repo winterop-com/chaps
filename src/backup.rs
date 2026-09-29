@@ -68,7 +68,7 @@ pub fn component_member(member: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
     pub schema_version: u32,
-    /// e.g. `chaps-cli 0.1.0`.
+    /// e.g. `chaps 0.1.0`.
     pub created_by: String,
     /// UTC, `YYYY-MM-DDTHH:MM:SSZ`.
     pub created_at: String,
@@ -1312,7 +1312,7 @@ mod tests {
     fn manifest() -> Manifest {
         Manifest {
             schema_version: SCHEMA_VERSION,
-            created_by: "chaps-cli 0.1.0".into(),
+            created_by: "chaps 0.1.0".into(),
             created_at: "2026-09-23T07:10:00Z".into(),
             project: "e2e".into(),
             chap_image_tag: "latest".into(),
@@ -1369,7 +1369,7 @@ mod tests {
     #[test]
     fn a_manifest_without_the_optional_parts_still_parses() {
         let body = "schema_version: 1\n\
-                    created_by: chaps-cli 0.1.0\n\
+                    created_by: chaps 0.1.0\n\
                     created_at: 2026-09-23T07:10:00Z\n\
                     project: e2e\n\
                     chap_image_tag: latest\n";
@@ -1386,7 +1386,7 @@ mod tests {
     #[test]
     fn a_newer_schema_is_refused_rather_than_half_understood() {
         let body = "schema_version: 99\n\
-                    created_by: chaps-cli 9.9.9\n\
+                    created_by: chaps 9.9.9\n\
                     created_at: 2026-09-23T07:10:00Z\n\
                     project: e2e\n\
                     chap_image_tag: latest\n";
@@ -1765,7 +1765,7 @@ mod tests {
     fn the_plan_says_what_it_overwrites_and_what_it_stops() {
         let text = plan_text(&plan(true, vec!["chap", "worker"]));
         assert!(text.starts_with("restore /backups/chaps-backup-e2e-20260923-071000.tar.gz\n"));
-        assert!(text.contains("taken  2026-09-23T07:10:00Z by chaps-cli 0.1.0"));
+        assert!(text.contains("taken  2026-09-23T07:10:00Z by chaps 0.1.0"));
         assert!(text.contains("into   /srv/e2e"));
         assert!(
             text.contains("files     2 file(s) in the project directory: .env, .chaps/models.yaml")

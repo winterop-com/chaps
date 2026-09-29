@@ -1,5 +1,5 @@
 [package]
-name = "chaps-cli"
+name = "chaps"
 version = "0.9.0"
 edition = "2024"
 description = "Deploy CHAP, the Climate Health Analytics Platform, and its services with Docker Compose"

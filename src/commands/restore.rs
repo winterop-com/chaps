@@ -831,7 +831,7 @@ mod tests {
     fn manifest() -> Manifest {
         Manifest {
             schema_version: crate::backup::SCHEMA_VERSION,
-            created_by: "chaps-cli 0.1.0".into(),
+            created_by: "chaps 0.1.0".into(),
             created_at: "2026-09-23T07:10:00Z".into(),
             project: "e2e".into(),
             chap_image_tag: "latest".into(),

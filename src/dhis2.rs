@@ -99,7 +99,7 @@ pub const APP_HUB_VAR: &str = "CHAPS_APP_HUB";
 pub const DEFAULT_APP_HUB: &str = "https://apps.dhis2.org/api/v1/apps";
 
 /// `User-Agent` sent with every request, matching the rest of the CLI.
-const USER_AGENT: &str = concat!("chaps-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 
 /// How long one request may take, all of connect, send and receive.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);

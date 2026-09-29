@@ -305,7 +305,7 @@ impl AuthState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectState {
     pub schema_version: u32,
-    /// e.g. `chaps-cli 0.1.0`.
+    /// e.g. `chaps 0.1.0`.
     pub generated_by: String,
     pub chap_image_tag: String,
     /// Where `compose.yml` is rendered from.
@@ -362,7 +362,7 @@ impl Default for ProjectState {
     fn default() -> Self {
         ProjectState {
             schema_version: SCHEMA_VERSION,
-            generated_by: format!("chaps-cli {}", env!("CARGO_PKG_VERSION")),
+            generated_by: format!("chaps {}", env!("CARGO_PKG_VERSION")),
             chap_image_tag: "latest".to_string(),
             chap_compose_source: ComposeSource::Embedded,
             compose_project: String::new(),
@@ -1199,7 +1199,7 @@ mod tests {
         std::fs::write(
             chaps.join(PROJECT_FILE),
             "schema_version: 1\n\
-             generated_by: chaps-cli 0.1.0\n\
+             generated_by: chaps 0.1.0\n\
              chap_image_tag: latest\n\
              registry_url: https://example.test/registry.yaml\n\
              compose_files:\n\
@@ -1448,7 +1448,7 @@ mod tests {
         std::fs::write(
             chaps.join(PROJECT_FILE),
             "schema_version: 1\n\
-             generated_by: chaps-cli 0.1.0\n\
+             generated_by: chaps 0.1.0\n\
              chap_image_tag: latest\n\
              registry_url: https://example.test/registry.yaml\n\
              compose_files:\n\
@@ -1541,7 +1541,7 @@ mod tests {
         std::fs::write(
             chaps.join(PROJECT_FILE),
             "schema_version: 1\n\
-             generated_by: chaps-cli 0.2.2\n\
+             generated_by: chaps 0.2.2\n\
              chap_image_tag: latest\n\
              registry_url: https://example.test/registry.yaml\n\
              compose_files:\n\
@@ -1725,7 +1725,7 @@ mod tests {
         std::fs::write(
             chaps.join(PROJECT_FILE),
             "schema_version: 1\n\
-             generated_by: chaps-cli 0.2.1\n\
+             generated_by: chaps 0.2.1\n\
              chap_image_tag: latest\n\
              registry_url: https://example.test/registry.yaml\n\
              compose_files:\n\

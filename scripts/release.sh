@@ -114,7 +114,7 @@ awk -v v="$version" '
 mv Cargo.toml.new Cargo.toml
 
 echo "==> updating Cargo.lock"
-if ! "$CARGO" update --package chaps-cli --offline; then
+if ! "$CARGO" update --package chaps --offline; then
   # A lockfile that has never been built offline may need a real resolve.
   "$CARGO" build
 fi
