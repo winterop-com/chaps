@@ -1,10 +1,13 @@
 # Working on chaps
 
 chaps is a Rust CLI (crate `chaps-cli`, binary `chaps`) that deploys and
-manages CHAP, the Climate Health Analytics Platform: chap-core plus model
-services from the CHAP model marketplace, and optionally the Open Climate
-Service (OCS) and an S3 store, all through docker compose. `chaps init` writes
-a self-contained deployment directory; everything else operates on it.
+manages CHAP, the Climate Health Analytics Platform, and the services around
+it, all through docker compose: chap-core, model services from the CHAP model
+marketplace, the Open Climate Service (OCS) with an S3 store, and DHIS2. They
+deploy together or any of them on its own; chap-core is one component among
+the others, and a deployment without it is a first-class shape, not a
+degraded one. `chaps init` writes a self-contained deployment directory;
+everything else operates on it.
 
 Read `docs/development.md` for the build, test, docs and release mechanics.
 This file holds the rules that are not derivable from the code.

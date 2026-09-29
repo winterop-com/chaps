@@ -2299,7 +2299,7 @@ fn the_help_says_what_chap_is() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "deploy and manage CHAP, the Climate Health Analytics Platform",
+            "deploy CHAP, the Climate Health Analytics Platform, and its services",
         ))
         .get_output()
         .stdout

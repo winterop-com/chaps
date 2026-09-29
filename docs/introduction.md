@@ -2,17 +2,21 @@
 
 `chaps` runs the CHAP stack. The name is what it does: **CHAP Stack**. It
 deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
-Analytics Platform, as a Docker Compose deployment of
-[chap-core](https://github.com/dhis2-chap/chap-core) together with the
-forecasting model services published in the
-[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace).
+Analytics Platform, and the services around it, as Docker Compose deployments:
+[chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
+services published in the
+[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace),
+[Open Climate Service](https://github.com/dhis2/open-climate-service) (OCS) with
+an S3-compatible object store, and [DHIS2](https://dhis2.org).
 
-A deployment is made of **components**. chap-core is one, and it is on unless
-you turn it off; OCS (Open Climate Service) is available as an optional
-component beside it, together with the S3-compatible object store OCS will use.
-Existing projects keep working unchanged - a deployment that says nothing about
-components is chap-core alone, which is what it was. See
-[Components](./components.md).
+They deploy together or any of them on its own. A deployment is made of
+**components** (chap-core, OCS, the object store, DHIS2) plus the model
+services you enable. chap-core is on unless you leave it out, so the default is
+a CHAP deployment. `chaps init --only ocs,s3` is an OCS server,
+`chaps init --only dhis2` a DHIS2, and
+`chaps init --only none --models ID` one model service answering on its own
+port. [Use cases](./use-cases.md) walks through each shape, and
+[Components](./components.md) is the reference.
 
 ## What it does, in one screen
 
@@ -24,6 +28,7 @@ deployment is meant to be.
 ```sh
 chaps init mychap --models default   # writes the deployment directory
 chaps init mychap --with ocs         # ...with Open Climate Service beside it
+chaps init climate --only ocs,s3     # or OCS alone, with no CHAP at all
 cd mychap
 chaps up                             # sync the compose files, docker compose up -d
 chaps status                         # chap-core health and registered models
