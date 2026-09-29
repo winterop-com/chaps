@@ -10,10 +10,10 @@ chaps status                 # chap-core up, every model registered
 chaps models test --all      # make each model train and predict once
 ```
 
-You get chap-core's API on port 8000 and one service per model. The models
+You get chap-core's API on port 8700 and one service per model. The models
 register with chap-core over the compose network and publish no host port;
 you reach them through chap-core at
-`http://localhost:8000/v2/services/<service_id>/run/`. Pick models later with
+`http://localhost:8700/v2/services/<service_id>/run/`. Pick models later with
 `chaps ui`, or `chaps models enable ID` / `disable ID`.
 
 Next: [Models and the marketplace](../models.md), [Authentication](../auth.md)

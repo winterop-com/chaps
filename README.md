@@ -115,7 +115,7 @@ chaps up                             # apply what the browser changed
 chaps models add https://github.com/<org>/<model>   # a model not in the marketplace
 ```
 
-chap-core's API is on <http://localhost:8000>; model services are reached
+chap-core's API is on <http://localhost:8700>; model services are reached
 through it, or given a port of their own with `chaps models expose ID`. Every
 command takes `--json`, and every command ends with a line saying what it did.
 

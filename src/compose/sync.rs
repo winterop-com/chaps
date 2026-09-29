@@ -985,7 +985,7 @@ mod tests {
         let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
         let overlay = dir.path().join(CHAPS_COMPOSE);
         assert!(overlay.is_file());
-        assert!(read(&overlay).contains("${CHAP_API_PORT:-8000}:8000"));
+        assert!(read(&overlay).contains("${CHAP_API_PORT:-8700}:8000"));
         assert_eq!(
             project.state.compose_files,
             vec![
@@ -1002,7 +1002,7 @@ mod tests {
         assert!(report.drift);
         assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
         assert!(
-            read(&overlay).contains("8000}:8000"),
+            read(&overlay).contains("8700}:8000"),
             "--check writes nothing"
         );
 

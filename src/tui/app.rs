@@ -2044,7 +2044,7 @@ mod tests {
         for (typed, reason) in [
             ("80", "outside this project's range"),
             ("6000", "outside this project's range"),
-            ("8000", "chap-core's own API port"),
+            ("8700", "chap-core's own API port"),
             ("five thousand", "is not a port"),
         ] {
             ask_for_port(&mut app, typed);
@@ -2954,7 +2954,7 @@ mod tests {
             format!("http://localhost:{}", state.api_port)
         );
         assert!(lines[0].enabled && lines[0].recorded);
-        assert_eq!(lines[1].reach, "http://localhost:9000");
+        assert_eq!(lines[1].reach, "http://localhost:8790");
         assert_eq!(lines[1].summary, Component::Ocs.summary());
         assert_eq!(lines[2].reach, "-", "a component this deployment has not");
         assert!(!lines[2].enabled);
@@ -3000,7 +3000,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].kind, ChangeKind::Add);
         assert_eq!(changes[0].name, "ocs");
-        assert_eq!(changes[0].detail, "enable on port 9000");
+        assert_eq!(changes[0].detail, "enable on port 8790");
 
         // Off again is back where the project had it, so there is nothing to
         // save and nothing to say about components.
@@ -3028,7 +3028,7 @@ mod tests {
         assert!(!wanted.ocs.enabled);
         assert_eq!(
             wanted.ocs.port,
-            Some(9000),
+            Some(8790),
             "its port is left alone, so switching it back on restores it"
         );
     }
@@ -3081,7 +3081,7 @@ mod tests {
 
         app.reduce(Action::PortPrompt);
         assert_eq!(app.mode, Mode::Port);
-        assert_eq!(app.port_input, "9000", "prefilled with what it publishes");
+        assert_eq!(app.port_input, "8790", "prefilled with what it publishes");
 
         ask_for_port(&mut app, "none");
         assert_eq!(app.mode, Mode::Browse);
@@ -3123,11 +3123,11 @@ mod tests {
         focus_component(&mut app, Component::Dhis2);
         assert_eq!(
             app.component_reach(Component::Dhis2),
-            "http://localhost:8080"
+            "http://localhost:8780"
         );
 
         app.reduce(Action::PortPrompt);
-        assert_eq!(app.port_input, "8080", "prefilled with what it publishes");
+        assert_eq!(app.port_input, "8780", "prefilled with what it publishes");
         ask_for_port(&mut app, "none");
         assert_eq!(app.components.dhis2.port, None);
         assert_eq!(
@@ -3208,7 +3208,7 @@ mod tests {
         let mut app = App::new(&registry, &state);
 
         focus_component(&mut app, Component::S3);
-        ask_for_port(&mut app, "9000");
+        ask_for_port(&mut app, "8790");
         assert_eq!(app.mode, Mode::Port);
         assert!(
             app.port_error
@@ -3490,7 +3490,7 @@ mod tests {
         app.reduce(Action::PaletteRun);
         assert_eq!(
             app.take_effect(),
-            Some(Effect::Open("http://localhost:8080".to_string()))
+            Some(Effect::Open("http://localhost:8780".to_string()))
         );
 
         // The models page has a repository to open instead, and does not offer

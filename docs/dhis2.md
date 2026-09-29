@@ -34,7 +34,7 @@ for the deployments that want one alongside.
 
 | Service | What it is |
 | --- | --- |
-| `dhis2` | DHIS2 itself, from `dhis2/core`, published on 8080 by default. Multi-arch since 2.39.1-rc, so nothing pins a platform for it. |
+| `dhis2` | DHIS2 itself, from `dhis2/core`, published on 8780 by default. Multi-arch since 2.39.1-rc, so nothing pins a platform for it. |
 | `dhis2-db` | Its PostgreSQL, from `ghcr.io/baosystems/postgis:16-3.5`. `expose`d on 5432 and never published. |
 | `dhis2-dump` | A one-shot that prepares the [seed dump](#the-seed) and exits. Not rendered at all for a deployment that starts empty. |
 | `dhis2-prep` | A one-shot that runs on every start, after the database is healthy and before DHIS2 boots. |
@@ -355,7 +355,7 @@ So: `chaps backup` first. Then move the tag deliberately, either in
 ```yaml
 dhis2:
   enabled: true
-  port: 8080
+  port: 8780
   image_tag: '2.41'
   seed: default
 ```
@@ -460,8 +460,8 @@ chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect` once DHIS2
 and `chaps status` puts it under its verdict, with the model hints:
 
 ```text
-chap-core   up   http://localhost:8000   2.42.6   auth: off
-dhis2       up   http://localhost:8080
+chap-core   up   http://localhost:8700   2.42.6   auth: off
+dhis2       up   http://localhost:8780
 
 no models enabled; run `chaps models enable ID` to add one
   chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
@@ -487,7 +487,7 @@ in the `dhis2` block of `.chaps/components.yaml`:
 ```yaml
 dhis2:
   enabled: true
-  port: 8080
+  port: 8780
   image_tag: '2.42'
   seed: default
   connected_at: 2026-09-27T12:09:53Z
@@ -654,7 +654,7 @@ A credential DHIS2 does not accept gets an error that says so, rather than
 "request failed":
 
 ```text
-error: DHIS2 at http://localhost:8080 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
 error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
 ```
 
@@ -935,7 +935,7 @@ Then `/api/ping` is polled until it answers, for twenty minutes by default
 already answering says nothing at all; one that is not says so once:
 
 ```text
-DHIS2 at http://localhost:8080 is not answering /api/ping yet; waiting up to 20 minutes, and `chaps logs dhis2` is where the migration shows
+DHIS2 at http://localhost:8780 is not answering /api/ping yet; waiting up to 20 minutes, and `chaps logs dhis2` is where the migration shows
 ```
 
 `/api/ping` is the only route DHIS2 answers without credentials, so it is the

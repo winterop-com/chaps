@@ -593,7 +593,7 @@ fn draw_component_list(
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// One components row: `▸ ✓ ocs  enabled  http://localhost:9000  Open ...`.
+/// One components row: `▸ ✓ ocs  enabled  http://localhost:8790  Open ...`.
 ///
 /// The mark is the model page's: a tick for what this deployment has, `+` for
 /// one this session switched on, `-` for one it switched off.
@@ -2351,7 +2351,7 @@ mod tests {
         assert!(screen.contains("Host port for CHAP-EWARS"), "{screen}");
         assert!(screen.contains("port  › auto_"), "{screen}");
         assert!(
-            screen.contains("now: via chap-core · range 5001-5999 · api port 8000 is taken"),
+            screen.contains("now: via chap-core · range 5001-5999 · api port 8700 is taken"),
             "{screen}"
         );
         assert!(
@@ -3156,7 +3156,7 @@ mod tests {
         assert_eq!(column_of(head, "STATE"), column_of(core, "enabled"));
         assert_eq!(
             column_of(head, "REACH"),
-            column_of(core, "http://localhost:8000"),
+            column_of(core, "http://localhost:8700"),
             "chap-core is reached at the API port"
         );
         let ocs = line_with(&screen, " ocs ");
@@ -3239,7 +3239,7 @@ mod tests {
         assert!(screen.contains("Host port for ocs"), "{screen}");
         assert!(screen.contains("port  › 9000_"), "{screen}");
         assert!(
-            screen.contains("now: http://localhost:9000 · api port 8000 is taken"),
+            screen.contains("now: http://localhost:9000 · api port 8700 is taken"),
             "{screen}"
         );
         assert!(
@@ -3327,7 +3327,7 @@ mod tests {
         for needle in [
             "dhis2",
             "enabled here",
-            "http://localhost:8080",
+            "http://localhost:8780",
             "compose.dhis2.yml · rendered from .chaps/components.yaml by `chaps",
             "dhis2_home, dhis2_db, dhis2_dump · kept when the component is disabled",
             "dhis2/dhis.conf · yours to edit, and DHIS2 will not start without it",
@@ -3406,9 +3406,9 @@ mod tests {
 
         let screen = render(&app, 120, 40);
         assert!(screen.contains("Host port for dhis2"), "{screen}");
-        assert!(screen.contains("port  › 8080_"), "{screen}");
+        assert!(screen.contains("port  › 8780_"), "{screen}");
         assert!(
-            screen.contains("now: http://localhost:8080 · api port 8000 is taken"),
+            screen.contains("now: http://localhost:8780 · api port 8700 is taken"),
             "{screen}"
         );
         assert!(

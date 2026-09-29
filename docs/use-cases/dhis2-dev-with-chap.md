@@ -15,10 +15,10 @@ Then record your DHIS2 and how it reaches chap-core, and connect:
 
 ```sh
 # DHIS2 runs as a process on this machine (a dev server, Jetty, Tomcat):
-chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8000
+chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8700
 
 # DHIS2 runs in a container of its own compose project:
-chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8000
+chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8700
 
 chaps dhis2 connect
 ```

@@ -190,15 +190,17 @@ fn ways_out(claim: &PortClaim, suggestion: Option<u16>) -> String {
         return format!("set {API_PORT_ENV_VAR}={free} in `.env`");
     }
     // A component publishes its port from `.chaps/components.yaml`, so the
-    // way to move it is the command that wrote it there. The port is left as
-    // a placeholder: the caller's suggestion is the one free above the *first*
-    // conflict, which for a component is not always its own.
+    // way to move it is the command that wrote it there, with the free port
+    // the caller found above this claim's own.
     if let Ok(component) = Component::from_name(&claim.service)
         && component.takes_port()
     {
         return format!(
-            "run `chaps components enable {name} --port <free>`",
-            name = component.name()
+            "run `chaps components enable {name} --port {free}`",
+            name = component.name(),
+            free = suggestion
+                .map(|port| port.to_string())
+                .unwrap_or_else(|| "<free>".to_string())
         );
     }
     format!(
@@ -460,16 +462,50 @@ fn resolved(path: &Path) -> PathBuf {
     }
 }
 
+/// One busy port, as `chaps up` reports it: the claim, a free port above it,
+/// and the other chaps deployments that publish it too.
+pub struct Conflict<'a> {
+    pub claim: PortClaim,
+    pub suggestion: Option<u16>,
+    pub holders: Vec<&'a Deployment>,
+}
+
+/// The line for a busy port another chaps deployment publishes: most likely
+/// that deployment is up, so it is named with the command that stops it.
+pub fn held_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Option<u16>) -> String {
+    let named: Vec<String> = holders
+        .iter()
+        .take(NAMED_HOLDERS)
+        .map(|held| format!("{} ({})", held.name(), held.dir.display()))
+        .collect();
+    let stop = holders
+        .first()
+        .map(|held| format!("stop it with `chaps -C {} down`", held.dir.display()))
+        .unwrap_or_default();
+    format!(
+        "port {port} (needed by {service}) is in use, and {who} publishes it too; if that is \
+         what is up, {stop}, or move this one: {}",
+        ways_out(claim, suggestion),
+        port = claim.port,
+        service = claim.service,
+        who = named.join(", "),
+    )
+}
+
 /// The whole message `chaps up` fails with when a port it needs is taken.
-pub fn preflight_message(busy: &[PortClaim], suggestion: Option<u16>) -> String {
+pub fn preflight_message(conflicts: &[Conflict]) -> String {
+    let n = conflicts.len();
     let mut out = format!(
-        "{} host port{} CHAP needs {} already in use; nothing was started\n",
-        busy.len(),
-        if busy.len() == 1 { "" } else { "s" },
-        if busy.len() == 1 { "is" } else { "are" },
+        "{n} host port{} this deployment needs {} already in use; nothing was started\n",
+        if n == 1 { "" } else { "s" },
+        if n == 1 { "is" } else { "are" },
     );
-    for claim in busy {
-        out.push_str(&format!("  {}\n", busy_line(claim, suggestion)));
+    for conflict in conflicts {
+        let line = match conflict.holders.is_empty() {
+            true => busy_line(&conflict.claim, conflict.suggestion),
+            false => held_line(&conflict.claim, &conflict.holders, conflict.suggestion),
+        };
+        out.push_str(&format!("  {line}\n"));
     }
     out.push_str("  or run `chaps up --no-preflight` to hand the conflict to Docker");
     out
@@ -702,9 +738,10 @@ mod tests {
         let line = busy_line(&claim, Some(9001));
         assert!(line.contains("(needed by ocs)"), "{line}");
         assert!(
-            line.contains("`chaps components enable ocs --port <free>`"),
+            line.contains("`chaps components enable ocs --port 9001`"),
             "{line}"
         );
+        assert!(busy_line(&claim, None).contains("--port <free>"));
         assert!(!line.contains("--api-port"), "{line}");
         assert!(!line.contains("models unexpose"), "{line}");
     }
@@ -749,7 +786,7 @@ mod tests {
             )
         );
         assert!(
-            line.contains("`chaps components enable ocs --port <free>`"),
+            line.contains("`chaps components enable ocs --port 18011`"),
             "{line}"
         );
     }
@@ -913,32 +950,64 @@ mod tests {
 
     #[test]
     fn the_preflight_message_counts_and_offers_the_escape_hatch() {
-        let one = preflight_message(
-            &[PortClaim {
-                service: "chap".into(),
-                port: 8000,
-            }],
-            Some(8001),
-        );
-        assert!(one.starts_with("1 host port CHAP needs is already in use; nothing was started\n"));
+        let claim = |service: &str, port: u16| PortClaim {
+            service: service.into(),
+            port,
+        };
+        let one = preflight_message(&[Conflict {
+            claim: claim("chap", 8000),
+            suggestion: Some(8001),
+            holders: Vec::new(),
+        }]);
+        assert!(one.starts_with(
+            "1 host port this deployment needs is already in use; nothing was started\n"
+        ));
+        assert!(one.contains("CHAP_API_PORT=8001"), "{one}");
         assert!(one.ends_with("or run `chaps up --no-preflight` to hand the conflict to Docker"));
 
-        let two = preflight_message(
-            &[
-                PortClaim {
-                    service: "chap".into(),
-                    port: 8000,
-                },
-                PortClaim {
-                    service: "loud".into(),
-                    port: 5001,
-                },
-            ],
-            None,
-        );
-        assert!(two.starts_with("2 host ports CHAP needs are already in use"));
+        let two = preflight_message(&[
+            Conflict {
+                claim: claim("chap", 8000),
+                suggestion: None,
+                holders: Vec::new(),
+            },
+            Conflict {
+                claim: claim("loud", 5001),
+                suggestion: None,
+                holders: Vec::new(),
+            },
+        ]);
+        assert!(two.starts_with("2 host ports this deployment needs are already in use"));
         assert_eq!(two.lines().count(), 4);
         assert!(two.contains("\n  port 5001 is already in use"));
+    }
+
+    /// A busy port another chaps deployment publishes names that deployment,
+    /// the command that stops it, and a real free port for a component.
+    #[test]
+    fn a_port_held_by_another_deployment_names_it_and_a_free_port() {
+        let other = Deployment {
+            dir: PathBuf::from("/srv/oa"),
+            claims: vec![PortClaim {
+                service: "ocs".into(),
+                port: 9000,
+            }],
+        };
+        let text = preflight_message(&[Conflict {
+            claim: PortClaim {
+                service: "ocs".into(),
+                port: 9000,
+            },
+            suggestion: Some(9001),
+            holders: vec![&other],
+        }]);
+        assert!(text.contains("oa (/srv/oa) publishes it too"), "{text}");
+        assert!(text.contains("`chaps -C /srv/oa down`"), "{text}");
+        assert!(
+            text.contains("`chaps components enable ocs --port 9001`"),
+            "{text}"
+        );
+        assert!(!text.contains("<free>"), "{text}");
     }
 
     /// A deployment directory with nothing in it but the state files that
@@ -1148,10 +1217,10 @@ mod tests {
             )),
             "{line}"
         );
-        // A component's port moves with the command that set it, and the
-        // placeholder stays for the reason busy_line keeps it.
+        // A component's port moves with the command that set it, to the free
+        // port found above this one.
         assert!(
-            line.ends_with("Keep it, or run `chaps components enable ocs --port <free>`"),
+            line.ends_with("Keep it, or run `chaps components enable ocs --port 9001`"),
             "{line}"
         );
 

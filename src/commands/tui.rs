@@ -265,13 +265,13 @@ mod tests {
 
         assert_eq!(
             report.components_enabled,
-            vec![("ocs".to_string(), Some(9000))]
+            vec![("ocs".to_string(), Some(8790))]
         );
         assert!(dir.path().join(OCS_COMPOSE).is_file());
         assert!(dir.path().join(".chaps/components.yaml").is_file());
         let text = human(&report, &["stopped nothing".to_string()]);
         assert!(
-            text.contains("components on:\n  ocs  http://localhost:9000\n"),
+            text.contains("components on:\n  ocs  http://localhost:8790\n"),
             "{text}"
         );
         assert!(text.contains("note: stopped nothing\n"), "{text}");

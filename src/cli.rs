@@ -687,6 +687,10 @@ pub struct UpArgs {
     #[arg(long)]
     pub no_preflight: bool,
 
+    /// Stop the other chaps deployments holding these ports first
+    #[arg(long, conflicts_with = "no_preflight")]
+    pub replace: bool,
+
     /// Extra arguments passed through to docker compose up
     #[arg(
         value_name = "EXTRA",
@@ -1453,7 +1457,7 @@ mod tests {
         assert_eq!(args.dir, PathBuf::from("."));
         assert_eq!(args.models, "default");
         assert_eq!(args.chap_tag, "latest");
-        assert_eq!(args.api_port, 8000);
+        assert_eq!(args.api_port, 8700);
         assert_eq!(args.port_base, 5001);
         assert!(!args.force && !args.no_env && !args.fresh_env && !args.interactive);
         assert!(args.source.is_none());

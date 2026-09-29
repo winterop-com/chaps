@@ -33,14 +33,14 @@ Wrote:
   .chaps/models.yaml
 
 chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)
-API:       http://localhost:8000
+API:       http://localhost:8700
 
 Enabled:
   chapkit_ewars_model  CHAP-EWARS v1.0.3  internal
 
 Model services publish no host port: chap-core reaches them over the
 compose network, and you reach them through it at
-http://localhost:8000/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.
+http://localhost:8700/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.
 
 Next:
   cd /srv/mychap && chaps up
@@ -94,7 +94,7 @@ chaps status
 ```
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1   auth: off
+chap-core   up   http://localhost:8700   v2.3.1   auth: off
 
 MODEL                             STATE                    REACH               LAST PING
 chapkit-ewars-model               registered               port 5001           12s ago
@@ -102,7 +102,7 @@ chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
 auto-arima-chapkit                not running              via chap-core       -
 some-other-service                unmanaged                http://c0ffee:8000  3s ago
 
-models without a host port are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
+models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
@@ -153,7 +153,7 @@ chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malar
 Model services publish no host port of their own. Either go through chap-core:
 
 ```sh
-curl http://localhost:8000/v2/services/chapkit-ewars-model/run/api/v1/info
+curl http://localhost:8700/v2/services/chapkit-ewars-model/run/api/v1/info
 ```
 
 or give the model a port:

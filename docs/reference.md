@@ -43,7 +43,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--interactive` | Pick the models in the browser instead of taking --models. |
 | `--chap-tag <TAG>` | chap-core image tag: latest, master, dev or vX.Y.Z. Default: `latest`. |
 | `--force` | Overwrite an existing project in the target directory. |
-| `--api-port <PORT>` | Host port to publish chap-core's API on. Default: `8000`. |
+| `--api-port <PORT>` | Host port to publish chap-core's API on. Default: `8700`. |
 | `--port-base <PORT>` | Lowest host port a model may be published on. Default: `5001`. |
 | `--api-token <TOKEN>` | Protect the API with a token (generated when no value is given). |
 | `--no-env` | Do not write a .env file. |
@@ -344,6 +344,7 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 | `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops CHAP). |
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
+| `--replace` | Stop the other chaps deployments holding these ports first. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
 
 ## chaps down

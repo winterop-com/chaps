@@ -442,7 +442,7 @@ mod tests {
         assert!(svg.contains(">components</tspan>"), "{svg}");
         assert!(svg.contains("COMPONENT    STATE    REACH"), "{svg}");
         assert!(svg.contains("chap-core"), "{svg}");
-        assert!(svg.contains(">http://localhost:9000</tspan>"), "{svg}");
+        assert!(svg.contains(">http://localhost:8790</tspan>"), "{svg}");
         assert!(svg.ends_with("</svg>\n"), "{svg}");
     }
 

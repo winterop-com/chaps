@@ -54,7 +54,11 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
 /// Host port chap-core's API is published on unless `--api-port` says
 /// otherwise.
-pub const DEFAULT_API_PORT: u16 = 8000;
+///
+/// Not the container's 8000: that, 8080 and 9000 are the ports every other
+/// development server defaults to, so chaps' services start one block away
+/// from them (8700 chap-core, 8780 DHIS2, 8790 OCS).
+pub const DEFAULT_API_PORT: u16 = 8700;
 
 /// The `-f` list a project written by this CLI has.
 pub fn default_compose_files() -> Vec<String> {
@@ -1094,7 +1098,7 @@ mod tests {
         assert!(project_body.starts_with(MANAGED_HEADER), "{project_body}");
         assert!(project_body.contains("\nschema_version: 1\n"));
         assert!(project_body.contains("chap_image_tag: v1.2.3"));
-        assert!(project_body.contains("\napi_port: 8000\n"));
+        assert!(project_body.contains("\napi_port: 8700\n"));
         assert!(
             !project_body.contains("models:"),
             "models live in their own file"

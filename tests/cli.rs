@@ -389,7 +389,7 @@ fn init_writes_every_file_of_a_deployment() {
         ]),
         "compose.yml is rendered by sync like the overlays"
     );
-    assert_eq!(state["api_port"], 8000);
+    assert_eq!(state["api_port"], 8700);
     assert_eq!(
         state["chap_compose_source"],
         serde_json::json!({"kind": "embedded"}),
@@ -421,7 +421,7 @@ fn init_writes_every_file_of_a_deployment() {
     // override rather than an edit of the upstream base file.
     let chaps_overlay = read(&dir.join("compose.chaps.yml"));
     assert!(chaps_overlay.contains("ports: !override"));
-    assert!(chaps_overlay.contains("\"${CHAP_API_PORT:-8000}:8000\""));
+    assert!(chaps_overlay.contains("\"${CHAP_API_PORT:-8700}:8000\""));
 
     // The generated .env carries a fresh password and the model's pin.
     let env = read(&dir.join(".env"));
@@ -436,7 +436,7 @@ fn init_writes_every_file_of_a_deployment() {
     )));
     assert!(env.contains("# CHAP_IMAGE_TAG=latest"));
     // Active even at the default, so the port is where you would look for it.
-    assert!(env.contains("\nCHAP_API_PORT=8000\n"), "{env}");
+    assert!(env.contains("\nCHAP_API_PORT=8700\n"), "{env}");
 }
 
 /// The shape of a generated compose project name: a slug of the directory
@@ -713,7 +713,7 @@ fn docker_accepts_the_stack_with_the_chaps_override() {
         .as_sequence()
         .expect("chap publishes a port");
     assert_eq!(ports.len(), 1, "!override replaced the mapping: {ports:?}");
-    assert_eq!(ports[0]["published"].as_str(), Some("8000"));
+    assert_eq!(ports[0]["published"].as_str(), Some("8700"));
     assert_eq!(ports[0]["target"].as_u64(), Some(8000));
     assert!(
         merged["services"]["chapkit-ewars-model"]
@@ -765,7 +765,7 @@ fn enabling_a_second_model_publishes_nothing_and_sorts_the_umbrella() {
         .stdout(predicates::str::contains("chaps up"))
         // The proxy URL is how a model with no host port is reached.
         .stdout(predicates::str::contains(
-            "http://localhost:8000/v2/services/auto-arima-chapkit/run/",
+            "http://localhost:8700/v2/services/auto-arima-chapkit/run/",
         ));
 
     assert_eq!(
@@ -983,7 +983,7 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
         .success()
         .stdout(predicates::str::contains(
             "unexposed chapkit-ewars-model; it stays registered with chap-core and reachable \
-             at http://localhost:8000/v2/services/chapkit-ewars-model/run/",
+             at http://localhost:8700/v2/services/chapkit-ewars-model/run/",
         ));
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
@@ -1026,7 +1026,7 @@ fn models_list_and_info_name_the_proxy_until_a_port_is_published() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "reach     internal (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)",
+            "reach     internal (proxy: http://localhost:8700/v2/services/chapkit-ewars-model/run/)",
         ));
 
     sandbox
@@ -1102,8 +1102,8 @@ fn json_output_parses_for_init_and_enable() {
     assert_eq!(value["report"]["enabled"][0][0], "chapkit_ewars_model");
     assert_eq!(value["report"]["enabled"][0][1]["host_port"], Json::Null);
     assert_eq!(value["env"], "written");
-    assert_eq!(value["api_port"], 8000);
-    assert_eq!(value["api_url"], "http://localhost:8000");
+    assert_eq!(value["api_port"], 8700);
+    assert_eq!(value["api_url"], "http://localhost:8700");
 
     let out = sandbox
         .models(&["enable", "auto_arima_chapkit", "--port", "auto", "--json"])
@@ -1131,7 +1131,7 @@ fn json_output_parses_for_init_and_enable() {
     assert_eq!(value["previous"], base);
     assert_eq!(
         value["url"],
-        "http://localhost:8000/v2/services/auto-arima-chapkit/run/"
+        "http://localhost:8700/v2/services/auto-arima-chapkit/run/"
     );
 }
 
@@ -2194,7 +2194,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
         .assert()
         .success()
         .stderr(predicates::str::contains(format!(
-            "so the API stays on 8000 rather than {port}; edit that line to move it"
+            "so the API stays on 8700 rather than {port}; edit that line to move it"
         )));
     assert!(
         read(&dir.join(".chaps/project.yaml")).contains(&format!("api_port: {port}")),
@@ -2204,7 +2204,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
     chap_in(&sandbox, &dir, &["components", "list"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("http://localhost:8000"));
+        .stdout(predicates::str::contains("http://localhost:8700"));
 
     // And a nested deployment in a subdirectory still works, warning about
     // the one it is inside.
@@ -4477,7 +4477,7 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
         .success()
         .stdout(predicates::str::contains("components: chap-core, ocs"))
         .stdout(predicates::str::contains(
-            "OCS:       http://localhost:9000",
+            "OCS:       http://localhost:8790",
         ))
         // The heads-up about the object store OCS will need, once.
         .stdout(predicates::str::contains("chaps components enable s3"));
@@ -4515,7 +4515,7 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
     let components = yaml(&dir.join(".chaps/components.yaml"));
     assert_eq!(components["chap-core"]["enabled"], Yaml::Bool(true));
     assert_eq!(components["ocs"]["enabled"], Yaml::Bool(true));
-    assert_eq!(components["ocs"]["port"].as_u64(), Some(9000));
+    assert_eq!(components["ocs"]["port"].as_u64(), Some(8790));
     assert_eq!(components["ocs"]["image_tag"].as_str(), Some("main"));
     assert_eq!(components["s3"]["enabled"], Yaml::Bool(false));
 
@@ -4527,7 +4527,7 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
         Some("ghcr.io/dhis2/open-climate-service:${OCS_IMAGE_TAG:-main}")
     );
     assert_eq!(svc["expose"][0].as_str(), Some("9000"));
-    assert_eq!(svc["ports"][0].as_str(), Some("9000:9000"));
+    assert_eq!(svc["ports"][0].as_str(), Some("8790:9000"));
     assert!(svc.get("platform").is_none());
     assert!(svc["environment"].get("S3_ENDPOINT").is_none());
     // The five dataset credentials are always passed, empty until .env has
@@ -4733,8 +4733,8 @@ fn a_bare_open_lists_what_there_is_to_open() {
         "{text}"
     );
     // chap-core's page is its API documentation, not the origin.
-    assert!(text.contains("http://localhost:8000/docs"), "{text}");
-    assert!(text.contains("http://localhost:9000"), "{text}");
+    assert!(text.contains("http://localhost:8700/docs"), "{text}");
+    assert!(text.contains("http://localhost:8790"), "{text}");
     assert!(text.contains("no web interface to open"), "{text}");
     assert!(
         text.contains("not a component of this deployment"),
@@ -5527,7 +5527,7 @@ fn docker_accepts_a_deployment_with_both_components() {
 
     let merged: Yaml = serde_yaml_ng::from_slice(&out.stdout).expect("config is YAML");
     let ocs = &merged["services"]["ocs"];
-    assert_eq!(ocs["ports"][0]["published"].as_str(), Some("9000"));
+    assert_eq!(ocs["ports"][0]["published"].as_str(), Some("8790"));
     assert_eq!(ocs["ports"][0]["target"].as_u64(), Some(9000));
     // The .env values reached the merged document rather than an empty string.
     let key = ocs["environment"]["S3_ACCESS_KEY"].as_str().unwrap();

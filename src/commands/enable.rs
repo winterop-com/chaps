@@ -527,7 +527,7 @@ mod tests {
         assert!(
             text.contains(
                 "enabled chapkit_ewars_model v1.0.0 at \
-                 http://localhost:8000/v2/services/chapkit-ewars-model/run/"
+                 http://localhost:8700/v2/services/chapkit-ewars-model/run/"
             ),
             "{text}"
         );
@@ -598,7 +598,7 @@ mod tests {
         );
         assert!(text.starts_with(
             "unexposed chapkit-ewars-model; it stays registered with chap-core and \
-             reachable at http://localhost:8000/v2/services/chapkit-ewars-model/run/\n"
+             reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/\n"
         ));
         assert!(text.contains("warning: careful\n"));
 

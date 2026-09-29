@@ -237,7 +237,7 @@ run `chaps up` to apply
 ```
 
 ```text
-unexposed chapkit-ewars-model; it stays registered with chap-core and reachable at http://localhost:8000/v2/services/chapkit-ewars-model/run/
+unexposed chapkit-ewars-model; it stays registered with chap-core and reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/
 written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
@@ -267,7 +267,7 @@ The default. For each model, `chaps` runs chapkit's own end-to-end test inside
 that model's container:
 
 ```text
-docker compose exec -T <service> chapkit test --url http://127.0.0.1:8000 --timeout 300
+docker compose exec -T <service> chapkit test --url http://127.0.0.1:8700 --timeout 300
 ```
 
 chapkit reads the service's own configuration schema, creates a config from it,
@@ -701,15 +701,15 @@ chaps · components                                             registry: embedd
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
-│   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
+│ ▸ ✓ chap-core    enabled  http://localhost:8700    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│   ✓ ocs          enabled  http://localhost:8790    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │     s3           off      -                        RustFS, an S3-compatible object store OCS will keep objects in    │
 │     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ chap-core  enabled here  http://localhost:8000  compose.yml + compose.chaps.yml  CHAP itself: chap-co~  i for details│
+│ chap-core  enabled here  http://localhost:8700  compose.yml + compose.chaps.yml  CHAP itself: chap-co~  i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  [j/k] move  [tab] page  [space] toggle  [i] info  [o] open  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
@@ -730,8 +730,8 @@ chaps · components                                             registry: embedd
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│   ✓ chap-core    enabled  http://localhost:8000    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
-│   ✓ ocs          enabled  http://localhost:9000    Open Climate Service: climate data, reachable at http://ocs:9000  │
+│   ✓ chap-core    enabled  http://localhost:8700    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│   ✓ ocs          enabled  http://localhost:8790    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │ ▸ + s3           adding   internal                 RustFS, an S3-compatible object store OCS will keep objects in    │
 │     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
 │                                                                                                                      │
@@ -781,7 +781,7 @@ not edit:
 │ Open Climate Service: climate data, reachable at http://ocs:9000                   │
 │                                                                                    │
 │ state       enabled                                                                │
-│ reach       http://localhost:9000                                                  │
+│ reach       http://localhost:8790                                                  │
 │ compose     compose.ocs.yml · rendered from .chaps/components.yaml by `chaps sync` │
 │ volume      ocs_data · kept when the component is disabled                         │
 │ config      ocs/climate-service.yaml · yours to edit, and chaps never rewrites it  │
@@ -810,7 +810,7 @@ most that cannot be seen from its row:
 │ DHIS2 and its own database, for a deployment that wants one                        │
 │                                                                                    │
 │ state       enabled                                                                │
-│ reach       http://localhost:8080                                                  │
+│ reach       http://localhost:8780                                                  │
 │ compose     compose.dhis2.yml · rendered from .chaps/components.yaml by `chaps     │
 │             sync`                                                                  │
 │ volume      dhis2_home, dhis2_db, dhis2_dump · kept when the component is disabled │

@@ -6,8 +6,8 @@ One line for chap-core, one line per enabled component, one row per model, and
 one line saying what it adds up to:
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1   auth: on
-ocs         up   http://localhost:9000   3 datasets   212.0 MB data
+chap-core   up   http://localhost:8700   v2.3.1   auth: on
+ocs         up   http://localhost:8790   3 datasets   212.0 MB data
 s3          up   internal
 
 MODEL                             STATE                    REACH               LAST PING
@@ -16,7 +16,7 @@ chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
 auto-arima-chapkit                not running              via chap-core       -
 some-other-service                unmanaged                http://c0ffee:8000  3s ago
 
-models without a host port are reachable through chap-core at http://localhost:8000/v2/services/<id>/run/
+models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
@@ -194,9 +194,9 @@ models, which takes minutes; `chaps models test` does, at two levels. See
 deployment, is reported as down, naming what answered instead:
 
 ```text
-chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off
+chap-core   down   http://localhost:8700   v2.3.1 (pinned)   auth: off
 ...
-error: chap-core at http://localhost:8000 is not responding: port 8000 answers
+error: chap-core at http://localhost:8700 is not responding: port 8700 answers
 but it is not chap-core (got text/html)
 ```
 
@@ -208,9 +208,9 @@ A chap-core whose own container is up and failing its healthcheck is a
 different answer from a port nobody is listening on, and it says so:
 
 ```text
-chap-core   down (container unhealthy)   http://localhost:8000   v2.3.1 (pinned)   auth: off
+chap-core   down (container unhealthy)   http://localhost:8700   v2.3.1 (pinned)   auth: off
 ...
-error: chap-core at http://localhost:8000 is not responding: ...
+error: chap-core at http://localhost:8700 is not responding: ...
 why chap is unhealthy:
   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) ... password authentication
   failed for user "chap"
@@ -253,7 +253,7 @@ anything is up or not, and they say the one thing the single line cannot: which
 components this deployment is made of, and where each of them will answer.
 
 ```text
-ocs   not running   http://localhost:9000
+ocs   not running   http://localhost:8790
 s3    not running   internal
 
 nothing in this deployment is running; start it with `chaps up`
@@ -309,10 +309,10 @@ stderr, dimmed and never on stdout:
 $ chaps -v status
 project: /srv/chapx (state in /srv/chapx/.chaps/project.yaml)
 registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (7 models)
-asking chap-core at http://localhost:8000
-GET http://localhost:8000/health -> 200 in 12ms
-GET http://localhost:8000/v2/services -> 200 in 8ms
-chap-core   up   http://localhost:8000   v2.3.1   auth: on
+asking chap-core at http://localhost:8700
+GET http://localhost:8700/health -> 200 in 12ms
+GET http://localhost:8700/v2/services -> 200 in 8ms
+chap-core   up   http://localhost:8700   v2.3.1   auth: on
 ```
 
 `-d` (`--debug`) implies `-v` and adds what came back: response bodies cut to

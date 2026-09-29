@@ -1607,12 +1607,12 @@ mod tests {
             })
         };
 
-        // The defaults: published on 8080, seeded from the table.
+        // The defaults: published on 8780, seeded from the table.
         let plain = with_dhis2(ComponentFlags::default()).unwrap();
         assert_eq!(plain.dhis2.port, Some(DHIS2_DEFAULT_PORT));
         assert_eq!(plain.dhis2.seed, Dhis2Seed::Default);
         assert_eq!(plain.dhis2.image_tag, crate::components::DHIS2_DEFAULT_TAG);
-        assert_eq!(plain.dhis2_reach(), "http://localhost:8080");
+        assert_eq!(plain.dhis2_reach(), "http://localhost:8780");
 
         let moved = with_dhis2(ComponentFlags {
             dhis2_port: Some(ComponentPortArg(Some(18080))),

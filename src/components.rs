@@ -52,8 +52,10 @@ pub const OCS_IMAGE: &str = "ghcr.io/dhis2/open-climate-service";
 pub const OCS_DEFAULT_TAG: &str = "main";
 /// Container port OCS listens on, and the port chap-core reaches it at.
 pub const OCS_CONTAINER_PORT: u16 = 9000;
-/// Host port `ocs` publishes unless `--port` says otherwise.
-pub const OCS_DEFAULT_PORT: u16 = 9000;
+/// Host port `ocs` publishes unless `--port` says otherwise: chaps' 87xx block,
+/// away from the 9000 so much else defaults to (see
+/// [`crate::project::DEFAULT_API_PORT`]).
+pub const OCS_DEFAULT_PORT: u16 = 8790;
 /// The `.env` variable that moves the OCS image pin.
 pub const OCS_TAG_ENV_VAR: &str = "OCS_IMAGE_TAG";
 /// The variable naming the public origin OCS builds its STAC and openEO links
@@ -123,9 +125,10 @@ pub const DHIS2_IMAGE: &str = "dhis2/core";
 pub const DHIS2_DEFAULT_TAG: &str = "2.42";
 /// The `.env` variable that moves the DHIS2 image pin.
 pub const DHIS2_TAG_ENV_VAR: &str = "DHIS2_IMAGE_TAG";
-/// Host port `dhis2` publishes unless something says otherwise: the container
-/// port unchanged, because every DHIS2 instruction anyone reads says 8080.
-pub const DHIS2_DEFAULT_PORT: u16 = crate::compose::render::DHIS2_CONTAINER_PORT;
+/// Host port `dhis2` publishes unless something says otherwise: chaps' 87xx
+/// block rather than the container's 8080, which a DHIS2 already running on
+/// this machine is likely to hold (see [`crate::project::DEFAULT_API_PORT`]).
+pub const DHIS2_DEFAULT_PORT: u16 = 8780;
 /// The `.env` variable holding the DHIS2 database password, generated once and
 /// never rewritten: the database volume was created with it.
 pub const DHIS2_DB_PASSWORD_ENV_VAR: &str = "DHIS2_DB_PASSWORD";

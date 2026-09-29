@@ -978,7 +978,7 @@ mod tests {
         assert!(
             text.contains(
                 "reach     internal \
-                 (proxy: http://localhost:8000/v2/services/chapkit-ewars-model/run/)"
+                 (proxy: http://localhost:8700/v2/services/chapkit-ewars-model/run/)"
             ),
             "{text}"
         );

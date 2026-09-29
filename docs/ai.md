@@ -218,7 +218,7 @@ Then, in the model's folder (replace `my_model` with the model's Python
 package, and keep the single quotes):
 
 ```sh
-export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8000/v2/services/$register'
+export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8700/v2/services/$register'
 export SERVICEKIT_HOST=host.docker.internal
 export SERVICEKIT_PORT=8001
 uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001
@@ -300,8 +300,8 @@ does not, the second if it does:
 chaps init mychap --models default
 cd mychap
 chaps up
-chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8000
-chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8000
+chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8700
+chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8700
 chaps dhis2 connect
 ```
 
@@ -345,3 +345,8 @@ chaps down --volumes --yes    # stop and delete all the data
 ```
 
 After `chaps down --volumes --yes` the folder can be deleted.
+
+Two options use the same ports, so only one runs at a time. When `chaps up`
+says a port is used by another deployment and asks whether to stop it, answer
+`y`: the other one keeps its data, and `chaps up` in its folder starts it
+again.

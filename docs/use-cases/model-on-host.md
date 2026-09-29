@@ -16,7 +16,7 @@ Then, in the model's checkout, start it on a port of its own and tell it where
 chap-core is and where chap-core can call it back:
 
 ```sh
-export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8000/v2/services/$register'
+export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8700/v2/services/$register'
 export SERVICEKIT_HOST=host.docker.internal
 export SERVICEKIT_PORT=8001
 uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001

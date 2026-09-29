@@ -1621,7 +1621,7 @@ mod tests {
         );
         assert_eq!(
             svc["ports"],
-            Value::Sequence(vec![Value::String("9000:9000".into())])
+            Value::Sequence(vec![Value::String("8790:9000".into())])
         );
         // Quoted: an unquoted number is not a string, which is what compose
         // wants of an environment value.
@@ -2509,7 +2509,7 @@ mod tests {
         // Active even at the default: the one port the stack publishes has to
         // be discoverable where an operator would change it.
         let text = render_env(&env_spec());
-        assert!(text.contains("\nCHAP_API_PORT=8000\n"), "{text}");
+        assert!(text.contains("\nCHAP_API_PORT=8700\n"), "{text}");
         assert!(!text.contains("# CHAP_API_PORT"));
 
         let text = render_env(&EnvSpec {

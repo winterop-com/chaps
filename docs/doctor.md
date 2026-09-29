@@ -30,9 +30,9 @@ ok    project files                     all 7 present
 ok    compose files                     in sync (0 to write, 7 unchanged, 0 to remove)
 ok    .env                              auth off, POSTGRES_PASSWORD set, CHAP_IMAGE_TAG present
 ok    volumes                           6 volumes named mychap-1ab2c3_*
-fail  api port                          8000 is in use by something else
-      port 8000 is already in use on this machine (needed by chap); free it, or set
-      CHAP_API_PORT=8001 in `.env`
+fail  api port                          8700 is in use by something else
+      port 8700 is already in use on this machine (needed by chap); free it, or set
+      CHAP_API_PORT=8701 in `.env`
 ok    chap-core pin                     v2.3.1 is the newest release
 ok    image chapkit-ewars-model         ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0 (linux/amd64)
 ok    registry pin chapkit_ewars_model  sha-24d58c0 is the newest build on main
@@ -156,8 +156,8 @@ chaps doctor --json
       "id": "api-port",
       "name": "api port",
       "status": "fail",
-      "detail": "8000 is in use by something else",
-      "fix": "port 8000 is already in use on this machine (needed by chap); free it, or set CHAP_API_PORT=8001 in `.env`"
+      "detail": "8700 is in use by something else",
+      "fix": "port 8700 is already in use on this machine (needed by chap); free it, or set CHAP_API_PORT=8701 in `.env`"
     }
   ],
   "summary": { "ok": 1, "warn": 0, "fail": 1, "skip": 0 }

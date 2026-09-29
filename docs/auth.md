@@ -14,7 +14,7 @@ chaps auth enable                                # on a project that already exi
 `CHAP_API_TOKEN` gates the whole API. Clients send it as an HTTP header:
 
 ```sh
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v2/services
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8700/v2/services
 ```
 
 Three paths stay open, because they are not credentials-bearing calls: `/health`
@@ -113,7 +113,7 @@ string when no such variable is set, and an empty `CHAP_API_TOKEN` is
 authentication off. A quote, a backslash or a control character cannot be
 written that way, so a token containing one is refused.
 
-`chaps` reads `.env` by Compose's rules as well: `CHAP_API_PORT=8001 # mine` is
+`chaps` reads `.env` by Compose's rules as well: `CHAP_API_PORT=8701 # mine` is
 port `8001` to both, because a `#` after a space starts a comment. A `#`
 without a space before it (`val#ue`) is part of the value.
 
@@ -214,7 +214,7 @@ chaps status
 ```
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1   auth: on
+chap-core   up   http://localhost:8700   v2.3.1   auth: on
 ```
 
 
@@ -223,7 +223,7 @@ nothing else:
 
 ```sh
 TOKEN=$(chaps auth token)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v2/services
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8700/v2/services
 ```
 
 On a deployment with authentication off it prints nothing on stdout, says so on

@@ -347,7 +347,7 @@ mod tests {
     fn help_texts_and_defaults_reach_the_table() {
         let out = reference();
         assert!(out.contains("Default: `default`"), "init --models default");
-        assert!(out.contains("Default: `8000`"), "init --api-port 8000");
+        assert!(out.contains("Default: `8700`"), "init --api-port 8700");
         assert!(
             out.contains("Never touch the network"),
             "the global --offline help"

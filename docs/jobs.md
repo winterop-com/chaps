@@ -202,7 +202,7 @@ document.
 
 ```sh
 TOKEN=$(chaps auth token)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v2/services
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8700/v2/services
 ```
 
 `chaps auth token` prints the token and nothing else: no label, no

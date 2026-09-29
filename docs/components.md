@@ -17,10 +17,10 @@ chaps components list
 
 ```text
 COMPONENT  STATE    REACH                  WHAT IT IS
-chap-core  enabled  http://localhost:8000  CHAP itself: chap-core, its worker, Valkey and PostgreSQL
-ocs        enabled  http://localhost:9000  Open Climate Service: climate data, reachable at http://ocs:9000
+chap-core  enabled  http://localhost:8700  CHAP itself: chap-core, its worker, Valkey and PostgreSQL
+ocs        enabled  http://localhost:8790  Open Climate Service: climate data, reachable at http://ocs:9000
 s3         off      -                      RustFS, an S3-compatible object store OCS will keep objects in
-dhis2      enabled  http://localhost:8080  DHIS2 and its own database, for a deployment that wants one
+dhis2      enabled  http://localhost:8780  DHIS2 and its own database, for a deployment that wants one
 ```
 
 ## Turning one on and off
@@ -50,11 +50,11 @@ so a `--force` over a directory whose `ocs/climate-service.yaml` already says
 Afterwards, in the deployment directory:
 
 ```sh
-chaps components enable ocs           # publishes it on 9000
+chaps components enable ocs           # publishes it on 8790
 chaps components enable ocs --port 9010
 chaps components enable ocs --port none  # no host port; see below
 chaps components enable s3            # internal only
-chaps components enable dhis2         # publishes it on 8080
+chaps components enable dhis2         # publishes it on 8780
 chaps components disable ocs
 chaps components disable ocs --purge  # and its data
 ```
@@ -80,10 +80,10 @@ thing that is worth knowing but is nobody's fault. Turning OCS on for the first
 time is the noisiest of them:
 
 ```text
-enabled ocs on http://localhost:9000
+enabled ocs on http://localhost:8790
 written  compose.ocs.yml
 written  .env
-note: port 9000 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port <free>`
+note: port 8790 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port 8791`
 note: wrote ocs/climate-service.yaml; it is yours to edit, and chaps never rewrites it
 note: OCS will soon need an S3-compatible object store; `chaps components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
 note: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `chaps auth show` reports which are set
@@ -123,7 +123,7 @@ Turning `dhis2` on says two more things, because neither is visible from the
 compose file and both decide what the first start does:
 
 ```text
-enabled dhis2 on http://localhost:8080
+enabled dhis2 on http://localhost:8780
 written  compose.dhis2.yml
 written  .env
 note: wrote dhis2/dhis.conf; it is yours to edit, and chaps never rewrites it
@@ -232,7 +232,7 @@ chap-core:
   enabled: true
 ocs:
   enabled: true
-  port: 9000
+  port: 8790
   base_url: null
   read_only: false
   image_tag: main
@@ -241,7 +241,7 @@ s3:
   port: null
 dhis2:
   enabled: true
-  port: 8080
+  port: 8780
   image_tag: '2.42'
   seed: default
   connected_at: null
@@ -339,7 +339,7 @@ A component that is enabled but **not running** is a note rather than a refusal,
 and the page is opened anyway:
 
 ```text
-opening chap-core's API documentation at http://localhost:8000/docs
+opening chap-core's API documentation at http://localhost:8700/docs
 note: no chap container is running, so the page will not load yet; run `chaps up` to start this deployment
 ```
 
@@ -395,7 +395,7 @@ host runs it natively - unlike chap-core and the model images, which are amd64
 only. It ships its own `HEALTHCHECK`, so the compose file declares none.
 
 OCS serves a web interface as well as an API, so it is published on a host port
-by default (9000). chap-core reaches it inside the deployment at
+by default (8790). chap-core reaches it inside the deployment at
 `http://ocs:9000`, on the compose default network, which is what makes OCS
 usable as a data source for CHAP: OCS's own example configuration carries a
 commented-out `chirps-to-chap` workflow trigger for exactly that, and the file
@@ -606,7 +606,7 @@ recorded in `components.yaml`, and `chaps status` prints `read-only` next to the
 OCS line:
 
 ```text
-ocs  up  http://localhost:9000   read-only
+ocs  up  http://localhost:8790   read-only
 ```
 
 OCS reads the file and not the record, and it reads it once at startup, so the
@@ -623,8 +623,8 @@ of open-climate-service that predates read-only mode ignores it silently and
 serves a fully writable instance:
 
 ```sh
-curl -s http://localhost:9000/info | grep read_only   # must be true
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:9000/ingestions -d '{}'   # 403
+curl -s http://localhost:8790/info | grep read_only   # must be true
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8790/ingestions -d '{}'   # 403
 ```
 
 Read-only applies to HTTP, so ingestion becomes an operator task. Ingest through
@@ -760,7 +760,7 @@ opening an XML error document. See
 ## DHIS2
 
 The `dhis2` component is a demo or development DHIS2 and a PostgreSQL of its own,
-published on 8080 by default, for a deployment that wants one beside CHAP. CHAP
+published on 8780 by default, for a deployment that wants one beside CHAP. CHAP
 is often deployed with DHIS2 and not always, so this is one way to get one rather
 than something a deployment needs.
 
@@ -913,7 +913,7 @@ chaps' own again, and `components disable chap-core` forgets it too.
   component with no container reads `not running`, and one that has a container
   is then asked whatever it answers - OCS its `/health` endpoint, and only while
   that container is up. That gate is what keeps a stopped OCS from being reported `up` because
-  another process answered on its host port: OCS defaults to 9000, so two
+  another process answered on its host port: OCS defaults to 8790, so two
   deployments on one machine collide there, which is the clash the `up`
   preflight and `chaps doctor` already warn about. An OCS instance with no host
   port cannot be asked from out here at all, so its container is the whole

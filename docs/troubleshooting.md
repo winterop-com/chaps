@@ -18,9 +18,9 @@ project paths.
 `chaps up` refuses before it calls Docker, with one line per conflict:
 
 ```text
-2 host ports CHAP needs are already in use; nothing was started
-  port 8000 is already in use on this machine (needed by chap); free it, or set
-  CHAP_API_PORT=8001 in `.env`
+2 host ports this deployment needs are already in use; nothing was started
+  port 8700 is already in use on this machine (needed by chap); free it, or set
+  CHAP_API_PORT=8701 in `.env`
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
@@ -31,12 +31,34 @@ Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
 running containers are not conflicts, so `chaps up` on a running deployment is still
 a no-op. `chaps up --no-preflight` hands the question back to Docker.
 
+When the port belongs to another chaps deployment, that one is named, with the
+command that stops it:
+
+```text
+1 host port this deployment needs is already in use; nothing was started
+  port 8790 (needed by ocs) is in use, and climate (/srv/climate) publishes it too; if that is what is up, stop it with `chaps -C /srv/climate down`, or move this one: run `chaps components enable ocs --port 8791`
+  or run `chaps up --no-preflight` to hand the conflict to Docker
+  or run `chaps up --replace` to stop climate first
+```
+
+At a terminal it asks instead of stopping there:
+
+```text
+climate is using these ports. Stop it and start this deployment instead? Its data is kept. [y/N]
+```
+
+`y` runs `chaps down` on the other deployment (its volumes and data stay; its
+own `chaps up` brings it back) and then starts this one. `chaps up --replace`
+is the same answer given in advance, for a script. The offer is only made
+when every taken port belongs to another chaps deployment: a port some other
+program holds is never chaps' to take away.
+
 ## The port answers, but it is not chap-core
 
 ```text
-chap-core   down   http://localhost:8000   v2.3.1 (pinned)   auth: off
+chap-core   down   http://localhost:8700   v2.3.1 (pinned)   auth: off
 ...
-error: chap-core at http://localhost:8000 is not responding: port 8000 answers
+error: chap-core at http://localhost:8700 is not responding: port 8700 answers
 but it is not chap-core (got text/html)
 ```
 
@@ -150,9 +172,9 @@ run and `chaps up` was not, so chap-core is still running without the token
 while `.env` already has one. `chaps status` tells the two apart:
 
 ```text
-chap-core   up, token rejected   http://localhost:8000   v2.3.1 (pinned)   auth: on
-error: chap-core at http://localhost:8000 is up and did not accept the API token:
-port 8000 answers /v2/services with HTTP 401: the API token in .env is not accepted
+chap-core   up, token rejected   http://localhost:8700   v2.3.1 (pinned)   auth: on
+error: chap-core at http://localhost:8700 is up and did not accept the API token:
+port 8700 answers /v2/services with HTTP 401: the API token in .env is not accepted
 ```
 
 means the running chap-core has a different token - it is up, which is why no
@@ -160,7 +182,7 @@ container log is printed under it and no model table: the registry is behind
 the same token, so whether a model registered cannot be read - and
 
 ```text
-chap-core   up   http://localhost:8000   v2.3.1   auth: on
+chap-core   up   http://localhost:8700   v2.3.1   auth: on
 ```
 
 means `.env` and the running container agree, so the mismatch is in the client.
@@ -849,7 +871,7 @@ import.
 ## `chaps dhis2` says DHIS2 did not accept the password
 
 ```text
-error: DHIS2 at http://localhost:8080 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
 ```
 
 `chaps` holds no DHIS2 credentials of its own. On a DHIS2 it deployed it falls
@@ -931,7 +953,7 @@ the one you no longer want, then add the other. See
 ## `chaps dhis2` waited twenty minutes and gave up
 
 ```text
-error: DHIS2 at http://localhost:8080 did not answer /api/ping within 20 minutes; `chaps logs dhis2` is where the migration shows, and `--wait SECONDS` waits longer
+error: DHIS2 at http://localhost:8780 did not answer /api/ping within 20 minutes; `chaps logs dhis2` is where the migration shows, and `--wait SECONDS` waits longer
 ```
 
 Either DHIS2 is still migrating - under emulation a first start is a quarter of an

@@ -3,7 +3,7 @@
 ## One published port
 
 A deployment of chap-core and models publishes **one** host port: chap-core's
-API, 8000 by default and `chaps init --api-port N` otherwise. Nothing else in it
+API, 8700 by default and `chaps init --api-port N` otherwise. Nothing else in it
 needs one. The opt-in [components](./components.md) are the exception, and each
 one publishes a well-known port of its own: see
 [Component ports](#component-ports).
@@ -25,8 +25,8 @@ Two ways:
 
 ```sh
 # through chap-core's read-only proxy, no host port needed
-curl http://localhost:8000/v2/services/chapkit-ewars-model/run/api/v1/info
-open http://localhost:8000/v2/services/chapkit-ewars-model/run/docs
+curl http://localhost:8700/v2/services/chapkit-ewars-model/run/api/v1/info
+open http://localhost:8700/v2/services/chapkit-ewars-model/run/docs
 
 # or give that model a port of its own
 chaps models expose chapkit-ewars-model            # lowest free port, 5001 up
@@ -72,9 +72,9 @@ model range:
 
 | Component | Default host port | Why that one |
 | --- | --- | --- |
-| `ocs` | 9000 | OCS serves a web interface as well as an API, so it is published. |
+| `ocs` | 8790 | OCS serves a web interface as well as an API, so it is published. |
 | `s3` | none | OCS reaches the object store at `http://s3:9000` inside the deployment; nothing out here needs it. |
-| `dhis2` | 8080 | The container port unchanged, because every DHIS2 instruction anyone reads says 8080. DHIS2 is a web application people log into. |
+| `dhis2` | 8780 | Not the container's 8080, which a DHIS2 already running on this machine likely holds. DHIS2 is a web application people log into. |
 
 Each is set at creation time or afterwards, and `none` is how any of them is
 kept off the host entirely:
@@ -96,21 +96,25 @@ waiting for a service on an address no file mentions.
 rather than opening anything when the component publishes none. See
 [Reaching a component from a browser](./components.md#reaching-a-component-from-a-browser).
 
-8080 is a busy port on a developer's machine, and 8000 - chap-core's own - is
-next to it. Neither the `init` probe nor `chaps components enable` refuses a
-taken one; both warn, and the way out is on the same line:
+8000, 8080 and 9000 are what most development servers default to, so chaps'
+own services start one block away from them: chap-core on 8700, DHIS2 on 8780
+and OCS on 8790, while inside the deployment they keep their container ports
+(`http://chap:8000`, `http://ocs:9000`). Two deployments on the same defaults
+still collide with each other. Neither the `init` probe nor `chaps components
+enable` refuses a taken port; both warn, name a free one, and put the way out
+on the same line:
 
 ```text
-warning: port 8080 is also used by demo (/home/me/demo), which is not running; both cannot be up at once. Keep it, or run `chaps components enable dhis2 --port <free>`
+warning: port 8780 is also used by demo (/home/me/demo), which is not running; both cannot be up at once. Keep it, or run `chaps components enable dhis2 --port 8781`
 ```
 
 `chaps components enable` probes the port it is given the same way `init` does,
 and warns rather than refuses:
 
 ```text
-enabled ocs on http://localhost:9000
+enabled ocs on http://localhost:8790
 written  compose.ocs.yml
-note: port 9000 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port <free>`
+note: port 8790 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port 8791`
 run `chaps up` to apply
 ```
 
@@ -131,7 +135,7 @@ it in the `-f` list:
 services:
   chap:
     ports: !override
-      - "${CHAP_API_PORT:-8000}:8000"
+      - "${CHAP_API_PORT:-8700}:8000"
 ```
 
 `!override` (Compose 2.24.4+, which is why that is the supported minimum)
@@ -150,7 +154,7 @@ preflight reserves, and the port `chaps doctor` checks - and the checklist names
 the file it came from when the two disagree:
 
 ```text
-ok    api port                   18000 is free (from .env, over the 8000 recorded in .chaps/project.yaml)
+ok    api port                   18000 is free (from .env, over the 8700 recorded in .chaps/project.yaml)
 ```
 
 `chaps status --json` carries the same answer as two fields, `api_port` and
@@ -162,7 +166,7 @@ stands.
 outlives the rest, so
 
 ```sh
-chaps init --api-port 9000 --force
+chaps init --api-port 8710 --force
 ```
 
 over an existing deployment moves `.chaps/project.yaml` and `compose.chaps.yml`
@@ -175,18 +179,18 @@ preflight and `doctor` - names that `.env` line and not `init --force`: the
 line is there from the first `init` on, so it is the one edit that moves the
 port.
 
-`CHAP_API_PORT` is written as an active line even at 8000, so the one published
+`CHAP_API_PORT` is written as an active line even at 8700, so the one published
 port is discoverable by reading `.env`.
 
 ## The preflight
 
-`chaps up` checks that every host port CHAP is about to publish is free
+`chaps up` checks that every host port this deployment is about to publish is free
 before it calls Docker, and refuses with one line per conflict:
 
 ```text
-2 host ports CHAP needs are already in use; nothing was started
-  port 8000 is already in use on this machine (needed by chap); free it, or set
-  CHAP_API_PORT=8001 in `.env`
+2 host ports this deployment needs are already in use; nothing was started
+  port 8700 is already in use on this machine (needed by chap); free it, or set
+  CHAP_API_PORT=8701 in `.env`
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
@@ -198,12 +202,16 @@ container rather than a port.
 - Ports held by this project's own running containers are skipped, so
   `chaps up` on a running deployment stays a no-op.
 - `chaps up --no-preflight` hands the question back to Docker.
+- A port another chaps deployment publishes is named with that deployment and
+  the command that stops it, and at a terminal `up` offers to stop it and start
+  this one instead; `chaps up --replace` does that without asking. See
+  [A host port is already in use](./troubleshooting.md#a-host-port-is-already-in-use).
 - `chaps init` probes the API port too, but only warns: the process holding it
   is often a previous deployment you are about to replace. It warns as well
   when nothing is listening and another deployment already uses that port -
   one in a directory beside the new one, or one Docker has started at least
   once from anywhere - naming it and the first port above that neither a
-  listener nor another deployment holds. Both stay warnings, and 8000 stays
+  listener nor another deployment holds. Both stay warnings, and 8700 stays
   the default: `chaps init hello1 && chaps init hello2` writes two deployments
   on one port that take turns, and `--api-port N` or `CHAP_API_PORT` in `.env`
   moves either one. The same goes for a component's port, such as the one
@@ -224,7 +232,7 @@ browser's `PORT` column - means the model publishes no host port of its own.
 The way in is chap-core:
 
 ```text
-http://localhost:8000/v2/services/<service_id>/run/
+http://localhost:8700/v2/services/<service_id>/run/
 ```
 
 `chaps status` prints that line once, under the table, rather than repeating a
