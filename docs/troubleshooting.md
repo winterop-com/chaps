@@ -491,6 +491,9 @@ image has to listen on `PORT`. One that starts on a fixed 8000 (the EWARS image
 does) cannot, and never registers with a chap-core elsewhere. Use a model whose
 image honours `PORT`, or run chaps' own chap-core
 (`chaps components enable chap-core`), where every model listens on 8000.
+`chaps models enable` warns about the marketplace images known to do this
+(EWARS), and `chaps status` points here when such a model stays
+`running, not registered` while the chap-core elsewhere answers.
 
 ## A model registers with an external chap-core, and its jobs fail to connect
 

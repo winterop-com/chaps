@@ -992,6 +992,24 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// way to know a model can work is to make it work.
 pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run";
 
+/// The extra hint for a model that has not registered with a chap-core
+/// elsewhere: registering there needs the image to listen on the port it
+/// advertises, and an image that ignores `PORT` never gets past servicekit's
+/// readiness check.
+pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
+    rows.iter()
+        .filter(|row| row.state == ModelState::RunningNotRegistered)
+        .map(|row| {
+            format!(
+                "{id}: with a chap-core elsewhere the image has to listen on `PORT`; if \
+                 `chaps logs {id}` shows `App never became ready`, it does not, so run it \
+                 with chaps' own chap-core (`chaps components enable chap-core`)",
+                id = row.id
+            )
+        })
+        .collect()
+}
+
 pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
     let registration_key = if auth {
         concat!(
@@ -2600,6 +2618,29 @@ mod tests {
             let line = components_closing_line(&rows);
             assert!(!line.contains("model"), "{line}");
         }
+    }
+
+    #[test]
+    fn a_model_that_never_registers_elsewhere_is_told_about_port() {
+        let rows =
+            standalone_model_rows(&[("m".to_string(), Some(5001))], &BTreeSet::new(), &|_| {
+                true
+            });
+        assert!(
+            external_registration_hints(&rows).is_empty(),
+            "not running is another hint"
+        );
+        let row = ModelStatus {
+            state: ModelState::RunningNotRegistered,
+            ..rows[0].clone()
+        };
+        let hints = external_registration_hints(&[row]);
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].contains("App never became ready"), "{hints:?}");
+        assert!(
+            hints[0].contains("`chaps components enable chap-core`"),
+            "{hints:?}"
+        );
     }
 
     #[test]

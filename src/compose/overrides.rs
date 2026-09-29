@@ -21,6 +21,12 @@ pub struct ImageOverride {
 /// default `DATABASE_URL` (`sqlite+aiosqlite:///data/chapkit.db`) alone, so
 /// the SQLite file lands in `/work/data`.
 pub const DEFAULT_DATA_DIR: &str = "/work/data";
+
+/// Marketplace models whose image starts its server on 8000 whatever `PORT`
+/// says. Such a model cannot register with a chap-core elsewhere, where the
+/// app has to listen on its host port (see `docs/components.md`, "A chap-core
+/// elsewhere"). Checked against each image's own start command.
+pub const FIXED_PORT_MODELS: &[&str] = &["chapkit_ewars_model"];
 /// User most chapkit images run as.
 ///
 /// uid/gid 1000, created in `chapkit-py.Dockerfile` and inherited by

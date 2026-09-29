@@ -129,6 +129,16 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     }
 
     ctx.out.emit(&report, || human(&report, &ctx.out))?;
+    // Only while that chap-core answers: when it does not, that is the reason
+    // nothing registered, and the error line below says so.
+    if !ctx.out.json
+        && project.state.components.chap_core_external.is_some()
+        && matches!(report.api, ApiHealth::Up { .. })
+    {
+        for hint in crate::status::external_registration_hints(&report.models) {
+            println!("  {}", ctx.out.backticks(&hint));
+        }
+    }
 
     match &report.api {
         // The single error line for an API that is not answering as

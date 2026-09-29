@@ -397,6 +397,27 @@ pub fn apply_with(
         project.state.models.insert(model.id.clone(), entry);
     }
 
+    // A chap-core elsewhere is reached from a model that listens on its host
+    // port, which an image that hard-codes 8000 cannot do: said now, since the
+    // symptom later is only a model that never registers.
+    let external = sel
+        .components
+        .as_ref()
+        .unwrap_or(&project.state.components)
+        .chap_core_external
+        .is_some();
+    if external {
+        for id in sel.enable.iter().map(|req| req.id.as_str()) {
+            if crate::compose::overrides::FIXED_PORT_MODELS.contains(&id) {
+                report.warnings.push(format!(
+                    "{id} starts on port 8000 whatever PORT says, so it cannot register with \
+                     the chap-core elsewhere this deployment uses; run it with chaps' own \
+                     chap-core (`chaps components enable chap-core`), or pick another model"
+                ));
+            }
+        }
+    }
+
     // The same for the models this selection does not mention, when it is the
     // one that takes chap-core away: they keep running, and need a way in.
     if standalone {

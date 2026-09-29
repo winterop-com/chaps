@@ -287,6 +287,15 @@ fn models_register_with_a_chap_core_elsewhere() {
         "{overlay}"
     );
 
+    // EWARS hard-codes its port, so enabling it here says it will not register.
+    sandbox
+        .models(&["enable", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "cannot register with the chap-core elsewhere",
+        ));
+
     // --url is refused for anything but chap-core, and while chap-core runs here.
     sandbox
         .components(&["enable", "ocs", "--url", "http://x"])
