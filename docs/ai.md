@@ -61,6 +61,7 @@ from the folder where they want it created, and then to `cd` into it as shown.
 | 9 | [My own model, while I work on it](#9-my-own-model-while-i-work-on-it) | develop a model in its folder and have CHAP use it |
 | 10 | [My own chap-core, with the models](#10-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
 | 11 | [A model image I built](#11-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
+| 12 | [chap-core built from my checkout](#12-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
 
 ### 1. CHAP with forecasting models
 
@@ -268,6 +269,24 @@ another name: run `chaps models remove my_model`, then add it again with
 `--service-id` set to the name in the `unmanaged` row.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
+
+### 12. chap-core built from my checkout
+
+For someone changing chap-core who wants to run their version with models.
+Replace the path with where they cloned chap-core:
+
+```sh
+chaps init mychap --source ~/dev/chap-core --models default
+cd mychap
+chaps up
+chaps status
+```
+
+The first `chaps up` builds chap-core and takes several minutes (longer on an
+Apple Silicon Mac). It worked when `chaps status` shows chap-core `up` and the
+models registered. After changing the code, `chaps up` again rebuilds it.
+
+More: [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md).
 
 ## Every option: stop, start, remove
 

@@ -1343,19 +1343,6 @@ fn forcing_the_same_model_starts_its_state_over() {
 }
 
 #[test]
-fn a_local_chap_core_build_is_rejected() {
-    let sandbox = Sandbox::new();
-    sandbox
-        .init(&["--source", "/tmp/chap-core"])
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains(
-            "local chap-core build not yet supported",
-        ));
-    assert!(!sandbox.project().exists(), "nothing is written");
-}
-
-#[test]
 fn the_chap_tag_reaches_the_env_file_and_the_state() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
@@ -5306,6 +5293,55 @@ fn a_local_image_that_was_never_built_is_refused_with_the_build_command() {
     let manual = std::fs::read_to_string(sandbox.project().join(".chaps/models-manual.yaml"))
         .unwrap_or_default();
     assert!(!manual.contains("never_built"), "nothing recorded");
+}
+
+/// `--source` builds chap-core from a checkout: compose.yml comes from the
+/// checkout's own compose.ghcr.yml, compose.chaps.yml builds chap and worker,
+/// and `update` has no pin to move.
+#[test]
+fn init_source_builds_chap_core_from_a_checkout() {
+    let sandbox = Sandbox::new();
+    let checkout = sandbox.home.path().join("chap-core");
+    std::fs::create_dir_all(&checkout).unwrap();
+
+    // Not a checkout yet: refused, naming what is missing, before anything is written.
+    sandbox
+        .init(&["--source", checkout.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("is not a chap-core checkout"))
+        .stderr(predicates::str::contains("Dockerfile.worker"));
+    assert!(!sandbox.project().exists());
+
+    std::fs::write(checkout.join("Dockerfile"), "FROM scratch\n").unwrap();
+    std::fs::write(checkout.join("Dockerfile.worker"), "FROM scratch\n").unwrap();
+    std::fs::write(
+        checkout.join("compose.ghcr.yml"),
+        "services:\n  chap:\n    image: ghcr.io/dhis2-chap/chap-core:latest\n  \
+         worker:\n    image: ghcr.io/dhis2-chap/chap-worker:latest\n",
+    )
+    .unwrap();
+    sandbox
+        .init(&["--source", checkout.to_str().unwrap(), "--models", "none"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("the chap-core checkout at"));
+    let dir = sandbox.project();
+    assert!(read(&dir.join("compose.yml")).contains("ghcr.io/dhis2-chap/chap-worker:latest"));
+    let chaps = read(&dir.join("compose.chaps.yml"));
+    assert!(chaps.contains("dockerfile: Dockerfile.worker"), "{chaps}");
+    assert!(chaps.contains("pull_policy: build"), "{chaps}");
+
+    let mut update = sandbox.chap();
+    update
+        .arg("-C")
+        .arg(&dir)
+        .args(["update", "--chap-tag", "v1.0.0"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "builds chap-core from the checkout",
+        ));
 }
 
 #[test]

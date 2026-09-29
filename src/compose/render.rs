@@ -260,21 +260,56 @@ pub fn render_base(spec: &BaseSpec) -> String {
 /// file system: '/home/chap'`. The server comes up either way; pointing the
 /// socket at the writable `/tmp` tmpfs keeps that line out of the log. Only
 /// the `chap` service needs it: the worker runs celery, not gunicorn.
-pub fn render_chaps_overlay(api_port: u16, project_name: Option<&str>) -> String {
+///
+/// `checkout` is a chap-core checkout the chap and worker images are built
+/// from instead of pulled (`chaps init --source`). `pull_policy: build` makes
+/// every `chaps up` build the checkout as it is now, which Docker's layer
+/// cache keeps cheap when nothing changed, and makes `compose pull` skip them.
+pub fn render_chaps_overlay(
+    api_port: u16,
+    project_name: Option<&str>,
+    checkout: Option<&str>,
+) -> String {
+    let (chap_build, worker_build) = match checkout {
+        Some(path) => (
+            format!(
+                "\x20   image: {CHECKOUT_CHAP_IMAGE}\n\
+                 \x20   build:\n\
+                 \x20     context: {path}\n\
+                 \x20   pull_policy: build\n"
+            ),
+            format!(
+                "\x20 worker:\n\
+                 \x20   image: {CHECKOUT_WORKER_IMAGE}\n\
+                 \x20   build:\n\
+                 \x20     context: {path}\n\
+                 \x20     dockerfile: Dockerfile.worker\n\
+                 \x20   pull_policy: build\n"
+            ),
+        ),
+        None => (String::new(), String::new()),
+    };
     format!(
         "{GENERATED_HEADER}\n\
          {}\
          services:\n\
          \x20 chap:\n\
+         {chap_build}\
          \x20   ports: !override\n\
          \x20     - \"${{{API_PORT_ENV_VAR}:-{api_port}}}:8000\"\n\
          \x20   environment:\n\
          \x20     {REGISTRATION_KEY_ENV_VAR}: ${{{REGISTRATION_KEY_ENV_VAR}:-}}\n\
          \x20     # Keeps gunicorn's control socket off the read-only root; drop it once chap-core disables that socket.\n\
-         \x20     XDG_RUNTIME_DIR: /tmp\n",
+         \x20     XDG_RUNTIME_DIR: /tmp\n\
+         {worker_build}",
         project_name_block(project_name)
     )
 }
+
+/// The image a chap-core checkout's API is built into.
+pub const CHECKOUT_CHAP_IMAGE: &str = "chap-core-checkout:local";
+/// The image a chap-core checkout's worker is built into.
+pub const CHECKOUT_WORKER_IMAGE: &str = "chap-worker-checkout:local";
 
 /// The top-level `name:` key.
 ///
@@ -986,6 +1021,26 @@ mod tests {
         );
     }
 
+    /// A deployment built from a chap-core checkout builds chap and worker
+    /// from it on every `chaps up`, into images of their own.
+    #[test]
+    fn a_checkout_builds_chap_and_the_worker() {
+        assert!(!render_chaps_overlay(8000, None, None).contains("build:"));
+        let text = render_chaps_overlay(8000, None, Some("/src/chap-core"));
+        let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+        let chap = service(&doc, "chap");
+        assert_eq!(chap["image"].as_str(), Some(CHECKOUT_CHAP_IMAGE));
+        assert_eq!(chap["build"]["context"].as_str(), Some("/src/chap-core"));
+        assert_eq!(chap["pull_policy"].as_str(), Some("build"));
+        let worker = service(&doc, "worker");
+        assert_eq!(worker["image"].as_str(), Some(CHECKOUT_WORKER_IMAGE));
+        assert_eq!(
+            worker["build"]["dockerfile"].as_str(),
+            Some("Dockerfile.worker")
+        );
+        assert_eq!(worker["pull_policy"].as_str(), Some("build"));
+    }
+
     /// The third shape, said as assertions rather than as a golden file: an
     /// image that runs as root, which gets no `user:` line and an init
     /// container that chowns its volume to `0:0`. Auto-ARIMA is one of the
@@ -1066,7 +1121,7 @@ mod tests {
 
     #[test]
     fn the_chaps_overlay_replaces_the_api_port_rather_than_adding_to_it() {
-        let text = render_chaps_overlay(8000, None);
+        let text = render_chaps_overlay(8000, None, None);
         assert_no_tokens(&text);
         assert!(text.starts_with(&format!("{GENERATED_HEADER}\n")));
         // `!override` is what makes this a replacement: a plain `ports:` list
@@ -1076,7 +1131,7 @@ mod tests {
 
         // The recorded port is the variable's default, so the file works
         // without .env and moves when `.chaps/project.yaml` does.
-        assert!(render_chaps_overlay(8123, None).contains("${CHAP_API_PORT:-8123}:8000"));
+        assert!(render_chaps_overlay(8123, None, None).contains("${CHAP_API_PORT:-8123}:8000"));
 
         // It parses, tag and all, and names one service.
         let doc = parse(&text);
@@ -1087,7 +1142,7 @@ mod tests {
 
     #[test]
     fn the_chaps_overlay_names_the_compose_project() {
-        let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"));
+        let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"), None);
         assert_no_tokens(&text);
         assert!(text.contains("\nname: mychap-1ab2c3\n"), "{text}");
         assert_eq!(
@@ -1097,7 +1152,7 @@ mod tests {
         );
         // Without a name the key is absent rather than empty: compose would
         // reject `name:` with nothing after it.
-        assert!(!render_chaps_overlay(8000, None).contains("name:"));
+        assert!(!render_chaps_overlay(8000, None, None).contains("name:"));
     }
 
     #[test]
@@ -1105,7 +1160,7 @@ mod tests {
         // Upstream's compose.ghcr.yml passes only CHAP_API_TOKEN into the
         // container, so without this line a protected chap-core has no key to
         // check a model's X-Service-Key against and answers 401.
-        let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"));
+        let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"), None);
         let env = &parse(&text)["services"]["chap"]["environment"];
         assert_eq!(
             env["SERVICEKIT_REGISTRATION_KEY"].as_str(),
@@ -1113,7 +1168,7 @@ mod tests {
         );
         // Rendered whether or not the deployment has a key: compose
         // substitutes an empty value, which chap-core reads as no key.
-        assert!(render_chaps_overlay(8000, None).contains("SERVICEKIT_REGISTRATION_KEY:"));
+        assert!(render_chaps_overlay(8000, None, None).contains("SERVICEKIT_REGISTRATION_KEY:"));
     }
 
     #[test]
@@ -1121,7 +1176,7 @@ mod tests {
         // gunicorn 26 falls back to $HOME/.gunicorn/, which the service's
         // read-only root refuses, and logs an error on every start; /tmp is
         // the tmpfs upstream already mounts.
-        let text = render_chaps_overlay(8000, None);
+        let text = render_chaps_overlay(8000, None, None);
         assert_eq!(
             parse(&text)["services"]["chap"]["environment"]["XDG_RUNTIME_DIR"].as_str(),
             Some("/tmp")
@@ -1456,7 +1511,7 @@ mod tests {
             assert_eq!(template.lines().next(), Some(GENERATED_HEADER));
         }
         for rendered in [
-            render_chaps_overlay(8000, None),
+            render_chaps_overlay(8000, None, None),
             render_umbrella(&[], None),
             render_umbrella(&["compose.a.yml".to_string()], Some("demo-1ab2c3")),
         ] {

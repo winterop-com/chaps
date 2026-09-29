@@ -51,12 +51,10 @@ fn no_models_line(components: &Components) -> &'static str {
 /// Create compose.yml, compose.marketplace.yml, the model overlays, .env and
 /// the `.chaps/` directory in the target directory.
 ///
-/// `args.source` is parsed but must be rejected with "local chap-core build
-/// not yet supported"; the flag only reserves the seam.
+/// `args.source` names a chap-core checkout to build from instead of a
+/// release to pull; see [`checkout_source`].
 pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
-    if args.source.is_some() {
-        return Err(anyhow::anyhow!("local chap-core build not yet supported"));
-    }
+    let checkout = args.source.as_deref().map(checkout_source).transpose()?;
     // The positional DIR is relative to the working directory, not to -C:
     // `chaps init foo` is a fresh deployment, not an operation on a project.
     let dir = resolve_dir(&args.dir)?;
@@ -114,7 +112,20 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // as given and `compose.yml` would come from the embedded copy, which is
     // what `chaps components enable chap-core` renders and `chaps update`
     // then moves to a release.
-    let chap_core = if components.chap_core.enabled {
+    if checkout.is_some() && !components.chap_core.enabled {
+        return Err(anyhow::anyhow!(
+            "--source builds chap-core, and this run leaves chap-core out; \
+             drop --source, or keep chap-core in the component set"
+        ));
+    }
+    let chap_core = if let Some(path) = &checkout {
+        // Nothing to look up: the checkout is the version.
+        ChapCore {
+            tag: CHECKOUT_TAG.to_string(),
+            source: ComposeSource::Checkout { path: path.clone() },
+            cached: None,
+        }
+    } else if components.chap_core.enabled {
         resolve_chap_core(ctx, &dir, &args.chap_tag)
     } else {
         ChapCore {
@@ -698,6 +709,35 @@ fn parse_component_list(spec: Option<&str>) -> Result<Vec<Component>> {
         .filter(|name| !name.is_empty())
         .map(Component::from_name)
         .collect()
+}
+
+/// What `.chaps/project.yaml` records as the chap-core tag of a deployment
+/// built from a checkout: there is no release behind it.
+const CHECKOUT_TAG: &str = "checkout";
+
+/// The absolute path of a chap-core checkout, refused unless it has what a
+/// build needs: the API's `Dockerfile`, the worker's `Dockerfile.worker` and
+/// the `compose.ghcr.yml` that `compose.yml` is rendered from.
+fn checkout_source(path: &Path) -> Result<String> {
+    let path = std::path::absolute(path)
+        .map_err(|e| anyhow::anyhow!("resolving {}: {e}", path.display()))?;
+    let missing: Vec<&str> = [
+        "Dockerfile",
+        "Dockerfile.worker",
+        crate::project::CHECKOUT_COMPOSE,
+    ]
+    .into_iter()
+    .filter(|name| !path.join(name).is_file())
+    .collect();
+    if !missing.is_empty() {
+        return Err(anyhow::anyhow!(
+            "{} is not a chap-core checkout: it has no {}; pass the directory you cloned \
+             github.com/dhis2-chap/chap-core into",
+            path.display(),
+            missing.join(", ")
+        ));
+    }
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// The chap-core tag `init` settled on, and where `compose.yml` comes from.

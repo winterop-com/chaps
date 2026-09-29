@@ -118,7 +118,14 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // defines.
         desired.push((
             CHAPS_COMPOSE.to_string(),
-            render_chaps_overlay(project.state.api_port, project_name.as_deref()),
+            render_chaps_overlay(
+                project.state.api_port,
+                project_name.as_deref(),
+                match &project.state.chap_compose_source {
+                    ComposeSource::Checkout { path } => Some(path.as_str()),
+                    _ => None,
+                },
+            ),
         ));
     }
     // The components sit between the base stack and the model overlays, in
@@ -322,6 +329,28 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
 /// overwrite with a guess.
 fn base_compose(project: &Project) -> (Option<String>, Vec<String>) {
     let embedded = || render_base(&BaseSpec { upstream: None });
+    if let ComposeSource::Checkout { path } = &project.state.chap_compose_source {
+        let file = Path::new(path).join(crate::project::CHECKOUT_COMPOSE);
+        return match std::fs::read_to_string(&file) {
+            Ok(body) => (
+                Some(render_base(&BaseSpec {
+                    upstream: Some(UpstreamCompose {
+                        tag: format!("the checkout at {path}"),
+                        body,
+                    }),
+                })),
+                Vec::new(),
+            ),
+            Err(_) => (
+                None,
+                vec![format!(
+                    "{} is missing, so {BASE_COMPOSE} is left as it is; check the chap-core \
+                     checkout is still at {path}, or re-run `chaps init --force --source PATH`",
+                    file.display()
+                )],
+            ),
+        };
+    }
     let ComposeSource::Fetched { tag, sha256, .. } = &project.state.chap_compose_source else {
         return (Some(embedded()), Vec::new());
     };

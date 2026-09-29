@@ -48,7 +48,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--api-token <TOKEN>` | Protect the API with a token (generated when no value is given). |
 | `--no-env` | Do not write a .env file. |
 | `--fresh-env` | Regenerate .env, rotating the database password. |
-| `--source <PATH>` | Build chap-core from a local checkout (not supported yet). |
+| `--source <PATH>` | Build chap-core from the chap-core checkout at PATH. |
 | `--with <LIST>` | Components to add: ocs, s3, dhis2. |
 | `--without <LIST>` | Components to leave out: chap-core, ocs, s3, dhis2. |
 | `--only <LIST>` | Exactly these components and nothing else; `none` for models alone. |

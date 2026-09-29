@@ -252,8 +252,8 @@ pub struct InitArgs {
     #[arg(long, conflicts_with = "no_env")]
     pub fresh_env: bool,
 
-    /// Build chap-core from a local checkout (not supported yet)
-    #[arg(long, value_name = "PATH")]
+    /// Build chap-core from the chap-core checkout at PATH
+    #[arg(long, value_name = "PATH", conflicts_with = "chap_core_url")]
     pub source: Option<PathBuf>,
 
     /// Components to add: ocs, s3, dhis2

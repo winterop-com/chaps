@@ -345,11 +345,26 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if args.list_tags {
         return list_tags(ctx, &project);
     }
-    let has_chap_core = project
+    // A chap-core built from a checkout has no pin either: the checkout is
+    // the version, and `chaps up` builds it as it is.
+    if let ComposeSource::Checkout { path } = &project.state.chap_compose_source
+        && (args.chap_tag.is_some() || args.pin_chap_core)
+    {
+        return Err(anyhow::anyhow!(
+            "this deployment builds chap-core from the checkout at {path}; check out the \
+             version you want there and run `chaps up`"
+        ));
+    }
+    let own_chap_core = project
         .state
         .components
         .is_enabled(components::Component::ChapCore);
-    if !has_chap_core && (args.chap_tag.is_some() || args.pin_chap_core) {
+    let has_chap_core = own_chap_core
+        && !matches!(
+            project.state.chap_compose_source,
+            ComposeSource::Checkout { .. }
+        );
+    if !own_chap_core && (args.chap_tag.is_some() || args.pin_chap_core) {
         return Err(anyhow::anyhow!(
             "{} moves chap-core's pin, and this deployment has no chap-core; \
              `chaps components enable chap-core` adds it",

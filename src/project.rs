@@ -37,6 +37,9 @@ pub const CHAPS_COMPOSE: &str = "compose.chaps.yml";
 pub const MARKETPLACE_COMPOSE: &str = "compose.marketplace.yml";
 /// Environment file docker compose picks up automatically.
 pub const ENV_FILE: &str = ".env";
+/// The compose file a chap-core checkout carries, which `compose.yml` is
+/// rendered from for a deployment built from one.
+pub const CHECKOUT_COMPOSE: &str = "compose.ghcr.yml";
 /// The `.env` variable the chap-core images read their tag from.
 pub const CHAP_TAG_ENV_VAR: &str = "CHAP_IMAGE_TAG";
 /// The `.env` variable [`CHAPS_COMPOSE`] reads the API's host port from.
@@ -242,13 +245,17 @@ pub enum ComposeSource {
         /// it is noticed rather than silently rendered.
         sha256: String,
     },
+    /// A chap-core checkout on this machine: `compose.yml` is rendered from
+    /// its own `compose.ghcr.yml`, re-read on every sync, and the chap and
+    /// worker images are built from it (`chaps init --source`).
+    Checkout { path: String },
 }
 
 impl ComposeSource {
     /// The cached copy's file name inside [`CHAPS_DIR`], for a fetched source.
     pub fn cached_file(&self) -> Option<String> {
         match self {
-            ComposeSource::Embedded => None,
+            ComposeSource::Embedded | ComposeSource::Checkout { .. } => None,
             ComposeSource::Fetched { tag, .. } => Some(cached_compose_file(tag)),
         }
     }
@@ -258,6 +265,7 @@ impl ComposeSource {
         match self {
             ComposeSource::Embedded => "the compose.ghcr.yml built into this binary".to_string(),
             ComposeSource::Fetched { tag, .. } => format!("chap-core compose.ghcr.yml at {tag}"),
+            ComposeSource::Checkout { path } => format!("the chap-core checkout at {path}"),
         }
     }
 }

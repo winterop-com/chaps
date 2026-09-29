@@ -503,6 +503,18 @@ Apple Silicon Mac makes an arm64 image), or the tag differs. Run the command in
 the message. If you meant a published image, give its full reference, such as
 `ghcr.io/my-org/my-model:sha-1eb8cf1`.
 
+## `is not a chap-core checkout`
+
+```text
+error: /Users/me/src/chap is not a chap-core checkout: it has no Dockerfile.worker; pass the directory you cloned github.com/dhis2-chap/chap-core into
+```
+
+`chaps init --source` builds the chap-core API from `Dockerfile`, the worker
+from `Dockerfile.worker`, and renders `compose.yml` from `compose.ghcr.yml`, all
+at the top of the checkout. Point it at the directory `git clone` created, not
+a subdirectory. A very old chap-core may predate one of the three files; check
+out a newer commit.
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

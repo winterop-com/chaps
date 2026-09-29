@@ -12,7 +12,7 @@ lists every command, every flag and every default.
 
 | Command | What it does |
 | --- | --- |
-| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--with ocs[,s3][,dhis2]` adds optional components, `--only LIST` deploys exactly those and nothing else, and `--ocs-port`, `--s3-port`, `--ocs-read-only`, `--dhis2-port` and `--dhis2-seed` settle how they start. |
+| `chaps init [DIR]` | Create a deployment directory: compose files, `.env` and `.chaps/`. `--api-token` protects the API from the start; `--source PATH` builds chap-core from a checkout; `--with ocs[,s3][,dhis2]` adds optional components, `--only LIST` deploys exactly those and nothing else, and `--ocs-port`, `--s3-port`, `--ocs-read-only`, `--dhis2-port` and `--dhis2-seed` settle how they start. |
 | `chaps sync [--check]` | Render the compose files from `.chaps/`; `--check` writes nothing and exits non-zero if anything would change. |
 | `chaps up [-a] [--pull] [--no-preflight] [EXTRA..]` | Sync, check that the host ports are free, then `docker compose up -d --remove-orphans`, and end with what started or was recreated. The orphans are the containers of models and components that were disabled; see [Orphans](./concepts.md#orphans) for what that means for a compose file of your own. `-a` (also `--attach`, `--foreground`) runs in the foreground and streams the logs instead. |
 | `chaps down [--volumes] [-y] [EXTRA..]` | `docker compose down`, then say what it stopped and that the volumes are still there, naming the compose project they are prefixed with. `--volumes` removes them too, and the data in them: it names the volumes first and asks, unless `-y`/`--yes` says it was meant. |
