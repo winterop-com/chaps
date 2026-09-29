@@ -355,7 +355,11 @@ dhis2:
   seed: default
 ```
 
-or with an active `DHIS2_IMAGE_TAG` line in `.env`, which Compose reads last and
+or in the browser: `chaps ui`, `Tab` to the components page, `v` on the `dhis2`
+row. It offers the minor lines chaps has a demo database for (and the version in
+force, if that is another), says the forward-only rule as soon as you pick one
+that differs, and warns again on save when `dhis2_db` is already there. Or with
+an active `DHIS2_IMAGE_TAG` line in `.env`, which Compose reads last and
 which therefore wins without a sync. The rendered service is
 `dhis2/core:${DHIS2_IMAGE_TAG:-2.42}`, so the recorded tag is only the default.
 

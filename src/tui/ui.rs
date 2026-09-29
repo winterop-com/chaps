@@ -75,6 +75,7 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
         Mode::Palette => draw_palette(frame, area, app, theme),
         Mode::Port => draw_port_dialog(frame, area, app, theme),
         Mode::Channel => draw_channel_dialog(frame, area, app, theme),
+        Mode::Dhis2Version => draw_dhis2_version_dialog(frame, area, app, theme),
         _ => {}
     }
 }
@@ -954,6 +955,42 @@ fn draw_channel_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) 
         &title,
         lines,
         &keys::channel_dialog_keys(),
+        theme,
+    );
+}
+
+/// The DHIS2 version dialog: the versions on offer, which one is in force,
+/// and whether chaps has a demo database for it.
+fn draw_dhis2_version_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let current = &app.components.dhis2.image_tag;
+    let mut lines = Vec::new();
+    for (i, version) in app.dhis2_versions.iter().enumerate() {
+        let selected = i == app.dhis2_version_cursor;
+        let seed = match crate::components::dhis2_seed_dump(version) {
+            Some(_) => "demo database",
+            None => "empty database",
+        };
+        let line = Line::from(vec![
+            Span::styled(if selected { " ▸ " } else { "   " }, theme.accent_style()),
+            Span::styled(
+                if version == current { "✓ " } else { "  " },
+                theme.ok_style(),
+            ),
+            Span::raw(fit(version, 10)),
+            Span::styled(seed.to_string(), theme.dim_style()),
+        ]);
+        lines.push(match selected {
+            true => line.style(theme.selection_style()),
+            false => line,
+        });
+    }
+    lines.push(Line::raw(""));
+    draw_dialog(
+        frame,
+        area,
+        "DHIS2 version",
+        lines,
+        &keys::dhis2_version_dialog_keys(),
         theme,
     );
 }

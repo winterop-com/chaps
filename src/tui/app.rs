@@ -116,6 +116,9 @@ pub enum Mode {
     Port,
     /// The dialog `v` opens, asking which channel to follow.
     Channel,
+    /// The dialog `v` opens on the `dhis2` component, asking which DHIS2
+    /// version to run.
+    Dhis2Version,
 }
 
 /// Everything the browser can be asked to do, independent of key bindings.
@@ -381,6 +384,9 @@ pub struct App<'a> {
     pub info_max: Cell<usize>,
     /// Which row the channel dialog is on, as an index into [`CHANNELS`].
     pub channel_cursor: usize,
+    /// The DHIS2 versions the version dialog offers, and its cursor.
+    pub dhis2_versions: Vec<String>,
+    pub dhis2_version_cursor: usize,
     pub palette_query: String,
     /// Index into [`App::palette_matches`].
     pub palette_cursor: usize,
@@ -436,6 +442,8 @@ impl<'a> App<'a> {
             port_input: String::new(),
             port_error: None,
             channel_cursor: 0,
+            dhis2_versions: Vec::new(),
+            dhis2_version_cursor: 0,
             dirty: false,
             message: None,
             info_scroll: 0,
@@ -464,6 +472,7 @@ impl<'a> App<'a> {
             Mode::Filter => self.reduce_filter(action),
             Mode::Port => self.reduce_port(action),
             Mode::Channel => self.reduce_channel(action),
+            Mode::Dhis2Version => self.reduce_dhis2_version(action),
             Mode::Info => self.reduce_info(action),
             Mode::Palette => self.reduce_palette(action),
             Mode::Browse => self.reduce_browse(action),
@@ -509,6 +518,24 @@ impl<'a> App<'a> {
                 let channel = CHANNELS[self.channel_cursor.min(1)];
                 self.mode = Mode::Browse;
                 self.set_channel(channel);
+            }
+            Action::FilterCancel | Action::Quit => self.mode = Mode::Browse,
+            _ => {}
+        }
+        None
+    }
+
+    /// The DHIS2 version dialog: move, pick, or leave it.
+    fn reduce_dhis2_version(&mut self, action: Action) -> Option<Outcome> {
+        let last = self.dhis2_versions.len().saturating_sub(1);
+        match action {
+            Action::Down => self.dhis2_version_cursor = (self.dhis2_version_cursor + 1).min(last),
+            Action::Up => self.dhis2_version_cursor = self.dhis2_version_cursor.saturating_sub(1),
+            Action::ChannelApply => {
+                self.mode = Mode::Browse;
+                if let Some(tag) = self.dhis2_versions.get(self.dhis2_version_cursor).cloned() {
+                    self.set_dhis2_version(tag);
+                }
             }
             Action::FilterCancel | Action::Quit => self.mode = Mode::Browse,
             _ => {}
@@ -864,6 +891,10 @@ impl<'a> App<'a> {
             // A component follows no channel, so the dialog belongs to the
             // model page alone.
             Action::ChannelPrompt if self.page == Page::Models => self.open_channel_prompt(),
+            // DHIS2 is the one component with versions to choose between.
+            Action::ChannelPrompt if self.selected_component() == Component::Dhis2 => {
+                self.open_dhis2_version_prompt()
+            }
             // Nor is a component filtered or hidden: three rows need neither.
             Action::ToggleTemplates if self.page == Page::Models => {
                 self.show_templates = !self.show_templates;
@@ -1517,6 +1548,34 @@ impl<'a> App<'a> {
         self.mode = Mode::Channel;
     }
 
+    /// Open the version dialog on the `dhis2` component: the minor lines
+    /// chaps has a seed for, plus whatever the deployment runs now, with the
+    /// cursor on the one in force.
+    fn open_dhis2_version_prompt(&mut self) {
+        if !self.components.dhis2.enabled {
+            self.message = Some(DHIS2_VERSION_NEEDS_ENABLED.to_string());
+            return;
+        }
+        let current = self.components.dhis2.image_tag.clone();
+        self.dhis2_versions = dhis2_versions(&current);
+        self.dhis2_version_cursor = self
+            .dhis2_versions
+            .iter()
+            .position(|v| *v == current)
+            .unwrap_or_default();
+        self.mode = Mode::Dhis2Version;
+    }
+
+    /// Move DHIS2 to `tag`, saying before the save that DHIS2 migrates a
+    /// database forward only when the tag leaves what the project runs.
+    fn set_dhis2_version(&mut self, tag: String) {
+        let recorded = self.initial_components.dhis2.image_tag.clone();
+        self.components.dhis2.image_tag = tag.clone();
+        self.message =
+            (tag != recorded).then(|| crate::components::dhis2_tag_change_note(&recorded, &tag));
+        self.dirty = self.has_changes();
+    }
+
     fn set_channel(&mut self, channel: Channel) {
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
@@ -1570,6 +1629,22 @@ impl<'a> App<'a> {
             None => self.cursor.min(self.visible.len().saturating_sub(1)),
         };
     }
+}
+
+/// What `v` on a `dhis2` component that is off says.
+const DHIS2_VERSION_NEEDS_ENABLED: &str = "turn dhis2 on first (space), then pick its version";
+
+/// The DHIS2 versions the dialog offers: the minor lines chaps knows a seed
+/// dump for, newest first, and `current` too when it is none of them.
+pub fn dhis2_versions(current: &str) -> Vec<String> {
+    let mut versions: Vec<String> = crate::components::DHIS2_SEED_DUMPS
+        .iter()
+        .map(|(minor, _)| minor.to_string())
+        .collect();
+    if !versions.iter().any(|v| v == current) {
+        versions.insert(0, current.to_string());
+    }
+    versions
 }
 
 fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest {
@@ -3445,6 +3520,62 @@ mod tests {
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
         assert!(!selection.components.expect("a set").chap_core.enabled);
+    }
+
+    /// `v` on the `dhis2` component picks its version: the minor lines with a
+    /// seed dump plus the one in force, the change rides on the component
+    /// set, and moving off the recorded version says DHIS2 migrates forward.
+    #[test]
+    fn the_dhis2_version_is_picked_from_the_components_page() {
+        let registry = registry();
+        let mut state = empty_state();
+        state.components.set_enabled(Component::Dhis2, true);
+        state.components.dhis2.image_tag = "2.42".to_string();
+        let mut app = App::new(&registry, &state);
+        focus_component(&mut app, Component::Dhis2);
+
+        app.reduce(Action::ChannelPrompt);
+        assert_eq!(app.mode, Mode::Dhis2Version);
+        assert_eq!(
+            app.dhis2_versions,
+            vec!["2.42".to_string(), "2.41".to_string()]
+        );
+        assert_eq!(app.dhis2_version_cursor, 0, "it opens on the one in force");
+
+        app.reduce(Action::Down);
+        app.reduce(Action::ChannelApply);
+        assert_eq!(app.mode, Mode::Browse);
+        assert_eq!(app.components.dhis2.image_tag, "2.41");
+        let note = app.message.clone().unwrap_or_default();
+        assert!(note.contains("migrates a schema forward only"), "{note}");
+        let wanted = app.selection().components.expect("a set");
+        assert_eq!(wanted.dhis2.image_tag, "2.41");
+
+        // Back to the recorded one: nothing to save, nothing to warn about.
+        app.reduce(Action::ChannelPrompt);
+        app.reduce(Action::Up);
+        app.reduce(Action::ChannelApply);
+        assert!(app.message.is_none());
+        assert!(!app.has_changes());
+
+        // A tag chaps has no seed for is still offered while it is in force.
+        assert_eq!(dhis2_versions("2.40.3"), vec!["2.40.3", "2.42", "2.41"]);
+    }
+
+    /// A DHIS2 that is off has no version to pick yet, and says how to turn it on.
+    #[test]
+    fn a_dhis2_that_is_off_says_so_instead_of_offering_versions() {
+        let registry = registry();
+        let mut app = App::new(&registry, &empty_state());
+        focus_component(&mut app, Component::Dhis2);
+        app.reduce(Action::ChannelPrompt);
+        assert_eq!(app.mode, Mode::Browse);
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("turn dhis2 on first")
+        );
     }
 
     /// The keys that belong to a catalogue do nothing on the components page:

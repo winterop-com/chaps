@@ -846,6 +846,10 @@ The two settings at the bottom are not commands but a key in
 a database forward for, irreversibly, so neither belongs behind a dialog on a
 row. See [DHIS2](./dhis2.md).
 
+
+`v` on the `dhis2` row picks its version, since DHIS2 is the one component with
+versions to choose between. See
+[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
 ### The details, and the command palette
 
 `i` or `Enter` opens the full entry over the list, in the order the CHAP

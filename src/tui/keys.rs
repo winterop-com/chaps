@@ -29,7 +29,7 @@ pub fn action_for(mode: Mode, key: &KeyEvent) -> Action {
         Mode::Info => info(key, ctrl),
         Mode::Palette => palette(key, ctrl),
         Mode::Port => port(key, ctrl),
-        Mode::Channel => channel(key),
+        Mode::Channel | Mode::Dhis2Version => channel(key),
     }
 }
 
@@ -221,7 +221,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("i / Enter", "the full details, which j/k scroll"),
         ("p", "publish a host port: a number, auto, or none"),
         ("P", "take the host port away"),
-        ("v", "pick the channel: stable or latest"),
+        ("v", "pick the channel; on the dhis2 component, its version"),
         ("t", "show or hide templates"),
         ("/", "filter; Enter keeps it, Esc clears it"),
         ("s", "save and apply the changes"),
@@ -276,6 +276,7 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             // `o` already sits.
             if page == Page::Components {
                 hints.push(hint("o", "open", 5));
+                hints.push(hint("v", "dhis2 version", 2));
             }
             hints.push(hint("p", "port", 3));
             // Neither belongs to a component: it follows no channel, and a
@@ -335,7 +336,7 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
         ],
         // Both dialogs carry their own key line; the bar under them says the
         // one thing that is true wherever the cursor is.
-        Mode::Port | Mode::Channel => vec![hint("esc", "cancel", 9)],
+        Mode::Port | Mode::Channel | Mode::Dhis2Version => vec![hint("esc", "cancel", 9)],
     }
 }
 
@@ -350,6 +351,15 @@ pub fn port_dialog_keys(page: Page) -> Vec<Hint> {
     }
     hints.push(hint("none", "no host port", 5));
     hints
+}
+
+/// The key line inside the DHIS2 version dialog.
+pub fn dhis2_version_dialog_keys() -> Vec<Hint> {
+    vec![
+        hint("enter", "apply", 9),
+        hint("esc", "cancel", 9),
+        hint("j/k", "move", 6),
+    ]
 }
 
 /// The key line inside the channel dialog.
@@ -395,8 +405,8 @@ mod tests {
         // gains the one that opens its web interface.
         assert_eq!(
             page_bar(Page::Components, Mode::Browse, 0, false),
-            "j/k move   tab page   space toggle   i info   o open   p port   s save   \
-             ctrl+k commands   ? help   q quit"
+            "j/k move   tab page   space toggle   i info   o open   v dhis2 version   p port   \
+             s save   ctrl+k commands   ? help   q quit"
         );
         assert_eq!(
             bar(Mode::Filter, 0, false),

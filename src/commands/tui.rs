@@ -46,6 +46,12 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         .clone()
         .unwrap_or_else(|| before.clone());
     let stopped = super::components::stop_disabled_components(&project, &before, &after);
+    // A DHIS2 version picked in the browser moves the same database the
+    // command line would, so it gets the same warning, before anything is
+    // written.
+    if let Some(note) = super::components::dhis2_tag_moved(&project, &after) {
+        crate::output::warn(&note);
+    }
 
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
     let report = apply(&mut project, &registry, &selection, &endpoints)?;
