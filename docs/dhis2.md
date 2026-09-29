@@ -250,10 +250,15 @@ The published filename does not follow from the version:
 | Minor line | Dump |
 | --- | --- |
 | `2.42` | `https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz` |
-| `2.41` | `https://databases.dhis2.org/climate/laos/2.41.7/demo.sql.gz` |
 
-A patch version in one path and not the other, and a different basename. So
-`chaps` keeps a table keyed by the minor line (`2.42`, `2.42.1` and `2.42.1.1`
+The 2.41 line used to have a dump as well; it is no longer published, so a 2.41
+deployment starts empty unless `seed:` names one. DHIS2's Sierra Leone demo is
+published for 2.41, 2.42 and 2.43
+(`https://databases.dhis2.org/sierra-leone/<version>/dhis2-db-sierra-leone.sql.gz`),
+without the climate data the Modeling App uses.
+
+Published paths have differed in patch version and basename from one line to
+the next, so `chaps` keeps a table keyed by the minor line (`2.42`, `2.42.1` and `2.42.1.1`
 are all `2.42`) rather than building a URL from the tag, because a constructed
 one would download a 404 on the first start and leave an empty DHIS2 with no
 explanation.
@@ -355,7 +360,8 @@ dhis2:
   seed: default
 ```
 
-or in the browser: `chaps ui`, `Tab` to the components page, `v` on the `dhis2`
+at creation with `chaps init --with dhis2 --dhis2-tag 2.41`, or in the browser:
+`chaps ui`, `Tab` to the components page, `v` on the `dhis2`
 row. It offers the minor lines chaps has a demo database for (and the version in
 force, if that is another), says the forward-only rule as soon as you pick one
 that differs, and warns again on save when `dhis2_db` is already there. Or with

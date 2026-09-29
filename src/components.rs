@@ -147,17 +147,17 @@ pub const DHIS2_DEFAULT_JAVA_OPTIONS: &str = "-Xms2g -Xmx4g -XX:+UseG1GC";
 /// minor.
 ///
 /// A table rather than a URL built from the tag, because the published path does
-/// not follow from it: the 2.42 line publishes `climate/laos/2.42/laos.sql.gz`
-/// and the 2.41 line `climate/laos/2.41.7/demo.sql.gz` - a patch version in the
-/// path and a different basename. A minor this does not list has no dump chaps
-/// can name, so such a deployment starts empty and is told so.
-pub const DHIS2_SEED_DUMPS: &[(&str, &str)] = &[
-    ("2.42", crate::compose::render::DHIS2_DEFAULT_SEED_URL),
-    (
-        "2.41",
-        "https://databases.dhis2.org/climate/laos/2.41.7/demo.sql.gz",
-    ),
-];
+/// not follow from it (the 2.42 line publishes `climate/laos/2.42/laos.sql.gz`).
+/// Only dumps that are there belong in it: the 2.41 one this used to list is
+/// gone, and a dead URL here fails the seed one-shot and with it `chaps up`. A
+/// minor this does not list has no dump chaps can name, so such a deployment
+/// starts empty and is told so.
+pub const DHIS2_SEED_DUMPS: &[(&str, &str)] =
+    &[("2.42", crate::compose::render::DHIS2_DEFAULT_SEED_URL)];
+
+/// The DHIS2 versions chaps offers to pick between, newest first: the minor
+/// lines it has been run against. Any other tag still works when given.
+pub const DHIS2_VERSIONS: &[&str] = &["2.43", "2.42", "2.41"];
 
 /// The minor line of a DHIS2 tag: everything up to the second dot.
 ///
@@ -1338,9 +1338,8 @@ mod tests {
         }
     }
 
-    /// The published dump is looked up, never built from the tag: the 2.42 line
-    /// publishes `2.42/laos.sql.gz` and the 2.41 line `2.41.7/demo.sql.gz`, so a
-    /// URL assembled from a version would 404 on the first start.
+    /// The published dump is looked up, never built from the tag: a URL
+    /// assembled from a version would 404 on the first start.
     #[test]
     fn the_seed_dump_comes_from_the_table_and_an_unlisted_minor_has_none() {
         assert_eq!(dhis2_minor("2.42"), "2.42");
@@ -1355,12 +1354,8 @@ mod tests {
             "the minor chaps pins by default has a dump"
         );
         assert_eq!(dhis2_seed_dump("2.42.3"), dhis2_seed_dump("2.42"));
-        assert!(
-            dhis2_seed_dump("2.41")
-                .expect("the 2.41 line publishes one")
-                .ends_with("/2.41.7/demo.sql.gz"),
-            "a patch version in the path and a different basename"
-        );
+        // The 2.41 dump is no longer published, so 2.41 starts empty.
+        assert_eq!(dhis2_seed_dump("2.41"), None);
         // Nothing is guessed for a line the table does not list.
         assert_eq!(dhis2_seed_dump("2.40"), None);
         assert_eq!(dhis2_seed_dump("latest"), None);

@@ -1634,12 +1634,12 @@ impl<'a> App<'a> {
 /// What `v` on a `dhis2` component that is off says.
 const DHIS2_VERSION_NEEDS_ENABLED: &str = "turn dhis2 on first (space), then pick its version";
 
-/// The DHIS2 versions the dialog offers: the minor lines chaps knows a seed
-/// dump for, newest first, and `current` too when it is none of them.
+/// The DHIS2 versions the dialog offers: the ones chaps knows, newest first,
+/// and `current` too when it is none of them.
 pub fn dhis2_versions(current: &str) -> Vec<String> {
-    let mut versions: Vec<String> = crate::components::DHIS2_SEED_DUMPS
+    let mut versions: Vec<String> = crate::components::DHIS2_VERSIONS
         .iter()
-        .map(|(minor, _)| minor.to_string())
+        .map(|v| v.to_string())
         .collect();
     if !versions.iter().any(|v| v == current) {
         versions.insert(0, current.to_string());
@@ -3536,11 +3536,8 @@ mod tests {
 
         app.reduce(Action::ChannelPrompt);
         assert_eq!(app.mode, Mode::Dhis2Version);
-        assert_eq!(
-            app.dhis2_versions,
-            vec!["2.42".to_string(), "2.41".to_string()]
-        );
-        assert_eq!(app.dhis2_version_cursor, 0, "it opens on the one in force");
+        assert_eq!(app.dhis2_versions, vec!["2.43", "2.42", "2.41"]);
+        assert_eq!(app.dhis2_version_cursor, 1, "it opens on the one in force");
 
         app.reduce(Action::Down);
         app.reduce(Action::ChannelApply);
@@ -3559,7 +3556,10 @@ mod tests {
         assert!(!app.has_changes());
 
         // A tag chaps has no seed for is still offered while it is in force.
-        assert_eq!(dhis2_versions("2.40.3"), vec!["2.40.3", "2.42", "2.41"]);
+        assert_eq!(
+            dhis2_versions("2.40.3"),
+            vec!["2.40.3", "2.43", "2.42", "2.41"]
+        );
     }
 
     /// A DHIS2 that is off has no version to pick yet, and says how to turn it on.
