@@ -70,6 +70,43 @@ machine with Docker when the volume handling changes:
 cargo test --test cli -- --ignored live_up_then_purge
 ```
 
+### The end-to-end run
+
+`scripts/e2e.sh` (or `make e2e`) runs everything for real against published
+images, once per chap-core tag (`latest` and `master` by default) and DHIS2
+version (2.41, 2.42, 2.43 and `dev` by default; `dev` is the unreleased next
+one, `dhis2/core-dev:master`). Each pair gets one deployment with OCS, the
+object store, DHIS2 and the models running together, on ports of its own.
+DHIS2 2.42 is seeded from the Laos climate demo chaps uses by default, and the
+other versions start empty: DHIS2's Sierra Leone demo exists for some of them,
+but its `admin` may not create the route `dhis2 connect` writes. Then:
+
+1. `chaps up`, and a wait until `chaps status` exits 0: every service up and
+   every model registered;
+2. `chaps doctor`;
+3. OCS answering `/health` and listing `/stac/collections`, then ingesting
+   three days of CHIRPS3 (public, no credentials) and publishing it;
+4. `chaps dhis2 connect`: the route, the apps, analytics;
+5. `chaps models test --all`: every model trains and predicts;
+6. `chaps models test --all --backtest`: a dataset, a backtest and its scores
+   through chap-core, the path the Modeling App takes.
+
+```sh
+scripts/e2e.sh                          # latest, then master
+scripts/e2e.sh --models all             # every marketplace model
+scripts/e2e.sh --dhis2 dev              # only the unreleased DHIS2
+scripts/e2e.sh --dhis2 2.42             # one DHIS2 version
+scripts/e2e.sh --tags v2.3.1 --keep     # one tag, left running afterwards
+scripts/e2e.sh --no-dhis2 --work ./e2e  # no DHIS2, results under ./e2e
+make e2e TAGS="latest"
+```
+
+A failed step does not stop the run: its log is kept, the container logs are
+collected, and the steps that do not depend on it still run. `report.md` in the
+work directory has one row per tag and step with its result and duration, and
+the script exits non-zero when any step failed. It needs Docker with room for
+DHIS2 (about 8 GB) and the network, and it takes a while.
+
 ## The build script
 
 `build.rs` produces four things the compiler cannot work out on its own.

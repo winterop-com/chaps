@@ -5,7 +5,7 @@ BIN    := bin/chaps
 PREFIX ?= $(HOME)/.local
 ARGS   ?=
 .DEFAULT_GOAL := help
-.PHONY: help check lint test build release run install vendor docs docs-reference docs-serve release-tag clean
+.PHONY: help check lint test build e2e release run install vendor docs docs-reference docs-serve release-tag clean
 help: ## Show this help
 	@echo "chaps - make targets:"
 	@echo ""
@@ -41,6 +41,8 @@ install: release ## Install bin/chaps into PREFIX/bin (PREFIX defaults to ~/.loc
 	@echo "installed $(PREFIX)/bin/chaps"
 vendor: ## Refresh the embedded marketplace snapshot in vendor/marketplace/
 	scripts/vendor-marketplace.sh
+e2e: build ## Run OCS, chap-core, DHIS2 and the models for real (TAGS="latest master")
+	scripts/e2e.sh $(if $(TAGS),--tags "$(TAGS)",)
 docs-reference: ## Regenerate docs/reference.md from the CLI help texts
 	$(CARGO) run -q -- docs-markdown > docs/reference.md
 docs: docs-reference ## Build the mdbook documentation into site/
