@@ -21,11 +21,12 @@ you reach them through chap-core at
 
 ## Every model in the marketplace
 
-`default` is the one model chaps starts with. `--models` also takes a list of
-ids, and `chaps models list` prints them all:
+`default` is the one model chaps starts with; `all` is every model the
+marketplace lists (templates aside), and a list of ids picks some.
+`chaps models list` prints them:
 
 ```sh
-chaps init mychap --models chapkit_ewars_model,chapkit_simple_multistep_model,auto_arima_chapkit,chapkit_ghr_model,chapkit_rwanda_malaria_bym_model
+chaps init mychap --models all
 cd mychap
 chaps up
 chaps models test --all --backtest   # each one through chap-core, with scores

@@ -39,7 +39,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | Argument | Description |
 | --- | --- |
 | `<DIR>` | Directory to create. Default: `.`. |
-| `--models <SPEC>` | Models to enable: none, default, or a list of ids. Default: `default`. |
+| `--models <SPEC>` | Models to enable: none, default, all, or a list of ids. Default: `default`. |
 | `--interactive` | Pick the models in the browser instead of taking --models. |
 | `--chap-tag <TAG>` | chap-core image tag: latest, master, dev or vX.Y.Z. Default: `latest`. |
 | `--force` | Overwrite an existing project in the target directory. |

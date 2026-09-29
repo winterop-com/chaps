@@ -919,6 +919,14 @@ fn parse_models(spec: &str, registry: &Registry) -> Result<Selection> {
     let ids: Vec<String> = match spec {
         "none" | "" => Vec::new(),
         "default" => vec![DEFAULT_MODEL.to_string()],
+        // Every model the catalogue lists, templates aside: those are
+        // scaffolding to copy, not models to run.
+        "all" => registry
+            .models
+            .iter()
+            .filter(|model| !model.is_template())
+            .map(|model| model.id.clone())
+            .collect(),
         list => list
             .split(',')
             .map(str::trim)
@@ -1372,6 +1380,16 @@ mod tests {
         let line = no_models_line(&components);
         assert!(line.contains("`chaps models enable ID`"), "{line}");
         assert!(line.contains("published host port"), "{line}");
+    }
+
+    #[test]
+    fn models_all_enables_every_model_but_the_templates() {
+        let registry = load_embedded().unwrap();
+        let all = parse_models("all", &registry).unwrap();
+        let expected = registry.models.iter().filter(|m| !m.is_template()).count();
+        assert_eq!(all.enable.len(), expected);
+        assert!(all.enable.len() > 1);
+        assert!(all.enable.iter().any(|r| r.id == DEFAULT_MODEL));
     }
 
     #[test]

@@ -351,11 +351,11 @@ More: [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-ch
 
 ### 15. CHAP with every model
 
-Like option 1, with all five marketplace models. The first start pulls large
+Like option 1, with every marketplace model. The first start pulls large
 images and the checks take several minutes.
 
 ```sh
-chaps init mychap --models chapkit_ewars_model,chapkit_simple_multistep_model,auto_arima_chapkit,chapkit_ghr_model,chapkit_rwanda_malaria_bym_model
+chaps init mychap --models all
 cd mychap
 chaps up
 chaps status
