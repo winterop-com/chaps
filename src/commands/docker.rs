@@ -561,7 +561,13 @@ fn forget_dhis2_connect(project: &mut Project, removed: &[String]) -> Option<Str
         ));
         return None;
     }
-    Some(DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME.to_string())
+    Some(
+        match project.state.components.dhis2_seed_source() {
+            Some(_) => DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME,
+            None => crate::components::DHIS2_CONNECT_FORGOTTEN_UNSEEDED,
+        }
+        .to_string(),
+    )
 }
 
 /// Print a line of the wrapper's own, as opposed to docker's output.
@@ -1564,6 +1570,13 @@ mod tests {
             forget_dhis2_connect(&mut project, std::slice::from_ref(&db)),
             None
         );
+
+        // An unseeded DHIS2 comes back empty, with no route to be wrong about.
+        project.state.components.dhis2.seed = crate::components::Dhis2Seed::None;
+        project.state.components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
+        let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db)).unwrap();
+        assert!(line.contains("an empty DHIS2"), "{line}");
+        assert!(!line.contains("seed dump"), "{line}");
     }
 
     #[test]

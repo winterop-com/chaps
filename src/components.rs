@@ -1046,6 +1046,11 @@ pub const DHIS2_CONNECT_FORGOTTEN: &str = "the record of `chaps dhis2 connect` i
 pub const DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME: &str = "the record of `chaps dhis2 connect` went with `dhis2_db`; the next `chaps up` restores \
      the seed dump, which ships a `chap` route of its own, so run `chaps dhis2 connect` again";
 
+/// The same for a DHIS2 with no seed: the next `chaps up` migrates an empty
+/// database, which has no route at all.
+pub const DHIS2_CONNECT_FORGOTTEN_UNSEEDED: &str = "the record of `chaps dhis2 connect` went with `dhis2_db`; the next `chaps up` starts \
+     an empty DHIS2 with no `chap` route, so run `chaps dhis2 connect` again once it answers";
+
 /// The warning for a DHIS2 image tag that is moving while the database volume
 /// is already there.
 ///
