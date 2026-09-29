@@ -440,7 +440,9 @@ pub fn status(
     expected.dedup();
 
     let agent = agent(timeout);
-    let chap_core = project.state.components.chap_core.enabled;
+    // A chap-core elsewhere is asked exactly like this deployment's own: its
+    // API answers health, the registry and the version the same way.
+    let chap_core = project.state.components.has_chap_core_api();
     let mut api = if !chap_core {
         // Nothing to ask, and nothing to wait out: a deployment without
         // chap-core has no API on this port, and probing one would only spend

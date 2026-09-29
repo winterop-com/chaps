@@ -649,12 +649,37 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // Without chap-core there is nothing to register with and nothing to wait
     // for. servicekit skips registration when SERVICEKIT_ORCHESTRATOR_URL is
     // unset, so the whole block goes rather than pointing at a missing host.
-    let (environment_lines, chap_depends) = if spec.standalone {
+    //
+    // A chap-core elsewhere is registered with over the host gateway, and it
+    // calls the model back at the host and published port the overlay names,
+    // since `http://<service_id>:8000` means nothing outside this network.
+    let (environment_lines, chap_depends) = if let Some(external) = &spec.external_chap_core {
+        let port_line = spec
+            .host_port
+            .map(|port| {
+                format!(
+                    "      PORT: \"{port}\"\n\
+                     \x20     SERVICEKIT_PORT: \"{port}\"\n"
+                )
+            })
+            .unwrap_or_default();
         (
-            "    # No chap-core in this deployment, so the service registers nowhere.\n"
-                .to_string(),
+            format!(
+                "    environment:\n\
+                 \x20     # $$ is a literal $ for compose.\n\
+                 \x20     SERVICEKIT_ORCHESTRATOR_URL: {}/v2/services/$$register\n\
+                 \x20     SERVICEKIT_HOST: {}\n\
+                 {port_line}{registration_key_lines}\
+                 \x20   extra_hosts:\n\
+                 \x20     - \"{}:host-gateway\"\n",
+                external.register_url,
+                external.models_host,
+                crate::components::HOST_GATEWAY
+            ),
             String::new(),
         )
+    } else if spec.standalone {
+        (String::new(), String::new())
     } else {
         (
             format!(
@@ -751,12 +776,31 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
 /// proxy. `expose` documents the container port without asking the host for
 /// anything. A published port is for people - `curl`, the model's own `/docs` -
 /// and is opt-in per model. See `docs/ports.md`.
+///
+/// A model registered with a chap-core elsewhere listens on its host port
+/// inside the container as well (see [`container_port`]), so the mapping is
+/// that port on both sides.
 fn port_lines(spec: &OverlaySpec) -> String {
-    let mut out = String::from("    expose:\n      - \"8000\"\n");
+    let inside = container_port(spec);
+    let mut out = format!("    expose:\n      - \"{inside}\"\n");
     if let Some(port) = spec.host_port {
-        out.push_str(&format!("    ports:\n      - \"{port}:8000\"\n"));
+        out.push_str(&format!("    ports:\n      - \"{port}:{inside}\"\n"));
     }
     out
+}
+
+/// The port the model listens on inside its container.
+///
+/// 8000, except for a model registered with a chap-core elsewhere: servicekit
+/// checks that the app answers on `SERVICEKIT_PORT` before it registers, on
+/// `127.0.0.1` inside the container, and that same port is the one chap-core
+/// calls back on the host. The two only agree when the app listens on its host
+/// port, which it is told through `PORT`.
+fn container_port(spec: &OverlaySpec) -> u16 {
+    match (&spec.external_chap_core, spec.host_port) {
+        (Some(_), Some(port)) => port,
+        _ => 8000,
+    }
 }
 
 /// Render `compose.marketplace.yml` from the ordered overlay file names.
@@ -886,6 +930,34 @@ mod tests {
         let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
         let svc = service(&doc, "chapkit-ewars-model");
         assert!(svc.get("environment").is_none());
+        assert!(svc["depends_on"].get("chap").is_none());
+    }
+
+    /// The shape for a chap-core elsewhere: the service registers there over
+    /// the host gateway, under this machine's name and its published port,
+    /// and waits for no `chap`.
+    #[test]
+    fn an_external_chap_core_overlay_matches_its_own_golden_fixture() {
+        let mut spec = overlay_spec("chapkit_ewars_model");
+        spec.host_port = Some(5001);
+        spec.standalone = true;
+        spec.external_chap_core = Some(crate::compose::spec::ExternalRegistration {
+            register_url: "http://host.docker.internal:8000".to_string(),
+            models_host: "localhost".to_string(),
+        });
+        let text = render_overlay(&spec);
+        assert_no_tokens(&text);
+        let golden = normalize_newlines(include_str!(
+            "../../tests/fixtures/compose.chapkit-ewars-model.external.yml"
+        ));
+        assert_eq!(text, golden);
+        let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+        let svc = service(&doc, "chapkit-ewars-model");
+        assert_eq!(
+            svc["environment"]["SERVICEKIT_ORCHESTRATOR_URL"].as_str(),
+            Some("http://host.docker.internal:8000/v2/services/$$register")
+        );
+        assert_eq!(svc["environment"]["SERVICEKIT_PORT"].as_str(), Some("5001"));
         assert!(svc["depends_on"].get("chap").is_none());
     }
 

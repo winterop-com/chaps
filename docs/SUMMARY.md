@@ -14,6 +14,8 @@
   - [A DHIS2 on its own](./use-cases/dhis2-alone.md)
   - [A chapkit model service on its own](./use-cases/model-alone.md)
   - [Several model services side by side](./use-cases/models-alone.md)
+  - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md)
+  - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md)
   - [Combinations](./use-cases/combinations.md)
   - [Growing a deployment](./use-cases/growing.md)
 - [Concepts](./concepts.md)

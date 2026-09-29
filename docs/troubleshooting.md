@@ -456,6 +456,40 @@ port. A model image can take a minute to start, so ask again first. If it stays,
 `chaps logs <service_id>` shows why the service did not come up. A model enabled
 with `--port none` has no host port to ask and is judged by its container alone.
 
+## `App never became ready, skipping registration`
+
+```text
+[error    ] registration.aborted [servicekit.api.service_builder] message='App never became ready, skipping registration' port=5001
+```
+
+servicekit checks that the app answers at `127.0.0.1:<SERVICEKIT_PORT>` inside
+its own container before it registers. With a chap-core elsewhere, chaps sets
+`PORT` and `SERVICEKIT_PORT` to the model's host port so the two agree, and the
+image has to listen on `PORT`. One that starts on a fixed 8000 (the EWARS image
+does) cannot, and never registers with a chap-core elsewhere. Use a model whose
+image honours `PORT`, or run chaps' own chap-core
+(`chaps components enable chap-core`), where every model listens on 8000.
+
+## A model registers with an external chap-core, and its jobs fail to connect
+
+The model shows as `registered` in `chaps status`, but a job fails with a
+connection error to `localhost:<port>` or `host.docker.internal:<port>`. The
+registration worked, and chap-core cannot reach the address the model
+registered under. That address is `models_host` in `.chaps/components.yaml`
+plus the model's host port:
+
+- chap-core runs as a process on this machine: `localhost` is right.
+- chap-core runs in a container: run
+  `chaps components enable chap-core --url URL --models-host host.docker.internal`,
+  then `chaps up`.
+- chap-core runs on another machine: use the name or address it reaches this
+  machine by, and make sure the model ports (5001 up) are open to it.
+
+The same applies the other way round, to a model you run from its checkout
+against a chap-core in chaps: `SERVICEKIT_HOST` must be `host.docker.internal`
+and the model must listen on `0.0.0.0`. See
+[Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

@@ -52,6 +52,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--with <LIST>` | Components to add: ocs, s3, dhis2. |
 | `--without <LIST>` | Components to leave out: chap-core, ocs, s3, dhis2. |
 | `--only <LIST>` | Exactly these components and nothing else; `none` for models alone. |
+| `--chap-core-url <URL>` | Register the models with the chap-core at URL instead of running one. |
 | `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--ocs-port <PORT\|none>` | Host port to publish OCS on, or none to keep it internal. |
 | `--s3-port <PORT\|none>` | Host port to publish the object store on, or none. |
@@ -248,6 +249,8 @@ Usage: chaps components enable [OPTIONS] <NAME>
 | `--base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--read-only` | Refuse ingestion over HTTP on this OCS instance. |
 | `--read-write` | Allow ingestion over HTTP again. |
+| `--url <URL>` | chap-core only: use the chap-core at URL instead of running one. |
+| `--models-host <HOST>` | With --url: the host that chap-core calls the models back at. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |

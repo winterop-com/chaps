@@ -172,6 +172,18 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         .state
         .components
         .is_enabled(crate::components::Component::ChapCore);
+    let external = project
+        .state
+        .components
+        .chap_core_external
+        .as_ref()
+        .map(|external| crate::compose::spec::ExternalRegistration {
+            register_url: external
+                .url_from_containers()
+                .trim_end_matches('/')
+                .to_string(),
+            models_host: external.models_host.clone(),
+        });
     for (id, model) in &project.state.models {
         let mut spec = match registry.get(id) {
             Some(m) => OverlaySpec::from_enabled(id, model, m),
@@ -185,6 +197,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         };
         spec.registration_key = registration_key;
         spec.standalone = standalone;
+        spec.external_chap_core = external.clone();
         // The overlay's init container chowns the data volume from busybox,
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the

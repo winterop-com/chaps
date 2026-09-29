@@ -8,7 +8,19 @@ services:
     platform: linux/amd64
     init: true
     expose:
-      - "8000"
+      - "5001"
+    ports:
+      - "5001:5001"
+    environment:
+      # $$ is a literal $ for compose.
+      SERVICEKIT_ORCHESTRATOR_URL: http://host.docker.internal:8000/v2/services/$$register
+      SERVICEKIT_HOST: localhost
+      PORT: "5001"
+      SERVICEKIT_PORT: "5001"
+      # Uncomment if chap has SERVICEKIT_REGISTRATION_KEY set:
+      # SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     read_only: true
     security_opt:
       - no-new-privileges:true

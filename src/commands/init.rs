@@ -77,7 +77,12 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // What the deployment is made of is settled first: it decides which
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
-    let components = parse_components(&ComponentFlags::from_args(args, ctx.registry.offline))?;
+    let mut components = parse_components(&ComponentFlags::from_args(args, ctx.registry.offline))?;
+    // A chap-core elsewhere is instead of this deployment's own, never beside it.
+    if let Some(url) = &args.chap_core_url {
+        components.set_enabled(Component::ChapCore, false);
+        components.chap_core_external = Some(crate::components::external_chap_core(url)?);
+    }
     // The deployment this run is writing over, when there is one: `--force`
     // starts the state over, so anything it had and this run does not ask for is
     // going, and the operator hears which before the directory is rewritten.

@@ -842,9 +842,13 @@ impl Project {
             .filter(|port| *port != 0)
     }
 
-    /// Base URL of chap-core's API on this machine.
+    /// Base URL of chap-core's API on this machine: the one this deployment
+    /// runs, or the one elsewhere it names.
     pub fn api_url(&self) -> String {
-        format!("http://localhost:{}", self.effective_api_port())
+        match &self.state.components.chap_core_external {
+            Some(external) => external.url.trim_end_matches('/').to_string(),
+            None => format!("http://localhost:{}", self.effective_api_port()),
+        }
     }
 
     /// The path prefix chap-core mounts its whole API under, from this

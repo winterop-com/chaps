@@ -268,6 +268,10 @@ pub struct InitArgs {
     #[arg(long = "only", value_name = "LIST", conflicts_with_all = ["with", "without"])]
     pub only: Option<String>,
 
+    /// Register the models with the chap-core at URL instead of running one
+    #[arg(long = "chap-core-url", value_name = "URL")]
+    pub chap_core_url: Option<String>,
+
     /// Public URL OCS is reached at, for a proxied instance
     #[arg(long = "ocs-base-url", value_name = "URL")]
     pub ocs_base_url: Option<String>,
@@ -367,6 +371,14 @@ pub struct ComponentsEnableArgs {
     /// Allow ingestion over HTTP again
     #[arg(long = "read-write")]
     pub read_write: bool,
+
+    /// chap-core only: use the chap-core at URL instead of running one
+    #[arg(long = "url", value_name = "URL")]
+    pub url: Option<String>,
+
+    /// With --url: the host that chap-core calls the models back at
+    #[arg(long = "models-host", value_name = "HOST", requires = "url")]
+    pub models_host: Option<String>,
 
     #[command(flatten)]
     pub ocs: OcsConfigArgs,

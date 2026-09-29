@@ -30,6 +30,8 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 - [A DHIS2 on its own](./use-cases/dhis2-alone.md): A DHIS2 and its database, nothing else.
 - [A chapkit model service on its own](./use-cases/model-alone.md): One chapkit model service answering on its own port, no chap-core.
 - [Several model services side by side](./use-cases/models-alone.md): Several model services, each on its own port, no chap-core.
+- [Your model from its checkout, with CHAP](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
+- [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; chaps runs the models and registers them with it.
 - [Combinations](./use-cases/combinations.md): Other mixes of components and models.
 - [Growing a deployment](./use-cases/growing.md): Moving a deployment from one shape to another.
 

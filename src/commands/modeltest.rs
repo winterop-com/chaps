@@ -40,6 +40,24 @@ use std::time::{Duration, Instant};
 /// the one address that is right whether or not the model publishes a port.
 const SERVICE_URL: &str = "http://127.0.0.1:8000";
 
+/// Where a model's own API answers inside its container: [`SERVICE_URL`],
+/// except for a model registered with a chap-core elsewhere, which listens on
+/// its host port in there too (see `docs/components.md`, "A chap-core
+/// elsewhere").
+fn service_url(project: &Project, service_id: &str) -> String {
+    if project.state.components.chap_core_external.is_none() {
+        return SERVICE_URL.to_string();
+    }
+    project
+        .state
+        .models
+        .values()
+        .find(|m| m.service_id == service_id)
+        .and_then(|m| m.host_port)
+        .map(|port| format!("http://127.0.0.1:{port}"))
+        .unwrap_or_else(|| SERVICE_URL.to_string())
+}
+
 /// How long one request to chap-core may take.
 ///
 /// Longer than [`crate::api::DEFAULT_TIMEOUT`]: `make-dataset` is a few
@@ -227,8 +245,9 @@ fn model_level(
         .iter()
         .map(|part| part.to_string())
         .collect();
+    let url = service_url(project, &enabled.service_id);
     exec.extend(
-        ["chapkit", "test", "--url", SERVICE_URL, "--timeout"]
+        ["chapkit", "test", "--url", &url, "--timeout"]
             .iter()
             .map(|part| part.to_string()),
     );
@@ -923,7 +942,7 @@ fn list(
     {
         return Some(entries);
     }
-    let url = format!("{SERVICE_URL}/api/v1/{collection}");
+    let url = format!("{}/api/v1/{collection}", service_url(project, service_id));
     let exec: Vec<String> = ["exec", "-T", service_id, "curl", "-fsS", &url]
         .iter()
         .map(|part| part.to_string())
@@ -1065,7 +1084,7 @@ fn clean(
 /// it; the service's own API is one `exec` away, and every chapkit image
 /// carries the `curl` its healthcheck uses.
 fn delete(ctx: &Ctx, project: &Project, service_id: &str, path: &str) -> bool {
-    let url = format!("{SERVICE_URL}{path}");
+    let url = format!("{}{path}", service_url(project, service_id));
     let exec: Vec<String> = [
         "exec", "-T", service_id, "curl", "-fsS", "-X", "DELETE", &url,
     ]

@@ -610,6 +610,67 @@ pub struct ExternalDhis2 {
     pub connected_at: Option<String>,
 }
 
+/// A chap-core this deployment did not start, which its model services
+/// register with and the chap-core commands talk to. Recorded by
+/// `chaps init --chap-core-url` or `chaps components enable chap-core --url`.
+///
+/// The shape of chap-core development: chap-core runs from its own checkout
+/// on this machine, and chaps runs the model services around it. It cannot be
+/// recorded while the `chap-core` component is on, because the two would each
+/// be "this deployment's chap-core".
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalChapCore {
+    /// Where chap-core answers, as this machine reaches it.
+    pub url: String,
+    /// The host a model service registers itself under, which is what
+    /// chap-core then calls it at, on the model's published host port.
+    /// `localhost` for a chap-core running on this machine.
+    #[serde(default = "default_models_host")]
+    pub models_host: String,
+}
+
+fn default_models_host() -> String {
+    "localhost".to_string()
+}
+
+impl ExternalChapCore {
+    /// The URL a container of this deployment reaches chap-core at: a
+    /// loopback host names the container itself in there, so it becomes the
+    /// host gateway every overlay maps.
+    pub fn url_from_containers(&self) -> String {
+        for loopback in ["localhost", "127.0.0.1", "[::1]"] {
+            for scheme in ["http://", "https://"] {
+                let prefix = format!("{scheme}{loopback}");
+                if let Some(rest) = self.url.strip_prefix(&prefix)
+                    && (rest.is_empty() || rest.starts_with(':') || rest.starts_with('/'))
+                {
+                    return format!("{scheme}{HOST_GATEWAY}{rest}");
+                }
+            }
+        }
+        self.url.clone()
+    }
+}
+
+/// An [`ExternalChapCore`] for `url`, refused unless it is an absolute
+/// `http(s)` URL: the models append a path to it to register.
+pub fn external_chap_core(url: &str) -> Result<ExternalChapCore> {
+    let url = url.trim().trim_end_matches('/');
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(anyhow::anyhow!(
+            "the chap-core URL has to be absolute, such as `http://localhost:8000`, \
+             so `{url}` will not do: the models register at <URL>/v2/services/$register"
+        ));
+    }
+    Ok(ExternalChapCore {
+        url: url.to_string(),
+        models_host: default_models_host(),
+    })
+}
+
+/// The name every container that has to reach this machine resolves it by.
+pub const HOST_GATEWAY: &str = "host.docker.internal";
+
 /// The whole of `components.yaml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Components {
@@ -629,6 +690,14 @@ pub struct Components {
         skip_serializing_if = "Option::is_none"
     )]
     pub dhis2_external: Option<ExternalDhis2>,
+    /// A chap-core somewhere else, when one has been recorded. Absent from the
+    /// file otherwise.
+    #[serde(
+        rename = "chap-core-external",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub chap_core_external: Option<ExternalChapCore>,
 }
 
 impl Components {
@@ -652,7 +721,14 @@ impl Components {
     /// each having to remember to do it.
     pub fn set_enabled(&mut self, component: Component, on: bool) {
         match component {
-            Component::ChapCore => self.chap_core.enabled = on,
+            // Either this deployment runs chap-core or it names one elsewhere,
+            // never both, so turning its own on forgets the other.
+            Component::ChapCore => {
+                self.chap_core.enabled = on;
+                if on {
+                    self.chap_core_external = None;
+                }
+            }
             Component::Ocs => self.ocs.enabled = on,
             Component::S3 => self.s3.enabled = on,
             Component::Dhis2 => {
@@ -662,6 +738,12 @@ impl Components {
                 }
             }
         }
+    }
+
+    /// Whether there is a chap-core API to talk to: this deployment's own, or
+    /// one elsewhere that it names.
+    pub fn has_chap_core_api(&self) -> bool {
+        self.chap_core.enabled || self.chap_core_external.is_some()
     }
 
     /// Whether `chaps up` and `chaps status` should still name
@@ -976,14 +1058,15 @@ pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
 /// chap-core is not a component of. `what` names the command, in backticks.
 pub fn needs_chap_core(what: &str) -> String {
     format!(
-        "{what} needs chap-core, and this deployment has no chap-core;\
-         `chaps components enable chap-core` adds it"
+        "{what} needs chap-core, and this deployment has no chap-core; \
+         `chaps components enable chap-core` adds it, or `--url URL` names one elsewhere"
     )
 }
 
-/// Refuse `what` when `components` leaves chap-core out.
+/// Refuse `what` when `components` leaves chap-core out and names none
+/// elsewhere.
 pub fn require_chap_core(components: &Components, what: &str) -> Result<()> {
-    if components.is_enabled(Component::ChapCore) {
+    if components.has_chap_core_api() {
         return Ok(());
     }
     Err(anyhow::anyhow!(needs_chap_core(what)))
@@ -1002,6 +1085,43 @@ mod tests {
         assert!(!components.s3.enabled);
         assert_eq!(components.label(), "chap-core");
         assert!(components.compose_files().is_empty());
+    }
+
+    /// A loopback chap-core is this machine to the models, which reach it over
+    /// the host gateway; any other host is left as it is.
+    #[test]
+    fn an_external_chap_core_is_reached_from_containers_over_the_gateway() {
+        let at = |url: &str| external_chap_core(url).unwrap().url_from_containers();
+        assert_eq!(
+            at("http://localhost:8000"),
+            "http://host.docker.internal:8000"
+        );
+        assert_eq!(
+            at("http://127.0.0.1:8000/"),
+            "http://host.docker.internal:8000"
+        );
+        assert_eq!(at("http://localhost"), "http://host.docker.internal");
+        assert_eq!(at("https://chap.example.org"), "https://chap.example.org");
+        // A host that merely starts with "localhost" is not the loopback.
+        assert_eq!(
+            at("http://localhost.example.org"),
+            "http://localhost.example.org"
+        );
+        assert!(external_chap_core("localhost:8000").is_err());
+        assert_eq!(
+            external_chap_core("http://x:1").unwrap().models_host,
+            "localhost"
+        );
+
+        // Turning this deployment's own chap-core on forgets the other one.
+        let mut components = Components {
+            chap_core_external: Some(external_chap_core("http://localhost:8000").unwrap()),
+            ..Components::default()
+        };
+        components.set_enabled(Component::ChapCore, false);
+        assert!(components.has_chap_core_api());
+        components.set_enabled(Component::ChapCore, true);
+        assert!(components.chap_core_external.is_none());
     }
 
     #[test]
@@ -1027,6 +1147,7 @@ mod tests {
                 connected_at: None,
             },
             dhis2_external: None,
+            chap_core_external: None,
         };
         let text = serde_yaml_ng::to_string(&components).unwrap();
         assert!(text.contains("chap-core:\n"), "{text}");

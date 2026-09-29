@@ -208,6 +208,101 @@ fn a_model_runs_on_its_own_in_a_deployment_without_chap_core() {
     );
 }
 
+/// Model services that register with a chap-core elsewhere: over the host
+/// gateway, under this machine's name and their published port. The
+/// chap-core commands talk to that chap-core instead of refusing.
+#[test]
+fn models_register_with_a_chap_core_elsewhere() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--chap-core-url",
+            "http://localhost:18999",
+            "--models",
+            "chapkit_ewars_model",
+        ])
+        .assert()
+        .success();
+    assert!(!dir.join("compose.yml").exists(), "no chap-core of its own");
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        overlay.contains(
+            "SERVICEKIT_ORCHESTRATOR_URL: http://host.docker.internal:18999/v2/services/$$register"
+        ),
+        "{overlay}"
+    );
+    assert!(overlay.contains("SERVICEKIT_HOST: localhost"), "{overlay}");
+    assert!(overlay.contains("SERVICEKIT_PORT: \"5001\""), "{overlay}");
+    assert!(
+        overlay.contains("host.docker.internal:host-gateway"),
+        "{overlay}"
+    );
+
+    sandbox
+        .components(&["list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("external"))
+        .stdout(predicates::str::contains("http://localhost:18999"));
+
+    // Disabling chap-core forgets it; the models then register nowhere.
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success();
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        !overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"),
+        "{overlay}"
+    );
+
+    // And back, through `components enable --url`.
+    sandbox
+        .components(&["enable", "chap-core", "--url", "http://localhost:18998"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "register with the chap-core at http://localhost:18998",
+        ));
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(overlay.contains("host.docker.internal:18998"), "{overlay}");
+
+    // A chap-core that is itself a container calls the models back through
+    // the gateway rather than at its own localhost.
+    sandbox
+        .components(&[
+            "enable",
+            "chap-core",
+            "--url",
+            "http://localhost:18998",
+            "--models-host",
+            "host.docker.internal",
+        ])
+        .assert()
+        .success();
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        overlay.contains("SERVICEKIT_HOST: host.docker.internal"),
+        "{overlay}"
+    );
+
+    // --url is refused for anything but chap-core, and while chap-core runs here.
+    sandbox
+        .components(&["enable", "ocs", "--url", "http://x"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--url is a chap-core setting"));
+    let own = Sandbox::new();
+    own.init(&[]).assert().success();
+    own.components(&["enable", "chap-core", "--url", "http://localhost:18998"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "`chaps components disable chap-core`",
+        ));
+}
+
 /// `components disable chap-core` under a model that has no host port
 /// publishes one, and says where.
 #[test]

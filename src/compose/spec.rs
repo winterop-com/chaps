@@ -324,6 +324,19 @@ pub struct OverlaySpec {
     /// The deployment has no chap-core: the service registers nowhere and
     /// waits for nothing but its own init container.
     pub standalone: bool,
+    /// A chap-core elsewhere to register with, which wins over
+    /// [`OverlaySpec::standalone`]: the service registers there and waits for
+    /// nothing but its init container.
+    pub external_chap_core: Option<ExternalRegistration>,
+}
+
+/// Where a model service registers when chap-core is not in the deployment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalRegistration {
+    /// chap-core's base URL as a container reaches it.
+    pub register_url: String,
+    /// The host chap-core calls the service back at.
+    pub models_host: String,
 }
 
 impl OverlaySpec {
@@ -371,6 +384,7 @@ impl OverlaySpec {
             // configured, so the generated overlay leaves the line commented.
             registration_key: false,
             standalone: false,
+            external_chap_core: None,
         }
     }
 
@@ -403,6 +417,7 @@ impl OverlaySpec {
             volume_name: volume_name(id),
             registration_key: false,
             standalone: false,
+            external_chap_core: None,
         }
     }
 }

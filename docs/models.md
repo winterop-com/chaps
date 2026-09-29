@@ -996,8 +996,7 @@ The overlay does six things.
   and the marketplace `service_id` are the same string, which is what makes the
   registration resolvable. Set `SERVICEKIT_REGISTRATION_KEY` in `.env` to
   require a shared secret. In a deployment without chap-core the whole
-  `environment:` block is replaced by a comment saying the service registers
-  nowhere; see
+  `environment:` block is left out, so the service registers nowhere; see
   [Model services without chap-core](./components.md#model-services-without-chap-core).
 - **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
   else, unless the deployment has no chap-core, where a model gets a port by

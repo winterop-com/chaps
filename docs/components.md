@@ -857,6 +857,52 @@ The default model set is a default for a CHAP deployment, not something you
 asked for, so `--without chap-core` or `--only` with no `--models` starts with
 no models. Name the ones you want with `--models ID,...`.
 
+## A chap-core elsewhere
+
+A deployment can use a chap-core it does not run: one started from a chap-core
+checkout on this machine, another compose project, or a server. Its model
+services then register there, and the chap-core commands talk to it.
+
+```sh
+chaps init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
+chaps components enable chap-core --url http://localhost:8000     # on an existing one
+chaps components enable chap-core --url http://localhost:8000 --models-host host.docker.internal
+```
+
+`.chaps/components.yaml` records it as its own block, and `chaps components
+list` shows chap-core as `external`, at that URL:
+
+```yaml
+chap-core:
+  enabled: false
+chap-core-external:
+  url: http://localhost:8000
+  models_host: localhost
+```
+
+- **The overlays register there.** `SERVICEKIT_ORCHESTRATOR_URL` is the URL
+  with a loopback host (`localhost`, `127.0.0.1`) turned into
+  `host.docker.internal`, because inside a container the loopback is the
+  container. Each overlay maps that name to the host gateway, which Docker
+  Desktop does anyway and Linux needs.
+- **chap-core calls the models back at `models_host` and their host port**,
+  through `SERVICEKIT_HOST` and `SERVICEKIT_PORT`. The model also listens on
+  that port inside its container (`PORT`, and the published mapping is that
+  port on both sides): servicekit checks the app answers on `SERVICEKIT_PORT`
+  at `127.0.0.1` before it registers, so the two have to agree. An image that
+  ignores `PORT`, such as EWARS, never registers in this shape. Every model gets a host port,
+  as in any deployment without chap-core of its own. `localhost` is right for a
+  chap-core process on this machine; a chap-core in a container needs
+  `--models-host host.docker.internal`, and one on another machine the name it
+  reaches this one by.
+- **`chaps status`, `jobs`, `api` and `models test` use that URL** in place of
+  `http://localhost:<API port>`.
+
+It is one or the other: `components enable chap-core --url` is refused while
+this deployment runs its own chap-core (disable that first, which stops it),
+`components enable chap-core` without `--url` forgets the external one and runs
+chaps' own again, and `components disable chap-core` forgets it too.
+
 ## What the other commands say
 
 - **`chaps up`** checks the components' host ports in its preflight, alongside

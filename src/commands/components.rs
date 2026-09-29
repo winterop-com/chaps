@@ -32,6 +32,10 @@ pub struct ComponentRow {
     /// are the base stack itself.
     pub compose_file: Option<String>,
     pub summary: String,
+    /// For chap-core: the chap-core elsewhere this deployment uses instead of
+    /// running one, when it names one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_url: Option<String>,
 }
 
 /// What `chaps components list` prints.
@@ -91,6 +95,13 @@ fn rows(components: &Components, api_port: u16) -> Vec<ComponentRow> {
             },
             compose_file: component.compose_file().map(str::to_string),
             summary: component.summary().to_string(),
+            external_url: match component {
+                Component::ChapCore => components
+                    .chap_core_external
+                    .as_ref()
+                    .map(|e| e.url.clone()),
+                _ => None,
+            },
         })
         .collect()
 }
@@ -107,6 +118,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         )));
     }
     let before = project.state.components.clone();
+    if let Some(url) = &args.url {
+        return use_external_chap_core(ctx, project, component, url, args.models_host.as_deref());
+    }
 
     // The port preflight runs on the state as recorded, before anything moves:
     // a component already listening on one port must not be mistaken for the
@@ -242,6 +256,64 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         .emit(&report, || human_change(&report, &project, &ctx.out))
 }
 
+/// `chaps components enable chap-core --url URL`: record a chap-core that runs
+/// elsewhere, and re-render the model overlays so they register with it.
+///
+/// Refused while this deployment runs its own chap-core: switching would leave
+/// its containers running with nothing in the `-f` list that names them, so
+/// the operator turns it off first, where `disable` stops them.
+fn use_external_chap_core(
+    ctx: &Ctx,
+    mut project: crate::project::Project,
+    component: Component,
+    url: &str,
+    models_host: Option<&str>,
+) -> Result<()> {
+    if component != Component::ChapCore {
+        return Err(anyhow::anyhow!(
+            "--url is a chap-core setting: it names a chap-core elsewhere for the models \
+             to register with; run `chaps components enable chap-core --url URL`"
+        ));
+    }
+    if project.state.components.chap_core.enabled {
+        return Err(anyhow::anyhow!(
+            "this deployment runs its own chap-core; turn it off first with \
+             `chaps components disable chap-core`, then run this again"
+        ));
+    }
+    let before = project.state.components.clone();
+    let mut external = crate::components::external_chap_core(url)?;
+    if let Some(host) = models_host.map(str::trim).filter(|h| !h.is_empty()) {
+        external.models_host = host.to_string();
+    }
+    project.state.components.chap_core_external = Some(external.clone());
+    let after = project.state.components.clone();
+
+    let registry = super::registry_for(ctx, Some(&project))?;
+    let synced = sync(&mut project, &registry, false)?;
+    let mut notes = synced.warnings;
+    notes.push(format!(
+        "model services register with the chap-core at {} on the next `chaps up`, calling \
+         back to them at {}; `chaps status` asks it",
+        external.url, external.models_host
+    ));
+    let report = ChangeReport {
+        name: component.name().to_string(),
+        enabled: true,
+        port: None,
+        base_url: None,
+        read_only: None,
+        unchanged: before == after,
+        written: synced.written,
+        removed: synced.removed,
+        notes,
+        purged: Vec::new(),
+        kept_volumes: Vec::new(),
+    };
+    ctx.out
+        .emit(&report, || human_change(&report, &project, &ctx.out))
+}
+
 /// Turn a component off and remove what `sync` rendered for it.
 ///
 /// The component's data volumes are kept, exactly as a disabled model's volume
@@ -261,6 +333,11 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
 
     let mut after = before.clone();
     after.set_enabled(component, false);
+    // Disabling chap-core also forgets one elsewhere: either way the
+    // deployment is left with no chap-core to talk to.
+    if component == Component::ChapCore {
+        after.chap_core_external = None;
+    }
 
     // The containers go now, while compose still has the files that define
     // them, and the volume after them, because docker refuses to remove one a
@@ -682,15 +759,16 @@ fn human_list(report: &ComponentsReport, out: &Out) -> String {
         .map(|row| {
             vec![
                 row.name.clone(),
-                if row.enabled {
-                    out.ok("enabled")
-                } else {
-                    out.dim("off")
+                match (row.enabled, &row.external_url) {
+                    (true, _) => out.ok("enabled"),
+                    (false, Some(_)) => out.ok("external"),
+                    (false, None) => out.dim("off"),
                 },
-                match (row.enabled, row.port) {
-                    (true, Some(port)) => out.value(&format!("http://localhost:{port}")),
-                    (true, None) => out.dim("internal"),
-                    (false, _) => out.dim("-"),
+                match (row.enabled, row.port, &row.external_url) {
+                    (true, Some(port), _) => out.value(&format!("http://localhost:{port}")),
+                    (true, None, _) => out.dim("internal"),
+                    (false, _, Some(url)) => out.value(url),
+                    (false, _, None) => out.dim("-"),
                 },
                 out.dim(&row.summary),
             ]
@@ -849,6 +927,8 @@ mod tests {
             base_url: value.map(str::to_string),
             read_only: false,
             read_write: false,
+            url: None,
+            models_host: None,
             ocs: OcsConfigArgs::default(),
         };
         assert_eq!(base_url(&args(None)).unwrap(), None, "the flag was absent");
@@ -1045,6 +1125,8 @@ mod tests {
             base_url: None,
             read_only: false,
             read_write: false,
+            url: None,
+            models_host: None,
             ocs: OcsConfigArgs::default(),
         };
         let mut components = Components::default();

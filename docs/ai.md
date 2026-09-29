@@ -58,6 +58,8 @@ from the folder where they want it created, and then to `cd` into it as shown.
 | 6 | [DHIS2 only](#6-dhis2-only) | have a DHIS2 to play with, no CHAP |
 | 7 | [CHAP for a DHIS2 that already exists](#7-chap-for-a-dhis2-that-already-exists) | connect CHAP to a DHIS2 someone else runs |
 | 8 | [My own model](#8-my-own-model) | run a model they wrote themselves |
+| 9 | [My own model, while I work on it](#9-my-own-model-while-i-work-on-it) | develop a model in its folder and have CHAP use it |
+| 10 | [My own chap-core, with the models](#10-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
 
 ### 1. CHAP with forecasting models
 
@@ -196,6 +198,50 @@ It worked when `chaps status` shows the model as `up`, at the address in its
 REACH column.
 
 More: [Models outside the marketplace](./models.md#models-outside-the-marketplace).
+
+### 9. My own model, while I work on it
+
+For someone developing a chapkit model in its folder. chaps runs chap-core;
+they run the model from the folder.
+
+```sh
+chaps init mychap --models none
+cd mychap
+chaps up
+```
+
+Then, in the model's folder (replace `my_model` with the model's Python
+package, and keep the single quotes):
+
+```sh
+export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8000/v2/services/$register'
+export SERVICEKIT_HOST=host.docker.internal
+export SERVICEKIT_PORT=8001
+uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001
+```
+
+It worked when `chaps status`, run in the `mychap` folder, lists the model as
+`registered` (it is marked `unmanaged`, which is expected).
+
+More: [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
+
+### 10. My own chap-core, with the models
+
+For someone developing chap-core itself. They run chap-core from its folder,
+listening on `0.0.0.0:8000`; chaps runs the models.
+
+```sh
+chaps init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
+cd models
+chaps up
+chaps status
+```
+
+It worked when `chaps status` shows chap-core `up` and the model `registered`.
+If chap-core was started after `chaps up`, wait a few seconds and run
+`chaps status` again.
+
+More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
 
 ## Every option: stop, start, remove
 
