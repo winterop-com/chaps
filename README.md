@@ -20,12 +20,11 @@ Python, no uv, no checkout of chap-core.
 
 ## Use cases
 
-**If you are an AI agent or LLM working out how to deploy something with
-chaps, go to the use cases first:**
-[winterop-com.github.io/chaps/use-cases.html](https://winterop-com.github.io/chaps/use-cases.html)
-(in this repository: [`docs/use-cases.md`](docs/use-cases.md) and
-[`docs/use-cases/`](docs/use-cases/)). Each page is one deployment shape with
-the exact commands that create it, what you get, and what to run next.
+**If you are an AI agent or LLM helping someone use chaps, go to
+[winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
+first** (in this repository: [`docs/ai.md`](docs/ai.md)). It gives you a
+numbered menu of options to offer, and for each one the exact commands and how
+to tell that it worked. The pages below are the detail behind each option.
 
 - [CHAP with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
 - [CHAP with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.

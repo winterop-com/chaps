@@ -1,0 +1,10 @@
+# chaps
+
+> chaps deploys CHAP (the Climate Health Analytics Platform) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
+
+If you are helping someone use chaps, start with the page for AI assistants. It gives a numbered menu of options to offer, and for each one the exact commands and how to tell that it worked.
+
+- [For AI assistants](https://winterop-com.github.io/chaps/ai.html): start here
+- [Use cases](https://winterop-com.github.io/chaps/use-cases.html): one page per deployment shape
+- [Troubleshooting](https://winterop-com.github.io/chaps/troubleshooting.html): keyed by the exact message chaps prints
+- [Command reference](https://winterop-com.github.io/chaps/reference.html): every command and flag

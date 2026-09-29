@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](./introduction.md)
+[For AI assistants](./ai.md)
 
 - [Install](./install.md)
 - [Quickstart](./quickstart.md)

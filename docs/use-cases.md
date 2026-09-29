@@ -1,5 +1,8 @@
 # Use cases
 
+Helping someone as an AI assistant? Start at [For AI assistants](./ai.md),
+which turns these pages into a menu of options with the exact commands.
+
 `chaps` deploys CHAP, but CHAP is only one of the shapes a deployment can take.
 The same directory layout, the same commands and the same `chaps up` /
 `chaps status` / `chaps doctor` loop work for any combination of:
