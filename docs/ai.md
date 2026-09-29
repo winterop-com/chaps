@@ -64,6 +64,10 @@ from the folder where they want it created, and then to `cd` into it as shown.
 | 12 | [chap-core built from my checkout](#12-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
 | 13 | [My own DHIS2, with CHAP](#13-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to CHAP from chaps |
 | 14 | [A DHIS2, with my own chap-core](#14-a-dhis2-with-my-own-chap-core) | have chaps run DHIS2 in front of the chap-core they are developing |
+| 15 | [CHAP with every model](#15-chap-with-every-model) | try all the forecasting models, not just one |
+| 16 | [A particular DHIS2 version](#16-a-particular-dhis2-version) | run DHIS2 2.41, 2.43 or the next, unreleased one |
+| 17 | [Climate data and DHIS2, no CHAP](#17-climate-data-and-dhis2-no-chap) | have OCS and a DHIS2 together, without CHAP |
+| 18 | [Two of these at the same time](#18-two-of-these-at-the-same-time) | keep one option running while starting another |
 
 ### 1. CHAP with forecasting models
 
@@ -131,6 +135,14 @@ chaps open ocs
 
 It worked when `chaps status` shows `ocs` as `up` and the browser opens OCS.
 
+To put some data in (public rainfall data, no account needed):
+
+```sh
+curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json' -d '{"dataset_id": "chirps3_precipitation_daily", "start": "2024-01-01", "end": "2024-01-03", "publish": true}'
+```
+
+It worked when the answer contains `"status":"completed"`.
+
 More: [An OCS server on its own](./use-cases/ocs-alone.md).
 
 ### 5. One forecasting model only
@@ -161,7 +173,8 @@ chaps status
 ```
 
 Run `chaps status` every minute until the `dhis2` line says `up`, then
-`chaps open dhis2`. It worked when the login `admin` / `district` works.
+`chaps open dhis2`. It worked when the login `admin` / `district` works. This
+is DHIS2 2.42 with demo data; for another version, see option 16.
 
 More: [A DHIS2 on its own](./use-cases/dhis2-alone.md).
 
@@ -335,6 +348,83 @@ It worked when `chaps dhis2 connect` finishes without `error:` and the login
 `admin` / `district` works.
 
 More: [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md).
+
+### 15. CHAP with every model
+
+Like option 1, with all five marketplace models. The first start pulls large
+images and the checks take several minutes.
+
+```sh
+chaps init mychap --models chapkit_ewars_model,chapkit_simple_multistep_model,auto_arima_chapkit,chapkit_ghr_model,chapkit_rwanda_malaria_bym_model
+cd mychap
+chaps up
+chaps status
+chaps models test --all
+```
+
+It worked when `chaps status` ends with every model registered and
+`chaps models test --all` says every model passes.
+
+More: [CHAP with forecasting models](./use-cases/chap-with-models.md#every-model-in-the-marketplace).
+
+### 16. A particular DHIS2 version
+
+Needs about 8 GB of memory for Docker. Pick the line for the version; each
+starts with an empty DHIS2 (only 2.42 has demo data, see option 6):
+
+```sh
+chaps init dhis --only dhis2 --dhis2-tag 2.43
+chaps init dhis --only dhis2 --dhis2-tag 2.41
+chaps init dhis --only dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master
+```
+
+The last one is the next DHIS2, not released yet. Then:
+
+```sh
+cd dhis
+chaps up
+chaps status
+```
+
+Run `chaps status` every minute until the `dhis2` line says `up`, then
+`chaps open dhis2`. It worked when the login `admin` / `district` works. To
+have CHAP with it, use option 2 with the same `--dhis2-tag` (and
+`--dhis2-image`) added to its `chaps init` line.
+
+More: [A DHIS2 on its own](./use-cases/dhis2-alone.md#picking-the-version).
+
+### 17. Climate data and DHIS2, no CHAP
+
+Needs about 8 GB of memory for Docker.
+
+```sh
+chaps init lab --only ocs,s3,dhis2
+cd lab
+chaps up
+chaps status
+```
+
+Run `chaps status` every minute until every line says `up`, then
+`chaps open ocs` and `chaps open dhis2`. It worked when both open, and the
+DHIS2 login `admin` / `district` works.
+
+More: [Combinations](./use-cases/combinations.md#climate-data-and-a-dhis2-no-chap).
+
+### 18. Two of these at the same time
+
+Every option uses the same ports, so a second one needs its own. Create the
+second one with these added to its `chaps init` line (leave out the ones for
+pieces it does not have):
+
+```sh
+--api-port 8701 --ocs-port 8791 --dhis2-port 8781 --port-base 5101
+```
+
+For a third, use 8702, 8792, 8782 and 5201, and so on. It worked when both
+folders' `chaps status` say `up`. Running them one at a time needs none of
+this; see the note below.
+
+More: [Several deployments on one machine](./use-cases/several-deployments.md).
 
 ## Every option: stop, start, remove
 

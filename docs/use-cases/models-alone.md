@@ -10,4 +10,9 @@ chaps up
 chaps models list            # the PORT column says where each one answers
 ```
 
+It worked when `chaps status` shows every model as `up`, each at its own
+`http://localhost:<port>`. The ids are the ones `chaps models list` prints.
+
+More: [A chapkit model service on its own](./model-alone.md).
+
 All shapes: [Use cases](../use-cases.md).

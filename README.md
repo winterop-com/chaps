@@ -31,7 +31,7 @@ to tell that it worked. The pages below are the detail behind each option.
 - [CHAP with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
 - [CHAP for a DHIS2 that runs elsewhere](https://winterop-com.github.io/chaps/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
 - [An OCS server on its own](https://winterop-com.github.io/chaps/use-cases/ocs-alone.html): Open Climate Service and its object store, no CHAP.
-- [A DHIS2 on its own](https://winterop-com.github.io/chaps/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else.
+- [A DHIS2 on its own](https://winterop-com.github.io/chaps/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else; 2.41, 2.42, 2.43 or the next one.
 - [A chapkit model service on its own](https://winterop-com.github.io/chaps/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
 - [Several model services side by side](https://winterop-com.github.io/chaps/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
 - [Your model from its checkout, with CHAP](https://winterop-com.github.io/chaps/use-cases/model-on-host.html): chaps runs chap-core; you run your model with `uv run` and it registers.
@@ -40,7 +40,8 @@ to tell that it worked. The pages below are the detail behind each option.
 - [A DHIS2 you run yourself, with CHAP from chaps](https://winterop-com.github.io/chaps/use-cases/dhis2-dev-with-chap.html): your DHIS2, chaps' chap-core, connected.
 - [A DHIS2 from chaps, with a chap-core elsewhere](https://winterop-com.github.io/chaps/use-cases/dhis2-with-chap-core-elsewhere.html): chaps' DHIS2, your chap-core, connected.
 - [A model image you built yourself](https://winterop-com.github.io/chaps/use-cases/local-model-image.html): `docker build` a model and run it in CHAP without publishing it.
-- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): Other mixes of components and models.
+- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): OCS and DHIS2 without CHAP, a model beside OCS, everything at once.
+- [Several deployments on one machine](https://winterop-com.github.io/chaps/use-cases/several-deployments.html): taking turns on the default ports, or giving each its own.
 - [Growing a deployment](https://winterop-com.github.io/chaps/use-cases/growing.html): Moving a deployment from one shape to another.
 
 Licensed under the AGPL-3.0, like chap-core.

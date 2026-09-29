@@ -21,6 +21,7 @@
   - [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md)
   - [A model image you built yourself](./use-cases/local-model-image.md)
   - [Combinations](./use-cases/combinations.md)
+  - [Several deployments on one machine](./use-cases/several-deployments.md)
   - [Growing a deployment](./use-cases/growing.md)
 - [Concepts](./concepts.md)
 - [Commands](./commands.md)

@@ -22,22 +22,36 @@ run next. They are not exclusive: a deployment can move from one shape to
 another later with `chaps components enable` / `disable` and `chaps models
 enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 
-- [CHAP with forecasting models](./use-cases/chap-with-models.md): chap-core and the forecasting models it runs. The default.
-- [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md): chap-core with Open Climate Service beside it for climate data.
-- [CHAP with a local DHIS2 and the Modeling App](./use-cases/chap-with-local-dhis2.md): chap-core, models and a demo DHIS2, connected for the Modeling App.
-- [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md): chap-core on a server, used by a DHIS2 that runs elsewhere.
-- [An OCS server on its own](./use-cases/ocs-alone.md): Open Climate Service and its object store, no CHAP.
-- [A DHIS2 on its own](./use-cases/dhis2-alone.md): A DHIS2 and its database, nothing else.
-- [A chapkit model service on its own](./use-cases/model-alone.md): One chapkit model service answering on its own port, no chap-core.
-- [Several model services side by side](./use-cases/models-alone.md): Several model services, each on its own port, no chap-core.
+## Only one piece
+
+| I want | Page | First command |
+| --- | --- | --- |
+| only DHIS2 (2.42, 2.43, 2.41 or the next one) | [A DHIS2 on its own](./use-cases/dhis2-alone.md) | `chaps init dhis --only dhis2` |
+| only OCS (with or without S3) | [An OCS server on its own](./use-cases/ocs-alone.md) | `chaps init climate --only ocs,s3` |
+| only one model service | [A chapkit model service on its own](./use-cases/model-alone.md) | `chaps init ewars --only none --models chapkit_ewars_model` |
+| only some model services | [Several model services side by side](./use-cases/models-alone.md) | `chaps init models --only none --models ID,ID` |
+
+## CHAP
+
+- [CHAP with forecasting models](./use-cases/chap-with-models.md): chap-core and the models it runs; the default, or every model in the marketplace.
+- [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md): chap-core with Open Climate Service beside it.
+- [CHAP with a local DHIS2 and the Modeling App](./use-cases/chap-with-local-dhis2.md): chap-core, models and a DHIS2 of the version you pick, connected.
+- [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md): chap-core on a server, used by a DHIS2 someone else runs.
+- [Combinations](./use-cases/combinations.md): OCS and DHIS2 without CHAP, a model beside OCS, everything at once.
+
+## Developing CHAP, a model or DHIS2
+
 - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
+- [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in CHAP without publishing it.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; chaps runs the models and registers them with it.
 - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md): chaps builds chap-core from your clone and runs it with everything else.
 - [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md): your DHIS2, chaps' chap-core, connected.
 - [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md): chaps' DHIS2, your chap-core, connected.
-- [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in CHAP without publishing it.
-- [Combinations](./use-cases/combinations.md): Other mixes of components and models.
-- [Growing a deployment](./use-cases/growing.md): Moving a deployment from one shape to another.
+
+## More than one, and changing your mind
+
+- [Several deployments on one machine](./use-cases/several-deployments.md): taking turns on the default ports, or giving each its own.
+- [Growing a deployment](./use-cases/growing.md): adding or removing chap-core, OCS, DHIS2 or models later.
 
 ## Which commands work where
 

@@ -23,4 +23,14 @@ models, publishes a host port for each one that had none, and says where each
 one now answers. chap-core's own volumes are kept either way; `chaps down
 --volumes` is what removes them.
 
+It worked when `chaps status` shows the new pieces: chap-core `up` and the
+models `registered` after adding chap-core, or each model `up` on its own port
+after taking it away.
+
+The same goes for any other piece: `chaps components enable ocs`,
+`chaps components enable dhis2` or `chaps models enable ID`, then `chaps up`. A
+DHIS2 added this way runs the default version; `v` on its row in `chaps ui`, or
+`image_tag` in `.chaps/components.yaml` followed by `chaps sync`, picks another
+(see [Changing the DHIS2 version](../dhis2.md#changing-the-dhis2-version)).
+
 All shapes: [Use cases](../use-cases.md).

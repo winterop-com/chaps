@@ -16,6 +16,11 @@ reach it at `http://localhost:8790`. `init` writes `ocs/climate-service.yaml`
 `.env` commented out. ERA5-Land needs a Copernicus Climate Data Store and/or an
 Earth Data Hub account; WorldPop and CHIRPS3 need none.
 
+It worked when `chaps status` shows chap-core, `ocs` and `s3` as `up` and the
+models registered. To put a first dataset in, see
+[Ingesting a first dataset](./ocs-alone.md#ingesting-a-first-dataset); the
+same commands work here.
+
 Next: [OCS](../components.md#ocs), and
 [Data source credentials](../components.md#data-source-credentials) for which
 dataset needs which account.
