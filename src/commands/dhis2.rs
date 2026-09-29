@@ -655,6 +655,9 @@ fn send_route(
             session.external().is_none()
         )));
     }
+    if answer.status == 403 {
+        return Err(anyhow::anyhow!(session.dhis2.route_refusal(&answer)));
+    }
     Err(session.dhis2.status_error(path, &answer))
 }
 

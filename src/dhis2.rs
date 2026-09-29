@@ -692,10 +692,7 @@ impl Dhis2 {
     /// DHIS2 no longer honours, a 403 is the right credential on a user DHIS2
     /// will not let do this. Neither ever prints the secret.
     pub fn refusal(&self, answer: &Answer) -> Option<String> {
-        let who = match self.credentials.user() {
-            Some(user) => format!("`{user}`"),
-            None => "the token's user".to_string(),
-        };
+        let who = self.who();
         match (answer.status, self.credentials.kind()) {
             (401, AuthKind::Basic) => Some(format!(
                 "DHIS2 at {} did not accept the password for {who} ({}); set \
@@ -712,8 +709,12 @@ impl Dhis2 {
                 self.credentials.describe()
             )),
             (403, _) => Some(format!(
-                "DHIS2 refused the request as {who} (HTTP 403): that user is authenticated but \
-                 not allowed to do this, and a DHIS2 superuser is; name another with `--user NAME`"
+                "DHIS2 refused the request as {who} (HTTP 403{}): that user is authenticated but \
+                 not allowed to do this, and a DHIS2 superuser is; name another with `--user NAME`",
+                match said(answer) {
+                    reason if reason.is_empty() => String::new(),
+                    reason => format!(", \"{reason}\""),
+                }
             )),
             _ => None,
         }
@@ -899,6 +900,36 @@ pub fn route_target(root: &str) -> String {
         crate::open::internal_url(crate::components::Component::ChapCore),
         root.trim_end_matches('/')
     )
+}
+
+/// The authority DHIS2 checks before it creates a route, which a superuser has
+/// through `ALL` and an ordinary admin role may not: the Sierra Leone demo
+/// database's `admin` does not have it.
+pub const ROUTE_ADD_AUTHORITY: &str = "F_ROUTE_PUBLIC_ADD";
+
+impl Dhis2 {
+    /// The user these requests are made as, in backticks, for a sentence.
+    pub fn who(&self) -> String {
+        match self.credentials.user() {
+            Some(user) => format!("`{user}`"),
+            None => "the token's user".to_string(),
+        }
+    }
+
+    /// What a 403 on writing the `chap` route says: DHIS2's own reason, the
+    /// authority the write needs, and the two ways to get it.
+    pub fn route_refusal(&self, answer: &Answer) -> String {
+        let reason = match said(answer) {
+            reason if reason.is_empty() => String::new(),
+            reason => format!(", \"{reason}\""),
+        };
+        format!(
+            "DHIS2 refused to write the `{ROUTE_CODE}` route as {} (HTTP 403{reason}): that needs \
+             the {ROUTE_ADD_AUTHORITY} authority; add it to one of that user's roles in DHIS2 \
+             (Users, User role), or name a superuser with `--user NAME`",
+            self.who()
+        )
+    }
 }
 
 /// Where the route has to point for an external DHIS2: chap-core's own URL as
@@ -2058,6 +2089,15 @@ mod tests {
         let text = dhis2.refusal(&answer(403, "{}")).expect("a 403 sentence");
         assert!(text.contains("--user NAME"), "{text}");
         assert!(!text.contains("district"), "{text}");
+
+        // A refused route write says DHIS2's reason and the authority it needs:
+        // the Sierra Leone demo's `admin` is not a superuser and lacks it.
+        let body = r#"{"httpStatusCode":403,"message":"You don't have the proper permissions to create this object.","errorCode":"E1006"}"#;
+        let text = dhis2.route_refusal(&answer(403, body));
+        assert!(text.contains("`chap` route as `admin`"), "{text}");
+        assert!(text.contains("proper permissions"), "{text}");
+        assert!(text.contains(ROUTE_ADD_AUTHORITY), "{text}");
+        assert!(text.contains("--user NAME"), "{text}");
 
         // A token is refused as a token, with the two places a current one
         // goes, and never quoted.
