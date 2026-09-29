@@ -35,6 +35,10 @@ chaps models unexpose chapkit-ewars-model          # and take it away again
 chaps up                                           # apply either change
 ```
 
+In a deployment without chap-core there is no proxy, so a model gets a host
+port when it is enabled, from the same range; see
+[Model services without chap-core](./components.md#model-services-without-chap-core).
+
 `expose` and `unexpose` only rewrite the overlay's `ports:`; they never
 re-resolve the version, so they are safe on a deployment running a build you do
 not want moved. `chaps models enable ID --port N|auto` does the same thing

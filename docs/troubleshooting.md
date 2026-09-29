@@ -432,6 +432,30 @@ talk to a chap-core somewhere else, `chaps api --url <base>` sends the request
 there. Otherwise add chap-core with `chaps components enable chap-core`, then
 `chaps up`. See [Standalone OCS](./components.md#standalone-ocs).
 
+## `registration.missing_orchestrator_url` in a model's log
+
+```text
+[error    ] registration.missing_orchestrator_url [servicekit.api.registration] env_var=SERVICEKIT_ORCHESTRATOR_URL
+```
+
+Expected in a deployment without chap-core, and harmless. The overlay leaves
+`SERVICEKIT_ORCHESTRATOR_URL` out on purpose because there is nothing to
+register with. servicekit logs this line at error level, then skips registration
+and serves as usual. `chaps status` asks the model's own `/health`, which is the
+check that matters there. In a deployment *with* chap-core the line means the
+overlay is out of date: run `chaps sync`, then `chaps restart`.
+
+## `running and not answering on /health`
+
+```text
+1 of 1 model is running and not answering on /health; run `chaps status` again in a moment, or read `chaps logs SERVICE`
+```
+
+A deployment without chap-core asks each model's own `/health` on its host
+port. A model image can take a minute to start, so ask again first. If it stays,
+`chaps logs <service_id>` shows why the service did not come up. A model enabled
+with `--port none` has no host port to ask and is judged by its container alone.
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

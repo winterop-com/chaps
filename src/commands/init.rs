@@ -32,17 +32,11 @@ const POSTGRES_DB: &str = "chap_core";
 /// What the summary says for a deployment that enables no models.
 const NO_MODELS: &str = "No models enabled; run `chaps models enable ID` to add one.";
 
-/// The same for a deployment chap-core is not a component of.
-///
-/// A model service registers with chap-core and is reached through it, so
-/// `chaps models enable` there is refused with
-/// [`crate::components::MODELS_NEED_CHAP_CORE`]. Naming it as the next step
-/// would cost the reader a command to find that out, which is worse than
-/// naming none: the line says why there are no models and names the one
-/// command that changes it. Where the deployment goes next - its addresses and
-/// its OCS config file - the block of addresses above has already said.
-const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models: they register with chap-core, which this deployment leaves out; \
-     `chaps components enable chap-core` adds it.";
+/// The same for a deployment chap-core is not a component of, where a model
+/// enabled later runs on its own: it registers nowhere and is published on a
+/// host port, which is the one thing worth knowing before enabling one.
+const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `chaps models enable ID` to add one. \
+     Without chap-core each runs on its own, on a published host port.";
 
 /// Which of the two the summary prints, as a pure function of the component
 /// set so the choice is testable without a deployment on disk.
@@ -162,25 +156,13 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         // Quitting the browser without saving is "no models", not an error.
         crate::tui::run_tui(ctx, &project, &registry)?.unwrap_or_default()
     } else if !components.chap_core.enabled && args.models == "default" {
-        // The default model set is a default, not a request: a deployment
-        // without chap-core has nowhere to register one, so it starts empty
-        // rather than making the operator also type `--models none`.
+        // The default model set is a default, not a request: it is the set a
+        // CHAP deployment starts with, and a deployment without chap-core asks
+        // for its model services by name.
         Selection::default()
     } else {
         parse_models(&args.models, &registry)?
     };
-    // A model service registers with chap-core and is reached through it, so
-    // the two cannot be asked for separately.
-    if !components.chap_core.enabled && !selection.enable.is_empty() {
-        let ids: Vec<String> = selection.enable.iter().map(|r| r.id.clone()).collect();
-        return Err(anyhow::anyhow!(
-            "--without chap-core leaves nowhere for {} to register: model services \
-             register with chap-core and are reached through it. Pass `--models none`, \
-             or keep chap-core",
-            ids.join(", ")
-        ));
-    }
-
     // The whole selection is checked against the registry here, before a file
     // is deleted or written: a template id, a model the marketplace does not
     // list or a version that was yanked must leave an existing deployment
@@ -1297,29 +1279,17 @@ mod tests {
     use super::*;
     use crate::registry::load_embedded;
 
-    /// The next step a summary names has to be one that works. `chaps models
-    /// enable` on a deployment without chap-core is refused, so naming it
-    /// would cost the reader a command to find that out.
+    /// A deployment without chap-core can take models too, and is told how
+    /// they run there before it enables one.
     #[test]
-    fn a_deployment_without_chap_core_is_not_told_to_enable_a_model() {
+    fn a_deployment_without_chap_core_is_told_its_models_run_on_their_own() {
         let mut components = Components::default();
         assert_eq!(no_models_line(&components), NO_MODELS);
-        assert!(no_models_line(&components).contains("`chaps models enable ID`"));
 
         components.set_enabled(Component::ChapCore, false);
         let line = no_models_line(&components);
-        assert!(!line.contains("chaps models enable"), "{line}");
-        assert!(
-            line.contains("`chaps components enable chap-core`"),
-            "{line}"
-        );
-        // The same command the refusal it pre-empts names, so the reader is
-        // sent to one place and not two.
-        assert!(
-            crate::components::MODELS_NEED_CHAP_CORE
-                .contains("`chaps components enable chap-core`"),
-            "the line and the refusal name the same command"
-        );
+        assert!(line.contains("`chaps models enable ID`"), "{line}");
+        assert!(line.contains("published host port"), "{line}");
     }
 
     #[test]

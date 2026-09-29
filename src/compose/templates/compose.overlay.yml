@@ -5,11 +5,7 @@ services:
     restart: unless-stopped
     image: @IMAGE@@TAG_SEP@${@TAG_VAR@:-@IMAGE_TAG@}
 @PLATFORM_LINE@    init: true
-@PORT_LINES@    environment:
-      # $$ is a literal $ for compose.
-      SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register
-@REGISTRATION_KEY_LINES@
-    read_only: true
+@PORT_LINES@@ENVIRONMENT_LINES@    read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -23,7 +19,5 @@ services:
         source: @VOLUME@
         target: @DATA_DIR@
     depends_on:
-@INIT_DEPENDS@      chap:
-        condition: service_healthy
-@INIT_SERVICE@volumes:
+@INIT_DEPENDS@@CHAP_DEPENDS@@INIT_SERVICE@volumes:
   @VOLUME@: {}

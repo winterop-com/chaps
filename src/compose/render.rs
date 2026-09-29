@@ -639,13 +639,32 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // the `.env` next to these files, so the key never has to be copied into
     // `.chaps/` or into an overlay.
     let registration_key_lines = if spec.registration_key {
-        "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}".to_string()
+        "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n"
     } else {
         concat!(
             "      # Uncomment if chap has SERVICEKIT_REGISTRATION_KEY set:\n",
-            "      # SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}"
+            "      # SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n"
         )
-        .to_string()
+    };
+    // Without chap-core there is nothing to register with and nothing to wait
+    // for. servicekit skips registration when SERVICEKIT_ORCHESTRATOR_URL is
+    // unset, so the whole block goes rather than pointing at a missing host.
+    let (environment_lines, chap_depends) = if spec.standalone {
+        (
+            "    # No chap-core in this deployment, so the service registers nowhere.\n"
+                .to_string(),
+            String::new(),
+        )
+    } else {
+        (
+            format!(
+                "    environment:\n\
+                 \x20     # $$ is a literal $ for compose.\n\
+                 \x20     SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register\n\
+                 {registration_key_lines}"
+            ),
+            "      chap:\n        condition: service_healthy\n".to_string(),
+        )
     };
     let port_lines = port_lines(spec);
     // The init container chowns the data volume from busybox, which knows none
@@ -712,7 +731,8 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             ("TAG_SEP", crate::compose::tag_separator(&spec.image_tag)),
             ("PLATFORM_LINE", &platform_line),
             ("PORT_LINES", &port_lines),
-            ("REGISTRATION_KEY_LINES", &registration_key_lines),
+            ("ENVIRONMENT_LINES", &environment_lines),
+            ("CHAP_DEPENDS", &chap_depends),
             ("DATA_DIR", &spec.data_dir),
             ("USER_LINE", &user_line),
             ("INIT_DEPENDS", &init_depends),
@@ -848,6 +868,25 @@ mod tests {
             "../../tests/fixtures/compose.chapkit-rwanda-malaria-bym-model.yml"
         ));
         assert_eq!(text, golden);
+    }
+
+    /// The shape a deployment without chap-core renders: no orchestrator URL
+    /// and no registration key, since the service registers nowhere, and no
+    /// `chap` to wait for. The rest is byte for byte the usual overlay.
+    #[test]
+    fn a_standalone_overlay_matches_its_own_golden_fixture() {
+        let mut spec = overlay_spec("chapkit_ewars_model");
+        spec.standalone = true;
+        let text = render_overlay(&spec);
+        assert_no_tokens(&text);
+        let golden = normalize_newlines(include_str!(
+            "../../tests/fixtures/compose.chapkit-ewars-model.standalone.yml"
+        ));
+        assert_eq!(text, golden);
+        let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+        let svc = service(&doc, "chapkit-ewars-model");
+        assert!(svc.get("environment").is_none());
+        assert!(svc["depends_on"].get("chap").is_none());
     }
 
     /// The third shape, said as assertions rather than as a golden file: an

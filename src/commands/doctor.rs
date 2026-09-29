@@ -2844,18 +2844,28 @@ fn image_checks(project: &Project, probed: Option<&Probed>, have_cli: bool) -> V
 
 /// What a deployment without chap-core adds up to: its components alone.
 fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<String>) {
+    // Models without chap-core are judged by their own /health, the same rows
+    // `chaps status` prints, and count beside the components.
+    let models = report
+        .models
+        .iter()
+        .map(|m| (m.id.as_str(), m.state == crate::status::ModelState::Up));
     let (up, down): (Vec<&str>, Vec<&str>) = report
         .components
         .iter()
-        .map(|c| (c.name.as_str(), c.state))
-        .fold((Vec::new(), Vec::new()), |(mut up, mut down), (name, s)| {
-            if s == ComponentState::Up {
-                up.push(name);
-            } else {
-                down.push(name);
-            }
-            (up, down)
-        });
+        .map(|c| (c.name.as_str(), c.state == ComponentState::Up))
+        .chain(models)
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut up, mut down), (name, is_up)| {
+                if is_up {
+                    up.push(name);
+                } else {
+                    down.push(name);
+                }
+                (up, down)
+            },
+        );
     if down.is_empty() {
         return (
             Status::Ok,
@@ -2866,7 +2876,7 @@ fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<Str
     (
         Status::Warn,
         format!("no chap-core here; not up: {}", down.join(", ")),
-        Some("run `chaps status` for what each component is doing".to_string()),
+        Some("run `chaps status` for what each one is doing".to_string()),
     )
 }
 

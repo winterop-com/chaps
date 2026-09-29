@@ -995,9 +995,13 @@ The overlay does six things.
   `$$` is a literal `$` for Compose). The Compose service name, the DNS name
   and the marketplace `service_id` are the same string, which is what makes the
   registration resolvable. Set `SERVICEKIT_REGISTRATION_KEY` in `.env` to
-  require a shared secret.
+  require a shared secret. In a deployment without chap-core the whole
+  `environment:` block is replaced by a comment saying the service registers
+  nowhere; see
+  [Model services without chap-core](./components.md#model-services-without-chap-core).
 - **Publishes no host port.** The service gets `expose: ["8000"]` and nothing
-  else. See [Ports](./ports.md).
+  else, unless the deployment has no chap-core, where a model gets a port by
+  default. See [Ports](./ports.md).
 - **Hardening**, matching the posture of the base services: `init: true`,
   `read_only: true`, `no-new-privileges`, `cap_drop: [ALL]`, a 2 GB tmpfs at
   `/tmp`, and a named volume for the model's data directory (the only writable
@@ -1013,7 +1017,8 @@ The overlay does six things.
 - **Ordering.** `depends_on`: the init container with
   `condition: service_completed_successfully` (where there is one) and `chap`
   with `condition: service_healthy`, so a model only starts once its volume is
-  writable and chap-core can accept its registration.
+  writable and chap-core can accept its registration. Without chap-core only
+  the init container is waited for.
 
 Three things an overlay deliberately leaves out:
 

@@ -162,43 +162,68 @@ fn a_forced_init_that_cannot_apply_leaves_the_deployment_it_found_alone() {
     assert!(dir.join("compose.auto-arima-chapkit.yml").is_file());
 }
 
-/// A model service registers with chap-core and is reached through it, so a
-/// deployment without chap-core has nowhere to put one. `init` says so about
-/// its own flag; this is the same dependency seen from `models enable`.
+/// A model enabled into a deployment without chap-core runs on its own: it
+/// is published on a host port, registers nowhere and waits for no `chap`.
+/// Turning chap-core on afterwards puts it back behind chap-core.
 #[test]
-fn a_model_cannot_be_enabled_into_a_deployment_without_chap_core() {
+fn a_model_runs_on_its_own_in_a_deployment_without_chap_core() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
-    sandbox.init(&["--without", "chap-core"]).assert().success();
+    sandbox.init(&["--only", "none"]).assert().success();
 
     sandbox
         .models(&["enable", "chapkit_ewars_model"])
         .assert()
-        .failure()
-        .stderr(predicates::str::contains(
-            "models need the chap-core component",
-        ))
-        .stderr(predicates::str::contains(
-            "chaps components enable chap-core",
-        ));
-
-    // Nothing was written: no overlay, and the model set is still empty.
-    assert!(!dir.join("compose.chapkit-ewars-model.yml").exists());
+        .success()
+        .stdout(predicates::str::contains("http://localhost:5001"));
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(overlay.contains("\"5001:8000\""), "{overlay}");
     assert!(
-        !read(&dir.join(".chaps").join("models.yaml")).contains("chapkit_ewars_model"),
-        "the state records a model the deployment refused to enable"
+        !overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"),
+        "{overlay}"
     );
+    assert!(!overlay.contains("      chap:\n"), "{overlay}");
+    assert!(!dir.join("compose.yml").exists());
 
-    // What the message says to do is what makes it work.
+    // chap-core added later: the overlay registers with it again, and keeps
+    // the port it was given.
     sandbox
         .components(&["enable", "chap-core"])
         .assert()
         .success();
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"), "{overlay}");
+    assert!(overlay.contains("      chap:\n"), "{overlay}");
+    assert!(overlay.contains("\"5001:8000\""), "{overlay}");
+
+    // And off again with the model still on: allowed, the model stays.
     sandbox
-        .models(&["enable", "chapkit_ewars_model"])
+        .components(&["disable", "chap-core"])
         .assert()
         .success();
-    assert!(dir.join("compose.chapkit-ewars-model.yml").is_file());
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        !overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"),
+        "{overlay}"
+    );
+}
+
+/// `components disable chap-core` under a model that has no host port
+/// publishes one, and says where.
+#[test]
+fn disabling_chap_core_publishes_the_models_left_behind() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "chapkit_ewars_model now registers nowhere and is published on http://localhost:5001",
+        ));
 }
 
 /// Disabling a model keeps its data, and the only thing that still knows

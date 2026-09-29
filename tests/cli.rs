@@ -5175,32 +5175,26 @@ fn disabling_a_component_removes_its_file_and_its_place_in_the_f_list() {
 }
 
 #[test]
-fn chap_core_cannot_be_disabled_while_a_model_is_enabled() {
+fn chap_core_can_be_disabled_under_an_enabled_model() {
     let sandbox = Sandbox::new();
     sandbox
         .init(&["--models", "chapkit_ewars_model"])
         .assert()
         .success();
 
-    sandbox
-        .components(&["disable", "chap-core"])
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("chapkit_ewars_model"))
-        .stderr(predicates::str::contains("chaps models disable"));
-    assert!(sandbox.project().join("compose.yml").is_file());
-
-    // With the model gone it is allowed, and the base stack goes with it.
-    sandbox
-        .models(&["disable", "chapkit_ewars_model"])
-        .assert()
-        .success();
+    // The model stays and runs on its own; the chap-core files go.
     sandbox
         .components(&["disable", "chap-core"])
         .assert()
         .success();
     assert!(!sandbox.project().join("compose.yml").exists());
     assert!(!sandbox.project().join("compose.chaps.yml").exists());
+    assert!(
+        sandbox
+            .project()
+            .join("compose.chapkit-ewars-model.yml")
+            .is_file()
+    );
 }
 
 #[test]
@@ -5256,13 +5250,14 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
             "this deployment has no chap-core",
         ));
 
-    // Asking for a model at the same time is a contradiction, not a surprise.
+    // A model asked for at the same time runs on its own, on a host port.
     let other = Sandbox::new();
     other
-        .init(&["--without", "chap-core", "--models", "chapkit_ewars_model"])
+        .init(&["--only", "ocs", "--models", "chapkit_ewars_model"])
         .assert()
-        .failure()
-        .stderr(predicates::str::contains("--without chap-core"));
+        .success()
+        .stdout(predicates::str::contains("http://localhost:5001"));
+    assert!(!other.project().join("compose.yml").exists());
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! selection: every key that acts on a row acts on the page that is up, and
 //! saving carries both pages' changes.
 
-use crate::components::{Component, Components, models_need_chap_core};
+use crate::components::{Component, Components};
 use crate::compose::{EnableRequest, PortRequest, Selection};
 use crate::open::Openable;
 use crate::project::{EnabledModel, ProjectState};
@@ -1020,25 +1020,12 @@ impl<'a> App<'a> {
         }
     }
 
-    /// Turn one component on or off, or say why it cannot go off.
+    /// Turn one component on or off, or say why it cannot.
     ///
-    /// Turning chap-core off with models enabled is refused in the words
-    /// `chaps components disable chap-core` uses, because it is the same
-    /// dependency: a model service registers with chap-core.
+    /// chap-core can go off with models enabled: they keep running on their
+    /// own, and the save publishes a host port for each one that had none.
     fn toggle_component(&mut self, component: Component) {
         let wanted = !self.components.is_enabled(component);
-        if !wanted && component == Component::ChapCore {
-            let staying: Vec<String> = self
-                .rows
-                .iter()
-                .filter(|row| row.enabled)
-                .map(|row| self.model(row).id.clone())
-                .collect();
-            if !staying.is_empty() {
-                self.message = Some(models_need_chap_core(&staying));
-                return;
-            }
-        }
         if wanted
             && component == Component::Dhis2
             && let Some(external) = &self.components.dhis2_external
@@ -1361,14 +1348,6 @@ impl<'a> App<'a> {
             self.message = Some(TEMPLATE_HIDDEN_HINT.to_string());
             return;
         }
-        // A model registers with chap-core, so a session that has switched
-        // chap-core off says so now rather than at the save, where the
-        // refusal would arrive after the browser had closed.
-        if !self.rows[row_idx].enabled && !self.components.chap_core.enabled {
-            self.message = Some(crate::components::MODELS_NEED_CHAP_CORE.to_string());
-            return;
-        }
-
         let row = &mut self.rows[row_idx];
         row.enabled = !row.enabled;
         let now_enabled = row.enabled;
@@ -2999,35 +2978,20 @@ mod tests {
         );
     }
 
-    /// The one hard dependency between components, in the words `chaps
-    /// components disable chap-core` uses.
+    /// chap-core can go off with a model enabled: the model stays, and the
+    /// selection carries the component set that says it runs on its own.
     #[test]
-    fn chap_core_cannot_be_switched_off_while_a_model_is_enabled() {
+    fn chap_core_can_be_switched_off_while_a_model_is_enabled() {
         let registry = registry();
         let state = state_with(&registry, EWARS, Some(Channel::Stable));
         let mut app = App::new(&registry, &state);
         focus_component(&mut app, Component::ChapCore);
 
         app.reduce(Action::Toggle);
-        assert_eq!(
-            app.message.as_deref(),
-            Some(models_need_chap_core(&[EWARS.to_string()]).as_str())
-        );
-        assert!(app.components.chap_core.enabled, "it is still on");
-        assert!(!app.has_changes());
-
-        // Disabling the model first is what clears the way, and both changes
-        // ride on one selection.
-        app.page = Page::Models;
-        focus(&mut app, EWARS);
-        app.reduce(Action::Toggle);
-        focus_component(&mut app, Component::ChapCore);
-        app.reduce(Action::Toggle);
         assert!(!app.components.chap_core.enabled);
         let selection = app.selection();
-        assert_eq!(selection.disable, vec![EWARS.to_string()]);
+        assert!(selection.disable.is_empty(), "the model stays");
         assert!(!selection.components.expect("a set").chap_core.enabled);
-        assert_eq!(app.counts().pending, 2);
     }
 
     /// `p` on a component: a number or `none`, never `auto`, and never on
@@ -3274,7 +3238,8 @@ mod tests {
             );
         }
 
-        // Turning chap-core off from the palette is refused just as `space` is.
+        // Turning chap-core off from the palette works with a model enabled,
+        // just as `space` does.
         let state = state_with(&registry, EWARS, Some(Channel::Stable));
         let mut app = App::new(&registry, &state);
         app.reduce(Action::Palette);
@@ -3282,15 +3247,7 @@ mod tests {
             app.reduce(Action::PaletteChar(c));
         }
         app.reduce(Action::PaletteRun);
-        assert!(app.components.chap_core.enabled);
-        assert!(
-            app.message
-                .as_deref()
-                .unwrap_or_default()
-                .contains("chap-core cannot be disabled"),
-            "{:?}",
-            app.message
-        );
+        assert!(!app.components.chap_core.enabled);
     }
 
     /// On the components page the three row keys act on a component, and the
@@ -3471,11 +3428,10 @@ mod tests {
         );
     }
 
-    /// The dependency in the other direction, caught while the browser is
-    /// still up: a session with chap-core switched off cannot enable a model,
-    /// because the selection it would produce is one apply refuses.
+    /// A session with chap-core switched off can still enable a model; it
+    /// will run on its own.
     #[test]
-    fn a_model_cannot_be_enabled_while_this_session_has_chap_core_off() {
+    fn a_model_can_be_enabled_while_this_session_has_chap_core_off() {
         let registry = registry();
         let mut app = App::new(&registry, &empty_state());
         focus_component(&mut app, Component::ChapCore);
@@ -3485,26 +3441,10 @@ mod tests {
         app.page = Page::Models;
         focus(&mut app, EWARS);
         app.reduce(Action::Toggle);
-        assert_eq!(
-            app.message.as_deref(),
-            Some(crate::components::MODELS_NEED_CHAP_CORE)
-        );
-        assert!(!app.selected().unwrap().enabled);
-        assert!(app.selection().enable.is_empty());
-
-        // Switching chap-core back on is what clears the way.
-        focus_component(&mut app, Component::ChapCore);
-        app.reduce(Action::Toggle);
-        app.page = Page::Models;
-        focus(&mut app, EWARS);
-        app.reduce(Action::Toggle);
         assert!(app.selected().unwrap().enabled);
         let selection = app.selection();
         assert_eq!(selection.enable.len(), 1);
-        assert!(
-            selection.components.is_none(),
-            "chap-core is back where the project had it, so the set says nothing"
-        );
+        assert!(!selection.components.expect("a set").chap_core.enabled);
     }
 
     /// The keys that belong to a catalogue do nothing on the components page:

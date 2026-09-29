@@ -23,6 +23,13 @@ models without a host port are reachable through chap-core at http://localhost:8
   auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
+In a deployment without chap-core nothing registers, so the STATE column says
+what the model answered itself: `up` when `GET /health` on its host port
+answered, `running, not answering` when its container is up and `/health` did
+not answer (still starting, or failed: read `chaps logs <id>`), and
+`not running`. The closing line counts those instead of registrations, and the
+exit code is non-zero while any model is not `up`.
+
 There is one hint per row that needs doing something about, and - when no row
 does - a single hint pointing at the one check `status` cannot make itself. See
 [When everything registered](#when-everything-registered) below.

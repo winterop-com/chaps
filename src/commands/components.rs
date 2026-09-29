@@ -11,7 +11,7 @@ use crate::commands::Ctx;
 use crate::components::{
     Component, Components, DHIS2_COMPOSE, DHIS2_CONNECT_FORGOTTEN, DHIS2_CONNECT_NOTE,
     DHIS2_FIRST_START_NOTE, DHIS2_TAG_ENV_VAR, OCS_DATA_SOURCE_ENV_VARS, OCS_DATA_SOURCE_NOTE,
-    S3_LEAVES_OCS_NOTE, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE, dhis2_seed_note, models_need_chap_core,
+    S3_LEAVES_OCS_NOTE, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE, dhis2_seed_note,
 };
 use crate::compose::spec::{Dhis2ConfigSpec, OcsConfigRequest};
 use crate::compose::sync::{sync, write_dhis2_config, write_ocs_config};
@@ -253,13 +253,6 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let before = project.state.components.clone();
 
-    // Models are the one hard dependency between components: a model service
-    // registers with chap-core and is reached through it, so a deployment with
-    // models and no chap-core would start and do nothing.
-    if component == Component::ChapCore && !project.state.models.is_empty() {
-        let ids: Vec<String> = project.state.models.keys().cloned().collect();
-        return Err(anyhow::anyhow!(models_need_chap_core(&ids)));
-    }
     // Said before anything is stopped: a `--purge` that cannot do the one
     // thing it was asked for is a refusal, not a disable with a note.
     if args.purge && component.volumes().is_empty() {
@@ -300,12 +293,32 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         kept_volumes.extend(kept_volumes_of(&project, component, &exists));
     }
 
-    project.state.components = after.clone();
-
     let registry = super::registry_for(ctx, Some(&project))?;
-    let synced = sync(&mut project, &registry, false)?;
-
-    let mut notes = synced.warnings.clone();
+    // Taking chap-core away from models goes through apply(), which publishes
+    // a host port for each model that had none: with nothing left to reach
+    // them over the compose network, that port is the only way in.
+    let (mut notes, written, removed) = if component == Component::ChapCore
+        && !project.state.models.is_empty()
+    {
+        let sel = crate::compose::apply::Selection {
+            enable: Vec::new(),
+            disable: Vec::new(),
+            components: Some(after.clone()),
+        };
+        let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+        let applied = crate::compose::apply::apply(&mut project, &registry, &sel, &endpoints)?;
+        let mut notes = applied.warnings;
+        notes.extend(applied.updated.iter().filter_map(|(id, e)| {
+            e.host_port.map(|port| {
+                format!("{id} now registers nowhere and is published on http://localhost:{port}")
+            })
+        }));
+        (notes, applied.written, applied.removed)
+    } else {
+        project.state.components = after.clone();
+        let synced = sync(&mut project, &registry, false)?;
+        (synced.warnings, synced.written, synced.removed)
+    };
     notes.extend(stopped);
     if component == Component::ChapCore {
         notes.push(
@@ -340,8 +353,8 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         base_url: None,
         read_only: None,
         unchanged: before == after,
-        written: synced.written,
-        removed: synced.removed,
+        written,
+        removed,
         notes,
         purged,
         kept_volumes,

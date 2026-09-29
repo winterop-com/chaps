@@ -168,6 +168,10 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     // registers. The value stays in `.env`, which compose reads from the
     // project directory, so nothing has to be threaded into the overlays.
     let registration_key = project.state.auth.registration_key;
+    let standalone = !project
+        .state
+        .components
+        .is_enabled(crate::components::Component::ChapCore);
     for (id, model) in &project.state.models {
         let mut spec = match registry.get(id) {
             Some(m) => OverlaySpec::from_enabled(id, model, m),
@@ -180,6 +184,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
             }
         };
         spec.registration_key = registration_key;
+        spec.standalone = standalone;
         // The overlay's init container chowns the data volume from busybox,
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the

@@ -817,14 +817,45 @@ dump and says so on its `database` line. Turning chap-core on later renders
 `compose.yml` from the copy built into chaps and says so;
 `chaps update --pin-chap-core` then moves it to the newest release.
 
-Models need chap-core: a model service registers with chap-core and is reached
-through it. So `--without chap-core` together with a `--models` list is refused,
-and `chaps components disable chap-core` is refused while any model is enabled.
-The message names the models in the way. The default model set is a default and
-not something you asked for, so `--without chap-core` on its own starts with no
-models rather than making you type `--models none` as well; the `init` summary
-then says why there are none and names `chaps components enable chap-core`,
-rather than naming `chaps models enable`, which such a deployment refuses.
+## Model services without chap-core
+
+A model service does not need chap-core to run. With chap-core in the
+deployment it registers there and is reached through it; without chap-core it
+runs on its own and is reached on a host port of its own:
+
+```sh
+chaps init ewars --only none --models chapkit_ewars_model
+chaps up
+curl http://localhost:5001/health
+open http://localhost:5001/docs
+```
+
+What changes for a model when the deployment has no chap-core:
+
+- **Its overlay registers nowhere.** `SERVICEKIT_ORCHESTRATOR_URL` and the
+  registration key are left out, and servicekit skips registration when the URL
+  is unset. The overlay also stops waiting for `chap` in `depends_on`. See
+  [What an overlay contains](./models.md#what-an-overlay-contains).
+- **It gets a host port by default,** the lowest free one from 5001 up, because
+  nothing else in the deployment can reach it. `--port N` picks one,
+  `--port none` asks for none (the service is then only reachable from other
+  containers on the compose network).
+- **`chaps status` asks the model itself.** Each row is judged by its container
+  and then by `GET /health` on its host port: `up`, `running, not answering` or
+  `not running`. `chaps doctor` counts the same rows.
+- **The chap-core commands refuse**: `chaps models test` and `chaps jobs` run
+  models through chap-core, so they name `chaps components enable chap-core`.
+
+It works in both directions on an existing deployment. `chaps components disable
+chap-core` under enabled models keeps them, publishes a host port for each one
+that had none, and says where each one now answers. `chaps components enable
+chap-core` puts the orchestrator URL back, and the models register on the next
+`chaps up`; the host ports they were given stay until you
+`chaps models unexpose` them.
+
+The default model set is a default for a CHAP deployment, not something you
+asked for, so `--without chap-core` or `--only` with no `--models` starts with
+no models. Name the ones you want with `--models ID,...`.
 
 ## What the other commands say
 

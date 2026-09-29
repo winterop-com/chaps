@@ -329,8 +329,10 @@ fn human(report: &StatusReport, out: &Out) -> String {
     // is refused there.
     if matches!(report.api, ApiHealth::Off) {
         text.push('\n');
-        text.push_str(&out.cmd(&crate::status::components_closing_line(&report.components)));
-        text.push('\n');
+        for line in crate::status::standalone_closing_lines(&report.models, &report.components) {
+            text.push_str(&out.cmd(&line));
+            text.push('\n');
+        }
         return text;
     }
 
@@ -438,8 +440,8 @@ fn component_cell(out: &Out, state: crate::status::ComponentState) -> String {
 fn state_cell(out: &Out, state: ModelState) -> String {
     let label = state.label();
     match state {
-        ModelState::Registered => out.ok(label),
-        ModelState::RunningNotRegistered => out.warn(label),
+        ModelState::Registered | ModelState::Up => out.ok(label),
+        ModelState::RunningNotRegistered | ModelState::RunningNotAnswering => out.warn(label),
         ModelState::NotRunning => out.bad(label),
         ModelState::Unmanaged => out.dim(label),
     }

@@ -305,6 +305,12 @@ pub enum ModelState {
     NotRunning,
     /// Registered with chap-core, but not a model this project enables.
     Unmanaged,
+    /// Without chap-core: its container is up and its own `/health` answered
+    /// on its host port.
+    Up,
+    /// Without chap-core: its container is up and its `/health` did not
+    /// answer, which is a service still starting or one that failed to.
+    RunningNotAnswering,
 }
 
 impl ModelState {
@@ -315,6 +321,8 @@ impl ModelState {
             ModelState::RunningNotRegistered => "running, not registered",
             ModelState::NotRunning => "not running",
             ModelState::Unmanaged => "unmanaged",
+            ModelState::Up => "up",
+            ModelState::RunningNotAnswering => "running, not answering",
         }
     }
 
@@ -322,7 +330,9 @@ impl ModelState {
     pub fn is_problem(self) -> bool {
         matches!(
             self,
-            ModelState::RunningNotRegistered | ModelState::NotRunning
+            ModelState::RunningNotRegistered
+                | ModelState::NotRunning
+                | ModelState::RunningNotAnswering
         )
     }
 }
@@ -497,7 +507,21 @@ pub fn status(
             )
         })
         .collect();
-    let models = model_rows(&enabled_models(project), &registered, running, now());
+    let models = if chap_core {
+        model_rows(&enabled_models(project), &registered, running, now())
+    } else {
+        // Nothing registers anywhere, so each model is asked itself, on the
+        // host port a model without chap-core always publishes.
+        standalone_model_rows(&enabled_models(project), running, &|port| {
+            get(
+                &agent,
+                &format!("http://localhost:{port}"),
+                MODEL_HEALTH_PATH,
+                None,
+            )
+            .is_ok()
+        })
+    };
     let unmanaged = models
         .iter()
         .filter(|m| m.state == ModelState::Unmanaged)
@@ -752,6 +776,88 @@ pub fn model_rows(
     rows
 }
 
+/// The path a chapkit model service answers its own health on.
+pub const MODEL_HEALTH_PATH: &str = "/health";
+
+/// The model table for a deployment without chap-core: one row per enabled
+/// model, judged by its container and then by its own `/health`.
+///
+/// `answers` is asked only about a model whose container is up and that has a
+/// host port, so a stopped deployment costs no timeouts. A model with no host
+/// port (one enabled with `--port none`) cannot be asked from out here, so its
+/// container is the whole answer.
+pub fn standalone_model_rows(
+    enabled: &[(String, Option<u16>)],
+    running: &BTreeSet<String>,
+    answers: &dyn Fn(u16) -> bool,
+) -> Vec<ModelStatus> {
+    enabled
+        .iter()
+        .map(|(id, host_port)| {
+            let state = match (running.contains(id), host_port) {
+                (false, _) => ModelState::NotRunning,
+                (true, Some(port)) if !answers(*port) => ModelState::RunningNotAnswering,
+                (true, _) => ModelState::Up,
+            };
+            ModelStatus {
+                id: id.clone(),
+                state,
+                reach: match host_port {
+                    Some(port) => format!("http://localhost:{port}"),
+                    None => "internal".to_string(),
+                },
+                host_port: *host_port,
+                last_ping: None,
+                registered_as: None,
+            }
+        })
+        .collect()
+}
+
+/// The closing lines of a deployment without chap-core: the models, when it
+/// has any, then the components, when it has any. Each names what to run.
+pub fn standalone_closing_lines(
+    models: &[ModelStatus],
+    components: &[ComponentStatus],
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !models.is_empty() {
+        let total = models.len();
+        let noun = if total == 1 { "model" } else { "models" };
+        let stopped = models
+            .iter()
+            .filter(|m| m.state == ModelState::NotRunning)
+            .count();
+        let silent = models
+            .iter()
+            .filter(|m| m.state == ModelState::RunningNotAnswering)
+            .count();
+        lines.push(if stopped == total {
+            NOTHING_RUNNING.to_string()
+        } else if stopped > 0 {
+            let verb = if stopped == 1 { "is" } else { "are" };
+            format!("{stopped} of {total} {noun} {verb} not running; start them with `chaps up`")
+        } else if silent > 0 {
+            let verb = if silent == 1 { "is" } else { "are" };
+            format!(
+                "{silent} of {total} {noun} {verb} running and not answering on /health; \
+                 run `chaps status` again in a moment, or read `chaps logs SERVICE`"
+            )
+        } else if total == 1 {
+            "1 model up, answering on its own host port".to_string()
+        } else {
+            format!("all {total} models up, each answering on its own host port")
+        });
+    }
+    if !components.is_empty() || models.is_empty() {
+        let line = components_closing_line(components);
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
 /// What a deployment with nothing running at all is told, when chap-core is not
 /// one of its components.
 ///
@@ -774,8 +880,8 @@ pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start 
 pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
     let total = rows.len();
     if total == 0 {
-        return "this deployment has no components at all; \
-                `chaps components enable chap-core` adds CHAP back"
+        return "this deployment has no components and no models; \
+                `chaps components enable chap-core` adds CHAP, `chaps models enable ID` a model"
             .to_string();
     }
     let down = rows
@@ -836,7 +942,7 @@ pub fn exit_failure(report: &StatusReport) -> bool {
         ApiHealth::Up { .. } => !report.missing.is_empty() || components_failing,
         // chap-core is not part of this deployment, so its API not answering is
         // the expected state rather than a failure.
-        ApiHealth::Off => components_failing,
+        ApiHealth::Off => components_failing || report.models.iter().any(|m| m.state.is_problem()),
     }
 }
 
@@ -915,7 +1021,11 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
                 "{}: start CHAP with `chaps up`, then `chaps logs {}`",
                 row.id, row.id
             )),
-            ModelState::Registered | ModelState::Unmanaged => None,
+            ModelState::RunningNotAnswering => Some(format!(
+                "{}: read `chaps logs {}`; a model still starting answers in a moment",
+                row.id, row.id
+            )),
+            ModelState::Registered | ModelState::Unmanaged | ModelState::Up => None,
         })
         .collect();
     // Nothing to fix is not nothing to do: every model answered its
@@ -2388,6 +2498,53 @@ mod tests {
     /// A deployment without chap-core has no models to count, so its verdict is
     /// its components - and it must never be the models line, which names
     /// `chaps models enable`, the one command such a deployment refuses.
+    /// Without chap-core a model is asked itself: not running, running and
+    /// silent, or up - and only a running one with a host port is asked.
+    #[test]
+    fn standalone_models_are_judged_by_their_own_health() {
+        let enabled = vec![
+            ("a".to_string(), Some(5001)),
+            ("b".to_string(), Some(5002)),
+            ("c".to_string(), Some(5003)),
+            ("d".to_string(), None),
+        ];
+        let running: BTreeSet<String> = ["a", "b", "d"].iter().map(|s| s.to_string()).collect();
+        let asked = std::cell::RefCell::new(Vec::new());
+        let rows = standalone_model_rows(&enabled, &running, &|port| {
+            asked.borrow_mut().push(port);
+            port == 5001
+        });
+        let states: Vec<ModelState> = rows.iter().map(|r| r.state).collect();
+        assert_eq!(
+            states,
+            vec![
+                ModelState::Up,
+                ModelState::RunningNotAnswering,
+                ModelState::NotRunning,
+                ModelState::Up,
+            ]
+        );
+        assert_eq!(
+            *asked.borrow(),
+            vec![5001, 5002],
+            "a stopped model costs no request"
+        );
+        assert_eq!(rows[0].reach, "http://localhost:5001");
+
+        let lines = standalone_closing_lines(&rows, &[]);
+        assert_eq!(
+            lines,
+            vec!["1 of 4 models is not running; start them with `chaps up`"]
+        );
+        let up = standalone_closing_lines(&rows[..1], &[]);
+        assert_eq!(up, vec!["1 model up, answering on its own host port"]);
+        let silent = standalone_closing_lines(&rows[..2], &[]);
+        assert!(silent[0].contains("not answering on /health"), "{silent:?}");
+        assert!(silent[0].contains("`chaps logs SERVICE`"), "{silent:?}");
+        // Nothing at all falls through to the components' own sentence.
+        assert_eq!(standalone_closing_lines(&[], &[]).len(), 1);
+    }
+
     #[test]
     fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
         use ComponentState::{NotRunning, Starting, Up};
@@ -2426,19 +2583,17 @@ mod tests {
             "1 of 2 components is still starting; run `chaps status` again in a moment"
         );
 
-        // The empty deployment: chap-core off and nothing else on is almost
-        // certainly a mistake, and putting chap-core back is the way out.
+        // The empty deployment names both ways to put something in it.
         assert_eq!(
             components_closing_line(&[]),
-            "this deployment has no components at all; \
-             `chaps components enable chap-core` adds CHAP back"
+            "this deployment has no components and no models; \
+             `chaps components enable chap-core` adds CHAP, `chaps models enable ID` a model"
         );
 
         for rows in [
             vec![component(Up)],
             vec![component(NotRunning)],
             vec![component(Starting)],
-            vec![],
         ] {
             let line = components_closing_line(&rows);
             assert!(!line.contains("model"), "{line}");

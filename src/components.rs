@@ -989,27 +989,6 @@ pub fn require_chap_core(components: &Components, what: &str) -> Result<()> {
     Err(anyhow::anyhow!(needs_chap_core(what)))
 }
 
-/// Why a model cannot be enabled while `chap-core` is off.
-///
-/// The mirror image of [`models_need_chap_core`]: the same dependency, seen
-/// from the model's side. [`crate::compose::apply::validate`] raises it, so
-/// `models enable`, the browser and every other caller of the shared apply
-/// path all say the same thing.
-pub const MODELS_NEED_CHAP_CORE: &str =
-    "models need the chap-core component; run `chaps components enable chap-core`";
-
-/// Why `chap-core` cannot be turned off while models are enabled.
-pub fn models_need_chap_core(models: &[String]) -> String {
-    format!(
-        "chap-core cannot be disabled while {} enabled: model services register with \
-         chap-core and are reached through it. Disable them first with `chaps models disable ID`",
-        match models.len() {
-            1 => format!("`{}` is", models[0]),
-            _ => format!("{} models are ({})", models.len(), models.join(", ")),
-        }
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1658,14 +1637,5 @@ mod tests {
             DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME.contains("`dhis2_db`"),
             "{DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME}"
         );
-    }
-
-    #[test]
-    fn the_refusal_names_the_models_in_the_way() {
-        let one = models_need_chap_core(&["chapkit_ewars_model".to_string()]);
-        assert!(one.contains("`chapkit_ewars_model` is enabled"), "{one}");
-        let two = models_need_chap_core(&["a".to_string(), "b".to_string()]);
-        assert!(two.contains("2 models are (a, b)"), "{two}");
-        assert!(two.contains("chaps models disable"));
     }
 }

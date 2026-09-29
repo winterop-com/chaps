@@ -321,6 +321,9 @@ pub struct OverlaySpec {
     pub volume_name: String,
     /// Whether to emit an active `SERVICEKIT_REGISTRATION_KEY` line.
     pub registration_key: bool,
+    /// The deployment has no chap-core: the service registers nowhere and
+    /// waits for nothing but its own init container.
+    pub standalone: bool,
 }
 
 impl OverlaySpec {
@@ -367,6 +370,7 @@ impl OverlaySpec {
             // chap-core only enforces a registration key when it has one
             // configured, so the generated overlay leaves the line commented.
             registration_key: false,
+            standalone: false,
         }
     }
 
@@ -398,6 +402,7 @@ impl OverlaySpec {
             user: e.user.clone(),
             volume_name: volume_name(id),
             registration_key: false,
+            standalone: false,
         }
     }
 }

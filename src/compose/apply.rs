@@ -2,7 +2,7 @@
 //! TUI. It updates `.chaps/models.yaml` in memory and then hands over to
 //! [`crate::compose::sync()`], which renders the compose files and saves.
 
-use crate::components::{Component, Components, MODELS_NEED_CHAP_CORE, models_need_chap_core};
+use crate::components::{Component, Components};
 use crate::compose::overlay_filename;
 use crate::compose::overrides::{DEFAULT_DATA_DIR, DEFAULT_USER, known_override};
 use crate::compose::ports::allocator_for;
@@ -156,27 +156,6 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
             return Err(ChapError::UnknownModel(wanted.clone()).into());
         }
     }
-    // The component set this selection would leave behind: what the caller
-    // asks for, or what the project has when it asks for nothing.
-    let components = sel.components.as_ref().unwrap_or(&project.state.components);
-    // A model service registers with chap-core and is reached through it, so a
-    // deployment with models and no chap-core would start and do nothing.
-    // `init` and `components disable` each say this in their own words, about
-    // the flag or the component the caller named; this is the one that catches
-    // `models enable` and the browser - a browser session that enables a model
-    // and turns chap-core off in the same save included.
-    if !sel.enable.is_empty() && !components.is_enabled(Component::ChapCore) {
-        return Err(anyhow::anyhow!(MODELS_NEED_CHAP_CORE));
-    }
-    // The same dependency from the other side, in the words `components
-    // disable` already uses: the models this selection leaves enabled are what
-    // stands in the way of turning chap-core off.
-    if !components.is_enabled(Component::ChapCore) {
-        let staying = models_left_enabled(project, sel);
-        if !staying.is_empty() {
-            return Err(anyhow::anyhow!(models_need_chap_core(&staying)));
-        }
-    }
     for req in &sel.enable {
         let model = registry
             .get(&req.id)
@@ -254,6 +233,15 @@ pub fn apply_with(
         }
     }
     let mut allocator = allocator_for(project, &freed)?;
+    // Without chap-core nothing in the deployment reaches a model over the
+    // compose network, so a model left without a host port could not be
+    // reached at all: every one gets a published port unless the caller
+    // explicitly asked for none.
+    let standalone = !sel
+        .components
+        .as_ref()
+        .unwrap_or(&project.state.components)
+        .is_enabled(Component::ChapCore);
 
     for req in &sel.enable {
         let model = registry
@@ -282,7 +270,10 @@ pub fn apply_with(
                 if let Some(port) = kept {
                     allocator.reserve(port);
                 }
-                kept
+                match kept {
+                    None if standalone => Some(allocator.allocate(busy)?),
+                    kept => kept,
+                }
             }
             Some(PortRequest::None) => None,
             Some(PortRequest::Auto) => Some(allocator.allocate(busy)?),
@@ -393,6 +384,29 @@ pub fn apply_with(
         project.state.models.insert(model.id.clone(), entry);
     }
 
+    // The same for the models this selection does not mention, when it is the
+    // one that takes chap-core away: they keep running, and need a way in.
+    if standalone {
+        let asked: BTreeSet<&str> = sel.enable.iter().map(|r| r.id.as_str()).collect();
+        let unreachable: Vec<String> = project
+            .state
+            .models
+            .iter()
+            .filter(|(id, e)| e.host_port.is_none() && !asked.contains(id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in unreachable {
+            let port = allocator.allocate(busy)?;
+            let entry = project
+                .state
+                .models
+                .get_mut(&id)
+                .expect("collected from the same map");
+            entry.host_port = Some(port);
+            report.updated.push((id, entry.clone()));
+        }
+    }
+
     // The wanted component set goes in before the sync, so the component
     // compose files are rendered by the same run that renders the overlays:
     // one rendering path stays one rendering path.
@@ -434,27 +448,6 @@ pub fn apply_with(
     report.removed = synced.removed;
     report.warnings.extend(synced.warnings);
     Ok(report)
-}
-
-/// The models that would still be enabled once this selection is applied, by
-/// marketplace id.
-///
-/// The models being enabled by the same selection are left out: they are
-/// caught by [`MODELS_NEED_CHAP_CORE`] before this, which is the refusal that
-/// names the component rather than the models.
-fn models_left_enabled(project: &Project, sel: &Selection) -> Vec<String> {
-    let going: BTreeSet<String> = sel
-        .disable
-        .iter()
-        .filter_map(|wanted| enabled_id(project, wanted))
-        .collect();
-    project
-        .state
-        .models
-        .keys()
-        .filter(|id| !going.contains(*id))
-        .cloned()
-        .collect()
 }
 
 /// The state key for a marketplace id or a compose service id, when that
@@ -809,33 +802,6 @@ mod tests {
         assert!(report.warnings[0].contains("template"));
     }
 
-    /// A model service registers with chap-core and is reached through it, so
-    /// a model in a deployment that has no chap-core would start and talk to
-    /// nothing. `init` and `components disable` guard their own side of this;
-    /// the shared path is what catches `models enable` and the browser.
-    #[test]
-    fn a_model_cannot_be_enabled_without_the_chap_core_component() {
-        let registry = load_embedded().unwrap();
-        let (dir, mut project) = project();
-        project
-            .state
-            .components
-            .set_enabled(Component::ChapCore, false);
-
-        let err = apply(&mut project, &registry, &enable(&["chapkit_ewars_model"]))
-            .expect_err("a model has nowhere to register");
-        assert_eq!(
-            err.to_string(),
-            "models need the chap-core component; run `chaps components enable chap-core`"
-        );
-        assert!(project.state.models.is_empty());
-        assert!(!dir.path().join(".chaps").exists());
-        assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
-
-        // A selection that enables no model is not about models at all.
-        apply(&mut project, &registry, &Selection::default()).unwrap();
-    }
-
     /// Publishing a host port is no reason to move the version a deployment
     /// runs: that is what the browser's port-only change carries
     /// `keep_version` for.
@@ -1042,48 +1008,55 @@ mod tests {
         assert!(report.components_disabled.is_empty());
     }
 
-    /// The mirror of [`MODELS_NEED_CHAP_CORE`]: a selection cannot turn
-    /// chap-core off while it leaves a model enabled, and the refusal is the
-    /// one `components disable` gives.
+    /// A selection that takes chap-core away leaves the models running on
+    /// their own, and publishes a host port for each one that had none: with
+    /// nothing on the compose network to reach them, that port is the way in.
     #[test]
-    fn chap_core_cannot_be_turned_off_while_a_model_stays_enabled() {
-        let registry = load_embedded().unwrap();
-        let (_dir, mut project) = project();
-        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
-
-        let off = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
-        let err = apply(&mut project, &registry, &off).expect_err("a model is in the way");
-        assert_eq!(
-            err.to_string(),
-            models_need_chap_core(&["chapkit_ewars_model".to_string()])
-        );
-        assert!(
-            project.state.components.chap_core.enabled,
-            "and nothing was written"
-        );
-
-        // Disabling the model in the same selection is what clears the way.
-        let mut both = off.clone();
-        both.disable = vec!["chapkit_ewars_model".to_string()];
-        let report = apply(&mut project, &registry, &both).unwrap();
-        assert_eq!(report.disabled, vec!["chapkit_ewars_model"]);
-        assert_eq!(report.components_disabled, vec!["chap-core".to_string()]);
-    }
-
-    /// The other side of the same dependency: a selection that enables a model
-    /// and turns chap-core off in one go is refused in the words that name the
-    /// component, because the component is what is missing.
-    #[test]
-    fn a_model_enabled_by_a_selection_that_turns_chap_core_off_is_refused() {
+    fn turning_chap_core_off_publishes_the_models_it_leaves_behind() {
         let registry = load_embedded().unwrap();
         let (dir, mut project) = project();
-        let mut clash = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
-        clash.enable = vec![EnableRequest::new("chapkit_ewars_model")];
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
+        assert_eq!(project.state.models["chapkit_ewars_model"].host_port, None);
 
-        let err = apply(&mut project, &registry, &clash).expect_err("nowhere to register");
-        assert_eq!(err.to_string(), MODELS_NEED_CHAP_CORE);
-        assert!(project.state.models.is_empty());
-        assert!(!dir.path().join(".chaps").exists());
+        let off = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
+        let report = apply(&mut project, &registry, &off).unwrap();
+        assert_eq!(report.components_disabled, vec!["chap-core".to_string()]);
+        assert_eq!(report.updated.len(), 1);
+        assert_eq!(
+            project.state.models["chapkit_ewars_model"].host_port,
+            Some(5001)
+        );
+
+        let overlay =
+            std::fs::read_to_string(dir.path().join("compose.chapkit-ewars-model.yml")).unwrap();
+        assert!(
+            !overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"),
+            "{overlay}"
+        );
+        assert!(!overlay.contains("chap:\n"), "waits for no chap: {overlay}");
+        assert!(overlay.contains("\"5001:8000\""), "{overlay}");
+    }
+
+    /// A model enabled into a deployment without chap-core is published on a
+    /// host port straight away, unless the caller explicitly asked for none.
+    #[test]
+    fn a_model_enabled_without_chap_core_gets_a_host_port() {
+        let registry = load_embedded().unwrap();
+        let (_dir, mut project) = project();
+        let mut standalone = components(|wanted| wanted.set_enabled(Component::ChapCore, false));
+        standalone.enable = vec![EnableRequest::new("chapkit_ewars_model")];
+        let report = apply(&mut project, &registry, &standalone).unwrap();
+        assert_eq!(report.enabled[0].1.host_port, Some(5001));
+
+        let mut none = Selection::default();
+        let mut req = EnableRequest::new("chapkit_ewars_model");
+        req.port = Some(PortRequest::None);
+        none.enable = vec![req];
+        let report = apply(&mut project, &registry, &none).unwrap();
+        assert_eq!(
+            report.updated[0].1.host_port, None,
+            "asked for none, got none"
+        );
     }
 
     /// A component's host port gets the same question a model's does, and the
