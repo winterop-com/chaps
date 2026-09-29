@@ -199,6 +199,18 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     if component == Component::S3 && !after.ocs.enabled {
         notes.push(S3_WITHOUT_OCS_NOTE.to_string());
     }
+    // A deployment that started without chap-core never asked GitHub for a
+    // release, so compose.yml comes from the copy built into this binary.
+    if component == Component::ChapCore
+        && !before.chap_core.enabled
+        && project.state.chap_compose_source == crate::project::ComposeSource::Embedded
+    {
+        notes.push(format!(
+            "compose.yml is rendered from the chap-core compose file built into chaps, at tag \
+             `{}`; `chaps update --pin-chap-core` moves it to the newest release",
+            project.state.chap_image_tag
+        ));
+    }
 
     // `sync` appends the OCS `.env` sections on the run that first needs them,
     // and its report only says the file was written - which it also says when it

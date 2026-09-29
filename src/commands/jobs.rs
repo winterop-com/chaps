@@ -320,6 +320,7 @@ fn message_of(answer: &crate::api::Answer, verb: &str) -> String {
 /// This deployment and a client for its API.
 fn connect(ctx: &Ctx) -> Result<(Project, Api)> {
     let project = ctx.project()?;
+    crate::components::require_chap_core(&project.state.components, "`chaps jobs`")?;
     let token = crate::api::token_for(Some(&project.dir));
     let api = Api::new(&project.api_url(), token, crate::api::DEFAULT_TIMEOUT);
     ctx.out

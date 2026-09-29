@@ -111,7 +111,19 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // Settle the chap-core tag and the compose file that goes with it before
     // anything is written: both need the network, and a failure of either is a
     // warning plus a fallback, never a half-written directory.
-    let chap_core = resolve_chap_core(ctx, &dir, &args.chap_tag);
+    // A deployment without chap-core asks GitHub nothing: the tag is recorded
+    // as given and `compose.yml` would come from the embedded copy, which is
+    // what `chaps components enable chap-core` renders and `chaps update`
+    // then moves to a release.
+    let chap_core = if components.chap_core.enabled {
+        resolve_chap_core(ctx, &dir, &args.chap_tag)
+    } else {
+        ChapCore {
+            tag: args.chap_tag.trim().to_string(),
+            source: ComposeSource::Embedded,
+            cached: None,
+        }
+    };
     let state = ProjectState {
         chap_image_tag: chap_core.tag.clone(),
         chap_compose_source: chap_core.source.clone(),

@@ -35,7 +35,10 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<()> {
     let project = resolve_project(ctx, args)?;
     let base = match (&args.url, &project) {
         (Some(url), _) => url.trim().to_string(),
-        (None, Some(project)) => project.api_url(),
+        (None, Some(project)) => {
+            crate::components::require_chap_core(&project.state.components, "`chaps api`")?;
+            project.api_url()
+        }
         // Unreachable: `resolve_project` fails when there is neither.
         (None, None) => return Err(no_target()),
     };

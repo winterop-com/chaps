@@ -38,6 +38,9 @@ pub struct BackupReport {
     pub path: PathBuf,
     pub size_bytes: u64,
     pub manifest: Manifest,
+    /// The deployment has no chap-core, so there was no database to dump.
+    #[serde(skip)]
+    pub no_chap_core: bool,
 }
 
 /// Stage, capture and pack.
@@ -61,7 +64,11 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     }
 
     let mut running = Running::new(&project);
-    let database = if args.no_db {
+    let no_chap_core = !project
+        .state
+        .components
+        .is_enabled(crate::components::Component::ChapCore);
+    let database = if args.no_db || no_chap_core {
         None
     } else {
         let dumped = dump_database(&project, &stage, &mut running)?;
@@ -122,6 +129,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         size_bytes: backup::file_size(&out),
         path: out,
         manifest,
+        no_chap_core,
     };
     ctx.out.emit(&report, || human(&report, &ctx.out))
 }
@@ -615,7 +623,11 @@ fn human(report: &BackupReport, out: &Out) -> String {
         None => text.push_str(&format!(
             "  {}  {}\n",
             out.key("database"),
-            out.dim("not included (--no-db)")
+            out.dim(if report.no_chap_core {
+                "none (this deployment has no chap-core)"
+            } else {
+                "not included (--no-db)"
+            })
         )),
     }
     let captured: Vec<&ManifestModel> = manifest.captured_models().collect();
@@ -752,6 +764,7 @@ mod tests {
                 models,
                 components,
             },
+            no_chap_core: false,
         }
     }
 

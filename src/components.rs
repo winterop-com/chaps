@@ -972,6 +972,23 @@ pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
     )
 }
 
+/// The refusal of a command that only chap-core can answer, on a deployment
+/// chap-core is not a component of. `what` names the command, in backticks.
+pub fn needs_chap_core(what: &str) -> String {
+    format!(
+        "{what} needs chap-core, and this deployment has no chap-core;\
+         `chaps components enable chap-core` adds it"
+    )
+}
+
+/// Refuse `what` when `components` leaves chap-core out.
+pub fn require_chap_core(components: &Components, what: &str) -> Result<()> {
+    if components.is_enabled(Component::ChapCore) {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(needs_chap_core(what)))
+}
+
 /// Why a model cannot be enabled while `chap-core` is off.
 ///
 /// The mirror image of [`models_need_chap_core`]: the same dependency, seen

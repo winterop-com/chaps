@@ -49,7 +49,10 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct UpdateReport {
     pub registry: RegistryInfo,
     pub models: Vec<ModelUpdate>,
-    pub chap_core: ChapCoreUpdate,
+    /// `None` for a deployment chap-core is not a component of: there is no
+    /// pin to move and no release to look up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chap_core: Option<ChapCoreUpdate>,
     /// One row per enabled component other than chap-core. They follow moving
     /// tags, so there is no pin to move - only a pull to report.
     pub components: Vec<ComponentUpdate>,
@@ -342,6 +345,21 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if args.list_tags {
         return list_tags(ctx, &project);
     }
+    let has_chap_core = project
+        .state
+        .components
+        .is_enabled(components::Component::ChapCore);
+    if !has_chap_core && (args.chap_tag.is_some() || args.pin_chap_core) {
+        return Err(anyhow::anyhow!(
+            "{} moves chap-core's pin, and this deployment has no chap-core; \
+             `chaps components enable chap-core` adds it",
+            if args.chap_tag.is_some() {
+                "--chap-tag"
+            } else {
+                "--pin-chap-core"
+            }
+        ));
+    }
     // The tag `--chap-tag` names is checked before anything else happens: a
     // typo should cost one lookup, not a marketplace refresh and a pull.
     let requested = match &args.chap_tag {
@@ -370,12 +388,17 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // database.
     let mut models = models;
     resolve_users(&project, &mut models, &endpoints);
-    let latest = lookup_latest(
-        &project.state.chap_image_tag,
-        args.pin_chap_core,
-        requested,
-        ctx.registry.timeout,
-    );
+    // Without chap-core there is no pin for the newest release to move.
+    let latest = has_chap_core
+        .then(|| {
+            lookup_latest(
+                &project.state.chap_image_tag,
+                args.pin_chap_core,
+                requested,
+                ctx.registry.timeout,
+            )
+        })
+        .flatten();
     // Nothing here starts or stops a container, so this answer holds for the
     // whole run and the dry run answers the same question.
     let running = docker::running_containers(&project);
@@ -385,7 +408,8 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             provenance: registry.provenance.clone(),
         },
         models,
-        chap_core: plan_chap_core(&project, latest, args.pin_chap_core, requested),
+        chap_core: has_chap_core
+            .then(|| plan_chap_core(&project, latest, args.pin_chap_core, requested)),
         components: plan_components(&project),
         pulled: false,
         pulled_new: Vec::new(),
@@ -400,11 +424,8 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // Going back to an older chap-core is the one move this command makes
     // that can cost data, so it is named before anything is fetched, written
     // or pulled - in the dry run too, where it is half of what there is to see.
-    if report.chap_core.backwards {
-        output::warn(&backwards_warning(
-            &report.chap_core.old_tag,
-            &report.chap_core.new_tag,
-        ));
+    if let Some(core) = report.chap_core.as_ref().filter(|c| c.backwards) {
+        output::warn(&backwards_warning(&core.old_tag, &core.new_tag));
     }
     // And the same for DHIS2, which needs no move to be at risk: the pull alone
     // can bring an image that migrates `dhis2_db` on the next `chaps up`, and
@@ -419,12 +440,14 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             .emit(&report, || dry_run_line(updated(&report).as_deref()));
     }
     // And confirmed, once it is about to actually happen.
-    if report.chap_core.backwards && !args.yes {
-        confirm_backwards(ctx, &report.chap_core)?;
+    if let Some(core) = report.chap_core.as_ref().filter(|c| c.backwards)
+        && !args.yes
+    {
+        confirm_backwards(ctx, core)?;
     }
 
-    if report.chap_core.changed {
-        apply_chap_core(&mut project, &mut report.chap_core, ctx.registry.timeout)?;
+    if let Some(core) = report.chap_core.as_mut().filter(|c| c.changed) {
+        apply_chap_core(&mut project, core, ctx.registry.timeout)?;
     }
     for change in report.models.iter().filter(|m| m.changed) {
         // A manual entry's definition carries the pin as well: the recorded
@@ -463,11 +486,8 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // for one of its images and not the other is enough to get there - so the
     // failure says where the pin is now and how to put it back.
     if let Err(err) = run_compose(&project, &["pull".to_string()]) {
-        if report.chap_core.changed {
-            return Err(err.context(pull_failed_after_switch(
-                &report.chap_core.old_tag,
-                &report.chap_core.new_tag,
-            )));
+        if let Some(core) = report.chap_core.as_ref().filter(|c| c.changed) {
+            return Err(err.context(pull_failed_after_switch(&core.old_tag, &core.new_tag)));
         }
         return Err(err);
     }
@@ -1032,10 +1052,11 @@ pub fn updated_phrase(
 
 /// [`updated_phrase`] for a finished report.
 fn updated(report: &UpdateReport) -> Option<String> {
-    let chap_core = report.chap_core.changed.then_some((
-        report.chap_core.old_tag.as_str(),
-        report.chap_core.new_tag.as_str(),
-    ));
+    let chap_core = report
+        .chap_core
+        .as_ref()
+        .filter(|c| c.changed)
+        .map(|c| (c.old_tag.as_str(), c.new_tag.as_str()));
     updated_phrase(report.changed().count(), chap_core, &report.pulled_new)
 }
 
@@ -1119,10 +1140,9 @@ fn plan_text(report: &UpdateReport, out: &Out) -> String {
         }
     }
     let tense = |line: String| would(line, report.dry_run);
-    text.push_str(&format!(
-        "  {}\n",
-        tense(chap_core_cell(out, &report.chap_core))
-    ));
+    if let Some(core) = &report.chap_core {
+        text.push_str(&format!("  {}\n", tense(chap_core_cell(out, core))));
+    }
     for component in &report.components {
         text.push_str(&format!(
             "  {}\n",
@@ -1544,7 +1564,7 @@ mod tests {
                     provenance: Provenance::Network,
                 },
                 models: plan,
-                chap_core: chap_core("latest", "latest", None),
+                chap_core: Some(chap_core("latest", "latest", None)),
                 components: Vec::new(),
                 pulled: false,
                 pulled_new: Vec::new(),
@@ -1652,7 +1672,7 @@ mod tests {
                     ..row("b")
                 },
             ],
-            chap_core: chap_core("latest", "latest", None),
+            chap_core: Some(chap_core("latest", "latest", None)),
             components: Vec::new(),
             pulled: false,
             pulled_new: Vec::new(),
@@ -1715,7 +1735,7 @@ mod tests {
                 provenance: Provenance::Network,
             },
             models: vec![moved.clone()],
-            chap_core: chap_core("latest", "latest", None),
+            chap_core: Some(chap_core("latest", "latest", None)),
             components: Vec::new(),
             pulled: false,
             pulled_new: Vec::new(),

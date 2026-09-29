@@ -65,6 +65,7 @@ const EXIT_FAILED: i32 = 1;
 /// `chaps models test [ID..] [--all]`.
 pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     let project = ctx.project()?;
+    crate::components::require_chap_core(&project.state.components, "`chaps models test`")?;
     let targets = targets(ctx, &project, args)?;
     let level = if args.backtest {
         Level::Backtest

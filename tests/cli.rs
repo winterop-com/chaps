@@ -5213,7 +5213,10 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
         .success()
         .stdout(predicates::str::contains("components: ocs"))
         .stdout(predicates::str::contains("OCS:"))
-        .stdout(predicates::str::contains("API:").not());
+        .stdout(predicates::str::contains("API:").not())
+        // No chap-core, so no chap-core release is looked up, not even to
+        // say that --offline could not.
+        .stderr(predicates::str::contains("chap-core release").not());
 
     assert!(!dir.join("compose.yml").exists());
     assert!(!dir.join("compose.chaps.yml").exists());
@@ -5222,6 +5225,36 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
         state(&dir)["compose_files"],
         serde_json::json!(["compose.ocs.yml", "compose.marketplace.yml"])
     );
+
+    // The commands only chap-core can answer say so, and name the way back.
+    let in_project = |args: &[&str]| {
+        let mut cmd = sandbox.chap();
+        cmd.arg("-C").arg(sandbox.project()).args(args);
+        cmd
+    };
+    for args in [
+        &["jobs"][..],
+        &["api", "GET", "/health"],
+        &["models", "test"],
+        &["update", "--chap-tag", "v1.0.0"],
+    ] {
+        in_project(args)
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(
+                "this deployment has no chap-core",
+            ))
+            .stderr(predicates::str::contains(
+                "`chaps components enable chap-core`",
+            ));
+    }
+    // A backup has no database to dump, and says why rather than blaming a flag.
+    in_project(&["backup", "create", "--no-models", "--no-components"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "this deployment has no chap-core",
+        ));
 
     // Asking for a model at the same time is a contradiction, not a surprise.
     let other = Sandbox::new();

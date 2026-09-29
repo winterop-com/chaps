@@ -796,6 +796,16 @@ closing line; a deployment with nothing running is told that nothing in it is
 running, never that CHAP is not, because there is no CHAP here to be running.
 `chaps doctor` judges the deployment by its components alone.
 
+`init` asks GitHub nothing about chap-core for such a deployment: no release is
+looked up and no `compose.ghcr.yml` is downloaded. The commands that only
+chap-core can answer (`chaps jobs`, `chaps api` without `--url`,
+`chaps models test`, and `chaps update --chap-tag` or `--pin-chap-core`) refuse
+with one line naming `chaps components enable chap-core`. `chaps update` on its
+own still pulls the components' images. `chaps backup create` has no database to
+dump and says so on its `database` line. Turning chap-core on later renders
+`compose.yml` from the copy built into chaps and says so;
+`chaps update --pin-chap-core` then moves it to the newest release.
+
 Models need chap-core: a model service registers with chap-core and is reached
 through it. So `--without chap-core` together with a `--models` list is refused,
 and `chaps components disable chap-core` is refused while any model is enabled.
