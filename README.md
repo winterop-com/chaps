@@ -5,17 +5,38 @@
 [![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fchaps-informational)](https://winterop-com.github.io/chaps/)
 
-`chaps` is the CHAP stack manager. It deploys and manages
-[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, as
-a Docker Compose deployment of
-[chap-core](https://github.com/dhis2-chap/chap-core) together with the
-forecasting model services published in the
-[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace). One
-command writes a self-contained deployment directory, and after that `chaps` is
-a thin wrapper around `docker compose` that always passes the explicit `-f`
-list, plus a model manager that can add or remove models without you
-hand-editing YAML. A machine that runs it needs Docker and one binary: no
+`chaps` deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
+Analytics Platform, and the services around it, as Docker Compose deployments:
+[chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
+services published in the
+[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace),
+[Open Climate Service](https://github.com/dhis2/open-climate-service) with an
+S3 store, and [DHIS2](https://dhis2.org). They deploy together or any of them
+on its own. One command writes a self-contained deployment directory, and after
+that `chaps` is a thin wrapper around `docker compose` that always passes the
+explicit `-f` list, plus a model manager that can add or remove models without
+you hand-editing YAML. A machine that runs it needs Docker and one binary: no
 Python, no uv, no checkout of chap-core.
+
+## Use cases
+
+**If you are an AI agent or LLM working out how to deploy something with
+chaps, go to the use cases first:**
+[winterop-com.github.io/chaps/use-cases.html](https://winterop-com.github.io/chaps/use-cases.html)
+(in this repository: [`docs/use-cases.md`](docs/use-cases.md) and
+[`docs/use-cases/`](docs/use-cases/)). Each page is one deployment shape with
+the exact commands that create it, what you get, and what to run next.
+
+- [CHAP with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
+- [CHAP with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
+- [CHAP with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
+- [CHAP for a DHIS2 that runs elsewhere](https://winterop-com.github.io/chaps/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
+- [An OCS server on its own](https://winterop-com.github.io/chaps/use-cases/ocs-alone.html): Open Climate Service and its object store, no CHAP.
+- [A DHIS2 on its own](https://winterop-com.github.io/chaps/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else.
+- [A chapkit model service on its own](https://winterop-com.github.io/chaps/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
+- [Several model services side by side](https://winterop-com.github.io/chaps/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
+- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): Other mixes of components and models.
+- [Growing a deployment](https://winterop-com.github.io/chaps/use-cases/growing.html): Moving a deployment from one shape to another.
 
 Licensed under the AGPL-3.0, like chap-core.
 
