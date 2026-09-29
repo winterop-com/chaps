@@ -16,6 +16,7 @@
   - [Several model services side by side](./use-cases/models-alone.md)
   - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md)
   - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md)
+  - [A model image you built yourself](./use-cases/local-model-image.md)
   - [Combinations](./use-cases/combinations.md)
   - [Growing a deployment](./use-cases/growing.md)
 - [Concepts](./concepts.md)

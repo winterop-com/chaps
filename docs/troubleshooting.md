@@ -490,6 +490,19 @@ against a chap-core in chaps: `SERVICEKIT_HOST` must be `host.docker.internal`
 and the model must listen on `0.0.0.0`. See
 [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
 
+## `is not in the local image store for linux/amd64`
+
+```text
+error: my-model:dev is not in the local image store for linux/amd64; build it with `docker build --platform linux/amd64 -t my-model:dev .` in the model's checkout, then add it again
+```
+
+`chaps models add` read `my-model:dev` as a local image, because it names no
+registry, and the local store has no amd64 build under that name. Either it was
+never built, it was built for another platform (a plain `docker build` on an
+Apple Silicon Mac makes an arm64 image), or the tag differs. Run the command in
+the message. If you meant a published image, give its full reference, such as
+`ghcr.io/my-org/my-model:sha-1eb8cf1`.
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

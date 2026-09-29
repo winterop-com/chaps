@@ -163,6 +163,19 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
         if model.is_template() && !req.allow_template {
             return Err(ChapError::IsTemplate(req.id.clone()).into());
         }
+        // Two models on one compose service would be merged into one by
+        // compose, so a model whose service name another enabled model holds
+        // is refused. A local build standing in for a marketplace model is
+        // the case this catches in practice.
+        if let Some((other, _)) = project.state.models.iter().find(|(other, e)| {
+            **other != model.id && e.service_id == model.service_id && !sel.disable.contains(*other)
+        }) {
+            return Err(anyhow::anyhow!(
+                "{other} already runs as the compose service `{}`; disable it first with \
+                 `chaps models disable {other}`",
+                model.service_id
+            ));
+        }
         // A request that keeps the recorded version asks the registry for
         // nothing; every other one needs a version that exists and is not
         // yanked.
@@ -1006,6 +1019,30 @@ mod tests {
         let report = apply(&mut project, &registry, &components(|_| {})).unwrap();
         assert!(report.components_enabled.is_empty());
         assert!(report.components_disabled.is_empty());
+    }
+
+    /// Compose would merge two models on one service into one, so a model
+    /// whose service name another enabled model holds is refused, unless the
+    /// same selection disables that other model.
+    #[test]
+    fn two_models_cannot_share_a_compose_service() {
+        let registry = load_embedded().unwrap();
+        let (_dir, mut project) = project();
+        apply(&mut project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
+        let mut twin = project.state.models["chapkit_ewars_model"].clone();
+        twin.image = "ewars".to_string();
+        project.state.models.insert("ewars_dev".to_string(), twin);
+
+        let err = apply(&mut project, &registry, &enable(&["chapkit_ewars_model"]))
+            .expect_err("ewars_dev holds the service");
+        assert!(
+            err.to_string().contains("`chaps models disable ewars_dev`"),
+            "{err}"
+        );
+
+        let mut swap = enable(&["chapkit_ewars_model"]);
+        swap.disable = vec!["ewars_dev".to_string()];
+        apply(&mut project, &registry, &swap).unwrap();
     }
 
     /// A selection that takes chap-core away leaves the models running on

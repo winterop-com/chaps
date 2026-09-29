@@ -66,6 +66,19 @@ pub fn image_ref(image: &str, tag: &str) -> String {
     format!("{image}{}{tag}", tag_separator(tag))
 }
 
+/// Whether an image reference names no registry, so only the local image
+/// store can have it: `my-model:dev`, `org/my-model:dev`. Docker reads the
+/// first path segment as a registry host when it has a `.` or a `:` or is
+/// `localhost`, and as Docker Hub otherwise; a model image is never on Docker
+/// Hub, so a reference without a host is a local one.
+pub fn is_local_image(reference: &str) -> bool {
+    let name = reference.split('@').next().unwrap_or(reference);
+    match name.split_once('/') {
+        None => true,
+        Some((first, _)) => !(first.contains('.') || first.contains(':') || first == "localhost"),
+    }
+}
+
 /// Named volume holding a model's data directory: `ck_<id>_data`.
 pub fn volume_name(id: &str) -> String {
     format!("ck_{id}_data")
@@ -86,6 +99,16 @@ pub fn volume_model_id(volume: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reference_without_a_registry_host_is_local() {
+        assert!(is_local_image("my-model:dev"));
+        assert!(is_local_image("me/my-model:dev"));
+        assert!(is_local_image("my-model@sha256:abc"));
+        assert!(!is_local_image("ghcr.io/chap-models/x:sha-1"));
+        assert!(!is_local_image("localhost/x:dev"));
+        assert!(!is_local_image("registry:5000/x:dev"));
+    }
 
     #[test]
     fn overlay_filename_uses_the_service_id() {

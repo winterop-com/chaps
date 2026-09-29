@@ -5289,6 +5289,25 @@ fn only_is_the_whole_component_set() {
     );
 }
 
+/// A local image that is not in the local store is refused with the build
+/// command, before anything is written.
+#[test]
+fn a_local_image_that_was_never_built_is_refused_with_the_build_command() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox
+        .models(&["add", "chaps-test-never-built:dev"])
+        .env("PATH", "")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "docker build --platform linux/amd64 -t chaps-test-never-built:dev .",
+        ));
+    let manual = std::fs::read_to_string(sandbox.project().join(".chaps/models-manual.yaml"))
+        .unwrap_or_default();
+    assert!(!manual.contains("never_built"), "nothing recorded");
+}
+
 #[test]
 fn an_unknown_component_name_is_reported_before_anything_is_written() {
     let sandbox = Sandbox::new();
@@ -6763,13 +6782,13 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
         .stderr(predicates::str::contains("was already added"))
         .stderr(predicates::str::contains("chaps models remove"));
 
-    // A bare image name is neither form.
+    // A bare image name is a local image, and one with no tag pins nothing.
     sandbox
         .online(port)
         .args(["models", "add", "chapkit_example_manual_model"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("neither a repository URL"));
+        .stderr(predicates::str::contains("names no tag"));
 }
 
 #[test]

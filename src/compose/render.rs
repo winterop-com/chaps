@@ -623,6 +623,13 @@ pub fn render_ocs_config(spec: &OcsConfigSpec) -> String {
 /// apart, and the numbers because the init container is busybox, which
 /// resolves no account name of its own.
 pub fn render_overlay(spec: &OverlaySpec) -> String {
+    // A local image has no registry behind it, so `compose pull` (which
+    // `chaps update` runs) has to skip it rather than fail.
+    let pull_line = if crate::compose::is_local_image(&spec.image) {
+        "    pull_policy: never\n"
+    } else {
+        ""
+    };
     // The token sits at the start of its line and carries its own newline, so
     // an image that needs no platform pin leaves neither a comment nor a blank
     // line behind.
@@ -754,7 +761,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             // A digest carries its own `@`, so the reference is joined with
             // nothing rather than with a colon.
             ("TAG_SEP", crate::compose::tag_separator(&spec.image_tag)),
-            ("PLATFORM_LINE", &platform_line),
+            ("PLATFORM_LINE", &format!("{pull_line}{platform_line}")),
             ("PORT_LINES", &port_lines),
             ("ENVIRONMENT_LINES", &environment_lines),
             ("CHAP_DEPENDS", &chap_depends),
@@ -959,6 +966,24 @@ mod tests {
         );
         assert_eq!(svc["environment"]["SERVICEKIT_PORT"].as_str(), Some("5001"));
         assert!(svc["depends_on"].get("chap").is_none());
+    }
+
+    /// A locally built image has no registry behind it, so compose must never
+    /// try to pull it; a registry image gets no such line.
+    #[test]
+    fn a_local_image_is_never_pulled() {
+        let mut spec = overlay_spec("chapkit_ewars_model");
+        assert!(!render_overlay(&spec).contains("pull_policy"));
+        spec.image = "my-model".to_string();
+        spec.image_tag = "dev".to_string();
+        let text = render_overlay(&spec);
+        let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+        let svc = service(&doc, "chapkit-ewars-model");
+        assert_eq!(svc["pull_policy"].as_str(), Some("never"));
+        assert!(
+            svc["image"].as_str().unwrap().starts_with("my-model:"),
+            "{text}"
+        );
     }
 
     /// The third shape, said as assertions rather than as a golden file: an

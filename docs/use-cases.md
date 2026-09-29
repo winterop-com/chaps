@@ -32,6 +32,7 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 - [Several model services side by side](./use-cases/models-alone.md): Several model services, each on its own port, no chap-core.
 - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; chaps runs the models and registers them with it.
+- [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in CHAP without publishing it.
 - [Combinations](./use-cases/combinations.md): Other mixes of components and models.
 - [Growing a deployment](./use-cases/growing.md): Moving a deployment from one shape to another.
 

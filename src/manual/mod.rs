@@ -230,13 +230,27 @@ pub fn resolve(req: &AddRequest, endpoints: &Endpoints) -> Result<Resolved> {
         }
         _ => (overrides::DEFAULT_DATA_DIR.to_string(), Origin::Default),
     };
-    let (user, user_from) = resolve_user(
-        req.user.as_deref(),
-        config.as_ref().map(|c| c.user.as_str()).unwrap_or(""),
-        &reference,
-        endpoints,
-        &mut notes,
-    );
+    let declared = config.as_ref().map(|c| c.user.as_str()).unwrap_or("");
+    let (user, user_from) = match &source {
+        // Already in the local store, and pulling it would fail: there is no
+        // registry behind it.
+        Source::Local(_) => resolve_user_with(
+            req.user.as_deref(),
+            declared,
+            &reference,
+            endpoints,
+            &mut notes,
+            &|_| true,
+            &crate::docker::uid_gid_in_image,
+        ),
+        _ => resolve_user(
+            req.user.as_deref(),
+            declared,
+            &reference,
+            endpoints,
+            &mut notes,
+        ),
+    };
 
     Ok(Resolved {
         id,
@@ -260,7 +274,7 @@ pub fn resolve(req: &AddRequest, endpoints: &Endpoints) -> Result<Resolved> {
 /// is known, and the branch the entry follows afterwards.
 fn pin(source: &Source, endpoints: &Endpoints) -> Result<(String, Option<String>, Option<String>)> {
     match source {
-        Source::Image(image) => Ok((image.tag.clone(), None, None)),
+        Source::Image(image) | Source::Local(image) => Ok((image.tag.clone(), None, None)),
         Source::Repo(repo) => {
             if endpoints.offline {
                 return Err(anyhow::anyhow!(
@@ -419,7 +433,7 @@ fn repo_of(repository: &str, endpoints: &Endpoints) -> Result<source::Repo> {
     }
     match Source::parse(repository)? {
         Source::Repo(repo) => Ok(repo),
-        Source::Image(_) => Err(anyhow::anyhow!(
+        Source::Image(_) | Source::Local(_) => Err(anyhow::anyhow!(
             "{repository} is not a GitHub repository URL"
         )),
     }
@@ -437,10 +451,26 @@ fn image_config(
     endpoints: &Endpoints,
     notes: &mut Vec<String>,
 ) -> Result<Option<ghcr::ImageConfig>> {
+    // A local image has no registry to ask: its config is in the local store
+    // or nowhere, and "nowhere" means it was never built.
+    if let Source::Local(_) = source {
+        return match crate::docker::image_config(reference) {
+            Some((user, working_dir)) => Ok(Some(ghcr::ImageConfig {
+                user,
+                working_dir,
+                amd64_only: false,
+            })),
+            None => Err(anyhow::anyhow!(
+                "{reference} is not in the local image store for linux/amd64; build it with \
+                 `docker build --platform linux/amd64 -t {reference} .` in the model's \
+                 checkout, then add it again"
+            )),
+        };
+    }
     if !endpoints.offline {
         let repository = match source {
             Source::Repo(repo) => repo.path().to_lowercase(),
-            Source::Image(image) => image.repository().to_string(),
+            Source::Image(image) | Source::Local(image) => image.repository().to_string(),
         };
         match read_config(&repository, reference, endpoints) {
             Ok(Some(config)) => return Ok(Some(config)),
@@ -582,7 +612,7 @@ pub fn resolve_user_with(
 fn default_display_name(source: &Source) -> String {
     match source {
         Source::Repo(repo) => repo.repo.clone(),
-        Source::Image(image) => image
+        Source::Image(image) | Source::Local(image) => image
             .image
             .rsplit('/')
             .next()

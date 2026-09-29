@@ -289,11 +289,25 @@ fn check_free(project: &Project, marketplace: &Registry, names: &Names) -> Resul
         ));
     }
     let service_id = &names.service_id;
+    // A local build of a marketplace model is the one case where sharing its
+    // service name is the point: it is that model, built from a checkout. It
+    // stands in for the marketplace entry, so the two cannot both be enabled.
+    let local = matches!(names.source, crate::manual::source::Source::Local(_));
     if let Some(model) = marketplace
         .models
         .iter()
         .find(|m| m.service_id == *service_id)
     {
+        if local && !project.state.models.contains_key(&model.id) {
+            return Ok(());
+        }
+        if local {
+            return Err(anyhow::anyhow!(
+                "the marketplace model {id} is enabled as the compose service `{service_id}`; \
+                 disable it with `chaps models disable {id}` to run this local build in its place",
+                id = model.id
+            ));
+        }
         return Err(anyhow::anyhow!(
             "the marketplace model {id} already uses the compose service `{service_id}`; \
              if this image is that model, `chaps models enable {id}` runs it, and \

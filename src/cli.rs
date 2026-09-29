@@ -499,7 +499,7 @@ pub struct ModelsTestArgs {
 /// Add a model the marketplace does not list
 #[derive(Debug, Clone, Args)]
 pub struct ModelsAddArgs {
-    /// GitHub repository URL, or a ghcr image reference
+    /// GitHub repository URL, ghcr image reference, or local image name:tag
     #[arg(value_name = "SOURCE")]
     pub source: String,
 

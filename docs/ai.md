@@ -60,6 +60,7 @@ from the folder where they want it created, and then to `cd` into it as shown.
 | 8 | [My own model](#8-my-own-model) | run a model they wrote themselves |
 | 9 | [My own model, while I work on it](#9-my-own-model-while-i-work-on-it) | develop a model in its folder and have CHAP use it |
 | 10 | [My own chap-core, with the models](#10-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
+| 11 | [A model image I built](#11-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
 
 ### 1. CHAP with forecasting models
 
@@ -242,6 +243,31 @@ If chap-core was started after `chaps up`, wait a few seconds and run
 `chaps status` again.
 
 More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
+
+### 11. A model image I built
+
+In the model's folder:
+
+```sh
+docker build --platform linux/amd64 -t my-model:dev .
+```
+
+Then:
+
+```sh
+chaps init mychap --models none
+cd mychap
+chaps models add my-model:dev
+chaps up
+chaps status
+```
+
+It worked when `chaps status` lists the model as `registered`. If it shows as
+`unmanaged` next to a model that is not registered, the image registers under
+another name: run `chaps models remove my_model`, then add it again with
+`--service-id` set to the name in the `unmanaged` row.
+
+More: [A model image you built yourself](./use-cases/local-model-image.md).
 
 ## Every option: stop, start, remove
 

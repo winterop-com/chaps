@@ -72,6 +72,10 @@ pub enum Source {
     Repo(Repo),
     /// An image reference, pinned exactly as given.
     Image(Image),
+    /// An image in the local docker image store only, such as one just
+    /// built with `docker build -t my-model:dev .`: no registry to ask and
+    /// nothing to pull.
+    Local(Image),
 }
 
 impl Source {
@@ -80,11 +84,14 @@ impl Source {
         let text = text.trim();
         if text.is_empty() {
             return Err(anyhow::anyhow!(
-                "name a GitHub repository URL or a ghcr image reference"
+                "name a GitHub repository URL, a ghcr image reference, or a local image such as `my-model:dev`"
             ));
         }
         if is_github(text) {
             return parse_repo(text).map(Source::Repo);
+        }
+        if crate::compose::is_local_image(text) {
+            return parse_local(text).map(Source::Local);
         }
         parse_image(text).map(Source::Image)
     }
@@ -93,7 +100,7 @@ impl Source {
     pub fn image(&self) -> String {
         match self {
             Source::Repo(repo) => repo.image(),
-            Source::Image(image) => image.image.clone(),
+            Source::Image(image) | Source::Local(image) => image.image.clone(),
         }
     }
 
@@ -101,7 +108,7 @@ impl Source {
     pub fn repository(&self) -> Option<String> {
         match self {
             Source::Repo(repo) => Some(repo.url()),
-            Source::Image(_) => None,
+            Source::Image(_) | Source::Local(_) => None,
         }
     }
 
@@ -113,7 +120,7 @@ impl Source {
     pub fn default_id(&self) -> String {
         let last = match self {
             Source::Repo(repo) => repo.repo.clone(),
-            Source::Image(image) => image
+            Source::Image(image) | Source::Local(image) => image
                 .image
                 .rsplit('/')
                 .next()
@@ -127,7 +134,7 @@ impl Source {
     pub fn describe(&self) -> String {
         match self {
             Source::Repo(repo) => repo.url(),
-            Source::Image(image) => image.reference(),
+            Source::Image(image) | Source::Local(image) => image.reference(),
         }
     }
 }
@@ -181,13 +188,8 @@ fn parse_repo(text: &str) -> Result<Repo> {
 
 /// `ghcr.io/<owner>/<repo>:<tag>` or the same with `@sha256:<digest>`.
 fn parse_image(text: &str) -> Result<Image> {
+    // Only a reference with a registry host gets here; one without is local.
     let host = text.split('/').next().unwrap_or_default();
-    if !text.contains('/') || !host.contains('.') {
-        return Err(anyhow::anyhow!(
-            "`{text}` is neither a repository URL nor a registry image reference; \
-             pass https://github.com/<owner>/<repo> or {GHCR_HOST}/<owner>/<repo>:<tag>"
-        ));
-    }
     if !host.eq_ignore_ascii_case(GHCR_HOST) {
         return Err(anyhow::anyhow!(
             "`{text}` is on {host}; `chaps models add` reads {GHCR_HOST} images, \
@@ -226,6 +228,32 @@ fn parse_image(text: &str) -> Result<Image> {
         None => Err(anyhow::anyhow!(
             "`{text}` names no tag, so there is nothing to pin; \
              add `:<tag>` or `@sha256:<digest>`"
+        )),
+    }
+}
+
+/// `my-model:dev`, `org/my-model:dev` or the same `@sha256:...`: an image
+/// with no registry host, which only the local image store can have.
+fn parse_local(text: &str) -> Result<Image> {
+    if let Some((image, digest)) = text.split_once('@') {
+        if !is_digest(digest.trim()) {
+            return Err(anyhow::anyhow!(
+                "`{digest}` is not a digest; the form is @sha256:<64 hex characters>"
+            ));
+        }
+        return Ok(Image {
+            image: image.to_lowercase(),
+            tag: format!("@{}", digest.trim()),
+        });
+    }
+    match text.rsplit_once(':') {
+        Some((image, tag)) if !tag.is_empty() && !tag.contains('/') => Ok(Image {
+            image: image.to_lowercase(),
+            tag: tag.to_string(),
+        }),
+        _ => Err(anyhow::anyhow!(
+            "`{text}` names no tag, so there is nothing to pin; build it with a tag \
+             (`docker build -t {text}:dev .`) and add `{text}:dev`"
         )),
     }
 }
@@ -307,6 +335,36 @@ mod tests {
             Source::Repo(repo) => repo,
             other => panic!("{text} parsed as {other:?}"),
         }
+    }
+
+    /// A reference with no registry host is an image in the local store,
+    /// pinned as given; one with a host is still a registry image.
+    #[test]
+    fn a_reference_without_a_registry_is_a_local_image() {
+        let local = |text: &str| match Source::parse(text).unwrap_or_else(|e| panic!("{text}: {e}"))
+        {
+            Source::Local(image) => image,
+            other => panic!("{text} parsed as {other:?}"),
+        };
+        let image = local("My-Model:dev");
+        assert_eq!(image.image, "my-model");
+        assert_eq!(image.tag, "dev");
+        assert_eq!(Source::Local(image).default_id(), "my_model");
+
+        let image = local("me/my-model:dev");
+        assert_eq!(image.image, "me/my-model");
+        let digest = format!("sha256:{}", "a".repeat(64));
+        assert_eq!(
+            local(&format!("my-model@{digest}")).tag,
+            format!("@{digest}")
+        );
+
+        let err = Source::parse("my-model").unwrap_err().to_string();
+        assert!(err.contains("docker build -t my-model:dev ."), "{err}");
+        assert!(matches!(
+            Source::parse("ghcr.io/chap-models/chapkit_ghr_model:sha-1eb8cf1").unwrap(),
+            Source::Image(_)
+        ));
     }
 
     fn image_of(text: &str) -> Image {
@@ -404,7 +462,10 @@ mod tests {
     fn what_cannot_be_added_says_why() {
         for (text, needle) in [
             ("", "GitHub repository URL"),
-            ("chapkit_ghr_model", "neither a repository URL"),
+            (
+                "chapkit_ghr_model",
+                "docker build -t chapkit_ghr_model:dev .",
+            ),
             ("docker.io/library/nginx:1", "chaps models add` reads"),
             ("ghcr.io/chap-models/chapkit_ghr_model", "names no tag"),
             ("ghcr.io/chap-models/chapkit_ghr_model:", "empty tag"),

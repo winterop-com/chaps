@@ -426,7 +426,15 @@ own - is added to one deployment with `chaps models add`:
 chaps models add https://github.com/my-org/chapkit_dengue_model
 chaps models add ghcr.io/my-org/chapkit_dengue_model:sha-1eb8cf1
 chaps models add ghcr.io/my-org/chapkit_dengue_model@sha256:31163f6a...
+chaps models add my-dengue-model:dev        # built on this machine, never pulled
 ```
+
+A reference with no registry host is an image in the local image store, such as
+one just built with `docker build --platform linux/amd64 -t my-dengue-model:dev .`.
+It is read from the local store rather than a registry, rendered with
+`pull_policy: never`, and may share a marketplace model's service id while that
+model is disabled. See
+[A model image you built yourself](./use-cases/local-model-image.md).
 
 The two forms differ in one thing, and it is the important one:
 

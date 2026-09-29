@@ -170,10 +170,14 @@ impl Registry {
                 ));
                 continue;
             }
+            // A local build of a marketplace model shares its service name on
+            // purpose; `apply` keeps the two from being enabled together.
+            let local = crate::compose::is_local_image(&entry.image);
             if let Some(existing) = self
                 .models
                 .iter()
                 .find(|m| m.service_id == entry.service_id)
+                .filter(|_| !local)
             {
                 warnings.push(format!(
                     "{id} and {} both want the compose service `{}`; \
@@ -399,6 +403,27 @@ mod tests {
             runtime_amd64: true,
             added: "2026-09-24".into(),
         }
+    }
+
+    /// A local build may share a marketplace model's service name, since it
+    /// is that model built from a checkout; a registry image may not.
+    #[test]
+    fn a_local_build_may_stand_in_for_a_marketplace_model() {
+        let mut r = registry();
+        let mut local = manual("ewars_dev", "chapkit-ewars-model");
+        local.image = "ewars".to_string();
+        let mut remote = manual("ewars_fork", "chapkit-ewars-model");
+        remote.image = "ghcr.io/me/ewars".to_string();
+        let entries: crate::project::ManualModels = [
+            ("ewars_dev".to_string(), local),
+            ("ewars_fork".to_string(), remote),
+        ]
+        .into_iter()
+        .collect();
+        let warnings = r.with_manual(&entries);
+        assert!(r.models.iter().any(|m| m.id == "ewars_dev"));
+        assert!(!r.models.iter().any(|m| m.id == "ewars_fork"));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
     }
 
     #[test]
