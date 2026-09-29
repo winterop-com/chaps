@@ -303,6 +303,56 @@ fn models_register_with_a_chap_core_elsewhere() {
         ));
 }
 
+/// A DHIS2 in this deployment next to a chap-core elsewhere: its container
+/// maps the host gateway and its `dhis.conf` allows that chap-core, so the
+/// route `chaps dhis2 connect` writes can reach it.
+#[test]
+fn a_dhis2_here_can_route_to_a_chap_core_elsewhere() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&[
+            "--chap-core-url",
+            "http://localhost:18999",
+            "--with",
+            "dhis2",
+            "--dhis2-seed",
+            "none",
+            "--models",
+            "none",
+        ])
+        .assert()
+        .success();
+    let compose = read(&dir.join("compose.dhis2.yml"));
+    assert!(
+        compose.contains("host.docker.internal:host-gateway"),
+        "{compose}"
+    );
+    let conf = read(&dir.join("dhis2/dhis.conf"));
+    assert!(
+        conf.contains(
+            "route.remote_servers_allowed = http://chap:8000,http://host.docker.internal:18999"
+        ),
+        "{conf}"
+    );
+
+    // Without the chap-core elsewhere, neither.
+    let plain = Sandbox::new();
+    plain
+        .init(&[
+            "--with",
+            "dhis2",
+            "--dhis2-seed",
+            "none",
+            "--models",
+            "none",
+        ])
+        .assert()
+        .success();
+    let compose = read(&plain.project().join("compose.dhis2.yml"));
+    assert!(!compose.contains("host-gateway"), "{compose}");
+}
+
 /// `components disable chap-core` under a model that has no host port
 /// publishes one, and says where.
 #[test]

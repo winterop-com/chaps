@@ -291,10 +291,19 @@ impl Session {
     /// Where this deployment's route has to point: the compose network's name
     /// for chap-core for a DHIS2 on that network, and the recorded URL for one
     /// that is not.
+    ///
+    /// A chap-core elsewhere is reached from the DHIS2 container over the host
+    /// gateway, which is how the compose file maps it for that DHIS2.
     fn target(&self) -> String {
-        match self.external() {
-            Some(external) => dhis2::external_route_target(&external.chap_url),
-            None => dhis2::route_target(&self.project.root_path()),
+        match (
+            self.external(),
+            &self.project.state.components.chap_core_external,
+        ) {
+            (Some(external), _) => dhis2::external_route_target(&external.chap_url),
+            (None, Some(chap_core)) => {
+                dhis2::external_route_target(&chap_core.url_from_containers())
+            }
+            (None, None) => dhis2::route_target(&self.project.root_path()),
         }
     }
 }
@@ -565,12 +574,7 @@ pub fn route(ctx: &Ctx, args: &Dhis2RouteArgs) -> Result<()> {
 
 /// Put the route where it belongs, and prove the path through it.
 fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
-    if !session
-        .project
-        .state
-        .components
-        .is_enabled(Component::ChapCore)
-    {
+    if !session.project.state.components.has_chap_core_api() {
         return Err(anyhow::anyhow!(NO_CHAP_CORE));
     }
     let target = session.target();
@@ -1291,7 +1295,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             recorded.chap_url
         ));
     }
-    if !project.state.components.is_enabled(Component::ChapCore) {
+    if !project.state.components.has_chap_core_api() {
         notes.push(NO_CHAP_CORE.to_string());
     }
     let next = match (&probe, &recorded.connected_at) {

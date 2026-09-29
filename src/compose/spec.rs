@@ -143,6 +143,9 @@ pub struct Dhis2Spec {
     /// no dump volume at all, which is an empty DHIS2 that migrates itself on
     /// first boot.
     pub seed: Option<Dhis2SeedSource>,
+    /// Map `host.docker.internal` to the host gateway, for a DHIS2 whose route
+    /// goes to a chap-core outside the deployment.
+    pub host_gateway: bool,
 }
 
 impl Dhis2Spec {
@@ -159,6 +162,7 @@ impl Dhis2Spec {
             host_port: components.dhis2.port,
             image_tag: components.dhis2.image_tag.clone(),
             seed: components.dhis2_seed_source().map(Dhis2SeedSource::of),
+            host_gateway: components.chap_core_external.is_some(),
         }
     }
 }
@@ -175,6 +179,22 @@ pub struct Dhis2ConfigSpec {
     /// separated, and no path on any of them - DHIS2 throws on startup if one
     /// carries a path.
     pub route_allowed: String,
+}
+
+impl Dhis2ConfigSpec {
+    /// The allowlist a deployment's components call for: chap-core on the
+    /// compose network, plus a chap-core elsewhere as a container reaches it.
+    pub fn for_components(components: &Components) -> Dhis2ConfigSpec {
+        let mut spec = Dhis2ConfigSpec::default();
+        if let Some(external) = &components.chap_core_external {
+            spec.route_allowed = format!(
+                "{},{}",
+                spec.route_allowed,
+                crate::components::origin(&external.url_from_containers())
+            );
+        }
+        spec
+    }
 }
 
 impl Default for Dhis2ConfigSpec {

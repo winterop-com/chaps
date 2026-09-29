@@ -17,6 +17,8 @@
   - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md)
   - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md)
   - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md)
+  - [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md)
+  - [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md)
   - [A model image you built yourself](./use-cases/local-model-image.md)
   - [Combinations](./use-cases/combinations.md)
   - [Growing a deployment](./use-cases/growing.md)

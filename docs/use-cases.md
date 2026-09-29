@@ -33,6 +33,8 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 - [Your model from its checkout, with CHAP](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; chaps runs the models and registers them with it.
 - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md): chaps builds chap-core from your clone and runs it with everything else.
+- [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md): your DHIS2, chaps' chap-core, connected.
+- [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md): chaps' DHIS2, your chap-core, connected.
 - [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in CHAP without publishing it.
 - [Combinations](./use-cases/combinations.md): Other mixes of components and models.
 - [Growing a deployment](./use-cases/growing.md): Moving a deployment from one shape to another.

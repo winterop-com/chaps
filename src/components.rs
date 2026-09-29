@@ -668,6 +668,14 @@ pub fn external_chap_core(url: &str) -> Result<ExternalChapCore> {
     })
 }
 
+/// The scheme, host and port of `url`, without any path: what DHIS2's
+/// `route.remote_servers_allowed` takes.
+pub fn origin(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
+    let host = rest.split('/').next().unwrap_or(rest);
+    format!("{scheme}://{host}")
+}
+
 /// The name every container that has to reach this machine resolves it by.
 pub const HOST_GATEWAY: &str = "host.docker.internal";
 
@@ -759,7 +767,7 @@ impl Components {
     /// An external DHIS2 ([`ExternalDhis2`]) is asked the same question of its
     /// own record: it is the DHIS2 `chaps dhis2 connect` would connect.
     pub fn dhis2_needs_connecting(&self) -> bool {
-        self.chap_core.enabled
+        self.has_chap_core_api()
             && match &self.dhis2_external {
                 Some(external) => external.connected_at.is_none(),
                 None => self.dhis2.enabled && self.dhis2.connected_at.is_none(),
@@ -1122,6 +1130,18 @@ mod tests {
         assert!(components.has_chap_core_api());
         components.set_enabled(Component::ChapCore, true);
         assert!(components.chap_core_external.is_none());
+    }
+
+    #[test]
+    fn an_origin_drops_the_path() {
+        assert_eq!(
+            origin("http://host.docker.internal:8000/api"),
+            "http://host.docker.internal:8000"
+        );
+        assert_eq!(
+            origin("https://chap.example.org"),
+            "https://chap.example.org"
+        );
     }
 
     #[test]

@@ -185,7 +185,10 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     // so there is no "values were not used" case to report - a file that is
     // already there is simply the operator's.
     if component == Component::Dhis2
-        && let Some(path) = write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?
+        && let Some(path) = write_dhis2_config(
+            &project.dir,
+            &Dhis2ConfigSpec::for_components(&project.state.components),
+        )?
     {
         notes.push(format!(
             "wrote {}; it is yours to edit, and chaps never rewrites it",

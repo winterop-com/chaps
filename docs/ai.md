@@ -62,6 +62,8 @@ from the folder where they want it created, and then to `cd` into it as shown.
 | 10 | [My own chap-core, with the models](#10-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
 | 11 | [A model image I built](#11-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
 | 12 | [chap-core built from my checkout](#12-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
+| 13 | [My own DHIS2, with CHAP](#13-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to CHAP from chaps |
+| 14 | [A DHIS2, with my own chap-core](#14-a-dhis2-with-my-own-chap-core) | have chaps run DHIS2 in front of the chap-core they are developing |
 
 ### 1. CHAP with forecasting models
 
@@ -287,6 +289,52 @@ Apple Silicon Mac). It worked when `chaps status` shows chap-core `up` and the
 models registered. After changing the code, `chaps up` again rebuilds it.
 
 More: [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md).
+
+### 13. My own DHIS2, with CHAP
+
+For someone who already runs DHIS2 on this machine (for DHIS2 or app work).
+Ask whether their DHIS2 runs in Docker; use the first `dhis2 use` line if it
+does not, the second if it does:
+
+```sh
+chaps init mychap --models default
+cd mychap
+chaps up
+chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8000
+chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8000
+chaps dhis2 connect
+```
+
+It worked when `chaps dhis2 connect` finishes without `error:`. If it says it
+has no credentials, put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
+the `.env` file and run it again.
+
+More: [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md).
+
+### 14. A DHIS2, with my own chap-core
+
+For someone developing chap-core who wants DHIS2 and the Modeling App in front
+of it. Their chap-core must listen on `0.0.0.0:8000`. Needs about 8 GB of
+memory for Docker.
+
+```sh
+chaps init lab --chap-core-url http://localhost:8000 --with dhis2
+cd lab
+chaps up
+chaps status
+```
+
+Run `chaps status` every minute until the `dhis2` line says `up`, then:
+
+```sh
+chaps dhis2 connect
+chaps open dhis2
+```
+
+It worked when `chaps dhis2 connect` finishes without `error:` and the login
+`admin` / `district` works.
+
+More: [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md).
 
 ## Every option: stop, start, remove
 

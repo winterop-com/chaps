@@ -37,6 +37,8 @@ to tell that it worked. The pages below are the detail behind each option.
 - [Your model from its checkout, with CHAP](https://winterop-com.github.io/chaps/use-cases/model-on-host.html): chaps runs chap-core; you run your model with `uv run` and it registers.
 - [chap-core from its checkout, with the models](https://winterop-com.github.io/chaps/use-cases/chap-core-on-host.html): you run chap-core; chaps runs the models and registers them with it.
 - [chap-core built from its checkout](https://winterop-com.github.io/chaps/use-cases/chap-core-from-checkout.html): chaps builds chap-core from your clone and runs it with everything else.
+- [A DHIS2 you run yourself, with CHAP from chaps](https://winterop-com.github.io/chaps/use-cases/dhis2-dev-with-chap.html): your DHIS2, chaps' chap-core, connected.
+- [A DHIS2 from chaps, with a chap-core elsewhere](https://winterop-com.github.io/chaps/use-cases/dhis2-with-chap-core-elsewhere.html): chaps' DHIS2, your chap-core, connected.
 - [A model image you built yourself](https://winterop-com.github.io/chaps/use-cases/local-model-image.html): `docker build` a model and run it in CHAP without publishing it.
 - [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): Other mixes of components and models.
 - [Growing a deployment](https://winterop-com.github.io/chaps/use-cases/growing.html): Moving a deployment from one shape to another.

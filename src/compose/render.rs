@@ -502,6 +502,12 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
             "    ports:\n      - \"{port}:{DHIS2_CONTAINER_PORT}\"\n"
         ));
     }
+    if spec.host_gateway {
+        port_lines.push_str(&format!(
+            "    extra_hosts:\n      - \"{}:host-gateway\"\n",
+            crate::components::HOST_GATEWAY
+        ));
+    }
     // Every seed block starts at the beginning of its line and carries its own
     // newlines, so a deployment without one leaves neither a comment nor a blank
     // line behind.
@@ -1895,6 +1901,7 @@ mod tests {
             host_port: Some(DHIS2_CONTAINER_PORT),
             image_tag: crate::components::DHIS2_DEFAULT_TAG.to_string(),
             seed: Some(Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())),
+            host_gateway: false,
         }
     }
 

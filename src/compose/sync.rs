@@ -637,7 +637,10 @@ fn ensure_dhis2_config(project: &Project, check: bool) -> Result<Option<PathBuf>
     if check {
         return Ok(Some(path));
     }
-    write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?;
+    write_dhis2_config(
+        &project.dir,
+        &Dhis2ConfigSpec::for_components(&project.state.components),
+    )?;
     Ok(Some(path))
 }
 

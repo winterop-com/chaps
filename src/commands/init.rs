@@ -41,7 +41,7 @@ const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `chaps models 
 /// Which of the two the summary prints, as a pure function of the component
 /// set so the choice is testable without a deployment on disk.
 fn no_models_line(components: &Components) -> &'static str {
-    if components.chap_core.enabled {
+    if components.has_chap_core_api() {
         NO_MODELS
     } else {
         NO_MODELS_WITHOUT_CHAP_CORE
@@ -335,8 +335,10 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // the same reason: `dhis.conf` is mandatory - DHIS2 does not start without it
     // - and it is the operator's from the moment it exists.
     if components.dhis2.enabled
-        && let Some(path) =
-            write_dhis2_config(&dir, &crate::compose::spec::Dhis2ConfigSpec::default())?
+        && let Some(path) = write_dhis2_config(
+            &dir,
+            &crate::compose::spec::Dhis2ConfigSpec::for_components(&components),
+        )?
     {
         written.push(path);
     }
