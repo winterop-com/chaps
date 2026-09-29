@@ -252,6 +252,8 @@ Usage: chaps components enable [OPTIONS] <NAME>
 | `--read-only` | Refuse ingestion over HTTP on this OCS instance. |
 | `--read-write` | Allow ingestion over HTTP again. |
 | `--url <URL>` | chap-core only: use the chap-core at URL instead of running one. |
+| `--tag <TAG>` | dhis2 only: the DHIS2 version to run, an image tag such as 2.43. |
+| `--image <REPO>` | dhis2 only: the image repository, e.g. dhis2/core-dev. |
 | `--models-host <HOST>` | With --url: the host that chap-core calls the models back at. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |

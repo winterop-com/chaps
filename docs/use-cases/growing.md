@@ -29,8 +29,8 @@ after taking it away.
 
 The same goes for any other piece: `chaps components enable ocs`,
 `chaps components enable dhis2` or `chaps models enable ID`, then `chaps up`. A
-DHIS2 added this way runs the default version; `v` on its row in `chaps ui`, or
-`image_tag` in `.chaps/components.yaml` followed by `chaps sync`, picks another
-(see [Changing the DHIS2 version](../dhis2.md#changing-the-dhis2-version)).
+DHIS2 added this way runs the default version unless you name one:
+`chaps components enable dhis2 --tag 2.43` (or `--image dhis2/core-dev --tag
+master` for the unreleased one), or `v` on its row in `chaps ui` (see [Changing the DHIS2 version](../dhis2.md#changing-the-dhis2-version)).
 
 All shapes: [Use cases](../use-cases.md).

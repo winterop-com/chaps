@@ -5344,6 +5344,54 @@ fn init_source_builds_chap_core_from_a_checkout() {
         ));
 }
 
+/// A DHIS2 added or kept after `init` picks its version with
+/// `components enable dhis2 --tag`, and an unreleased one with `--image`.
+#[test]
+fn components_enable_dhis2_picks_its_version() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox
+        .components(&["enable", "dhis2", "--tag", "2.43"])
+        .assert()
+        .success();
+    let compose = read(&dir.join("compose.dhis2.yml"));
+    assert!(
+        compose.contains("dhis2/core:${DHIS2_IMAGE_TAG:-2.43}"),
+        "{compose}"
+    );
+
+    sandbox
+        .components(&[
+            "enable",
+            "dhis2",
+            "--image",
+            "dhis2/core-dev",
+            "--tag",
+            "master",
+        ])
+        .assert()
+        .success();
+    let compose = read(&dir.join("compose.dhis2.yml"));
+    assert!(
+        compose.contains("dhis2/core-dev:${DHIS2_IMAGE_TAG:-master}"),
+        "{compose}"
+    );
+
+    sandbox
+        .components(&["enable", "dhis2", "--image", "dhis2/core-dev:master"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "`--image dhis2/core-dev --tag master`",
+        ));
+    sandbox
+        .components(&["enable", "ocs", "--tag", "2.43"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("DHIS2 settings"));
+}
+
 #[test]
 fn an_unknown_component_name_is_reported_before_anything_is_written() {
     let sandbox = Sandbox::new();

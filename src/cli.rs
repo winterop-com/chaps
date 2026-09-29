@@ -384,6 +384,14 @@ pub struct ComponentsEnableArgs {
     #[arg(long = "url", value_name = "URL")]
     pub url: Option<String>,
 
+    /// dhis2 only: the DHIS2 version to run, an image tag such as 2.43
+    #[arg(long = "tag", value_name = "TAG")]
+    pub tag: Option<String>,
+
+    /// dhis2 only: the image repository, e.g. dhis2/core-dev
+    #[arg(long = "image", value_name = "REPO")]
+    pub image: Option<String>,
+
     /// With --url: the host that chap-core calls the models back at
     #[arg(long = "models-host", value_name = "HOST", requires = "url")]
     pub models_host: Option<String>,

@@ -653,12 +653,7 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
                 "--dhis2-tag needs the dhis2 component; add `--with dhis2`"
             ));
         }
-        if tag.is_empty() || tag.contains(char::is_whitespace) {
-            return Err(anyhow::anyhow!(
-                "--dhis2-tag takes an image tag such as `2.42` or `2.43.1`"
-            ));
-        }
-        components.dhis2.image_tag = tag.to_string();
+        components.dhis2.image_tag = crate::components::dhis2_tag_arg(tag, "--dhis2-tag")?;
     }
     if let Some(image) = flags.dhis2_image.map(str::trim) {
         if !components.dhis2.enabled {
@@ -666,16 +661,8 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
                 "--dhis2-image needs the dhis2 component; add `--with dhis2`"
             ));
         }
-        // The tag has a flag of its own, so a `repo:tag` here is split for
-        // the operator rather than rendered as a reference with two tags.
-        let last = image.rsplit('/').next().unwrap_or(image);
-        if image.is_empty() || image.contains(char::is_whitespace) || last.contains(':') {
-            return Err(anyhow::anyhow!(
-                "--dhis2-image takes a repository such as `dhis2/core-dev`, and the version \
-                 goes in --dhis2-tag: `--dhis2-image dhis2/core-dev --dhis2-tag master`"
-            ));
-        }
-        components.dhis2.image = image.to_string();
+        components.dhis2.image =
+            crate::components::dhis2_image_arg(image, "--dhis2-image", "--dhis2-tag")?;
     }
     if let Some(given) = flags.dhis2_seed {
         if !components.dhis2.enabled {

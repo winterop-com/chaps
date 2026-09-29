@@ -144,6 +144,19 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         }
         project.state.components.ocs.base_url = base_url;
     }
+    if (args.tag.is_some() || args.image.is_some()) && component != Component::Dhis2 {
+        return Err(anyhow::anyhow!(
+            "--tag and --image are DHIS2 settings: they pick the DHIS2 version, and no other \
+             component's is chosen here"
+        ));
+    }
+    if let Some(tag) = &args.tag {
+        project.state.components.dhis2.image_tag = crate::components::dhis2_tag_arg(tag, "--tag")?;
+    }
+    if let Some(image) = &args.image {
+        project.state.components.dhis2.image =
+            crate::components::dhis2_image_arg(image, "--image", "--tag")?;
+    }
     if (args.read_only || args.read_write) && component != Component::Ocs {
         return Err(anyhow::anyhow!(
             "--read-only and --read-write are OCS settings: they turn ingestion over HTTP \
@@ -932,6 +945,8 @@ mod tests {
             read_write: false,
             url: None,
             models_host: None,
+            tag: None,
+            image: None,
             ocs: OcsConfigArgs::default(),
         };
         assert_eq!(base_url(&args(None)).unwrap(), None, "the flag was absent");
@@ -1130,6 +1145,8 @@ mod tests {
             read_write: false,
             url: None,
             models_host: None,
+            tag: None,
+            image: None,
             ocs: OcsConfigArgs::default(),
         };
         let mut components = Components::default();

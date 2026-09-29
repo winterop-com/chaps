@@ -360,7 +360,9 @@ dhis2:
   seed: default
 ```
 
-at creation with `chaps init --with dhis2 --dhis2-tag 2.41`, or in the browser:
+at creation with `chaps init --with dhis2 --dhis2-tag 2.41`, later with
+`chaps components enable dhis2 --tag 2.41` (and `--image` for another
+repository), or in the browser:
 `chaps ui`, `Tab` to the components page, `v` on the `dhis2`
 row. It offers the minor lines chaps has a demo database for (and the version in
 force, if that is another), says the forward-only rule as soon as you pick one

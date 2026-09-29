@@ -56,6 +56,7 @@ chaps components enable ocs --port 9010
 chaps components enable ocs --port none  # no host port; see below
 chaps components enable s3            # internal only
 chaps components enable dhis2         # publishes it on 8780
+chaps components enable dhis2 --tag 2.43   # and picks its version
 chaps components disable ocs
 chaps components disable ocs --purge  # and its data
 ```
