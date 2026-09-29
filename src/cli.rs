@@ -138,7 +138,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Create a deployment directory: compose files, .env and .chaps/
-    Init(InitArgs),
+    Init(Box<InitArgs>),
 
     /// Browse and manage marketplace models
     Models(ModelsArgs),
@@ -291,6 +291,10 @@ pub struct InitArgs {
     /// Dump to seed the DHIS2 database from: default, none, URL or path
     #[arg(long = "dhis2-seed", value_name = "SPEC")]
     pub dhis2_seed: Option<String>,
+
+    /// DHIS2 version to run: an image tag such as 2.41, 2.42 or 2.43.1
+    #[arg(long = "dhis2-tag", value_name = "TAG")]
+    pub dhis2_tag: Option<String>,
 
     /// Refuse ingestion over HTTP on the new OCS instance
     #[arg(long = "ocs-read-only")]
@@ -1470,7 +1474,7 @@ mod tests {
         let Command::Init(args) = cli.command else {
             panic!("expected init");
         };
-        args
+        *args
     }
 
     #[test]

@@ -33,6 +33,7 @@ chaps init mychap --with ocs,s3       # both, plus the object store
 chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
 chaps init mychap --with ocs --ocs-port none --ocs-read-only
 chaps init mychap --with dhis2 --dhis2-port 18080 --dhis2-seed none
+chaps init mychap --with dhis2 --dhis2-tag 2.41   # another DHIS2 version
 ```
 
 `--ocs-port`, `--s3-port` and `--dhis2-port` take a port number or `none`,

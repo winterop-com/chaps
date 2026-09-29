@@ -547,6 +547,7 @@ struct ComponentFlags<'a> {
     s3_port: Option<ComponentPortArg>,
     dhis2_port: Option<ComponentPortArg>,
     dhis2_seed: Option<&'a str>,
+    dhis2_tag: Option<&'a str>,
     ocs_read_only: bool,
     /// The global `--offline`, which is not a component flag but decides one
     /// thing here: a seed that has to be downloaded cannot be asked for by a run
@@ -565,6 +566,7 @@ impl<'a> ComponentFlags<'a> {
             s3_port: args.s3_port,
             dhis2_port: args.dhis2_port,
             dhis2_seed: args.dhis2_seed.as_deref(),
+            dhis2_tag: args.dhis2_tag.as_deref(),
             ocs_read_only: args.ocs_read_only,
             offline,
         }
@@ -641,6 +643,20 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
             ));
         }
         components.dhis2.port = port.0;
+    }
+    // Before the seed, which `default` resolves against the version.
+    if let Some(tag) = flags.dhis2_tag.map(str::trim) {
+        if !components.dhis2.enabled {
+            return Err(anyhow::anyhow!(
+                "--dhis2-tag needs the dhis2 component; add `--with dhis2`"
+            ));
+        }
+        if tag.is_empty() || tag.contains(char::is_whitespace) {
+            return Err(anyhow::anyhow!(
+                "--dhis2-tag takes an image tag such as `2.42` or `2.43.1`"
+            ));
+        }
+        components.dhis2.image_tag = tag.to_string();
     }
     if let Some(given) = flags.dhis2_seed {
         if !components.dhis2.enabled {
@@ -1549,6 +1565,33 @@ mod tests {
             let err = parse_components(&flags).expect_err("no component to set it on");
             assert_eq!(err.to_string(), wanted);
         }
+    }
+
+    /// `--dhis2-tag` picks the version, and the default seed follows it: a
+    /// minor line with no known dump starts empty.
+    #[test]
+    fn the_dhis2_tag_picks_the_version_and_the_seed_follows_it() {
+        let with = |tag: &str| {
+            parse_components(&ComponentFlags {
+                with: Some("dhis2"),
+                dhis2_tag: Some(tag),
+                ..ComponentFlags::default()
+            })
+        };
+        let seeded = with("2.42.6").unwrap();
+        assert_eq!(seeded.dhis2.image_tag, "2.42.6");
+        assert!(seeded.dhis2_seed_source().unwrap().contains("2.42"));
+        assert!(with("2.41").unwrap().dhis2_seed_is_unknown());
+        let new = with("2.43").unwrap();
+        assert_eq!(new.dhis2.image_tag, "2.43");
+        assert!(new.dhis2_seed_is_unknown());
+        assert!(with(" ").is_err());
+        let err = parse_components(&ComponentFlags {
+            dhis2_tag: Some("2.42"),
+            ..ComponentFlags::default()
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("--with dhis2"), "{err}");
     }
 
     /// The DHIS2 flags, and the one contradiction between a flag and a global
