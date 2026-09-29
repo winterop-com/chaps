@@ -30,7 +30,7 @@ const NOTHING_RUNNING: &str = "nothing is running for this project; start CHAP w
 const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
 
 /// The hint that closes a detached `up`.
-const AFTER_UP: &str = "run `chaps status` to check chap-core and the models";
+const AFTER_UP: &str = "run `chaps status` to check that everything answers";
 
 /// What `down --volumes` says when there is nobody to confirm to.
 ///
@@ -697,7 +697,7 @@ pub fn down_summary(
     } else {
         format!(
             "{} {}",
-            out.warn("stopped CHAP:"),
+            out.warn("stopped:"),
             out.dim(&format!(
                 "{} ({} container{})",
                 stopped.join(", "),
@@ -1457,7 +1457,7 @@ mod tests {
         assert_eq!(
             summary(&before, &after),
             "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
-             run `chaps status` to check chap-core and the models"
+             run `chaps status` to check that everything answers"
         );
 
         // A first start has nothing to leave alone.
@@ -1495,7 +1495,7 @@ mod tests {
         );
         // Under the line that is always there, not instead of it.
         assert!(
-            asked.contains("run `chaps status` to check chap-core"),
+            asked.contains("run `chaps status` to check that everything answers"),
             "{asked}"
         );
 
@@ -1578,10 +1578,10 @@ mod tests {
         // command that would take them, spelled as it is typed.
         assert_eq!(
             kept(&stopped, name),
-            "stopped CHAP: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
+            "stopped: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
              (`chaps down --volumes` removes them)"
         );
-        assert!(kept(&stopped[..1], name).starts_with("stopped CHAP: chap (1 container);"));
+        assert!(kept(&stopped[..1], name).starts_with("stopped: chap (1 container);"));
         // A deployment whose name could not be worked out still gets the line.
         assert!(
             kept(&stopped, None).ends_with("volumes kept (`chaps down --volumes` removes them)"),
@@ -1604,12 +1604,12 @@ mod tests {
         ];
         assert_eq!(
             removed(&stopped, &gone),
-            "stopped CHAP: chap, worker (2 containers); removed 2 volumes \
+            "stopped: chap, worker (2 containers); removed 2 volumes \
              (mychap-1ab2c3_chap-db, mychap-1ab2c3_chap-data)"
         );
         assert_eq!(
             removed(&stopped, &gone[..1]),
-            "stopped CHAP: chap, worker (2 containers); removed 1 volume \
+            "stopped: chap, worker (2 containers); removed 1 volume \
              (mychap-1ab2c3_chap-db)"
         );
         // A deployment that was not running still had volumes to remove, and
@@ -1622,7 +1622,7 @@ mod tests {
         // reached none of them says so rather than claiming a removal.
         assert_eq!(
             removed(&stopped, &[]),
-            "stopped CHAP: chap, worker (2 containers); no volumes were removed"
+            "stopped: chap, worker (2 containers); no volumes were removed"
         );
     }
 

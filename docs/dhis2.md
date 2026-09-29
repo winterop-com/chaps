@@ -443,7 +443,7 @@ the line it always ends on:
 
 ```text
 unchanged: chap, dhis2
-run `chaps status` to check chap-core and the models
+run `chaps status` to check that everything answers
 chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect` once DHIS2 answers
 ```
 
