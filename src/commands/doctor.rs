@@ -18,9 +18,9 @@ use crate::chapcore;
 use crate::cli::DoctorArgs;
 use crate::commands::Ctx;
 use crate::components::{
-    COMPONENTS_FILE, Component, Components, DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_IMAGE,
-    DHIS2_JAVA_ENV_VAR, DHIS2_TAG_ENV_VAR, Dhis2Seed, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE,
-    OCS_PLUGINS_DIR, OCS_TAG_ENV_VAR, S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
+    COMPONENTS_FILE, Component, Components, DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_JAVA_ENV_VAR,
+    DHIS2_TAG_ENV_VAR, Dhis2Seed, OCS_CONFIG_FILE, OCS_DIR, OCS_IMAGE, OCS_PLUGINS_DIR,
+    OCS_TAG_ENV_VAR, S3_DEFAULT_TAG, S3_IMAGE, S3_TAG_ENV_VAR,
 };
 use crate::compose::render::OCS_EXAMPLE_MARKER;
 use crate::compose::{API_SERVICE, sync};
@@ -2671,7 +2671,7 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
     if components.dhis2.enabled {
         images.push((
             crate::compose::DHIS2_SERVICE.to_string(),
-            format!("{DHIS2_IMAGE}:{}", components.dhis2.image_tag),
+            format!("{}:{}", components.dhis2.image, components.dhis2.image_tag),
         ));
     }
     images

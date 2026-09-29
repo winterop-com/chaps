@@ -548,6 +548,7 @@ struct ComponentFlags<'a> {
     dhis2_port: Option<ComponentPortArg>,
     dhis2_seed: Option<&'a str>,
     dhis2_tag: Option<&'a str>,
+    dhis2_image: Option<&'a str>,
     ocs_read_only: bool,
     /// The global `--offline`, which is not a component flag but decides one
     /// thing here: a seed that has to be downloaded cannot be asked for by a run
@@ -567,6 +568,7 @@ impl<'a> ComponentFlags<'a> {
             dhis2_port: args.dhis2_port,
             dhis2_seed: args.dhis2_seed.as_deref(),
             dhis2_tag: args.dhis2_tag.as_deref(),
+            dhis2_image: args.dhis2_image.as_deref(),
             ocs_read_only: args.ocs_read_only,
             offline,
         }
@@ -657,6 +659,23 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
             ));
         }
         components.dhis2.image_tag = tag.to_string();
+    }
+    if let Some(image) = flags.dhis2_image.map(str::trim) {
+        if !components.dhis2.enabled {
+            return Err(anyhow::anyhow!(
+                "--dhis2-image needs the dhis2 component; add `--with dhis2`"
+            ));
+        }
+        // The tag has a flag of its own, so a `repo:tag` here is split for
+        // the operator rather than rendered as a reference with two tags.
+        let last = image.rsplit('/').next().unwrap_or(image);
+        if image.is_empty() || image.contains(char::is_whitespace) || last.contains(':') {
+            return Err(anyhow::anyhow!(
+                "--dhis2-image takes a repository such as `dhis2/core-dev`, and the version \
+                 goes in --dhis2-tag: `--dhis2-image dhis2/core-dev --dhis2-tag master`"
+            ));
+        }
+        components.dhis2.image = image.to_string();
     }
     if let Some(given) = flags.dhis2_seed {
         if !components.dhis2.enabled {
@@ -1586,6 +1605,24 @@ mod tests {
         assert_eq!(new.dhis2.image_tag, "2.43");
         assert!(new.dhis2_seed_is_unknown());
         assert!(with(" ").is_err());
+
+        let dev = parse_components(&ComponentFlags {
+            with: Some("dhis2"),
+            dhis2_image: Some("dhis2/core-dev"),
+            dhis2_tag: Some("master"),
+            ..ComponentFlags::default()
+        })
+        .unwrap();
+        assert_eq!(dev.dhis2.image, "dhis2/core-dev");
+        assert_eq!(dev.dhis2.image_tag, "master");
+        let both = parse_components(&ComponentFlags {
+            with: Some("dhis2"),
+            dhis2_image: Some("dhis2/core-dev:master"),
+            ..ComponentFlags::default()
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(both.contains("--dhis2-tag master"), "{both}");
         let err = parse_components(&ComponentFlags {
             dhis2_tag: Some("2.42"),
             ..ComponentFlags::default()

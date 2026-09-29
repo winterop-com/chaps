@@ -191,7 +191,7 @@ pub fn plan_components(project: &Project) -> Vec<ComponentUpdate> {
     if components.dhis2.enabled {
         out.push(component_update(
             crate::compose::DHIS2_SERVICE,
-            components::DHIS2_IMAGE,
+            &components.dhis2.image,
             components::DHIS2_TAG_ENV_VAR,
             &components.dhis2.image_tag,
             &env,

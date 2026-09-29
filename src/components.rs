@@ -537,6 +537,10 @@ fn default_dhis2_tag() -> String {
     DHIS2_DEFAULT_TAG.to_string()
 }
 
+fn default_dhis2_image() -> String {
+    DHIS2_IMAGE.to_string()
+}
+
 /// The `dhis2` block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Dhis2Component {
@@ -551,6 +555,11 @@ pub struct Dhis2Component {
     /// The tag the compose file defaults to, and the one `.env` pins.
     #[serde(default = "default_dhis2_tag")]
     pub image_tag: String,
+    /// The image repository: `dhis2/core` for releases, and another (such as
+    /// `dhis2/core-dev` with tag `master`, the next version) for trying one
+    /// that is not released yet.
+    #[serde(default = "default_dhis2_image")]
+    pub image: String,
     /// What the database is restored from the first time it is created.
     #[serde(default)]
     pub seed: Dhis2Seed,
@@ -584,6 +593,7 @@ impl Default for Dhis2Component {
             enabled: false,
             port: Some(DHIS2_DEFAULT_PORT),
             image_tag: DHIS2_DEFAULT_TAG.to_string(),
+            image: DHIS2_IMAGE.to_string(),
             seed: Dhis2Seed::Default,
             connected_at: None,
         }
@@ -1171,6 +1181,7 @@ mod tests {
                 enabled: true,
                 port: Some(18080),
                 image_tag: "2.41.7".into(),
+                image: "dhis2/core-dev".into(),
                 seed: Dhis2Seed::From("dumps/laos.sql.gz".into()),
                 connected_at: None,
             },

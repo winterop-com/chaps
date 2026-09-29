@@ -138,6 +138,8 @@ pub struct Dhis2Spec {
     pub host_port: Option<u16>,
     /// The tag the `${DHIS2_IMAGE_TAG:-...}` default carries.
     pub image_tag: String,
+    /// The image repository, `dhis2/core` unless the component names another.
+    pub image: String,
     /// The dump the database is seeded from, behind the
     /// `${DHIS2_DB_DUMP_URL:-...}` default. `None` renders no seed one-shot and
     /// no dump volume at all, which is an empty DHIS2 that migrates itself on
@@ -161,6 +163,7 @@ impl Dhis2Spec {
         Dhis2Spec {
             host_port: components.dhis2.port,
             image_tag: components.dhis2.image_tag.clone(),
+            image: components.dhis2.image.clone(),
             seed: components.dhis2_seed_source().map(Dhis2SeedSource::of),
             host_gateway: components.chap_core_external.is_some(),
         }

@@ -6,10 +6,10 @@
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::components::{
-    DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_IMAGE, DHIS2_TAG_ENV_VAR, OCS_BASE_URL_ENV_VAR,
-    OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_IMAGE,
-    OCS_PLUGINS_DIR, OCS_PLUGINS_TARGET, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR, S3_BUCKET,
-    S3_CONTAINER_PORT, S3_IMAGE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
+    DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_TAG_ENV_VAR, OCS_BASE_URL_ENV_VAR, OCS_CONFIG_FILE,
+    OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_IMAGE, OCS_PLUGINS_DIR,
+    OCS_PLUGINS_TARGET, OCS_TAG_ENV_VAR, S3_ACCESS_KEY_ENV_VAR, S3_BUCKET, S3_CONTAINER_PORT,
+    S3_IMAGE, S3_SECRET_KEY_ENV_VAR, S3_TAG_ENV_VAR,
 };
 use crate::compose::overrides;
 use crate::compose::spec::{
@@ -548,7 +548,7 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
     fill(
         &DHIS2_TEMPLATE,
         &[
-            ("IMAGE", DHIS2_IMAGE),
+            ("IMAGE", &spec.image),
             ("TAG_VAR", DHIS2_TAG_ENV_VAR),
             ("IMAGE_TAG", &spec.image_tag),
             ("PORT_LINES", &port_lines),
@@ -1900,6 +1900,7 @@ mod tests {
         Dhis2Spec {
             host_port: Some(DHIS2_CONTAINER_PORT),
             image_tag: crate::components::DHIS2_DEFAULT_TAG.to_string(),
+            image: crate::components::DHIS2_IMAGE.to_string(),
             seed: Some(Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())),
             host_gateway: false,
         }

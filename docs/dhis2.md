@@ -369,6 +369,13 @@ an active `DHIS2_IMAGE_TAG` line in `.env`, which Compose reads last and
 which therefore wins without a sync. The rendered service is
 `dhis2/core:${DHIS2_IMAGE_TAG:-2.42}`, so the recorded tag is only the default.
 
+An unreleased DHIS2 comes from another image repository: DHIS2 publishes its
+development builds as `dhis2/core-dev`, with the next version under `master`.
+`chaps init --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master` runs
+it, and `image:` in the `dhis2` block of `.chaps/components.yaml` is the setting
+afterwards. There is no demo database for a development build, so it starts
+empty.
+
 The tag is two parts rather than a full version on purpose, so a patch release
 arrives with a `docker pull` rather than an edit.
 

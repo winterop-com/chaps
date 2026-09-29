@@ -59,6 +59,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--dhis2-port <PORT\|none>` | Host port to publish DHIS2 on, or none to keep it internal. |
 | `--dhis2-seed <SPEC>` | Dump to seed the DHIS2 database from: default, none, URL or path. |
 | `--dhis2-tag <TAG>` | DHIS2 version to run: an image tag such as 2.41, 2.42 or 2.43.1. |
+| `--dhis2-image <REPO>` | DHIS2 image repository, e.g. dhis2/core-dev for unreleased versions. |
 | `--ocs-read-only` | Refuse ingestion over HTTP on the new OCS instance. |
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |

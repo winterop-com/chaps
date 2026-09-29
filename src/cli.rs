@@ -296,6 +296,10 @@ pub struct InitArgs {
     #[arg(long = "dhis2-tag", value_name = "TAG")]
     pub dhis2_tag: Option<String>,
 
+    /// DHIS2 image repository, e.g. dhis2/core-dev for unreleased versions
+    #[arg(long = "dhis2-image", value_name = "REPO")]
+    pub dhis2_image: Option<String>,
+
     /// Refuse ingestion over HTTP on the new OCS instance
     #[arg(long = "ocs-read-only")]
     pub ocs_read_only: bool,
