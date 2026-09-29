@@ -177,7 +177,7 @@ see [Doctor](./doctor.md).
 
 `chaps init --force` over an existing deployment sets the component set from
 the flags it is given, exactly as `--models` sets the model set: `--with` and
-`--without` are the whole answer, and a component the directory had but the new
+`--without` (or `--only`) are the whole answer, and a component the directory had but the new
 run does not ask for is going. It is reset-from-flags, not a merge, so the way
 to keep a component across a `--force` is to name it again.
 
@@ -783,7 +783,18 @@ all of it.
 
 ## Standalone OCS
 
-`--without chap-core` is the same mechanism with CHAP left out:
+`--only` names the whole component set, and chap-core is in it only when you
+name it:
+
+```sh
+chaps init climate --only ocs,s3      # OCS and its object store, no CHAP
+chaps init dhis --only dhis2          # a DHIS2 on its own
+```
+
+`--only ocs,s3` is `--with ocs,s3 --without chap-core` in one flag, and it
+cannot be combined with either of them. `--only none` is no component at all:
+a directory to add components to later, or, with `--models`, model services on
+their own. The same set spelled out:
 
 ```sh
 chaps init climate --with ocs,s3 --without chap-core

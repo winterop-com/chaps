@@ -5266,6 +5266,35 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
 }
 
 #[test]
+fn only_is_the_whole_component_set() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--only", "dhis2", "--dhis2-seed", "none"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("components: dhis2"))
+        .stdout(predicates::str::contains("API:").not());
+    assert!(!dir.join("compose.yml").exists());
+    assert!(dir.join("compose.dhis2.yml").is_file());
+
+    // --only replaces --with and --without rather than mixing with them.
+    Sandbox::new()
+        .init(&["--only", "ocs", "--with", "s3"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--only"));
+
+    // No component at all is a deployment to add to later.
+    let empty = Sandbox::new();
+    empty.init(&["--only", "none"]).assert().success();
+    assert_eq!(
+        state(&empty.project())["compose_files"],
+        serde_json::json!(["compose.marketplace.yml"])
+    );
+}
+
+#[test]
 fn an_unknown_component_name_is_reported_before_anything_is_written() {
     let sandbox = Sandbox::new();
     sandbox

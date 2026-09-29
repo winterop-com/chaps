@@ -51,6 +51,7 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--source <PATH>` | Build chap-core from a local checkout (not supported yet). |
 | `--with <LIST>` | Components to add: ocs, s3, dhis2. |
 | `--without <LIST>` | Components to leave out: chap-core, ocs, s3, dhis2. |
+| `--only <LIST>` | Exactly these components and nothing else; `none` for models alone. |
 | `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
 | `--ocs-port <PORT\|none>` | Host port to publish OCS on, or none to keep it internal. |
 | `--s3-port <PORT\|none>` | Host port to publish the object store on, or none. |

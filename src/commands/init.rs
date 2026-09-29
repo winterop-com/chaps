@@ -540,6 +540,8 @@ fn warn_about_ports(
 struct ComponentFlags<'a> {
     with: Option<&'a str>,
     without: Option<&'a str>,
+    /// `--only`: the whole set, chap-core included only when it is named.
+    only: Option<&'a str>,
     ocs_base_url: Option<&'a str>,
     ocs_port: Option<ComponentPortArg>,
     s3_port: Option<ComponentPortArg>,
@@ -557,6 +559,7 @@ impl<'a> ComponentFlags<'a> {
         ComponentFlags {
             with: args.with.as_deref(),
             without: args.without.as_deref(),
+            only: args.only.as_deref(),
             ocs_base_url: args.ocs_base_url.as_deref(),
             ocs_port: args.ocs_port,
             s3_port: args.s3_port,
@@ -577,8 +580,13 @@ impl<'a> ComponentFlags<'a> {
 /// component this deployment is not getting: an `--ocs-port` that quietly did
 /// nothing would leave the operator waiting for OCS on a port no file mentions.
 fn parse_components(flags: &ComponentFlags) -> Result<Components> {
-    let on = parse_component_list(flags.with)?;
-    let off = parse_component_list(flags.without)?;
+    let (on, off) = match flags.only {
+        Some(only) => only_lists(only)?,
+        None => (
+            parse_component_list(flags.with)?,
+            parse_component_list(flags.without)?,
+        ),
+    };
     if let Some(both) = on.iter().find(|c| off.contains(c)) {
         return Err(anyhow::anyhow!(
             "`{}` is in both --with and --without; it cannot be on and off at once",
@@ -670,6 +678,30 @@ fn parse_components(flags: &ComponentFlags) -> Result<Components> {
 }
 
 /// A comma-separated list of component names.
+/// `--only LIST` as the `--with` and `--without` lists it stands for: the
+/// named components on and every other one off. `none` is the empty set, for a
+/// deployment of model services alone.
+fn only_lists(spec: &str) -> Result<(Vec<Component>, Vec<Component>)> {
+    let on = if spec.trim() == "none" {
+        Vec::new()
+    } else {
+        let on = parse_component_list(Some(spec))?;
+        if on.is_empty() {
+            return Err(anyhow::anyhow!(
+                "--only needs a component list, such as `--only ocs,s3`, or `--only none` \
+                 for model services alone"
+            ));
+        }
+        on
+    };
+    let off = Component::ALL
+        .iter()
+        .copied()
+        .filter(|c| !on.contains(c))
+        .collect();
+    Ok((on, off))
+}
+
 fn parse_component_list(spec: Option<&str>) -> Result<Vec<Component>> {
     let Some(spec) = spec else {
         return Ok(Vec::new());
@@ -1332,6 +1364,32 @@ mod tests {
             without,
             ..ComponentFlags::default()
         })
+    }
+
+    #[test]
+    fn only_names_the_whole_component_set() {
+        let only = |spec: &str| {
+            parse_components(&ComponentFlags {
+                only: Some(spec),
+                ..ComponentFlags::default()
+            })
+        };
+        let ocs = only("ocs,s3").unwrap();
+        assert!(!ocs.chap_core.enabled && ocs.ocs.enabled && ocs.s3.enabled);
+        assert!(!ocs.dhis2.enabled);
+        assert_eq!(ocs.label(), "ocs, s3");
+
+        let dhis2 = only("dhis2").unwrap();
+        assert_eq!(dhis2.enabled(), vec![Component::Dhis2]);
+
+        // chap-core is on only when it is named.
+        let core = only("chap-core,ocs").unwrap();
+        assert!(core.chap_core.enabled && core.ocs.enabled);
+
+        assert!(only("none").unwrap().enabled().is_empty());
+        let empty = only(" , ").unwrap_err().to_string();
+        assert!(empty.contains("`--only none`"), "{empty}");
+        assert!(only("nope").is_err());
     }
 
     #[test]

@@ -264,6 +264,10 @@ pub struct InitArgs {
     #[arg(long = "without", value_name = "LIST")]
     pub without: Option<String>,
 
+    /// Exactly these components and nothing else; `none` for models alone
+    #[arg(long = "only", value_name = "LIST", conflicts_with_all = ["with", "without"])]
+    pub only: Option<String>,
+
     /// Public URL OCS is reached at, for a proxied instance
     #[arg(long = "ocs-base-url", value_name = "URL")]
     pub ocs_base_url: Option<String>,
