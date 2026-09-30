@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install chaps, the CHAP stack manager.
+# Install chaps, which deploys CHAP and its services with Docker Compose.
 #
 #   curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
 #
@@ -54,7 +54,7 @@ die() {
 
 usage() {
   cat <<'USAGE'
-install chaps, the CHAP stack manager
+install chaps, which deploys CHAP and its services with Docker Compose
 
 Usage: install.sh [OPTIONS]
 
