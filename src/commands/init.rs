@@ -1273,19 +1273,28 @@ fn summary(
         }
     } else {
         text.push_str(&format!("\n{}\n", out.heading("Enabled:")));
-        for (id, model) in &report.enabled {
-            let name = registry
-                .get(id)
-                .map(|m| m.display_name.clone())
-                .unwrap_or_else(|| id.clone());
-            let reach = match model.host_port {
-                Some(port) => out.value(&format!("http://localhost:{port}")),
-                None => out.dim("internal"),
-            };
-            text.push_str(&format!(
-                "  {id}  {name} {}  {reach}\n",
-                out.dim(&format!("v{}", model.version))
-            ));
+        // A table without headers, so ids of different lengths line up.
+        let rows: Vec<Vec<String>> = report
+            .enabled
+            .iter()
+            .map(|(id, model)| {
+                let name = registry
+                    .get(id)
+                    .map(|m| m.display_name.clone())
+                    .unwrap_or_else(|| id.clone());
+                let reach = match model.host_port {
+                    Some(port) => out.value(&format!("http://localhost:{port}")),
+                    None => out.dim("internal"),
+                };
+                vec![
+                    id.clone(),
+                    format!("{name} {}", out.dim(&format!("v{}", model.version))),
+                    reach,
+                ]
+            })
+            .collect();
+        for line in out.table(&[], &rows).lines() {
+            text.push_str(&format!("  {line}\n"));
         }
         if report.enabled.iter().any(|(_, m)| m.host_port.is_none()) {
             text.push_str(&out.dim(&format!(
