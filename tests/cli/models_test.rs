@@ -22,6 +22,42 @@ fn tested_project(sandbox: &Sandbox) -> (PathBuf, u16) {
     (sandbox.project(), port)
 }
 
+/// chap-core in a container with models registered as `localhost:<port>`:
+/// registered, and every call back to them a 502. The backtest says so before
+/// it builds anything, and points at `chaps status` for the fix.
+#[test]
+fn models_test_backtest_skips_a_model_chap_core_cannot_reach() {
+    let sandbox = Sandbox::new();
+    let port = free_port();
+    sandbox
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--api-port",
+            &port.to_string(),
+        ])
+        .assert()
+        .success();
+    unreachable_models_chap_core_server(port);
+    let dir = sandbox.project();
+
+    let out = chap_in(&sandbox, &dir, &["models", "test", "--all", "--backtest"])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("the rows are text");
+    assert!(
+        text.contains(
+            "chap-core cannot reach it (HTTP 502 Bad Gateway from \
+             /v2/services/chapkit-ewars-model/run/health)"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("run `chaps status`"), "{text}");
+    assert!(!text.contains("no configured model"), "{text}");
+}
+
 #[test]
 fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
     let sandbox = Sandbox::new();

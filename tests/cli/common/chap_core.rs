@@ -71,14 +71,27 @@ pub(crate) fn protected_chap_core_server(port: u16) {
     chap_core_server_with(port, true);
 }
 
+/// [`chap_core_server`] that cannot reach its models: every proxied
+/// `/health` is a 502.
+pub(crate) fn unreachable_models_chap_core_server(port: u16) {
+    serve_chap_core(port, false, true);
+}
+
 pub(crate) fn chap_core_server_with(port: u16, protected: bool) {
+    serve_chap_core(port, protected, false);
+}
+
+fn serve_chap_core(port: u16, protected: bool, unreachable: bool) {
     use std::io::Write;
 
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("a free port");
     std::thread::spawn(move || {
         // What this server was asked to do, for the tests that check the
         // cleanup: one server per port, so the record is this thread's own.
-        let mut recorded = Recorded::default();
+        let mut recorded = Recorded {
+            unreachable,
+            ..Recorded::default()
+        };
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             // The request has to be read before the answer, or the client
@@ -105,6 +118,7 @@ pub(crate) fn chap_core_server_with(port: u16, protected: bool) {
                 200 => "OK",
                 400 => "Bad Request",
                 401 => "Unauthorized",
+                502 => "Bad Gateway",
                 _ => "Not Found",
             };
             let response = format!(
@@ -239,6 +253,9 @@ pub(crate) fn services_route(
             json,
             format!(r#"{{"detail":"Service '{service}' not found"}}"#),
         ));
+    }
+    if tail == "run/health" && recorded.unreachable {
+        return Some((502, json, r#"{"detail":"Bad Gateway"}"#.to_string()));
     }
     if tail.is_empty() {
         // The `info` block a chapkit service registers with, cut to the three
@@ -452,6 +469,9 @@ pub(crate) fn read_request(stream: &mut std::net::TcpStream) -> String {
 /// cleanup happened and that what went out was the right shape.
 #[derive(Debug, Default)]
 pub(crate) struct Recorded {
+    /// Whether every model's proxied `/health` answers 502, the way chap-core
+    /// in a container answers for a model registered as `localhost:<port>`.
+    pub(crate) unreachable: bool,
     /// Every path a `DELETE` reached, in order.
     pub(crate) deleted: Vec<String>,
     /// Observations in the last `make-dataset` body.

@@ -354,6 +354,23 @@ fn backtest_level(
     };
     let period = period_type(Some(&info));
 
+    // A registration is the model calling chap-core; a backtest is chap-core
+    // calling the model. When that way back is broken, every later step fails
+    // with a message about something else, so it is asked first.
+    let proxied = crate::status::proxied_health_path(&enabled.service_id);
+    let unreachable = match api.send("GET", &proxied, None) {
+        Ok(answer) if answer.status >= 500 => Some(answer.status_line()),
+        Ok(_) => None,
+        Err(err) => Some(err.to_string()),
+    };
+    if let Some(answer) = unreachable {
+        return run.end(
+            Verdict::Skip,
+            format!("chap-core cannot reach it ({answer} from {proxied})"),
+            Some("run `chaps status`, which names the address and the fix".to_string()),
+        );
+    }
+
     // Before anything is built: a service chap-core has nothing configured
     // for cannot be backtested, and finding that out after a dataset has been
     // imported would be a dataset created and deleted for nothing.
@@ -365,7 +382,8 @@ fn backtest_level(
                 enabled.service_id
             ),
             Some(format!(
-                "it is registered but nothing runs it, run `chaps restart {}` and try again",
+                "it is registered but nothing runs it, run `chaps restart --all {}` and try \
+                 again",
                 enabled.service_id
             )),
         );
