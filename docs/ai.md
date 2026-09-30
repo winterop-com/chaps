@@ -238,7 +238,10 @@ It worked when `chaps status` shows chap-core and `ocs` as `up`. Some climate
 datasets need an account with Copernicus or the Earth Data Hub; the keys go in
 the `.env` file in the folder, where they are already listed, commented out.
 Add `,dhis2` to `--with` for the Modeling App as well (8 GB of memory), then
-continue as in option 1 from `chaps dhis2 connect`.
+continue as in option 1 from `chaps dhis2 connect`. OCS covers Laos, like the
+demo DHIS2, until the person changes it.
+
+Next, when they want climate data: [Getting climate data](#getting-climate-data).
 
 More: [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md).
 
@@ -309,6 +312,8 @@ curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json
 ```
 
 It worked when the answer contains `"status":"completed"`.
+
+Next: [Getting climate data](#getting-climate-data).
 
 More: [An OCS server on its own](./use-cases/ocs-alone.md).
 
@@ -629,6 +634,24 @@ chaps up
 
 then continue as in option 1 from `chaps dhis2 connect`. See
 [Growing a deployment](./use-cases/growing.md).
+
+## Getting climate data
+
+For options 3, 6 and 10, once OCS is `up`. OCS covers Laos until the person
+changes the extent (the `--ocs-name`, `--ocs-country` and `--ocs-bbox` flags of
+`chaps init`). Six years of monthly rainfall, public, no account needed; it
+takes a few minutes and the command waits:
+
+```sh
+curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json' -d '{"dataset_id": "chirps3_precipitation_monthly", "start": "2019-01", "end": "2024-12"}'
+```
+
+It worked when the answer contains `"status":"completed"`.
+`curl http://localhost:8790/dataset-templates` lists every other dataset;
+temperature (`era5land_temperature_monthly`) needs a Copernicus account, whose
+key goes in `.env`. To get the values out per province as the CSV CHAP reads,
+or as a NetCDF file, follow
+[Getting it out](./use-cases/ocs-alone.md#getting-it-out) step by step.
 
 ## Every option: stop, start, remove
 

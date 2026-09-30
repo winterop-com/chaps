@@ -17,9 +17,11 @@ reach it at `http://localhost:8790`. `init` writes `ocs/climate-service.yaml`
 Earth Data Hub account; WorldPop and CHIRPS3 need none.
 
 It worked when `chaps status` shows chap-core, `ocs` and `s3` as `up` and the
-models registered. To put a first dataset in, see
-[Ingesting a first dataset](./ocs-alone.md#ingesting-a-first-dataset); the
-same commands work here.
+models registered. To put climate data in and get it out per district as
+the CSV CHAP reads, see
+[Ingesting a first dataset](./ocs-alone.md#ingesting-a-first-dataset) and the
+sections after it; the same commands work here. The extent is Laos, like the
+demo DHIS2, until you change it.
 
 Next: [OCS](../components.md#ocs), and
 [Data source credentials](../components.md#data-source-credentials) for which
