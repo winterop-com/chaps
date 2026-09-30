@@ -156,20 +156,13 @@ make vendor
 runs `scripts/vendor-marketplace.sh`, which refreshes the files under
 `vendor/marketplace/` and records the upstream commit in `SNAPSHOT`. It
 records no fetch date, so a run against an unchanged upstream leaves the
-directory as it was and the workflow below has nothing to propose. A model
-added or dropped upstream needs nothing else: `build.rs` reads the index and
-embeds what it lists, and `cargo test registry` is what checks the result.
+directory as it was. A model added or dropped upstream needs nothing else:
+`build.rs` reads the index and embeds what it lists, and `cargo test registry`
+is what checks the result. Refresh when the marketplace changes and commit
+the result; a snapshot change is compiled in, so it is a code change.
 
 The vendored layout is the same as the on-disk cache layout, so
 `vendor/marketplace/` and a cache entry are interchangeable.
-
-`.github/workflows/vendor-marketplace.yml` does the same thing every Monday at
-06:00 UTC, and on demand through `workflow_dispatch`. It runs the script, runs
-`cargo test registry`, and opens or updates a pull request titled `chore:
-refresh embedded marketplace snapshot` on the `chore/vendor-marketplace` branch
-when anything under `vendor/marketplace/` changed. Nothing is pushed to `main`:
-these files are compiled in, so a snapshot change is a code change and goes
-through review like one.
 
 ## The documentation
 
