@@ -1036,10 +1036,15 @@ pub fn dhis2_seed_note(seed: Option<&str>) -> String {
 /// (see [`DHIS2_SEED_DUMPS`]), so constructing one would download a 404 on the
 /// first start and leave the operator with an empty DHIS2 and no explanation.
 pub fn dhis2_unknown_seed(tag: &str) -> String {
+    // A version is named as one; a tag such as `master` is a build, and
+    // "DHIS2 master" would read as a release that has no dump yet.
+    let what = match tag.trim().starts_with(|c: char| c.is_ascii_digit()) {
+        true => dhis2_minor(tag).to_string(),
+        false => format!("the image tag `{}`", tag.trim()),
+    };
     format!(
-        "chaps knows no DHIS2 demo dump for {}, so `dhis2_db` starts empty; name one with \
-         `seed:` in `.chaps/components.yaml` (a URL or a path) and run `chaps sync`",
-        dhis2_minor(tag)
+        "chaps knows no DHIS2 demo dump for {what}, so `dhis2_db` starts empty; name one with \
+         `seed:` in `.chaps/components.yaml` (a URL or a path) and run `chaps sync`"
     )
 }
 
@@ -1712,6 +1717,11 @@ mod tests {
         );
         assert!(!unknown.contains("2.40.1"), "{unknown}");
         assert!(unknown.contains("`.chaps/components.yaml`"), "{unknown}");
+        let master = dhis2_unknown_seed("master");
+        assert!(
+            master.contains("no DHIS2 demo dump for the image tag `master`"),
+            "{master}"
+        );
 
         assert!(
             DHIS2_FIRST_START_NOTE.contains("minutes"),

@@ -1313,3 +1313,23 @@ fn up_with_nothing_in_the_deployment_says_what_to_add() {
         .stdout(predicates::str::contains("`chaps components enable NAME`"))
         .stderr(predicates::str::contains("no service selected").not());
 }
+
+/// A deployment of nothing has nothing for `up` to start, so the next step
+/// `init` names is putting something in it.
+#[test]
+fn init_of_an_empty_deployment_names_adding_a_model_next() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--only", "none"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "&& chaps models add URL\n  chaps up",
+        ));
+    let other = Sandbox::new();
+    other
+        .init(&["--only", "none", "--models", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("&& chaps up\n  chaps status"));
+}

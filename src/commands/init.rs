@@ -1368,13 +1368,25 @@ fn summary(
         text.push_str(&format!("\n{} {warning}\n", out.warn("warning:")));
     }
 
-    // The last thing on the screen is the thing to type next.
+    // The last thing on the screen is the thing to type next. A deployment
+    // with nothing in it has nothing for `up` to start: adding something is
+    // the next step there.
+    let empty = components.enabled().is_empty()
+        && components.chap_core_external.is_none()
+        && report.enabled.is_empty();
+    let (first, second) = match empty {
+        true => (
+            format!("cd {} && chaps models add URL", dir.display()),
+            "chaps up",
+        ),
+        false => (format!("cd {} && chaps up", dir.display()), "chaps status"),
+    };
     text.push('\n');
     text.push_str(&format!(
         "{}\n  {}\n  {}",
         out.heading("Next:"),
-        out.cmd(&format!("cd {} && chaps up", dir.display())),
-        out.cmd("chaps status")
+        out.cmd(&first),
+        out.cmd(second)
     ));
     text.push('\n');
     text
