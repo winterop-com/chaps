@@ -53,12 +53,19 @@ fn a_volume_is_reported_by_name_whatever_became_of_it() {
     // The kept line names both ways out, because the second one still
     // works once the deployment directory is gone.
     assert_eq!(
-        kept_volume_line(volume, "chaps models disable chapkit_ewars_model"),
+        kept_volume_line(volume, Some("chaps models disable chapkit_ewars_model")),
         format!(
             "kept volume {volume}; remove it with \
                  `chaps models disable chapkit_ewars_model --purge` or \
                  `docker volume rm {volume}`"
         )
+    );
+
+    // After `chaps models remove` no chaps command names the volume any
+    // more, so only the docker command is offered.
+    assert_eq!(
+        kept_volume_line(volume, None),
+        format!("kept volume {volume}; remove it with `docker volume rm {volume}`")
     );
 }
 

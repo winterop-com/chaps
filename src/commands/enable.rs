@@ -76,7 +76,7 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         }
         return Err(ChapError::UnknownModel(args.id.clone()).into());
     };
-    let (report, notes) = disable_enabled(&mut project, &registry, &id, args.purge)?;
+    let (report, notes) = disable_enabled(&mut project, &registry, &id, args.purge, false)?;
     ctx.out.emit(&report, || {
         summary(&report.apply, &notes, &project, &ctx.out)
     })
@@ -89,12 +89,15 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
 /// The half of [`disable`] that `chaps models remove` needs too: removing a
 /// manually added model has to disable it first, and doing that by any other
 /// path would leave the container running and the volume unnamed. Returns
-/// what was done plus the notes that belong in the closing lines.
+/// what was done plus the notes that belong in the closing lines. `removing`
+/// is set by `chaps models remove`, after which the id no longer names
+/// anything a later command could purge.
 pub(crate) fn disable_enabled(
     project: &mut Project,
     registry: &Registry,
     id: &str,
     purge: bool,
+    removing: bool,
 ) -> Result<(DisableReport, Vec<String>)> {
     let id = id.to_string();
     let service_id = project.state.models[&id].service_id.clone();
@@ -131,10 +134,10 @@ pub(crate) fn disable_enabled(
         }
         // A model that was never started has no volume to have kept.
         (Some(name), false) if crate::docker::volume_exists(name) => {
-            notes.push(super::docker::kept_volume_line(
-                name,
-                &format!("chaps models disable {id}"),
-            ));
+            // After `models remove` the id is gone, so a `models disable
+            // --purge` would only answer "unknown model".
+            let again = (!removing).then(|| format!("chaps models disable {id}"));
+            notes.push(super::docker::kept_volume_line(name, again.as_deref()));
             kept_volumes.push(name.clone());
         }
         (None, true) => notes.push(super::docker::UNNAMEABLE_VOLUME.to_string()),

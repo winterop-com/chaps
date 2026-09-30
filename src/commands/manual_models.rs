@@ -197,7 +197,7 @@ pub fn remove(ctx: &Ctx, args: &ModelsRemoveArgs) -> Result<()> {
     let (mut applied, mut notes, mut purged) = (ApplyReport::default(), Vec::new(), Vec::new());
     if was_enabled {
         let (report, disable_notes) =
-            super::enable::disable_enabled(&mut project, &registry, &id, args.purge)?;
+            super::enable::disable_enabled(&mut project, &registry, &id, args.purge, true)?;
         applied = report.apply;
         purged = report.purged;
         notes = disable_notes;

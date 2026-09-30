@@ -568,7 +568,7 @@ fn kept_volume_notes(
         .map(|name| {
             super::docker::kept_volume_line(
                 name,
-                &format!("chaps components disable {}", component.name()),
+                Some(&format!("chaps components disable {}", component.name())),
             )
         })
         .collect()

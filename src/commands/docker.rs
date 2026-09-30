@@ -1002,9 +1002,16 @@ pub fn removal_line(name: &str, outcome: &docker::Removal) -> String {
 /// `purge` is the command that would have taken it, typed as the reader would
 /// type it again (`chaps models disable ewars`, `chaps components disable
 /// ocs`). Both ways are given because the second works from any directory and
-/// after the deployment itself is gone.
-pub fn kept_volume_line(name: &str, purge: &str) -> String {
-    format!("kept volume {name}; remove it with `{purge} --purge` or `docker volume rm {name}`")
+/// after the deployment itself is gone. `None` is for a command after which
+/// no chaps command names the volume any more, such as `chaps models remove`:
+/// only `docker volume rm` is left to offer.
+pub fn kept_volume_line(name: &str, purge: Option<&str>) -> String {
+    match purge {
+        Some(purge) => format!(
+            "kept volume {name}; remove it with `{purge} --purge` or `docker volume rm {name}`"
+        ),
+        None => format!("kept volume {name}; remove it with `docker volume rm {name}`"),
+    }
 }
 
 /// The arguments appended after `compose -f ... -f ...`.
