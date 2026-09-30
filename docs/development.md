@@ -29,7 +29,10 @@ cargo test
 ```
 
 Unit tests live next to the code they cover, in a `mod tests` at the bottom of
-each module. `tests/cli/` is the end-to-end suite: it runs the built binary
+each module; once they outgrow the code beside them they move to
+`<module>/tests.rs` (`src/status.rs` and `src/status/tests.rs`), declared as
+`#[cfg(test)] mod tests;`. A file past about 2000 lines is split, by concern
+for code and by moving its tests out first. `tests/cli/` is the end-to-end suite: it runs the built binary
 against temporary directories, and every run is `--offline` with its own cache
 directory, so the embedded marketplace snapshot is what the CLI sees and no
 test touches the network or the developer's real cache. It is one test binary
