@@ -12,7 +12,7 @@ use crate::components::{Components, DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME, dhis2_c
 use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
-use crate::output::{Out, PanelKind};
+use crate::output::Out;
 use crate::ports;
 use crate::project::Project;
 use std::io::{BufRead, IsTerminal, Write};
@@ -841,33 +841,15 @@ pub fn down_summary(
 }
 
 /// The "there is nothing here" answer `logs` and `ps` give a project whose
-/// containers have never been created, as a panel on a terminal.
+/// containers have never been created.
 fn nothing_running(out: &Out) -> String {
-    out.panel_or(
-        "Not running",
-        &crate::output::hint_lines(NOTHING_RUNNING)
-            .iter()
-            .map(|line| out.backticks(line))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        PanelKind::Warning,
-        NOTHING_RUNNING,
-    )
+    out.backticks(NOTHING_RUNNING)
 }
 
 /// The "there is nothing to recreate" answer `restart` gives a deployment
-/// that is not running, as a panel on a terminal.
+/// that is not running.
 fn not_running(out: &Out) -> String {
-    out.panel_or(
-        "Not running",
-        &crate::output::hint_lines(NOT_RUNNING)
-            .iter()
-            .map(|line| out.backticks(line))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        PanelKind::Warning,
-        NOT_RUNNING,
-    )
+    out.backticks(NOT_RUNNING)
 }
 
 /// What `docker pull` fetched. Compose's own output is progress, not a result.

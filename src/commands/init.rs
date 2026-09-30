@@ -12,7 +12,7 @@ use crate::compose::spec::EnvSpec;
 use crate::compose::sync::{write_dhis2_config, write_ocs_config};
 use crate::compose::{API_SERVICE, ApplyReport, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
-use crate::output::{Out, PanelKind};
+use crate::output::Out;
 use crate::project::{
     API_PORT_ENV_VAR, AuthState, CHAPS_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE,
     EnabledModel, MODELS_FILE, PROJECT_FILE, Project, ProjectState, cached_compose_file,
@@ -1346,15 +1346,13 @@ fn summary(
         text.push_str(&format!("\n{} {warning}\n", out.warn("warning:")));
     }
 
-    // The last thing on the screen is the thing to type next, so it gets the
-    // one box `init` draws.
-    let next = format!("cd {} && chaps up\nchaps status", dir.display());
+    // The last thing on the screen is the thing to type next.
     text.push('\n');
-    text.push_str(&out.panel_or(
-        "Next",
-        &out.backticks(&next),
-        PanelKind::Ok,
-        &format!("Next:\n  cd {} && chaps up\n  chaps status", dir.display()),
+    text.push_str(&format!(
+        "{}\n  {}\n  {}",
+        out.heading("Next:"),
+        out.cmd(&format!("cd {} && chaps up", dir.display())),
+        out.cmd("chaps status")
     ));
     text.push('\n');
     text

@@ -4,7 +4,7 @@ use crate::cli::StatusArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
-use crate::output::{Out, PanelKind};
+use crate::output::Out;
 use crate::status::{
     ApiHealth, ModelState, ModelStatus, StatusReport, closing_line, exit_failure, hints, status,
 };
@@ -237,16 +237,7 @@ fn nothing_running_line(report: &StatusReport) -> &'static str {
 fn not_running(report: &StatusReport, out: &Out) -> String {
     let line = nothing_running_line(report);
     if report.components.is_empty() {
-        return out.panel_or(
-            "Not running",
-            &crate::output::hint_lines(line)
-                .iter()
-                .map(|line| out.backticks(line))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            PanelKind::Warning,
-            line,
-        );
+        return out.backticks(line);
     }
     let mut text = service_lines(report, out);
     text.push('\n');
