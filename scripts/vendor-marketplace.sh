@@ -2,8 +2,10 @@
 # Refresh the vendored marketplace snapshot in vendor/marketplace/.
 #
 # Downloads registry.yaml and every model file it lists from the upstream
-# model-marketplace repository, verbatim, and records the upstream commit and
-# fetch date in vendor/marketplace/SNAPSHOT.
+# model-marketplace repository, verbatim, and records the upstream commit in
+# vendor/marketplace/SNAPSHOT. No fetch date: a run against an unchanged
+# upstream must leave the directory byte for byte as it was, or the weekly
+# workflow opens a pull request for nothing.
 set -euo pipefail
 
 REPO="${MARKETPLACE_REPO:-dhis2-chap/model-marketplace}"
@@ -48,7 +50,6 @@ fi
   if [ -n "${sha}" ]; then
     echo "commit:         ${sha}"
   fi
-  echo "fetched:        $(date -u +%Y-%m-%d)"
   echo
   echo "Files in this directory are verbatim copies of the upstream YAML. build.rs"
   echo "generates the table src/registry/embedded.rs compiles into the binary, which"

@@ -154,9 +154,11 @@ make vendor
 ```
 
 runs `scripts/vendor-marketplace.sh`, which refreshes the files under
-`vendor/marketplace/`. A model added or dropped upstream needs nothing else:
-`build.rs` reads the index and embeds what it lists, and `cargo test registry`
-is what checks the result.
+`vendor/marketplace/` and records the upstream commit in `SNAPSHOT`. It
+records no fetch date, so a run against an unchanged upstream leaves the
+directory as it was and the workflow below has nothing to propose. A model
+added or dropped upstream needs nothing else: `build.rs` reads the index and
+embeds what it lists, and `cargo test registry` is what checks the result.
 
 The vendored layout is the same as the on-disk cache layout, so
 `vendor/marketplace/` and a cache entry are interchangeable.
