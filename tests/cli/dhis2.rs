@@ -52,7 +52,8 @@ fn status_calls_dhis2_up_once_api_ping_answers() {
     let out = status.assert().get_output().stdout.clone();
     let text = String::from_utf8_lossy(&out).into_owned();
     assert!(
-        text.contains(&format!("dhis2       up   http://localhost:{port}")),
+        // Padded to chap-core's `down`, so the two addresses line up.
+        text.contains(&format!("dhis2       up     http://localhost:{port}")),
         "{text}"
     );
 }

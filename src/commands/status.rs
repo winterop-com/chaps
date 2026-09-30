@@ -270,20 +270,39 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
         .max()
         .unwrap_or(0);
     let pad = |name: &str| " ".repeat(width.saturating_sub(name.chars().count()));
+    // The STATE column the same way: measured on what is printed, so `up`
+    // under `starting` leaves the addresses in one column.
+    let api_state = api_cell(
+        out,
+        &report.api,
+        report.api_container_unhealthy(),
+        report.api_starting,
+    );
+    let states: Vec<String> = report
+        .components
+        .iter()
+        .map(|component| component_cell(out, component.state))
+        .collect();
+    let elsewhere = out.dim("elsewhere");
+    let state_width = states
+        .iter()
+        .chain(chap_core.then_some(&api_state))
+        .chain(report.dhis2_external.is_some().then_some(&elsewhere))
+        .map(|cell| console::measure_text_width(cell))
+        .max()
+        .unwrap_or(0);
+    let state_pad =
+        |cell: &str| " ".repeat(state_width.saturating_sub(console::measure_text_width(cell)));
 
     // A deployment without chap-core has no line for it: there is no API on
     // that port, and "down" would read as a fault rather than as a choice.
     if chap_core {
         text.push_str(&format!(
-            "{}{}   {}   {}",
+            "{}{}   {}{}   {}",
             out.heading(CHAP_CORE_LABEL),
             pad(CHAP_CORE_LABEL),
-            api_cell(
-                out,
-                &report.api,
-                report.api_container_unhealthy(),
-                report.api_starting
-            ),
+            api_state,
+            state_pad(&api_state),
             out.value(&report.api_url)
         ));
         let version = report.version.label();
@@ -316,12 +335,12 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
     }
     // The components sit directly under chap-core, in the order they are
     // rendered into the compose files.
-    for component in &report.components {
+    for (component, state) in report.components.iter().zip(&states) {
         text.push_str(&format!(
-            "{}{}   {}   {}",
+            "{}{}   {state}{}   {}",
             out.heading(&component.name),
             pad(&component.name),
-            component_cell(out, component.state),
+            state_pad(state),
             match component.state {
                 crate::status::ComponentState::NotRunning => out.dim(&component.reach),
                 _ => out.value(&component.reach),
@@ -346,10 +365,10 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
     if let Some(url) = &report.dhis2_external {
         let name = crate::compose::DHIS2_SERVICE;
         text.push_str(&format!(
-            "{}{}   {}   {}   {}\n",
+            "{}{}   {elsewhere}{}   {}   {}\n",
             out.heading(name),
             pad(name),
-            out.dim("elsewhere"),
+            state_pad(&elsewhere),
             out.value(url),
             out.dim(&out.backticks("`chaps dhis2 show` asks it"))
         ));
@@ -1009,8 +1028,10 @@ mod tests {
             ..up(Vec::new(), &[], &[])
         };
         let text = not_running(&report, &Out::default());
+        // The STATE column is as wide as its widest cell, so the addresses
+        // line up under each other.
         assert!(
-            text.starts_with("chap-core   down   http://localhost:8000"),
+            text.starts_with("chap-core   down          http://localhost:8000"),
             "{text}"
         );
         assert!(

@@ -71,6 +71,11 @@ const CELL_GAP: usize = 3;
 /// pushing its summary a character left of every other row's.
 const TIME_WIDTH: usize = 3;
 
+/// The same for a backtest, which runs into minutes: `1m 38s`. The rows are
+/// printed as each model finishes, so the column cannot be sized from the
+/// slowest one; it is sized for the longest a backtest normally takes.
+const BACKTEST_TIME_WIDTH: usize = 6;
+
 /// The metrics the backtest row prints, in this order.
 ///
 /// Three of the dozen chap-core computes: the probabilistic score the
@@ -206,7 +211,11 @@ pub fn name_width(runs: &[String]) -> usize {
 pub fn row(run: &Run, verdict: &str, width: usize) -> String {
     let (name, time, summary) = (&run.service_id, took(run.seconds), &run.summary);
     let pad = width.saturating_sub(name.chars().count());
-    let time_pad = TIME_WIDTH.saturating_sub(time.chars().count());
+    let time_width = match run.level {
+        Level::Model => TIME_WIDTH,
+        Level::Backtest => BACKTEST_TIME_WIDTH,
+    };
+    let time_pad = time_width.saturating_sub(time.chars().count());
     let line = format!(
         "{name}{}{}{verdict}{}{}{time}{}{summary}",
         " ".repeat(pad),
