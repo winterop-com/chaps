@@ -147,11 +147,15 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     }
     if components.dhis2.enabled {
         let spec = Dhis2Spec::from_components(&components);
+        let rendered = render_dhis2(&spec);
         // The seed was left at `default` and the pinned minor line publishes no
-        // dump chaps knows the path of, so this deployment starts empty. Said on
-        // every sync, because nothing else on the screen would show it and the
-        // way out is one line in `.chaps/components.yaml`.
-        if components.dhis2_seed_is_unknown() {
+        // dump chaps knows the path of, so this deployment starts empty. Said
+        // on the sync that writes the DHIS2 compose file - the first, and any
+        // that changes it - because nothing else on the screen would show it;
+        // every `chaps up` after that would only repeat it.
+        let writes_dhis2 = std::fs::read_to_string(dir.join(DHIS2_COMPOSE))
+            .map_or(true, |existing| existing != rendered);
+        if components.dhis2_seed_is_unknown() && writes_dhis2 {
             report
                 .warnings
                 .push(crate::components::dhis2_unknown_seed(&spec.image_tag));
@@ -168,7 +172,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
                 dir.display()
             ));
         }
-        desired.push((DHIS2_COMPOSE.to_string(), render_dhis2(&spec)));
+        desired.push((DHIS2_COMPOSE.to_string(), rendered));
     }
     // Every overlay carries the registration key line when the deployment has
     // a key, because chap-core then requires it from each service that
@@ -1307,6 +1311,33 @@ mod tests {
     /// The component is rendered, listed, scaffolded and removed again, exactly
     /// as `ocs` is - and the file it scaffolds is the operator's from then on,
     /// because DHIS2 does not start without it.
+    /// The empty-database warning comes with the sync that writes the DHIS2
+    /// compose file, not with every `chaps up` after it.
+    #[test]
+    fn the_unknown_seed_is_warned_about_once_not_on_every_sync() {
+        let (_dir, mut project, registry) = project_with(&[]);
+        project.state.components.dhis2.enabled = true;
+        project.state.components.dhis2.image_tag = "2.43".to_string();
+        let first = sync(&mut project, &registry, false).unwrap();
+        assert!(
+            first
+                .warnings
+                .iter()
+                .any(|w| w.contains("no DHIS2 demo dump")),
+            "{:?}",
+            first.warnings
+        );
+        let again = sync(&mut project, &registry, false).unwrap();
+        assert!(
+            !again
+                .warnings
+                .iter()
+                .any(|w| w.contains("no DHIS2 demo dump")),
+            "{:?}",
+            again.warnings
+        );
+    }
+
     #[test]
     fn the_dhis2_component_is_rendered_scaffolded_and_removed_again() {
         let mut components = Components::default();
