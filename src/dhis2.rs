@@ -498,10 +498,16 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
         ),
         false => format!(
             "chaps has no credentials for this DHIS2, and did not deploy it, so there is no \
-             default to try; set `{API_TOKEN_ENV_VAR}` in `.env`, or export `{TOKEN_ENV_VAR}`"
+             default to try; {}",
+            CREDENTIALS_WAY_OUT
         ),
     }))
 }
+
+/// The two ways to give chaps a DHIS2's credentials, in `.env` where the rest
+/// of the deployment's secrets are.
+pub const CREDENTIALS_WAY_OUT: &str = "set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or \
+     `DHIS2_API_TOKEN`, in `.env`";
 
 // ---------------------------------------------------------------------------
 // The client
@@ -1908,6 +1914,10 @@ mod tests {
         let err = external(inputs("")).unwrap_err().to_string();
         assert!(err.contains("did not deploy it"), "{err}");
         assert!(err.contains("DHIS2_API_TOKEN"), "{err}");
+        assert!(
+            err.contains("`DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`"),
+            "{err}"
+        );
         assert!(
             external(CredentialInputs {
                 user: Some("admin"),

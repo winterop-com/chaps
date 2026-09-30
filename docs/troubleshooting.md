@@ -941,7 +941,7 @@ CHAPS_DHIS2_PASSWORD=theirs chaps dhis2 show --user alice
 ## `chaps has no credentials for this DHIS2, and did not deploy it`
 
 ```text
-error: chaps has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
+error: chaps has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or `DHIS2_API_TOKEN`, in `.env`
 ```
 
 The DHIS2 was recorded with `chaps dhis2 use`, so `admin` / `district` is not

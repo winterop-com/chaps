@@ -10503,7 +10503,7 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("did not deploy it"))
-        .stderr(predicates::str::contains("CHAPS_DHIS2_TOKEN"));
+        .stderr(predicates::str::contains("`DHIS2_ADMIN_PASSWORD`"));
     assert_eq!(stand_in.authorization(), "", "{:?}", stand_in.asked());
 
     // A password exported for the run is used, with the user it names.

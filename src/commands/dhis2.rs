@@ -1371,9 +1371,8 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             "check the URL, then run `chaps dhis2 use` again to ask it".to_string()
         }
         (probe, _) if probe.credential.is_none() => format!(
-            "set `{}` in `.env`, or export `{}`, then run `chaps dhis2 connect`",
-            dhis2::API_TOKEN_ENV_VAR,
-            dhis2::TOKEN_ENV_VAR
+            "{}, then run `chaps dhis2 connect`",
+            dhis2::CREDENTIALS_WAY_OUT
         ),
         (probe, _) if probe.accepted == Some(false) => {
             "fix the credential named above, then run `chaps dhis2 use` again to ask it".to_string()
