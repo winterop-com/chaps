@@ -10654,3 +10654,19 @@ fn enabling_dhis2_names_the_command_that_connects_it_to_chap() {
     assert!(env.contains("# DHIS2_ADMIN_PASSWORD=district"), "{env}");
     assert_eq!(env_value(&env, "DHIS2_ADMIN_PASSWORD"), None, "{env}");
 }
+
+/// A deployment with nothing in it: `up` says so and names the ways to add
+/// something, rather than passing compose's `no service selected` through.
+#[test]
+fn up_with_nothing_in_the_deployment_says_what_to_add() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--only", "none"]).assert().success();
+    chap_in(&sandbox, &dir, &["up"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("nothing to start"))
+        .stdout(predicates::str::contains("`chaps models add URL`"))
+        .stdout(predicates::str::contains("`chaps components enable NAME`"))
+        .stderr(predicates::str::contains("no service selected").not());
+}

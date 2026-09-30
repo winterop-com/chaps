@@ -95,6 +95,12 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         let registry = super::registry_for(ctx, Some(&project))?;
         let report = sync(&mut project, &registry, false)?;
         super::sync::announce(ctx, &report, &project);
+        // Compose answers an empty file list with `no service selected` and a
+        // failure, which says nothing about what to do; this does.
+        if nothing_to_start(&project) {
+            note(ctx, &ctx.out.backticks(NOTHING_TO_START));
+            return Ok(());
+        }
         // After the sync, because the files it just wrote are the ones whose
         // ports we are about to probe.
         if !args.no_preflight {
@@ -528,6 +534,17 @@ fn report_what_changed(
         ),
         _ => {}
     }
+}
+
+/// What `chaps up` says in a deployment that has nothing in it.
+pub const NOTHING_TO_START: &str = "nothing to start: this deployment has no components and no \
+    models; add one with `chaps models add URL`, `chaps models enable ID` or `chaps components \
+    enable NAME`, then run `chaps up`";
+
+/// Whether this deployment has nothing for `up` to start: no component of its
+/// own (a chap-core elsewhere is not one) and no model.
+fn nothing_to_start(project: &Project) -> bool {
+    project.state.components.enabled().is_empty() && project.state.models.is_empty()
 }
 
 /// The line a `down` ends on: what brings the deployment back, and after a
