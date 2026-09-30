@@ -415,16 +415,43 @@ fn trace(message: &str) {
     }
 }
 
-/// A response body, cut to [`MAX_TRACE_BODY`] bytes on a character boundary.
+/// A request or response body, with any bearer token masked, cut to
+/// [`MAX_TRACE_BODY`] bytes on a character boundary.
+///
+/// The mask is here rather than at each caller because a body is where a token
+/// travels without anyone deciding it should: the DHIS2 route payload carries
+/// chap-core's token in its `auth` headers, and `--debug` output ends up in bug
+/// reports.
 pub fn trace_body(body: &str) -> String {
+    let body = mask_bearer(body);
     if body.len() <= MAX_TRACE_BODY {
-        return body.to_string();
+        return body;
     }
     let mut end = MAX_TRACE_BODY;
     while end > 0 && !body.is_char_boundary(end) {
         end -= 1;
     }
     format!("{}... ({} bytes total)", &body[..end], body.len())
+}
+
+/// `Bearer <anything up to a quote or whitespace>` with the value replaced.
+fn mask_bearer(text: &str) -> String {
+    const WORD: &str = "Bearer ";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(WORD) {
+        out.push_str(&rest[..at + WORD.len()]);
+        rest = &rest[at + WORD.len()..];
+        let end = rest
+            .find(|c: char| c == '"' || c == '\\' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        if end > 0 {
+            out.push_str("<redacted>");
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Record the global `--no-color` flag. Called once, from `Ctx::from_cli`.
@@ -771,6 +798,22 @@ fn display_width(s: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_traced_body_never_carries_a_bearer_token() {
+        let body = r#"{"auth":{"type":"api-headers","headers":{"Authorization":"Bearer s3cret"}}}"#;
+        let traced = trace_body(body);
+        assert!(!traced.contains("s3cret"), "{traced}");
+        assert!(
+            traced.contains(r#""Authorization":"Bearer <redacted>""#),
+            "{traced}"
+        );
+        assert_eq!(trace_body("no token here"), "no token here");
+        assert_eq!(
+            trace_body("Bearer a Bearer b"),
+            "Bearer <redacted> Bearer <redacted>"
+        );
+    }
 
     /// A terminal that wants colour.
     fn colored() -> Out {

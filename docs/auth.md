@@ -23,9 +23,11 @@ all, and `/system/info`, which is how a client discovers that a token is
 required in the first place. Everything else needs the token, `/v2/services`
 and `/docs` included.
 
-The token is the one thing a person has to carry around. In DHIS2 it goes into
-the Modeling App's CHAP settings; `chaps auth show --reveal` prints it for
-pasting.
+The token is the one thing a client has to carry. For DHIS2 that is the `chap`
+route rather than the Modeling App: the app calls DHIS2, DHIS2 proxies the
+call to chap-core, and `chaps dhis2 connect` writes the token into the route's
+`auth` as an `Authorization: Bearer` header, which DHIS2 stores and never lists
+back. Anything else calling the API needs it from `chaps auth show --reveal`.
 
 ## How the models authenticate
 
@@ -175,7 +177,7 @@ API authentication is on
 written  compose.chapkit-ewars-model.yml
 
 run `chaps up` to restart chap-core and the models with authentication
-paste this token in the Modeling App's CHAP settings (`chaps auth show --reveal`)
+the DHIS2 `chap` route carries it once `chaps dhis2 connect` has run; any other client needs it from `chaps auth show --reveal`
 ```
 
 `chaps up` is not optional. chap-core and the model containers read `.env` when
@@ -202,7 +204,8 @@ chaps up
 Rotating is two steps, and the second one matters: until `chaps up` recreates
 the containers, chap-core is still enforcing the old token, and after it every
 client that has not been updated gets a 401. Update them in the same sitting:
-the Modeling App's CHAP settings, and anything else calling the API.
+`chaps dhis2 connect` rewrites the DHIS2 route with the new token, and anything
+else calling the API needs it by hand.
 
 The registration key rotates with the token, and the models pick it up from the
 same `chaps up`, so there is nothing to do for them.

@@ -66,6 +66,14 @@ pub const ROUTE_SUFFIX: &str = "/**";
 /// is a job, and a job is started and polled rather than waited on.
 pub const ROUTE_TIMEOUT_SECONDS: u32 = 30;
 
+/// The route `auth` type that sends fixed headers with every proxied request,
+/// which is how chap-core's bearer token rides along.
+///
+/// DHIS2 stores the headers and never hands them back: a listing shows
+/// `"auth": {"type": "api-headers"}` and nothing else, so whether the token in
+/// there is the current one is only ever known by asking through the route.
+pub const ROUTE_AUTH_TYPE: &str = "api-headers";
+
 /// Analytics generation, with tracked entities left out.
 ///
 /// **No `lastYears`.** The parameter looks like an optimisation and is a trap:
@@ -877,10 +885,19 @@ pub struct Route {
     pub disabled: bool,
     #[serde(default)]
     pub authorities: Vec<String>,
+    #[serde(default)]
+    pub auth: Option<RouteAuth>,
+}
+
+/// A route's `auth` as DHIS2 lists it: the type, never the secret.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct RouteAuth {
+    #[serde(default, rename = "type")]
+    pub kind: String,
 }
 
 /// The fields a listing asks for, so the answer is small and stable.
-pub const ROUTE_FIELDS: &str = "id,name,code,url,disabled,authorities";
+pub const ROUTE_FIELDS: &str = "id,name,code,url,disabled,authorities,auth";
 
 /// `GET /api/routes` with the fields and no paging.
 pub fn routes_query() -> String {
@@ -943,16 +960,28 @@ pub fn external_route_target(chap_url: &str) -> String {
 /// Sent on the create and on the repoint alike: `PUT /api/routes/{id}` replaces
 /// the row, so one payload is also what repairs a route that was disabled or
 /// had lost the authority.
-pub fn route_payload(target: &str) -> String {
-    serde_json::json!({
+///
+/// `token` is chap-core's API token when it has one. It goes in the route's
+/// `auth` as an `Authorization: Bearer` header rather than in `headers`,
+/// because DHIS2 lists `headers` back to anyone who can read the route and
+/// keeps `auth` to itself. Without it every call the Modeling App makes past
+/// `/health` answers 401.
+pub fn route_payload(target: &str, token: Option<&str>) -> String {
+    let mut payload = serde_json::json!({
         "name": ROUTE_NAME,
         "code": ROUTE_CODE,
         "url": target,
         "authorities": [ROUTE_AUTHORITY],
         "headers": {"Content-Type": crate::api::JSON},
         "responseTimeoutSeconds": ROUTE_TIMEOUT_SECONDS,
-    })
-    .to_string()
+    });
+    if let Some(token) = token {
+        payload["auth"] = serde_json::json!({
+            "type": ROUTE_AUTH_TYPE,
+            "headers": {"Authorization": format!("Bearer {token}")},
+        });
+    }
+    payload.to_string()
 }
 
 /// What has to be done about the route that is there, or is not.
@@ -986,7 +1015,9 @@ pub fn route_in(listing: &serde_json::Value) -> Option<Route> {
 /// The URL is the point, and not the whole of it: a route aimed at the right
 /// chap-core but disabled proxies nothing, and one without
 /// [`ROUTE_AUTHORITY`] refuses the app's own user. Each of the three is named
-/// separately so the report says what was actually wrong.
+/// separately so the report says what was actually wrong. When chap-core
+/// wants a token (`token_needed`), a route with no header auth is a fourth: it
+/// reaches `/health` and nothing else.
 ///
 /// **The URL is what makes this a repoint rather than a create.** The climate
 /// demo dumps ship a `chap` route of their own, aimed at an external CHAP
@@ -994,7 +1025,7 @@ pub fn route_in(listing: &serde_json::Value) -> Option<Route> {
 /// implementation that created the route only when one was absent would leave
 /// the deployment sending its data to a stranger's chap-core, and would look
 /// like it had worked.
-pub fn route_action(existing: Option<&Route>, target: &str) -> RouteAction {
+pub fn route_action(existing: Option<&Route>, target: &str, token_needed: bool) -> RouteAction {
     let Some(route) = existing else {
         return RouteAction::Create;
     };
@@ -1011,6 +1042,14 @@ pub fn route_action(existing: Option<&Route>, target: &str) -> RouteAction {
         .any(|authority| authority == ROUTE_AUTHORITY)
     {
         reasons.push(format!("it was missing the {ROUTE_AUTHORITY} authority"));
+    }
+    if token_needed
+        && route
+            .auth
+            .as_ref()
+            .is_none_or(|auth| auth.kind != ROUTE_AUTH_TYPE)
+    {
+        reasons.push("it carried no chap-core API token".to_string());
     }
     if reasons.is_empty() {
         RouteAction::Keep
@@ -1650,6 +1689,7 @@ mod tests {
             url: url.to_string(),
             disabled: false,
             authorities: vec![ROUTE_AUTHORITY.to_string()],
+            auth: None,
         }
     }
 
@@ -1912,7 +1952,7 @@ mod tests {
     #[test]
     fn the_route_payload_is_the_one_that_works() {
         let payload: serde_json::Value =
-            serde_json::from_str(&route_payload("http://chap:8000/**"))
+            serde_json::from_str(&route_payload("http://chap:8000/**", None))
                 .expect("the payload is JSON");
         assert_eq!(payload["code"], "chap");
         assert_eq!(payload["name"], ROUTE_NAME);
@@ -1922,13 +1962,68 @@ mod tests {
         assert_eq!(payload["responseTimeoutSeconds"], 30);
     }
 
+    /// chap-core's token rides in `auth`, which DHIS2 keeps to itself, and
+    /// never in `headers`, which it lists back to anyone who can read the route.
+    #[test]
+    fn the_token_goes_in_the_route_auth_and_nowhere_else() {
+        let payload: serde_json::Value =
+            serde_json::from_str(&route_payload("http://chap:8000/**", Some("s3cret")))
+                .expect("the payload is JSON");
+        assert_eq!(payload["auth"]["type"], ROUTE_AUTH_TYPE);
+        assert_eq!(payload["auth"]["headers"]["Authorization"], "Bearer s3cret");
+        assert!(payload["headers"].get("Authorization").is_none());
+        assert!(!payload["headers"].to_string().contains("s3cret"));
+
+        let open: serde_json::Value =
+            serde_json::from_str(&route_payload("http://chap:8000/**", None))
+                .expect("the payload is JSON");
+        assert!(open.get("auth").is_none());
+    }
+
+    /// A route that reaches `/health` and nothing else is what a tokenless
+    /// route in front of a token-protected chap-core is, so it is rewritten.
+    #[test]
+    fn a_route_without_the_token_is_rewritten_when_chap_core_wants_one() {
+        let target = route_target("");
+        let bare = route(&target);
+        let RouteAction::Rewrite(reasons) = route_action(Some(&bare), &target, true) else {
+            panic!("a tokenless route in front of a token has to be rewritten");
+        };
+        assert_eq!(reasons, vec!["it carried no chap-core API token"]);
+
+        let mut carrying = route(&target);
+        carrying.auth = Some(RouteAuth {
+            kind: ROUTE_AUTH_TYPE.to_string(),
+        });
+        assert_eq!(
+            route_action(Some(&carrying), &target, true),
+            RouteAction::Keep
+        );
+        // Without a token the auth is nobody's business.
+        assert_eq!(route_action(Some(&bare), &target, false), RouteAction::Keep);
+    }
+
+    /// DHIS2 lists the type and holds the secret back.
+    #[test]
+    fn the_listed_auth_is_read_as_its_type() {
+        let listing = serde_json::json!({"routes": [
+            {"id": "two", "code": "chap", "url": "http://chap:8000/**",
+             "authorities": ["F_CHAP_MODELING_APP"], "auth": {"type": "api-headers"}},
+        ]});
+        let found = route_in(&listing).expect("the chap route");
+        assert_eq!(
+            found.auth.map(|auth| auth.kind).as_deref(),
+            Some(ROUTE_AUTH_TYPE)
+        );
+    }
+
     /// The whole point of the step: the demo dumps ship this route pointed at
     /// somebody else's CHAP, so a missing route and a wrong one are both work.
     #[test]
     fn a_route_pointing_elsewhere_is_repointed_and_not_skipped() {
         let target = route_target("");
         let external = route("http://158.39.75.126/stable/**");
-        let RouteAction::Rewrite(reasons) = route_action(Some(&external), &target) else {
+        let RouteAction::Rewrite(reasons) = route_action(Some(&external), &target, false) else {
             panic!("a route aimed elsewhere has to be repointed");
         };
         assert_eq!(
@@ -1941,10 +2036,10 @@ mod tests {
     fn a_route_that_already_matches_is_left_alone() {
         let target = route_target("");
         assert_eq!(
-            route_action(Some(&route(&target)), &target),
+            route_action(Some(&route(&target)), &target, false),
             RouteAction::Keep
         );
-        assert_eq!(route_action(None, &target), RouteAction::Create);
+        assert_eq!(route_action(None, &target, false), RouteAction::Create);
     }
 
     /// The URL is the point and not the whole of it: a route aimed correctly
@@ -1954,14 +2049,14 @@ mod tests {
         let target = route_target("");
         let mut off = route(&target);
         off.disabled = true;
-        let RouteAction::Rewrite(reasons) = route_action(Some(&off), &target) else {
+        let RouteAction::Rewrite(reasons) = route_action(Some(&off), &target, false) else {
             panic!("a disabled route has to be rewritten");
         };
         assert_eq!(reasons, vec!["it was disabled"]);
 
         let mut bare = route(&target);
         bare.authorities.clear();
-        let RouteAction::Rewrite(reasons) = route_action(Some(&bare), &target) else {
+        let RouteAction::Rewrite(reasons) = route_action(Some(&bare), &target, false) else {
             panic!("a route without the authority has to be rewritten");
         };
         assert_eq!(
@@ -1973,7 +2068,7 @@ mod tests {
         let mut every = route("http://elsewhere/**");
         every.disabled = true;
         every.authorities.clear();
-        let RouteAction::Rewrite(reasons) = route_action(Some(&every), &target) else {
+        let RouteAction::Rewrite(reasons) = route_action(Some(&every), &target, false) else {
             panic!("three reasons is still a rewrite");
         };
         assert_eq!(reasons.len(), 3);

@@ -3557,7 +3557,7 @@ fn auth_show_masks_the_token_until_reveal_asks_for_it() {
         .success()
         .stdout(predicates::str::contains(token.clone()))
         .stdout(predicates::str::contains(
-            "paste this token in the Modeling App's CHAP settings",
+            "the DHIS2 `chap` route carries it once `chaps dhis2 connect` has run",
         ));
 
     // `--json` follows the same rule: the secret only appears with --reveal.
@@ -3606,7 +3606,7 @@ fn auth_enable_protects_a_project_that_was_created_without_a_token() {
             "run `chaps up` to restart chap-core and the models with authentication",
         ))
         .stdout(predicates::str::contains(
-            "paste this token in the Modeling App's CHAP settings",
+            "the DHIS2 `chap` route carries it once `chaps dhis2 connect` has run",
         ))
         .stdout(predicates::str::contains(
             "written  compose.chapkit-ewars-model.yml",
@@ -8923,6 +8923,9 @@ struct Dhis2State {
     /// Answer every request proxied through the route with a 502, the way
     /// DHIS2 does when chap-core is down behind a route that is right.
     proxy_fails: bool,
+    /// chap-core's API token: when set, anything proxied past `/health`
+    /// answers 401 unless the route's `auth` sends `Bearer` and this token.
+    chap_token: Option<String>,
 }
 
 /// A stand-in for one DHIS2 instance and for the App Hub beside it.
@@ -9181,7 +9184,29 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
         let ours = !state.proxy_fails
             && (url == Some(serde_json::json!("http://chap:8000/**"))
                 || url == Some(serde_json::json!(EXTERNAL_CHAP_URL_TARGET)));
+        // `/health` is open; everything else wants chap-core's token, which
+        // only the route's `auth` headers can carry.
+        let sent = state
+            .route
+            .as_ref()
+            .and_then(|route| route["auth"]["headers"]["Authorization"].as_str())
+            .map(str::to_string);
+        let refused = !path.ends_with("/health")
+            && state
+                .chap_token
+                .as_ref()
+                .is_some_and(|token| sent != Some(format!("Bearer {token}")));
+        if ours && refused {
+            return (
+                401,
+                serde_json::json!({"detail": "Missing or invalid API token"}).to_string(),
+            );
+        }
         return match ours {
+            true if !path.ends_with("/health") => (
+                200,
+                serde_json::json!({"count": 0, "services": []}).to_string(),
+            ),
             true => (
                 200,
                 serde_json::json!({"status": "success", "message": "healthy"}).to_string(),
@@ -9212,7 +9237,18 @@ fn dhis2_answer(state: &mut Dhis2State, method: &str, path: &str, body: &str) ->
         return (200, serde_json::json!({"status": "OK"}).to_string());
     }
     if method == "GET" && path.starts_with("/api/routes") {
-        let routes: Vec<Json> = state.route.clone().into_iter().collect();
+        // DHIS2 lists a route's auth type and keeps the headers to itself.
+        let routes: Vec<Json> = state
+            .route
+            .clone()
+            .map(|mut route| {
+                if let Some(kind) = route["auth"].get("type").cloned() {
+                    route["auth"] = serde_json::json!({"type": kind});
+                }
+                route
+            })
+            .into_iter()
+            .collect();
         return (200, serde_json::json!({"routes": routes}).to_string());
     }
     if method == "POST" && path.starts_with("/api/resourceTables/analytics") {
@@ -9374,6 +9410,94 @@ fn dhis2_route_creates_the_route_when_there_is_none() {
     );
     // And the credentials went out as HTTP Basic for admin:district.
     assert_eq!(stand_in.authorization(), "Basic YWRtaW46ZGlzdHJpY3Q=");
+}
+
+/// A chap-core with an API token: the route carries the token in its `auth`,
+/// the check goes past the open `/health`, and a route written before the token
+/// existed is rewritten rather than left reaching `/health` only.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_carries_chap_cores_token() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        chap_token: Some("s3cret".to_string()),
+        route: Some(serde_json::json!({
+            "id": "route-old", "code": "chap", "url": "http://chap:8000/**",
+            "authorities": ["F_CHAP_MODELING_APP"],
+        })),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    let env = dir.join(".env");
+    let mut text = std::fs::read_to_string(&env).unwrap_or_default();
+    text.push_str("CHAP_API_TOKEN=s3cret\n");
+    std::fs::write(&env, text).expect("write .env");
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "it carried no chap-core API token",
+        ))
+        .stdout(predicates::str::contains(
+            "verified chap-core answered through it: healthy",
+        ))
+        .stdout(predicates::str::contains("s3cret").not());
+
+    let route = stand_in.route().expect("the route");
+    assert_eq!(route["auth"]["type"], "api-headers");
+    assert_eq!(route["auth"]["headers"]["Authorization"], "Bearer s3cret");
+    assert!(route["headers"].get("Authorization").is_none(), "{route}");
+    assert!(
+        stand_in.was_asked("GET /api/routes/chap/run/v2/services"),
+        "{:?}",
+        stand_in.asked()
+    );
+
+    // Now it is right, and a second run leaves it alone.
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("nothing to change"));
+}
+
+/// A route carrying a token chap-core no longer takes: DHIS2 hides the value,
+/// so `show` finds it by asking through the route, and names the command.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_names_a_route_whose_token_chap_core_refuses() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        chap_token: Some("new".to_string()),
+        route: Some(serde_json::json!({
+            "id": "route-old", "code": "chap", "url": "http://chap:8000/**",
+            "authorities": ["F_CHAP_MODELING_APP"],
+            "auth": {"type": "api-headers", "headers": {"Authorization": "Bearer old"}},
+        })),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    let env = dir.join(".env");
+    let mut text = std::fs::read_to_string(&env).unwrap_or_default();
+    text.push_str("CHAP_API_TOKEN=new\n");
+    std::fs::write(&env, text).expect("write .env");
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "the `chap` route does not carry chap-core's API token",
+        ))
+        .stdout(predicates::str::contains("chaps dhis2 connect"));
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "chap-core refused the API token it carried",
+        ));
+    assert_eq!(
+        stand_in.route().expect("the route")["auth"]["headers"]["Authorization"],
+        "Bearer new"
+    );
 }
 
 /// The trap the step exists for: the demo dumps ship a `chap` route aimed at an

@@ -51,7 +51,11 @@ pub const OPEN_PATHS: &[&str] = &["/health", "/health/ready", "/system/info"];
 pub const APPENDED_HEADING: &str = "# API authentication, written by `chaps auth`.";
 
 /// What to do with the token once it exists.
-pub const MODELING_APP_HINT: &str = "paste this token in the Modeling App's CHAP settings";
+///
+/// The Modeling App never sees it: DHIS2's `chap` route adds it to every
+/// request it proxies, and `chaps dhis2 connect` is what writes it there.
+pub const MODELING_APP_HINT: &str =
+    "the DHIS2 `chap` route carries it once `chaps dhis2 connect` has run";
 
 /// A freshly generated secret: [`SECRET_BYTES`] random bytes as hex.
 pub fn random_secret() -> Result<String> {

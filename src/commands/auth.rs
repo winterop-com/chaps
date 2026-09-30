@@ -274,12 +274,12 @@ fn apply(
         text.push_str(&format!("{RESTART_HINT}\n"));
         match change {
             Change::Enabled => text.push_str(&format!(
-                "{MODELING_APP_HINT} (`chaps auth show --reveal`)\n"
+                "{MODELING_APP_HINT}; any other client needs it from `chaps auth show --reveal`\n"
             )),
             Change::Rotated => text.push_str(
-                "every client keeps sending the old token until it is updated: \
-                 the DHIS2 Modeling App's CHAP settings, and anything else \
-                 calling this API\n",
+                "every client keeps sending the old token until it is updated: run \
+                 `chaps dhis2 connect` after `chaps up` for the DHIS2 route, and update \
+                 anything else calling this API\n",
             ),
         }
         text

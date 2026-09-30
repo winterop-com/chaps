@@ -159,12 +159,16 @@ add when a failure only happens sometimes.
 {"detail": "Missing or invalid API token"}
 ```
 
-The token DHIS2 is sending is not the one chap-core is enforcing. Print the one
-this deployment holds and paste it into the Modeling App's CHAP settings:
+The token DHIS2's `chap` route is sending is not the one chap-core is
+enforcing, or the route sends none. `chaps dhis2 connect` finds out by asking
+through the route, and writes the token this deployment holds into it:
 
 ```sh
-chaps auth show --reveal
+chaps dhis2 connect
 ```
+
+`chaps dhis2 show` reports the same thing without changing anything:
+``the `chap` route does not carry chap-core's API token``.
 
 Two ways to get here. Either `chaps auth rotate` was run and the clients were
 never updated, which is the second half of rotating; or `chaps auth enable` was

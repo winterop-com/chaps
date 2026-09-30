@@ -538,6 +538,14 @@ worth.
 The route is judged by the **proxied request**, not by the row: `connect` asks
 chap-core for its health through `/api/routes/chap/run/`, the way the app does.
 
+When chap-core has an API token (see [Authentication](./auth.md)), the route
+carries it: `connect` writes it into the route's `auth` as an `Authorization:
+Bearer` header, which DHIS2 adds to every request it proxies and never lists
+back. `/health` needs no token, so with one on the check also asks for
+`/v2/services`, which does; a route that reaches `/health` and gets a 401 past
+it is rewritten, and one DHIS2 lists with no header auth at all is rewritten
+before anything is asked. The Modeling App itself never needs the token.
+
 The single-step verbs record nothing. `chaps dhis2 route` alone leaves a
 deployment with a route and no apps, which is still one nobody can use CHAP
 from.

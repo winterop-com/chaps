@@ -12,7 +12,9 @@ chaps dhis2 connect
 
 `--api-token` protects chap-core's API from the start. `dhis2 use` records the
 external DHIS2 and the address it reaches chap-core at; `connect` then creates
-the route on that DHIS2 with the credentials you give it.
+the route on that DHIS2 with the credentials you give it, and puts chap-core's
+token in the route, so the Modeling App reaches chap-core without ever holding
+the token itself.
 
 It worked when `chaps dhis2 connect` ends without `error:` and
 `chaps dhis2 show` lists the `chap` route as healthy. The first run usually

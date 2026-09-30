@@ -221,6 +221,9 @@ pub struct ShownRoute {
     pub ours: bool,
     pub verified: bool,
     pub answered: String,
+    /// Whether chap-core answered `/health` through it and turned the next
+    /// call away for want of its API token.
+    pub token_refused: bool,
 }
 
 /// One of the two apps chaps installs, as `show` found it.
@@ -391,13 +394,14 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let session = open_session(ctx, &args.common)?;
     let target = session.target();
     let route = dhis2::route_in(&session.dhis2.get_json(&dhis2::routes_query())?);
+    let token_needed = crate::api::token_for(Some(&session.project.dir)).is_some();
     let shown = route.as_ref().map(|route| {
-        let (verified, answered) = match route.url == target {
+        let (verified, answered, token_refused) = match route.url == target {
             // Only worth proxying through a route that points here: one aimed
             // at somebody else's chap-core would answer, and the answer would
             // mean nothing about this deployment.
-            true => verify_route(&session.dhis2),
-            false => (false, "it points at another chap-core".to_string()),
+            true => verify_route(&session.dhis2, token_needed),
+            false => (false, "it points at another chap-core".to_string(), false),
         };
         ShownRoute {
             url: route.url.clone(),
@@ -409,6 +413,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
             ours: route.url == target,
             verified,
             answered,
+            token_refused,
         }
     });
     let apps = chap_apps(&session)?;
@@ -425,6 +430,11 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         Some(route) if !route.authorised => missing.push(format!(
             "the `chap` route is missing the {} authority",
             dhis2::ROUTE_AUTHORITY
+        )),
+        Some(route) if route.token_refused => missing.push(format!(
+            "the `chap` route does not carry chap-core's API token: {}; run `chaps dhis2 connect` \
+             to put it there",
+            route.answered
         )),
         // A row that is right in every field and that nothing answers through
         // is the one case the proxied request exists to catch: the app would
@@ -579,10 +589,20 @@ fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
     }
     let target = session.target();
     let existing = dhis2::route_in(&session.dhis2.get_json(&dhis2::routes_query())?);
-    let action = dhis2::route_action(existing.as_ref(), &target);
+    // chap-core's token, when it has one, is what the route has to carry for
+    // the app to get past `/health`.
+    let token = crate::api::token_for(Some(&session.project.dir));
+    let mut action = dhis2::route_action(existing.as_ref(), &target, token.is_some());
+    // A route that carries a header may carry an old one, and DHIS2 never
+    // shows it, so the only way to know is to ask through the route.
+    if action == RouteAction::Keep && token.is_some() && token_refused(&session.dhis2) {
+        action = RouteAction::Rewrite(vec![
+            "chap-core refused the API token it carried".to_string(),
+        ]);
+    }
     ctx.out.verbose(&format!("the chap route: {action:?}"));
 
-    let payload = dhis2::route_payload(&target);
+    let payload = dhis2::route_payload(&target, token.as_deref());
     let (outcome, reasons) = match &action {
         RouteAction::Keep => (RouteOutcome::Unchanged, Vec::new()),
         RouteAction::Create => {
@@ -602,11 +622,18 @@ fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
         }
     };
 
-    let (verified, answered) = verify_route(&session.dhis2);
+    let (verified, answered, token_refused) = verify_route(&session.dhis2, token.is_some());
     // The route is correct whatever chap-core did, so a chap-core that is not
     // answering is said rather than raised: it is `chaps up`'s problem, not
     // this command's, and the report carries `verified: false` for a script.
-    if !verified {
+    if token_refused {
+        crate::output::warn(&format!(
+            "the `{}` route carries this deployment's API token and chap-core refused it: \
+             {answered}; `chaps auth show` says which token chaps has, and chap-core has to be \
+             running with the same one",
+            dhis2::ROUTE_CODE
+        ));
+    } else if !verified {
         crate::output::warn(&format!(
             "the `{}` route is in place but nothing answered through it: {answered}; run \
              `chaps status` to see whether chap-core is up",
@@ -667,7 +694,45 @@ fn send_route(
 /// proves DHIS2 resolved the hostname, was allowed to reach it, and got an
 /// answer. The path is the code rather than the id because that is the address
 /// the Modeling App itself uses.
-fn verify_route(client: &Dhis2) -> (bool, String) {
+///
+/// `/health` is one of the paths chap-core leaves open, so with a token on it
+/// proves the hostname and nothing about the token. `token_needed` adds a
+/// second request at [`crate::status::SERVICES_PATH`], which is behind the
+/// token, so a route that would hand the app a 401 is not reported as working.
+fn verify_route(client: &Dhis2, token_needed: bool) -> (bool, String, bool) {
+    let (verified, answered) = verify_health(client);
+    if !verified || !token_needed {
+        return (verified, answered, false);
+    }
+    let path = dhis2::route_run_path(crate::status::SERVICES_PATH);
+    match client.send("GET", &path, None) {
+        Ok(answer) if answer.is_success() => (true, answered, false),
+        Ok(answer) => (
+            false,
+            format!(
+                "{answered} on /health, but {} on {}",
+                answer.status_line(),
+                crate::status::SERVICES_PATH
+            ),
+            matches!(answer.status, 401 | 403),
+        ),
+        Err(err) => (false, err.to_string(), false),
+    }
+}
+
+/// Whether chap-core turns away a call through the route that needs its token.
+///
+/// Any other failure is not a token problem and is left to [`verify_route`] to
+/// report, so only a 401 or a 403 counts.
+fn token_refused(client: &Dhis2) -> bool {
+    let path = dhis2::route_run_path(crate::status::SERVICES_PATH);
+    client
+        .send("GET", &path, None)
+        .is_ok_and(|answer| matches!(answer.status, 401 | 403))
+}
+
+/// The `/health` half of [`verify_route`].
+fn verify_health(client: &Dhis2) -> (bool, String) {
     let path = dhis2::route_run_path(crate::status::HEALTH_PATH);
     let answer = match client.send("GET", &path, None) {
         Ok(answer) => answer,
@@ -2317,6 +2382,7 @@ mod tests {
                 ours: true,
                 verified: true,
                 answered: "healthy".to_string(),
+                token_refused: false,
             }),
             last_analytics: "2026-09-25T10:01:00.000".to_string(),
             analytics: dhis2::AnalyticsEvidence::RanHere,
@@ -2352,6 +2418,7 @@ mod tests {
                 ours: false,
                 verified: false,
                 answered: "it points at another chap-core".to_string(),
+                token_refused: false,
             }),
             last_analytics: "2026-09-25T10:01:00.000".to_string(),
             analytics: dhis2::AnalyticsEvidence::Recorded,
