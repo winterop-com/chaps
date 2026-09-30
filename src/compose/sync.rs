@@ -407,7 +407,7 @@ fn is_overlay_name(name: &str) -> bool {
 /// Only ever appends: the file belongs to the operator once `init` wrote it,
 /// and it may hold passwords and tokens we must not rewrite. Returns the path
 /// when something was (or with `check`, would be) appended.
-fn append_env_pins(project: &Project, check: bool) -> Result<Option<PathBuf>> {
+pub(crate) fn append_env_pins(project: &Project, check: bool) -> Result<Option<PathBuf>> {
     let path = project.dir.join(ENV_FILE);
     let Ok(body) = std::fs::read_to_string(&path) else {
         return Ok(None);

@@ -1300,6 +1300,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
     let mut project = ctx.project()?;
     let before = project.state.components.dhis2_external.clone();
     let component = project.state.components.dhis2.enabled;
+    let mut listed_login = false;
 
     if args.clear {
         let outcome = match before {
@@ -1380,6 +1381,9 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
                     .verbose("recording `dhis2-external` in `.chaps/components.yaml`");
                 project.state.components.dhis2_external = Some(external.clone());
                 project.save()?;
+                // The login variables, commented out, so the names the
+                // credentials message asks for are already in the file.
+                listed_login = crate::compose::sync::append_env_pins(&project, false)?.is_some();
             }
             (Some(external), outcome)
         }
@@ -1408,6 +1412,12 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
 
     let probe = probe_external(&project, recorded);
     let mut notes = Vec::new();
+    if listed_login {
+        notes.push(
+            "listed the DHIS2 login variables in `.env`, commented out, for the credentials"
+                .to_string(),
+        );
+    }
     if is_loopback(&recorded.chap_url) {
         notes.push(format!(
             "{} is this machine's own address, and DHIS2 resolves it to its own server; give \
@@ -1422,10 +1432,11 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         (probe, _) if !probe.answered => {
             "check the URL, then run `chaps dhis2 use` again to ask it".to_string()
         }
-        (probe, _) if probe.credential.is_none() => format!(
-            "{}, then run `chaps dhis2 connect`",
-            dhis2::CREDENTIALS_WAY_OUT
-        ),
+        // The problem line above has just named the ways to give it
+        // credentials; this one only says what follows.
+        (probe, _) if probe.credential.is_none() => {
+            "once one of them is in `.env`, run `chaps dhis2 connect`".to_string()
+        }
         (probe, _) if probe.accepted == Some(false) => {
             "fix the credential named above, then run `chaps dhis2 use` again to ask it".to_string()
         }

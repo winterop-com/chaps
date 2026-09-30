@@ -1488,9 +1488,23 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
     assert_eq!(report["outcome"], "recorded");
     assert_eq!(report["probe"]["answered"], true);
     assert_eq!(report["probe"]["credential"], Json::Null);
+    // The names that message asks for are in `.env` already, commented out,
+    // and with no password: chaps did not create this DHIS2.
+    let env = read(&dir.join(".env"));
+    assert!(env.contains("\n# DHIS2_ADMIN_USERNAME=admin\n"), "{env}");
+    assert!(env.contains("\n# DHIS2_ADMIN_PASSWORD=\n"), "{env}");
+    assert!(env.contains("\n# DHIS2_API_TOKEN=\n"), "{env}");
+    // The problem names the ways in; the next step does not say them again.
     assert!(
-        report["next"].as_str().unwrap().contains("DHIS2_API_TOKEN"),
+        report["probe"]["problem"]
+            .as_str()
+            .unwrap()
+            .contains("DHIS2_API_TOKEN"),
         "{report}"
+    );
+    assert_eq!(
+        report["next"],
+        "once one of them is in `.env`, run `chaps dhis2 connect`"
     );
 
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
