@@ -335,10 +335,8 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // the same reason: `dhis.conf` is mandatory - DHIS2 does not start without it
     // - and it is the operator's from the moment it exists.
     if components.dhis2.enabled
-        && let Some(path) = write_dhis2_config(
-            &dir,
-            &crate::compose::spec::Dhis2ConfigSpec::for_components(&components),
-        )?
+        && let Some(path) =
+            write_dhis2_config(&dir, &crate::compose::spec::Dhis2ConfigSpec::default())?
     {
         written.push(path);
     }

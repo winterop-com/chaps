@@ -184,32 +184,22 @@ pub struct Dhis2ConfigSpec {
     pub route_allowed: String,
 }
 
-impl Dhis2ConfigSpec {
-    /// The allowlist a deployment's components call for: chap-core on the
-    /// compose network, plus a chap-core elsewhere as a container reaches it.
-    pub fn for_components(components: &Components) -> Dhis2ConfigSpec {
-        let mut spec = Dhis2ConfigSpec::default();
-        if let Some(external) = &components.chap_core_external {
-            spec.route_allowed = format!(
-                "{},{}",
-                spec.route_allowed,
-                crate::components::origin(&external.url_from_containers())
-            );
-        }
-        spec
-    }
-}
+/// Every `http://` and `https://` target, which is what `dhis.conf` allows.
+///
+/// DHIS2 42 and later default to `https://*` alone and refuse the `http://`
+/// target a chap-core on the compose network, on this machine or on a lab
+/// server has, so each of those shapes used to need a `dhis.conf` edit and a
+/// restart before `chaps dhis2 connect` could write the route. A DHIS2 chaps
+/// deploys is a development and evaluation instance, where any chap-core the
+/// operator points it at has to work without that step. DHIS2 logs a warning
+/// about the wildcard on every start; a production DHIS2 is not one chaps
+/// scaffolds, and its operator narrows the line in their own file.
+pub const ROUTE_ALLOWED_ANY: &str = "http://*,https://*";
 
 impl Default for Dhis2ConfigSpec {
-    /// chap-core's address on the compose network and nothing else.
-    ///
-    /// Narrower than the `http://*` a DHIS2 deployment beside CHAP usually
-    /// settles for: the only route this deployment needs is the one the Modeling
-    /// App uses to reach chap-core, and a wildcard is an open server-side request
-    /// forgery hole that DHIS2 itself warns about on every start.
     fn default() -> Dhis2ConfigSpec {
         Dhis2ConfigSpec {
-            route_allowed: format!("http://{}:8000", crate::compose::API_SERVICE),
+            route_allowed: ROUTE_ALLOWED_ANY.to_string(),
         }
     }
 }

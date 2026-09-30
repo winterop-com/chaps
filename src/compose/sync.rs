@@ -637,10 +637,7 @@ fn ensure_dhis2_config(project: &Project, check: bool) -> Result<Option<PathBuf>
     if check {
         return Ok(Some(path));
     }
-    write_dhis2_config(
-        &project.dir,
-        &Dhis2ConfigSpec::for_components(&project.state.components),
-    )?;
+    write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?;
     Ok(Some(path))
 }
 
@@ -1349,7 +1346,7 @@ mod tests {
             config.is_file(),
             "dhis.conf is mandatory, so it is scaffolded"
         );
-        assert!(read(&config).contains("route.remote_servers_allowed = http://chap:8000"));
+        assert!(read(&config).contains("route.remote_servers_allowed = http://*,https://*"));
         assert!(!sync(&mut project, &registry, true).unwrap().drift);
 
         // An operator's own file is never rewritten, by this or by anything else.

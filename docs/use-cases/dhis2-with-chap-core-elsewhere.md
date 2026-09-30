@@ -20,11 +20,9 @@ for the DHIS2 beside it:
 - **The route goes to that chap-core as the DHIS2 container reaches it.** A
   `localhost` URL becomes `host.docker.internal`, and the DHIS2 service maps
   that name to the host gateway.
-- **`dhis2/dhis.conf` allows it.** A freshly scaffolded file lists
-  `http://chap:8000` and the chap-core elsewhere in
-  `route.remote_servers_allowed`. The file is yours once written: if it
-  predates `--chap-core-url`, add the origin (`http://host.docker.internal:8000`)
-  there yourself and run `chaps restart --all dhis2`.
+- **`dhis2/dhis.conf` allows it.** A scaffolded file allows every http and
+  https target in `route.remote_servers_allowed`, so the chap-core elsewhere is
+  covered wherever it runs.
 - **chap-core has to listen on more than the loopback** (`0.0.0.0`), since the
   route arrives from a container.
 

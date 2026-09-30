@@ -681,14 +681,6 @@ pub fn external_chap_core(url: &str) -> Result<ExternalChapCore> {
     })
 }
 
-/// The scheme, host and port of `url`, without any path: what DHIS2's
-/// `route.remote_servers_allowed` takes.
-pub fn origin(url: &str) -> String {
-    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
-    let host = rest.split('/').next().unwrap_or(rest);
-    format!("{scheme}://{host}")
-}
-
 /// A DHIS2 image tag as given on the command line, or why it will not do.
 /// `flag` is the flag's spelling, for the message.
 pub fn dhis2_tag_arg(tag: &str, flag: &str) -> Result<String> {
@@ -1175,18 +1167,6 @@ mod tests {
         assert!(components.has_chap_core_api());
         components.set_enabled(Component::ChapCore, true);
         assert!(components.chap_core_external.is_none());
-    }
-
-    #[test]
-    fn an_origin_drops_the_path() {
-        assert_eq!(
-            origin("http://host.docker.internal:8000/api"),
-            "http://host.docker.internal:8000"
-        );
-        assert_eq!(
-            origin("https://chap.example.org"),
-            "https://chap.example.org"
-        );
     }
 
     #[test]

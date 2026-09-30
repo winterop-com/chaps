@@ -155,19 +155,23 @@ credentials already in the database undecryptable.
 This is the one value `chaps` fills in rather than leaving as a placeholder:
 
 ```ini
-route.remote_servers_allowed = http://chap:8000
+route.remote_servers_allowed = http://*,https://*
 ```
 
 DHIS2 version 42 and later default it to `https://*` and then **refuse** an
-`http://` target. The target the Modeling App needs is exactly that: the app does
-not reach chap-core directly, it reaches it through a DHIS2 Route, and chap-core
-inside the deployment is `http://chap:8000`. So the default value would refuse
-the one route this component exists to make possible.
+`http://` target. The target the Modeling App needs is usually exactly that: the
+app does not reach chap-core directly, it reaches it through a DHIS2 Route, and
+chap-core is `http://chap:8000` inside the deployment,
+`http://host.docker.internal:8000` when it runs on this machine
+(`--chap-core-url`), and plain http on most lab servers. So the default value
+would refuse the one route this component exists to make possible.
 
-One origin per entry, comma separated, and none of them may carry a path - DHIS2
-throws on startup if one does. `http://*` is what a DHIS2 beside CHAP usually
-settles for; the scaffold is narrower on purpose, because a wildcard is an open
-server-side request forgery hole that DHIS2 itself warns about on every start.
+The scaffold allows every http and https target, so any chap-core works without
+touching the file. A DHIS2 chaps deploys is a development or evaluation
+instance; DHIS2 logs a warning about the wildcard on every start, and on a DHIS2
+that is not a test instance the line belongs narrowed to the origins in use. One
+origin per entry, comma separated, and none of them may carry a path - DHIS2
+throws on startup if one does.
 
 ### Behind a TLS-terminating proxy
 
@@ -794,8 +798,8 @@ warning: the `chap` route is in place but nothing answered through it: HTTP 502 
 ```
 
 `route.remote_servers_allowed` in
-[`dhis2/dhis.conf`](#routeremote_servers_allowed) already permits the target, so
-the allowlist is not normally in the way. On an instance whose file was narrowed
+[`dhis2/dhis.conf`](#routeremote_servers_allowed) already permits every http and
+https target, so the allowlist is not normally in the way. On an instance whose file was narrowed
 or replaced it is, and DHIS2's refusal is turned into the line that says so:
 
 ```text

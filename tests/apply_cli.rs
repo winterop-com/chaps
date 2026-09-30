@@ -313,7 +313,7 @@ fn models_register_with_a_chap_core_elsewhere() {
 }
 
 /// A DHIS2 in this deployment next to a chap-core elsewhere: its container
-/// maps the host gateway and its `dhis.conf` allows that chap-core, so the
+/// maps the host gateway and its `dhis.conf` allows any http target, so the
 /// route `chaps dhis2 connect` writes can reach it.
 #[test]
 fn a_dhis2_here_can_route_to_a_chap_core_elsewhere() {
@@ -339,9 +339,7 @@ fn a_dhis2_here_can_route_to_a_chap_core_elsewhere() {
     );
     let conf = read(&dir.join("dhis2/dhis.conf"));
     assert!(
-        conf.contains(
-            "route.remote_servers_allowed = http://chap:8000,http://host.docker.internal:18999"
-        ),
+        conf.contains("route.remote_servers_allowed = http://*,https://*"),
         "{conf}"
     );
 

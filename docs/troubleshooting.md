@@ -759,8 +759,8 @@ order worth checking:
    and `chaps dhis2 route` then verifies on the next run.
 2. **`route.remote_servers_allowed` does not list the target.** DHIS2 42 and later
    default that setting to `https://*` and refuse an `http://` target. The
-   scaffolded `dhis2/dhis.conf` already permits `http://chap:8000`, so this is an
-   instance whose file was narrowed or replaced; DHIS2 refuses the write outright
+   scaffolded `dhis2/dhis.conf` already permits every http and https target, so
+   this is an instance whose file was narrowed or replaced; DHIS2 refuses the write outright
    in that case and the error names the line. After editing it,
    `chaps restart --all dhis2` - a plain `chaps restart` does not apply it, and
    says [nothing needed a restart](#an-edit-to-dhis2dhisconf-changes-nothing-after-a-restart).

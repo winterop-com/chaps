@@ -2445,10 +2445,10 @@ mod tests {
         assert!(text.contains("\n# connection.driver_class = "), "{text}");
         assert!(text.contains("\nconnection.dialect = "), "{text}");
 
-        // The one value the spec decides, narrowed to chap-core's address on the
-        // compose network rather than a wildcard.
+        // The one value the spec decides: every http and https target, so a
+        // chap-core anywhere works without editing the file.
         assert!(
-            text.contains("\nroute.remote_servers_allowed = http://chap:8000\n"),
+            text.contains("\nroute.remote_servers_allowed = http://*,https://*\n"),
             "{text}"
         );
         assert_eq!(render_dhis2_config(&Dhis2ConfigSpec::default()), text);
