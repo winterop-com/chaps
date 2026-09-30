@@ -449,6 +449,31 @@ fn the_allowlist_refusal_names_the_file_and_the_way_out() {
     assert!(!text.contains("--all"), "{text}");
 }
 
+/// DHIS2 will not start with a path in `route.remote_servers_allowed`
+/// (`Allowed route URL must not have a path`, measured on 2.42.6), so the
+/// refusal names the target's origin and never the `/**` target itself.
+#[test]
+fn the_allowlist_refusal_names_the_origin_without_a_path() {
+    let external = allowlist_hint("http://localhost:8700/**", false);
+    assert!(
+        external.contains("and http://localhost:8700 has to be"),
+        "{external}"
+    );
+    assert!(!external.contains("/**"), "{external}");
+    assert!(external.contains("with no path"), "{external}");
+
+    let deployed = allowlist_hint("http://chap:8000/**", true);
+    assert!(
+        deployed.contains("and http://chap:8000 has to be"),
+        "{deployed}"
+    );
+    assert_eq!(
+        route_origin("https://chap.example.org/api/**"),
+        "https://chap.example.org"
+    );
+    assert_eq!(route_origin("http://chap:8000"), "http://chap:8000");
+}
+
 /// Measured, not guessed. The three phrases this used to look for -
 /// `remote server`, `not allowed`, `allowlist` - appear in no DHIS2 answer
 /// that has ever shipped, so the branch never fired and the operator got a

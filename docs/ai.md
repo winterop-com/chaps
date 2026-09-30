@@ -283,8 +283,9 @@ has no credentials for that DHIS2: the fix is to
 put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
 the `.env` file in the folder, then run `chaps dhis2 connect` again. If
 `--chap-url` is an `http://` address and the DHIS2 is 2.42 or later, it may say
-`DHIS2 refused the route`: whoever runs that DHIS2 has to add the address to
-`route.remote_servers_allowed` in its `dhis.conf` and restart it.
+`DHIS2 refused the route`: whoever runs that DHIS2 has to add the `--chap-url`
+address, with no path, to `route.remote_servers_allowed` in its `dhis.conf`
+and restart it; the error line names the exact value.
 
 More: [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md).
 
@@ -548,9 +549,11 @@ reads.
 
 On DHIS2 2.42 and later it can then say `DHIS2 refused the route`: their
 DHIS2 only proxies to the addresses its own `dhis.conf` allows. Tell them to
-add the `--chap-url` address (for example `http://host.docker.internal:8700`)
-to the `route.remote_servers_allowed` line in their DHIS2's `dhis.conf`,
-restart their DHIS2, and run `chaps dhis2 connect` again.
+add the `--chap-url` address, with no path (for example
+`route.remote_servers_allowed = https://*,http://localhost:8700`), to their
+DHIS2's `dhis.conf`, restart their DHIS2, and run `chaps dhis2 connect` again.
+A value with a path, such as `http://localhost:8700/**`, stops DHIS2 from
+starting at all.
 
 More: [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md).
 

@@ -1095,18 +1095,33 @@ pub fn route_run_path(path: &str) -> String {
 /// An external DHIS2 has its own `dhis.conf`, which is its operator's and not
 /// in this directory, so that one is only named.
 pub fn allowlist_hint(target: &str, deployed: bool) -> String {
+    let origin = route_origin(target);
     match deployed {
         true => format!(
-            "DHIS2 refused the route: version 42 and later only allow the targets \
-             `route.remote_servers_allowed` lists, and {target} has to be one of them; check \
+            "DHIS2 refused the route: version 42 and later only allow the origins \
+             `route.remote_servers_allowed` lists, and {origin} has to be one of them; check \
              that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it \
              to read the file again"
         ),
         false => format!(
-            "DHIS2 refused the route: version 42 and later only allow the targets \
-             `route.remote_servers_allowed` lists, and {target} has to be one of them; add it to \
-             that line in the `dhis.conf` of the DHIS2 server and restart DHIS2 there"
+            "DHIS2 refused the route: version 42 and later only allow the origins \
+             `route.remote_servers_allowed` lists, and {origin} has to be one of them; add it, \
+             with no path (DHIS2 will not start with one), to that line in the `dhis.conf` of \
+             the DHIS2 server and restart DHIS2 there"
         ),
+    }
+}
+
+/// The origin of a route target, which is all `route.remote_servers_allowed`
+/// takes: DHIS2 refuses to start when an entry carries a path, and the target
+/// always does (`/**`).
+///
+/// `http://localhost:8700/**` -> `http://localhost:8700`.
+fn route_origin(target: &str) -> &str {
+    let after_scheme = target.find("://").map_or(0, |at| at + 3);
+    match target[after_scheme..].find('/') {
+        Some(slash) => &target[..after_scheme + slash],
+        None => target,
     }
 }
 

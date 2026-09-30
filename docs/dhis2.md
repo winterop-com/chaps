@@ -806,7 +806,7 @@ https target, so the allowlist is not normally in the way. On an instance whose 
 or replaced it is, and DHIS2's refusal is turned into the line that says so:
 
 ```text
-error: DHIS2 refused the route: version 42 and later only allow the targets `route.remote_servers_allowed` lists, and http://chap:8000/** has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it to read the file again
+error: DHIS2 refused the route: version 42 and later only allow the origins `route.remote_servers_allowed` lists, and http://chap:8000 has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it to read the file again
 ```
 
 DHIS2's own answer to that write is `409 Conflict` with the message `Route URL

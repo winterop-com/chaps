@@ -819,6 +819,26 @@ order worth checking:
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
 
+## `Allowed route URL must not have a path`
+
+DHIS2 does not start after `route.remote_servers_allowed` was edited, and its
+log ends with
+
+```text
+Caused by: java.lang.IllegalStateException: Allowed route URL must not have a path: http://localhost:8700/**
+```
+
+Each entry on that line is an origin: scheme, host and port, nothing after
+them. The route target `chaps dhis2 route` writes ends in `/**`, and that is
+not what goes on the line. Write the origin alone and restart DHIS2:
+
+```text
+route.remote_servers_allowed = https://*,http://localhost:8700
+```
+
+`chaps dhis2 connect` then writes the route. When DHIS2 refuses a route, the
+error line names the origin to add.
+
 ## An edit to `dhis2/dhis.conf` changes nothing after a restart
 
 You corrected a value in `dhis2/dhis.conf` - `route.remote_servers_allowed`,

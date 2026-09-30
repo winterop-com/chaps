@@ -610,10 +610,10 @@ fn dhis2_route_names_the_allowlist_and_the_restart_that_applies_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "only allow the targets `route.remote_servers_allowed` lists",
+            "only allow the origins `route.remote_servers_allowed` lists",
         ))
         .stderr(predicates::str::contains(
-            "http://chap:8000/** has to be one of them",
+            "http://chap:8000 has to be one of them",
         ))
         .stderr(predicates::str::contains("`dhis2/dhis.conf`"))
         // A plain restart applies it: `restart` recreates a service whose
