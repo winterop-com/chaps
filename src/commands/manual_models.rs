@@ -137,12 +137,15 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
     let applied = apply(&mut project, &registry, &selection, &endpoints)?;
 
     let mut notes = resolved.notes.clone();
-    notes.push(format!(
-        "the service must register with chap-core as `{}`; \
-         if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - \
-         run `chaps models remove {}`, then add it again with `--service-id <that id>`",
-        resolved.service_id, resolved.id
-    ));
+    // Only a deployment with a chap-core has anything to register with.
+    if project.state.components.has_chap_core_api() {
+        notes.push(format!(
+            "the service must register with chap-core as `{}`; \
+             if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - \
+             run `chaps models remove {}`, then add it again with `--service-id <that id>`",
+            resolved.service_id, resolved.id
+        ));
+    }
     let report = AddReport {
         id: resolved.id.clone(),
         service_id: resolved.service_id.clone(),
@@ -343,11 +346,15 @@ fn added_block(resolved: &Resolved, out: &Out) -> String {
         Some(branch) => format!("{branch}  {}", out.dim("(`chaps update` moves the pin)")),
         None => format!("nothing {}", out.dim("(pinned)")),
     };
+    // The service id in brackets only when it says something the id does not.
+    let service = match resolved.service_id == resolved.id {
+        true => String::new(),
+        false => format!(" {}", out.dim(&format!("({})", resolved.service_id))),
+    };
     format!(
-        "{} {} {}\n{}",
+        "{} {}{service}\n{}",
         out.ok("added"),
         resolved.id,
-        out.dim(&format!("({})", resolved.service_id)),
         output::fields_with(
             2,
             &[

@@ -423,7 +423,12 @@ pub(crate) fn summary(
     for note in notes {
         text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
     }
-    text.push_str(&out.backticks("run `chaps up` to apply"));
+    // Taking a model away has already stopped its container: there is
+    // nothing left for `up` to apply, only a deployment to look at.
+    match report.touched().next().is_none() {
+        true => text.push_str(&out.backticks("run `chaps status` to see what is running now")),
+        false => text.push_str(&out.backticks("run `chaps up` to apply")),
+    }
     text
 }
 
@@ -564,6 +569,8 @@ mod tests {
         let text = summary(&report, &[], &project, &Out::default());
         assert!(text.contains("disabled chapkit_ewars_model"));
         assert!(text.contains("removed compose.chapkit-ewars-model.yml"));
+        // Nothing is left for `up` to apply once a model is taken away.
+        assert!(text.ends_with("run `chaps status` to see what is running now"));
     }
 
     #[test]
