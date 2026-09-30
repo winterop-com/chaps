@@ -701,7 +701,7 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
     for args in [
         &["jobs"][..],
         &["api", "GET", "/health"],
-        &["models", "test"],
+        &["models", "test", "--all", "--backtest"],
         &["update", "--chap-tag", "v1.0.0"],
     ] {
         in_project(args)
@@ -721,6 +721,16 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
         .stdout(predicates::str::contains(
             "this deployment has no chap-core",
         ));
+
+    // The model level runs inside the model's container, so it is not
+    // refused for want of chap-core: here it only finds no model to test.
+    in_project(&["models", "test", "--all"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "this deployment enables no models",
+        ))
+        .stderr(predicates::str::contains("no chap-core").not());
 
     // A model asked for at the same time runs on its own, on a host port.
     let other = Sandbox::new();

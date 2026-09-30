@@ -453,12 +453,13 @@ Upgrade Docker Compose.
 ## `needs chap-core, and this deployment has no chap-core`
 
 ```text
-error: `chaps jobs` needs chap-core, and this deployment has no chap-core; `chaps components enable chap-core` adds it
+error: `chaps jobs` needs chap-core, and this deployment has no chap-core; `chaps components enable chap-core` adds one, or `chaps components enable chap-core --url URL` names one elsewhere
 ```
 
 The deployment was created without chap-core (`--without chap-core`), so there
 is no chap-core to ask. `chaps jobs`, `chaps api` (without `--url`),
-`chaps models test` and `chaps update --chap-tag` all say this. If you meant to
+`chaps models test --backtest` and `chaps update --chap-tag` all say this
+(`chaps models test` without `--backtest` does not need it). If you meant to
 talk to a chap-core somewhere else, `chaps api --url <base>` sends the request
 there. Otherwise add chap-core with `chaps components enable chap-core`, then
 `chaps up`. See [Standalone OCS](./components.md#standalone-ocs).

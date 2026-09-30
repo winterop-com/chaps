@@ -255,7 +255,11 @@ is the only one that makes the model do the work.
 chaps models test ID..                 # one or more, by marketplace id or service id
 chaps models test --all                # every model this deployment enables
 chaps models test --all --backtest     # the whole way round, through chap-core
+chaps models test SERVICE_ID --backtest  # a model registered from outside, such as one run from its checkout
 ```
+
+The model level needs no chap-core, so it also tests a model in a deployment
+without one; `--backtest` needs one.
 
 Models are tested one after another, and the exit code is non-zero only when
 one of them **failed**: a model that could not be tested at all is a skip, and

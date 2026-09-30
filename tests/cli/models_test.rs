@@ -58,6 +58,39 @@ fn models_test_backtest_skips_a_model_chap_core_cannot_reach() {
     assert!(!text.contains("no configured model"), "{text}");
 }
 
+/// A model run from its checkout registers without being enabled here. It can
+/// be named by its service id, and the model level, which needs a container,
+/// sends it to `--backtest`.
+#[test]
+fn models_test_takes_a_model_registered_from_outside_the_deployment() {
+    let sandbox = Sandbox::new();
+    let port = free_port();
+    sandbox
+        .init(&["--models", "none", "--api-port", &port.to_string()])
+        .assert()
+        .success();
+    chap_core_server(port);
+    let dir = sandbox.project();
+
+    chap_in(&sandbox, &dir, &["models", "test", "--all"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "`chaps models test ID --backtest` tests one of the 4 registered from outside it \
+             through chap-core",
+        ))
+        .stderr(predicates::str::contains(HOST_RUN_MODEL));
+
+    chap_in(&sandbox, &dir, &["models", "test", HOST_RUN_MODEL])
+        .assert()
+        .stdout(predicates::str::contains(
+            "chaps does not run it, so there is no container to test it in",
+        ))
+        .stdout(predicates::str::contains(format!(
+            "run `chaps models test {HOST_RUN_MODEL} --backtest`"
+        )));
+}
+
 #[test]
 fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
     let sandbox = Sandbox::new();

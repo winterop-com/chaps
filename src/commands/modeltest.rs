@@ -83,8 +83,18 @@ const EXIT_FAILED: i32 = 1;
 /// `chaps models test [ID..] [--all]`.
 pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     let project = ctx.project()?;
-    crate::components::require_chap_core(&project.state.components, "`chaps models test`")?;
-    let targets = targets(ctx, &project, args)?;
+    // The model level runs `chapkit test` in the model's own container and
+    // asks chap-core only for two best-effort details, so a model running on
+    // its own can be tested; the backtest is chap-core's to run.
+    if args.backtest {
+        crate::components::require_chap_core(
+            &project.state.components,
+            "`chaps models test --backtest`",
+        )?;
+    }
+    let token = crate::api::token_for(Some(&project.dir));
+    let api = Api::new(&project.api_url(), token, REQUEST_TIMEOUT);
+    let targets = targets(ctx, &project, &api, args)?;
     let level = if args.backtest {
         Level::Backtest
     } else {
@@ -95,8 +105,6 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
         Level::Backtest => modeltest::BACKTEST_TIMEOUT,
     }));
 
-    let token = crate::api::token_for(Some(&project.dir));
-    let api = Api::new(&project.api_url(), token, REQUEST_TIMEOUT);
     ctx.out
         .verbose(&format!("asking chap-core at {}", api.base()));
 
@@ -165,6 +173,7 @@ fn print_run(out: &Out, run: &Run, width: usize) {
 fn targets(
     ctx: &Ctx,
     project: &Project,
+    api: &Api,
     args: &ModelsTestArgs,
 ) -> Result<Vec<(String, EnabledModel)>> {
     if args.all {
@@ -175,9 +184,24 @@ fn targets(
             .map(|(id, enabled)| (id.clone(), enabled.clone()))
             .collect();
         if all.is_empty() {
-            return Err(anyhow::anyhow!(
-                "this deployment enables no models; enable one with `chaps models enable ID`"
-            ));
+            // A model run from its checkout registers without being enabled
+            // here, and is exactly what its developer wants tested.
+            let outside = unmanaged_services(project, api);
+            return Err(match outside.as_slice() {
+                [] => anyhow::anyhow!(
+                    "this deployment enables no models; enable one with `chaps models enable ID`"
+                ),
+                [service] => anyhow::anyhow!(
+                    "this deployment enables no models; `chaps models test {service} --backtest` \
+                     tests the one registered from outside it through chap-core"
+                ),
+                many => anyhow::anyhow!(
+                    "this deployment enables no models; `chaps models test ID --backtest` tests \
+                     one of the {} registered from outside it through chap-core ({})",
+                    many.len(),
+                    many.join(", ")
+                ),
+            });
         }
         return Ok(all);
     }
@@ -190,8 +214,13 @@ fn targets(
     }
 
     let registry = super::registry_for(ctx, Some(project))?;
+    let outside = unmanaged_services(project, api);
     let mut picked: Vec<(String, EnabledModel)> = Vec::new();
     for given in &args.ids {
+        if outside.contains(given) {
+            picked.push((given.clone(), unmanaged(given)));
+            continue;
+        }
         let model = registry
             .get(given)
             .ok_or_else(|| ChapError::UnknownModel(given.clone()))?;
@@ -208,6 +237,44 @@ fn targets(
         picked.push((model.id.clone(), enabled.clone()));
     }
     Ok(picked)
+}
+
+/// The services chap-core has registered that this deployment does not
+/// enable: a model run from its checkout, typically. Empty without chap-core,
+/// or when it cannot be asked.
+fn unmanaged_services(project: &Project, api: &Api) -> Vec<String> {
+    if !project.state.components.has_chap_core_api() {
+        return Vec::new();
+    }
+    let Ok(answer) = api.send("GET", "/v2/services", None) else {
+        return Vec::new();
+    };
+    let Ok(services) = crate::status::parse_services(&answer.text()) else {
+        return Vec::new();
+    };
+    services
+        .into_iter()
+        .map(|s| s.id)
+        .filter(|id| !project.state.models.values().any(|m| &m.service_id == id))
+        .collect()
+}
+
+/// A target for a service this deployment does not run: only its service id
+/// means anything, and the empty overlay is what marks it.
+fn unmanaged(service_id: &str) -> EnabledModel {
+    EnabledModel {
+        service_id: service_id.to_string(),
+        image: String::new(),
+        image_tag: String::new(),
+        version: String::new(),
+        channel: None,
+        host_port: None,
+        data_dir: String::new(),
+        user: String::new(),
+        user_from: Default::default(),
+        platform: None,
+        compose_file: String::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +294,16 @@ fn model_level(
     running: &BTreeSet<String>,
 ) -> Run {
     let run = Run::new(id, &enabled.service_id, Level::Model);
+    if enabled.compose_file.is_empty() {
+        return run.end(
+            Verdict::Skip,
+            "chaps does not run it, so there is no container to test it in",
+            Some(format!(
+                "run `chaps models test {} --backtest` to test it through chap-core",
+                enabled.service_id
+            )),
+        );
+    }
     if !running.contains(&enabled.service_id) {
         return run.end(
             Verdict::Skip,

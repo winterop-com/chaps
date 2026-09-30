@@ -231,6 +231,33 @@ pub(crate) fn backtest_service(model_id: &Json) -> String {
         .unwrap_or_default()
 }
 
+/// A service registered from outside the deployment, the way a model run
+/// from its checkout is.
+pub(crate) const HOST_RUN_MODEL: &str = "my-host-model";
+
+/// `GET /v2/services`: the three stand-in models and one from outside.
+fn service_list() -> String {
+    let entries: Vec<String> = [
+        PASSING_MODEL,
+        FAILING_MODEL,
+        OLD_CHAPKIT_MODEL,
+        HOST_RUN_MODEL,
+    ]
+    .iter()
+    .map(|id| {
+        format!(
+            r#"{{"id":"{id}","url":"http://{id}:8000","info":{{"id":"{id}"}},
+                   "last_ping_at":"2026-09-24T16:00:00Z","expires_at":"2026-09-24T16:05:00Z"}}"#
+        )
+    })
+    .collect();
+    format!(
+        r#"{{"count":{},"services":[{}]}}"#,
+        entries.len(),
+        entries.join(",")
+    )
+}
+
 /// `GET /v2/services/...` and everything under its proxy.
 pub(crate) fn services_route(
     method: &str,
@@ -510,6 +537,9 @@ pub(crate) fn chap_core_route(
         id if id.starts_with("ds-") || id.starts_with("bt-") => Some("SUCCESS"),
         _ => None,
     };
+    if route == "/v2/services" && method == "GET" {
+        return (200, json, service_list());
+    }
     if let Some(answer) = services_route(method, route, recorded) {
         return answer;
     }

@@ -28,8 +28,9 @@ Without chap-core each model gets a host port when it is enabled (5001 up;
 `chaps status` and `chaps doctor` through its own `/health`. Expect one
 `registration.missing_orchestrator_url` line at the top of its log; that is
 servicekit noting there is nothing to register with, and it carries on.
-`chaps models test` and `chaps jobs` run models through chap-core, so they
-refuse here and name `chaps components enable chap-core`.
+`chaps models test` works here: it runs `chapkit test` inside the model's own
+container. `chaps models test --backtest` and `chaps jobs` go through
+chap-core, so they refuse and name `chaps components enable chap-core`.
 
 Next: [Model services without chap-core](../components.md#model-services-without-chap-core),
 [Models outside the marketplace](../models.md#models-outside-the-marketplace).

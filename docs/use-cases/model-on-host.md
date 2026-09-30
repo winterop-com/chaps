@@ -40,7 +40,9 @@ layout chapkit models use; a model whose `main.py` is inside a package runs as
 It worked when `chaps status` lists the model's service id with a recent LAST
 PING. Its state is `unmanaged`, because this deployment did not start it; that
 is expected. From there chap-core uses it like any other model, and
-`chaps models test` can run it.
+`chaps models test SERVICE_ID --backtest` runs it through chap-core; the model
+level (`chapkit test` in a container) is for models chaps runs, so for this one
+it says to use `--backtest`.
 
 If the deployment has a registration key (`chaps auth show` says so), export
 `SERVICEKIT_REGISTRATION_KEY` with the value `chaps auth show --reveal` prints.

@@ -1153,7 +1153,8 @@ pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
 pub fn needs_chap_core(what: &str) -> String {
     format!(
         "{what} needs chap-core, and this deployment has no chap-core; \
-         `chaps components enable chap-core` adds it, or `--url URL` names one elsewhere"
+         `chaps components enable chap-core` adds one, or \
+         `chaps components enable chap-core --url URL` names one elsewhere"
     )
 }
 
