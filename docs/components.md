@@ -429,8 +429,8 @@ that file when the component is first enabled and **never rewrites it**: it is
 yours from that moment on. It is mounted read-only at
 `/app/climate-service.yaml`, which is where `CLIMATE_SERVICE_CONFIG` points.
 
-Without any flags it holds OCS's own Sierra Leone example values and a note
-saying so. `chaps doctor` warns while that note is there, so an instance is
+Without any flags it holds example values for Laos, the country of the DHIS2
+demo database, and a note saying so. `chaps doctor` warns while that note is there, so an instance is
 never deployed as the wrong country by accident; edit the file and delete the
 note.
 

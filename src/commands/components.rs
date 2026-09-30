@@ -1275,7 +1275,7 @@ mod tests {
     fn the_scaffold_request_follows_the_flags() {
         let empty = request(&OcsConfigArgs::default()).into_spec();
         assert!(empty.example);
-        assert_eq!(empty.country_code, "SLE");
+        assert_eq!(empty.country_code, "LAO");
 
         let filled = request(&OcsConfigArgs {
             ocs_name: Some("Malawi".into()),

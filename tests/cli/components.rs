@@ -100,11 +100,11 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
     // Nothing to mount: the plugin directory is opt-in.
     assert_eq!(svc["volumes"].as_sequence().unwrap().len(), 2);
 
-    // The scaffold is OCS's own example, and says so where doctor can see it.
+    // The scaffold is the Laos example, and says so where doctor can see it.
     let config = read(&dir.join("ocs/climate-service.yaml"));
-    assert!(config.contains("Sierra Leone example values"), "{config}");
+    assert!(config.contains("Laos example values"), "{config}");
     let parsed = yaml(&dir.join("ocs/climate-service.yaml"));
-    assert_eq!(parsed["extent"]["country_code"].as_str(), Some("SLE"));
+    assert_eq!(parsed["extent"]["country_code"].as_str(), Some("LAO"));
     assert_eq!(parsed["data_dir"].as_str(), Some("/app/data"));
 
     // The image pin reaches .env as a commented line, like a model's, and so
@@ -164,7 +164,7 @@ fn the_ocs_flags_fill_the_scaffold_instead_of_the_example() {
     assert_eq!(config["extent"]["country_code"].as_str(), Some("MWI"));
     assert_eq!(config["extent"]["bbox"][0].as_f64(), Some(32.6));
     assert!(
-        !read(&path).contains("Sierra Leone example values"),
+        !read(&path).contains("Laos example values"),
         "these are the operator's own values"
     );
 }
@@ -434,7 +434,7 @@ fn init_takes_a_negative_bbox_without_the_equals_sign() {
     assert_eq!(config["extent"]["bbox"][0].as_f64(), Some(-13.5));
     assert_eq!(config["extent"]["bbox"][2].as_f64(), Some(-10.1));
     assert!(
-        !read(&dir.join("ocs/climate-service.yaml")).contains("Sierra Leone example values"),
+        !read(&dir.join("ocs/climate-service.yaml")).contains("Laos example values"),
         "these are the operator's own values, even where they match the example"
     );
 }
@@ -496,7 +496,7 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
     // The instance config: one key added, the rest of the file untouched.
     let config = read(&dir.join("ocs/climate-service.yaml"));
     assert!(config.ends_with("read_only: true\n"), "{config}");
-    assert!(config.contains("sierra-leone-climate-service"), "{config}");
+    assert!(config.contains("laos-climate-service"), "{config}");
 
     // And both facts in the record and in `status --json`.
     let components = yaml(&dir.join(".chaps/components.yaml"));

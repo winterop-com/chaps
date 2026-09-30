@@ -199,7 +199,8 @@ pub const DHIS2_DEFAULT_SEED_URL: &str =
 ///
 /// `chaps doctor` looks for exactly this, and the note tells the reader to
 /// delete it once the file is theirs, so the check goes quiet by itself.
-pub const OCS_EXAMPLE_MARKER: &str = "# These are OCS's own Sierra Leone example values.";
+pub const OCS_EXAMPLE_MARKER: &str =
+    "# These are the Laos example values, the country of the DHIS2 demo.";
 
 /// Placeholder for the pin section of a `.env` with no models enabled, so the
 /// section never renders as a dangling heading above a blank line.

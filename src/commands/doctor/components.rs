@@ -92,7 +92,7 @@ pub fn components_verdict(
 /// `ocs.config` is what is on disk at `ocs/climate-service.yaml`: `None` when
 /// there is none, which is a real fault (the container would start with no
 /// instance configuration), and a body that still carries the example marker,
-/// which is a warning - it deploys, it just deploys Sierra Leone.
+/// which is a warning - it deploys, it just deploys Laos.
 ///
 /// The credentials and the plugin count are only ever reported, never judged. A
 /// deployment with no dataset credentials is a working deployment: WorldPop and

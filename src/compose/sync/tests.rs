@@ -896,7 +896,7 @@ fn a_plugin_directory_adds_the_mount_and_the_config_key() {
     let config = read(&project.ocs_config_path());
     assert!(config.ends_with("plugins_dir: /app/plugins\n"), "{config}");
     assert!(
-        config.contains("sierra-leone-climate-service"),
+        config.contains("laos-climate-service"),
         "the rest of the operator's file is untouched: {config}"
     );
 
@@ -1007,7 +1007,7 @@ fn the_scaffold_is_created_when_missing_and_never_overwritten() {
     assert!(report.drift);
     assert!(!path.exists(), "--check writes nothing");
     sync(&mut project, &registry, false).unwrap();
-    assert!(read(&path).contains("sierra-leone-climate-service"));
+    assert!(read(&path).contains("laos-climate-service"));
 }
 
 #[test]

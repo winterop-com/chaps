@@ -207,8 +207,8 @@ impl Default for Dhis2ConfigSpec {
 /// Values for the scaffolded `ocs/climate-service.yaml`.
 ///
 /// Everything but `example` comes from the `--ocs-*` flags; without them the
-/// file is OCS's own Sierra Leone example, and `example` is what says so - in
-/// the file, and to `chaps doctor`.
+/// file is the Laos example, the country of the DHIS2 demo database chaps
+/// seeds, and `example` is what says so - in the file, and to `chaps doctor`.
 #[derive(Debug, Clone)]
 pub struct OcsConfigSpec {
     /// STAC catalog id, derived from the name.
@@ -226,14 +226,15 @@ pub struct OcsConfigSpec {
 }
 
 impl Default for OcsConfigSpec {
-    /// OCS's own `climate-service.yaml.example`, which is Sierra Leone.
+    /// Laos, so climate data ingested by an OCS beside the demo DHIS2 covers
+    /// the provinces that DHIS2 holds case data for.
     fn default() -> OcsConfigSpec {
         OcsConfigSpec {
-            id: "sierra-leone-climate-service".to_string(),
-            name: "Sierra Leone Climate Service".to_string(),
-            extent_name: "Sierra Leone".to_string(),
-            bbox: "-13.5, 6.9, -10.1, 10.0".to_string(),
-            country_code: "SLE".to_string(),
+            id: "laos-climate-service".to_string(),
+            name: "Laos Climate Service".to_string(),
+            extent_name: "Laos".to_string(),
+            bbox: "100.0, 13.9, 107.7, 22.5".to_string(),
+            country_code: "LAO".to_string(),
             example: true,
         }
     }

@@ -980,12 +980,12 @@ fn the_ocs_config_scaffold_says_when_it_is_the_example() {
     assert_no_tokens(&example);
     assert!(example.contains(OCS_EXAMPLE_MARKER), "{example}");
     let doc = parse(&example);
-    assert_eq!(doc["id"].as_str(), Some("sierra-leone-climate-service"));
-    assert_eq!(doc["name"].as_str(), Some("Sierra Leone Climate Service"));
-    assert_eq!(doc["extent"]["name"].as_str(), Some("Sierra Leone"));
-    assert_eq!(doc["extent"]["country_code"].as_str(), Some("SLE"));
-    assert_eq!(doc["extent"]["bbox"][0].as_f64(), Some(-13.5));
-    assert_eq!(doc["extent"]["bbox"][3].as_f64(), Some(10.0));
+    assert_eq!(doc["id"].as_str(), Some("laos-climate-service"));
+    assert_eq!(doc["name"].as_str(), Some("Laos Climate Service"));
+    assert_eq!(doc["extent"]["name"].as_str(), Some("Laos"));
+    assert_eq!(doc["extent"]["country_code"].as_str(), Some("LAO"));
+    assert_eq!(doc["extent"]["bbox"][0].as_f64(), Some(100.0));
+    assert_eq!(doc["extent"]["bbox"][3].as_f64(), Some(22.5));
     assert_eq!(doc["data_dir"].as_str(), Some("/app/data"));
 }
 
