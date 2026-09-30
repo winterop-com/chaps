@@ -133,7 +133,7 @@ what it is not](./dhis2.md#connected_at-and-what-it-is-not).
 
 | Command | What it does |
 | --- | --- |
-| `chaps auth show [--reveal]` | Whether the API token and the registration key are set, and the token itself, abbreviated unless `--reveal`. |
+| `chaps auth show [--reveal]` | Whether the API token and the registration key are set, and the token itself only with `--reveal`. |
 | `chaps auth token` | The token alone on stdout, for `TOKEN=$(chaps auth token)`; nothing on stdout and exit 1 when authentication is off. |
 | `chaps auth enable [--token VALUE]` | Write both secrets to `.env`, record them in `.chaps/project.yaml` and re-render the overlays. |
 | `chaps auth disable` | Comment both `.env` lines out, keeping their values, and re-render. |

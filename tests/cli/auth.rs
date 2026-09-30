@@ -45,14 +45,12 @@ fn init_with_an_api_token_writes_both_secrets_and_the_overlay_line() {
     assert!(!env.contains("# CHAP_API_TOKEN="), "{env}");
     assert!(!env.contains("# SERVICEKIT_REGISTRATION_KEY="), "{env}");
 
-    // The summary shows the token masked and says where to get it in full.
+    // The summary shows no part of the token and says where to get it.
     assert!(
-        stdout.contains(&format!(
-            "API token: {}... (chaps auth show --reveal prints it)",
-            &token[..6]
-        )),
+        stdout.contains("API token: generated into .env (chaps auth show --reveal prints it)"),
         "{stdout}"
     );
+    assert!(!stdout.contains(&token[..6]), "{stdout}");
     assert!(
         !stdout.contains(token),
         "the summary leaked the token:\n{stdout}"
@@ -134,7 +132,7 @@ fn an_api_token_needs_an_env_file_to_live_in() {
 }
 
 #[test]
-fn auth_show_masks_the_token_until_reveal_asks_for_it() {
+fn auth_show_hides_the_token_until_reveal_asks_for_it() {
     let sandbox = Sandbox::new();
     sandbox.init(&["--models", "none"]).assert().success();
 
@@ -160,7 +158,14 @@ fn auth_show_masks_the_token_until_reveal_asks_for_it() {
         .clone();
     let masked = String::from_utf8(masked).expect("utf-8");
     assert!(masked.contains("API authentication  on"), "{masked}");
-    assert!(masked.contains(&format!("{}...", &token[..6])), "{masked}");
+    assert!(
+        masked.contains("API token           set in .env"),
+        "{masked}"
+    );
+    assert!(
+        !masked.contains(&token[..6]),
+        "part of the token leaked:\n{masked}"
+    );
     assert!(!masked.contains(&token), "the token leaked:\n{masked}");
 
     sandbox
@@ -184,7 +189,7 @@ fn auth_show_masks_the_token_until_reveal_asks_for_it() {
     assert_eq!(value["api_token"], true);
     assert_eq!(value["registration_key"], true);
     assert_eq!(value["token"], Json::Null);
-    assert_eq!(value["token_masked"], format!("{}...", &token[..6]));
+    assert_eq!(value["token_masked"], Json::Null);
     assert!(!String::from_utf8_lossy(&out).contains(&token));
 
     let out = sandbox
@@ -469,7 +474,7 @@ fn auth_show_lists_the_ocs_data_sources_as_set_or_unset() {
         let shown = sandbox.auth(&args).assert().success();
         let text = String::from_utf8_lossy(&shown.get_output().stdout).into_owned();
         assert!(
-            text.contains("ECMWF_DATASTORES_KEY  set 012345..."),
+            text.contains("ECMWF_DATASTORES_KEY  set\n"),
             "{args:?}: {text}"
         );
         assert!(
@@ -487,9 +492,7 @@ fn auth_show_lists_the_ocs_data_sources_as_set_or_unset() {
         Some("ECMWF_DATASTORES_KEY")
     );
     assert_eq!(sources[1]["set"], serde_json::json!(true));
-    assert_eq!(sources[1]["masked"].as_str(), Some("012345..."));
     assert_eq!(sources[2]["set"], serde_json::json!(false));
-    assert_eq!(sources[2]["masked"], serde_json::Value::Null);
 
     // A deployment without the component has no block at all.
     sandbox.components(&["disable", "ocs"]).assert().success();

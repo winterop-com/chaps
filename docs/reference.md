@@ -651,7 +651,7 @@ Usage: chaps auth show [OPTIONS]
 
 | Argument | Description |
 | --- | --- |
-| `--reveal` | Print the API token in full. |
+| `--reveal` | Print the API token. |
 
 ## chaps auth token
 

@@ -1086,7 +1086,7 @@ pub enum AuthSub {
 /// Say whether the API is protected, and by which token
 #[derive(Debug, Clone, Args)]
 pub struct AuthShowArgs {
-    /// Print the API token in full
+    /// Print the API token
     #[arg(long)]
     pub reveal: bool,
 }

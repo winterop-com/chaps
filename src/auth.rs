@@ -36,9 +36,6 @@ const SECRET_BYTES: usize = 32;
 /// port.
 pub const MIN_TOKEN_LENGTH: usize = 32;
 
-/// Characters of a token shown in place of the whole thing.
-const MASK_PREFIX: usize = 6;
-
 /// Paths chap-core answers without a token even when `CHAP_API_TOKEN` is set:
 /// the container healthcheck calls the first two with no headers at all, and
 /// the third is how a client discovers that a token is required.
@@ -70,18 +67,6 @@ pub fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
     getrandom::fill(&mut buf).map_err(|e| anyhow::anyhow!("generating a random secret: {e}"))?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// A secret as it is safe to print: the first few characters and an ellipsis.
-///
-/// Enough to tell two tokens apart in a terminal or a bug report, and not
-/// enough to use. A secret too short to abbreviate is hidden entirely.
-pub fn mask(secret: &str) -> String {
-    if secret.chars().count() <= MASK_PREFIX {
-        return "...".to_string();
-    }
-    let prefix: String = secret.chars().take(MASK_PREFIX).collect();
-    format!("{prefix}...")
 }
 
 /// The warning for a token chap-core will flag as weak at startup.
@@ -213,16 +198,6 @@ CHAP_API_PORT=8000
         assert_eq!(random_hex(16).unwrap().len(), 32);
         assert_eq!(random_hex(1).unwrap().len(), 2);
         assert_eq!(random_hex(0).unwrap(), "");
-    }
-
-    #[test]
-    fn masking_shows_six_characters_and_hides_a_short_secret_entirely() {
-        assert_eq!(mask("0123456789abcdef"), "012345...");
-        assert_eq!(mask("abcdefg"), "abcdef...");
-        // Nothing to abbreviate: showing it would be showing the secret.
-        assert_eq!(mask("abcdef"), "...");
-        assert_eq!(mask("ab"), "...");
-        assert_eq!(mask(""), "...");
     }
 
     #[test]

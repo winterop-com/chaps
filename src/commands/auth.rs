@@ -11,7 +11,7 @@
 //! ends by saying that `chaps up` has to follow.
 
 use crate::auth::{
-    self, API_TOKEN_ENV_VAR, MODELING_APP_HINT, REGISTRATION_KEY_ENV_VAR, mask, write_secrets,
+    self, API_TOKEN_ENV_VAR, MODELING_APP_HINT, REGISTRATION_KEY_ENV_VAR, write_secrets,
 };
 use crate::cli::{AuthDisableArgs, AuthEnableArgs, AuthRotateArgs, AuthShowArgs};
 use crate::commands::Ctx;
@@ -38,13 +38,13 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
         "api_token": effective.api_token,
         "registration_key": effective.registration_key,
         "recorded": recorded,
-        // The masked form is always safe to print; the secret itself only
-        // appears when --reveal asked for it.
-        "token_masked": token.as_deref().map(mask),
+        // The secret only appears when --reveal asked for it; `api_token`
+        // above says whether there is one.
         "token": args.reveal.then(|| token.clone()).flatten(),
         "env_file": project.dir.join(ENV_FILE),
-        // One entry per OCS data source variable, masked either way: these are
-        // third-party credentials, so `--reveal` does not reach them. Absent
+        // One entry per OCS data source variable, set or not and never the
+        // value: these are third-party credentials, so `--reveal` does not
+        // reach them. Absent
         // on a deployment without the ocs component, which has no data sources.
         "ocs_data_sources": data_sources
             .iter()
@@ -52,7 +52,6 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
                 serde_json::json!({
                     "variable": var,
                     "set": value.is_some(),
-                    "masked": value.as_deref().map(mask),
                 })
             })
             .collect::<Vec<_>>(),
@@ -123,21 +122,16 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     // Already on: rotating is the operation that replaces a working secret,
     // and doing it by accident locks every configured client out.
     if effective.api_token && effective.registration_key {
-        let token = auth::active_value(&body, API_TOKEN_ENV_VAR);
         record(&mut project, effective)?;
         let value = serde_json::json!({
             "changed": false,
             "api_token": true,
             "registration_key": true,
-            "token_masked": token.as_deref().map(mask),
         });
         return ctx.out.emit(&value, || {
-            format!(
-                "API authentication is already on ({}); \
-                 `chaps auth rotate` replaces both secrets, \
-                 `chaps auth show --reveal` prints the token\n",
-                token.as_deref().map(mask).unwrap_or_default()
-            )
+            "API authentication is already on; `chaps auth rotate` replaces both secrets, \
+             `chaps auth show --reveal` prints the token\n"
+                .to_string()
         });
     }
 
@@ -255,7 +249,6 @@ fn apply(
         "changed": true,
         "api_token": true,
         "registration_key": true,
-        "token_masked": mask(token),
         "written": report.written,
     });
     let dir = project.dir.clone();
@@ -264,10 +257,9 @@ fn apply(
             Change::Enabled => String::from("API authentication is on\n"),
             Change::Rotated => String::from("API authentication rotated\n"),
         };
-        text.push_str(&format!(
-            "  API token         {} (`chaps auth show --reveal` prints it)\n",
-            mask(token)
-        ));
+        text.push_str(
+            "  API token         written to .env; `chaps auth show --reveal` prints it\n",
+        );
         text.push_str("  Registration key  written to .env; every model overlay now sends it\n");
         text.push_str(&written_block(&dir, &report.written));
         text.push('\n');
@@ -376,8 +368,8 @@ fn show_human(
         } else {
             format!(
                 "{} {}",
-                out.value(&mask(token)),
-                out.dim("(--reveal prints it in full)")
+                out.value("set in .env"),
+                out.dim("(--reveal prints it)")
             )
         };
         rows.push(("API token", shown));
@@ -430,7 +422,7 @@ fn show_human(
 /// whether `.env` sets it.
 ///
 /// These are not this deployment's secrets - they are accounts with Copernicus
-/// and Earth Data Hub - so the value is masked whatever `--reveal` asked for:
+/// and Earth Data Hub - so only whether it is set is shown, whatever `--reveal` asked for:
 /// there is nothing to paste into a client here, only the question of whether
 /// a dataset will ingest. Empty for a deployment without the `ocs` component.
 fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> String {
@@ -443,7 +435,7 @@ fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> Str
             (
                 *var,
                 match value {
-                    Some(value) => format!("{} {}", out.ok("set"), out.dim(&mask(value))),
+                    Some(_) => out.ok("set"),
                     None => out.dim("unset"),
                 },
             )
@@ -488,12 +480,18 @@ mod tests {
     }
 
     #[test]
-    fn show_masks_the_token_until_reveal_asks_for_it() {
+    fn show_hides_the_token_until_reveal_asks_for_it() {
         let token = "0123456789abcdef0123456789abcdef";
         let masked = show_human(&Out::default(), &on(), on(), Some(token), false, &[]);
-        assert!(masked.contains("API token           012345..."), "{masked}");
-        assert!(!masked.contains(token), "the secret leaked: {masked}");
-        assert!(masked.contains("--reveal prints it in full"), "{masked}");
+        assert!(
+            masked.contains("API token           set in .env"),
+            "{masked}"
+        );
+        assert!(
+            !masked.contains("012345"),
+            "part of the secret leaked: {masked}"
+        );
+        assert!(masked.contains("--reveal prints it"), "{masked}");
         assert!(masked.contains(MODELING_APP_HINT), "{masked}");
         assert!(masked.contains("X-Service-Key"), "{masked}");
 
@@ -555,7 +553,7 @@ mod tests {
     /// still have a Copernicus key, and a protected one can still be missing
     /// it.
     #[test]
-    fn show_reports_the_ocs_data_sources_masked_and_never_reveals_them() {
+    fn show_reports_whether_the_ocs_data_sources_are_set_and_never_their_values() {
         let key = "0123456789abcdef";
         let sources = vec![
             (
@@ -570,10 +568,7 @@ mod tests {
         for reveal in [false, true] {
             let text = show_human(&Out::default(), &on(), on(), Some("t"), reveal, &sources);
             assert!(text.contains("OCS data sources"), "{text}");
-            assert!(
-                text.contains("ECMWF_DATASTORES_KEY  set 012345..."),
-                "{text}"
-            );
+            assert!(text.contains("ECMWF_DATASTORES_KEY  set\n"), "{text}");
             assert!(
                 !text.contains(key),
                 "a third-party credential leaked at reveal={reveal}: {text}"

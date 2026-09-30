@@ -123,7 +123,7 @@ without a space before it (`val#ue`) is part of the value.
 
 | Command | What it does |
 | --- | --- |
-| `chaps auth show [--reveal]` | Whether each secret is set, and the token, abbreviated unless `--reveal`; plus the OCS data sources, always masked. |
+| `chaps auth show [--reveal]` | Whether each secret is set, and the token only with `--reveal`; plus whether each OCS data source is set, never its value. |
 | `chaps auth enable [--token VALUE]` | Write both secrets, record them, re-render the overlays. |
 | `chaps auth disable` | Comment both lines out, keeping their values, and re-render. |
 | `chaps auth rotate` | Replace both secrets with new ones. |
@@ -131,15 +131,15 @@ without a space before it (`val#ue`) is part of the value.
 `chaps auth show` reads both ends: `.chaps/project.yaml` for what the
 deployment intends and `.env` for what is actually set, and says so when the two
 disagree - a token recorded as in use but commented out in `.env`, say. The
-token is abbreviated unless `--reveal` asks for it in full.
+token itself is printed only when `--reveal` asks for it.
 
 On a deployment with the `ocs` component it also lists the OCS data source
 credentials, which live in the same `.env`:
 
 ```text
 OCS data sources
-  ECMWF_DATASTORES_URL  set https:/...
-  ECMWF_DATASTORES_KEY  set 012345...
+  ECMWF_DATASTORES_URL  set
+  ECMWF_DATASTORES_KEY  set
   EDH_API_KEY           unset
   CDSE_S3_ACCESS_KEY    unset
   CDSE_S3_SECRET_KEY    unset
@@ -147,7 +147,7 @@ OCS data sources
 
 Those five are read and never written: they are accounts with Copernicus and
 Earth Data Hub rather than this deployment's own secrets, so `enable`, `disable`
-and `rotate` do not touch them, and they stay masked even under `--reveal` -
+and `rotate` do not touch them, and their values stay hidden even under `--reveal` -
 there is nothing to paste into a client, only the question of whether a dataset
 will ingest. `--json` carries them under `ocs_data_sources`. See
 [Components](./components.md#data-source-credentials).
@@ -171,7 +171,7 @@ chaps auth enable
 
 ```text
 API authentication is on
-  API token         d1f0a2... (`chaps auth show --reveal` prints it)
+  API token         written to .env; `chaps auth show --reveal` prints it
   Registration key  written to .env; every model overlay now sends it
 
 written  compose.chapkit-ewars-model.yml

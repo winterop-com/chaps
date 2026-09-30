@@ -523,18 +523,18 @@ Climate Data Store fails with
 container looking for the file form of the same credential, in the home directory
 of the image's `ocs` user.
 
-`chaps auth show` reports which of them `.env` sets, masked:
+`chaps auth show` reports which of them `.env` sets, never their values:
 
 ```text
 OCS data sources
-  ECMWF_DATASTORES_URL  set https:/...
-  ECMWF_DATASTORES_KEY  set 012345...
+  ECMWF_DATASTORES_URL  set
+  ECMWF_DATASTORES_KEY  set
   EDH_API_KEY           unset
   CDSE_S3_ACCESS_KEY    unset
   CDSE_S3_SECRET_KEY    unset
 ```
 
-Masked whatever `--reveal` asks for: these are accounts with Copernicus and
+No value is shown, whatever `--reveal` asks for: these are accounts with Copernicus and
 Earth Data Hub rather than this deployment's own secret, so there is nothing to
 paste into a client here - only the question of whether a dataset will ingest.
 `chaps doctor` says `ERA5-Land: credentials unset (WorldPop and CHIRPS3 work
@@ -948,7 +948,7 @@ chaps' own again, and `components disable chap-core` forgets it too.
   the machine checks, measured as what docker says it can give a container
   rather than as the host's memory. The `project files` line names the component
   directories it does not count, since these facts are what covers them.
-- **`chaps auth show`** adds an `OCS data sources` block, masked. The two DHIS2
+- **`chaps auth show`** adds an `OCS data sources` block, set or unset, never the values. The two DHIS2
   secrets are not in it: they are this deployment's own, in `.env`, and
   `DHIS2_ENCRYPTION_PASSWORD` is one the database was created with rather than
   something to paste anywhere.

@@ -1249,13 +1249,13 @@ fn summary(
         text.push('\n');
         text.push_str(&addresses);
     }
-    // The token is printed once and only in its masked form: the full value
-    // stays in `.env`, and `chaps auth show --reveal` is the way back to it.
-    if let Some(secrets) = secrets {
+    // No part of the token is printed: it stays in `.env`, and
+    // `chaps auth show --reveal` is the way back to it.
+    if secrets.is_some() {
         text.push_str(&format!(
             "{} {} {}\n",
             out.key("API token:"),
-            out.value(&auth::mask(&secrets.api_token)),
+            out.value("generated into .env"),
             out.dim("(chaps auth show --reveal prints it)")
         ));
     } else if project.state.auth.api_token {
