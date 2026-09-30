@@ -155,8 +155,8 @@ chaps status
 ```
 
 It worked when `chaps status` shows the model as `up`. Its API is at the
-address in the REACH column, usually `http://localhost:5001`, and its
-documentation at `http://localhost:5001/docs`. Other models:
+port in the REACH column, usually `http://localhost:5001`, and
+`chaps open chapkit_ewars_model` opens its documentation. Other models:
 `chaps models list` shows their ids.
 
 More: [A chapkit model service on its own](./use-cases/model-alone.md).
@@ -219,7 +219,7 @@ chaps up
 chaps status
 ```
 
-It worked when `chaps status` shows the model as `up`, at the address in its
+It worked when `chaps status` shows the model as `up`, on the port in its
 REACH column.
 
 More: [Models outside the marketplace](./models.md#models-outside-the-marketplace).

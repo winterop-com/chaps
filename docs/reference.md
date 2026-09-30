@@ -524,7 +524,7 @@ Usage: chaps open [OPTIONS] [NAME]
 
 | Argument | Description |
 | --- | --- |
-| `<NAME>` | Component to open: chap-core, ocs or dhis2. |
+| `<NAME>` | Component to open (chap-core, ocs, dhis2), or an enabled model's id. |
 
 ## chaps jobs
 

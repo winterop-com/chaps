@@ -81,6 +81,14 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
     let Some(name) = args.name.as_deref() else {
         return list(ctx, &project);
     };
+    if let Some((id, model)) = project
+        .state
+        .models
+        .iter()
+        .find(|(id, model)| id.as_str() == name || model.service_id == name)
+    {
+        return open_model(ctx, &project, id, model);
+    }
     let component = Component::from_name(name)?;
     let resolved = resolve(component, &project.state.components, &project.api_base());
 
@@ -113,7 +121,7 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
     // One request, to the address being opened: the container being up is not
     // the page loading, and any HTTP status - a 401 from a protected `/docs`
     // included - means something is serving it.
-    let answering = (running == Running::Yes)
+    let answering = matches!(running, Running::Yes | Running::External)
         .then(|| crate::commands::doctor::probe(&url, std::time::Duration::from_secs(3)).is_ok());
 
     let report = OpenReport {
@@ -122,6 +130,62 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
         answering,
         url,
         page: what,
+        running,
+        notes,
+    };
+    ctx.out.emit(&report, || human(&report, &ctx.out))
+}
+
+/// Where one model's API documentation is, as this machine reaches it.
+fn model_docs_url(
+    project: &Project,
+    id: &str,
+    model: &crate::project::EnabledModel,
+) -> Result<String> {
+    match model.host_port {
+        Some(port) => Ok(format!("http://localhost:{port}/docs")),
+        None if project.state.components.has_chap_core_api() => {
+            Ok(format!("{}docs", project.proxy_url(&model.service_id)))
+        }
+        None => Err(anyhow::anyhow!(
+            "{id} publishes no host port and there is no chap-core to reach it through; \
+             run `chaps models expose {id}` to publish one"
+        )),
+    }
+}
+
+/// Open one model's API documentation: on its own host port when it publishes
+/// one, else through chap-core's proxy, which reaches every registered model.
+fn open_model(
+    ctx: &Ctx,
+    project: &Project,
+    id: &str,
+    model: &crate::project::EnabledModel,
+) -> Result<()> {
+    let url = model_docs_url(project, id, model)?;
+    let running = match docker::running_containers_or_why(project) {
+        Ok(containers) if docker::running_of(&containers).contains(&model.service_id) => {
+            Running::Yes
+        }
+        Ok(_) => Running::No,
+        Err(_) => Running::Unknown,
+    };
+    let mut notes = Vec::new();
+    if running == Running::No {
+        notes.push(format!(
+            "no {} container is running, so the page will not load yet; run `chaps up` to start \
+             this deployment",
+            model.service_id
+        ));
+    }
+    let answering = (running == Running::Yes)
+        .then(|| crate::commands::doctor::probe(&url, std::time::Duration::from_secs(3)).is_ok());
+    let report = OpenReport {
+        name: model.service_id.clone(),
+        opened: crate::open::spawn_opener(&url),
+        answering,
+        url,
+        page: "the model's API documentation",
         running,
         notes,
     };
@@ -268,10 +332,17 @@ fn human(report: &OpenReport, out: &Out) -> String {
             text.push('\n');
         }
         Running::External => {
-            text.push_str(&out.backticks(
-                "this is the external DHIS2 recorded by `chaps dhis2 use`; `chaps dhis2 show` \
-                 says whether CHAP is connected to it",
-            ));
+            text.push_str(&out.backticks(match report.answering {
+                Some(true) => {
+                    "the external DHIS2 recorded by `chaps dhis2 use` answered at that address; \
+                     `chaps dhis2 show` says whether CHAP is connected to it"
+                }
+                _ => {
+                    "the external DHIS2 recorded by `chaps dhis2 use` did not answer at that \
+                     address; check that it is up, or record its URL again with `chaps dhis2 use \
+                     URL`"
+                }
+            }));
             text.push('\n');
         }
         Running::No | Running::Unknown => {}
@@ -320,6 +391,46 @@ fn human_list(report: &OpenListReport, out: &Out) -> String {
 mod tests {
     use super::*;
     use crate::components::{Components, Dhis2Component, OcsComponent};
+
+    /// A model's `/docs` is on its own port when it publishes one, and through
+    /// chap-core's proxy when it does not.
+    #[test]
+    fn a_model_opens_its_docs_on_its_port_or_through_chap_core() {
+        let mut project = Project {
+            dir: std::path::PathBuf::from("/tmp/chapx"),
+            state: Default::default(),
+        };
+        let mut model = crate::project::EnabledModel {
+            service_id: "chapkit-ewars-model".into(),
+            image: String::new(),
+            image_tag: String::new(),
+            version: String::new(),
+            channel: None,
+            host_port: Some(5001),
+            data_dir: String::new(),
+            user: String::new(),
+            user_from: Default::default(),
+            platform: None,
+            compose_file: String::new(),
+        };
+        let url = |project: &Project, model: &crate::project::EnabledModel| {
+            model_docs_url(project, "chapkit_ewars_model", model)
+        };
+        assert_eq!(url(&project, &model).unwrap(), "http://localhost:5001/docs");
+        model.host_port = None;
+        project.state.components.chap_core.enabled = true;
+        assert!(
+            url(&project, &model)
+                .unwrap()
+                .ends_with("/v2/services/chapkit-ewars-model/run/docs")
+        );
+        project.state.components.chap_core.enabled = false;
+        let err = url(&project, &model).unwrap_err().to_string();
+        assert!(
+            err.contains("run `chaps models expose chapkit_ewars_model`"),
+            "{err}"
+        );
+    }
 
     /// The three answers about the container each say something different, and
     /// only the one that knows nothing is running names `chaps up`.

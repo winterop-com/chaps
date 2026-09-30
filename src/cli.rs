@@ -933,7 +933,7 @@ pub struct OpenArgs {
     // the convention for a group with no default subcommand, and `open` is a
     // verb. With nothing named it lists what this deployment has and what each
     // one opens, which answers the question a bare `chaps open` is asking.
-    /// Component to open: chap-core, ocs or dhis2
+    /// Component to open (chap-core, ocs, dhis2), or an enabled model's id
     pub name: Option<String>,
 }
 
