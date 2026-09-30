@@ -206,8 +206,10 @@ More: [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2
 
 ### 8. My own model
 
-The model has to be a chapkit model, either in a GitHub repository or published
-as an image on ghcr.io.
+The model has to be a chapkit model whose GitHub repository publishes a public
+image on ghcr.io (most do, through their publish workflow). If `chaps models
+add` says the repository `publishes no public image`, use option 11 instead:
+build the image from their checkout and add that.
 
 ```sh
 chaps init mymodel --only none

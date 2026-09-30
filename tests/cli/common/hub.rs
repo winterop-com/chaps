@@ -69,6 +69,9 @@ pub(crate) struct Hub {
     /// The commit the served marketplace entry pins, which is what the
     /// `registry pin` checks compare against the branch.
     pub(crate) pinned: String,
+    /// Whether ghcr refuses an anonymous pull token, which is what it answers
+    /// for a repository that publishes no public image.
+    pub(crate) denied: bool,
 }
 
 /// The chap-core releases the hub publishes by default: two of them, so a
@@ -125,6 +128,7 @@ impl Hub {
                 .map(|(tag, at)| (tag.to_string(), at.to_string()))
                 .collect(),
             pinned: MARKETPLACE_SHA.to_string(),
+            denied: false,
         }
     }
 
@@ -273,6 +277,13 @@ impl Hub {
             return (200, "text/plain", self.marketplace_model());
         }
         if path.starts_with("/token") {
+            if self.denied {
+                return (
+                    403,
+                    json,
+                    r#"{"errors":[{"code":"DENIED","message":"denied"}]}"#.to_string(),
+                );
+            }
             return (200, json, r#"{"token":"anonymous"}"#.to_string());
         }
         // One commit by name, which is how a pin the branch listing does not

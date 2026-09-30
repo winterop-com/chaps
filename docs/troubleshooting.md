@@ -534,6 +534,23 @@ against a chap-core in chaps: `SERVICEKIT_HOST` must be `host.docker.internal`
 and the model must listen on `0.0.0.0`. See
 [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
 
+## `publishes no public image at`
+
+`chaps models add https://github.com/OWNER/REPO` runs the image that
+repository publishes on ghcr.io, and ghcr refused to hand out an anonymous pull
+for it. It answers the same for a package that is private and for one that was
+never published, so either way there is nothing chaps can pull from that URL.
+Build the image from a checkout and add it by name:
+
+```sh
+docker build --platform linux/amd64 -t my-model:dev .
+chaps models add my-model:dev
+```
+
+See [A model image you built yourself](./use-cases/local-model-image.md). If
+the package exists and is private, making it public on GitHub (the package's
+settings) is the other way.
+
 ## `is not in the local image store for linux/amd64`
 
 ```text

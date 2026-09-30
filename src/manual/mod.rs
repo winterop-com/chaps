@@ -296,7 +296,8 @@ fn pin(source: &Source, endpoints: &Endpoints) -> Result<(String, Option<String>
                 &endpoints.ghcr_url,
                 &repo.path().to_lowercase(),
                 endpoints.timeout,
-            )?;
+            )
+            .map_err(|err| no_public_image(err, &repo.url(), &repo.image()))?;
             match pick_published(&shas, &|tag| client.tag_exists(tag))? {
                 Some((sha, tag)) => Ok((tag, Some(sha), Some(branch))),
                 None => Err(anyhow::anyhow!(
@@ -307,6 +308,23 @@ fn pin(source: &Source, endpoints: &Endpoints) -> Result<(String, Option<String>
                 )),
             }
         }
+    }
+}
+
+/// A refused anonymous pull token, said as what it means for `models add`:
+/// ghcr answers 401 or 403 alike for a private package and for one that was
+/// never published, and either way there is no image to run from that URL.
+/// Anything else is passed through as it came.
+fn no_public_image(err: anyhow::Error, url: &str, image: &str) -> anyhow::Error {
+    match err.downcast_ref::<crate::error::ChapError>() {
+        Some(crate::error::ChapError::Http { status, .. }) if matches!(status, 401 | 403) => {
+            anyhow::anyhow!(
+                "{url} publishes no public image at {image} (ghcr refused an anonymous pull, \
+                 HTTP {status}); build one in the checkout with `docker build --platform \
+                 linux/amd64 -t NAME:dev .` and run `chaps models add NAME:dev`"
+            )
+        }
+        _ => err,
     }
 }
 

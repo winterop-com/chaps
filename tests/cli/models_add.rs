@@ -130,6 +130,27 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
     );
 }
 
+/// A public repository whose package ghcr will not hand out: the answer is
+/// what to do instead, not the raw 403 from the token endpoint.
+#[test]
+fn models_add_from_a_repository_without_a_public_image_says_to_build_one() {
+    let (sandbox, _dir, port) = added_sandbox(Hub {
+        denied: true,
+        ..Hub::new()
+    });
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(format!(
+            "{REPO_URL} publishes no public image at"
+        )))
+        .stderr(predicates::str::contains("HTTP 403"))
+        .stderr(predicates::str::contains("`chaps models add NAME:dev`"))
+        .stderr(predicates::str::contains("/token?").not());
+}
+
 #[test]
 fn models_add_from_a_repository_pins_the_newest_published_build() {
     let (sandbox, dir, port) = added_sandbox(Hub::new());
