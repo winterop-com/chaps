@@ -17,9 +17,10 @@ chaps status
   gives `chap` and `worker` a `build:` from the checkout and
   `pull_policy: build`. Docker's layer cache makes a build with nothing changed
   quick, and after a change `chaps up` recreates what moved.
-- **The images are `chap-core-checkout:local` and `chap-worker-checkout:local`**,
-  so a build never overwrites a released `ghcr.io/dhis2-chap/...` tag on this
-  machine.
+- **The images are `<project>-chap:checkout` and `<project>-worker:checkout`**,
+  named after the deployment's compose project, so a build never overwrites a
+  released `ghcr.io/dhis2-chap/...` tag on this machine, and two deployments
+  built from two checkouts never overwrite each other's.
 - **There is no pin.** `chaps update` still moves the models and components, and
   refuses `--chap-tag`: check out the version you want in the checkout instead.
 

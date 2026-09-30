@@ -156,6 +156,18 @@ fn a_checkout_builds_chap_and_the_worker() {
         worker["build"]["dockerfile"].as_str(),
         Some("Dockerfile.worker")
     );
+
+    // With a project name the images are that deployment's own.
+    let named = render_chaps_overlay(8000, Some("mychap-1ab2c3"), Some("/src/chap-core"));
+    let doc: Value = serde_yaml_ng::from_str(&named).unwrap();
+    assert_eq!(
+        service(&doc, "chap")["image"].as_str(),
+        Some("mychap-1ab2c3-chap:checkout")
+    );
+    assert_eq!(
+        service(&doc, "worker")["image"].as_str(),
+        Some("mychap-1ab2c3-worker:checkout")
+    );
     assert_eq!(worker["pull_policy"].as_str(), Some("build"));
 }
 

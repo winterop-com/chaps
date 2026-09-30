@@ -270,17 +270,18 @@ pub fn render_chaps_overlay(
     project_name: Option<&str>,
     checkout: Option<&str>,
 ) -> String {
+    let (chap_image, worker_image) = checkout_images(project_name);
     let (chap_build, worker_build) = match checkout {
         Some(path) => (
             format!(
-                "\x20   image: {CHECKOUT_CHAP_IMAGE}\n\
+                "\x20   image: {chap_image}\n\
                  \x20   build:\n\
                  \x20     context: {path}\n\
                  \x20   pull_policy: build\n"
             ),
             format!(
                 "\x20 worker:\n\
-                 \x20   image: {CHECKOUT_WORKER_IMAGE}\n\
+                 \x20   image: {worker_image}\n\
                  \x20   build:\n\
                  \x20     context: {path}\n\
                  \x20     dockerfile: Dockerfile.worker\n\
@@ -306,10 +307,27 @@ pub fn render_chaps_overlay(
     )
 }
 
-/// The image a chap-core checkout's API is built into.
+/// The image a chap-core checkout's API is built into, for a deployment
+/// compose can make no project name out of.
 pub const CHECKOUT_CHAP_IMAGE: &str = "chap-core-checkout:local";
-/// The image a chap-core checkout's worker is built into.
+/// The same for the worker.
 pub const CHECKOUT_WORKER_IMAGE: &str = "chap-worker-checkout:local";
+
+/// The images a chap-core checkout is built into: named after the compose
+/// project, so two deployments built from two checkouts (two worktrees, say)
+/// never overwrite each other's build.
+pub fn checkout_images(project_name: Option<&str>) -> (String, String) {
+    match project_name {
+        Some(name) => (
+            format!("{name}-chap:checkout"),
+            format!("{name}-worker:checkout"),
+        ),
+        None => (
+            CHECKOUT_CHAP_IMAGE.to_string(),
+            CHECKOUT_WORKER_IMAGE.to_string(),
+        ),
+    }
+}
 
 /// The top-level `name:` key.
 ///
