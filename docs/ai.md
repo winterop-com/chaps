@@ -60,12 +60,51 @@ A few words the person will see:
    first line that starts with `error:` or `warning:`. chaps puts the fix on the
    same line, usually a command in backticks: tell them to run that command.
    If that does not help, search [Troubleshooting](./troubleshooting.md) for
-   the exact message.
+   the exact message. If chaps says it does not know a command or an option,
+   the installed `chaps` is older than this page: `chaps self update` brings
+   it up to date, and `chaps <command> --help` is always right for the
+   installed one.
 6. **Never** tell them to edit the `compose*.yml` files by hand (chaps rewrites
    them), and never ask them to paste the `.env` file (it holds passwords).
 
 When an option has a "More" link, that page has the details. You only need it
 if the person asks for something the steps here do not cover.
+
+## If you run the commands yourself
+
+If you have a shell on the person's machine and run the commands rather than
+telling the person what to type:
+
+- Run each block as written, top to bottom. Where an option shows
+  alternatives, it says so and you pick one. Check its "It worked when" line
+  yourself instead of waiting for the person to say it worked.
+- If your shell does not keep its folder between commands, put
+  `-C mychap` (the folder from `chaps init`) on every command in place of the
+  `cd`: `chaps -C mychap up`.
+- `chaps status` exits `0` only when everything the deployment declares is up
+  and registered, and non-zero otherwise, so poll it by its exit code where
+  a step says to run it every minute. A first DHIS2 start can take 20
+  minutes.
+  `chaps status --json` gives the same report as one JSON document; every
+  command takes `--json`.
+- The first `chaps up` downloads the images that take most of the disk in
+  [Before any option](#before-any-option). Give it a long timeout, or run it
+  in the background, and do not start a second one while it runs. Running
+  `chaps up` again after it has finished or timed out is safe: it picks up
+  where it stopped.
+- `chaps dhis2 connect` waits by itself for DHIS2 to start, up to 20 minutes;
+  it prints a line on stderr while it waits.
+- Nothing prompts you: without a terminal, a question becomes an `error:`
+  with the flag that answers it. `chaps up --replace` stops another
+  deployment holding the ports, `chaps down --volumes --yes` deletes data;
+  ask the person before either.
+- Credentials go in the `.env` file in the folder. Ask the person to add them
+  there themselves, and do not print or read that file.
+- Do not run `chaps ui` (an interactive screen), `chaps up --attach` or
+  `chaps logs -f` (they never return). `chaps logs SERVICE` without `-f`
+  prints and returns.
+- `chaps open` opens a browser on the machine it runs on; when that is not in
+  front of the person, give them the address from `chaps status` instead.
 
 ## Before any option
 
@@ -143,15 +182,16 @@ chaps up
 chaps status
 ```
 
-Run `chaps status` every minute until the `dhis2` line says `up`; the first
-time that can take several minutes. Then:
+The first time, DHIS2 takes several minutes to start; `chaps status` shows
+its progress on the `dhis2` line. Then:
 
 ```sh
 chaps dhis2 connect
 chaps open dhis2
 ```
 
-`chaps dhis2 connect` takes about a minute: it connects DHIS2 to CHAP, installs
+`chaps dhis2 connect` waits for DHIS2 to finish starting, then takes about a
+minute: it connects DHIS2 to CHAP, installs
 the Modeling App and the Climate App, and prepares the data the Modeling App
 reads. It worked when DHIS2 opens in the browser, the login `admin` /
 `district` works, and **Modeling** is in the app menu (the grid icon at the top
@@ -304,16 +344,27 @@ More: [A DHIS2 on its own](./use-cases/dhis2-alone.md).
 
 ### 9. A particular DHIS2 version
 
-Needs 8 GB of memory for Docker. Pick the line for the version; each
-starts with an empty DHIS2 (only 2.42 has demo data, see option 8):
+Needs 8 GB of memory for Docker. Each version starts with an empty DHIS2
+(only 2.42 has demo data, see option 8). Run one of these, not all three:
+2.43,
 
 ```sh
 chaps init dhis --only dhis2 --dhis2-tag 2.43
+```
+
+2.41,
+
+```sh
 chaps init dhis --only dhis2 --dhis2-tag 2.41
+```
+
+or the next DHIS2, not released yet:
+
+```sh
 chaps init dhis --only dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master
 ```
 
-The last one is the next DHIS2, not released yet. Then:
+Then:
 
 ```sh
 cd dhis
@@ -464,21 +515,29 @@ More: [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md
 ### 16. My own DHIS2, with CHAP
 
 For someone who already runs DHIS2 on this machine (for DHIS2 or app work).
-Ask whether their DHIS2 runs in Docker; use the first `dhis2 use` line if it
-does not, the second if it does:
+Ask whether their DHIS2 runs in Docker. If it does not:
 
 ```sh
 chaps init mychap --models default
 cd mychap
 chaps up
 chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8700
+chaps dhis2 connect
+```
+
+If it runs in Docker, it reaches CHAP through `host.docker.internal`:
+
+```sh
+chaps init mychap --models default
+cd mychap
+chaps up
 chaps dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:8700
 chaps dhis2 connect
 ```
 
 It worked when `chaps dhis2 connect` finishes without `error:`. If it says it
-has no credentials, put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
-the `.env` file and run it again. On a DHIS2 chaps did not start it sets only
+has no credentials, put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or
+`DHIS2_API_TOKEN`) in the `.env` file and run it again. On a DHIS2 chaps did not start it sets only
 the route: if its `skipped:` lines say an app is missing, `chaps dhis2 apps`
 installs it, and `chaps dhis2 analytics` generates the tables the Modeling App
 reads.
@@ -504,7 +563,8 @@ chaps up
 chaps status
 ```
 
-Run `chaps status` every minute until the `dhis2` line says `up`, then:
+Then, once `chaps status` shows chap-core `up` (`chaps dhis2 connect` waits
+for DHIS2 by itself):
 
 ```sh
 chaps dhis2 connect
@@ -569,8 +629,6 @@ After `chaps down --volumes --yes` the folder can be deleted.
 Two options use the same ports, so only one runs at a time. When `chaps up`
 says a port is used by another deployment and asks whether to stop it, answer
 `y`: the other one keeps its data, and `chaps up` in its folder starts it
-again. If you run the commands yourself rather than the person typing them,
-there is no terminal to ask at, so `chaps up` stops with an `error:` instead;
-`chaps up --replace` is the same `y` given in advance. While the other one is
+again; `chaps up --replace` is the same `y` given in advance. While the other one is
 up, `chaps status` in this folder says this deployment's chap-core is not
 running and names the one that is.
