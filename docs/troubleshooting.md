@@ -504,6 +504,16 @@ image honours `PORT`, or run chaps' own chap-core
 (EWARS), and `chaps status` points here when such a model stays
 `running, not registered` while the chap-core elsewhere answers.
 
+## `registered, unreachable` / `chap-core cannot reach it at`
+
+`chaps status` asks chap-core's proxy for each registered model's `/health`
+(`/v2/services/<id>/run/health`). A model is `registered, unreachable` when
+that fails with a 5xx or no answer: the model registered, and chap-core cannot
+call it back at the URL it registered under. Every backtest and prediction
+through chap-core would fail the same way. The line under the table names the
+URL and what came back, and the fix depends on where chap-core runs; see the
+next entry.
+
 ## A model registers with an external chap-core, and its jobs fail to connect
 
 The model shows as `registered` in `chaps status`, but a job fails with a

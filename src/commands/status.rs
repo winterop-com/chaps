@@ -394,7 +394,10 @@ fn human(report: &StatusReport, out: &Out) -> String {
     // The verdict is the line someone scanning the screen should land on.
     text.push_str(&out.cmd(&closing_line(&report.models)));
     text.push('\n');
-    for hint in hints(&report.models, report.auth) {
+    let elsewhere = report
+        .chap_core_elsewhere
+        .then_some(report.api_url.as_str());
+    for hint in hints(&report.models, report.auth, elsewhere) {
         text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
     if let Some(hint) = connect_hint(report) {
@@ -479,7 +482,7 @@ fn state_cell(out: &Out, state: ModelState) -> String {
     match state {
         ModelState::Registered | ModelState::Up => out.ok(label),
         ModelState::RunningNotRegistered | ModelState::RunningNotAnswering => out.warn(label),
-        ModelState::NotRunning => out.bad(label),
+        ModelState::NotRunning | ModelState::Unreachable => out.bad(label),
         ModelState::Unmanaged => out.dim(label),
     }
 }
@@ -584,6 +587,7 @@ mod tests {
             auth: false,
             components: Vec::new(),
             dhis2_needs_connecting: false,
+            chap_core_elsewhere: false,
             unhealthy: Vec::new(),
         }
     }
@@ -755,7 +759,7 @@ mod tests {
              chapkit-ewars-model  registered  port 5001  12s ago\n\
              \n\
              1 model registered\n\
-             \u{20}\u{20}run `chaps models test --all` to check they can run\n"
+             \u{20}\u{20}run `chaps models test --all` to check it can run\n"
         );
     }
 
@@ -1026,6 +1030,7 @@ mod tests {
             registered_as: None,
             young: false,
             added_from: None,
+            unreachable: None,
         });
         let text = human(&report, &Out::default());
         let row = text

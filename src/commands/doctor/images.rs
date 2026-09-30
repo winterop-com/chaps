@@ -837,6 +837,7 @@ mod tests {
             auth: false,
             components: Vec::new(),
             dhis2_needs_connecting: false,
+            chap_core_elsewhere: false,
             unhealthy: Vec::new(),
         }
     }

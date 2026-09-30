@@ -10,6 +10,7 @@ fn row(id: &str, state: ModelState, reach: &str) -> ModelStatus {
         registered_as: None,
         young: false,
         added_from: None,
+        unreachable: None,
     }
 }
 
@@ -47,7 +48,7 @@ fn a_model_registered_under_its_own_id_is_told_to_take_that_id() {
     );
     assert_eq!(rows[1].registered_as, None);
 
-    let said = hints(&rows, false);
+    let said = hints(&rows, false, None);
     assert!(
         said[0].contains("its container registered as `chapkit-simple-multistep-model`"),
         "{said:?}"
@@ -944,6 +945,7 @@ fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) ->
         auth: false,
         components,
         dhis2_needs_connecting: false,
+        chap_core_elsewhere: false,
         unhealthy: Vec::new(),
     }
 }
@@ -1142,7 +1144,7 @@ fn every_problem_row_gets_its_own_hint() {
         NOW,
     );
     assert_eq!(
-        hints(&rows, false),
+        hints(&rows, false, None),
         vec![
             "chapkit-rwanda-malaria-bym-model: restart it with \
                  `chaps restart --all chapkit-rwanda-malaria-bym-model`"
@@ -1161,20 +1163,21 @@ fn every_problem_row_gets_its_own_hint() {
         &BTreeSet::new(),
         NOW,
     );
-    assert_eq!(hints(&rows, false), vec![TEST_HINT.to_string()]);
-    assert_eq!(hints(&rows, true), vec![TEST_HINT.to_string()]);
+    assert_eq!(hints(&rows, false, None), vec![TEST_HINT_ONE.to_string()]);
+    assert_eq!(hints(&rows, true, None), vec![TEST_HINT_ONE.to_string()]);
     assert!(TEST_HINT.contains("chaps models test --all"));
+    assert!(TEST_HINT_ONE.contains("check it can run"));
 
     // Nothing enabled at all has nothing to test either, and a
     // registration this project does not manage is not a model of ours.
-    assert!(hints(&[], false).is_empty());
+    assert!(hints(&[], false, None).is_empty());
     let stranger = model_rows(
         &[],
         &[registered("some-other-service", 3)],
         &BTreeSet::new(),
         NOW,
     );
-    assert!(hints(&stranger, false).is_empty());
+    assert!(hints(&stranger, false, None).is_empty());
 }
 
 /// A model added by hand that registered under another id gets the two
@@ -1190,7 +1193,7 @@ fn a_misnamed_manual_model_is_told_the_exact_commands() {
     rows[0].registered_as = Some("chapkit-minimalist-example-py".to_string());
     rows[0].added_from = Some(("my_model".to_string(), "my-model:dev".to_string()));
     assert_eq!(
-        hints(&rows, false),
+        hints(&rows, false, None),
         vec![
             "my-model: its container registered as `chapkit-minimalist-example-py`, the \
                  unmanaged row above; run `chaps models remove my_model`, then `chaps models \
@@ -1211,7 +1214,7 @@ fn a_model_that_just_started_is_told_to_wait_not_to_restart() {
         NOW,
     );
     rows[0].young = true;
-    let hint = &hints(&rows, true)[0];
+    let hint = &hints(&rows, true, None)[0];
     assert!(hint.contains("started under two minutes ago"), "{hint}");
     assert!(
         hint.contains("run `chaps status` again in a minute"),
@@ -1232,7 +1235,7 @@ fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
         &running(&["chapkit-ewars-model"]),
         NOW,
     );
-    let hint = &hints(&rows, true)[0];
+    let hint = &hints(&rows, true, None)[0];
     assert!(
         hint.starts_with("chapkit-ewars-model: restart it with "),
         "{hint}"
@@ -1245,7 +1248,7 @@ fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
         "{hint}"
     );
     // Without authentication there is no 401 to explain.
-    assert!(!hints(&rows, false)[0].contains("401"));
+    assert!(!hints(&rows, false, None)[0].contains("401"));
 }
 
 #[test]
@@ -1357,6 +1360,7 @@ fn report_helpers_describe_the_state() {
         auth: false,
         components: Vec::new(),
         dhis2_needs_connecting: false,
+        chap_core_elsewhere: false,
         unhealthy: Vec::new(),
     };
     assert!(!report.is_up());
@@ -1403,5 +1407,73 @@ fn a_row_serialises_with_its_state_as_a_string() {
     assert_eq!(
         serde_json::to_value(&rows).unwrap()[0]["state"],
         "not-running"
+    );
+}
+
+/// Option 10 of the AI page: a model registered as `localhost:5001` with a
+/// chap-core that runs in a container. The registration is fine, and every
+/// call chap-core makes back to the model is a 502.
+#[test]
+fn a_registered_model_chap_core_cannot_reach_is_a_problem_with_the_way_out() {
+    let registered = [
+        registered("chapkit-ewars-model", 5),
+        registered("auto-arima-chapkit", 5),
+    ];
+    let mut rows = model_rows(&enabled(), &registered, &BTreeSet::new(), NOW);
+    let asked = std::cell::RefCell::new(Vec::new());
+    mark_unreachable(&mut rows, &registered, &|id| {
+        asked.borrow_mut().push(id.to_string());
+        (id == "chapkit-ewars-model").then(|| "HTTP 502".to_string())
+    });
+    // Only the registered rows are asked: the others have nothing to proxy to.
+    assert_eq!(
+        *asked.borrow(),
+        vec!["chapkit-ewars-model", "auto-arima-chapkit"]
+    );
+    assert_eq!(rows[0].state, ModelState::Unreachable);
+    assert_eq!(rows[0].state.label(), "registered, unreachable");
+    assert!(rows[0].state.is_problem());
+    assert_eq!(rows[2].state, ModelState::Registered);
+
+    let elsewhere = hints(&rows, false, Some("http://localhost:8000"));
+    assert!(
+        elsewhere[0].starts_with(
+            "chapkit-ewars-model: chap-core cannot reach it at http://chapkit-ewars-model:8000 \
+             (HTTP 502)"
+        ),
+        "{elsewhere:?}"
+    );
+    assert!(
+        elsewhere[0].contains(
+            "`chaps components enable chap-core --url http://localhost:8000 --models-host \
+             host.docker.internal`"
+        ),
+        "{elsewhere:?}"
+    );
+    let own = hints(&rows, false, None);
+    assert!(
+        own[0].contains("`chaps logs chapkit-ewars-model`"),
+        "{own:?}"
+    );
+    assert!(!own[0].contains("--models-host"), "{own:?}");
+}
+
+#[test]
+fn the_closing_line_tells_unreachable_from_not_registered() {
+    let mut rows = model_rows(
+        &enabled()[..2],
+        &[registered("chapkit-ewars-model", 5)],
+        &BTreeSet::new(),
+        NOW,
+    );
+    rows[0].state = ModelState::Unreachable;
+    assert_eq!(
+        closing_line(&rows),
+        "1 of 2 models is not registered, and 1 is unreachable from chap-core."
+    );
+    rows.truncate(1);
+    assert_eq!(
+        closing_line(&rows),
+        "1 of 1 model is registered and unreachable from chap-core."
     );
 }

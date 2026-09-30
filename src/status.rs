@@ -103,6 +103,9 @@ pub struct StatusReport {
     ///
     /// [`Components::dhis2_needs_connecting`]: crate::components::Components::dhis2_needs_connecting
     pub dhis2_needs_connecting: bool,
+    /// Whether chap-core is one this deployment does not run, recorded with
+    /// `--chap-core-url` or `chaps components enable chap-core --url`.
+    pub chap_core_elsewhere: bool,
     /// Containers of this deployment that are failing, with the lines of their
     /// logs that say why.
     ///
@@ -311,6 +314,11 @@ pub enum ModelState {
     /// Without chap-core: its container is up and its `/health` did not
     /// answer, which is a service still starting or one that failed to.
     RunningNotAnswering,
+    /// chap-core knows it, and cannot reach it: its proxy to the model's own
+    /// `/health` failed. The usual cause is an address that works from where
+    /// the model registered and not from where chap-core runs, such as
+    /// `localhost` seen from inside chap-core's container.
+    Unreachable,
 }
 
 impl ModelState {
@@ -323,6 +331,7 @@ impl ModelState {
             ModelState::Unmanaged => "unmanaged",
             ModelState::Up => "up",
             ModelState::RunningNotAnswering => "running, not answering",
+            ModelState::Unreachable => "registered, unreachable",
         }
     }
 
@@ -333,6 +342,7 @@ impl ModelState {
             ModelState::RunningNotRegistered
                 | ModelState::NotRunning
                 | ModelState::RunningNotAnswering
+                | ModelState::Unreachable
         )
     }
 }
@@ -367,6 +377,56 @@ pub struct ModelStatus {
     /// it was added from, so a hint can spell out removing and adding it again.
     #[serde(skip)]
     pub added_from: Option<(String, String)>,
+    /// For an [`ModelState::Unreachable`] row: the URL it registered under
+    /// and what chap-core's proxy answered, for the hint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unreachable: Option<Unreachable>,
+}
+
+/// Why chap-core could not reach a model it has registered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Unreachable {
+    /// The URL the model registered under, which is where chap-core calls it.
+    pub registered_url: String,
+    /// What the proxy request came back with: `HTTP 502`, or the error.
+    pub answer: String,
+}
+
+/// The path, under chap-core, that proxies to a registered model's `/health`.
+pub fn proxied_health_path(service_id: &str) -> String {
+    format!("/v2/services/{service_id}/run{MODEL_HEALTH_PATH}")
+}
+
+/// Turn every registered row chap-core cannot reach into
+/// [`ModelState::Unreachable`].
+///
+/// A registration is a heartbeat the model sends; it says nothing about the
+/// way back. `probe` asks chap-core's proxy for the model's own `/health` and
+/// answers `Some(what came back)` when that failed in a way that means
+/// chap-core could not get to the model (a 5xx, or no answer), and `None`
+/// otherwise - a 404 included, since a chap-core without the proxy route
+/// cannot say either way.
+pub fn mark_unreachable(
+    rows: &mut [ModelStatus],
+    registered: &[RegisteredService],
+    probe: &dyn Fn(&str) -> Option<String>,
+) {
+    for row in rows
+        .iter_mut()
+        .filter(|row| row.state == ModelState::Registered)
+    {
+        if let Some(answer) = probe(&row.id) {
+            row.state = ModelState::Unreachable;
+            row.unreachable = Some(Unreachable {
+                registered_url: registered
+                    .iter()
+                    .find(|s| s.id == row.id)
+                    .map(|s| s.url.clone())
+                    .unwrap_or_default(),
+                answer,
+            });
+        }
+    }
 }
 
 /// Tie each unmanaged row to the model whose container it is, when it is one.
@@ -519,7 +579,21 @@ pub fn status(
         })
         .collect();
     let models = if chap_core {
-        model_rows(&enabled_models(project), &registered, running, now())
+        let mut rows = model_rows(&enabled_models(project), &registered, running, now());
+        mark_unreachable(&mut rows, &registered, &|id| match get(
+            &agent,
+            &base,
+            &proxied_health_path(id),
+            token,
+        ) {
+            Err(Failure::Other(error))
+                if error.starts_with("HTTP 5") || !error.starts_with("HTTP ") =>
+            {
+                Some(error)
+            }
+            _ => None,
+        });
+        rows
     } else {
         // Nothing registers anywhere, so each model is asked itself, on the
         // host port a model without chap-core always publishes.
@@ -559,6 +633,7 @@ pub fn status(
         auth: token.is_some(),
         components,
         dhis2_needs_connecting: project.state.components.dhis2_needs_connecting(),
+        chap_core_elsewhere: project.state.components.chap_core_external.is_some(),
         unhealthy: Vec::new(),
     }
 }
@@ -766,6 +841,7 @@ pub fn model_rows(
                 registered_as: None,
                 young: false,
                 added_from: None,
+                unreachable: None,
             }
         })
         .collect();
@@ -787,6 +863,7 @@ pub fn model_rows(
         registered_as: None,
         young: false,
         added_from: None,
+        unreachable: None,
     }));
     rows
 }
@@ -826,6 +903,7 @@ pub fn standalone_model_rows(
                 registered_as: None,
                 young: false,
                 added_from: None,
+                unreachable: None,
             }
         })
         .collect()
@@ -958,7 +1036,14 @@ pub fn exit_failure(report: &StatusReport) -> bool {
         .any(|component| component.state.is_problem());
     match report.api {
         ApiHealth::Down { .. } | ApiHealth::Rejected { .. } => true,
-        ApiHealth::Up { .. } => !report.missing.is_empty() || components_failing,
+        ApiHealth::Up { .. } => {
+            !report.missing.is_empty()
+                || components_failing
+                || report
+                    .models
+                    .iter()
+                    .any(|m| m.state == ModelState::Unreachable)
+        }
         // chap-core is not part of this deployment, so its API not answering is
         // the expected state rather than a failure.
         ApiHealth::Off => components_failing || report.models.iter().any(|m| m.state.is_problem()),
@@ -990,15 +1075,30 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
             ),
         };
     }
-    let problems = mine.iter().filter(|r| r.state.is_problem()).count();
+    let unreachable = mine
+        .iter()
+        .filter(|r| r.state == ModelState::Unreachable)
+        .count();
+    let problems = mine.iter().filter(|r| r.state.is_problem()).count() - unreachable;
     let noun = if total == 1 { "model" } else { "models" };
-    if problems == 0 {
-        // "all" is for more than one; a lone model is simply registered.
-        let all = if total == 1 { "" } else { "all " };
-        return format!("{all}{total} {noun} registered");
+    let verb = |n: usize| if n == 1 { "is" } else { "are" };
+    match (problems, unreachable) {
+        (0, 0) => {
+            // "all" is for more than one; a lone model is simply registered.
+            let all = if total == 1 { "" } else { "all " };
+            format!("{all}{total} {noun} registered")
+        }
+        (0, u) => format!(
+            "{u} of {total} {noun} {} registered and unreachable from chap-core.",
+            verb(u)
+        ),
+        (p, 0) => format!("{p} of {total} {noun} {} not registered.", verb(p)),
+        (p, u) => format!(
+            "{p} of {total} {noun} {} not registered, and {u} {} unreachable from chap-core.",
+            verb(p),
+            verb(u)
+        ),
     }
-    let verb = if problems == 1 { "is" } else { "are" };
-    format!("{problems} of {total} {noun} {verb} not registered.")
 }
 
 /// One hint per row that needs doing something about, in table order.
@@ -1021,6 +1121,9 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// way to know a model can work is to make it work.
 pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run";
 
+/// [`TEST_HINT`] for a deployment with one model.
+pub const TEST_HINT_ONE: &str = "run `chaps models test --all` to check it can run";
+
 /// The extra hint for a model that has not registered with a chap-core
 /// elsewhere: registering there needs the image to listen on the port it
 /// advertises, and an image that ignores `PORT` never gets past servicekit's
@@ -1039,7 +1142,9 @@ pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
         .collect()
 }
 
-pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
+/// `elsewhere` is the URL of a chap-core this deployment does not run, which
+/// changes what an unreachable model most likely means.
+pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<String> {
     let registration_key = if auth {
         concat!(
             "; if its log shows 401, chap-core is missing the registration key: ",
@@ -1091,15 +1196,49 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
                 "{}: read `chaps logs {}`; a model still starting answers in a moment",
                 row.id, row.id
             )),
+            ModelState::Unreachable => Some(unreachable_hint(row, elsewhere)),
             ModelState::Registered | ModelState::Unmanaged | ModelState::Up => None,
         })
         .collect();
     // Nothing to fix is not nothing to do: every model answered its
     // heartbeat, which is as far as `chaps status` can see.
     if hints.is_empty() && !mine.is_empty() {
-        return vec![TEST_HINT.to_string()];
+        let hint = if mine.len() == 1 {
+            TEST_HINT_ONE
+        } else {
+            TEST_HINT
+        };
+        return vec![hint.to_string()];
     }
     hints
+}
+
+/// The hint for a model chap-core has registered and cannot reach.
+///
+/// With a chap-core elsewhere the cause is nearly always the address: models
+/// register as `localhost:<port>` by default, which is this machine for a
+/// chap-core running as a process here and the chap-core container itself for
+/// one running in Docker. With chaps' own chap-core both sit on the compose
+/// network, so the model's log is where the answer is.
+fn unreachable_hint(row: &ModelStatus, elsewhere: Option<&str>) -> String {
+    let (url, answer) = row
+        .unreachable
+        .as_ref()
+        .map(|u| (u.registered_url.as_str(), u.answer.as_str()))
+        .unwrap_or_default();
+    match elsewhere {
+        Some(api) => format!(
+            "{id}: chap-core cannot reach it at {url} ({answer}); if your chap-core runs in a \
+             container, run `chaps components enable chap-core --url {api} --models-host \
+             host.docker.internal`, then `chaps up`",
+            id = row.id
+        ),
+        None => format!(
+            "{id}: chap-core cannot reach it at {url} ({answer}); read `chaps logs {id}` and \
+             `chaps logs chap`",
+            id = row.id
+        ),
+    }
 }
 
 /// Where a human reaches one model service from this machine.
