@@ -61,7 +61,8 @@ This file holds the rules that are not derivable from the code.
 
 - `make check` (fmt + clippy with `-D warnings`) and `make test` must be green
   before a change is reported done. Add tests with the change: unit tests next
-  to the code, CLI tests in `tests/cli.rs` against the routed local HTTP
+  to the code, CLI tests in `tests/cli/` (a module per concern, shared
+  helpers in `tests/cli/common/`) against the routed local HTTP
   server that stands in for the marketplace, GitHub, ghcr and chap-core
   (`--registry-url`, `CHAPS_GITHUB_API`, `CHAPS_GHCR_URL`).
 - Tests never depend on the machine: no fixed low ports (use 18xxx), no real

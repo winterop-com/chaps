@@ -1328,7 +1328,7 @@ mod tests {
     /// clap trims the rendered help and appends exactly one newline, so the
     /// docs line is the last thing it will print whatever `after_help` ends
     /// with. `main` adds the blank line where the help is printed instead, and
-    /// `tests/cli.rs` pins what the binary then prints.
+    /// `tests/cli/help.rs` pins what the binary then prints.
     #[test]
     fn clap_renders_the_help_flush_against_the_docs_line() {
         for rendered in [

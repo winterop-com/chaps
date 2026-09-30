@@ -29,10 +29,16 @@ cargo test
 ```
 
 Unit tests live next to the code they cover, in a `mod tests` at the bottom of
-each module. `tests/cli.rs` is the end-to-end suite: it runs the built binary
+each module. `tests/cli/` is the end-to-end suite: it runs the built binary
 against temporary directories, and every run is `--offline` with its own cache
 directory, so the embedded marketplace snapshot is what the CLI sees and no
-test touches the network or the developer's real cache.
+test touches the network or the developer's real cache. It is one test binary
+with a module per concern (`init.rs`, `models.rs`, `dhis2.rs`, ...);
+`common/` holds the sandbox every test runs in and the stand-in servers for
+GitHub, ghcr, the marketplace and chap-core, and `dhis2_stand_in.rs` the one
+for DHIS2. A new test goes in the module for its command, and a helper moves to
+`common/` once a second module needs it. Keep a module under about 1500 lines;
+past that, split it by concern.
 
 `chaps models add` and `chaps update --chap-tag` are the commands that cannot
 be tested that way: they resolve a repository, a release or a compose file over

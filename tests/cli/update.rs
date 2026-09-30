@@ -1,0 +1,289 @@
+use crate::common::*;
+#[cfg(unix)]
+use predicates::prelude::PredicateBooleanExt;
+
+#[test]
+fn update_needs_the_network_even_for_a_dry_run() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let before = read(&dir.join(".chaps/models.yaml"));
+
+    let mut update = sandbox.chap();
+    update.arg("-C").arg(&dir).args(["update", "--dry-run"]);
+    update
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--offline"))
+        .stderr(predicates::str::contains("registry"));
+    assert_eq!(read(&dir.join(".chaps/models.yaml")), before);
+}
+
+/// A deployment created with `--registry-url` keeps that registry: the flag is
+/// recorded in `.chaps/project.yaml`, and a later command without it used to
+/// fall back to the default marketplace - here, the snapshot built into the
+/// binary - so the custom registry's models were unknown.
+#[test]
+fn the_registry_a_deployment_was_created_with_is_the_one_it_uses() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = Hub::new().start();
+    let custom = format!("http://127.0.0.1:{port}/registry.yaml");
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success();
+
+    // No `--registry-url`: the recorded one, from the cache `init` filled.
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "registry", "show"],
+    ));
+    assert_eq!(report["url"], custom.as_str(), "{report}");
+
+    // The flag still wins for the run it is typed on.
+    let other = "http://127.0.0.1:1/other.yaml";
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "--registry-url", other, "registry", "show"],
+    ));
+    assert_ne!(report["url"], custom.as_str(), "{report}");
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "registry", "show", "--registry-url", other],
+    ));
+    assert_ne!(report["url"], custom.as_str(), "{report}");
+}
+
+#[cfg(unix)]
+#[test]
+fn update_switches_chap_core_to_a_moving_tag_and_back() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+
+    // Forwards, onto a tag that is ahead of every release: no confirmation,
+    // and the compose file of that branch comes with it.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chap-core  v2.3.1 -> dev"))
+        .stdout(predicates::str::contains("updated chap-core v2.3.1 -> dev"))
+        .stderr(predicates::str::contains("backup").not());
+
+    let moved = state(&dir);
+    assert_eq!(moved["chap_image_tag"], "dev");
+    assert_eq!(moved["chap_compose_source"]["tag"], "dev");
+    assert!(
+        moved["chap_compose_source"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/dhis2-chap/chap-core/dev/compose.ghcr.yml")
+    );
+    assert!(dir.join(".chaps/compose.chap-core.dev.yml").is_file());
+    assert!(
+        read(&dir.join(".chaps/compose.chap-core.dev.yml")).contains("CHAPS_TEST_REF: dev"),
+        "the fetched copy is the dev one"
+    );
+    // The rendered base follows it, and so does the line compose reads.
+    let base = read(&dir.join("compose.yml"));
+    assert!(base.contains("CHAPS_TEST_REF: dev"), "{base}");
+    assert!(
+        base.contains("# chap-core compose.ghcr.yml at dev\n"),
+        "{base}"
+    );
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("dev"));
+
+    // Asking for the tag it already runs changes nothing and says so.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "chap-core  dev  already the pin, nothing to switch",
+        ))
+        .stdout(predicates::str::contains("already up to date"));
+    assert_eq!(state(&dir)["chap_image_tag"], "dev");
+
+    // And back to the release, which is the direction that needs an answer.
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v2.3.1", "--yes"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "moving chap-core from dev to v2.3.1 can run an older schema against a database \
+             migrated by the newer one; run `chaps backup create` first",
+        ))
+        .stdout(predicates::str::contains("chap-core  dev -> v2.3.1"))
+        .stdout(predicates::str::contains("updated chap-core dev -> v2.3.1"));
+
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(state(&dir)["chap_compose_source"]["tag"], "v2.3.1");
+    assert!(read(&dir.join("compose.yml")).contains("CHAPS_TEST_REF: v2.3.1"));
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("v2.3.1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_backwards_switch_without_an_answer_is_refused() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v2.3.0"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "moving chap-core from v2.3.1 to v2.3.0",
+        ))
+        .stderr(predicates::str::contains("not a terminal"))
+        .stderr(predicates::str::contains("--yes"));
+    // Refused before anything was written.
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("v2.3.1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn update_refuses_a_chap_tag_that_was_never_released() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    let before = read(&dir.join("compose.yml"));
+    online_update(&sandbox, port, &bin, &["--chap-tag", "v9.9.9"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("chap-core has no release v9.9.9"))
+        .stderr(predicates::str::contains("chaps update --list-tags"));
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    assert_eq!(read(&dir.join("compose.yml")), before);
+
+    // The two ways of deciding chap-core's tag cannot both be given.
+    online_update(
+        &sandbox,
+        port,
+        &bin,
+        &["--chap-tag", "dev", "--pin-chap-core"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dry_run_switch_writes_nothing() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    let before = (
+        read(&dir.join("compose.yml")),
+        read(&dir.join(".chaps/project.yaml")),
+        sandbox.env(),
+    );
+
+    online_update(&sandbox, port, &bin, &["--dry-run", "--chap-tag", "dev"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chap-core  v2.3.1 -> dev"))
+        .stdout(predicates::str::contains(
+            "would update chap-core v2.3.1 -> dev; nothing written",
+        ));
+
+    assert_eq!(read(&dir.join("compose.yml")), before.0);
+    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+    assert_eq!(sandbox.env(), before.2);
+    assert!(!dir.join(".chaps/compose.chap-core.dev.yml").exists());
+
+    // A dry run backwards says what it would cost and still writes nothing,
+    // without an answer: there is nothing yet to confirm.
+    online_update(&sandbox, port, &bin, &["--dry-run", "--chap-tag", "v2.3.0"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "moving chap-core from v2.3.1 to v2.3.0",
+        ));
+    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+}
+
+#[test]
+fn list_tags_names_the_moving_tags_the_releases_and_the_pin() {
+    let sandbox = Sandbox::new();
+    let port = Hub::new().start();
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.0"])
+        .assert()
+        .success();
+
+    let mut cmd = sandbox.online(port);
+    cmd.args(["update", "--list-tags"]);
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(text.contains("TAG") && text.contains("KIND"), "{text}");
+    assert!(
+        text.contains("PUBLISHED") && text.contains("NOTE"),
+        "{text}"
+    );
+    for row in [
+        "dev     moving   2026-09-24  -",
+        "master  moving   2026-09-24  -",
+        "latest  moving   2026-09-21  -",
+        "v2.3.1  release  2026-09-21  newest",
+        "v2.3.0  release  2026-09-11  pinned",
+    ] {
+        assert!(text.contains(row), "missing row `{row}` in:\n{text}");
+    }
+    assert!(
+        text.contains(
+            "chap-core is pinned to v2.3.0; move it with `chaps update --chap-tag <TAG>`"
+        ),
+        "{text}"
+    );
+
+    // The same as JSON, which is the list a script reads.
+    let mut cmd = sandbox.online(port);
+    cmd.args(["--json", "update", "--list-tags"]);
+    let list = json_of(&mut cmd);
+    assert_eq!(list["pin"], "v2.3.0");
+    assert_eq!(list["releases_listed"], true);
+    let tags: Vec<&str> = list["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(tags, vec!["dev", "master", "latest", "v2.3.1", "v2.3.0"]);
+    assert_eq!(list["tags"][3]["newest"], true);
+    assert_eq!(list["tags"][4]["pinned"], true);
+
+    // It writes nothing: the listing is a question, not a change.
+    assert_eq!(state(&sandbox.project())["chap_image_tag"], "v2.3.0");
+}
+
+#[test]
+fn list_tags_works_offline_with_what_it_has() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--chap-tag", "v1.2.3"])
+        .assert()
+        .success();
+
+    let mut cmd = sandbox.chap();
+    cmd.arg("-C")
+        .arg(sandbox.project())
+        .args(["update", "--list-tags"]);
+    cmd.assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "--offline: the chap-core releases were not listed",
+        ))
+        .stdout(predicates::str::contains("dev     moving   -          -"))
+        .stdout(predicates::str::contains(
+            "v1.2.3  release  -          pinned",
+        ))
+        .stdout(predicates::str::contains("chap-core is pinned to v1.2.3"));
+
+    // `--dry-run` has nothing to say about a command that writes nothing.
+    let mut dry = sandbox.chap();
+    dry.arg("-C")
+        .arg(sandbox.project())
+        .args(["update", "--list-tags", "--dry-run"]);
+    dry.assert().success().stdout(predicates::str::contains(
+        "v1.2.3  release  -          pinned",
+    ));
+}
