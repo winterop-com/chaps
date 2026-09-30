@@ -647,3 +647,27 @@ fn an_error_is_reported_on_one_line() {
     assert_eq!(first_line("  one  "), "one");
     assert_eq!(first_line(""), "");
 }
+
+/// `localhost` as the chap-core address is wrong for a DHIS2 elsewhere and
+/// right for one running directly on this machine; a DHIS2 in Docker on this
+/// machine needs `host.docker.internal`, which the note names.
+#[test]
+fn a_loopback_chap_url_is_judged_by_where_dhis2_runs() {
+    let remote = loopback_note("https://dhis2.example.org", "http://localhost:8700").unwrap();
+    assert!(remote.contains("give `--chap-url` the address"), "{remote}");
+
+    let here = loopback_note("http://localhost:8080", "http://localhost:8700").unwrap();
+    assert!(
+        here.contains("is right for a DHIS2 running directly on this machine"),
+        "{here}"
+    );
+    assert!(
+        here.contains("`http://host.docker.internal:8700`"),
+        "{here}"
+    );
+
+    assert_eq!(
+        loopback_note("http://localhost:8080", "http://host.docker.internal:8700"),
+        None
+    );
+}

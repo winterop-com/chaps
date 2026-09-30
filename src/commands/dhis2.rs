@@ -1430,13 +1430,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
                 .to_string(),
         );
     }
-    if is_loopback(&recorded.chap_url) {
-        notes.push(format!(
-            "{} is this machine's own address, and DHIS2 resolves it to its own server; give \
-             `--chap-url` the address chap-core is served at on the network",
-            recorded.chap_url
-        ));
-    }
+    notes.extend(loopback_note(&recorded.url, &recorded.chap_url));
     if !project.state.components.has_chap_core_api() {
         notes.push(NO_CHAP_CORE.to_string());
     }
@@ -1484,6 +1478,32 @@ fn external_url(raw: &str) -> Result<String> {
         ));
     }
     Ok(url.to_string())
+}
+
+/// What a `--chap-url` on this machine's own address means for the DHIS2 it
+/// is recorded for.
+///
+/// A DHIS2 on another machine resolves `localhost` to itself, so the address
+/// is wrong there. A DHIS2 on this machine is either a process on it, for
+/// which `localhost` is exactly right, or a container, which needs
+/// `host.docker.internal`; chaps cannot tell which, so the note says both.
+fn loopback_note(dhis2_url: &str, chap_url: &str) -> Option<String> {
+    if !is_loopback(chap_url) {
+        return None;
+    }
+    Some(match is_loopback(dhis2_url) {
+        true => format!(
+            "{chap_url} is right for a DHIS2 running directly on this machine; one running in \
+             Docker reaches chap-core at `{}` instead",
+            chap_url
+                .replacen("localhost", "host.docker.internal", 1)
+                .replacen("127.0.0.1", "host.docker.internal", 1)
+        ),
+        false => format!(
+            "{chap_url} is this machine's own address, and DHIS2 resolves it to its own server; \
+             give `--chap-url` the address chap-core is served at on the network"
+        ),
+    })
 }
 
 /// Whether a URL names this machine, which is a different machine for DHIS2.
