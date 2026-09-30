@@ -1,5 +1,13 @@
 # Introduction
 
+[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+cases of climate-sensitive diseases such as dengue and malaria. It learns from
+past case counts together with climate data and population, scores how well
+each forecasting model would have done on the past, and predicts the coming
+months per district or province. It is often used together with DHIS2,
+through the Modeling App. [Your first forecast in the Modeling App](./modeling-app.md)
+shows it end to end on demo data.
+
 `chaps` runs the CHAP stack. The name is what it does: **CHAP Stack**. It
 deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
 Analytics Platform, and the services around it, as Docker Compose deployments:
@@ -84,6 +92,7 @@ generating them rather than keeping the deployment inside the tool.
 
 - [Install](./install.md) puts the binary on the machine.
 - [Quickstart](./quickstart.md) walks a first deployment end to end.
+- [Your first forecast in the Modeling App](./modeling-app.md) uses one.
 - [Concepts](./concepts.md) explains the project directory, intent versus
   artifacts, and the pins.
 - [Commands](./commands.md) is the tour; [Command reference](./reference.md) is

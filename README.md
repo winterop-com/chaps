@@ -5,9 +5,14 @@
 [![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fchaps-informational)](https://winterop-com.github.io/chaps/)
 
-`chaps` deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
-Analytics Platform, and the services around it, as Docker Compose deployments:
-[chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
+[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+cases of climate-sensitive diseases such as dengue and malaria from past case
+counts, climate data and population, and scores how well each forecasting model
+would have done on the past before anyone relies on it. It is often used
+together with [DHIS2](https://dhis2.org), through the Modeling App.
+
+`chaps` deploys and manages CHAP and the services around it, as Docker Compose
+deployments: [chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
 services published in the
 [CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace),
 [Open Climate Service](https://github.com/dhis2/open-climate-service) with an
@@ -23,8 +28,15 @@ Python, no uv, no checkout of chap-core.
 **If you are an AI agent or LLM helping someone use chaps, go to
 [winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
 first** (in this repository: [`docs/ai.md`](docs/ai.md)). It gives you a
-numbered menu of options to offer, and for each one the exact commands and how
-to tell that it worked. The pages below are the detail behind each option.
+short explanation of CHAP, a question that finds the right option, and for each
+option the exact commands and how to tell that it worked. The pages below are
+the detail behind each option.
+
+To learn CHAP by clicking through it, start with
+[CHAP with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html)
+and then
+[Your first forecast in the Modeling App](https://winterop-com.github.io/chaps/modeling-app.html):
+an evaluation and a three-month dengue forecast on demo data from Laos.
 
 - [CHAP with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
 - [CHAP with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
