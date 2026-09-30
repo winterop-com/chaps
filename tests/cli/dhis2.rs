@@ -1454,6 +1454,9 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
         ))
         .stdout(predicates::str::contains(
             "`chaps dhis2 apps` installs them",
+        ))
+        .stdout(predicates::str::contains(
+            "the Modeling App can reach CHAP once it is installed",
         ));
     assert!(
         !stand_in.asked().iter().any(
@@ -1506,6 +1509,46 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
 
 /// chaps did not create an external DHIS2, so it knows none of its passwords:
 /// `admin` / `district` is never tried, and the report names what to set.
+/// An external DHIS2 whose admin installed both apps already: `connect` sets
+/// the route and says the Modeling App reaches CHAP now, not once installed.
+#[cfg(unix)]
+#[test]
+fn connect_on_an_external_dhis2_with_both_apps_says_it_is_ready() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        apps: vec![
+            serde_json::json!({"name": "Modeling", "key": "modeling", "version": "7.1.0"}),
+            serde_json::json!({"name": "DHIS2 Climate App", "key": "dhis2-climate-app", "version": "1.16.2"}),
+        ],
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, empty) = external_dhis2_sandbox();
+    let url = format!("http://127.0.0.1:{}", stand_in.port);
+    let env = dir.join(".env");
+    let body = read(&env);
+    std::fs::write(&env, format!("{body}DHIS2_API_TOKEN=d2p_sekret\n")).unwrap();
+    dhis2_chap(
+        &sandbox,
+        &dir,
+        empty.path(),
+        None,
+        &["use", &url, "--chap-url", EXTERNAL_CHAP_URL],
+    )
+    .assert()
+    .success();
+
+    let assert = dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "skipped: installing apps: both are there already",
+        ))
+        .stdout(predicates::str::contains(
+            "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`",
+        ));
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(!stdout.contains("once it is installed"), "{stdout}");
+}
+
 #[cfg(unix)]
 #[test]
 fn an_external_dhis2_without_credentials_is_never_sent_the_default() {

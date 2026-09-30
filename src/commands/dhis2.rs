@@ -1039,10 +1039,18 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     // admin decides, with `chaps dhis2 apps` and `chaps dhis2 analytics`.
     if session.external().is_some() {
         let mut left = Vec::new();
-        match chap_apps(&session) {
-            Ok(apps) => left.extend(missing_apps(&apps)),
-            Err(err) => ctx.out.verbose(&format!("could not list the apps: {err}")),
-        }
+        // Only a listing that names both apps lets the report say the Modeling
+        // App can reach CHAP now rather than once it is installed.
+        let installed = match chap_apps(&session) {
+            Ok(apps) => {
+                left.extend(missing_apps(&apps));
+                left.is_empty()
+            }
+            Err(err) => {
+                ctx.out.verbose(&format!("could not list the apps: {err}"));
+                false
+            }
+        };
         let notes = external_left_alone(&left);
         let judgement = match route.verified {
             true => Judgement::Connected,
@@ -1051,11 +1059,15 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         let record = record_connect(ctx, &mut session.project, judgement)?;
         let report = Dhis2Report {
             instance: session.instance(),
-            next: match route.verified {
-                true => "the Modeling App can reach CHAP once it is installed; open DHIS2 with \
-                         `chaps open dhis2`"
+            next: match (route.verified, installed) {
+                (true, true) => {
+                    "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`"
+                        .to_string()
+                }
+                (true, false) => "the Modeling App can reach CHAP once it is installed; open \
+                                  DHIS2 with `chaps open dhis2`"
                     .to_string(),
-                false => "run `chaps dhis2 show` to see what is still missing".to_string(),
+                (false, _) => "run `chaps dhis2 show` to see what is still missing".to_string(),
             },
             route: Some(route),
             apps: None,
