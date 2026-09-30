@@ -122,6 +122,15 @@ pub struct StatusReport {
     /// that is unhealthy is why the API is not answering, and the reason is in
     /// its log rather than anywhere this probe can reach.
     pub unhealthy: Vec<crate::diagnose::Unhealthy>,
+    /// Whose chap-core answered on this deployment's port while this
+    /// deployment's own was not running, as the sentence that says so.
+    ///
+    /// Two deployments made with the same ports take turns on them, and the
+    /// one that is up answers for both. Its health and its registry say
+    /// nothing about this deployment, so [`StatusReport::api`] is reported
+    /// down and this names the deployment that did answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_elsewhere: Option<String>,
 }
 
 impl StatusReport {
@@ -500,12 +509,17 @@ pub struct RegisteredService {
 /// `Authorization: Bearer` on every request. It is needed for `/v2/services`
 /// on a protected deployment; the health and info paths are open either way,
 /// and a token they do not need does them no harm.
+///
+/// `own_api` says `api_url` is this deployment's own port and docker was asked
+/// which of its containers run, so an answer there while its `chap` container
+/// is not running can be recognised as another deployment's.
 pub fn status(
     project: &Project,
     api_url: &str,
     timeout: Duration,
     running: &BTreeSet<String>,
     token: Option<&str>,
+    own_api: bool,
 ) -> StatusReport {
     let base = api_url.trim_end_matches('/').to_string();
     let mut expected: Vec<String> = project
@@ -538,6 +552,25 @@ pub fn status(
             Err(Failure::Other(error)) => ApiHealth::Down { error },
         }
     };
+
+    // This deployment's chap-core cannot answer with its container stopped,
+    // so whatever did is another deployment on the same port, and nothing it
+    // says - health, version, registry - is about this one.
+    let mut api_elsewhere = None;
+    if own_api
+        && project.state.components.chap_core.enabled
+        && project.state.components.chap_core_external.is_none()
+        && !running.contains(crate::compose::API_SERVICE)
+        && matches!(api, ApiHealth::Up { .. })
+    {
+        // Which deployment it is takes docker, which is the caller's half:
+        // [`name_elsewhere`] puts the name in.
+        let line = answered_elsewhere(&base, project.api_port_in_effect().0, None);
+        api = ApiHealth::Down {
+            error: line.clone(),
+        };
+        api_elsewhere = Some(line);
+    }
 
     // Only ask for the service list when health already looked like
     // chap-core: otherwise we would wait out a second timeout to learn the
@@ -651,6 +684,44 @@ pub fn status(
             .as_ref()
             .map(|external| external.url.clone()),
         unhealthy: Vec::new(),
+        api_elsewhere,
+    }
+}
+
+/// Put the name of the deployment that answered into a report whose API
+/// answered from elsewhere, when another deployment on this machine publishes
+/// that port. `holder` is that deployment, as [`crate::ports::other_deployments`]
+/// finds it.
+pub fn name_elsewhere(report: &mut StatusReport, holder: Option<&crate::ports::Deployment>) {
+    if report.api_elsewhere.is_none() || holder.is_none() {
+        return;
+    }
+    let line = answered_elsewhere(&report.api_url, report.api_port, holder);
+    report.api = ApiHealth::Down {
+        error: line.clone(),
+    };
+    report.api_elsewhere = Some(line);
+}
+
+/// The sentence for an API that answered while this deployment's chap-core
+/// was not running: whose it is, when another deployment on this machine
+/// publishes the port, and the two ways to put this one there instead.
+pub fn answered_elsewhere(
+    base: &str,
+    port: u16,
+    holder: Option<&crate::ports::Deployment>,
+) -> String {
+    match holder {
+        Some(other) => format!(
+            "this deployment's chap-core is not running; {base} is {name} ({dir}) answering on \
+             the same port; stop it with `chaps -C {dir} down`, or run `chaps up --replace` here",
+            name = other.name(),
+            dir = other.dir.display(),
+        ),
+        None => format!(
+            "this deployment's chap-core is not running; something else answers on port {port}, \
+             and `chaps up` names it"
+        ),
     }
 }
 

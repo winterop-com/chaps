@@ -67,6 +67,25 @@ Something else holds the port: a dev server, a proxy, an older deployment.
 deployment works and not that the port is taken. Find the listener, or point
 the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 
+## `this deployment's chap-core is not running`
+
+```text
+CHAP is not running; start it with `chaps up`
+  this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `chaps -C /srv/first down`, or run `chaps up --replace` here
+```
+
+Two deployments made with the same ports take turns on them, and the one that
+is up answers on the port for both. `chaps status` asks docker whether this
+deployment's own `chap` container is running before it believes an answer on
+its port: when it is not, the answer is the other deployment's, and none of what
+it says (health, version, registered models) is about this one. A browser on
+`http://localhost:8700` shows the other deployment for the same reason.
+
+Stop the other one with the `chaps -C ... down` it names, or let this one take
+the ports with `chaps up --replace`. `chaps status --url` asks whatever URL it
+is given and skips this check. See
+[Several deployments on one machine](./use-cases/several-deployments.md).
+
 ## A model is running but not registered
 
 ```text

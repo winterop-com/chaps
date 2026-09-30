@@ -58,6 +58,38 @@ fn status_calls_dhis2_up_once_api_ping_answers() {
     );
 }
 
+/// Two deployments made with the same ports take turns on them, and the one
+/// that is up answers on the port for both. With this deployment's `chap`
+/// container not running, a chap-core answering on its port is someone
+/// else's: `chaps status` says this one is not running rather than `up`.
+#[cfg(unix)]
+#[test]
+fn status_does_not_claim_another_deployments_chap_core() {
+    let dhis2_port = dhis2_lookalike();
+    let api_port = chap_core_lookalike();
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &api_port.to_string()])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &dhis2_port.to_string()])
+        .assert()
+        .success();
+    let (_temp, bin) = docker_running("dhis2");
+    let mut cmd = chap_with_docker(&sandbox, &dir, &bin, &["status", "--timeout", "2"]);
+    cmd.env("CHAPS_NO_DOCKER_PROBE", "1");
+    let out = cmd.assert().failure().get_output().clone();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("chap-core   down"), "{text}");
+    assert!(
+        err.contains("this deployment's chap-core is not running"),
+        "{err}"
+    );
+}
+
 /// The gap this closes. A deployment can sit for good with chap-core `up`, the
 /// `dhis2` row `up` and the Modeling App unable to reach CHAP at all, because
 /// the only line that ever named `chaps dhis2 connect` was printed minutes
@@ -81,7 +113,9 @@ fn status_names_the_connect_a_running_dhis2_has_not_had() {
         .components(&["enable", "dhis2", "--port", &dhis2_port.to_string()])
         .assert()
         .success();
-    let (_temp, bin) = docker_running("dhis2");
+    // chap-core's own container running too: the lookalike on its port is
+    // then this deployment's chap-core, not another one's.
+    let (_temp, bin) = docker_running_all(&["chap", "dhis2"]);
     let status = |sandbox: &Sandbox| {
         let mut cmd = chap_with_docker(sandbox, &dir, &bin, &["status", "--timeout", "2"]);
         cmd.env("CHAPS_NO_DOCKER_PROBE", "1");

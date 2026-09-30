@@ -72,7 +72,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         Duration::from_secs(args.timeout),
         &running,
         token.as_deref(),
+        args.url.is_none() && containers.is_some(),
     );
+    if report.api_elsewhere.is_some() {
+        let port = report.api_port;
+        let holder = crate::ports::other_deployments(&project.dir, &docker::compose_ls_json)
+            .into_iter()
+            .find(|other| other.holds(port));
+        crate::status::name_elsewhere(&mut report, holder.as_ref());
+    }
     // Which unmanaged row is one of our own models under another name is the
     // caller's to settle as well: it takes the container ids.
     if let Some(containers) = containers.as_deref() {
@@ -166,6 +174,11 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // chap-core. Under --json the report already carries it, and a second
         // document on stdout would break single-document parsers.
         ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
+        // Not "not responding": something did respond, and the sentence says
+        // whose it was and how to swap.
+        ApiHealth::Down { .. } if report.api_elsewhere.is_some() => Err(anyhow::anyhow!(
+            report.api_elsewhere.clone().unwrap_or_default()
+        )),
         ApiHealth::Down { error } => {
             Err(anyhow::anyhow!(down_message(&report, error, chap_starting)))
         }
@@ -240,12 +253,20 @@ fn nothing_running_line(report: &StatusReport) -> &'static str {
 /// out: nothing can have registered with a chap-core that has never started.
 fn not_running(report: &StatusReport, out: &Out) -> String {
     let line = nothing_running_line(report);
+    // The port answering anyway is the one thing worth adding: it is why a
+    // browser on it shows a CHAP while this says none is running.
+    let elsewhere = report
+        .api_elsewhere
+        .as_deref()
+        .map(|why| format!("\n  {}", out.backticks(why)))
+        .unwrap_or_default();
     if report.components.is_empty() {
-        return out.backticks(line);
+        return format!("{}{elsewhere}", out.backticks(line));
     }
     let mut text = service_lines(report, out);
     text.push('\n');
     text.push_str(&out.cmd(line));
+    text.push_str(&elsewhere);
     text.push('\n');
     text
 }
@@ -634,6 +655,7 @@ mod tests {
             api_starting: false,
             dhis2_external: None,
             unhealthy: Vec::new(),
+            api_elsewhere: None,
         }
     }
 

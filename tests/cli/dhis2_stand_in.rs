@@ -80,14 +80,27 @@ pub(crate) fn chap_core_lookalike() -> u16 {
 /// port, which is the whole of what the row is made of.
 #[cfg(unix)]
 pub(crate) fn docker_running(service: &str) -> (TempDir, PathBuf) {
+    docker_running_all(&[service])
+}
+
+/// [`docker_running`] for several services at once, one running container
+/// each.
+#[cfg(unix)]
+pub(crate) fn docker_running_all(services: &[&str]) -> (TempDir, PathBuf) {
     let temp = tempfile::tempdir().expect("a directory for the fake docker");
     let bin = temp.path().join("bin");
     std::fs::create_dir_all(&bin).expect("a bin directory");
+    let lines: String = services
+        .iter()
+        .map(|service| {
+            format!("{{\"Service\":\"{service}\",\"State\":\"running\",\"Health\":\"healthy\"}}\\n")
+        })
+        .collect();
     let script = format!(
         "#!/bin/sh\n\
          case \"$*\" in\n\
          *' ps -a --format json'*) \
-           printf '{{\"Service\":\"{service}\",\"State\":\"running\",\"Health\":\"healthy\"}}\\n'; \
+           printf '{lines}'; \
            exit 0;;\n\
          esac\n\
          exit 1\n",

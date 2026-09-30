@@ -948,6 +948,7 @@ fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) ->
         chap_core_elsewhere: false,
         api_starting: false,
         dhis2_external: None,
+        api_elsewhere: None,
         unhealthy: Vec::new(),
     }
 }
@@ -1384,6 +1385,7 @@ fn report_helpers_describe_the_state() {
         chap_core_elsewhere: false,
         api_starting: false,
         dhis2_external: None,
+        api_elsewhere: None,
         unhealthy: Vec::new(),
     };
     assert!(!report.is_up());
@@ -1499,4 +1501,97 @@ fn the_closing_line_tells_unreachable_from_not_registered() {
         closing_line(&rows),
         "1 of 1 model is registered and unreachable from chap-core."
     );
+}
+
+/// A deployment with chap-core, publishing its API on `port`.
+fn chap_project(port: u16) -> Project {
+    Project {
+        dir: std::path::PathBuf::from("/tmp/chapx"),
+        state: crate::project::ProjectState {
+            api_port: port,
+            ..Default::default()
+        },
+    }
+}
+
+/// Two deployments made with the same ports take turns on them. With this
+/// one's `chap` container stopped, what answers on its port is the other
+/// one's chap-core, and nothing it says - health, registry - is this
+/// deployment's: it is reported down, the registry is never asked, and the
+/// line says why.
+#[test]
+fn an_api_answering_while_this_chap_core_is_stopped_is_another_deployments() {
+    let stand_in = stand_in(|path| match path {
+        HEALTH_PATH => (200, r#"{"status":"success","message":"healthy"}"#),
+        _ => (200, SERVICES),
+    });
+    let project = chap_project(stand_in.port);
+    let url = format!("http://localhost:{}", stand_in.port);
+    let report = status(
+        &project,
+        &url,
+        Duration::from_millis(500),
+        &BTreeSet::new(),
+        None,
+        true,
+    );
+    assert!(
+        matches!(report.api, ApiHealth::Down { .. }),
+        "{:?}",
+        report.api
+    );
+    assert!(report.registered.is_empty());
+    assert_eq!(stand_in.asked(), vec![HEALTH_PATH.to_string()]);
+    let line = report
+        .api_elsewhere
+        .clone()
+        .expect("the line that says why");
+    assert!(
+        line.starts_with("this deployment's chap-core is not running"),
+        "{line}"
+    );
+
+    // With the deployment that holds the port found, the line names it and
+    // the command that stops it.
+    let mut named = report;
+    let other = crate::ports::Deployment {
+        dir: std::path::PathBuf::from("/srv/first"),
+        claims: Vec::new(),
+    };
+    name_elsewhere(&mut named, Some(&other));
+    let line = named.api_elsewhere.expect("still set");
+    assert!(line.contains("is first (/srv/first) answering"), "{line}");
+    assert!(line.contains("`chaps -C /srv/first down`"), "{line}");
+    assert!(line.contains("`chaps up --replace`"), "{line}");
+}
+
+/// The same answer with this deployment's `chap` running is its own, and
+/// `--url` (which passes `own_api: false`) asks about whatever it names.
+#[test]
+fn an_api_answering_while_this_chap_core_runs_is_its_own() {
+    let stand_in = stand_in(|path| match path {
+        HEALTH_PATH => (200, r#"{"status":"success","message":"healthy"}"#),
+        _ => (200, SERVICES),
+    });
+    let project = chap_project(stand_in.port);
+    let url = format!("http://localhost:{}", stand_in.port);
+    for (running, own) in [
+        (running(&[crate::compose::API_SERVICE]), true),
+        (BTreeSet::new(), false),
+    ] {
+        let report = status(
+            &project,
+            &url,
+            Duration::from_millis(500),
+            &running,
+            None,
+            own,
+        );
+        assert!(
+            matches!(report.api, ApiHealth::Up { .. }),
+            "{:?}",
+            report.api
+        );
+        assert_eq!(report.api_elsewhere, None);
+    }
 }
