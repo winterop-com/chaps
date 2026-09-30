@@ -19,8 +19,12 @@ chap-core is and where chap-core can call it back:
 export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8700/v2/services/$register'
 export SERVICEKIT_HOST=host.docker.internal
 export SERVICEKIT_PORT=8001
-uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001
+uv run uvicorn main:app --host 0.0.0.0 --port 8001
 ```
+
+`main:app` is the app in a `main.py` at the top of the checkout, which is the
+layout chapkit models use; a model whose `main.py` is inside a package runs as
+`PACKAGE.main:app` instead.
 
 - `SERVICEKIT_ORCHESTRATOR_URL` is where the model registers. It runs on this
   machine, so `localhost` and the API port reach chap-core. The single quotes
@@ -33,9 +37,9 @@ uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 
-It worked when `chaps status` lists the model's service id as `registered`.
-It shows up as `unmanaged`, because this deployment did not start it; that is
-expected. From there chap-core uses it like any other model, and
+It worked when `chaps status` lists the model's service id with a recent LAST
+PING. Its state is `unmanaged`, because this deployment did not start it; that
+is expected. From there chap-core uses it like any other model, and
 `chaps models test` can run it.
 
 If the deployment has a registration key (`chaps auth show` says so), export

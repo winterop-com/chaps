@@ -227,18 +227,22 @@ cd mychap
 chaps up
 ```
 
-Then, in the model's folder (replace `my_model` with the model's Python
-package, and keep the single quotes):
+Then, in the model's folder (keep the single quotes):
 
 ```sh
 export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8700/v2/services/$register'
 export SERVICEKIT_HOST=host.docker.internal
 export SERVICEKIT_PORT=8001
-uv run uvicorn my_model.main:app --host 0.0.0.0 --port 8001
+uv run uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 
-It worked when `chaps status`, run in the `mychap` folder, lists the model as
-`registered` (it is marked `unmanaged`, which is expected).
+`main:app` is right for a model with `main.py` at the top of its folder, which
+is how chapkit models are laid out. If `main.py` is inside a package folder
+instead, use `PACKAGE.main:app`.
+
+It worked when `chaps status`, run in the `mychap` folder, lists the model with
+the state `unmanaged` and a LAST PING of a few seconds (unmanaged because chaps
+did not start it, which is expected).
 
 More: [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
 
