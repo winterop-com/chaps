@@ -45,6 +45,10 @@ It worked when `chaps doctor` shows no `fail` lines. On an Apple Silicon Mac a
 
 Every option below creates a new folder. Tell the person to run the commands
 from the folder where they want it created, and then to `cd` into it as shown.
+Several options use the same folder name (`mychap`): if one from an earlier
+option is still there, `chaps init` says it `already contains a chaps project`.
+Either pick another name in the `chaps init` line (and the `cd`), or remove the
+old one first as shown in [Every option: stop, start, remove](#every-option-stop-start-remove).
 
 ## The options
 
