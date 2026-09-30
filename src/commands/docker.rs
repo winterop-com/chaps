@@ -125,6 +125,35 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         Pre::Skip(code) => std::process::exit(code),
     };
 
+    // A config file edited under a running service is the one change compose
+    // cannot see, so those services are recreated first, on their own; the
+    // plain run after it then handles whatever else moved.
+    if let DockerCmd::Restart(args) = cmd
+        && !args.all
+    {
+        let edited = edited_configs(&project, &before, &args.services);
+        if !edited.is_empty() {
+            note(
+                ctx,
+                &ctx.out.backticks(&format!(
+                    "recreating {} to apply its edited config file",
+                    edited.join(", ")
+                )),
+            );
+            let mut forced = vec![
+                "up".to_string(),
+                "-d".to_string(),
+                "--no-deps".to_string(),
+                "--force-recreate".to_string(),
+            ];
+            forced.extend(edited);
+            let code = docker::run_compose(&project, &forced)?;
+            if code != 0 {
+                return Err(docker_failed(code, unasked));
+            }
+        }
+    }
+
     let args = args_for(cmd, Shell::detect(ctx.out.json));
     // `up -d` and `restart` are the two that can end on "dependency failed to
     // start", and compose says which container that was on stderr and nowhere
@@ -536,6 +565,50 @@ fn report_what_changed(
     }
 }
 
+/// The config files a component reads once, at startup, from a bind mount,
+/// by the service that reads them.
+const MOUNTED_CONFIGS: [(&str, &str, &str); 2] = [
+    (
+        crate::compose::DHIS2_SERVICE,
+        crate::components::DHIS2_DIR,
+        crate::components::DHIS2_CONFIG_FILE,
+    ),
+    (
+        crate::compose::OCS_SERVICE,
+        crate::components::OCS_DIR,
+        crate::components::OCS_CONFIG_FILE,
+    ),
+];
+
+/// The running services whose mounted config file was written after their
+/// container was created, among `asked` (every service when it is empty).
+///
+/// Compose compares the compose files, and a bind-mounted file is not in them:
+/// after an edit to `dhis2/dhis.conf` a plain `docker compose up -d` finds
+/// nothing to do, while the service is still running on what it read at
+/// startup. These are the services `restart` recreates anyway.
+pub fn edited_configs(
+    project: &Project,
+    before: &[docker::Container],
+    asked: &[String],
+) -> Vec<String> {
+    MOUNTED_CONFIGS
+        .iter()
+        .filter(|(service, ..)| asked.is_empty() || asked.iter().any(|a| a == service))
+        .filter_map(|(service, dir, file)| {
+            let container = before.iter().find(|c| c.service == *service)?;
+            let created = container.created_unix()?;
+            let written = std::fs::metadata(project.dir.join(dir).join(file))
+                .and_then(|meta| meta.modified())
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            (written > created).then(|| service.to_string())
+        })
+        .collect()
+}
+
 /// What `chaps up` says in a deployment that has nothing in it.
 pub const NOTHING_TO_START: &str = "nothing to start: this deployment has no components and no \
     models; add one with `chaps models add URL`, `chaps models enable ID` or `chaps components \
@@ -671,7 +744,10 @@ pub fn restart_summary(
 ) -> String {
     let (recreated, unchanged) = docker::diff_containers(before, after);
     if recreated.is_empty() {
-        return out.backticks("nothing needed a restart");
+        return out.backticks(
+            "nothing needed a restart: every container matches its files; `chaps restart --all \
+             SERVICE` recreates one anyway",
+        );
     }
     let head = format!(
         "{} {}",
@@ -1429,7 +1505,8 @@ mod tests {
         // Nothing moved, which is an answer and not a failure.
         assert_eq!(
             restart_summary(&Out::default(), &before, &before),
-            "nothing needed a restart"
+            "nothing needed a restart: every container matches its files; `chaps restart --all \
+             SERVICE` recreates one anyway"
         );
     }
 
@@ -1635,6 +1712,38 @@ mod tests {
         components.set_enabled(crate::components::Component::ChapCore, false);
         let standalone = up_summary(&Out::default(), &[], &after, &components);
         assert!(!standalone.contains("chaps dhis2 connect"), "{standalone}");
+    }
+
+    /// A mounted config written after its container was created is the edit
+    /// compose cannot see; one written before it, or a service not asked for,
+    /// is left to the plain run.
+    #[test]
+    fn a_config_edited_after_its_container_started_is_recreated() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = Project {
+            dir: temp.path().to_path_buf(),
+            state: Default::default(),
+        };
+        std::fs::create_dir_all(temp.path().join("dhis2")).unwrap();
+        std::fs::write(temp.path().join("dhis2/dhis.conf"), "x").unwrap();
+        let container = |service: &str, created_at: &str| docker::Container {
+            service: service.to_string(),
+            created_at: created_at.to_string(),
+            ..Default::default()
+        };
+        // Created long before the file was written: edited since.
+        let old = [container("dhis2", "2020-01-01 00:00:00 +0000 UTC")];
+        assert_eq!(edited_configs(&project, &old, &[]), vec!["dhis2"]);
+        assert_eq!(
+            edited_configs(&project, &old, &["dhis2".to_string()]),
+            vec!["dhis2"]
+        );
+        assert!(edited_configs(&project, &old, &["ocs".to_string()]).is_empty());
+        // Created after it: nothing to apply.
+        let new = [container("dhis2", "2099-01-01 00:00:00 +0000 UTC")];
+        assert!(edited_configs(&project, &new, &[]).is_empty());
+        // Not running: nothing to recreate.
+        assert!(edited_configs(&project, &[], &[]).is_empty());
     }
 
     /// `down --volumes` takes `dhis2_db` with it, and the next `chaps up`

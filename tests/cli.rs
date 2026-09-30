@@ -4903,9 +4903,7 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
         .stdout(predicates::str::contains("read_only: true"))
         // Not a plain `chaps restart`: the config is a bind mount, so compose
         // compares nothing that changed and recreates nothing.
-        .stdout(predicates::str::contains(
-            "`chaps restart --all ocs` applies it",
-        ));
+        .stdout(predicates::str::contains("`chaps restart ocs` applies it"));
 
     // The overlay: exposed on the compose network, published nowhere.
     let svc = yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"].clone();
@@ -9601,12 +9599,12 @@ fn dhis2_route_names_the_allowlist_and_the_restart_that_applies_it() {
             "http://chap:8000/** has to be one of them",
         ))
         .stderr(predicates::str::contains("`dhis2/dhis.conf`"))
-        // `--all`, because `dhis.conf` is a bind mount: a plain restart
-        // recreates nothing and DHIS2 keeps the config it read at startup.
-        .stderr(predicates::str::contains("`chaps restart --all dhis2`"));
+        // A plain restart applies it: `restart` recreates a service whose
+        // mounted config changed since it started.
+        .stderr(predicates::str::contains("run `chaps restart dhis2`"));
 
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
-    assert!(!stderr.contains("line in `dhis2/dhis.conf` and run `chaps restart dhis2`"));
+    assert!(!stderr.contains("--all"), "{stderr}");
     // And not the passthrough it used to be.
     assert!(!stderr.contains("answered HTTP 409"), "{stderr}");
     assert!(

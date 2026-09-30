@@ -1083,19 +1083,14 @@ pub fn route_run_path(path: &str) -> String {
 ///
 /// DHIS2 42 and later default `route.remote_servers_allowed` to `https://*` and
 /// then refuse an `http://` target. The scaffolded `dhis2/dhis.conf` already
-/// permits `http://chap:8000`, so this only happens on an instance whose file
-/// was narrowed or replaced - which is exactly the failure that otherwise looks
-/// like nothing at all.
+/// permits every http and https target, so this only happens on an instance
+/// whose file was narrowed or replaced - which is exactly the failure that
+/// otherwise looks like nothing at all.
 ///
-/// **`--all`, and for the reason `ocs/climate-service.yaml` needs it too** - the
-/// one `READ_ONLY_APPLY` in [`crate::commands::components`] spells out. A plain
-/// `chaps restart` is `docker compose up -d`, and compose recreates only what no
-/// longer matches the compose files; `dhis.conf` is a bind mount, so an edit to
-/// it changes nothing compose compares. The new text is already inside the
-/// container and DHIS2 simply read the old one at startup. Measured on a live
-/// 2.42.6: after editing the line, `chaps restart dhis2` answers `nothing needed
-/// a restart` and the route is refused again, where `chaps restart --all dhis2`
-/// force-recreates the one service and the write goes through.
+/// A plain `chaps restart dhis2` applies the edit: `dhis.conf` is a bind mount
+/// compose does not compare, so `restart` recreates a service whose mounted
+/// config is newer than its container itself (see
+/// [`crate::commands::docker::edited_configs`]).
 ///
 /// An external DHIS2 has its own `dhis.conf`, which is its operator's and not
 /// in this directory, so that one is only named.
@@ -1104,8 +1099,8 @@ pub fn allowlist_hint(target: &str, deployed: bool) -> String {
         true => format!(
             "DHIS2 refused the route: version 42 and later only allow the targets \
              `route.remote_servers_allowed` lists, and {target} has to be one of them; check \
-             that line in `dhis2/dhis.conf` and run `chaps restart --all dhis2` (a plain `chaps \
-             restart` does not: the file is a bind mount, so compose sees nothing to recreate)"
+             that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it \
+             to read the file again"
         ),
         false => format!(
             "DHIS2 refused the route: version 42 and later only allow the targets \
@@ -2122,13 +2117,10 @@ mod tests {
         let text = allowlist_hint("http://chap:8000/**", true);
         assert!(text.contains("`dhis2/dhis.conf`"), "{text}");
         assert!(text.contains("route.remote_servers_allowed"), "{text}");
-        // `--all`, because `dhis.conf` is a bind mount: a plain restart is
-        // `up -d`, compose finds nothing to recreate, and DHIS2 goes on running
-        // the config it read at startup. The same trap as
-        // `ocs/climate-service.yaml`, and the same way out.
-        assert!(text.contains("`chaps restart --all dhis2`"), "{text}");
-        assert!(!text.contains("run `chaps restart dhis2`"), "{text}");
-        assert!(text.contains("bind mount"), "{text}");
+        // A plain restart applies it: `restart` recreates a service whose
+        // mounted config changed, which compose alone would not.
+        assert!(text.contains("run `chaps restart dhis2`"), "{text}");
+        assert!(!text.contains("--all"), "{text}");
     }
 
     /// Measured, not guessed. The three phrases this used to look for -

@@ -601,7 +601,7 @@ simply leave their forms out. This is how a public instance runs.
 
 ```sh
 chaps components enable ocs --read-only
-chaps restart --all ocs
+chaps restart ocs
 chaps components enable ocs --read-write   # and back again
 ```
 
@@ -616,13 +616,10 @@ ocs  up  http://localhost:8790   read-only
 ```
 
 OCS reads the file and not the record, and it reads it once at startup, so the
-instance has to be recreated. **`chaps restart --all ocs`, not a plain
-`chaps restart`**: the plain form is `docker compose up -d`, which recreates
-only what no longer matches the compose files, and the instance config is a bind
-mount - the new text is already visible inside the container, and there is
-nothing for compose to compare. `--all` with the service named forces that one
-service to be recreated and leaves chap-core and the models alone. The note
-`chaps components enable` prints says as much.
+instance has to be recreated. The instance config is a bind mount, which compose
+does not compare, so `chaps restart` checks the file itself: written after the
+`ocs` container was created, it recreates that one service and leaves chap-core
+and the models alone. The note `chaps components enable` prints says as much.
 
 Check it after every deploy. `read_only` is an ordinary config key, so a build
 of open-climate-service that predates read-only mode ignores it silently and
@@ -710,12 +707,11 @@ chaps up      # syncs first, so the mount is rendered and then ocs is recreated
 the mount is in the file, the running container no longer matches it and compose
 recreates it.
 
-**This is the one place where `chaps restart --all ocs` is the wrong reach.**
-That form belongs to [`ocs/climate-service.yaml`](#read-only-instances), and for
-the opposite reason: that file is a bind mount, so an edit to it is already
-visible inside the container and there is nothing to re-render - the only
-problem is that OCS read the old text at startup, which a forced recreate of
-that one service fixes. A directory that did not exist at render time is the
+**This is the one place where `chaps restart ocs` is the wrong reach.** That
+belongs to [`ocs/climate-service.yaml`](#read-only-instances), and for the
+opposite reason: that file is a bind mount, so an edit to it is already visible
+inside the container and there is nothing to re-render - the only problem is
+that OCS read the old text at startup, which recreating that one service fixes. A directory that did not exist at render time is the
 other case entirely: the compose file itself is out of date, and no amount of
 recreating mounts a directory it does not mention.
 

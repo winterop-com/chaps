@@ -594,10 +594,11 @@ warn  compose files   out of date with .chaps/ (2 to write, 5 unchanged, 0 to re
 Two files, because the mount in `compose.ocs.yml` and the `plugins_dir` key in
 `ocs/climate-service.yaml` are written by the same sync.
 
-`chaps restart --all ocs` is the right command for a change to
+`chaps restart ocs` is the right command for a change to
 `ocs/climate-service.yaml`, and for the opposite reason: that file is a bind
 mount, so its new text is already inside the container and the compose files have
-not changed - all that is wrong is that OCS read the old text at startup. A
+not changed - all that is wrong is that OCS read the old text at startup, and
+`restart` recreates a service whose mounted config is newer than its container. A
 directory that did not exist when the compose file was rendered is the other
 case: the file itself is out of date, and recreating a container cannot mount
 what the file does not mention. See
@@ -767,8 +768,7 @@ order worth checking:
    scaffolded `dhis2/dhis.conf` already permits every http and https target, so
    this is an instance whose file was narrowed or replaced; DHIS2 refuses the write outright
    in that case and the error names the line. After editing it,
-   `chaps restart --all dhis2` - a plain `chaps restart` does not apply it, and
-   says [nothing needed a restart](#an-edit-to-dhis2dhisconf-changes-nothing-after-a-restart).
+   `chaps restart dhis2` applies it.
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
 
@@ -776,38 +776,36 @@ order worth checking:
 
 You corrected a value in `dhis2/dhis.conf` - `route.remote_servers_allowed`,
 a `connection.*` line, one of the commented `server.https` proxy lines - ran
-`chaps restart dhis2`, and DHIS2 behaves exactly as it did before. The restart
-said so at the time:
+`chaps restart dhis2`, and it said:
 
 ```text
-nothing needed a restart
+nothing needed a restart: every container matches its files; `chaps restart --all SERVICE` recreates one anyway
 ```
 
-Nothing failed, and the file is not being ignored. `chaps restart` is
-`docker compose up -d`, which recreates only what no longer matches the compose
-files, and `dhis.conf` is a **bind mount**: the new text is already inside the
-container, so there is nothing for compose to compare and no container to
-recreate. DHIS2 read the file once, at startup, and is still running on what it
-read then.
+`dhis.conf` is a **bind mount**, which compose does not compare, so `chaps
+restart` looks at the file itself and recreates `dhis2` when the file was
+written after its container was created (`recreating dhis2 to apply its edited
+config file`). This line means the file's modification time is older than the
+container: a copy or a restore that kept the original time. Recreate it
+regardless:
 
 ```sh
 chaps restart --all dhis2
 ```
 
-`--all` with the service named force-recreates that one container and leaves
-chap-core and the models alone. DHIS2 migrates before it serves a request again,
-so it is not back when compose returns; the next `chaps dhis2` command waits for
-it. Then re-run whatever reported the problem:
+DHIS2 migrates before it serves a request again, so it is not back when compose
+returns; the next `chaps dhis2` command waits for it. Then re-run whatever
+reported the problem:
 
 ```sh
 chaps dhis2 route
 ```
 
-The same trap, for the same reason, catches `ocs/climate-service.yaml` - see
+`ocs/climate-service.yaml` is handled the same way - see
 [Read-only instances](./components.md#read-only-instances) and
 [`dhis2/dhis.conf`](./dhis2.md#applying-an-edit). It is not the same as
 [An OCS dataset plugin does not appear after a restart](#an-ocs-dataset-plugin-does-not-appear-after-a-restart),
-where the compose file itself is out of date: `--all` cannot fix that one and
+where the compose file itself is out of date: a restart cannot fix that one and
 `chaps up` can.
 
 ## `the App Hub publishes no version of ... that DHIS2 ... can run`

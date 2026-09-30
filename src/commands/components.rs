@@ -758,14 +758,12 @@ fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<O
 
 /// How a change to `ocs/climate-service.yaml` reaches the running instance.
 ///
-/// `chaps restart` on its own is `docker compose up -d`, and compose recreates
-/// only what no longer matches the compose files. The instance config is a bind
-/// mount, so editing it changes nothing compose compares - the new text is
-/// already visible inside the container, and OCS simply read the old one at
-/// startup. `--all` with the service named is the force-recreate that makes it
-/// read the file again, and it leaves chap-core and the models alone.
-const READ_ONLY_APPLY: &str = "`chaps restart --all ocs` applies it (a plain `chaps restart` does not: \
-     the config is a bind mount, so compose sees nothing to recreate)";
+/// The instance config is a bind mount, which compose does not compare, so
+/// `chaps restart` recreates a service whose mounted config is newer than its
+/// container (see [`crate::commands::docker::edited_configs`]). Naming `ocs`
+/// leaves chap-core and the models alone.
+const READ_ONLY_APPLY: &str =
+    "`chaps restart ocs` applies it, recreating the instance so it reads the file again";
 
 fn human_list(report: &ComponentsReport, out: &Out) -> String {
     let rows: Vec<Vec<String>> = report

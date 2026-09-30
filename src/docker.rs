@@ -199,6 +199,16 @@ impl Container {
         self.state.is_empty() || self.state.eq_ignore_ascii_case("running")
     }
 
+    /// When compose created it, in seconds since the Unix epoch.
+    ///
+    /// Docker writes `2026-09-30 13:37:27 +0200 CEST`; the zone name after the
+    /// offset says nothing the offset does not.
+    pub fn created_unix(&self) -> Option<u64> {
+        let mut parts = self.created_at.split_whitespace();
+        let (date, clock, offset) = (parts.next()?, parts.next()?, parts.next()?);
+        crate::status::parse_rfc3339(&format!("{date}T{clock}{offset}"))
+    }
+
     /// Whether it has been up for less than two minutes.
     ///
     /// Read from docker's `Status`, which humanises the uptime: `Less than a
@@ -1630,6 +1640,17 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_containers_creation_time_is_read_with_its_offset() {
+        let at = |created_at: &str| Container {
+            created_at: created_at.to_string(),
+            ..Container::default()
+        };
+        assert_eq!(at("1970-01-01 01:00:10 +0100 CET").created_unix(), Some(10));
+        assert_eq!(at("1970-01-01 00:00:10 +0000 UTC").created_unix(), Some(10));
+        assert_eq!(at("").created_unix(), None);
+    }
 
     #[test]
     fn a_container_is_young_for_its_first_two_minutes() {
