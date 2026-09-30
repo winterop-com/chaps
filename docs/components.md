@@ -284,8 +284,12 @@ chaps open              # what is there to open, and at which address
 
 ```text
 opening the DHIS2 user interface at http://localhost:18080
-the dhis2 container is running; `chaps status` says whether it is answering yet
+dhis2 answered at that address; `chaps status` reports the rest of this deployment
 ```
+
+The second line is one request to that address, with a three-second limit:
+any HTTP answer counts, a 401 from a protected `/docs` included. A
+container that is up and not serving yet says `did not answer yet` instead.
 
 The address is not always the component's origin, because the origin is not
 always the useful page:

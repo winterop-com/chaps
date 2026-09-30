@@ -51,6 +51,9 @@ pub struct OpenReport {
     /// none, which is a report and not a failure.
     pub opened: bool,
     pub running: Running,
+    /// For a running container: whether the address answered one request.
+    /// `null` when the container is not running or docker could not say.
+    pub answering: Option<bool>,
     /// Everything worth saying that is not a failure.
     pub notes: Vec<String>,
 }
@@ -107,9 +110,16 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
     notes.extend(running_note(running, component));
     notes.extend(auth_note(&project, component));
 
+    // One request, to the address being opened: the container being up is not
+    // the page loading, and any HTTP status - a 401 from a protected `/docs`
+    // included - means something is serving it.
+    let answering = (running == Running::Yes)
+        .then(|| crate::commands::doctor::probe(&url, std::time::Duration::from_secs(3)).is_ok());
+
     let report = OpenReport {
         name: component.name().to_string(),
         opened: crate::open::spawn_opener(&url),
+        answering,
         url,
         page: what,
         running,
@@ -243,10 +253,18 @@ fn human(report: &OpenReport, out: &Out) -> String {
     }
     match report.running {
         Running::Yes => {
-            text.push_str(&out.backticks(&format!(
-                "the {} container is running; `chaps status` says whether it is answering yet",
-                report.name
-            )));
+            text.push_str(&out.backticks(&match report.answering {
+                Some(true) => format!(
+                    "{} answered at that address; `chaps status` reports the rest of this \
+                     deployment",
+                    report.name
+                ),
+                _ => format!(
+                    "the {} container is running and did not answer yet; run `chaps status` in \
+                     a moment to see when it does",
+                    report.name
+                ),
+            }));
             text.push('\n');
         }
         Running::External => {
@@ -427,6 +445,7 @@ mod tests {
             page: crate::open::DHIS2_PAGE,
             opened: false,
             running: Running::Yes,
+            answering: Some(true),
             notes: Vec::new(),
         };
         let text = human(&report, &out);
@@ -451,6 +470,7 @@ mod tests {
             page: crate::open::DHIS2_PAGE,
             opened: true,
             running: Running::Yes,
+            answering: Some(true),
             notes: Vec::new(),
         };
         let text = human(&report, &out);
@@ -461,8 +481,20 @@ mod tests {
         );
         assert_eq!(
             lines[1],
-            "the dhis2 container is running; `chaps status` says whether it is answering yet"
+            "dhis2 answered at that address; `chaps status` reports the rest of this deployment"
         );
+
+        // A container that is up and not serving yet is not called answering.
+        let starting = OpenReport {
+            answering: Some(false),
+            ..report
+        };
+        let text = human(&starting, &out);
+        assert!(
+            text.contains("the dhis2 container is running and did not answer yet"),
+            "{text}"
+        );
+        assert!(text.contains("run `chaps status` in a moment"), "{text}");
     }
 
     /// Nothing about the container is claimed when docker said nothing, and the
@@ -476,6 +508,7 @@ mod tests {
             page: crate::open::OCS_PAGE,
             opened: true,
             running: Running::Unknown,
+            answering: None,
             notes: vec![running_note(Running::Unknown, Component::Ocs).expect("a note")],
         };
         let text = human(&report, &out);
