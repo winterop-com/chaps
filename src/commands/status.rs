@@ -137,6 +137,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
                 && (c.is_young() || c.health.eq_ignore_ascii_case("starting"))
         })
     });
+    report.api_starting = chap_starting;
 
     let never_started = args.url.is_none()
         && !up
@@ -217,6 +218,9 @@ fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
 /// not running.
 fn nothing_running_line(report: &StatusReport) -> &'static str {
     match report.api {
+        ApiHealth::Off if report.components.is_empty() && report.models.is_empty() => {
+            crate::status::EMPTY
+        }
         ApiHealth::Off => crate::status::NOTHING_RUNNING,
         _ => NOT_RUNNING,
     }
@@ -274,7 +278,12 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
             "{}{}   {}   {}",
             out.heading(CHAP_CORE_LABEL),
             pad(CHAP_CORE_LABEL),
-            api_cell(out, &report.api, report.api_container_unhealthy()),
+            api_cell(
+                out,
+                &report.api,
+                report.api_container_unhealthy(),
+                report.api_starting
+            ),
             out.value(&report.api_url)
         ));
         let version = report.version.label();
@@ -330,6 +339,20 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
             text.push_str(&format!("   {}", out.dim("read-only")));
         }
         text.push('\n');
+    }
+    // A DHIS2 recorded with `chaps dhis2 use` is part of the picture without
+    // being this deployment's to run or to ask: it is named, and the command
+    // that asks it is named with it.
+    if let Some(url) = &report.dhis2_external {
+        let name = crate::compose::DHIS2_SERVICE;
+        text.push_str(&format!(
+            "{}{}   {}   {}   {}\n",
+            out.heading(name),
+            pad(name),
+            out.dim("elsewhere"),
+            out.value(url),
+            out.dim(&out.backticks("`chaps dhis2 show` asks it"))
+        ));
     }
     text
 }
@@ -436,10 +459,11 @@ fn connect_hint(report: &crate::status::StatusReport) -> Option<String> {
 /// A container that is up and failing its healthcheck is a different answer
 /// from a port nobody is listening on, and it is the one that says where to
 /// look: the container is there, and it is the container that is wrong.
-fn api_cell(out: &Out, api: &ApiHealth, unhealthy: bool) -> String {
+fn api_cell(out: &Out, api: &ApiHealth, unhealthy: bool, starting: bool) -> String {
     match (api, unhealthy) {
         (ApiHealth::Up { .. }, _) => out.ok("up"),
         (ApiHealth::Rejected { .. }, _) => out.bad("up, token rejected"),
+        (ApiHealth::Down { .. }, false) if starting => out.warn("starting"),
         (_, true) => out.bad("down (container unhealthy)"),
         (_, false) => out.bad("down"),
     }
@@ -588,6 +612,8 @@ mod tests {
             components: Vec::new(),
             dhis2_needs_connecting: false,
             chap_core_elsewhere: false,
+            api_starting: false,
+            dhis2_external: None,
             unhealthy: Vec::new(),
         }
     }
@@ -741,6 +767,23 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("dataset"), "{text}");
+    }
+
+    #[test]
+    fn an_external_dhis2_is_named_with_the_command_that_asks_it() {
+        let mut report = up(
+            vec![service("chapkit-ewars-model", "1.0.0")],
+            &[("chapkit-ewars-model", Some(5001))],
+            &["chap", "chapkit-ewars-model"],
+        );
+        report.dhis2_external = Some("https://dhis2.example.org".to_string());
+        let text = human(&report, &Out::default());
+        assert!(
+            text.contains(
+                "\ndhis2       elsewhere   https://dhis2.example.org   `chaps dhis2 show` asks it\n"
+            ),
+            "{text}"
+        );
     }
 
     #[test]
@@ -997,7 +1040,7 @@ mod tests {
             "ocs   up   http://localhost:9000\n\
              s3    up   internal\n\
              \n\
-             all 2 components are up\n"
+             both components are up; `chaps open ocs` opens it\n"
         );
         assert!(
             !text.contains("chap-core"),

@@ -838,6 +838,8 @@ mod tests {
             components: Vec::new(),
             dhis2_needs_connecting: false,
             chap_core_elsewhere: false,
+            api_starting: false,
+            dhis2_external: None,
             unhealthy: Vec::new(),
         }
     }

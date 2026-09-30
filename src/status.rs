@@ -106,6 +106,15 @@ pub struct StatusReport {
     /// Whether chap-core is one this deployment does not run, recorded with
     /// `--chap-core-url` or `chaps components enable chap-core --url`.
     pub chap_core_elsewhere: bool,
+    /// Whether chap-core's container started moments ago or reports its
+    /// healthcheck as still starting, which makes an API that does not answer
+    /// `starting` rather than `down`. Filled in by the caller, which has docker.
+    pub api_starting: bool,
+    /// The URL of the DHIS2 recorded with `chaps dhis2 use`, which has no row
+    /// of its own: chaps does not run it, and asking it would need its
+    /// credentials. `chaps dhis2 show` is the command that does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dhis2_external: Option<String>,
     /// Containers of this deployment that are failing, with the lines of their
     /// logs that say why.
     ///
@@ -634,6 +643,13 @@ pub fn status(
         components,
         dhis2_needs_connecting: project.state.components.dhis2_needs_connecting(),
         chap_core_elsewhere: project.state.components.chap_core_external.is_some(),
+        api_starting: false,
+        dhis2_external: project
+            .state
+            .components
+            .dhis2_external
+            .as_ref()
+            .map(|external| external.url.clone()),
         unhealthy: Vec::new(),
     }
 }
@@ -932,16 +948,26 @@ pub fn standalone_closing_lines(
         } else if stopped > 0 {
             let verb = if stopped == 1 { "is" } else { "are" };
             format!("{stopped} of {total} {noun} {verb} not running; start them with `chaps up`")
-        } else if silent > 0 {
+        } else if let Some(first) = models
+            .iter()
+            .find(|m| m.state == ModelState::RunningNotAnswering)
+        {
             let verb = if silent == 1 { "is" } else { "are" };
             format!(
-                "{silent} of {total} {noun} {verb} running and not answering on /health; \
-                 run `chaps status` again in a moment, or read `chaps logs SERVICE`"
+                "{silent} of {total} {noun} {verb} running and not answering on /health; a model \
+                 that just started answers in a minute, so run `chaps status` again, or read \
+                 `chaps logs {}`",
+                first.id
             )
         } else if total == 1 {
-            "1 model up, answering on its own host port".to_string()
+            "1 model up, answering on its own host port; `chaps models test --all` checks it \
+             can run"
+                .to_string()
         } else {
-            format!("all {total} models up, each answering on its own host port")
+            format!(
+                "all {total} models up, each answering on its own host port; `chaps models test \
+                 --all` checks they can run"
+            )
         });
     }
     if !components.is_empty() || models.is_empty() {
@@ -975,9 +1001,7 @@ pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start 
 pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
     let total = rows.len();
     if total == 0 {
-        return "this deployment has no components and no models; \
-                `chaps components enable chap-core` adds CHAP, `chaps models enable ID` a model"
-            .to_string();
+        return EMPTY.to_string();
     }
     let down = rows
         .iter()
@@ -1009,11 +1033,36 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
              run `chaps status` again in a moment"
         );
     }
+    // An instance with a page of its own is what a person opens next; the
+    // object store has none.
+    let openable: Vec<&str> = rows
+        .iter()
+        .map(|row| row.name.as_str())
+        .filter(|name| *name != crate::compose::S3_SERVICE)
+        .collect();
+    let opens = match openable.as_slice() {
+        [] => String::new(),
+        [one] => format!("; `chaps open {one}` opens it"),
+        many => format!(
+            "; {} open them",
+            many.iter()
+                .map(|name| format!("`chaps open {name}`"))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+    };
     match rows {
-        [only] => format!("{} is up", only.name),
-        _ => format!("all {total} {noun} are up"),
+        [only] => format!("{} is up{opens}", only.name),
+        [_, _] => format!("both components are up{opens}"),
+        _ => format!("all {total} {noun} are up{opens}"),
     }
 }
+
+/// What a deployment with nothing in it at all is told, by `chaps status` and
+/// by `chaps up`: there is nothing to start, and these are the ways to add
+/// something.
+pub const EMPTY: &str = "this deployment has no components and no models; add one with \
+     `chaps models add URL`, `chaps models enable ID` or `chaps components enable NAME`";
 
 /// Whether anything this deployment declares is not where it should be, which
 /// is what a non-zero exit from `chaps status` means.

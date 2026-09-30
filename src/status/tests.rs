@@ -946,6 +946,8 @@ fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) ->
         components,
         dhis2_needs_connecting: false,
         chap_core_elsewhere: false,
+        api_starting: false,
+        dhis2_external: None,
         unhealthy: Vec::new(),
     }
 }
@@ -1053,10 +1055,20 @@ fn standalone_models_are_judged_by_their_own_health() {
         vec!["1 of 4 models is not running; start them with `chaps up`"]
     );
     let up = standalone_closing_lines(&rows[..1], &[]);
-    assert_eq!(up, vec!["1 model up, answering on its own host port"]);
+    assert_eq!(
+        up,
+        vec![
+            "1 model up, answering on its own host port; `chaps models test --all` checks it can \
+             run"
+        ]
+    );
     let silent = standalone_closing_lines(&rows[..2], &[]);
     assert!(silent[0].contains("not answering on /health"), "{silent:?}");
-    assert!(silent[0].contains("`chaps logs SERVICE`"), "{silent:?}");
+    assert!(
+        silent[0].contains(&format!("`chaps logs {}`", rows[1].id)),
+        "{silent:?}"
+    );
+    assert!(!silent[0].contains("SERVICE"), "{silent:?}");
     // Nothing at all falls through to the components' own sentence.
     assert_eq!(standalone_closing_lines(&[], &[]).len(), 1);
 }
@@ -1066,11 +1078,20 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
     use ComponentState::{NotRunning, Starting, Up};
 
     assert_eq!(
-        components_closing_line(&[component(Up), component(Up)]),
-        "all 2 components are up"
+        components_closing_line(&[component(Up), component(Up), component(Up)]),
+        "all 3 components are up; `chaps open ocs` and `chaps open ocs` and `chaps open ocs` \
+         open them"
     );
-    // One of them is named rather than counted.
-    assert_eq!(components_closing_line(&[component(Up)]), "ocs is up");
+    // Two are both, and one is named rather than counted, with the command
+    // that opens it.
+    assert!(
+        components_closing_line(&[component(Up), component(Up)])
+            .starts_with("both components are up; ")
+    );
+    assert_eq!(
+        components_closing_line(&[component(Up)]),
+        "ocs is up; `chaps open ocs` opens it"
+    );
 
     // Nothing running at all is the same sentence the "never started"
     // rendering uses, so the two states do not read as different answers.
@@ -1099,8 +1120,8 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
     // The empty deployment names both ways to put something in it.
     assert_eq!(
         components_closing_line(&[]),
-        "this deployment has no components and no models; \
-             `chaps components enable chap-core` adds CHAP, `chaps models enable ID` a model"
+        "this deployment has no components and no models; add one with `chaps models add URL`, \
+         `chaps models enable ID` or `chaps components enable NAME`"
     );
 
     for rows in [
@@ -1361,6 +1382,8 @@ fn report_helpers_describe_the_state() {
         components: Vec::new(),
         dhis2_needs_connecting: false,
         chap_core_elsewhere: false,
+        api_starting: false,
+        dhis2_external: None,
         unhealthy: Vec::new(),
     };
     assert!(!report.is_up());
