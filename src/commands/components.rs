@@ -219,7 +219,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
             notes.push(dhis2_seed_note(after.dhis2_seed_source()));
         }
         notes.push(DHIS2_FIRST_START_NOTE.to_string());
-        notes.push(DHIS2_CONNECT_NOTE.to_string());
+        if after.has_chap_core_api() {
+            notes.push(DHIS2_CONNECT_NOTE.to_string());
+        }
     }
     // The other half of the same soft dependency: a store with nothing to put
     // in it is worth a line, because the operator may have meant to add OCS too.

@@ -40,11 +40,17 @@ const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `chaps models 
 
 /// Which of the two the summary prints, as a pure function of the component
 /// set so the choice is testable without a deployment on disk.
-fn no_models_line(components: &Components) -> &'static str {
+///
+/// Neither, for a deployment of components without chap-core - OCS, DHIS2 -
+/// where models were not the point and a line about adding one is noise. A
+/// deployment of nothing but models (`--only none`) still gets it.
+fn no_models_line(components: &Components) -> Option<&'static str> {
     if components.has_chap_core_api() {
-        NO_MODELS
+        Some(NO_MODELS)
+    } else if components.enabled().is_empty() {
+        Some(NO_MODELS_WITHOUT_CHAP_CORE)
     } else {
-        NO_MODELS_WITHOUT_CHAP_CORE
+        None
     }
 }
 
@@ -1262,10 +1268,9 @@ fn summary(
     }
 
     if report.enabled.is_empty() {
-        text.push_str(&format!(
-            "\n{}\n",
-            out.backticks(no_models_line(components))
-        ));
+        if let Some(line) = no_models_line(components) {
+            text.push_str(&format!("\n{}\n", out.backticks(line)));
+        }
     } else {
         text.push_str(&format!("\n{}\n", out.heading("Enabled:")));
         for (id, model) in &report.enabled {
@@ -1313,7 +1318,10 @@ fn summary(
             ));
         }
         dhis2.push(DHIS2_FIRST_START_NOTE.to_string());
-        dhis2.push(crate::components::DHIS2_CONNECT_NOTE.to_string());
+        // Only with a chap-core to connect it to.
+        if components.has_chap_core_api() {
+            dhis2.push(crate::components::DHIS2_CONNECT_NOTE.to_string());
+        }
         text.push('\n');
         for note in dhis2 {
             text.push_str(&format!("{} {note}\n", out.dim("note:")));
@@ -1359,12 +1367,16 @@ mod tests {
     #[test]
     fn a_deployment_without_chap_core_is_told_its_models_run_on_their_own() {
         let mut components = Components::default();
-        assert_eq!(no_models_line(&components), NO_MODELS);
+        assert_eq!(no_models_line(&components), Some(NO_MODELS));
 
         components.set_enabled(Component::ChapCore, false);
-        let line = no_models_line(&components);
+        let line = no_models_line(&components).expect("a models-only deployment gets the line");
         assert!(line.contains("`chaps models enable ID`"), "{line}");
         assert!(line.contains("published host port"), "{line}");
+
+        // A DHIS2 or an OCS on its own was not about models.
+        components.set_enabled(Component::Dhis2, true);
+        assert_eq!(no_models_line(&components), None);
     }
 
     #[test]
