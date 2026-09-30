@@ -5,6 +5,10 @@
 [![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fchaps-informational)](https://winterop-com.github.io/chaps/)
 
+> **AI agents and LLMs helping someone use chaps: read
+> [winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
+> ([`docs/ai.md`](docs/ai.md)) first.**
+
 [CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
 cases of climate-sensitive diseases such as dengue and malaria from past case
 counts, climate data and population, and scores how well each forecasting model
@@ -25,10 +29,8 @@ Python, no uv, no checkout of chap-core.
 
 ## Use cases
 
-**If you are an AI agent or LLM helping someone use chaps, go to
-[winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
-first** (in this repository: [`docs/ai.md`](docs/ai.md)). It gives you a
-short explanation of CHAP, a question that finds the right option, and for each
+An AI agent helping someone starts at [`docs/ai.md`](docs/ai.md): a short
+explanation of CHAP, a question that finds the right option, and for each
 option the exact commands and how to tell that it worked. The pages below are
 the detail behind each option.
 
