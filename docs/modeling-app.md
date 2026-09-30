@@ -36,8 +36,9 @@ weekly cases up to months when an evaluation is monthly.
 ## 1. Open the Modeling App
 
 Log in to DHIS2 with `admin` / `district`, open the app menu (the grid of
-squares at the top right) and pick **Modeling**. The dashboard is empty until
-the first evaluation.
+squares at the top right), type `Modeling` in its search box and pick
+**Modeling**: the menu shows only a few top apps until you search. The
+dashboard is empty until the first evaluation.
 
 ![The Modeling App dashboard](images/modeling-app/01-dashboard.png)
 
@@ -109,10 +110,13 @@ interval).
 ![Evaluation metrics](images/modeling-app/07-metrics.png)
 
 To compare two models, run a second evaluation on the same data: on the first
-one, **Create new based on...** copies the name, provinces, periods and data
-mapping, and **Select model** on the copy picks another model. The
+one, **Create new based on...** asks which settings to copy (leave them all
+ticked) and **Create** copies the name, provinces, periods and data mapping;
+**Select model** on the copy picks another model, then **Start import**. The
 *Monthly CHAP-EWARS model* chap-core ships took about four minutes as well.
-Then **Evaluate**, **Compare** puts the two side by side, province by province.
+Then **Evaluate**, **Compare**: pick the first evaluation in the left box and
+the copy in the one beside it, and the two are shown side by side, province by
+province.
 More marketplace models come with `chaps models enable ID` and `chaps up`
 (`chaps models list` shows the ids).
 
@@ -121,8 +125,9 @@ More marketplace models come with `chaps models enable ID` and `chaps up`
 ## 5. Make a forecast
 
 On the evaluation, **Create prediction setup** keeps the model, the data
-mapping and the provinces under a name. Leave the default import mapping off
-and **Save**.
+mapping and the provinces under a name: type one in **Setup name**, leave the
+default import mapping off and **Save**. Once the evaluation has a setup, the
+same button says **Predict**.
 
 ![Creating a prediction setup](images/modeling-app/09-prediction-setup.png)
 
@@ -147,7 +152,7 @@ none to go into until someone creates them in DHIS2's Maintenance app.
 
 | What you see | What to do |
 | --- | --- |
-| No **Modeling** in the app menu | `chaps dhis2 connect` has not run, or failed; run it and read its last line. |
+| Typing `Modeling` in the app menu finds nothing | `chaps dhis2 connect` has not run, or failed; run it and read its last line. |
 | The model list does not have the model `chaps` enabled | `chaps status`: the model must be `registered`. If it is not, the line under the table says why. |
 | A job in **Jobs** says it failed | `chaps jobs`, then `chaps jobs logs ID` with the id it prints: the model's own error is at the end. |
 
