@@ -931,8 +931,10 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
              run `chaps status` again in a moment"
         );
     }
-    let verb = if total == 1 { "is" } else { "are" };
-    format!("all {total} {noun} {verb} up")
+    match rows {
+        [only] => format!("{} is up", only.name),
+        _ => format!("all {total} {noun} are up"),
+    }
 }
 
 /// Whether anything this deployment declares is not where it should be, which
@@ -2628,11 +2630,8 @@ mod tests {
             components_closing_line(&[component(Up), component(Up)]),
             "all 2 components are up"
         );
-        // One of them reads as English too.
-        assert_eq!(
-            components_closing_line(&[component(Up)]),
-            "all 1 component is up"
-        );
+        // One of them is named rather than counted.
+        assert_eq!(components_closing_line(&[component(Up)]), "ocs is up");
 
         // Nothing running at all is the same sentence the "never started"
         // rendering uses, so the two states do not read as different answers.
