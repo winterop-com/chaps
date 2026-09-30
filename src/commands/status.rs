@@ -122,6 +122,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         );
     }
     let up = matches!(report.api, ApiHealth::Up { .. });
+    // A chap-core that started moments ago is not down, it is starting: with no
+    // model depending on its healthcheck, `chaps up` returns before it answers.
+    let chap_starting = containers.as_deref().is_some_and(|containers| {
+        containers.iter().any(|c| {
+            c.service == crate::compose::API_SERVICE
+                && c.is_running()
+                && (c.is_young() || c.health.eq_ignore_ascii_case("starting"))
+        })
+    });
 
     let never_started = args.url.is_none()
         && !up
@@ -150,7 +159,9 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // chap-core. Under --json the report already carries it, and a second
         // document on stdout would break single-document parsers.
         ApiHealth::Down { .. } if ctx.out.json => std::process::exit(1),
-        ApiHealth::Down { error } => Err(anyhow::anyhow!(down_message(&report, error))),
+        ApiHealth::Down { error } => {
+            Err(anyhow::anyhow!(down_message(&report, error, chap_starting)))
+        }
         ApiHealth::Rejected { .. } if ctx.out.json => std::process::exit(1),
         ApiHealth::Rejected { error } => Err(anyhow::anyhow!(
             "chap-core at {} is up and did not accept the API token: {error}",
@@ -169,9 +180,23 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
 ///
 /// `chap-core is not responding` is the symptom; the lines under it are the
 /// cause, which is otherwise a `chaps logs chap` away and forty lines long.
-fn down_message(report: &StatusReport, error: &str) -> String {
+/// When there are none, the line itself carries the way out: a chap-core that
+/// is still `starting` is waited for, anything else is read in its log.
+fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
     let mut text = format!("chap-core at {} is not responding: {error}", report.api_url);
-    for line in crate::diagnose::lines(&report.unhealthy) {
+    let lines = crate::diagnose::lines(&report.unhealthy);
+    if starting {
+        text.push_str(
+            "; its container started moments ago and is still starting, so run `chaps status` \
+             again in a moment",
+        );
+    } else if lines.is_empty() {
+        text.push_str(&format!(
+            "; `chaps logs {}` says why",
+            crate::compose::API_SERVICE
+        ));
+    }
+    for line in lines {
         text.push('\n');
         text.push_str(&line);
     }
@@ -564,6 +589,20 @@ mod tests {
             dhis2_needs_connecting: false,
             unhealthy: Vec::new(),
         }
+    }
+
+    /// A chap-core that is not answering is waited for when its container is
+    /// still starting, and read in its log when nothing else says why.
+    #[test]
+    fn a_chap_core_that_is_not_answering_names_the_way_out() {
+        let report = up(Vec::new(), &[], &[]);
+        let starting = down_message(&report, "io: Connection reset by peer", true);
+        assert!(
+            starting.contains("still starting, so run `chaps status` again in a moment"),
+            "{starting}"
+        );
+        let down = down_message(&report, "io: Connection refused", false);
+        assert!(down.ends_with("; `chaps logs chap` says why"), "{down}");
     }
 
     /// The component line carries the two things that are not in the address:
