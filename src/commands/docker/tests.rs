@@ -732,12 +732,12 @@ fn the_volumes_at_stake_are_named_before_they_are_removed() {
     let prefix = Some("mychap-1ab2c3_");
     assert_eq!(
         volumes_at_stake(&Out::default(), &volumes, prefix, None),
-        "docker holds 2 volumes under mychap-1ab2c3_*, data and all: \
+        "docker holds 2 volumes under mychap-1ab2c3_*, with their data: \
              mychap-1ab2c3_chap-db, mychap-1ab2c3_ocs_data"
     );
     assert_eq!(
         volumes_at_stake(&Out::default(), &volumes[..1], prefix, None),
-        "docker holds 1 volume under mychap-1ab2c3_*, data and all: mychap-1ab2c3_chap-db"
+        "docker holds 1 volume under mychap-1ab2c3_*, with their data: mychap-1ab2c3_chap-db"
     );
     // A deployment that was never started, or a docker that could not be
     // asked: either way the prompt says what is known before it asks.
@@ -759,7 +759,7 @@ fn the_volumes_at_stake_are_named_before_they_are_removed() {
             prefix,
             Some(("mychap-1ab2c3_ocs_data", 3 * 1024 * 1024 * 1024))
         ),
-        "docker holds 2 volumes under mychap-1ab2c3_*, data and all: \
+        "docker holds 2 volumes under mychap-1ab2c3_*, with their data: \
              mychap-1ab2c3_chap-db, mychap-1ab2c3_ocs_data \
              (mychap-1ab2c3_ocs_data holds 3.0 GB)"
     );

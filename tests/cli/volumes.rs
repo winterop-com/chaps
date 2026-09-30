@@ -312,10 +312,9 @@ fn down_volumes_removes_the_database_volume_docker_holds() {
     chap_in(&sandbox, &dir, &["down", "--volumes", "--yes"])
         .assert()
         .success()
-        // Named before it goes, and again once it is gone.
-        .stdout(predicates::str::contains(format!(
-            "docker holds 1 volume under {project}_*, data and all: {volume}"
-        )))
+        // With `--yes` there is no question to ask, so it is named once, as
+        // it goes.
+        .stdout(predicates::str::contains("docker holds").not())
         .stdout(predicates::str::contains(format!(
             "removed 1 volume ({volume})"
         )))

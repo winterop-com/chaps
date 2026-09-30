@@ -239,6 +239,11 @@ fn confirm_volumes(ctx: &Ctx, project: &Project, args: &DownArgs) -> Result<Vec<
     // for when docker has already said the volume is there, and bounded like
     // every other size: a `du` that will not finish costs the size and not
     // the prompt.
+    // With `--yes` there is no question for the line to inform, and the
+    // closing line names every volume that went.
+    if args.yes {
+        return Ok(volumes);
+    }
     let ocs_data = prefix
         .as_deref()
         .and_then(|prefix| ocs_data_at_stake(prefix, &volumes));
@@ -253,9 +258,6 @@ fn confirm_volumes(ctx: &Ctx, project: &Project, args: &DownArgs) -> Result<Vec<
                 .map(|(name, bytes)| (name.as_str(), *bytes)),
         ),
     );
-    if args.yes {
-        return Ok(volumes);
-    }
     if ctx.out.json {
         return Err(anyhow::anyhow!(NO_JSON_ANSWER));
     }
@@ -303,7 +305,7 @@ pub fn volumes_at_stake(
     let mut line = format!(
         "{} {}",
         out.warn(&format!(
-            "docker holds {} {under}, data and all:",
+            "docker holds {} {under}, with their data:",
             volume_count(volumes.len())
         )),
         out.value(&volumes.join(", "))
