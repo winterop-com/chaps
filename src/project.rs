@@ -421,6 +421,18 @@ pub struct EnabledModel {
     pub compose_file: String,
 }
 
+impl ManualModel {
+    /// What `chaps models add` was given, or its equivalent: the repository
+    /// when it came from one, else the pinned image reference.
+    pub fn source(&self) -> String {
+        match &self.repository {
+            Some(repository) => repository.clone(),
+            None if self.tag.starts_with('@') => format!("{}{}", self.image, self.tag),
+            None => format!("{}:{}", self.image, self.tag),
+        }
+    }
+}
+
 /// The manual model definitions of a deployment, keyed by id.
 pub type ManualModels = BTreeMap<String, ManualModel>;
 
@@ -929,6 +941,21 @@ fn write_atomically(path: &Path, body: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_manual_models_source_is_what_models_add_takes() {
+        let mut model = ManualModel {
+            repository: None,
+            image: "my-model".into(),
+            tag: "dev".into(),
+            ..manual()
+        };
+        assert_eq!(model.source(), "my-model:dev");
+        model.tag = "@sha256:abc".into();
+        assert_eq!(model.source(), "my-model@sha256:abc");
+        model.repository = Some("https://github.com/o/r".into());
+        assert_eq!(model.source(), "https://github.com/o/r");
+    }
 
     fn enabled(port: Option<u16>) -> EnabledModel {
         EnabledModel {

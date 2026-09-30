@@ -363,6 +363,10 @@ pub struct ModelStatus {
     /// caller, which has docker.
     #[serde(skip)]
     pub young: bool,
+    /// For a model added with `chaps models add`: its model id and the source
+    /// it was added from, so a hint can spell out removing and adding it again.
+    #[serde(skip)]
+    pub added_from: Option<(String, String)>,
 }
 
 /// Tie each unmanaged row to the model whose container it is, when it is one.
@@ -761,6 +765,7 @@ pub fn model_rows(
                 last_ping: found.and_then(|s| ago(now, &s.last_ping_at)),
                 registered_as: None,
                 young: false,
+                added_from: None,
             }
         })
         .collect();
@@ -781,6 +786,7 @@ pub fn model_rows(
         last_ping: ago(now, &s.last_ping_at),
         registered_as: None,
         young: false,
+        added_from: None,
     }));
     rows
 }
@@ -819,6 +825,7 @@ pub fn standalone_model_rows(
                 last_ping: None,
                 registered_as: None,
                 young: false,
+                added_from: None,
             }
         })
         .collect()
@@ -1046,13 +1053,23 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
     let hints: Vec<String> = mine
         .iter()
         .filter_map(|row| match row.state {
-            ModelState::RunningNotRegistered if row.registered_as.is_some() => Some(format!(
-                "{}: its container registered as `{}`, the unmanaged row above; \
-                 `chaps models remove` the model and add it again with `--service-id {}`",
-                row.id,
-                row.registered_as.as_deref().unwrap_or_default(),
-                row.registered_as.as_deref().unwrap_or_default()
-            )),
+            ModelState::RunningNotRegistered if row.registered_as.is_some() => {
+                let actual = row.registered_as.as_deref().unwrap_or_default();
+                Some(match &row.added_from {
+                    Some((model, source)) => format!(
+                        "{}: its container registered as `{actual}`, the unmanaged row above; \
+                         run `chaps models remove {model}`, then `chaps models add {source} \
+                         --service-id {actual}`",
+                        row.id
+                    ),
+                    None => format!(
+                        "{}: its container registered as `{actual}`, the unmanaged row above; \
+                         `chaps models remove` the model and add it again with `--service-id \
+                         {actual}`",
+                        row.id
+                    ),
+                })
+            }
             // Started moments ago: registering is part of starting, and the
             // restart below would only start the wait over.
             ModelState::RunningNotRegistered if row.young => Some(format!(
@@ -1553,6 +1570,7 @@ mod tests {
             last_ping: None,
             registered_as: None,
             young: false,
+            added_from: None,
         }
     }
 
@@ -2722,6 +2740,29 @@ mod tests {
             NOW,
         );
         assert!(hints(&stranger, false).is_empty());
+    }
+
+    /// A model added by hand that registered under another id gets the two
+    /// commands that fix it, spelled out with its own id and source.
+    #[test]
+    fn a_misnamed_manual_model_is_told_the_exact_commands() {
+        let mut rows = model_rows(
+            &[("my-model".to_string(), None)],
+            &[],
+            &running(&["my-model"]),
+            NOW,
+        );
+        rows[0].registered_as = Some("chapkit-minimalist-example-py".to_string());
+        rows[0].added_from = Some(("my_model".to_string(), "my-model:dev".to_string()));
+        assert_eq!(
+            hints(&rows, false),
+            vec![
+                "my-model: its container registered as `chapkit-minimalist-example-py`, the \
+                 unmanaged row above; run `chaps models remove my_model`, then `chaps models \
+                 add my-model:dev --service-id chapkit-minimalist-example-py`"
+                    .to_string()
+            ]
+        );
     }
 
     /// A model that started moments ago is waited for, not restarted: the

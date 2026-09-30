@@ -82,6 +82,12 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
             .collect();
         crate::status::link_strays(&mut report.models, &ids);
         for row in &mut report.models {
+            row.added_from = project
+                .state
+                .manual
+                .iter()
+                .find(|(_, model)| model.service_id == row.id)
+                .map(|(id, model)| (id.clone(), model.source()));
             row.young = containers
                 .iter()
                 .any(|c| c.service == row.id && c.is_running() && c.is_young());
@@ -1028,6 +1034,7 @@ mod tests {
             last_ping: None,
             registered_as: None,
             young: false,
+            added_from: None,
         });
         let text = human(&report, &Out::default());
         let row = text
