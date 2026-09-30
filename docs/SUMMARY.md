@@ -5,6 +5,7 @@
 
 - [Install](./install.md)
 - [Quickstart](./quickstart.md)
+- [Your first forecast in the Modeling App](./modeling-app.md)
 - [Use cases](./use-cases.md)
   - [CHAP with forecasting models](./use-cases/chap-with-models.md)
   - [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md)

@@ -20,6 +20,10 @@ It worked when `chaps dhis2 connect` ends without `error:`, `chaps open dhis2`
 opens DHIS2 (on `http://localhost:8780`, login `admin` / `district`), and the
 Modeling App in its app menu lists the models.
 
+Next, in the Modeling App: [Your first forecast in the Modeling
+App](../modeling-app.md) evaluates a model on the demo data and makes a
+forecast with it.
+
 ## Another DHIS2 version
 
 ```sh
