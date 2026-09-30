@@ -807,7 +807,7 @@ a `connection.*` line, one of the commented `server.https` proxy lines - ran
 `chaps restart dhis2`, and it said:
 
 ```text
-nothing needed a restart: every container matches its files; `chaps restart --all SERVICE` recreates one anyway
+nothing needed a restart: every container matches its files; `chaps restart --all dhis2` recreates it anyway
 ```
 
 `dhis.conf` is a **bind mount**, which compose does not compare, so `chaps

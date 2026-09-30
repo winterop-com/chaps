@@ -530,9 +530,12 @@ fn report_what_changed(
                 &up_summary(&ctx.out, before, &after, &project.state.components),
             );
         }
-        DockerCmd::Restart(_) => {
+        DockerCmd::Restart(args) => {
             let after = docker::running_containers(project).unwrap_or_default();
-            note(ctx, &restart_summary(&ctx.out, before, &after));
+            note(
+                ctx,
+                &restart_summary(&ctx.out, before, &after, &args.services),
+            );
         }
         DockerCmd::Down(args) => {
             let removed = args.volumes.then(|| removed_volumes(project, volumes));
@@ -737,30 +740,42 @@ pub fn up_summary(
 /// says nothing at all about the ones it skipped; this is the line that says
 /// which half each service fell in. A run that recreated nothing is the
 /// answer "nothing had moved on under you", not a failure.
+///
+/// `named` are the services the command was given, which is what the way to
+/// force it spells out; none named is the whole project.
 pub fn restart_summary(
     out: &Out,
     before: &[docker::Container],
     after: &[docker::Container],
+    named: &[String],
 ) -> String {
     let (recreated, unchanged) = docker::diff_containers(before, after);
     if recreated.is_empty() {
-        return out.backticks(
-            "nothing needed a restart: every container matches its files; `chaps restart --all \
-             SERVICE` recreates one anyway",
-        );
+        let force = match named {
+            [] => "`chaps restart --all` recreates every one anyway".to_string(),
+            [one] => format!("`chaps restart --all {one}` recreates it anyway"),
+            many => format!(
+                "`chaps restart --all {}` recreates them anyway",
+                many.join(" ")
+            ),
+        };
+        return out.backticks(&format!(
+            "nothing needed a restart: every container matches its files; {force}"
+        ));
     }
     let head = format!(
         "{} {}",
         out.ok("recreated:"),
         out.value(&recreated.join(", "))
     );
-    if unchanged.is_empty() {
-        return head;
-    }
-    format!(
-        "{head}; {}",
-        out.dim(&format!("unchanged: {}", unchanged.join(", ")))
-    )
+    let head = match unchanged.is_empty() {
+        true => head,
+        false => format!(
+            "{head}; {}",
+            out.dim(&format!("unchanged: {}", unchanged.join(", ")))
+        ),
+    };
+    format!("{head}\n{}", out.backticks(AFTER_UP))
 }
 
 /// What `down` did about the volumes, for the second half of its line.

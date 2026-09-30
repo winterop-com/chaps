@@ -262,19 +262,30 @@ fn restart_says_which_services_it_recreated() {
         container("postgres", "ccc", "t1"),
     ];
     assert_eq!(
-        restart_summary(&Out::default(), &before, &after),
-        "recreated: chap, worker; unchanged: postgres"
+        restart_summary(&Out::default(), &before, &after, &[]),
+        "recreated: chap, worker; unchanged: postgres\n\
+         run `chaps status` to check that everything answers"
     );
     // Everything moved: there is no second half to print.
     assert_eq!(
-        restart_summary(&Out::default(), &before, &[container("chap", "ddd", "t2")]),
-        "recreated: chap"
+        restart_summary(
+            &Out::default(),
+            &before,
+            &[container("chap", "ddd", "t2")],
+            &[]
+        ),
+        "recreated: chap\nrun `chaps status` to check that everything answers"
     );
-    // Nothing moved, which is an answer and not a failure.
+    // Nothing moved, which is an answer and not a failure, and the way to
+    // force it names what was asked for.
     assert_eq!(
-        restart_summary(&Out::default(), &before, &before),
+        restart_summary(&Out::default(), &before, &before, &["ocs".to_string()]),
         "nothing needed a restart: every container matches its files; `chaps restart --all \
-             SERVICE` recreates one anyway"
+         ocs` recreates it anyway"
+    );
+    assert!(
+        restart_summary(&Out::default(), &before, &before, &[])
+            .ends_with("`chaps restart --all` recreates every one anyway")
     );
 }
 
