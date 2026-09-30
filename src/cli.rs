@@ -1133,7 +1133,7 @@ pub enum Dhis2Sub {
     /// Install the Modeling and Climate apps from the App Hub
     Apps(Dhis2AppsArgs),
 
-    /// Do all three: the route, the apps, then analytics
+    /// The route, the apps, then analytics; the route only on an external DHIS2
     Connect(Dhis2ConnectArgs),
 
     /// Use a DHIS2 that runs elsewhere, or show which DHIS2 is used
@@ -1193,7 +1193,7 @@ pub struct Dhis2AppsArgs {
     pub common: Dhis2CommonArgs,
 }
 
-/// Do all three: the route, the apps, then analytics
+/// The route, the apps, then analytics; the route only on an external DHIS2
 #[derive(Debug, Clone, Args)]
 pub struct Dhis2ConnectArgs {
     #[command(flatten)]

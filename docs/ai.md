@@ -191,8 +191,11 @@ chaps dhis2 use https://THEIR-DHIS2 --chap-url https://ADDRESS-OF-THIS-MACHINE
 chaps dhis2 connect
 ```
 
-It worked when `chaps dhis2 connect` finishes without `error:`. The first time,
-it usually stops and says it has no credentials for that DHIS2: the fix is to
+It worked when `chaps dhis2 connect` finishes without `error:`. It only sets
+the route on their DHIS2: its `skipped:` lines name the apps to install and
+the analytics run, which are for whoever runs that DHIS2 to decide (`chaps dhis2
+apps`, `chaps dhis2 analytics`). The first time, it usually stops and says it
+has no credentials for that DHIS2: the fix is to
 put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
 the `.env` file in the folder, then run `chaps dhis2 connect` again. If
 `--chap-url` is an `http://` address and the DHIS2 is 2.42 or later, it may say
@@ -331,7 +334,10 @@ chaps dhis2 connect
 
 It worked when `chaps dhis2 connect` finishes without `error:`. If it says it
 has no credentials, put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
-the `.env` file and run it again.
+the `.env` file and run it again. On a DHIS2 chaps did not start it sets only
+the route: if its `skipped:` lines say an app is missing, `chaps dhis2 apps`
+installs it, and `chaps dhis2 analytics` generates the tables the Modeling App
+reads.
 
 On DHIS2 2.42 and later it can then say `DHIS2 refused the route`: their
 DHIS2 only proxies to the addresses its own `dhis.conf` allows. Tell them to

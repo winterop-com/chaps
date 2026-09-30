@@ -111,7 +111,7 @@ here touches Docker or a file: every verb is requests to DHIS2's own API.
 | `chaps dhis2 route` | Create the `chap` route, or repoint one that points elsewhere, is disabled or has lost the `F_CHAP_MODELING_APP` authority - then proxy a request through it to prove chap-core answers. |
 | `chaps dhis2 analytics [--timeout SECONDS] [--no-wait]` | Generate the analytics tables the Modeling and Climate apps read, and wait for the run; a run that is already going is watched rather than queued behind, since DHIS2 runs one at a time. |
 | `chaps dhis2 apps` | Install the Modeling App and the DHIS2 Climate App from the App Hub, at the newest version this DHIS2 can run. The one verb that needs the network. |
-| `chaps dhis2 connect [--timeout SECONDS] [--no-wait]` | The route, the apps, then analytics. Under `--offline` the apps are a reported skip and the other two still happen. |
+| `chaps dhis2 connect [--timeout SECONDS] [--no-wait]` | The route, the apps, then analytics. Under `--offline` the apps are a reported skip and the other two still happen. On an external DHIS2 only the route; the other two are left to its admin. |
 | `chaps dhis2 use [URL] [--chap-url URL] [--clear]` | Record a DHIS2 that runs elsewhere, and where it reaches chap-core, then ask it whether it answers and takes the credential. Bare, it says which DHIS2 is used; `--clear` forgets it. |
 
 Every one of them is idempotent: a second run repoints nothing, reinstalls nothing

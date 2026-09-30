@@ -14,7 +14,11 @@ chaps dhis2 connect
 external DHIS2 and the address it reaches chap-core at; `connect` then creates
 the route on that DHIS2 with the credentials you give it, and puts chap-core's
 token in the route, so the Modeling App reaches chap-core without ever holding
-the token itself.
+the token itself. On a DHIS2 chaps does not run, the route is all `connect`
+changes: installing the Modeling and Climate apps (`chaps dhis2 apps`) and
+generating analytics tables (`chaps dhis2 analytics`, which can take hours on a
+large instance) are left to its admin, and `connect` says which apps are
+missing.
 
 It worked when `chaps dhis2 connect` ends without `error:` and
 `chaps dhis2 show` lists the `chap` route as healthy. The first run usually

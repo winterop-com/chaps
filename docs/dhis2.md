@@ -733,6 +733,12 @@ run `chaps dhis2 connect` to point its route at this CHAP
 
 What changes against an external DHIS2:
 
+- **`connect` sets the route and nothing else.** Installing apps and generating
+  analytics tables change a server chaps does not run, and an analytics run on a
+  national instance takes hours of its CPU. `connect` says which of the two
+  apps are missing and ends with a `skipped:` line for each step it left; its
+  admin runs `chaps dhis2 apps` and `chaps dhis2 analytics` when they agree.
+  `connected_at` is recorded once the route is proved.
 - **Credentials have no default.** See
   [the credentials](#the-credentials-and-where-they-come-from). A token is the
   natural choice for a server you do not own the admin password of.

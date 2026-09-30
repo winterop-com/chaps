@@ -38,7 +38,9 @@ DHIS2 42 and later only proxy to origins its `dhis.conf` allows: add the
 `chaps dhis2 connect` names the setting if DHIS2 refuses the route.
 
 It worked when `chaps dhis2 connect` finishes without `error:` and
-`chaps dhis2 show` lists the route as healthy. `chaps dhis2 use --clear` forgets
+`chaps dhis2 show` lists the route as healthy. `connect` sets only the route on
+a DHIS2 chaps did not start; `chaps dhis2 apps` installs the Modeling and
+Climate apps, and `chaps dhis2 analytics` generates the analytics tables. `chaps dhis2 use --clear` forgets
 your DHIS2 again.
 
 More: [A DHIS2 that runs elsewhere](../dhis2.md#a-dhis2-that-runs-elsewhere).

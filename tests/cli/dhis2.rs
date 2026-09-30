@@ -1408,6 +1408,27 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
         EXTERNAL_CHAP_URL_TARGET
     );
 
+    // `connect` on a DHIS2 chaps does not run is the route and nothing more:
+    // no app installed on it, no analytics run started on it.
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "skipped: generating analytics tables on a DHIS2 chaps does not run; \
+             `chaps dhis2 analytics` starts a run if its admin agrees",
+        ))
+        .stdout(predicates::str::contains(
+            "`chaps dhis2 apps` installs them",
+        ));
+    assert!(
+        !stand_in.asked().iter().any(
+            |seen| seen.starts_with("POST /api/resourceTables/analytics")
+                || seen.starts_with("POST /api/appHub/")
+        ),
+        "{:?}",
+        stand_in.asked()
+    );
+
     let report = json_of(&mut dhis2_chap(
         &sandbox,
         &dir,

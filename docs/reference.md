@@ -755,7 +755,7 @@ Usage: chaps dhis2 apps [OPTIONS]
 
 ## chaps dhis2 connect
 
-Do all three: the route, the apps, then analytics.
+The route, the apps, then analytics; the route only on an external DHIS2.
 
 ```text
 Usage: chaps dhis2 connect [OPTIONS]

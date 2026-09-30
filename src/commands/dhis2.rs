@@ -1033,6 +1033,39 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
 
     let route = write_route(ctx, &session)?;
 
+    // A DHIS2 someone else runs gets the route and nothing more. Installing
+    // apps and generating analytics tables change a server chaps does not own,
+    // and on a national instance an analytics run takes hours of its CPU; its
+    // admin decides, with `chaps dhis2 apps` and `chaps dhis2 analytics`.
+    if session.external().is_some() {
+        let mut left = Vec::new();
+        match chap_apps(&session) {
+            Ok(apps) => left.extend(missing_apps(&apps)),
+            Err(err) => ctx.out.verbose(&format!("could not list the apps: {err}")),
+        }
+        let notes = external_left_alone(&left);
+        let judgement = match route.verified {
+            true => Judgement::Connected,
+            false => Judgement::Broken,
+        };
+        let record = record_connect(ctx, &mut session.project, judgement)?;
+        let report = Dhis2Report {
+            instance: session.instance(),
+            next: match route.verified {
+                true => "the Modeling App can reach CHAP once it is installed; open DHIS2 with \
+                         `chaps open dhis2`"
+                    .to_string(),
+                false => "run `chaps dhis2 show` to see what is still missing".to_string(),
+            },
+            route: Some(route),
+            apps: None,
+            analytics: None,
+            skipped: notes,
+            record: Some(record),
+        };
+        return ctx.out.emit(&report, || human_report(&report, &ctx.out));
+    }
+
     // `--offline` and the App Hub ask for opposite things, so the step is a
     // reported skip rather than a failure: the route and the analytics tables
     // need nothing but this deployment, and both still happen.
@@ -1070,6 +1103,25 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         Some(why) => Err(anyhow::anyhow!(why)),
         None => Ok(()),
     }
+}
+
+/// The two steps `connect` leaves to the admin of an external DHIS2, with
+/// the apps it found missing named, as the `skipped:` lines of its report.
+fn external_left_alone(missing: &[String]) -> Vec<String> {
+    let apps = match missing.is_empty() {
+        true => "installing apps: both are there already".to_string(),
+        false => format!(
+            "installing apps on a DHIS2 chaps does not run ({}); `chaps dhis2 apps` installs \
+             them if its admin agrees",
+            missing.join(", ")
+        ),
+    };
+    vec![
+        apps,
+        "generating analytics tables on a DHIS2 chaps does not run; `chaps dhis2 analytics` \
+         starts a run if its admin agrees"
+            .to_string(),
+    ]
 }
 
 /// What one `connect` run is entitled to say about the deployment it ran
