@@ -520,12 +520,25 @@ fn report_what_changed(
             {
                 note(ctx, &ctx.out.backticks(&line));
             }
+            note(ctx, &ctx.out.backticks(down_next(removed.is_some())));
         }
         DockerCmd::Pull(_) => note(
             ctx,
             &ctx.out.ok(&pull_summary(docker::image_count(project))),
         ),
         _ => {}
+    }
+}
+
+/// The line a `down` ends on: what brings the deployment back, and after a
+/// `--volumes` that there is nothing left in the folder worth keeping.
+pub fn down_next(volumes_removed: bool) -> &'static str {
+    match volumes_removed {
+        false => "run `chaps up` to start it again, with its data",
+        true => {
+            "run `chaps up` to start it again with empty data, or delete this folder: its containers \
+             and volumes are gone"
+        }
     }
 }
 
@@ -1720,6 +1733,14 @@ mod tests {
             removed(&stopped, &[]),
             "stopped: chap, worker (2 containers); no volumes were removed"
         );
+    }
+
+    #[test]
+    fn down_names_what_brings_the_deployment_back() {
+        assert!(down_next(false).contains("`chaps up`"));
+        assert!(down_next(false).contains("with its data"));
+        assert!(down_next(true).contains("`chaps up`"));
+        assert!(down_next(true).contains("delete this folder"));
     }
 
     /// The command line as the process received it.
