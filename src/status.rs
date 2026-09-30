@@ -967,7 +967,19 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
         .collect();
     let total = mine.len();
     if total == 0 {
-        return "no models enabled; run `chaps models enable ID` to add one".to_string();
+        // Registrations from outside - a model run from its checkout - are
+        // models chap-core has, so "no models" would be the wrong answer.
+        let strangers = rows.len();
+        return match strangers {
+            0 => "no models enabled; run `chaps models enable ID` to add one".to_string(),
+            1 => "no models enabled here; the unmanaged one above registered from outside this \
+                  deployment"
+                .to_string(),
+            n => format!(
+                "no models enabled here; the {n} unmanaged above registered from outside this \
+                 deployment"
+            ),
+        };
     }
     let problems = mine.iter().filter(|r| r.state.is_problem()).count();
     let noun = if total == 1 { "model" } else { "models" };
@@ -2112,6 +2124,15 @@ mod tests {
         assert_eq!(
             closing_line(&[]),
             "no models enabled; run `chaps models enable ID` to add one"
+        );
+
+        // A model run from its checkout is registered and not ours: it is
+        // not "no models".
+        let host_run = model_rows(&[], &[registered("my-model", 3)], &BTreeSet::new(), NOW);
+        assert_eq!(
+            closing_line(&host_run),
+            "no models enabled here; the unmanaged one above registered from outside this \
+             deployment"
         );
     }
 
