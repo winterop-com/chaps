@@ -188,6 +188,8 @@ pub struct Container {
     /// It is the reference the container was created from, which is not the
     /// same question as which image that reference points at today.
     pub image: String,
+    /// Docker's own summary, such as `Up 12 seconds` or `Exited (0) 3 hours ago`.
+    pub status: String,
 }
 
 impl Container {
@@ -195,6 +197,25 @@ impl Container {
     /// treated as running: plain `ps` lists what is up.
     pub fn is_running(&self) -> bool {
         self.state.is_empty() || self.state.eq_ignore_ascii_case("running")
+    }
+
+    /// Whether it has been up for less than two minutes.
+    ///
+    /// Read from docker's `Status`, which humanises the uptime: `Less than a
+    /// second`, `N seconds`, `About a minute` for the second minute, and
+    /// minutes from there on. Two minutes is how long a model is given to
+    /// register before `chaps status` calls it stuck: chapkit retries while it
+    /// starts, and a model on an emulated amd64 image can take most of that.
+    pub fn is_young(&self) -> bool {
+        let Some(uptime) = self.status.strip_prefix("Up ") else {
+            return false;
+        };
+        uptime.starts_with("Less than a second")
+            || uptime.starts_with("About a minute")
+            || uptime
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|unit| unit.starts_with("second"))
     }
 
     /// Whether its healthcheck is failing.
@@ -244,6 +265,7 @@ pub fn containers(text: &str) -> Vec<Container> {
                 state: string("State"),
                 health: string("Health"),
                 image: string("Image"),
+                status: string("Status"),
             })
         })
         .collect()
@@ -1608,6 +1630,32 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_container_is_young_for_its_first_two_minutes() {
+        let at = |status: &str| Container {
+            status: status.to_string(),
+            ..Container::default()
+        };
+        for young in [
+            "Up Less than a second",
+            "Up 1 second",
+            "Up 45 seconds",
+            "Up 12 seconds (health: starting)",
+            "Up About a minute",
+        ] {
+            assert!(at(young).is_young(), "{young}");
+        }
+        for old in [
+            "Up 2 minutes",
+            "Up About an hour",
+            "Up 3 hours (healthy)",
+            "Exited (0) 5 seconds ago",
+            "",
+        ] {
+            assert!(!at(old).is_young(), "{old}");
+        }
+    }
 
     /// `du -sk` counts kilobytes, and the report counts bytes.
     #[test]

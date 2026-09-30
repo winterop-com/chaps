@@ -31,7 +31,9 @@ not answer (still starting, or failed: read `chaps logs <id>`), and
 exit code is non-zero while any model is not `up`.
 
 There is one hint per row that needs doing something about, and - when no row
-does - a single hint pointing at the one check `status` cannot make itself. See
+does - a single hint pointing at the one check `status` cannot make itself. A
+model whose container started under two minutes ago is not stuck yet, so its
+hint is to run `chaps status` again in a minute rather than to restart it. See
 [When everything registered](#when-everything-registered) below.
 
 The version is chap-core's own when it publishes one, and otherwise the tag

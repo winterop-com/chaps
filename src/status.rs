@@ -358,6 +358,11 @@ pub struct ModelStatus {
     /// it. That is a service id that does not match, not a model that failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registered_as: Option<String>,
+    /// Whether its container has been up for under two minutes, which makes
+    /// "not registered yet" a wait rather than a fault. Filled in by the
+    /// caller, which has docker.
+    #[serde(skip)]
+    pub young: bool,
 }
 
 /// Tie each unmanaged row to the model whose container it is, when it is one.
@@ -755,6 +760,7 @@ pub fn model_rows(
                 host_port: *host_port,
                 last_ping: found.and_then(|s| ago(now, &s.last_ping_at)),
                 registered_as: None,
+                young: false,
             }
         })
         .collect();
@@ -774,6 +780,7 @@ pub fn model_rows(
         host_port: None,
         last_ping: ago(now, &s.last_ping_at),
         registered_as: None,
+        young: false,
     }));
     rows
 }
@@ -811,6 +818,7 @@ pub fn standalone_model_rows(
                 host_port: *host_port,
                 last_ping: None,
                 registered_as: None,
+                young: false,
             }
         })
         .collect()
@@ -998,7 +1006,7 @@ pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run
 /// readiness check.
 pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
     rows.iter()
-        .filter(|row| row.state == ModelState::RunningNotRegistered)
+        .filter(|row| row.state == ModelState::RunningNotRegistered && !row.young)
         .map(|row| {
             format!(
                 "{id}: with a chap-core elsewhere the image has to listen on `PORT`; if \
@@ -1032,6 +1040,13 @@ pub fn hints(rows: &[ModelStatus], auth: bool) -> Vec<String> {
                 row.id,
                 row.registered_as.as_deref().unwrap_or_default(),
                 row.registered_as.as_deref().unwrap_or_default()
+            )),
+            // Started moments ago: registering is part of starting, and the
+            // restart below would only start the wait over.
+            ModelState::RunningNotRegistered if row.young => Some(format!(
+                "{}: started under two minutes ago and registers once it is ready; run `chaps \
+                 status` again in a minute",
+                row.id
             )),
             ModelState::RunningNotRegistered => Some(format!(
                 "{}: restart it with `chaps restart --all {}`{registration_key}",
@@ -1525,6 +1540,7 @@ mod tests {
             host_port: None,
             last_ping: None,
             registered_as: None,
+            young: false,
         }
     }
 
@@ -2685,6 +2701,30 @@ mod tests {
             NOW,
         );
         assert!(hints(&stranger, false).is_empty());
+    }
+
+    /// A model that started moments ago is waited for, not restarted: the
+    /// restart would only start its registration over.
+    #[test]
+    fn a_model_that_just_started_is_told_to_wait_not_to_restart() {
+        let mut rows = model_rows(
+            &enabled()[..1],
+            &[],
+            &running(&["chapkit-ewars-model"]),
+            NOW,
+        );
+        rows[0].young = true;
+        let hint = &hints(&rows, true)[0];
+        assert!(hint.contains("started under two minutes ago"), "{hint}");
+        assert!(
+            hint.contains("run `chaps status` again in a minute"),
+            "{hint}"
+        );
+        assert!(!hint.contains("restart"), "{hint}");
+        assert!(
+            external_registration_hints(&rows).is_empty(),
+            "a young model gets no `PORT` hint either"
+        );
     }
 
     #[test]

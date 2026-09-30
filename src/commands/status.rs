@@ -81,6 +81,11 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
             .map(|c| (c.service.clone(), c.id.clone()))
             .collect();
         crate::status::link_strays(&mut report.models, &ids);
+        for row in &mut report.models {
+            row.young = containers
+                .iter()
+                .any(|c| c.service == row.id && c.is_running() && c.is_young());
+        }
     }
     // Which build a moving tag is on is the caller's to fill in too: `dev` is
     // the same name whatever it points at today, and the digest the image was
@@ -983,6 +988,7 @@ mod tests {
             host_port: None,
             last_ping: None,
             registered_as: None,
+            young: false,
         });
         let text = human(&report, &Out::default());
         let row = text

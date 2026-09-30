@@ -73,6 +73,11 @@ the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 chapkit-rwanda-malaria-bym-model  running, not registered  internal  -
 ```
 
+A model that started under two minutes ago is still starting, and registering
+is the last part of that; `chaps status` says so for that row
+(`started under two minutes ago and registers once it is ready`) and the fix is
+to run it again in a minute. Past that, it is stuck.
+
 chapkit tries to register with chap-core five times during its startup and then
 stops. A model that came up before chap-core was healthy therefore stays
 invisible until it is restarted:
