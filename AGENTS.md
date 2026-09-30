@@ -1,5 +1,8 @@
 # Working on chaps
 
+This file is for changing chaps. If you are helping someone use chaps rather
+than change it, read `docs/ai.md` instead and follow it.
+
 chaps is a Rust CLI (crate and binary `chaps`) that deploys and
 manages CHAP, the Climate Health Analytics Platform, and the services around
 it, all through docker compose: chap-core, model services from the CHAP model
