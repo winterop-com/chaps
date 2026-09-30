@@ -194,8 +194,8 @@ chaps open dhis2
 minute: it connects DHIS2 to CHAP, installs
 the Modeling App and the Climate App, and prepares the data the Modeling App
 reads. It worked when DHIS2 opens in the browser, the login `admin` /
-`district` works, and **Modeling** is in the app menu (the grid icon at the top
-right).
+`district` works, and typing `Modeling` in the app menu (the grid icon at the
+top right) finds **Modeling**.
 
 Next: [Your first forecast in the Modeling App](./modeling-app.md), which takes
 them from here to an evaluation and a forecast in about fifteen minutes.
@@ -465,10 +465,12 @@ chaps up
 chaps status
 ```
 
-It worked when `chaps status` lists the model as `registered`. If it shows as
-`unmanaged` next to a model that is not registered, the image registers under
-another name: run `chaps models remove my_model`, then add it again with
-`--service-id` set to the name in the `unmanaged` row.
+It worked when `chaps status` lists the model as `registered`. Usually it does
+not the first time: the image registers under its own name, so `chaps status`
+shows it `unmanaged` next to `my-model` not registered, and the line under the
+table gives the two commands that fix it (`chaps models remove my_model`, then
+`chaps models add my-model:dev --service-id` with the name from the
+`unmanaged` row). Run them, then `chaps up` again.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 
@@ -579,12 +581,19 @@ More: [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-ch
 ### 18. Two of these at the same time
 
 Every option uses the same ports, so a second one needs its own. Create the
-second one with these added to its `chaps init` line (leave out the ones for
-pieces it does not have):
+second one with these added to its `chaps init` line, one flag per piece it
+has (`--ocs-port` only with OCS, `--dhis2-port` only with DHIS2; a flag for a
+missing piece is an error):
 
-```sh
---api-port 8701 --ocs-port 8791 --dhis2-port 8781 --port-base 5101
-```
+| Piece | Flag |
+| --- | --- |
+| chap-core | `--api-port 8701` |
+| models | `--port-base 5101` |
+| OCS | `--ocs-port 8791` |
+| DHIS2 | `--dhis2-port 8781` |
+
+For example, a second option 2: `chaps init second --models default --api-port
+8701 --port-base 5101`.
 
 For a third, use 8702, 8792, 8782 and 5201, and so on. It worked when both
 folders' `chaps status` say `up`. Running them one at a time needs none of
