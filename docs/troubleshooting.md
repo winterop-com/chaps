@@ -480,7 +480,7 @@ overlay is out of date: run `chaps sync`, then `chaps restart`.
 ## `running and not answering on /health`
 
 ```text
-1 of 1 model is running and not answering on /health; run `chaps status` again in a moment, or read `chaps logs SERVICE`
+1 of 1 model is running and not answering on /health; a model that just started answers in a minute, so run `chaps status` again, or read `chaps logs chapkit-ewars-model`
 ```
 
 A deployment without chap-core asks each model's own `/health` on its host

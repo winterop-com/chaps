@@ -141,7 +141,8 @@ both `null` where the line says nothing.
 
 A deployment with `chap-core` disabled has no chap-core line at all, and
 `status` does not exit non-zero over an API that is not meant to be there. Its
-closing line counts components rather than models - `all 2 components are up`,
+closing line counts components rather than models - `both components are up;
+`chaps open ocs` opens it`,
 or `1 of 2 components is not running; start it with `chaps up`` - because it
 has no models to count and the models line would name `chaps models enable`,
 the one command such a deployment refuses. See
