@@ -1259,6 +1259,23 @@ pub fn compose_ls_json() -> Option<String> {
     ])
 }
 
+/// The name of a running container that publishes host `port`, if any.
+///
+/// Best-effort like [`compose_ls_json`]: `None` when docker cannot be asked.
+pub fn container_publishing(port: u16) -> Option<String> {
+    let text = docker_capture(&[
+        "ps".to_string(),
+        "--filter".to_string(),
+        format!("publish={port}"),
+        "--format".to_string(),
+        "{{.Names}}".to_string(),
+    ])?;
+    text.lines()
+        .map(str::trim)
+        .find(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
 /// The chaps deployment directories named by [`compose_ls_json`].
 ///
 /// A compose project is one of ours when its `ConfigFiles` - a comma-separated

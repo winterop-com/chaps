@@ -665,6 +665,50 @@ impl ExternalChapCore {
     }
 }
 
+impl ExternalChapCore {
+    /// The port of a chap-core on this machine: `Some` only for a loopback
+    /// URL, which is the one case where a container of this machine can be
+    /// what answers it.
+    pub fn loopback_port(&self) -> Option<u16> {
+        let (scheme, rest) = self.url.split_once("://")?;
+        let authority = rest.split('/').next()?;
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((host, port)) if !port.contains(']') => (host, port.parse().ok()?),
+            _ => (authority, if scheme == "https" { 443 } else { 80 }),
+        };
+        ["localhost", "127.0.0.1", "[::1]"]
+            .contains(&host)
+            .then_some(port)
+    }
+}
+
+/// Switch `external` to calling the models back at the host gateway when the
+/// chap-core it names is a container on this machine, and say so.
+///
+/// Models register as `<models_host>:<port>` and chap-core calls them there.
+/// `localhost` is right for a chap-core running as a process here; for one in
+/// a container (`make restart` in chap-core's checkout starts it that way) it
+/// is the container itself, and every call back fails. `publisher` names the
+/// container publishing a host port, `None` when there is none or no docker
+/// to ask - which leaves `localhost`, and `chaps status` to catch it later.
+pub fn detect_models_host(
+    external: &mut ExternalChapCore,
+    publisher: &dyn Fn(u16) -> Option<String>,
+) -> Option<String> {
+    if external.models_host != default_models_host() {
+        return None;
+    }
+    let port = external.loopback_port()?;
+    let container = publisher(port)?;
+    external.models_host = HOST_GATEWAY.to_string();
+    Some(format!(
+        "chap-core at {} is the container `{container}`, so it calls the models back at \
+         {HOST_GATEWAY}; if it is a process on this machine instead, run `chaps components \
+         enable chap-core --url {} --models-host localhost`",
+        external.url, external.url
+    ))
+}
+
 /// An [`ExternalChapCore`] for `url`, refused unless it is an absolute
 /// `http(s)` URL: the models append a path to it to register.
 pub fn external_chap_core(url: &str) -> Result<ExternalChapCore> {
@@ -834,9 +878,14 @@ impl Components {
             .collect()
     }
 
-    /// `chap-core, ocs` — the enabled set as one cell.
+    /// `chap-core, ocs` — the enabled set as one cell. A chap-core elsewhere
+    /// leads it as `chap-core (elsewhere)`: not a component this deployment
+    /// runs, and still the one its models and its DHIS2 route talk to.
     pub fn label(&self) -> String {
-        let names: Vec<&str> = self.enabled().iter().map(|c| c.name()).collect();
+        let mut names: Vec<&str> = self.enabled().iter().map(|c| c.name()).collect();
+        if self.chap_core_external.is_some() {
+            names.insert(0, "chap-core (elsewhere)");
+        }
         if names.is_empty() {
             return "none".to_string();
         }
@@ -1799,5 +1848,50 @@ mod tests {
             DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME.contains("`dhis2_db`"),
             "{DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME}"
         );
+    }
+
+    #[test]
+    fn a_loopback_chap_core_has_a_port_to_look_for_a_container_on() {
+        let port = |url: &str| external_chap_core(url).unwrap().loopback_port();
+        assert_eq!(port("http://localhost:8000"), Some(8000));
+        assert_eq!(port("http://127.0.0.1:8001/"), Some(8001));
+        assert_eq!(port("http://localhost"), Some(80));
+        assert_eq!(port("https://localhost/api"), Some(443));
+        assert_eq!(port("http://chap.example.org:8000"), None);
+        assert_eq!(port("http://localhostile:8000"), None);
+    }
+
+    /// Option 10 of the AI page: chap-core from its checkout with
+    /// `make restart`, which is a container publishing 8000.
+    #[test]
+    fn a_chap_core_in_a_container_calls_the_models_back_at_the_gateway() {
+        let mut external = external_chap_core("http://localhost:8000").unwrap();
+        let note = detect_models_host(&mut external, &|port| {
+            (port == 8000).then(|| "chapdev-chap-1".to_string())
+        })
+        .expect("a note");
+        assert_eq!(external.models_host, HOST_GATEWAY);
+        assert!(note.contains("the container `chapdev-chap-1`"), "{note}");
+        assert!(
+            note.contains(
+                "`chaps components enable chap-core --url http://localhost:8000 --models-host \
+                 localhost`"
+            ),
+            "{note}"
+        );
+
+        // A process on this machine, or no docker to ask: left as it was.
+        let mut process = external_chap_core("http://localhost:8000").unwrap();
+        assert!(detect_models_host(&mut process, &|_| None).is_none());
+        assert_eq!(process.models_host, "localhost");
+
+        // A chap-core on another machine is nothing a local container says
+        // anything about, and a host chosen by hand is kept.
+        let mut remote = external_chap_core("http://chap.example.org:8000").unwrap();
+        assert!(detect_models_host(&mut remote, &|_| Some("x".into())).is_none());
+        let mut chosen = external_chap_core("http://localhost:8000").unwrap();
+        chosen.models_host = "10.0.0.5".into();
+        assert!(detect_models_host(&mut chosen, &|_| Some("x".into())).is_none());
+        assert_eq!(chosen.models_host, "10.0.0.5");
     }
 }

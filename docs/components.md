@@ -897,7 +897,10 @@ chap-core-external:
   as in any deployment without chap-core of its own. `localhost` is right for a
   chap-core process on this machine; a chap-core in a container needs
   `--models-host host.docker.internal`, and one on another machine the name it
-  reaches this one by.
+  reaches this one by. `init` and `components enable` pick
+  `host.docker.internal` themselves when a running container publishes the
+  URL's port, and say so. `chaps status` checks the way back through chap-core's
+  proxy and shows a model it cannot reach as `registered, unreachable`.
 - **`chaps status`, `jobs`, `api` and `models test` use that URL** in place of
   `http://localhost:<API port>`.
 

@@ -252,7 +252,9 @@ More: [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
 ### 10. My own chap-core, with the models
 
 For someone developing chap-core itself. They run chap-core from its folder,
-listening on `0.0.0.0:8000`; chaps runs the models.
+listening on `0.0.0.0:8000`; chaps runs the models. Have them start their
+chap-core first: `chaps init` then sees whether it runs in Docker and sets the
+models up to match.
 
 ```sh
 chaps init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
@@ -263,7 +265,9 @@ chaps status
 
 It worked when `chaps status` shows chap-core `up` and the model `registered`.
 If chap-core was started after `chaps up`, wait a few seconds and run
-`chaps status` again.
+`chaps status` again. `registered, unreachable` means chap-core cannot call the
+model back, usually because chap-core was not running during `chaps init`: the
+line under the table gives the command that fixes it.
 
 More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
 

@@ -51,9 +51,14 @@ chaps components disable chap-core                            # forget it again
 chaps components enable chap-core                             # or run chaps' own again
 ```
 
-If your chap-core is itself a container (another compose project) rather than a
-process on this machine, it cannot call the models at `localhost`: add
-`--models-host host.docker.internal` to `components enable chap-core --url`.
+If your chap-core is itself a container (another compose project, which is
+what `make restart` in chap-core's checkout starts) rather than a process on
+this machine, it cannot call the models at `localhost`; they have to register
+as `host.docker.internal`. `chaps init --chap-core-url` and `components enable
+chap-core --url` see that for themselves when a container publishes the URL's
+port at the time, and say so; otherwise add `--models-host host.docker.internal`
+to `components enable chap-core --url`. Without it the models still register,
+and `chaps status` shows them `registered, unreachable`.
 For a chap-core on another machine, pass the name that machine reaches this one
 by.
 

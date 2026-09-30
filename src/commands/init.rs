@@ -45,7 +45,11 @@ const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `chaps models 
 /// where models were not the point and a line about adding one is noise. A
 /// deployment of nothing but models (`--only none`) still gets it.
 fn no_models_line(components: &Components) -> Option<&'static str> {
-    if components.has_chap_core_api() {
+    // A chap-core elsewhere in front of components of this deployment's own
+    // (a DHIS2 for the chap-core being developed) has its models there.
+    if components.chap_core_external.is_some() && !components.enabled().is_empty() {
+        None
+    } else if components.has_chap_core_api() {
         Some(NO_MODELS)
     } else if components.enabled().is_empty() {
         Some(NO_MODELS_WITHOUT_CHAP_CORE)
@@ -85,7 +89,14 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // A chap-core elsewhere is instead of this deployment's own, never beside it.
     if let Some(url) = &args.chap_core_url {
         components.set_enabled(Component::ChapCore, false);
-        components.chap_core_external = Some(crate::components::external_chap_core(url)?);
+        let mut external = crate::components::external_chap_core(url)?;
+        if let Some(note) = crate::components::detect_models_host(
+            &mut external,
+            &crate::docker::container_publishing,
+        ) {
+            crate::output::warn(&note);
+        }
+        components.chap_core_external = Some(external);
     }
     // The deployment this run is writing over, when there is one: `--force`
     // starts the state over, so anything it had and this run does not ask for is
@@ -1198,6 +1209,17 @@ fn summary(
             "{}       {}\n",
             out.key("API:"),
             out.value(&project.api_url())
+        ));
+    }
+    if let Some(external) = &components.chap_core_external {
+        addresses.push_str(&format!(
+            "{} {} {}\n",
+            out.key("chap-core:"),
+            out.value(&external.url),
+            out.dim(&format!(
+                "(elsewhere; models register there, and it calls them back at {}:<port>)",
+                external.models_host
+            ))
         ));
     }
     if components.ocs.enabled {

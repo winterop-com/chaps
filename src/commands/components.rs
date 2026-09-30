@@ -298,8 +298,15 @@ fn use_external_chap_core(
     }
     let before = project.state.components.clone();
     let mut external = crate::components::external_chap_core(url)?;
-    if let Some(host) = models_host.map(str::trim).filter(|h| !h.is_empty()) {
-        external.models_host = host.to_string();
+    let mut detected = None;
+    match models_host.map(str::trim).filter(|h| !h.is_empty()) {
+        Some(host) => external.models_host = host.to_string(),
+        None => {
+            detected = crate::components::detect_models_host(
+                &mut external,
+                &crate::docker::container_publishing,
+            )
+        }
     }
     project.state.components.chap_core_external = Some(external.clone());
     let after = project.state.components.clone();
@@ -307,6 +314,7 @@ fn use_external_chap_core(
     let registry = super::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
     let mut notes = synced.warnings;
+    notes.extend(detected);
     notes.push(format!(
         "model services register with the chap-core at {} on the next `chaps up`, calling \
          back to them at {}; `chaps status` asks it",
@@ -817,6 +825,22 @@ fn human_change(report: &ChangeReport, project: &Project, out: &Out) -> String {
         // A component with no host port is reached somewhere else rather than
         // not at all, so the proxy that reaches it is named where the address
         // would have been.
+        (true, None) if report.name == "chap-core" => {
+            match &project.state.components.chap_core_external {
+                Some(external) => format!(
+                    "{painted} chap-core at {} {}\n",
+                    out.value(&external.url),
+                    out.dim(&format!(
+                        "(elsewhere; models are called back at {}:<port>)",
+                        external.models_host
+                    ))
+                ),
+                None => format!(
+                    "{painted} chap-core {}\n",
+                    out.dim("(no host port; it is reached inside the compose network)")
+                ),
+            }
+        }
         (true, None) => format!(
             "{painted} {} {}\n",
             report.name,

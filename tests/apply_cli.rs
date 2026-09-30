@@ -223,7 +223,14 @@ fn models_register_with_a_chap_core_elsewhere() {
             "chapkit_ewars_model",
         ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains(
+            "components: chap-core (elsewhere)",
+        ))
+        .stdout(predicates::str::contains(
+            "chap-core: http://localhost:18999 (elsewhere; models register there, and it calls \
+             them back at localhost:<port>)",
+        ));
     assert!(!dir.join("compose.yml").exists(), "no chap-core of its own");
     let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
     assert!(
@@ -331,7 +338,8 @@ fn a_dhis2_here_can_route_to_a_chap_core_elsewhere() {
             "none",
         ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("No models enabled").not());
     let compose = read(&dir.join("compose.dhis2.yml"));
     assert!(
         compose.contains("host.docker.internal:host-gateway"),
