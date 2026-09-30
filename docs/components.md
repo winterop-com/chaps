@@ -377,9 +377,21 @@ the DHIS2 user interface is at http://localhost:18080
 there is no `xdg-open` on this machine to open it with, so the address above is the whole of it
 ```
 
-`chaps open NAME --json` carries `url`, `page`, `opened`, `running` and the notes,
-which is the shape to read from a script; `chaps open --json` carries the listing
-under `components`.
+`--no-browser` asks for that answer on a machine that does have an opener: the
+address and the notes, and no browser window. A script or an AI agent working
+for someone at another screen wants this, because a window appearing on the
+machine the command runs on helps nobody:
+
+```text
+$ chaps open ocs --no-browser
+the OCS web interface is at http://localhost:8790
+ocs answered at that address; `chaps status` reports the rest of this deployment
+```
+
+`chaps open NAME --json` carries `url`, `page`, `opened`, `no_browser`, `running`
+and the notes, which is the shape to read from a script, and never opens a
+browser: `no_browser` is always `true` under `--json`. `chaps open --json` carries
+the listing under `components`.
 
 ### From the browser
 

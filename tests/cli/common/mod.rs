@@ -80,9 +80,9 @@ impl Sandbox {
 
     /// `chaps -C <project> open ...`.
     ///
-    /// Only ever called with arguments that open nothing: a test that reached
-    /// the opener would put a browser window on whatever machine runs the
-    /// suite.
+    /// Only ever called with arguments that open nothing, or with `--no-browser`
+    /// or `--json` and an empty PATH: a test that reached the opener would put a
+    /// browser window on whatever machine runs the suite.
     pub(crate) fn open(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("-C").arg(self.project()).arg("open").args(args);

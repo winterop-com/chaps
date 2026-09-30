@@ -935,6 +935,10 @@ pub struct OpenArgs {
     // one opens, which answers the question a bare `chaps open` is asking.
     /// Component to open (chap-core, ocs, dhis2), or an enabled model's id
     pub name: Option<String>,
+
+    /// Print the address instead of opening a browser
+    #[arg(long)]
+    pub no_browser: bool,
 }
 
 /// List the backtests and predictions chap-core has run

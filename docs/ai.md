@@ -103,8 +103,10 @@ telling the person what to type:
 - Do not run `chaps ui` (an interactive screen), `chaps up --attach` or
   `chaps logs -f` (they never return). `chaps logs SERVICE` without `-f`
   prints and returns.
-- `chaps open` opens a browser on the machine it runs on; when that is not in
-  front of the person, give them the address from `chaps status` instead.
+- `chaps open NAME` opens a browser on the machine it runs on. Run
+  `chaps open NAME --no-browser` instead: it prints the address and opens nothing,
+  and you give the person that address (or open it in your own browser tool).
+  `--json` never opens a browser either.
 
 ## Before any option
 

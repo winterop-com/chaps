@@ -48,8 +48,12 @@ pub struct OpenReport {
     /// What that address lands on, in the words the first line uses.
     pub page: &'static str,
     /// Whether the platform's opener took it. `false` on a machine that has
-    /// none, which is a report and not a failure.
+    /// none, which is a report and not a failure, and whenever `no_browser` is.
     pub opened: bool,
+    /// No browser was asked to open it: `--no-browser` said so, and `--json`
+    /// implies it, because a program reading the report has no use for a
+    /// browser window appearing on the machine it runs on.
+    pub no_browser: bool,
     pub running: Running,
     /// For a running container: whether the address answered one request.
     /// `null` when the container is not running or docker could not say.
@@ -87,7 +91,7 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
         .iter()
         .find(|(id, model)| id.as_str() == name || model.service_id == name)
     {
-        return open_model(ctx, &project, id, model);
+        return open_model(ctx, &project, id, model, args.no_browser);
     }
     let component = Component::from_name(name)?;
     let resolved = resolve(component, &project.state.components, &project.api_base());
@@ -124,9 +128,11 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
     let answering = matches!(running, Running::Yes | Running::External)
         .then(|| crate::commands::doctor::probe(&url, std::time::Duration::from_secs(3)).is_ok());
 
+    let no_browser = browserless(ctx, args.no_browser);
     let report = OpenReport {
         name: component.name().to_string(),
-        opened: crate::open::spawn_opener(&url),
+        opened: !no_browser && crate::open::spawn_opener(&url),
+        no_browser,
         answering,
         url,
         page: what,
@@ -161,6 +167,7 @@ fn open_model(
     project: &Project,
     id: &str,
     model: &crate::project::EnabledModel,
+    no_browser: bool,
 ) -> Result<()> {
     let url = model_docs_url(project, id, model)?;
     let running = match docker::running_containers_or_why(project) {
@@ -180,9 +187,11 @@ fn open_model(
     }
     let answering = (running == Running::Yes)
         .then(|| crate::commands::doctor::probe(&url, std::time::Duration::from_secs(3)).is_ok());
+    let no_browser = browserless(ctx, no_browser);
     let report = OpenReport {
         name: model.service_id.clone(),
-        opened: crate::open::spawn_opener(&url),
+        opened: !no_browser && crate::open::spawn_opener(&url),
+        no_browser,
         answering,
         url,
         page: "the model's API documentation",
@@ -190,6 +199,12 @@ fn open_model(
         notes,
     };
     ctx.out.emit(&report, || human(&report, &ctx.out))
+}
+
+/// Whether the address is only printed, never handed to a browser: asked for
+/// with `--no-browser`, and always under `--json`.
+fn browserless(ctx: &Ctx, no_browser: bool) -> bool {
+    no_browser || ctx.out.json
 }
 
 /// Whether this component's container is up, judged exactly as `chaps status`
@@ -297,7 +312,9 @@ fn list(ctx: &Ctx, project: &Project) -> Result<()> {
 
 fn human(report: &OpenReport, out: &Out) -> String {
     let url = out.value(&report.url);
-    let mut text = if report.opened {
+    let mut text = if report.no_browser {
+        format!("{} is at {url}\n", report.page)
+    } else if report.opened {
         format!("opening {} at {url}\n", report.page)
     } else {
         // No opener is the honest answer on a server, and the URL is the whole
@@ -555,6 +572,7 @@ mod tests {
             url: "http://localhost:18080".to_string(),
             page: crate::open::DHIS2_PAGE,
             opened: false,
+            no_browser: false,
             running: Running::Yes,
             answering: Some(true),
             notes: Vec::new(),
@@ -580,6 +598,7 @@ mod tests {
             url: "http://localhost:18080".to_string(),
             page: crate::open::DHIS2_PAGE,
             opened: true,
+            no_browser: false,
             running: Running::Yes,
             answering: Some(true),
             notes: Vec::new(),
@@ -608,6 +627,31 @@ mod tests {
         assert!(text.contains("run `chaps status` in a moment"), "{text}");
     }
 
+    /// `--no-browser` says where the page is and nothing about an opener: none
+    /// was asked, so its absence is not worth a line.
+    #[test]
+    fn no_browser_names_the_page_and_no_opener() {
+        let out = Out::detect(false, true);
+        let report = OpenReport {
+            name: "ocs".to_string(),
+            url: "http://localhost:8790".to_string(),
+            page: crate::open::OCS_PAGE,
+            opened: false,
+            no_browser: true,
+            running: Running::Yes,
+            answering: Some(true),
+            notes: Vec::new(),
+        };
+        let text = human(&report, &out);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[0],
+            "the OCS web interface is at http://localhost:8790"
+        );
+        assert!(!text.contains("opening"), "{text}");
+        assert!(!text.contains("the whole of it"), "{text}");
+    }
+
     /// Nothing about the container is claimed when docker said nothing, and the
     /// note is what stands in for the closing line.
     #[test]
@@ -618,6 +662,7 @@ mod tests {
             url: "http://localhost:9000".to_string(),
             page: crate::open::OCS_PAGE,
             opened: true,
+            no_browser: false,
             running: Running::Unknown,
             answering: None,
             notes: vec![running_note(Running::Unknown, Component::Ocs).expect("a note")],

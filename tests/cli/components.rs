@@ -366,6 +366,34 @@ fn open_names_the_internal_address_of_a_component_with_no_host_port() {
     );
 }
 
+/// `--no-browser`, and `--json` without it, give the address and never hand it to
+/// a browser. PATH is emptied so a regression finds no opener to launch.
+#[test]
+fn open_no_browser_and_json_give_the_address_without_a_browser() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "ocs", "--ocs-port", "18790"])
+        .assert()
+        .success();
+
+    let printed = sandbox
+        .open(&["ocs", "--no-browser"])
+        .env("PATH", "")
+        .assert()
+        .success();
+    let text = String::from_utf8_lossy(&printed.get_output().stdout).into_owned();
+    assert!(
+        text.starts_with("the OCS web interface is at http://localhost:18790\n"),
+        "{text}"
+    );
+    assert!(!text.contains("to open it with"), "{text}");
+
+    let report = json_of(sandbox.open(&["ocs", "--json"]).env("PATH", ""));
+    assert_eq!(report["url"], "http://localhost:18790");
+    assert_eq!(report["no_browser"], true);
+    assert_eq!(report["opened"], false);
+}
+
 /// `open` needs a deployment, so outside one it says which file is missing
 /// rather than opening anything.
 #[test]

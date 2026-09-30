@@ -525,6 +525,7 @@ Usage: chaps open [OPTIONS] [NAME]
 | Argument | Description |
 | --- | --- |
 | `<NAME>` | Component to open (chap-core, ocs, dhis2), or an enabled model's id. |
+| `--no-browser` | Print the address instead of opening a browser. |
 
 ## chaps jobs
 
