@@ -154,6 +154,7 @@ none to go into until someone creates them in DHIS2's Maintenance app.
 | --- | --- |
 | Typing `Modeling` in the app menu finds nothing | `chaps dhis2 connect` has not run, or failed; run it and read its last line. |
 | The model list does not have the model `chaps` enabled | `chaps status`: the model must be `registered`. If it is not, the line under the table says why. |
+| `Oops! Sorry, an unexpected error`, or `Unnamed evaluation` rows, after the deployment was recreated | The browser holds a login to the DHIS2 that was removed: open DHIS2 again and log in. See [Troubleshooting](./troubleshooting.md#oops-sorry-an-unexpected-error-or-unnamed-evaluation-in-the-modeling-app). |
 | A job in **Jobs** says it failed | `chaps jobs`, then `chaps jobs logs ID` with the id it prints: the model's own error is at the end. |
 
 More on connecting DHIS2 and CHAP: [DHIS2](./dhis2.md). The Modeling App's own

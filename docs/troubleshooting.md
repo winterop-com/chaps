@@ -773,6 +773,21 @@ is a note that the command ran rather than a check of the route - see
 [`connected_at`, and what it is not](./dhis2.md#connected_at-and-what-it-is-not).
 `chaps dhis2 show` is the command that asks DHIS2.
 
+## `Oops! Sorry, an unexpected error` or `Unnamed evaluation` in the Modeling App
+
+The browser still holds a login to a DHIS2 that is gone. After
+`chaps down --volumes` (or `chaps components disable dhis2 --purge`) and a
+fresh DHIS2 on the same port, the old session cookie means nothing to the new
+instance: every request the Modeling App makes is redirected to the login
+page, and the app shows either this error or a dashboard of
+`Unnamed evaluation` rows with `0 locations`, sometimes after first showing
+the evaluations of the deployment that was removed.
+
+Nothing is wrong with the deployment, and `chaps jobs` shows what Chap really
+holds. Open `http://localhost:8780/` (or the address `chaps open dhis2
+--no-browser` prints), log in again with `admin` / `district`, and open the
+Modeling App from the app menu.
+
 ## `chaps has not connected this DHIS2 to CHAP`
 
 `chaps up` and `chaps status` close with this while `.chaps/components.yaml`
