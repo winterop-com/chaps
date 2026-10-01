@@ -241,7 +241,9 @@ A tool that drives chaps reads stdout and branches on one field:
   `error` is the whole message, as the terminal shows it after `error:`;
   `hint` is its last clause when that clause names a command or a flag to use
   instead (`pass \`--id auto\` ... to add this one beside it`), and `null`
-  when the message has no way out to give.
+  when the message has no way out to give. A usage error - an unknown flag, a
+  missing argument - is the same document, with clap's message as `error` and
+  the command's `--help` as `hint`, and exits 2.
 - `models enable` and `models add` list what they enabled under `models`, one
   object per model with `id`, `service_id`, `port`, `bind` and `url` (the
   model's own port, else chap-core's proxy to it, else `null`), next to the
