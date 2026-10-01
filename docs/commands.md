@@ -209,3 +209,39 @@ They are accepted before or after the subcommand, and the
 | `--registry-url URL` | A different marketplace index, for a fork or a mirror. Inside a deployment the default is the one `init` recorded. |
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |
 | `--cache-dir DIR` | Override the registry cache directory for one invocation. |
+
+## `--json` for scripts and tools
+
+Under `--json` every command prints exactly one JSON document on stdout, and
+everything meant for a person - progress, notes, warnings - goes to stderr.
+A tool that drives chaps reads stdout and branches on one field:
+
+- **Success** of a command that changes something (`models enable`, `disable`,
+  `add`, `remove`, `expose`, `unexpose`, `up`, `models test`) carries
+  `"ok": true`. The read-only commands (`status`, `models list`, `models info`)
+  print their report as it is; `status` says how things are in its own exit
+  code.
+- **Failure** of any command is
+
+  ```json
+  {"ok": false, "error": "...", "hint": "run `chaps ...`", "causes": []}
+  ```
+
+  `error` is the whole message, as the terminal shows it after `error:`;
+  `hint` is its last clause when that clause names a command or a flag to use
+  instead (`pass \`--id auto\` ... to add this one beside it`), and `null`
+  when the message has no way out to give.
+- `models enable` and `models add` list what they enabled under `models`, one
+  object per model with `id`, `service_id`, `port`, `bind` and `url` (the
+  model's own port, else chap-core's proxy to it, else `null`), next to the
+  full change report.
+- `up` prints `api_url`, the compose services `running` and the ones this run
+  `started`, every enabled model the same way, and under `--wait` what the wait
+  found: `wait.ready`, `wait.waited_s` and each model's `state` and `url`.
+- `models test` prints `{"ok": ..., "models": [...]}`, one object per model with
+  its `result` (`pass`, `fail` or `skip`), the `summary` and the `detail` that
+  says why and what to do.
+
+The exit code agrees with `ok`: 0 for `true`, non-zero for `false`, and
+`models test` exits non-zero when any model failed even though it printed
+`"ok": false` rather than an error.

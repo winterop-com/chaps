@@ -486,3 +486,56 @@ fn bind_puts_the_host_address_in_front_of_the_published_port() {
         .assert()
         .failure();
 }
+
+#[test]
+fn changing_commands_say_ok_and_name_the_model_under_json() {
+    let sandbox = Sandbox::new();
+    let base = port_base();
+    sandbox
+        .init(&["--models", "none", "--port-base", &base.to_string()])
+        .assert()
+        .success();
+
+    let doc = json_of(&mut sandbox.models(&[
+        "enable",
+        "chapkit_ewars_model",
+        "--port",
+        "auto",
+        "--json",
+    ]));
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["models"][0]["id"], "chapkit_ewars_model");
+    assert_eq!(doc["models"][0]["service_id"], "chapkit-ewars-model");
+    assert_eq!(doc["models"][0]["port"], base);
+    assert_eq!(doc["models"][0]["url"], format!("http://localhost:{base}"));
+
+    let doc = json_of(&mut sandbox.models(&["expose", "chapkit_ewars_model", "--json"]));
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["service_id"], "chapkit-ewars-model");
+
+    let doc = json_of(&mut sandbox.models(&["disable", "chapkit_ewars_model", "--json"]));
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["disabled"][0], "chapkit_ewars_model");
+
+    // A refusal is JSON too, with the way out on its own.
+    let out = sandbox
+        .models(&[
+            "add",
+            "ghcr.io/chap-models/chapkit_ewars_model:sha-0000000",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("the error is one JSON document");
+    assert_eq!(doc["ok"], false);
+    assert!(
+        doc["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("--id auto"),
+        "{doc}"
+    );
+}

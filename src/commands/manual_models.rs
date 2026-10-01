@@ -196,7 +196,8 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
         notes: notes.clone(),
         apply: applied,
     };
-    ctx.out.emit(&report, || {
+    let changed = super::enable::Changed::new(&report, &report.apply, &project);
+    ctx.out.emit_ok(&changed, || {
         format!(
             "{}{}",
             added_block(&resolved, &ctx.out),
@@ -258,7 +259,7 @@ pub fn remove(ctx: &Ctx, args: &ModelsRemoveArgs) -> Result<()> {
         apply: applied,
         purged,
     };
-    ctx.out.emit(&report, || {
+    ctx.out.emit_ok(&report, || {
         let mut text = format!(
             "{} {id} {}\n",
             ctx.out.warn("removed"),

@@ -112,6 +112,20 @@ impl Out {
         Ok(())
     }
 
+    /// [`Out::emit`] for a command that changed something: under `--json` the
+    /// document also says `"ok": true`, the counterpart of the `"ok": false`
+    /// an error carries, so a caller can branch on one field.
+    pub fn emit_ok<T: Serialize>(&self, value: &T, human: impl FnOnce() -> String) -> Result<()> {
+        if !self.json {
+            return self.emit(value, human);
+        }
+        let mut value = serde_json::to_value(value)?;
+        if let serde_json::Value::Object(map) = &mut value {
+            map.insert("ok".to_string(), serde_json::Value::Bool(true));
+        }
+        self.emit(&value, String::new)
+    }
+
     /// Apply a style, or hand the text back untouched when colour is off.
     fn paint(&self, text: &str, style: Style) -> String {
         if self.color {
@@ -236,8 +250,11 @@ impl Out {
     pub fn error(&self, err: &anyhow::Error) -> String {
         let causes: Vec<String> = err.chain().skip(1).map(|c| c.to_string()).collect();
         if self.json {
+            let message = err.to_string();
             let value = serde_json::json!({
-                "error": err.to_string(),
+                "ok": false,
+                "hint": hint_of(&message),
+                "error": message,
                 "causes": causes,
             });
             return serde_json::to_string_pretty(&value)
@@ -258,6 +275,14 @@ impl Out {
         }
         text
     }
+}
+
+/// The way out an error message names, for a `--json` reader: the clause after
+/// its last `; ` when that clause holds a command in backticks, which is how
+/// every message here ends that has one (`...; run \`chaps up\``).
+pub fn hint_of(message: &str) -> Option<String> {
+    let (_, tail) = message.rsplit_once("; ")?;
+    tail.contains('`').then(|| tail.trim().to_string())
 }
 
 /// Remember `--no-color` for the stderr side, which has no [`Out`] to consult.

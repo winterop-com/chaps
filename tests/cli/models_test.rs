@@ -269,7 +269,7 @@ fn models_test_json_is_one_object_per_model() {
     let sandbox = Sandbox::new();
     let (dir, _) = tested_project(&sandbox);
 
-    let list = json_of(&mut chap_in(
+    let doc = json_of(&mut chap_in(
         &sandbox,
         &dir,
         &[
@@ -280,7 +280,8 @@ fn models_test_json_is_one_object_per_model() {
             "--backtest",
         ],
     ));
-    let row = &list[0];
+    assert_eq!(doc["ok"], Json::from(true));
+    let row = &doc["models"][0];
     assert_eq!(row["id"], Json::from("chapkit_ewars_model"));
     assert_eq!(row["service_id"], Json::from(PASSING_MODEL));
     assert_eq!(row["level"], Json::from("backtest"));

@@ -95,3 +95,28 @@ fn timeout_needs_wait() {
         .assert()
         .failure();
 }
+
+#[test]
+fn up_json_is_one_document_with_the_models_and_what_wait_found() {
+    let sandbox = Sandbox::new();
+    let (dir, port) = deployment(&sandbox, "chapkit_ewars_model");
+    let (_fake, bin) = running_docker(&[PASSING_MODEL]);
+
+    let out = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["--json", "up", "--no-preflight", "--wait"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let doc: serde_json::Value = serde_json::from_slice(&out).expect("one JSON document");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["api_url"], format!("http://localhost:{port}"));
+    assert_eq!(doc["models"][0]["service_id"], PASSING_MODEL);
+    assert_eq!(doc["wait"]["ready"], true);
+    assert_eq!(doc["wait"]["models"][0]["state"], "registered");
+}

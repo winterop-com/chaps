@@ -421,3 +421,30 @@ fn a_version_2_zone_file_is_read_from_its_second_block() {
     assert_eq!(tzif_offset(&out, RESET as i64), Some(7200));
     assert_eq!(tzif_offset(&out, 1_700_000_000), Some(3600));
 }
+
+#[test]
+fn hint_of_takes_the_last_clause_that_names_a_command() {
+    assert_eq!(
+        hint_of("unknown model `x`; run `chaps models search x`").as_deref(),
+        Some("run `chaps models search x`")
+    );
+    assert_eq!(
+        hint_of("a; b; pass `--id <other>` to add it beside it").as_deref(),
+        Some("pass `--id <other>` to add it beside it")
+    );
+    assert_eq!(hint_of("unknown model `x`"), None);
+    assert_eq!(hint_of("no command; here"), None);
+}
+
+#[test]
+fn a_json_error_says_ok_false_and_carries_the_hint() {
+    let out = Out {
+        json: true,
+        ..Out::default()
+    };
+    let err = anyhow::anyhow!("port 8700 is in use; free it, or set `CHAP_API_PORT` in `.env`");
+    let value: serde_json::Value = serde_json::from_str(&out.error(&err)).unwrap();
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["hint"], "free it, or set `CHAP_API_PORT` in `.env`");
+    assert_eq!(value["error"], err.to_string());
+}

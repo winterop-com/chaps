@@ -143,16 +143,50 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     }
     report_what_changed(ctx, &mut project, cmd, &before, &volumes);
     if let DockerCmd::Up(args) = cmd
-        && args.wait
+        && !args.attach
     {
-        return wait_for(ctx, &project, args.timeout);
+        let readiness = match args.wait {
+            true => Some(wait_for(ctx, &project, args.timeout)?),
+            false => None,
+        };
+        if ctx.out.json {
+            emit_up(ctx, &project, &before, readiness)?;
+        }
     }
     Ok(())
 }
 
+/// `up --json`: what runs now, what this run started, and every model with
+/// where it answers.
+fn emit_up(
+    ctx: &Ctx,
+    project: &Project,
+    before: &[docker::Container],
+    readiness: Option<wait::Readiness>,
+) -> Result<()> {
+    let after = docker::running_containers(project).unwrap_or_default();
+    let was: std::collections::BTreeSet<String> = docker::running_of(before);
+    let running: Vec<String> = docker::running_of(&after).into_iter().collect();
+    let started: Vec<&String> = running.iter().filter(|s| !was.contains(*s)).collect();
+    let models: Vec<super::enable::ModelRef> = project
+        .state
+        .models
+        .iter()
+        .map(|(id, model)| super::enable::ModelRef::of(id, model, project))
+        .collect();
+    let value = serde_json::json!({
+        "api_url": project.state.components.has_chap_core_api().then(|| project.api_url()),
+        "running": running,
+        "started": started,
+        "models": models,
+        "wait": readiness,
+    });
+    ctx.out.emit_ok(&value, String::new)
+}
+
 /// `up --wait`: wait, say what answers where, and fail on the deadline naming
 /// what never did.
-fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<()> {
+fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<wait::Readiness> {
     note(
         ctx,
         &format!("waiting up to {timeout}s for chap-core and the models to answer"),
@@ -160,7 +194,7 @@ fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<()> {
     let readiness = wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout));
     note(ctx, &ready_lines(&ctx.out, &readiness));
     if readiness.ready {
-        return Ok(());
+        return Ok(readiness);
     }
     Err(anyhow::anyhow!(
         "not ready after {timeout}s: {}; `chaps status` shows each one, and \

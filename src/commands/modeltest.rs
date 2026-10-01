@@ -136,7 +136,11 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     }
 
     if ctx.out.json {
-        ctx.out.emit(&runs, String::new)?;
+        let value = serde_json::json!({
+            "ok": !modeltest::any_failed(&runs),
+            "models": runs,
+        });
+        ctx.out.emit(&value, String::new)?;
     } else {
         println!();
         println!("{}", ctx.out.cmd(&modeltest::closing(&runs)));

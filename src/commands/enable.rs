@@ -50,8 +50,64 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
     let report = apply(&mut project, &registry, &selection, &endpoints)?;
+    let changed = Changed::new(&report, &report, &project);
     ctx.out
-        .emit(&report, || summary(&report, &[], &project, &ctx.out))
+        .emit_ok(&changed, || summary(&report, &[], &project, &ctx.out))
+}
+
+/// One model a command left enabled, the way a `--json` caller wants it: the
+/// two identifiers, the port and where it answers.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ModelRef {
+    pub(crate) id: String,
+    pub(crate) service_id: String,
+    pub(crate) port: Option<u16>,
+    pub(crate) bind: Option<std::net::IpAddr>,
+    /// The model's own host port, else chap-core's proxy to it, else `null`
+    /// for a model nothing outside the compose network reaches.
+    pub(crate) url: Option<String>,
+}
+
+/// A change report with [`ModelRef`]s for the models it enabled or updated.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct Changed<'a, T: serde::Serialize> {
+    pub(crate) models: Vec<ModelRef>,
+    #[serde(flatten)]
+    pub(crate) report: &'a T,
+}
+
+impl<'a, T: serde::Serialize> Changed<'a, T> {
+    pub(crate) fn new(report: &'a T, apply: &ApplyReport, project: &Project) -> Changed<'a, T> {
+        let models = apply
+            .enabled
+            .iter()
+            .chain(&apply.updated)
+            .map(|(id, model)| ModelRef::of(id, model, project))
+            .collect();
+        Changed { models, report }
+    }
+}
+
+impl ModelRef {
+    pub(crate) fn of(
+        id: &str,
+        model: &crate::project::EnabledModel,
+        project: &Project,
+    ) -> ModelRef {
+        ModelRef {
+            id: id.to_string(),
+            service_id: model.service_id.clone(),
+            port: model.host_port,
+            bind: model.bind.or(project.state.model_bind),
+            url: match model.host_port {
+                Some(port) => Some(format!("http://localhost:{port}")),
+                None if project.state.components.has_chap_core_api() => {
+                    Some(project.proxy_url(&model.service_id))
+                }
+                None => None,
+            },
+        }
+    }
 }
 
 /// Disable one model: stop its container, remove its overlay, regenerate the
@@ -78,7 +134,7 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         return Err(ChapError::UnknownModel(args.id.clone()).into());
     };
     let (report, notes) = disable_enabled(&mut project, &registry, &id, args.purge, false)?;
-    ctx.out.emit(&report, || {
+    ctx.out.emit_ok(&report, || {
         summary(&report.apply, &notes, &project, &ctx.out)
     })
 }
@@ -191,7 +247,7 @@ fn purge_only(ctx: &Ctx, project: &Project, registry: &Registry, wanted: &str) -
         purged,
         kept_volumes: Vec::new(),
     };
-    ctx.out.emit(&report, || purge_summary(&notes, &ctx.out))
+    ctx.out.emit_ok(&report, || purge_summary(&notes, &ctx.out))
 }
 
 /// The marketplace id a `--purge` on a model that is not enabled is about.
@@ -312,7 +368,7 @@ fn set_host_port(
         previous,
         written: synced.written,
     };
-    ctx.out.emit(&change, || {
+    ctx.out.emit_ok(&change, || {
         port_summary(&change, &project, &synced.warnings, &ctx.out)
     })
 }
