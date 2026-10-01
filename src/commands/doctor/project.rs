@@ -44,7 +44,7 @@ pub fn project_files(components: &Components) -> Vec<String> {
 /// cannot start without, which is a line stating something untrue while the
 /// `components` line right under it fails.
 ///
-/// The `fail` carries none of it, for the reason [`ocs_part`]'s does not: the
+/// The `fail` carries none of it, for the reason the one in `ocs_part` (`components.rs`) does not: the
 /// one thing to do is the fix, and a deployment missing its rendered files is
 /// told to render them again whatever else is also gone.
 pub fn files_verdict(
