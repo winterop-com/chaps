@@ -520,8 +520,44 @@ fn collect_under(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     }
 }
 
+/// Whether an archive-style `a/b/c` path stays inside the directory it is
+/// joined to: no empty, `.` or `..` part, no leading `/`, no backslash or
+/// drive. A manifest is read from the archive, so its paths are only as
+/// trustworthy as the file, and [`join_relative`] would follow a `..` out.
+pub fn is_contained_relative(rel: &str) -> bool {
+    !rel.is_empty()
+        && !rel.contains(['\\', ':', '\0'])
+        && rel
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+/// Refuse an archive whose manifest names a project file outside the project
+/// directory, before a restore touches anything.
+pub fn check_manifest_files(manifest: &Manifest, archive: &Path) -> Result<()> {
+    match manifest
+        .files
+        .iter()
+        .find(|rel| !is_contained_relative(rel))
+    {
+        Some(rel) => Err(anyhow::anyhow!(
+            "{} lists the project file `{rel}`, which is not inside a deployment directory; \
+             chaps never writes such a path, so this archive was changed after `chaps backup \
+             create` made it - restore from another one",
+            archive.display()
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Copy `rel` from `from` to `to`, creating the parent directories.
 pub fn copy_file(from: &Path, to: &Path, rel: &str) -> Result<()> {
+    if !is_contained_relative(rel) {
+        return Err(anyhow::anyhow!(
+            "refusing to copy `{rel}`: it is not a path inside {}",
+            to.display()
+        ));
+    }
     let src = join_relative(from, rel);
     let dst = join_relative(to, rel);
     if let Some(parent) = dst.parent() {

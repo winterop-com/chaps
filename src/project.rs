@@ -687,6 +687,7 @@ impl Project {
                 );
             }
         };
+        check_file_names(&state)?;
         Ok(Project {
             dir: dir.to_path_buf(),
             state,
@@ -918,6 +919,43 @@ impl Project {
     pub fn proxy_url(&self, service_id: &str) -> String {
         format!("{}/v2/services/{service_id}/run/", self.api_url())
     }
+}
+
+/// Whether `name` is one file directly in the deployment directory: no
+/// separator, no drive, nothing that climbs out of it.
+///
+/// Every compose file chaps renders is such a name (`compose.yml`,
+/// `compose.<service>.yml`), and `sync` writes and removes them with
+/// `dir.join(name)` - which an absolute path or a `..` would take outside the
+/// directory. State that arrives from elsewhere, a restored backup above all,
+/// is held to this before anything joins it.
+pub fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':', '\0'])
+}
+
+/// Refuse state whose compose file names are not plain file names. See
+/// [`is_plain_file_name`].
+fn check_file_names(state: &ProjectState) -> Result<()> {
+    let way_out = "chaps only writes `compose.<service>.yml` there; correct the entry by hand, \
+                   or run `chaps init --force` to rebuild the state";
+    for (id, model) in &state.models {
+        if !is_plain_file_name(&model.compose_file) {
+            return Err(anyhow::anyhow!(
+                "`{CHAPS_DIR}/{MODELS_FILE}` gives {id} the compose file `{}`, which is not a \
+                 file in this deployment's directory; {way_out}",
+                model.compose_file
+            ));
+        }
+    }
+    for name in state.compose_files.iter().chain(&state.rendered_files) {
+        if !is_plain_file_name(name) {
+            return Err(anyhow::anyhow!(
+                "`{CHAPS_DIR}/{PROJECT_FILE}` lists the compose file `{name}`, which is not a \
+                 file in this deployment's directory; {way_out}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A YAML document with nothing but comments and blank lines.
@@ -1216,6 +1254,65 @@ mod tests {
         let loaded = Project::load(dir.path()).unwrap();
         assert_eq!(loaded.state.models["chapkit_ewars_model"].host_port, None);
         assert!(loaded.used_ports().is_empty(), "nothing is published");
+    }
+
+    #[test]
+    fn a_compose_file_name_is_one_file_in_the_directory() {
+        assert!(is_plain_file_name("compose.chapkit-ewars-model.yml"));
+        for name in [
+            "",
+            ".",
+            "..",
+            "/etc/compose.x.yml",
+            "../compose.x.yml",
+            "compose./../x.yml",
+            "sub\\compose.x.yml",
+            "C:compose.x.yml",
+        ] {
+            assert!(!is_plain_file_name(name), "{name:?}");
+        }
+    }
+
+    /// State from elsewhere - a restored backup above all - reaches `sync`,
+    /// which writes `dir.join(compose_file)` and removes
+    /// `dir.join(rendered_file)`. A name that leaves the directory is refused
+    /// when the state is read, before anything joins it.
+    #[test]
+    fn load_refuses_a_compose_file_outside_the_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut model = enabled(None);
+        model.compose_file = "/tmp/compose.evil.yml".into();
+        Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                models: BTreeMap::from([("chapkit_ewars_model".to_string(), model)]),
+                ..ProjectState::default()
+            },
+        }
+        .save()
+        .unwrap();
+        let err = Project::load(dir.path()).expect_err("an absolute compose file");
+        let text = err.to_string();
+        assert!(
+            text.contains("`.chaps/models.yaml` gives chapkit_ewars_model"),
+            "{text}"
+        );
+        assert!(text.contains("`/tmp/compose.evil.yml`"), "{text}");
+
+        Project {
+            dir: dir.path().to_path_buf(),
+            state: ProjectState {
+                rendered_files: vec!["compose./../../victim.yml".into()],
+                ..ProjectState::default()
+            },
+        }
+        .save()
+        .unwrap();
+        let err = Project::load(dir.path()).expect_err("a rendered file that climbs out");
+        assert!(
+            err.to_string().contains("`.chaps/project.yaml` lists"),
+            "{err}"
+        );
     }
 
     #[test]

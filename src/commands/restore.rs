@@ -82,6 +82,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
     }
 
     let manifest = read_manifest(&archive)?;
+    backup::check_manifest_files(&manifest, &archive)?;
     let members: BTreeSet<String> = backup::tar_list(&archive)?.into_iter().collect();
     // Files-only never looks at Docker, so it also never asks it what is up.
     let running = if args.files_only {

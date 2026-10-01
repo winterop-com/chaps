@@ -887,3 +887,38 @@ fn copy_file_creates_the_directories_it_needs() {
         "{}\n"
     );
 }
+
+/// A manifest is read out of the archive, so a path in it is only as
+/// trustworthy as the file: one that climbs out of the deployment directory
+/// is refused before anything is restored, and `copy_file` refuses it too.
+#[test]
+fn a_manifest_path_outside_the_project_is_refused() {
+    assert!(is_contained_relative(".chaps/models.yaml"));
+    assert!(is_contained_relative("compose.yml"));
+    for rel in [
+        "",
+        "../.bashrc",
+        ".chaps/../../x",
+        "/etc/passwd",
+        "a//b",
+        "./compose.yml",
+        "a\\b",
+        "C:x",
+    ] {
+        assert!(!is_contained_relative(rel), "{rel:?}");
+    }
+
+    let manifest: Manifest = serde_yaml_ng::from_str(
+        "schema_version: 1\ncreated_by: chaps 0.12.2\ncreated_at: 2026-10-01T00:00:00Z\n\
+         project: p\nchap_image_tag: v2.3.1\nfiles: [compose.yml, ../../.bashrc]\n",
+    )
+    .unwrap();
+    let err = check_manifest_files(&manifest, Path::new("backup.tar.gz")).unwrap_err();
+    assert!(err.to_string().contains("`../../.bashrc`"), "{err}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let to = dir.path().join("to");
+    let err = copy_file(dir.path(), &to, "../escaped").unwrap_err();
+    assert!(err.to_string().contains("refusing to copy"), "{err}");
+    assert!(!dir.path().join("escaped").exists());
+}

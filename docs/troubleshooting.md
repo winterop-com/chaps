@@ -1155,3 +1155,28 @@ ghcr serves `chap-core:dev` and has no `chap-worker:dev` at all. The pin has
 already moved when the pull runs, so the deployment is left describing images
 Docker cannot fetch - the containers keep running what they had. The line names
 the way back; `chaps update --list-tags` shows what else there is to move to.
+
+## `gives ... the compose file ..., which is not a file in this deployment's directory`
+
+Every command reads `.chaps/` first, and this one stopped there:
+
+```text
+error: `.chaps/models.yaml` gives chapkit_ewars_model the compose file `/tmp/compose.x.yml`, which is not a file in this deployment's directory; ...
+```
+
+chaps writes every compose file into the deployment directory itself, as
+`compose.yml` or `compose.<service>.yml`, and writes and removes them by that
+name. A name with a `/`, a `..` or a drive in it would have it write or delete
+a file somewhere else, so it is refused before anything uses it. The state was
+edited by hand or came from an archive changed after it was made. Put the
+plain name back (`compose.chapkit-ewars-model.yml` for that model), or rebuild
+the state with `chaps init --force`. The same message names
+`.chaps/project.yaml` when the name is in its `compose_files` or
+`rendered_files` list.
+
+## `lists the project file ..., which is not inside a deployment directory`
+
+`chaps backup restore` refused the archive before restoring anything: its
+manifest names a file outside the project directory, such as `../.bashrc`.
+`chaps backup create` never writes such a path, so the archive was changed
+after it was made. Restore from another one.
