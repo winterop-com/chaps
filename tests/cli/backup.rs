@@ -133,6 +133,59 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     assert!(!target.join(".chaps/tmp").exists());
 }
 
+/// A `.chaps/` state file the archive does not carry was not part of the
+/// deployment it came from, so the restore takes this deployment's away
+/// rather than mixing the two.
+#[test]
+fn restore_removes_optional_state_the_archive_does_not_have() {
+    let sandbox = Sandbox::new();
+    let source = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    assert!(!source.join(".chaps/models-manual.yaml").exists());
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    chap_in(
+        &sandbox,
+        &source,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--no-models",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .assert()
+    .success();
+    let archive = only_archive(&out);
+
+    let target = sandbox.home.path().join("chapy");
+    let mut init = sandbox.chap();
+    init.arg("init").arg(&target).args(["--models", "none"]);
+    init.assert().success();
+    let manual = target.join(".chaps/models-manual.yaml");
+    std::fs::write(&manual, "{}\n").unwrap();
+
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &target,
+        &[
+            "--json",
+            "backup",
+            "restore",
+            archive.to_str().unwrap(),
+            "--files-only",
+            "--yes",
+        ],
+    ));
+    assert!(!manual.exists(), "the destination's definitions went");
+    assert_eq!(
+        report["removed_state"],
+        serde_json::json!([".chaps/models-manual.yaml"])
+    );
+}
+
 #[test]
 fn restore_without_yes_refuses_when_there_is_no_terminal_to_ask_at() {
     let sandbox = Sandbox::new();

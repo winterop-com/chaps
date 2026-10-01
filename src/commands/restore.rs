@@ -27,11 +27,12 @@ use crate::backup::{
 };
 use crate::cli::RestoreArgs;
 use crate::commands::Ctx;
+use crate::components::COMPONENTS_FILE;
 use crate::compose::{overrides, sync};
 use crate::docker;
 use crate::error::Result;
 use crate::output::{self, Out};
-use crate::project::{CHAPS_DIR, ENV_FILE, PROJECT_FILE, Project};
+use crate::project::{CHAPS_DIR, ENV_FILE, MANUAL_MODELS_FILE, MODELS_FILE, PROJECT_FILE, Project};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal, Write};
@@ -51,6 +52,10 @@ pub struct RestoreReport {
     pub plan: RestorePlan,
     /// Project files written, relative to the project directory.
     pub files: Vec<String>,
+    /// Optional `.chaps/` state files removed because the archive carries
+    /// none: the deployment it came from had none, so keeping this one's
+    /// would mix two deployments' state. See [`OPTIONAL_STATE`].
+    pub removed_state: Vec<String>,
     /// The copy of the replaced `.env`, when one was kept.
     pub env_backup: Option<String>,
     /// `.env` variables left at this deployment's values rather than the
@@ -111,6 +116,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
 
     let mut report = RestoreReport {
         files: Vec::new(),
+        removed_state: Vec::new(),
         env_backup: None,
         kept_credentials: Vec::new(),
         database: false,
@@ -349,6 +355,7 @@ fn restore_files(
         backup::copy_file(&from, &project.dir, rel)?;
         report.files.push(rel.clone());
     }
+    report.removed_state = remove_state_not_in(&project.dir, &report.plan.files)?;
 
     // A database's credentials live in its volume as well as in `.env`, and a
     // restore that keeps the volume has to keep the `.env` half with it:
@@ -420,6 +427,33 @@ fn restore_files(
         output::warn(warning);
     }
     Ok(restored)
+}
+
+/// The `.chaps/` state files a deployment may or may not have: each one read
+/// as empty when it is missing. `project.yaml` is not among them; every
+/// deployment has one, and so does every archive.
+const OPTIONAL_STATE: &[&str] = &[MODELS_FILE, MANUAL_MODELS_FILE, COMPONENTS_FILE];
+
+/// Remove the optional state files the restored files do not include.
+///
+/// A file a backup does not carry is one the deployment it came from did not
+/// have - its models, its own model definitions or its components were simply
+/// the defaults. Restoring that deployment means having none here either: a
+/// `models-manual.yaml` left over from this deployment would keep definitions
+/// the archive never had, beside the archive's `models.yaml`.
+fn remove_state_not_in(dir: &Path, restored: &[String]) -> Result<Vec<String>> {
+    let mut removed = Vec::new();
+    for name in OPTIONAL_STATE {
+        let rel = format!("{CHAPS_DIR}/{name}");
+        let path = dir.join(CHAPS_DIR).join(name);
+        if restored.contains(&rel) || !path.is_file() {
+            continue;
+        }
+        std::fs::remove_file(&path)
+            .map_err(|e| anyhow::anyhow!("removing {}: {e}", path.display()))?;
+        removed.push(rel);
+    }
+    Ok(removed)
 }
 
 /// Whether the archive was taken under a compose project name other than this
@@ -739,6 +773,15 @@ fn human(report: &RestoreReport, out: &Out) -> String {
             out.key("files"),
             out.ok(&format!("{} restored:", report.files.len())),
             out.dim(&report.files.join(", "))
+        ));
+    }
+    if !report.removed_state.is_empty() {
+        text.push_str(&format!(
+            "          {}\n",
+            out.dim(&format!(
+                "removed {}: the archive has none, so neither does this deployment now",
+                report.removed_state.join(", ")
+            ))
         ));
     }
     if let Some(kept) = &report.env_backup {
@@ -1138,6 +1181,7 @@ mod tests {
         RestoreReport {
             plan: plan_with(&running(&["chap", "worker"]), &[]),
             files: vec![".env".into(), ".chaps/models.yaml".into()],
+            removed_state: Vec::new(),
             env_backup: Some(ENV_BACKUP_FILE.to_string()),
             kept_credentials: Vec::new(),
             database: true,

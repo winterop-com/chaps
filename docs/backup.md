@@ -134,7 +134,13 @@ Then, in order:
 1. `docker compose stop chap worker <models> <components>`, only the services
    that are actually running, so nothing is woken up just to be stopped,
 2. the files go back over the project directory, and `chaps sync` re-renders
-   the compose files from the `.chaps/` that just arrived. A `.env` that differs
+   the compose files from the `.chaps/` that just arrived. A
+   `.chaps/models.yaml`, `.chaps/models-manual.yaml` or `.chaps/components.yaml`
+   the archive does not carry is removed here rather than kept: the deployment
+   the backup came from had none, and keeping this one's would mix the two. A
+   path in the archive's manifest that leads outside the project directory,
+   or a compose file name in the restored `.chaps/` that does, stops the
+   restore before anything is written. A `.env` that differs
    from the one in the archive is kept as `.env.before-restore`. The database
    credentials in it stay this deployment's (`POSTGRES_USER`,
    `POSTGRES_PASSWORD`, `POSTGRES_DB`, `CHAP_DATABASE_URL`, and
