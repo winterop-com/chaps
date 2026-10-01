@@ -26,6 +26,53 @@ pub struct UpstreamCompose {
     pub body: String,
 }
 
+/// The services chap-core's `compose.ghcr.yml` defines, for a base file
+/// nothing could read the names out of.
+pub const UPSTREAM_SERVICES: [&str; 4] = ["chap", "worker", "redis", "postgres"];
+
+/// Values for `compose.chaps.yml`.
+#[derive(Debug, Clone)]
+pub struct ChapsOverlaySpec {
+    /// Rendered as the `${CHAP_API_PORT:-...}` default.
+    pub api_port: u16,
+    /// The top-level `name:`; see [`crate::compose::render::project_name_block`].
+    pub project_name: Option<String>,
+    /// A chap-core checkout chap and the worker are built from.
+    pub checkout: Option<String>,
+    /// Every service the base `compose.yml` defines, in its order: each one
+    /// gets the chap-core labels, and none that is not there may be named,
+    /// since compose would read it as a service with no image.
+    pub services: Vec<String>,
+    /// The `chaps run` group the deployment is.
+    pub group: Option<String>,
+}
+
+impl ChapsOverlaySpec {
+    /// The spec for a base file with upstream's services and nothing else set.
+    pub fn new(api_port: u16) -> ChapsOverlaySpec {
+        ChapsOverlaySpec {
+            api_port,
+            project_name: None,
+            checkout: None,
+            services: UPSTREAM_SERVICES.iter().map(|s| s.to_string()).collect(),
+            group: None,
+        }
+    }
+}
+
+/// The service names a compose file defines, in its order, or `None` for a
+/// file that does not parse as one.
+pub fn compose_services(text: &str) -> Option<Vec<String>> {
+    let doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(text).ok()?;
+    let services = doc.get("services")?.as_mapping()?;
+    Some(
+        services
+            .keys()
+            .filter_map(|key| key.as_str().map(str::to_string))
+            .collect(),
+    )
+}
+
 /// Values for the generated `.env`.
 #[derive(Debug, Clone)]
 pub struct EnvSpec {
@@ -66,6 +113,9 @@ pub struct OcsSpec {
     /// Whether `ocs/plugins/` is there to mount. A filesystem fact rather than
     /// a recorded setting: the directory is the whole declaration.
     pub plugins: bool,
+    /// The `chaps run` group the deployment is, which its labels name; see
+    /// [`crate::compose::render::labels_block`].
+    pub group: Option<String>,
 }
 
 impl OcsSpec {
@@ -78,6 +128,7 @@ impl OcsSpec {
             base_url: components.ocs.base_url.clone(),
             s3: components.s3.enabled,
             plugins,
+            group: None,
         }
     }
 }
@@ -89,6 +140,9 @@ pub struct S3Spec {
     /// reachable only inside the compose network, which is where OCS is.
     pub host_port: Option<u16>,
     pub image_tag: String,
+    /// The `chaps run` group the deployment is, which its labels name; see
+    /// [`crate::compose::render::labels_block`].
+    pub group: Option<String>,
 }
 
 impl S3Spec {
@@ -97,6 +151,7 @@ impl S3Spec {
         S3Spec {
             host_port: components.s3.port,
             image_tag: crate::components::S3_DEFAULT_TAG.to_string(),
+            group: None,
         }
     }
 }
@@ -148,6 +203,9 @@ pub struct Dhis2Spec {
     /// Map `host.docker.internal` to the host gateway, for a DHIS2 whose route
     /// goes to a chap-core outside the deployment.
     pub host_gateway: bool,
+    /// The `chaps run` group the deployment is, which its labels name; see
+    /// [`crate::compose::render::labels_block`].
+    pub group: Option<String>,
 }
 
 impl Dhis2Spec {
@@ -166,6 +224,7 @@ impl Dhis2Spec {
             image: components.dhis2.image.clone(),
             seed: components.dhis2_seed_source().map(Dhis2SeedSource::of),
             host_gateway: components.chap_core_external.is_some(),
+            group: None,
         }
     }
 }
@@ -345,6 +404,9 @@ pub struct OverlaySpec {
     /// [`OverlaySpec::standalone`]: the service registers there and waits for
     /// nothing but its init container.
     pub external_chap_core: Option<ExternalRegistration>,
+    /// The `chaps run` group the deployment is, which its labels name; see
+    /// [`crate::compose::render::labels_block`].
+    pub group: Option<String>,
 }
 
 /// Where a model service registers when chap-core is not in the deployment.
@@ -403,6 +465,7 @@ impl OverlaySpec {
             registration_key: false,
             standalone: false,
             external_chap_core: None,
+            group: None,
         }
     }
 
@@ -437,6 +500,7 @@ impl OverlaySpec {
             registration_key: false,
             standalone: false,
             external_chap_core: None,
+            group: None,
         }
     }
 }

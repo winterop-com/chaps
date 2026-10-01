@@ -2,7 +2,7 @@
 # s3: RustFS, an S3-compatible object store (https://github.com/rustfs/rustfs)
 services:
   s3:
-    restart: unless-stopped
+@LABELS@    restart: unless-stopped
     image: @IMAGE@:${@TAG_VAR@:-@IMAGE_TAG@}
     init: true
     environment:
@@ -22,7 +22,7 @@ services:
 
   s3-init:
     # One-shot: creates the bucket, then exits. $$ is a literal $ for compose.
-    image: @IMAGE@:${@TAG_VAR@:-@IMAGE_TAG@}
+@LABELS@    image: @IMAGE@:${@TAG_VAR@:-@IMAGE_TAG@}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-

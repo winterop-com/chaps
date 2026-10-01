@@ -49,7 +49,11 @@ each on its own host port.
 
 Groups keep models apart. Each one is a compose project of its own, so its
 containers, volumes and network carry its name, and stopping a group touches
-nothing else:
+nothing else. `.chaps/project.yaml` records the group as `group: <name>`, and
+every container in it carries the labels `com.winterop.chaps.kind: run` and
+`com.winterop.chaps.group: <name>`, so
+`docker ps --filter label=com.winterop.chaps.group=trial` lists one group's
+containers ([Container labels](./concepts.md#container-labels)):
 
 ```sh
 chaps run chapkit_ewars_model                       # group default

@@ -1106,7 +1106,14 @@ fn a_fetched_source_renders_from_the_cached_copy() {
 
     let report = sync(&mut project, &registry, false).unwrap();
     assert!(report.warnings.is_empty(), "{report:?}");
-    assert_eq!(names(&report.written), vec!["compose.yml"]);
+    // compose.chaps.yml labels the services the base file defines, and this
+    // one defines chap alone.
+    assert_eq!(
+        names(&report.written),
+        vec!["compose.yml", "compose.chaps.yml"]
+    );
+    let chaps = read(&dir.path().join(crate::project::CHAPS_COMPOSE));
+    assert!(!chaps.contains("worker:"), "{chaps}");
     let base = read(&dir.path().join(BASE_COMPOSE));
     assert_eq!(
         base,

@@ -1,6 +1,7 @@
 //! The `ocs` component, the `s3` store beside it, and the scaffolded OCS
 //! instance config.
 
+use super::labels::{ROLE_OCS, ROLE_S3, labels_block};
 use super::{fill, normalize_newlines};
 use crate::components::{
     OCS_BASE_URL_ENV_VAR, OCS_CONFIG_FILE, OCS_CONTAINER_PORT, OCS_DATA_SOURCE_ENV_VARS, OCS_DIR,
@@ -85,6 +86,10 @@ pub fn render_ocs(spec: &OcsSpec) -> String {
     fill(
         &OCS_TEMPLATE,
         &[
+            (
+                "LABELS",
+                &labels_block(ROLE_OCS, None, spec.group.as_deref()),
+            ),
             ("IMAGE", OCS_IMAGE),
             ("TAG_VAR", OCS_TAG_ENV_VAR),
             ("IMAGE_TAG", &spec.image_tag),
@@ -113,6 +118,10 @@ pub fn render_s3(spec: &S3Spec) -> String {
     fill(
         &S3_TEMPLATE,
         &[
+            (
+                "LABELS",
+                &labels_block(ROLE_S3, None, spec.group.as_deref()),
+            ),
             ("IMAGE", S3_IMAGE),
             ("TAG_VAR", S3_TAG_ENV_VAR),
             ("IMAGE_TAG", &spec.image_tag),

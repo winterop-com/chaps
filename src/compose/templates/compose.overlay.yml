@@ -2,7 +2,7 @@
 # @ID@ @VERSION@ (@REPOSITORY@)
 services:
   @SERVICE_ID@:
-    restart: unless-stopped
+@LABELS@    restart: unless-stopped
     image: @IMAGE@@TAG_SEP@${@TAG_VAR@:-@IMAGE_TAG@}
 @PLATFORM_LINE@    init: true
 @PORT_LINES@@ENVIRONMENT_LINES@    read_only: true

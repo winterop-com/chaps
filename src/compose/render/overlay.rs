@@ -1,5 +1,6 @@
 //! Model overlays: one `compose.<service_id>.yml` per enabled model.
 
+use super::labels::{ROLE_MODEL, labels_block};
 use super::{fill, normalize_newlines};
 use crate::compose::overrides;
 use crate::compose::spec::OverlaySpec;
@@ -132,6 +133,9 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // nothing in it; on one that already holds a `chapkit.db` owned by
     // somebody else, the model can create files beside it and still not open
     // it, which is a service that starts, registers and fails its first job.
+    // The model and its init container carry the same labels, so a tool that
+    // lists a model's containers by its id finds the one-shot as well.
+    let labels = labels_block(ROLE_MODEL, Some(&spec.id), spec.group.as_deref());
     let init_depends = format!(
         "      {}-init:\n        condition: service_completed_successfully\n",
         spec.service_id
@@ -142,6 +146,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             &OVERLAY_INIT_TEMPLATE,
             &[
                 ("SERVICE_ID", &spec.service_id),
+                ("LABELS", &labels),
                 ("UID_GID", &uid_gid),
                 ("DATA_DIR", &spec.data_dir),
                 ("VOLUME", &spec.volume_name),
@@ -152,6 +157,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         &OVERLAY_TEMPLATE,
         &[
             ("SERVICE_ID", &spec.service_id),
+            ("LABELS", &labels),
             ("ID", &spec.id),
             ("VERSION", &spec.version),
             ("REPOSITORY", &spec.repository),

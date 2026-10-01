@@ -148,6 +148,39 @@ fn groups_keep_models_apart_and_ps_and_stop_find_them() {
 }
 
 #[test]
+fn a_group_labels_its_containers_with_the_run_kind_and_its_name() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    );
+
+    let dir = data(&sandbox).join("run").join("trial");
+    let project = read(&dir.join(".chaps").join("project.yaml"));
+    assert!(project.contains("\ngroup: trial\n"), "{project}");
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    for line in [
+        "      com.winterop.chaps.role: model\n",
+        "      com.winterop.chaps.model: \"chapkit_ewars_model\"\n",
+        "      com.winterop.chaps.kind: run\n",
+        "      com.winterop.chaps.group: \"trial\"\n",
+    ] {
+        // Once on the model and once on its init container.
+        assert_eq!(overlay.matches(line).count(), 2, "{line}{overlay}");
+    }
+}
+
+#[test]
 fn run_inside_a_deployment_uses_it_and_refuses_a_group() {
     let sandbox = Sandbox::new();
     let (_fake, bin) = docker_running(&["auto-arima-chapkit"]);
@@ -170,6 +203,14 @@ fn run_inside_a_deployment_uses_it_and_refuses_a_group() {
         canonical(&dir)
     );
     assert!(state(&dir)["models"]["auto_arima_chapkit"].is_object());
+    // A deployment of the caller's own is not a group, and its labels say so.
+    let overlay = read(&dir.join("compose.auto-arima-chapkit.yml"));
+    assert!(
+        overlay.contains("com.winterop.chaps.kind: init\n"),
+        "{overlay}"
+    );
+    assert!(!overlay.contains("com.winterop.chaps.group"), "{overlay}");
+    assert!(!read(&dir.join(".chaps").join("project.yaml")).contains("group:"));
     assert!(!data(&sandbox).join("run").exists());
 
     chap_with_docker(

@@ -24,7 +24,10 @@ use crate::compose::render::{
     render_base, render_chaps_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
     render_umbrella,
 };
-use crate::compose::spec::{BaseSpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose};
+use crate::compose::spec::{
+    BaseSpec, ChapsOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
+    compose_services,
+};
 use crate::error::Result;
 use crate::project::{
     BASE_COMPOSE, CHAPS_COMPOSE, ComposeSource, MARKETPLACE_COMPOSE, Project, compose_files_for,
@@ -100,12 +103,33 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     // nothing, and a running deployment keeps every container and volume name
     // it has. Only `chaps init` generates a name with a suffix of its own.
     let project_name = project.compose_project_name();
+    // A `chaps run` group, which every container's labels name.
+    let group = project.state.group.clone();
     // chap-core is a component like the others: with it off, neither the base
     // stack nor the chaps-owned override belongs to this deployment, and both
     // are removed below.
     if components.chap_core.enabled {
         let (base, base_warnings) = base_compose(project);
         report.warnings.extend(base_warnings);
+        // The services the chap-core labels go on are the ones the base file
+        // defines, at whatever tag or checkout it comes from; a base file that
+        // could not be rendered is left on disk, so that is where they are.
+        let mut chaps = ChapsOverlaySpec {
+            project_name: project_name.clone(),
+            checkout: match &project.state.chap_compose_source {
+                ComposeSource::Checkout { path } => Some(path.clone()),
+                _ => None,
+            },
+            group: group.clone(),
+            ..ChapsOverlaySpec::new(project.state.api_port)
+        };
+        if let Some(services) = base
+            .clone()
+            .or_else(|| std::fs::read_to_string(dir.join(BASE_COMPOSE)).ok())
+            .and_then(|text| compose_services(&text))
+        {
+            chaps.services = services;
+        }
         if let Some(base) = base {
             desired.push((BASE_COMPOSE.to_string(), base));
         }
@@ -113,37 +137,33 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // host port is decided, and it has to be a `-f` entry of its own
         // because a file in `include:` cannot override a service compose.yml
         // defines.
-        desired.push((
-            CHAPS_COMPOSE.to_string(),
-            render_chaps_overlay(
-                project.state.api_port,
-                project_name.as_deref(),
-                match &project.state.chap_compose_source {
-                    ComposeSource::Checkout { path } => Some(path.as_str()),
-                    _ => None,
-                },
-            ),
-        ));
+        desired.push((CHAPS_COMPOSE.to_string(), render_chaps_overlay(&chaps)));
     }
     // The components sit between the base stack and the model overlays, in
     // the same order as the `-f` list.
     if components.ocs.enabled {
         desired.push((
             OCS_COMPOSE.to_string(),
-            render_ocs(&OcsSpec::from_components(
-                &components,
-                project.ocs_plugins_path().is_dir(),
-            )),
+            render_ocs(&OcsSpec {
+                group: group.clone(),
+                ..OcsSpec::from_components(&components, project.ocs_plugins_path().is_dir())
+            }),
         ));
     }
     if components.s3.enabled {
         desired.push((
             S3_COMPOSE.to_string(),
-            render_s3(&S3Spec::from_components(&components)),
+            render_s3(&S3Spec {
+                group: group.clone(),
+                ..S3Spec::from_components(&components)
+            }),
         ));
     }
     if components.dhis2.enabled {
-        let spec = Dhis2Spec::from_components(&components);
+        let spec = Dhis2Spec {
+            group: group.clone(),
+            ..Dhis2Spec::from_components(&components)
+        };
         let rendered = render_dhis2(&spec);
         // The seed was left at `default` and the pinned minor line publishes no
         // dump chaps knows the path of, so this deployment starts empty. Said
@@ -207,6 +227,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         spec.standalone = standalone;
         spec.external_chap_core = external.clone();
         spec.bind = model.bind.or(project.state.model_bind);
+        spec.group = group.clone();
         // A chap-core elsewhere calls the model back on its host port, and a
         // port published on loopback only answers this machine's own
         // processes, which a container is not.

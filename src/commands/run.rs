@@ -105,8 +105,9 @@ fn target(ctx: &Ctx, group: Option<&str>) -> Result<Target> {
 /// A group's deployment, created on first use.
 ///
 /// `chaps init <dir> --only none --models none`, quietly, and then the one
-/// thing init has no flag for: model ports on loopback by default.
-fn ensure_default(ctx: &Ctx, dir: &Path) -> Result<()> {
+/// things init has no flag for: model ports on loopback by default, and the
+/// group name, which every container's labels carry.
+fn ensure_default(ctx: &Ctx, dir: &Path, group: &str) -> Result<()> {
     if Project::exists(dir) {
         return Ok(());
     }
@@ -127,6 +128,7 @@ fn ensure_default(ctx: &Ctx, dir: &Path) -> Result<()> {
     crate::commands::init::create(ctx, &args, false)?;
     let (mut project, _lock) = Project::find_locked(dir)?;
     project.state.model_bind = Some(RUN_BIND);
+    project.state.group = Some(group.to_string());
     project.save()?;
     ctx.out.verbose(&format!(
         "created the chaps run deployment in {}",
@@ -153,8 +155,8 @@ struct RunReport {
 /// Enable the model if it is not, start its container, and wait for it.
 pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
     let Target { dir, group } = target(ctx, args.group.as_deref())?;
-    if group.is_some() {
-        ensure_default(ctx, &dir)?;
+    if let Some(group) = &group {
+        ensure_default(ctx, &dir, group)?;
     }
     let ctx = &Ctx {
         project_dir: dir.clone(),

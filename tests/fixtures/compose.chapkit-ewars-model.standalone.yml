@@ -2,6 +2,10 @@
 # chapkit_ewars_model 1.0.3 (https://github.com/chap-models/chapkit_ewars_model)
 services:
   chapkit-ewars-model:
+    labels:
+      com.winterop.chaps.role: model
+      com.winterop.chaps.model: "chapkit_ewars_model"
+      com.winterop.chaps.kind: init
     restart: unless-stopped
     image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-24d58c0}
     # amd64-only image; the pin makes an arm64 host pull that variant.
@@ -29,6 +33,10 @@ services:
 
   chapkit-ewars-model-init:
     # One-shot: chowns the data volume so the model can write to it, then exits.
+    labels:
+      com.winterop.chaps.role: model
+      com.winterop.chaps.model: "chapkit_ewars_model"
+      com.winterop.chaps.kind: init
     image: busybox:1.37
     command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
     user: "0:0"

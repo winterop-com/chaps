@@ -43,7 +43,7 @@ mychap/
 | File | What it is |
 | --- | --- |
 | `compose.yml` | The base of a CHAP deployment, which is chap-core, its worker and database plus the enabled models: chap-core, worker, Valkey and PostgreSQL, with the models added on top by their overlays. chap-core's own `compose.ghcr.yml` at the pinned tag, so upstream stays the source of truth. Rendered by `sync` from `.chaps/compose.chap-core.<tag>.yml`, or from the copy compiled into the binary when there is none. |
-| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: the compose project `name:`, the API's host port as `ports: !override`, and `SERVICEKIT_REGISTRATION_KEY` plus `XDG_RUNTIME_DIR` in the `chap` service's environment. It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `.chaps/project.yaml`. |
+| `compose.chaps.yml` | The chaps-owned settings that sit on top of the base file: the compose project `name:`, the API's host port as `ports: !override`, `SERVICEKIT_REGISTRATION_KEY` plus `XDG_RUNTIME_DIR` in the `chap` service's environment, and the chaps labels on every service the base file defines ([Container labels](#container-labels)). It is a separate `-f` entry because a file in `include:` cannot override a service the main file defines. Rendered from `.chaps/project.yaml`. |
 | `.chaps/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break CHAP; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at 8000, so chap-core's published port is discoverable by reading the file), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
 | `compose.ocs.yml`, `compose.s3.yml`, `compose.dhis2.yml` | One per enabled component other than chap-core, rendered from `.chaps/components.yaml`. They sit in the `-f` list between `compose.chaps.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
@@ -198,6 +198,35 @@ name the project either way.
 
 `COMPOSE_PROJECT_NAME` in the environment still wins over the `name:` key, as
 it does for any compose project.
+
+## Container labels
+
+Every container `chaps` starts carries labels under `com.winterop.chaps`, so a
+tool can find them all on a machine without knowing where any deployment
+lives:
+
+```sh
+docker ps --filter label=com.winterop.chaps.role
+```
+
+lists every chaps container, of every deployment and every `chaps run` group,
+and `chaps top` finds its containers the same way.
+
+| Label | Value | On |
+| --- | --- | --- |
+| `com.winterop.chaps.role` | `chap-core`, `model`, `ocs`, `s3` or `dhis2` | Every container. `chap-core` covers chap, the worker, Valkey and PostgreSQL; `dhis2` covers its database and one-shots; `s3` its bucket one-shot. |
+| `com.winterop.chaps.model` | The marketplace id, such as `chapkit_ewars_model` | A model service and its `-init` container. |
+| `com.winterop.chaps.kind` | `run` for a [`chaps run` group](./run.md#where-it-runs-groups), `init` for a deployment `chaps init` wrote | Every container. |
+| `com.winterop.chaps.group` | The group name | Every container of a `chaps run` group, and nothing else. |
+
+The model and component files carry the labels themselves. chap-core's
+services get theirs from `compose.chaps.yml`, since `compose.yml` is upstream's
+file byte for byte and compose merges `labels` across the `-f` files; a
+chap-core built from a checkout is labelled the same way.
+
+Nothing in a label depends on the `chaps` version or the time, because a
+changed label makes compose recreate the container: an upgrade of `chaps`
+renders the same labels, and `chaps up` leaves running containers alone.
 
 ## Pins
 

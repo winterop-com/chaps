@@ -2,7 +2,7 @@
 # dhis2: DHIS2, the district health information system (https://dhis2.org)
 services:
   dhis2:
-    restart: unless-stopped
+@LABELS@    restart: unless-stopped
     image: @IMAGE@:${@TAG_VAR@:-@IMAGE_TAG@}
     init: true
 @PORT_LINES@    environment:
@@ -45,7 +45,7 @@ services:
         condition: service_completed_successfully
 
   dhis2-db:
-    restart: unless-stopped
+@LABELS@    restart: unless-stopped
     # PostGIS rather than plain postgres, and not as an optimisation: DHIS2's own
     # startup check throws without the postgis, pg_trgm and btree_gin extensions.
     image: @DB_IMAGE@
@@ -82,7 +82,7 @@ services:
     #      analytics forever.
     # ON_ERROR_STOP=0 so a database DHIS2 has not migrated yet, which has no
     # jobconfiguration table, is a no-op rather than a failure.
-    image: @DB_IMAGE@
+@LABELS@    image: @DB_IMAGE@
     restart: "no"
     environment:
       PGHOST: ${DHIS2_DB_HOST:-dhis2-db}

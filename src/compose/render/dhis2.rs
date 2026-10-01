@@ -1,6 +1,7 @@
 //! The `dhis2` component: its compose file, the seed-dump one-shot and the
 //! scaffolded `dhis.conf`.
 
+use super::labels::{ROLE_DHIS2, labels_block};
 use super::{fill, normalize_newlines};
 use crate::components::{DHIS2_CONFIG_FILE, DHIS2_DIR, DHIS2_TAG_ENV_VAR};
 use crate::compose::spec::{Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec};
@@ -27,7 +28,7 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
     # /docker-entrypoint-initdb.d/, so the restore is the stock postgres
     # entrypoint's - which runs it once, on a data directory it has just created,
     # and never again.
-    image: @DUMP_IMAGE@
+@LABELS@    image: @DUMP_IMAGE@
     restart: "no"
     working_dir: /opt/dump
     environment:
@@ -151,6 +152,7 @@ pub const DHIS2_DEFAULT_SEED_URL: &str =
 /// and nowhere else. There is no `platform:` line anywhere in the file - both
 /// images are multi-arch, unlike the model images every overlay has to pin.
 pub fn render_dhis2(spec: &Dhis2Spec) -> String {
+    let labels = labels_block(ROLE_DHIS2, None, spec.group.as_deref());
     let mut port_lines = format!("    expose:\n      - \"{DHIS2_CONTAINER_PORT}\"\n");
     if let Some(port) = spec.host_port {
         port_lines.push_str(&format!(
@@ -190,6 +192,7 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
                 fill(
                     DHIS2_DUMP_TEMPLATE,
                     &[
+                        ("LABELS", &labels),
                         ("DUMP_IMAGE", DHIS2_DUMP_IMAGE),
                         ("SEED_URL", seed_value(seed)),
                         ("SEED_MOUNT", &seed_mount_line(seed)),
@@ -203,6 +206,7 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
     fill(
         &DHIS2_TEMPLATE,
         &[
+            ("LABELS", &labels),
             ("IMAGE", &spec.image),
             ("TAG_VAR", DHIS2_TAG_ENV_VAR),
             ("IMAGE_TAG", &spec.image_tag),

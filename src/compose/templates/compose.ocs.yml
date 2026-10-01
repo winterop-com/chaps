@@ -2,7 +2,7 @@
 # ocs: Open Climate Service (https://github.com/dhis2/open-climate-service)
 services:
   ocs:
-    restart: unless-stopped
+@LABELS@    restart: unless-stopped
     image: @IMAGE@:${@TAG_VAR@:-@IMAGE_TAG@}
     init: true
 @PORT_LINES@    environment:

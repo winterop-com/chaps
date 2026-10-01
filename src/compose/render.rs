@@ -5,6 +5,7 @@
 //! usual `{{ }}` delimiters and a serde round trip would drop the comments.
 
 mod dhis2;
+mod labels;
 mod ocs;
 mod overlay;
 
@@ -21,8 +22,9 @@ pub use overlay::render_overlay;
 pub(crate) use dhis2::{DHIS2_DB_IMAGE, DHIS2_DUMP_IMAGE, DHIS2_SEED_MOUNT};
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
-use crate::compose::spec::{BaseSpec, EnvSpec};
+use crate::compose::spec::{BaseSpec, ChapsOverlaySpec, EnvSpec};
 use crate::project::API_PORT_ENV_VAR;
+use labels::{ROLE_CHAP_CORE, labels_block};
 use std::sync::LazyLock;
 
 /// Rewrite CRLF line endings as LF.
@@ -90,11 +92,11 @@ pub fn render_base(spec: &BaseSpec) -> String {
 /// rather than adding to it, which is what keeps the API on exactly one host
 /// port.
 ///
-/// `api_port` is rendered as the `${CHAP_API_PORT:-...}` default, so the file
+/// The API port is rendered as the `${CHAP_API_PORT:-...}` default, so the file
 /// stands on its own while `.env` stays the way to change the port without
 /// touching `.chaps/`.
 ///
-/// `project_name` is the top-level `name:`, which is what keeps this
+/// The project name is the top-level `name:`, which is what keeps this
 /// deployment's containers and volumes to itself; see [`project_name_block`].
 ///
 /// The `environment:` block hands chap-core the registration key. Upstream's
@@ -118,45 +120,62 @@ pub fn render_base(spec: &BaseSpec) -> String {
 /// from instead of pulled (`chaps init --source`). `pull_policy: build` makes
 /// every `chaps up` build the checkout as it is now, which Docker's layer
 /// cache keeps cheap when nothing changed, and makes `compose pull` skip them.
-pub fn render_chaps_overlay(
-    api_port: u16,
-    project_name: Option<&str>,
-    checkout: Option<&str>,
-) -> String {
+///
+/// Every service of the base file gets the chap-core labels here, since the
+/// base file itself is upstream's; compose merges `labels` maps across `-f`
+/// files the way it merges `environment`.
+pub fn render_chaps_overlay(spec: &ChapsOverlaySpec) -> String {
+    let project_name = spec.project_name.as_deref();
+    let labels = labels_block(ROLE_CHAP_CORE, None, spec.group.as_deref());
+    let has = |name: &str| spec.services.iter().any(|s| s == name);
     let (chap_image, worker_image) = checkout_images(project_name);
-    let (chap_build, worker_build) = match checkout {
-        Some(path) => (
-            format!(
-                "\x20   image: {chap_image}\n\
-                 \x20   build:\n\
-                 \x20     context: {path}\n\
-                 \x20   pull_policy: build\n"
-            ),
-            format!(
-                "\x20 worker:\n\
-                 \x20   image: {worker_image}\n\
-                 \x20   build:\n\
-                 \x20     context: {path}\n\
-                 \x20     dockerfile: Dockerfile.worker\n\
-                 \x20   pull_policy: build\n"
-            ),
+    let chap_build = match &spec.checkout {
+        Some(path) => format!(
+            "\x20   image: {chap_image}\n\
+             \x20   build:\n\
+             \x20     context: {path}\n\
+             \x20   pull_policy: build\n"
         ),
-        None => (String::new(), String::new()),
+        None => String::new(),
     };
+    let mut worker = String::new();
+    if let Some(path) = &spec.checkout {
+        worker.push_str(&format!(
+            "\x20 worker:\n\
+             {labels}\
+             \x20   image: {worker_image}\n\
+             \x20   build:\n\
+             \x20     context: {path}\n\
+             \x20     dockerfile: Dockerfile.worker\n\
+             \x20   pull_policy: build\n"
+        ));
+    } else if has("worker") {
+        worker.push_str(&format!("  worker:\n{labels}"));
+    }
+    let mut rest = String::new();
+    for name in spec
+        .services
+        .iter()
+        .filter(|s| *s != "chap" && *s != "worker")
+    {
+        rest.push_str(&format!("  {name}:\n{labels}"));
+    }
     format!(
         "{GENERATED_HEADER}\n\
          {}\
          services:\n\
          \x20 chap:\n\
+         {labels}\
          {chap_build}\
          \x20   ports: !override\n\
-         \x20     - \"${{{API_PORT_ENV_VAR}:-{api_port}}}:8000\"\n\
+         \x20     - \"${{{API_PORT_ENV_VAR}:-{}}}:8000\"\n\
          \x20   environment:\n\
          \x20     {REGISTRATION_KEY_ENV_VAR}: ${{{REGISTRATION_KEY_ENV_VAR}:-}}\n\
          \x20     # Keeps gunicorn's control socket off the read-only root; drop it once chap-core disables that socket.\n\
          \x20     XDG_RUNTIME_DIR: /tmp\n\
-         {worker_build}",
-        project_name_block(project_name)
+         {worker}{rest}",
+        project_name_block(project_name),
+        spec.api_port,
     )
 }
 

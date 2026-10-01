@@ -257,6 +257,10 @@ pub struct ProjectState {
     /// of its own: `127.0.0.1` for the deployment `chaps run` keeps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_bind: Option<IpAddr>,
+    /// The `chaps run` group this deployment is, `None` for one `chaps init`
+    /// wrote. Every container's labels name it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// Files at the project root that `chaps sync` wrote last time, relative
     /// to the project directory. Only these are ever removed by a later sync.
     #[serde(default)]
@@ -289,6 +293,7 @@ impl Default for ProjectState {
             compose_files: default_compose_files(),
             port_range: DEFAULT_PORT_RANGE,
             model_bind: None,
+            group: None,
             rendered_files: Vec::new(),
             models: BTreeMap::new(),
             manual: ManualModels::new(),

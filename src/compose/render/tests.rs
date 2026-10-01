@@ -3,8 +3,8 @@ use super::ocs::{OCS_TEMPLATE, S3_TEMPLATE};
 use super::overlay::OVERLAY_TEMPLATE;
 use super::*;
 use crate::compose::spec::{
-    Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec,
-    UpstreamCompose,
+    ChapsOverlaySpec, Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec, OcsConfigSpec, OcsSpec,
+    OverlaySpec, S3Spec, UpstreamCompose,
 };
 use crate::compose::{tag_env_var, volume_name};
 use crate::registry::{Channel, VersionSelector, load_embedded};
@@ -37,6 +37,15 @@ fn published_spec(id: &str, host_port: u16) -> OverlaySpec {
         host_port: Some(host_port),
         ..overlay_spec(id)
     }
+}
+
+/// `compose.chaps.yml` over upstream's services, outside a `chaps run` group.
+fn chaps_overlay(api_port: u16, project_name: Option<&str>, checkout: Option<&str>) -> String {
+    render_chaps_overlay(&ChapsOverlaySpec {
+        project_name: project_name.map(str::to_string),
+        checkout: checkout.map(str::to_string),
+        ..ChapsOverlaySpec::new(api_port)
+    })
 }
 
 fn parse(text: &str) -> Value {
@@ -149,8 +158,8 @@ fn a_local_image_is_never_pulled() {
 /// from it on every `chaps up`, into images of their own.
 #[test]
 fn a_checkout_builds_chap_and_the_worker() {
-    assert!(!render_chaps_overlay(8000, None, None).contains("build:"));
-    let text = render_chaps_overlay(8000, None, Some("/src/chap-core"));
+    assert!(!chaps_overlay(8000, None, None).contains("build:"));
+    let text = chaps_overlay(8000, None, Some("/src/chap-core"));
     let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
     let chap = service(&doc, "chap");
     assert_eq!(chap["image"].as_str(), Some(CHECKOUT_CHAP_IMAGE));
@@ -164,7 +173,7 @@ fn a_checkout_builds_chap_and_the_worker() {
     );
 
     // With a project name the images are that deployment's own.
-    let named = render_chaps_overlay(8000, Some("mychap-1ab2c3"), Some("/src/chap-core"));
+    let named = chaps_overlay(8000, Some("mychap-1ab2c3"), Some("/src/chap-core"));
     let doc: Value = serde_yaml_ng::from_str(&named).unwrap();
     assert_eq!(
         service(&doc, "chap")["image"].as_str(),
@@ -275,7 +284,7 @@ fn a_bound_port_names_its_host_address() {
 
 #[test]
 fn the_chaps_overlay_replaces_the_api_port_rather_than_adding_to_it() {
-    let text = render_chaps_overlay(8000, None, None);
+    let text = chaps_overlay(8000, None, None);
     assert_no_tokens(&text);
     assert!(text.starts_with(&format!("{GENERATED_HEADER}\n")));
     // `!override` is what makes this a replacement: a plain `ports:` list
@@ -285,18 +294,25 @@ fn the_chaps_overlay_replaces_the_api_port_rather_than_adding_to_it() {
 
     // The recorded port is the variable's default, so the file works
     // without .env and moves when `.chaps/project.yaml` does.
-    assert!(render_chaps_overlay(8123, None, None).contains("${CHAP_API_PORT:-8123}:8000"));
+    assert!(chaps_overlay(8123, None, None).contains("${CHAP_API_PORT:-8123}:8000"));
 
-    // It parses, tag and all, and names one service.
+    // It parses, tag and all, and only chap has its ports replaced; the
+    // other services are named for their labels alone.
     let doc = parse(&text);
     let services = doc["services"].as_mapping().unwrap();
-    assert_eq!(services.len(), 1);
-    assert!(services.contains_key("chap"));
+    assert_eq!(services.len(), 4);
+    for (name, svc) in services {
+        assert_eq!(
+            svc.get("ports").is_some(),
+            name.as_str() == Some("chap"),
+            "{name:?}"
+        );
+    }
 }
 
 #[test]
 fn the_chaps_overlay_names_the_compose_project() {
-    let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"), None);
+    let text = chaps_overlay(8000, Some("mychap-1ab2c3"), None);
     assert_no_tokens(&text);
     assert!(text.contains("\nname: mychap-1ab2c3\n"), "{text}");
     assert_eq!(
@@ -306,7 +322,7 @@ fn the_chaps_overlay_names_the_compose_project() {
     );
     // Without a name the key is absent rather than empty: compose would
     // reject `name:` with nothing after it.
-    assert!(!render_chaps_overlay(8000, None, None).contains("name:"));
+    assert!(!chaps_overlay(8000, None, None).contains("name:"));
 }
 
 #[test]
@@ -314,7 +330,7 @@ fn the_chaps_overlay_hands_chap_core_the_registration_key() {
     // Upstream's compose.ghcr.yml passes only CHAP_API_TOKEN into the
     // container, so without this line a protected chap-core has no key to
     // check a model's X-Service-Key against and answers 401.
-    let text = render_chaps_overlay(8000, Some("mychap-1ab2c3"), None);
+    let text = chaps_overlay(8000, Some("mychap-1ab2c3"), None);
     let env = &parse(&text)["services"]["chap"]["environment"];
     assert_eq!(
         env["SERVICEKIT_REGISTRATION_KEY"].as_str(),
@@ -322,7 +338,7 @@ fn the_chaps_overlay_hands_chap_core_the_registration_key() {
     );
     // Rendered whether or not the deployment has a key: compose
     // substitutes an empty value, which chap-core reads as no key.
-    assert!(render_chaps_overlay(8000, None, None).contains("SERVICEKIT_REGISTRATION_KEY:"));
+    assert!(chaps_overlay(8000, None, None).contains("SERVICEKIT_REGISTRATION_KEY:"));
 }
 
 #[test]
@@ -330,7 +346,7 @@ fn the_chaps_overlay_points_gunicorns_control_socket_at_the_tmpfs() {
     // gunicorn 26 falls back to $HOME/.gunicorn/, which the service's
     // read-only root refuses, and logs an error on every start; /tmp is
     // the tmpfs upstream already mounts.
-    let text = render_chaps_overlay(8000, None, None);
+    let text = chaps_overlay(8000, None, None);
     assert_eq!(
         parse(&text)["services"]["chap"]["environment"]["XDG_RUNTIME_DIR"].as_str(),
         Some("/tmp")
@@ -341,7 +357,11 @@ fn the_chaps_overlay_points_gunicorns_control_socket_at_the_tmpfs() {
         "{text}"
     );
     // The worker runs celery, not gunicorn, so it is left alone.
-    assert_eq!(parse(&text)["services"].as_mapping().unwrap().len(), 1);
+    assert!(
+        parse(&text)["services"]["worker"]
+            .get("environment")
+            .is_none()
+    );
 }
 
 #[test]
@@ -659,7 +679,7 @@ fn every_generated_compose_file_opens_with_the_same_line() {
         assert_eq!(template.lines().next(), Some(GENERATED_HEADER));
     }
     for rendered in [
-        render_chaps_overlay(8000, None, None),
+        chaps_overlay(8000, None, None),
         render_umbrella(&[], None),
         render_umbrella(&["compose.a.yml".to_string()], Some("demo-1ab2c3")),
     ] {
@@ -722,6 +742,7 @@ fn ocs_spec() -> OcsSpec {
         base_url: None,
         s3: false,
         plugins: false,
+        group: None,
     }
 }
 
@@ -729,6 +750,7 @@ fn s3_spec() -> S3Spec {
     S3Spec {
         host_port: None,
         image_tag: crate::components::S3_DEFAULT_TAG.to_string(),
+        group: None,
     }
 }
 
@@ -1045,6 +1067,7 @@ fn dhis2_spec() -> Dhis2Spec {
         image: crate::components::DHIS2_IMAGE.to_string(),
         seed: Some(Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())),
         host_gateway: false,
+        group: None,
     }
 }
 

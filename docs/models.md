@@ -980,6 +980,10 @@ and nothing else by way of explanation: what it does is below.
 # chapkit_ewars_model 1.0.3 (https://github.com/chap-models/chapkit_ewars_model)
 services:
   chapkit-ewars-model:
+    labels:
+      com.winterop.chaps.role: model
+      com.winterop.chaps.model: "chapkit_ewars_model"
+      com.winterop.chaps.kind: init
     restart: unless-stopped
     image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-24d58c0}
     # amd64-only image; the pin makes an arm64 host pull that variant.
@@ -1014,6 +1018,10 @@ services:
 
   chapkit-ewars-model-init:
     # One-shot: chowns the data volume so the model can write to it, then exits.
+    labels:
+      com.winterop.chaps.role: model
+      com.winterop.chaps.model: "chapkit_ewars_model"
+      com.winterop.chaps.kind: init
     image: busybox:1.37
     command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
     user: "0:0"
@@ -1029,8 +1037,12 @@ volumes:
 
 ### What an overlay contains
 
-The overlay does six things.
+The overlay does seven things.
 
+- **Labels both containers** with their role, the marketplace id and the
+  deployment's kind, so `docker ps --filter label=com.winterop.chaps.model`
+  finds every model on the machine. See
+  [Container labels](./concepts.md#container-labels).
 - **Pins the image.** `image: <repo>:${<ID>_IMAGE_TAG:-sha-<commit>}`, where the
   default is the `image_tag` of the version the channel resolves to. The
   deployment stays reproducible, and a different build is one `.env` line away.
