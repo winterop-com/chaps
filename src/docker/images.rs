@@ -275,6 +275,9 @@ fn is_flag_unsupported(stderr: &str) -> bool {
 
 /// Pull one image, showing docker's own progress, and say whether it worked.
 ///
+/// The progress goes to stderr, stdout included: it is narration, and stdout
+/// belongs to the command's answer, which under `--json` has to parse.
+///
 /// The platform is pinned for the same reason every model overlay pins it:
 /// the model images are published for amd64 only, and an Apple Silicon host
 /// asked for its own architecture is told there is no matching manifest.
@@ -289,6 +292,7 @@ pub fn pull_image(reference: &str) -> bool {
     Command::new("docker")
         .args(&args)
         .stdin(Stdio::null())
+        .stdout(std::io::stderr())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
