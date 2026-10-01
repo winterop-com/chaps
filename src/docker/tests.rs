@@ -698,6 +698,20 @@ fn a_label_list_keeps_commas_inside_values() {
 }
 
 #[test]
+fn docker_desktop_port_labels_are_keys_of_their_own() {
+    let labels = super::labels::parse_label_list(
+        "com.docker.compose.project.config_files=/d/compose.yml,/d/compose.chaps.yml,com.winterop.chaps.role=model,desktop.docker.io/ports.scheme=v2,desktop.docker.io/ports/8000/tcp=127.0.0.1:5001",
+    );
+    assert_eq!(labels["com.winterop.chaps.role"], "model");
+    assert_eq!(labels["desktop.docker.io/ports.scheme"], "v2");
+    assert_eq!(labels["desktop.docker.io/ports/8000/tcp"], "127.0.0.1:5001");
+    assert_eq!(
+        labels["com.docker.compose.project.config_files"],
+        "/d/compose.yml,/d/compose.chaps.yml"
+    );
+}
+
+#[test]
 fn labeled_containers_say_their_health() {
     let text = r#"{"ID":"abc","Names":"demo-chap-1","State":"running","Status":"Up 5 minutes (healthy)","Labels":"com.winterop.chaps.role=chap-core"}
 {"ID":"def","Names":"demo-m-1","State":"exited","Status":"Exited (1) 2 minutes ago","Labels":"com.winterop.chaps.role=model,com.winterop.chaps.model=m"}"#;

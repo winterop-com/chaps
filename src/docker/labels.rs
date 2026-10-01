@@ -84,14 +84,16 @@ pub(super) fn parse_labeled(text: &str) -> Vec<Labeled> {
 }
 
 /// docker's `k=v,k=v` label list. A value may hold commas of its own - the
-/// compose config file list does - so a piece with no `=` belongs to the value
-/// before it.
+/// compose config file list does - so a piece that does not start with a label
+/// key and `=` belongs to the value before it. A key may hold `/`, as Docker
+/// Desktop's `desktop.docker.io/ports/8000/tcp` does, but never starts with
+/// one, which is what tells a config file path from a key.
 pub(super) fn parse_label_list(text: &str) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut last: Option<String> = None;
     for piece in text.split(',') {
         match piece.split_once('=') {
-            Some((key, value)) if !key.is_empty() && !key.contains('/') => {
+            Some((key, value)) if is_label_key(key) => {
                 out.insert(key.to_string(), value.to_string());
                 last = Some(key.to_string());
             }
@@ -106,4 +108,13 @@ pub(super) fn parse_label_list(text: &str) -> BTreeMap<String, String> {
         }
     }
     out
+}
+
+/// Whether `key` can be a label key: starts with a letter or digit and holds
+/// only letters, digits, `.`, `-`, `_` and `/`.
+fn is_label_key(key: &str) -> bool {
+    key.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ".-_/".contains(c))
 }
