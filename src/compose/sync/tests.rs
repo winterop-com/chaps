@@ -1,6 +1,15 @@
+use super::config::{has_config_key, set_config_key};
 use super::*;
+use crate::components::{
+    Components, DHIS2_DB_PASSWORD_ENV_VAR, DHIS2_DEFAULT_JAVA_OPTIONS,
+    DHIS2_ENCRYPTION_PASSWORD_ENV_VAR, DHIS2_JAVA_ENV_VAR, DHIS2_SEED_ENV_VAR, OCS_CONFIG_FILE,
+    OCS_DATA_SOURCE_ENV_VARS, OCS_DIR, OCS_PLUGINS_KEY, S3_ACCESS_KEY_ENV_VAR,
+    S3_SECRET_KEY_ENV_VAR,
+};
 use crate::compose::apply::apply_with;
+use crate::compose::spec::OcsConfigSpec;
 use crate::compose::{EnableRequest, Selection};
+use crate::project::ENV_FILE;
 use crate::project::{ProjectState, default_compose_files};
 use crate::registry::load_embedded;
 use tempfile::TempDir;
