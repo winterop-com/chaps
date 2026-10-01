@@ -210,26 +210,26 @@ fn ready_lines(out: &crate::output::Out, readiness: &wait::Readiness) -> String 
         true => format!("{} in {}s", out.ok("ready"), readiness.waited_s),
         false => format!("{} after {}s", out.warn("not ready"), readiness.waited_s),
     };
+    let api_state = match readiness.api_up {
+        true => "up",
+        false => "not answering",
+    };
+    let mut rows: Vec<(&str, &str, &str)> = Vec::new();
     if let Some(url) = &readiness.api_url {
-        let state = if readiness.api_up {
-            "up"
-        } else {
-            "not answering"
-        };
-        text.push_str(&format!("\n  chap-core  {state}  {}", out.value(url)));
+        rows.push(("chap-core", api_state, url));
     }
-    let width = readiness
-        .models
-        .iter()
-        .map(|m| m.service_id.len())
-        .max()
-        .unwrap_or(0);
-    for model in &readiness.models {
+    rows.extend(
+        readiness
+            .models
+            .iter()
+            .map(|m| (m.service_id.as_str(), m.state, m.url.as_str())),
+    );
+    let name = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
+    let state = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+    for (service, status, url) in rows {
         text.push_str(&format!(
-            "\n  {:width$}  {}  {}",
-            model.service_id,
-            model.state,
-            out.value(&model.url)
+            "\n  {service:name$}  {status:state$}  {}",
+            out.value(url)
         ));
     }
     text

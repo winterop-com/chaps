@@ -286,10 +286,28 @@ fn draw_tree(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         })
         .collect();
     let empty = rows.is_empty() && !app.loading;
+    // As wide as the widest name, so the URLs get the rest of the line.
+    let names = app
+        .nodes
+        .iter()
+        .flat_map(|node| {
+            std::iter::once(node.name.len() + node.kind.label().len() + 4).chain(
+                node.services.iter().map(|s| {
+                    5 + s.service.len()
+                        + s.model
+                            .as_ref()
+                            .filter(|id| **id != s.service)
+                            .map_or(0, |id| id.len() + 3)
+                }),
+            )
+        })
+        .max()
+        .unwrap_or(20)
+        .max("DEPLOYMENT / SERVICE".len()) as u16;
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(34),
+            Constraint::Max(names + 1),
             Constraint::Length(22),
             Constraint::Length(8),
             Constraint::Length(22),

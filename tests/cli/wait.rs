@@ -61,11 +61,19 @@ fn up_wait_returns_once_chap_core_and_the_models_answer() {
         .clone();
     let text = String::from_utf8(out).expect("text");
     assert!(text.contains("ready in "), "{text}");
-    assert!(
-        text.contains(&format!("chap-core  up  http://localhost:{port}")),
+    let line = |name: &str| {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(name))
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        line("chap-core"),
+        ["chap-core", "up", &format!("http://localhost:{port}")],
         "{text}"
     );
-    assert!(text.contains("chapkit-ewars-model  registered"), "{text}");
+    assert_eq!(line("chapkit-ewars-model")[1], "registered", "{text}");
 }
 
 #[test]
