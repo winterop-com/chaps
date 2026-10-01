@@ -203,6 +203,51 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     // out. apply() checks again; this is the run that has something to lose.
     crate::compose::apply::validate(&project, &registry, &selection)?;
 
+    // `.env` is operator-owned state - the database password, the API token,
+    // the registration key, the image pins - so `init` decides its fate before
+    // it writes anything. Rewriting it under a postgres volume that still
+    // holds the old role password leaves chap-core looping on a failed
+    // authentication, which is why even `--force` keeps the file.
+    let env_path = dir.join(ENV_FILE);
+    let env_exists = env_path.is_file();
+    let env = env_action(env_exists, args.fresh_env, args.no_env);
+    // Compose reads `.env` after the compose files, so a CHAP_API_PORT line in
+    // a file this run is keeping wins over `--api-port`. Say so rather than
+    // leaving the API on a port nothing in `.chaps/` mentions.
+    if env == EnvAction::Kept
+        && let Ok(body) = std::fs::read_to_string(&env_path)
+        && let Some(pinned) = env_api_port(&body).filter(|p| *p != args.api_port)
+    {
+        crate::output::warn(&format!(
+            ".env already sets {API_PORT_ENV_VAR}={pinned}, and compose reads that after the \
+             compose files, so the API stays on {pinned} rather than {}; edit that line to \
+             move it",
+            args.api_port
+        ));
+    }
+
+    // `--api-token` only means something for a `.env` this run writes: the
+    // secrets have to be in the file compose reads, and a kept file is the
+    // operator's. It is checked here, before any container is stopped or any
+    // file removed, so a rejected token leaves an existing deployment as it
+    // was.
+    let secrets = match env {
+        EnvAction::Written => resolve_secrets(args.api_token.as_ref())?,
+        _ => {
+            if args.api_token.is_some() {
+                crate::output::warn(&format!(
+                    "--api-token needs a .env to write to, and this run {}; \
+                     run `chaps auth enable` in the project instead",
+                    match env {
+                        EnvAction::Kept => "is keeping the one already there",
+                        _ => "writes none (--no-env)",
+                    }
+                ));
+            }
+            None
+        }
+    };
+
     // The containers of everything this run takes away go first, while the
     // compose files that define them are still on disk: a service whose
     // definition has been removed cannot be stopped by name any more, and one
@@ -229,29 +274,6 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         ));
     }
 
-    // `.env` is operator-owned state - the database password, the API token,
-    // the registration key, the image pins - so `init` decides its fate before
-    // it writes anything. Rewriting it under a postgres volume that still
-    // holds the old role password leaves chap-core looping on a failed
-    // authentication, which is why even `--force` keeps the file.
-    let env_path = dir.join(ENV_FILE);
-    let env_exists = env_path.is_file();
-    let env = env_action(env_exists, args.fresh_env, args.no_env);
-    // Compose reads `.env` after the compose files, so a CHAP_API_PORT line in
-    // a file this run is keeping wins over `--api-port`. Say so rather than
-    // leaving the API on a port nothing in `.chaps/` mentions.
-    if env == EnvAction::Kept
-        && let Ok(body) = std::fs::read_to_string(&env_path)
-        && let Some(pinned) = env_api_port(&body).filter(|p| *p != args.api_port)
-    {
-        crate::output::warn(&format!(
-            ".env already sets {API_PORT_ENV_VAR}={pinned}, and compose reads that after the \
-             compose files, so the API stays on {pinned} rather than {}; edit that line to \
-             move it",
-            args.api_port
-        ));
-    }
-
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
     let mut written = Vec::new();
@@ -272,26 +294,6 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
         written.push(path);
     }
-
-    // `--api-token` only means something for a `.env` this run writes: the
-    // secrets have to be in the file compose reads, and a kept file is the
-    // operator's.
-    let secrets = match env {
-        EnvAction::Written => resolve_secrets(args.api_token.as_ref())?,
-        _ => {
-            if args.api_token.is_some() {
-                crate::output::warn(&format!(
-                    "--api-token needs a .env to write to, and this run {}; \
-                     run `chaps auth enable` in the project instead",
-                    match env {
-                        EnvAction::Kept => "is keeping the one already there",
-                        _ => "writes none (--no-env)",
-                    }
-                ));
-            }
-            None
-        }
-    };
 
     if env == EnvAction::Written {
         if env_exists {

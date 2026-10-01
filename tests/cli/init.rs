@@ -403,6 +403,43 @@ fn json_errors_are_reported_as_json_on_stdout() {
     assert!(value["error"].as_str().unwrap().contains("unknown model"));
 }
 
+/// A token `.env` cannot hold is refused before `--force` removes anything:
+/// the deployment it was run in keeps its overlay, its state and its `.env`.
+#[test]
+fn a_rejected_api_token_leaves_a_forced_init_undone() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let base = port_base();
+    sandbox
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
+        .assert()
+        .success();
+    let overlay = dir.join("compose.chapkit-ewars-model.yml");
+    let env_before = read(&dir.join(".env"));
+    assert!(overlay.exists());
+
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--force",
+            "--fresh-env",
+            "--api-token",
+            "has\"quote",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--api-token contains a quote"));
+    assert!(overlay.exists(), "the overlay outlived the rejected token");
+    assert!(state(&dir)["models"].get("chapkit_ewars_model").is_some());
+    assert_eq!(read(&dir.join(".env")), env_before);
+}
+
 #[test]
 fn a_second_init_needs_force() {
     let sandbox = Sandbox::new();
