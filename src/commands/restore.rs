@@ -526,11 +526,20 @@ fn check_connection(project: &Project, user: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// The line of a failed `pg_restore` that says why: the last error it
-/// reported, or the last thing it printed at all.
+/// The line of a failed `pg_restore` that says why: the first error that
+/// lost something, with the statement it came from, else the last error it
+/// reported, else the last thing it printed at all.
 fn failure_reason(stderr: &str) -> String {
-    backup::pg_restore_errors(stderr)
-        .pop()
+    let errors = backup::pg_restore_error_entries(stderr);
+    if let Some(error) = errors.iter().find(|error| !error.is_harmless()) {
+        return match &error.command {
+            Some(command) => format!("{} (while running `{command}`)", error.message),
+            None => error.message.clone(),
+        };
+    }
+    errors
+        .last()
+        .map(|error| error.message.clone())
         .or_else(|| backup::tail_lines(stderr, 1).pop())
         .unwrap_or_else(|| "no output".to_string())
 }
@@ -1200,6 +1209,19 @@ mod tests {
                       pg_restore: error: connection to server at \"postgres\" failed: \
                       FATAL:  role \"nosuchrole\" does not exist\n";
         assert!(failure_reason(stderr).starts_with("connection to server"));
+        // Rows that never loaded: that error, with the statement, ahead of
+        // any harmless drop printed after it.
+        let lost = "pg_restore: error: could not execute query: ERROR:  relation \"public.jobs\" \
+                    does not exist\n\
+                    Command was: COPY public.jobs (id, name) FROM stdin;\n\
+                    pg_restore: error: could not execute query: ERROR:  schema \"x\" does not exist\n\
+                    Command was: DROP SCHEMA IF EXISTS x;\n\
+                    pg_restore: warning: errors ignored on restore: 2\n";
+        assert_eq!(
+            failure_reason(lost),
+            "could not execute query: ERROR:  relation \"public.jobs\" does not exist \
+             (while running `COPY public.jobs (id, name) FROM stdin;`)"
+        );
         // Nothing that looks like an error: the last thing it printed.
         assert_eq!(failure_reason("out of disk\n\n"), "out of disk");
         assert_eq!(failure_reason(""), "no output");

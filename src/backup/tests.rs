@@ -424,6 +424,31 @@ fn a_pg_restore_verdict_reads_the_stderr_as_well_as_the_code() {
     assert_eq!(pg_restore_outcome(127, ""), PgRestore::Failed);
 }
 
+/// What PostgreSQL 17's `pg_restore --clean --if-exists --no-owner` prints
+/// when a table's rows have no table to go into: measured, with the table's
+/// definition left out of the restore list. It exits 1 and counts the error
+/// as ignored, and the error says `does not exist` like a harmless drop.
+const LOST_ROWS_STDERR: &str = "pg_restore: error: could not execute query: ERROR:  relation \"public.jobs\" does not exist\n\
+         Command was: COPY public.jobs (id, name) FROM stdin;\n\
+         pg_restore: warning: errors ignored on restore: 1\n";
+
+#[test]
+fn rows_that_were_never_loaded_fail_the_restore() {
+    assert_eq!(pg_restore_outcome(1, LOST_ROWS_STDERR), PgRestore::Failed);
+    let errors = pg_restore_error_entries(LOST_ROWS_STDERR);
+    assert!(errors[0].loads_data(), "{errors:?}");
+    assert!(!errors[0].is_harmless());
+
+    // pg_restore's own wording for a COPY that broke off part-way.
+    let broken = "pg_restore: error: COPY failed for table \"jobs\": ERROR:  relation \"jobs\" does not exist\n\
+                  pg_restore: warning: errors ignored on restore: 1\n";
+    assert_eq!(pg_restore_outcome(1, broken), PgRestore::Failed);
+
+    // The harmless drops alongside it do not rescue it.
+    let mixed = format!("{IGNORABLE_STDERR}{LOST_ROWS_STDERR}");
+    assert_eq!(pg_restore_outcome(1, &mixed), PgRestore::Failed);
+}
+
 #[test]
 fn the_ignored_count_and_the_error_lines_are_read_off_the_stderr() {
     assert_eq!(pg_restore_ignored_count(IGNORABLE_STDERR), Some(2));
@@ -433,9 +458,15 @@ fn the_ignored_count_and_the_error_lines_are_read_off_the_stderr() {
         None
     );
 
-    let errors = pg_restore_errors(IGNORABLE_STDERR);
-    assert_eq!(errors.len(), 2, "the `Command was:` line is not a verdict");
-    assert!(errors.iter().all(|l| pg_restore_error_is_ignorable(l)));
+    let errors = pg_restore_error_entries(IGNORABLE_STDERR);
+    assert_eq!(
+        errors.len(),
+        2,
+        "the `Command was:` line is not an error of its own"
+    );
+    assert_eq!(errors[0].command.as_deref(), Some("DROP SCHEMA public;"));
+    assert_eq!(errors[1].command, None);
+    assert!(errors.iter().all(PgRestoreError::is_harmless));
     assert!(pg_restore_error_is_ignorable(
         "role \"chap\" must be owner of table x"
     ));

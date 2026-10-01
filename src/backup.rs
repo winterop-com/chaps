@@ -981,7 +981,10 @@ pub enum PgRestore {
 /// a database that kept an extension or a schema reports `already exists`; and
 /// `--no-owner` leaves objects to the restoring role, which may not own what
 /// it is asked to re-own (`must be owner of`). Everything else - a refused
-/// connection, a missing role, a disk that filled up - is a failure.
+/// connection, a missing role, a disk that filled up - is a failure, and so is
+/// any of these while loading rows (see [`PgRestoreError::loads_data`]): a
+/// `COPY` into a table that `does not exist` is the data lost, not a drop that
+/// had nothing to drop.
 pub const PG_RESTORE_IGNORABLE: &[&str] = &["already exists", "does not exist", "must be owner of"];
 
 /// Read a `pg_restore` run: the exit code, and the stderr it explained itself
@@ -998,13 +1001,67 @@ pub fn pg_restore_outcome(code: i32, stderr: &str) -> PgRestore {
     if pg_restore_ignored_count(stderr).is_none() {
         return PgRestore::Failed;
     }
-    if pg_restore_errors(stderr)
+    if pg_restore_error_entries(stderr)
         .iter()
-        .any(|line| !pg_restore_error_is_ignorable(line))
+        .any(|error| !error.is_harmless())
     {
         return PgRestore::Failed;
     }
     PgRestore::Warnings
+}
+
+/// One `pg_restore: error:` line, with the `Command was:` line PostgreSQL
+/// printed under it when the error came from a statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PgRestoreError {
+    /// The error, without the `pg_restore: error:` prefix.
+    pub message: String,
+    /// The statement that failed, without the `Command was:` prefix.
+    pub command: Option<String>,
+}
+
+impl PgRestoreError {
+    /// Whether this error happened while loading rows: a `COPY` statement, or
+    /// pg_restore's own `COPY failed for table`. Measured on PostgreSQL 17, a
+    /// table the dump's data has nowhere to go into reports
+    /// `relation "public.jobs" does not exist` with `Command was: COPY
+    /// public.jobs (id, name) FROM stdin;` - the same words as a harmless
+    /// `--clean` drop.
+    pub fn loads_data(&self) -> bool {
+        let starts_with_copy = |text: &str| {
+            text.trim_start()
+                .get(..5)
+                .is_some_and(|head| head.eq_ignore_ascii_case("copy "))
+        };
+        self.command.as_deref().is_some_and(starts_with_copy)
+            || self.message.to_ascii_lowercase().contains("copy failed")
+    }
+
+    /// Whether the restore lost nothing to it: one of
+    /// [`PG_RESTORE_IGNORABLE`], and not while loading rows.
+    pub fn is_harmless(&self) -> bool {
+        !self.loads_data() && pg_restore_error_is_ignorable(&self.message)
+    }
+}
+
+/// Every `pg_restore: error:` of a run, each with the `Command was:` line
+/// that follows it, if any.
+pub fn pg_restore_error_entries(stderr: &str) -> Vec<PgRestoreError> {
+    let mut entries: Vec<PgRestoreError> = Vec::new();
+    for line in stderr.lines().map(str::trim) {
+        if let Some(message) = line.strip_prefix("pg_restore: error:") {
+            entries.push(PgRestoreError {
+                message: message.trim().to_string(),
+                command: None,
+            });
+        } else if let Some(command) = line.strip_prefix("Command was:")
+            && let Some(last) = entries.last_mut()
+            && last.command.is_none()
+        {
+            last.command = Some(command.trim().to_string());
+        }
+    }
+    entries
 }
 
 /// The `N` of `pg_restore`'s closing `errors ignored on restore: N`, which it
@@ -1015,18 +1072,6 @@ pub fn pg_restore_ignored_count(stderr: &str) -> Option<u64> {
         let (_, count) = line.trim().split_once(MARKER)?;
         count.trim().parse::<u64>().ok()
     })
-}
-
-/// The `pg_restore: error:` lines of a run, without that prefix.
-///
-/// PostgreSQL continues a long diagnostic on indented lines of its own
-/// (`Command was: ...`); those carry no verdict and are left out.
-pub fn pg_restore_errors(stderr: &str) -> Vec<String> {
-    stderr
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("pg_restore: error:"))
-        .map(|line| line.trim().to_string())
-        .collect()
 }
 
 /// Whether one `pg_restore` error line is one of [`PG_RESTORE_IGNORABLE`].

@@ -174,7 +174,14 @@ success only when
   reaches only after finishing, and
 - every `pg_restore: error:` line it printed is one of `already exists`,
   `does not exist` or `must be owner of`, the three that
-  `--clean --if-exists --no-owner` cannot help producing.
+  `--clean --if-exists --no-owner` cannot help producing, and none of them
+  came from loading rows. A `COPY` into a table that `does not exist` reads
+  like a harmless drop, but its rows were never imported:
+
+  ```text
+  pg_restore: error: could not execute query: ERROR:  relation "public.jobs" does not exist
+  Command was: COPY public.jobs (id, name) FROM stdin;
+  ```
 
 Anything else, and any exit above 1, fails the restore: the last lines of
 `pg_restore`'s stderr are printed, the exit code is non-zero, nothing claims
