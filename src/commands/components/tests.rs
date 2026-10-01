@@ -1,6 +1,8 @@
+use super::disable::*;
+use super::enable::*;
 use super::*;
-use crate::cli::ComponentPortArg;
-use crate::components::{OCS_DEFAULT_PORT, S3Component};
+use crate::cli::{ComponentPortArg, ComponentsEnableArgs, OcsConfigArgs};
+use crate::components::{DHIS2_COMPOSE, OCS_DEFAULT_PORT, S3Component};
 
 #[test]
 fn the_rows_cover_every_component_in_order() {
