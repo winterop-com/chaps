@@ -1,0 +1,201 @@
+use super::*;
+use crate::backup::{DB_MEMBER, model_member};
+
+fn model(service_id: &str, skipped: Option<&str>) -> ManifestModel {
+    ManifestModel {
+        id: service_id.replace('-', "_"),
+        service_id: service_id.to_string(),
+        version: "1.0.0".into(),
+        image_tag: "sha-fa880a1".into(),
+        host_port: Some(5001),
+        data_dir: "/app/data".into(),
+        user: "chapkit:chapkit".into(),
+        volume: format!("ck_{}_data", service_id.replace('-', "_")),
+        path: skipped.is_none().then(|| model_member(service_id)),
+        size_bytes: if skipped.is_none() { 40960 } else { 0 },
+        skipped: skipped.map(str::to_string),
+        quiesce: skipped.is_none().then(|| "paused for 1.4 s".to_string()),
+    }
+}
+
+fn component(name: &str, skipped: Option<&str>) -> ManifestComponent {
+    ManifestComponent {
+        name: name.to_string(),
+        service: name.to_string(),
+        volume: format!("{name}_data"),
+        data_dir: "/app/data".into(),
+        path: skipped.is_none().then(|| backup::component_member(name)),
+        size_bytes: if skipped.is_none() { 4096 } else { 0 },
+        skipped: skipped.map(str::to_string),
+        quiesce: None,
+    }
+}
+
+fn report_with(
+    database: bool,
+    models: Vec<ManifestModel>,
+    components: Vec<ManifestComponent>,
+) -> BackupReport {
+    BackupReport {
+        path: PathBuf::from("/backups/chaps-backup-e2e-20260923-071000.tar.gz"),
+        size_bytes: 5 * 1024 * 1024,
+        manifest: Manifest {
+            schema_version: crate::backup::SCHEMA_VERSION,
+            created_by: "chaps 0.1.0".into(),
+            created_at: "2026-09-23T07:10:00Z".into(),
+            project: "e2e".into(),
+            chap_image_tag: "latest".into(),
+            files: vec![".env".into(), "compose.yml".into()],
+            database: database.then(|| ManifestDatabase {
+                path: DB_MEMBER.into(),
+                user: "chap".into(),
+                name: "chap_core".into(),
+                server_version: Some("17.6".into()),
+                size_bytes: 2048,
+            }),
+            models,
+            components,
+        },
+        no_chap_core: false,
+    }
+}
+
+#[test]
+fn the_human_output_lists_every_part_with_its_size() {
+    let text = human(
+        &report_with(
+            true,
+            vec![model("chapkit-ewars-model", None)],
+            vec![component("ocs", None)],
+        ),
+        &Out::default(),
+    );
+    assert!(text.starts_with(
+        "backup  /backups/chaps-backup-e2e-20260923-071000.tar.gz  \
+             (5.0 MB gzipped, 46.0 KB of data)\n"
+    ));
+    assert!(text.contains("files     2 file(s): .env, compose.yml"));
+    assert!(text.contains("database  chap_core as chap (2.0 KB), PostgreSQL 17.6"));
+    // A running service was held still for the read, and says for how long.
+    assert!(text.contains("models    chapkit-ewars-model  /app/data  (40.0 KB, paused for 1.4 s)"));
+    assert!(text.contains("parts     ocs  /app/data  (4.0 KB)"));
+    assert!(!text.contains("skipped"));
+    // And it ends on the command that reads the archive back.
+    assert!(text.ends_with(
+            "\nrestore it with `chaps backup restore /backups/chaps-backup-e2e-20260923-071000.tar.gz`\n"
+        ));
+}
+
+#[test]
+fn what_was_left_out_is_said_out_loud() {
+    let text = human(
+        &report_with(
+            false,
+            vec![model("auto-arima-chapkit", Some("no volume yet"))],
+            vec![component("s3", Some("--no-components"))],
+        ),
+        &Out::default(),
+    );
+    assert!(text.contains("database  not included (--no-db)"));
+    assert!(text.contains("models    none"));
+    assert!(text.contains("parts     none"));
+    assert!(text.contains("skipped\n  auto-arima-chapkit  no volume yet"));
+    assert!(text.contains("\n  s3  --no-components"));
+}
+
+#[test]
+fn a_service_that_was_not_running_is_not_reported_as_paused() {
+    assert_eq!(size_note(4096, None), "(4.0 KB)");
+    assert_eq!(
+        size_note(4096, Some("stopped for 6.0 s")),
+        "(4.0 KB, stopped for 6.0 s)"
+    );
+    assert_eq!(
+        quiesce_note("paused", Duration::from_millis(1440)),
+        "paused for 1.4 s"
+    );
+    assert_eq!(
+        quiesce_note("stopped", Duration::from_millis(40)),
+        "stopped for 0.0 s"
+    );
+}
+
+#[test]
+fn a_failed_pack_leaves_the_archive_that_is_already_there_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let stage = dir.path().join("stage");
+    std::fs::create_dir_all(&stage).unwrap();
+    std::fs::write(stage.join("manifest.yaml"), "schema_version: 1\n").unwrap();
+
+    let out = dir.path().join("nightly.tar.gz");
+    std::fs::write(&out, b"last night's backup").unwrap();
+
+    // tar cannot pack a member that is not in the stage, so this fails
+    // after the temporary file has been created.
+    let err = write_archive(
+        &out,
+        &stage,
+        &["manifest.yaml".to_string(), "db".to_string()],
+    )
+    .expect_err("packing a missing member fails");
+    assert!(err.to_string().contains("tar failed"), "{err}");
+    assert_eq!(
+        std::fs::read(&out).unwrap(),
+        b"last night's backup",
+        "the archive that was already there is untouched"
+    );
+    assert!(
+        !backup::temp_archive_path(&out).exists(),
+        "and the half-written one is gone"
+    );
+
+    // The same call with a member that is there renames into place.
+    write_archive(&out, &stage, &["manifest.yaml".to_string()]).unwrap();
+    assert_eq!(
+        backup::tar_read_member(&out, "manifest.yaml").unwrap(),
+        "schema_version: 1\n"
+    );
+    assert!(!backup::temp_archive_path(&out).exists());
+}
+
+#[test]
+fn the_compose_argument_lists_never_ask_for_a_terminal() {
+    assert_eq!(
+        compose_exec("postgres", &["pg_dump", "-U", "chap", "-Fc", "chap_core"]),
+        vec![
+            "exec",
+            "-T",
+            "postgres",
+            "pg_dump",
+            "-U",
+            "chap",
+            "-Fc",
+            "chap_core"
+        ]
+    );
+    assert_eq!(
+        compose_run(
+            "chapkit-ewars-model-init",
+            &["tar", "cf", "-", "-C", "/app/data", "."]
+        ),
+        vec![
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "chapkit-ewars-model-init",
+            "tar",
+            "cf",
+            "-",
+            "-C",
+            "/app/data",
+            "."
+        ]
+    );
+}
+
+#[test]
+fn the_project_name_falls_back_to_something_printable() {
+    assert_eq!(project_name(Path::new("/srv/e2e")), "e2e");
+    assert_eq!(project_name(Path::new("/")), "chaps");
+}

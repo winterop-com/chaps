@@ -1,0 +1,58 @@
+use super::*;
+
+#[test]
+fn snapshot_matches_the_index_it_ships_with() {
+    let index: crate::registry::model::RegistryIndex =
+        serde_yaml_ng::from_str(index_yaml()).expect("registry.yaml parses");
+    let embedded: Vec<&str> = FILES[1..].iter().map(|(n, _)| *n).collect();
+    for path in &index.models {
+        assert!(
+            embedded.contains(&path.as_str()),
+            "{path} is listed in registry.yaml but not embedded; \
+                 re-run scripts/vendor-marketplace.sh"
+        );
+    }
+    assert_eq!(embedded.len(), index.models.len());
+}
+
+#[test]
+fn nothing_is_empty() {
+    for (name, body) in files() {
+        assert!(!body.trim().is_empty(), "{name} is empty");
+    }
+}
+
+/// The generated table is the vendor directory, not a snapshot of it: the
+/// index comes first, every model file the index lists is present in the
+/// same order, and each body is byte for byte what is on disk.
+#[test]
+fn the_generated_table_is_the_vendor_directory() {
+    let vendor = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/marketplace");
+    assert_eq!(FILES[0].0, "registry.yaml");
+
+    for (rel, body) in files() {
+        let path = vendor.join(rel);
+        let on_disk = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        // git may hand a Windows checkout CRLF even with .gitattributes
+        // saying otherwise; what matters is that the text is the same.
+        assert_eq!(
+            body.replace("\r\n", "\n"),
+            on_disk.replace("\r\n", "\n"),
+            "{rel} differs from the file the build script embedded"
+        );
+    }
+
+    // Nothing on disk is silently left out.
+    let mut on_disk: Vec<String> = std::fs::read_dir(vendor.join("models"))
+        .expect("vendor/marketplace/models exists")
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|name| name.ends_with(".yaml") || name.ends_with(".yml"))
+        .map(|name| format!("models/{name}"))
+        .collect();
+    on_disk.sort();
+    let mut embedded: Vec<String> = FILES[1..].iter().map(|(n, _)| (*n).to_string()).collect();
+    embedded.sort();
+    assert_eq!(embedded, on_disk);
+}
