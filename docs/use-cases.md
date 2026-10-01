@@ -28,7 +28,7 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 | --- | --- | --- |
 | only DHIS2 (2.42, 2.43, 2.41 or the next one) | [A DHIS2 on its own](./use-cases/dhis2-alone.md) | `chaps init dhis --only dhis2` |
 | only OCS (with or without S3) | [An OCS server on its own](./use-cases/ocs-alone.md) | `chaps init climate --only ocs,s3` |
-| only one model service | [A chapkit model service on its own](./use-cases/model-alone.md) | `chaps init ewars --only none --models chapkit_ewars_model` |
+| only one model service | [A chapkit model service on its own](./use-cases/model-alone.md) | `chaps run chapkit_ewars_model` |
 | only some model services | [Several model services side by side](./use-cases/models-alone.md) | `chaps init models --only none --models ID,ID` |
 
 ## Chap

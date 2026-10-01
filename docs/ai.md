@@ -320,6 +320,23 @@ More: [An OCS server on its own](./use-cases/ocs-alone.md).
 
 ### 7. One forecasting model only
 
+No folder needed: from any directory that is not a deployment,
+
+```sh
+chaps run chapkit_ewars_model
+```
+
+It worked when the last lines say `running chapkit_ewars_model on
+http://localhost:5001 (answered in ...)` and name the `chaps stop` that stops
+it. The model's API is at that URL, and its documentation at `/docs` under it.
+It is reachable from this machine only. A first run pulls the image, which can
+take several minutes; the command waits for it. Other models: `chaps models
+list` shows their ids, and `chaps run` takes any of them, a GitHub repository
+URL or a ghcr image the same way. `chaps ps` lists what runs, `chaps top` shows
+it live, and `chaps stop chapkit_ewars_model` stops it.
+
+For a folder of its own instead, with `chaps status` and the rest:
+
 ```sh
 chaps init onemodel --only none --models chapkit_ewars_model
 cd onemodel
@@ -329,10 +346,10 @@ chaps status
 
 It worked when `chaps status` shows the model as `up`. Its API is at the
 port in the REACH column, usually `http://localhost:5001`, and
-`chaps open chapkit_ewars_model` opens its documentation. Other models:
-`chaps models list` shows their ids.
+`chaps open chapkit_ewars_model` opens its documentation.
 
-More: [A chapkit model service on its own](./use-cases/model-alone.md).
+More: [Running one model](./run.md),
+[A chapkit model service on its own](./use-cases/model-alone.md).
 
 ### 8. DHIS2 only
 
@@ -413,6 +430,15 @@ image on ghcr.io (most do, through their publish workflow). If `chaps models
 add` says the repository `publishes no public image`, use option 13 instead:
 build the image from their checkout and add that.
 
+To try it, with no folder:
+
+```sh
+chaps run https://github.com/THEIR-ORG/THEIR-MODEL
+```
+
+It worked when the last lines say `running ... on http://localhost:...`. To keep
+it in a folder of its own:
+
 ```sh
 chaps init mymodel --only none
 cd mymodel
@@ -422,7 +448,9 @@ chaps status
 ```
 
 It worked when `chaps status` shows the model as `up`, on the port in its
-REACH column.
+REACH column. A repository the marketplace already lists is enabled as that
+marketplace model, with its reviewed version; the line `... is the marketplace
+model ...; enabling that` says so.
 
 More: [Models outside the marketplace](./models.md#models-outside-the-marketplace).
 
