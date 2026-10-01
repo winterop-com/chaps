@@ -47,8 +47,17 @@ through the redirect of the `releases/latest` page when the API rate limit has
 been reached. Unauthenticated API calls are limited to 60 an hour per address,
 which a CI runner can exhaust.
 
-There is no PowerShell installer yet. On Windows, take the zip from the table
-below, unpack it and put `chaps.exe` on your `PATH`.
+## Windows
+
+On Windows, chaps runs inside WSL. Install WSL 2 and Docker Desktop, turn on
+Docker Desktop's WSL integration for your distribution (Settings, Resources,
+WSL integration), then open the WSL shell and follow the Linux steps above:
+the one-liner installs the Linux binary, and `chaps doctor` checks that docker
+answers from inside WSL.
+
+The release also carries native Windows builds (`chaps-*-pc-windows-msvc.zip`
+in the table below). They are published untested: CI runs on Linux and macOS
+only. WSL with the Linux binary is the supported way on Windows.
 
 ## Which version
 
@@ -106,7 +115,7 @@ newest release:
 | --- | --- | --- |
 | Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
 | macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
+| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned, untested |
 
 <details>
 <summary>Other platforms</summary>
@@ -116,7 +125,7 @@ newest release:
 | Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
 | macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
 | macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
-| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
+| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned, untested |
 
 </details>
 
@@ -176,10 +185,10 @@ the file, because a bare executable has nowhere to carry a ticket. The first
 run on a machine therefore wants to reach Apple once; after that the verdict
 is cached.
 
-The Windows binaries are not signed, which would need an Authenticode
-certificate. SmartScreen may warn the first time `chaps.exe` runs; "More info"
-then "Run anyway" gets past it. There `SHA256SUMS` is the check that
-matters.
+The native Windows binaries are untested and not signed, which would need an
+Authenticode certificate. SmartScreen may warn the first time `chaps.exe` runs;
+"More info" then "Run anyway" gets past it. There `SHA256SUMS` is the check
+that matters. Under WSL none of this applies: it is the Linux binary.
 
 ## Keeping it up to date
 

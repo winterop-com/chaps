@@ -213,9 +213,11 @@ belongs to.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs the same three checks as `make check` plus
-`make test` on Linux, macOS and Windows, on every push to `main` and every pull
+`make test` on Linux and macOS, on every push to `main` and every pull
 request, and a shellcheck job over `install.sh` (as POSIX `sh`) and
-`scripts/*.sh` (as bash).
+`scripts/*.sh` (as bash). Windows is not in the matrix: the release still
+builds the two Windows targets, but nothing tests them, and Windows users are
+pointed at WSL with the Linux binary.
 
 `.github/workflows/release.yml` builds release binaries for six targets
 (Linux, macOS and Windows, on x86_64 and aarch64) when a `vX.Y.Z` tag is
@@ -339,7 +341,7 @@ The tag starts `release.yml`, which attaches eight files to the release:
 - `chaps-x86_64-unknown-linux-musl.tar.gz` and
   `chaps-aarch64-unknown-linux-musl.tar.gz`, static;
 - `chaps-x86_64-pc-windows-msvc.zip` and `chaps-aarch64-pc-windows-msvc.zip`,
-  unsigned;
+  unsigned and untested;
 - `SHA256SUMS`, covering all seven archives.
 
 Each archive holds one directory, `chaps-<version>-<target>/`, with the binary,

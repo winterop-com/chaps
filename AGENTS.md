@@ -39,6 +39,8 @@ This file holds the rules that are not derivable from the code.
 - Rust 2024, clap derive, serde_yaml_ng, ureq 3 (blocking), ratatui. Keep the
   binary static and dependency-light; a server install is Docker plus this
   one file.
+- chaps is tested on Linux and macOS; the Windows builds are published
+  untested, and Windows users are pointed at WSL with the Linux binary.
 - A code file stays under about 600 lines; past that it becomes a folder
   module split by concern (`foo.rs` + `foo/<concern>.rs`, never `mod.rs`).
   Unit tests always go in `foo/tests.rs` behind `#[cfg(test)] mod tests;`,
@@ -77,8 +79,9 @@ This file holds the rules that are not derivable from the code.
   stand-in in `tests/cli/dhis2_stand_in.rs`.
 - Tests never depend on the machine: no fixed low ports (use 18xxx), no real
   docker unless gated by `docker_ready()`, `CHAPS_NO_DOCKER_PROBE=1` in the
-  sandbox, paths compared as `PathBuf` so Windows CI passes, and no browser
-  window (`chaps open` only with `--no-browser` or `--json`).
+  sandbox, paths compared as `PathBuf` rather than as strings (the Windows
+  builds still ship, untested, and need separator-agnostic code), and no
+  browser window (`chaps open` only with `--no-browser` or `--json`).
 - Golden files under `tests/fixtures/` are the rendered compose files; update
   them deliberately, with the reason in the commit.
 - `docs/reference.md` is generated from the clap help by `make

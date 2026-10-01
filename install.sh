@@ -182,7 +182,7 @@ case "$os" in
     target="universal-apple-darwin"
     ;;
   MINGW* | MSYS* | CYGWIN* | Windows_NT)
-    die "this script does not install on Windows; download chaps-x86_64-pc-windows-msvc.zip (or the aarch64 one) from ${RELEASES_URL}, unzip it and put chaps.exe on your PATH. A PowerShell installer is planned."
+    die "this script does not install on Windows; run it inside WSL 2 (with Docker Desktop's WSL integration on), which installs the Linux binary"
     ;;
   *)
     die "no chaps build for ${os} ${arch}; see ${RELEASES_URL}"

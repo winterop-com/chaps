@@ -86,7 +86,7 @@ always point at the newest release:
 | --- | --- | --- |
 | Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
 | macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned |
+| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned, untested |
 
 <details>
 <summary>Other platforms</summary>
@@ -96,7 +96,7 @@ always point at the newest release:
 | Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
 | macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
 | macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
-| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned |
+| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned, untested |
 
 </details>
 
@@ -107,7 +107,8 @@ no version, so the links above keep working after the next release, and
 
 The macOS binaries are signed with an Apple Developer ID certificate and
 notarized, so Gatekeeper does not block them. The Windows binaries are
-unsigned and SmartScreen may warn on first run.
+unsigned and published untested; on Windows, run the Linux binary inside WSL 2
+with Docker Desktop's WSL integration (see the install chapter).
 
 Once installed, `chaps self update` replaces the binary with the newest
 release, `chaps self version` says which build this is, and `chaps completions
@@ -160,7 +161,7 @@ make docs-serve  # serve it locally at http://localhost:3000
 `cargo clippy --all-targets -- -D warnings`, `cargo fmt --all --check` and
 `scripts/vendor-marketplace.sh`.
 
-CI runs the same three checks on Linux, macOS and Windows, and shellcheck over
+CI runs the same three checks on Linux and macOS, and shellcheck over
 `install.sh` and `scripts/`. Tagging `vX.Y.Z` builds release binaries for six
 targets (Linux, macOS and Windows, on x86_64 and aarch64), fuses the two macOS
 builds into a seventh universal archive, and attaches all seven to a GitHub

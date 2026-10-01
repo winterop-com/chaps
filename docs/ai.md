@@ -111,7 +111,9 @@ telling the person what to type:
 ## Before any option
 
 The person needs Docker: Docker Desktop on macOS and Windows, Docker Engine on
-Linux. Check two numbers before they start:
+Linux. On Windows, chaps runs inside WSL 2: Docker Desktop with its WSL
+integration turned on for the distribution, and every command below typed in
+the WSL shell. Check two numbers before they start:
 
 | | With DHIS2 (options 1, 3, 8, 9, 10, 17) | Without DHIS2 |
 | --- | --- | --- |
@@ -127,11 +129,9 @@ curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh 
 chaps doctor
 ```
 
-On Windows, download `chaps-x86_64-pc-windows-msvc.zip` from the
-[latest release](https://github.com/winterop-com/chaps/releases/latest), unzip
-it, and run `.\chaps.exe doctor` in PowerShell from that folder. Every command
-below is the same on Windows with `.\chaps.exe` in place of `chaps`. See
-[Install](./install.md).
+On Windows, run those two lines in the WSL shell, which installs the Linux
+binary; do not use the native Windows zip, which is published untested. See
+[Install](./install.md#windows).
 
 It worked when `chaps doctor` shows no `fail` lines. On an Apple Silicon Mac a
 `warn` line about `linux/amd64` and emulation is normal and can be ignored:
@@ -305,8 +305,7 @@ chaps open ocs
 
 It worked when `chaps status` shows `ocs` as `up` and the browser opens OCS.
 
-To put some data in (public rainfall data, no account needed; on Windows run
-it in Git Bash or WSL, where the quotes work as written):
+To put some data in (public rainfall data, no account needed):
 
 ```sh
 curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json' -d '{"dataset_id": "chirps3_precipitation_daily", "start": "2024-01-01", "end": "2024-01-03", "publish": true}'
