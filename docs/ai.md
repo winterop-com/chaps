@@ -184,8 +184,8 @@ chaps up
 chaps status
 ```
 
-The first time, DHIS2 takes several minutes to start; `chaps status` shows
-its progress on the `dhis2` line. Then:
+The first time, DHIS2 takes several minutes to start; the `dhis2` line of
+`chaps status` says `starting` until DHIS2 answers, then `up`. Then:
 
 ```sh
 chaps dhis2 connect
@@ -216,8 +216,9 @@ chaps up
 chaps status
 ```
 
-It worked when `chaps status` says chap-core is `up` and the last line says the
-models are registered. Models can take a minute or two after `chaps up`: if
+It worked when `chaps status` says chap-core is `up` and the line under the
+table says the models are registered (`1 model registered`, or `all 2 models
+registered` with more). Models can take a minute or two after `chaps up`: if
 some say `not registered`, wait a minute and run `chaps status` again. Then
 `chaps open chap-core` opens chap-core's API page in the browser.
 
@@ -258,10 +259,10 @@ chaps status
 chaps models test --all
 ```
 
-It worked when `chaps status` ends with every model registered and
-`chaps models test --all` says every model passes. Add `--with dhis2` to the
-`chaps init` line to compare them in the Modeling App (8 GB of memory, then as
-in option 1 from `chaps dhis2 connect`).
+It worked when the line under the `chaps status` table says every model is
+registered and `chaps models test --all` says every model passes. Add
+`--with dhis2` to the `chaps init` line to compare them in the Modeling App
+(8 GB of memory, then as in option 1 from `chaps dhis2 connect`).
 
 More: [CHAP with forecasting models](./use-cases/chap-with-models.md#every-model-in-the-marketplace).
 
