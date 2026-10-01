@@ -11,6 +11,7 @@ mod down;
 mod preflight;
 mod removal;
 mod report;
+mod wait;
 
 pub use removal::{UNNAMEABLE_VOLUME, kept_volume_line, purge_volume, stop_and_remove};
 
@@ -141,7 +142,62 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         return Err(docker_failed(code, unasked));
     }
     report_what_changed(ctx, &mut project, cmd, &before, &volumes);
+    if let DockerCmd::Up(args) = cmd
+        && args.wait
+    {
+        return wait_for(ctx, &project, args.timeout);
+    }
     Ok(())
+}
+
+/// `up --wait`: wait, say what answers where, and fail on the deadline naming
+/// what never did.
+fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<()> {
+    note(
+        ctx,
+        &format!("waiting up to {timeout}s for chap-core and the models to answer"),
+    );
+    let readiness = wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout));
+    note(ctx, &ready_lines(&ctx.out, &readiness));
+    if readiness.ready {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "not ready after {timeout}s: {}; `chaps status` shows each one, and \
+         `chaps logs <service>` says why",
+        wait::pending(&readiness).join(", ")
+    ))
+}
+
+/// What `--wait` found, one line per thing it waited for.
+fn ready_lines(out: &crate::output::Out, readiness: &wait::Readiness) -> String {
+    let mut text = match readiness.ready {
+        true => format!("{} in {}s", out.ok("ready"), readiness.waited_s),
+        false => format!("{} after {}s", out.warn("not ready"), readiness.waited_s),
+    };
+    if let Some(url) = &readiness.api_url {
+        let state = if readiness.api_up {
+            "up"
+        } else {
+            "not answering"
+        };
+        text.push_str(&format!("\n  chap-core  {state}  {}", out.value(url)));
+    }
+    let width = readiness
+        .models
+        .iter()
+        .map(|m| m.service_id.len())
+        .max()
+        .unwrap_or(0);
+    for model in &readiness.models {
+        text.push_str(&format!(
+            "\n  {:width$}  {}  {}",
+            model.service_id,
+            model.state,
+            out.value(&model.url)
+        ));
+    }
+    text
 }
 
 /// Whether this wrapper is one whose stderr is worth reading: a detached `up`

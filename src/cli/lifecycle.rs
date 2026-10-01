@@ -54,6 +54,14 @@ pub struct UpArgs {
     #[arg(long, conflicts_with = "no_preflight")]
     pub replace: bool,
 
+    /// Return only once chap-core and every model answer
+    #[arg(long, conflicts_with = "attach")]
+    pub wait: bool,
+
+    /// How long --wait waits before it fails, in seconds
+    #[arg(long, value_name = "SECONDS", default_value_t = 300, requires = "wait")]
+    pub timeout: u64,
+
     /// Extra arguments passed through to docker compose up
     #[arg(
         value_name = "EXTRA",

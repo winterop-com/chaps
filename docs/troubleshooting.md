@@ -605,6 +605,18 @@ until it exits. It is usually a `chaps up` rendering its files or an
 find the command still running against this directory (`ps aux | grep chaps`)
 and let it finish or stop it; the lock goes with the process.
 
+## `not ready after 300s`
+
+`chaps up --wait` gave up: the names after the colon are what never answered,
+each with its `chaps status` state. `chap-core` means its `/health` never
+answered; see [`this deployment's chap-core is not running`](#this-deployments-chap-core-is-not-running).
+`running, not registered` is a model whose container is up and that never
+registered; see [A model is running but not registered](#a-model-is-running-but-not-registered).
+`running, not answering` is a model without chap-core whose `/health` never
+answered on its host port: `chaps logs <service>` says why. A first start that
+pulls large images can simply take longer than the default; `--timeout 900`
+waits fifteen minutes.
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

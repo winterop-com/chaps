@@ -537,6 +537,13 @@ pub(crate) fn chap_core_route(
         id if id.starts_with("ds-") || id.starts_with("bt-") => Some("SUCCESS"),
         _ => None,
     };
+    if route == "/health" && method == "GET" {
+        return (
+            200,
+            json,
+            r#"{"status":"success","message":"healthy"}"#.to_string(),
+        );
+    }
     if route == "/v2/services" && method == "GET" {
         return (200, json, service_list());
     }

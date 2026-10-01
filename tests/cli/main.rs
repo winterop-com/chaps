@@ -22,3 +22,4 @@ mod models_test;
 mod status;
 mod update;
 mod volumes;
+mod wait;

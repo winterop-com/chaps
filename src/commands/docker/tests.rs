@@ -104,6 +104,8 @@ fn up(attach: bool, extra: &[&str]) -> DockerCmd {
         pull: false,
         no_preflight: false,
         replace: false,
+        wait: false,
+        timeout: 300,
         extra: extra.iter().map(|s| s.to_string()).collect(),
     })
 }
@@ -166,6 +168,8 @@ fn up_pull_asks_compose_to_pull_always() {
         pull: true,
         no_preflight: false,
         replace: false,
+        wait: false,
+        timeout: 300,
         extra: vec!["chap".to_string()],
     });
     assert_eq!(
@@ -177,6 +181,8 @@ fn up_pull_asks_compose_to_pull_always() {
         pull: true,
         no_preflight: true,
         replace: false,
+        wait: false,
+        timeout: 300,
         extra: vec![],
     });
     assert_eq!(

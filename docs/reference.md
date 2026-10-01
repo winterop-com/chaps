@@ -351,6 +351,8 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
 | `--replace` | Stop the other chaps deployments holding these ports first. |
+| `--wait` | Return only once chap-core and every model answer. |
+| `--timeout <SECONDS>` | How long --wait waits before it fails, in seconds. Default: `300`. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
 
 ## chaps down
