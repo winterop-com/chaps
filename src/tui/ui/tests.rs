@@ -1,6 +1,7 @@
 use super::*;
+use super::{info::*, strip::*, table::*, text::*};
 use crate::project::ProjectState;
-use crate::registry::{Registry, load_embedded};
+use crate::registry::{Channel, Registry, VersionStatus, load_embedded};
 use crate::tui::app::Action;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
