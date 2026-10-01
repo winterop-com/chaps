@@ -544,7 +544,7 @@ pub(crate) fn dhis2_finished_job() -> Json {
 }
 
 /// The `chap` route a climate demo dump ships: right code, right authority, not
-/// disabled, and pointed at somebody else's CHAP.
+/// disabled, and pointed at somebody else's Chap.
 #[cfg(unix)]
 pub(crate) fn external_chap_route() -> Json {
     serde_json::json!({

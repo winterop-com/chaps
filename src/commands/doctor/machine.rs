@@ -166,7 +166,7 @@ pub fn arch_check(os: &str, arch: &str) -> Check {
     Check::warn(
         ID,
         NAME,
-        format!("{detail}; CHAP images are linux/amd64 only, so they run under emulation"),
+        format!("{detail}; Chap images are linux/amd64 only, so they run under emulation"),
         fix,
     )
 }
@@ -186,7 +186,7 @@ pub fn disk_verdict(free: Option<u64>) -> (Status, String, Option<String>) {
             Status::Fail,
             format!("{human} free"),
             Some(format!(
-                "free up space: the CHAP images total several GB, and below {} a pull stops \
+                "free up space: the Chap images total several GB, and below {} a pull stops \
                  halfway",
                 human_bytes(DISK_FAIL)
             )),
@@ -197,7 +197,7 @@ pub fn disk_verdict(free: Option<u64>) -> (Status, String, Option<String>) {
             Status::Warn,
             format!("{human} free"),
             Some(format!(
-                "keep at least {} free: the CHAP images total several GB",
+                "keep at least {} free: the Chap images total several GB",
                 human_bytes(DISK_WARN)
             )),
         );

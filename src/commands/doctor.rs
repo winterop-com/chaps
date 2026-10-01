@@ -1,10 +1,10 @@
 //! `chaps doctor` - one bounded checklist that says whether this machine, and
-//! this deployment, can run CHAP.
+//! this deployment, can run Chap.
 //!
 //! Every other command answers one question. `doctor` answers the ones an
 //! operator would otherwise ask in sequence: is Docker there, is the daemon
 //! up, is Compose new enough, is there disk, can this machine reach the hosts
-//! CHAP pulls from - and, inside a deployment, are the files, the ports, the
+//! Chap pulls from - and, inside a deployment, are the files, the ports, the
 //! pins and the running stack what they should be.
 //!
 //! Two rules shape the module. Every check is bounded: external commands are
@@ -106,7 +106,7 @@ pub const STATUS_WIDTH: usize = 4;
 /// line is written at.
 const GAP: usize = 2;
 
-/// The container registry every CHAP image is pulled from. The anonymous
+/// The container registry every Chap image is pulled from. The anonymous
 /// `/v2/` endpoint answers 401, which is still the host answering.
 pub const GHCR_PROBE_URL: &str = "https://ghcr.io/v2/";
 
@@ -132,7 +132,7 @@ pub enum Status {
     Ok,
     /// It works, but something will bite later.
     Warn,
-    /// CHAP will not work until this is dealt with.
+    /// Chap will not work until this is dealt with.
     Fail,
     /// Not evaluated: there was nothing to ask, or asking was ruled out.
     Skip,
@@ -281,7 +281,7 @@ pub fn summary(checks: &[Check]) -> Summary {
 
 /// The process exit code: non-zero only when something failed.
 ///
-/// A warning is a thing to know about, not a thing that stops CHAP, so
+/// A warning is a thing to know about, not a thing that stops Chap, so
 /// `chaps doctor` in a CI step only goes red on the checks that would have
 /// stopped the deployment anyway.
 pub fn exit_code(summary: &Summary) -> i32 {

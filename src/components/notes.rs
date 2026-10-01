@@ -93,7 +93,7 @@ pub const DHIS2_FIRST_START_NOTE: &str = "the first `chaps up` takes minutes bef
 /// The note that says the two halves are not connected yet, and what connects
 /// them.
 ///
-/// A DHIS2 and a CHAP started side by side cannot talk: the Modeling App
+/// A DHIS2 and a Chap started side by side cannot talk: the Modeling App
 /// reaches chap-core through a DHIS2 route, which this deployment does not have
 /// until something creates it. `chaps up` does not, on purpose - it is a thin
 /// wrapper around compose, DHIS2's API is not ready when it returns, and the
@@ -142,7 +142,7 @@ pub fn dhis2_external_refusal(url: &str) -> String {
 
 /// The half of [`dhis2_connect_hint`] both shapes share.
 const DHIS2_NOT_CONNECTED: &str =
-    "chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`";
+    "chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`";
 
 /// The note `chaps components disable dhis2` prints when it has just forgotten
 /// a recorded connect.

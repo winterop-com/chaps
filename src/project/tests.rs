@@ -712,7 +712,7 @@ fn the_compose_project_name_round_trips_and_defaults_to_empty() {
 
 #[test]
 fn a_generated_name_is_a_slug_and_six_hex_characters() {
-    let dir = std::path::PathBuf::from("/srv/My CHAP (prod)");
+    let dir = std::path::PathBuf::from("/srv/My Chap (prod)");
     let name = new_compose_project_name(&dir).unwrap();
     let (slug, suffix) = name.rsplit_once('-').expect("a suffix");
     assert_eq!(slug, "my-chap-prod");
@@ -744,7 +744,7 @@ fn a_generated_name_is_a_slug_and_six_hex_characters() {
 #[test]
 fn the_slug_is_what_compose_accepts_whatever_the_directory_is_called() {
     assert_eq!(project_slug("demo"), "demo");
-    assert_eq!(project_slug("My CHAP"), "my-chap");
+    assert_eq!(project_slug("My Chap"), "my-chap");
     assert_eq!(project_slug("chap_prod.eu"), "chap-prod-eu");
     assert_eq!(project_slug("--weird--"), "weird");
     assert_eq!(project_slug("2026-deploy"), "2026-deploy");

@@ -553,14 +553,14 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
         "{DHIS2_FIRST_START_NOTE}"
     );
 
-    // A DHIS2 beside a CHAP cannot talk to it until the route exists, so
+    // A DHIS2 beside a Chap cannot talk to it until the route exists, so
     // the note that says so names the command that makes it.
     assert!(
         DHIS2_CONNECT_NOTE.contains("`chaps dhis2 connect`"),
         "{DHIS2_CONNECT_NOTE}"
     );
     assert!(DHIS2_CONNECT_NOTE.contains("route"), "{DHIS2_CONNECT_NOTE}");
-    // CHAP is not a DHIS2 product, and nothing here is a "stack".
+    // Chap is not a DHIS2 product, and nothing here is a "stack".
     assert!(
         !DHIS2_CONNECT_NOTE.contains("stack"),
         "{DHIS2_CONNECT_NOTE}"

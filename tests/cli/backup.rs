@@ -106,7 +106,7 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     assert!(text.contains("from   project chapx"));
     assert!(text.contains("files     "));
     assert!(text.contains(".env.before-restore"));
-    assert!(text.contains("CHAP was left as it is"));
+    assert!(text.contains("Chap was left as it is"));
 
     // The archive's `.env`, but for the one line its own `postgres` volume
     // decides: the role there was created with this deployment's password.

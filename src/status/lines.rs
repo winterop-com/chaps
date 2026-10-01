@@ -60,7 +60,7 @@ pub fn standalone_closing_lines(
 /// What a deployment with nothing running at all is told, when chap-core is not
 /// one of its components.
 ///
-/// The mirror of `chaps status`'s `CHAP is not running`: there is no CHAP here
+/// The mirror of `chaps status`'s `Chap is not running`: there is no Chap here
 /// to be running or not, only the components the deployment is made of, so the
 /// line names the deployment rather than a product it does not contain.
 pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start it with `chaps up`";
@@ -280,7 +280,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
                 row.id, row.id
             )),
             ModelState::NotRunning => Some(format!(
-                "{}: start CHAP with `chaps up`, then `chaps logs {}`",
+                "{}: start Chap with `chaps up`, then `chaps logs {}`",
                 row.id, row.id
             )),
             ModelState::RunningNotAnswering => Some(format!(

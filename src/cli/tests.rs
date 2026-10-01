@@ -717,7 +717,7 @@ fn up_attach_answers_to_a_and_to_foreground() {
     assert!(help.contains("--foreground"), "{help}");
     assert!(help.contains("-a"), "{help}");
     assert!(
-        help.contains("Run in the foreground and stream all logs (Ctrl-C stops CHAP)"),
+        help.contains("Run in the foreground and stream all logs (Ctrl-C stops Chap)"),
         "{help}"
     );
 }

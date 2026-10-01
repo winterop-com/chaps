@@ -1,6 +1,6 @@
-//! `chaps dhis2` — the three things that let the DHIS2 Modeling App reach CHAP.
+//! `chaps dhis2` — the three things that let the DHIS2 Modeling App reach Chap.
 //!
-//! Phase 1 of the `dhis2` component put a DHIS2 and a CHAP side by side and
+//! Phase 1 of the `dhis2` component put a DHIS2 and a Chap side by side and
 //! left them unable to talk. This is the other half, and it is entirely
 //! requests to DHIS2: the app reaches chap-core through a DHIS2 Route, reads
 //! its figures out of the `analytics_*` tables, and does not exist at all until

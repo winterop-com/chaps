@@ -7,7 +7,7 @@
 
 use crate::error::Result;
 
-/// The container registry the CHAP models are published to, and the only one
+/// The container registry the Chap models are published to, and the only one
 /// `models add` reads.
 pub const GHCR_HOST: &str = "ghcr.io";
 /// Host of the repository URLs `models add` accepts.

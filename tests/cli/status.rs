@@ -136,7 +136,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
     // wrappers ask docker about that name.
     let dir = sandbox.home.path().join("chaps-never-started");
     // An API port of this test's own: `status` below has to find nothing
-    // answering for "CHAP is not running" to be the truth about it, and the
+    // answering for "Chap is not running" to be the truth about it, and the
     // default 8000 is a port a developer may well be serving something on.
     let api_port = free_port();
     let mut init = sandbox.chap();
@@ -152,7 +152,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "nothing is running for this project; start CHAP with `chaps up`",
+            "nothing is running for this project; start Chap with `chaps up`",
         ));
 
     // The same line for `docker ps`, which is a question, not a failure.
@@ -185,7 +185,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "CHAP is not running; start it with `chaps up`",
+            "Chap is not running; start it with `chaps up`",
         ));
 }
 
@@ -201,7 +201,7 @@ fn up_offers_both_names_for_running_in_the_foreground() {
         .stdout(predicates::str::contains("-a, --attach"))
         .stdout(predicates::str::contains("[alias: --foreground]"))
         .stdout(predicates::str::contains(
-            "Run in the foreground and stream all logs (Ctrl-C stops CHAP)",
+            "Run in the foreground and stream all logs (Ctrl-C stops Chap)",
         ));
 }
 

@@ -9,7 +9,7 @@ Every command accepts the global options listed under [chaps](#chaps),
 
 ## chaps
 
-deploy CHAP, the Climate Health Analytics Platform, and its services.
+deploy Chap, the Climate Health Analytics Platform, and its services.
 
 ```text
 Usage: chaps [OPTIONS] <COMMAND>
@@ -336,7 +336,7 @@ Usage: chaps update [OPTIONS]
 
 ## chaps up
 
-Sync, then start CHAP (docker compose up).
+Sync, then start Chap (docker compose up).
 
 ```text
 Usage: chaps up [OPTIONS] [EXTRA]...
@@ -344,7 +344,7 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 
 | Argument | Description |
 | --- | --- |
-| `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops CHAP). |
+| `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops Chap). |
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
 | `--replace` | Stop the other chaps deployments holding these ports first. |
@@ -352,7 +352,7 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 
 ## chaps down
 
-Stop CHAP (docker compose down).
+Stop Chap (docker compose down).
 
 ```text
 Usage: chaps down [OPTIONS] [EXTRA]...
@@ -692,7 +692,7 @@ Usage: chaps auth rotate [OPTIONS]
 
 ## chaps dhis2
 
-Let the DHIS2 Modeling App reach this deployment's CHAP.
+Let the DHIS2 Modeling App reach this deployment's Chap.
 
 ```text
 Usage: chaps dhis2 [OPTIONS] <COMMAND>

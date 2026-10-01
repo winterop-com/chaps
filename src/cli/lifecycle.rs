@@ -35,10 +35,10 @@ pub struct UpdateArgs {
     pub yes: bool,
 }
 
-/// Sync, then start CHAP (docker compose up)
+/// Sync, then start Chap (docker compose up)
 #[derive(Debug, Clone, Args)]
 pub struct UpArgs {
-    /// Run in the foreground and stream all logs (Ctrl-C stops CHAP)
+    /// Run in the foreground and stream all logs (Ctrl-C stops Chap)
     #[arg(short = 'a', long, visible_alias = "foreground")]
     pub attach: bool,
 
@@ -63,7 +63,7 @@ pub struct UpArgs {
     pub extra: Vec<String>,
 }
 
-/// Stop CHAP (docker compose down)
+/// Stop Chap (docker compose down)
 #[derive(Debug, Clone, Args)]
 pub struct DownArgs {
     // Long spelling only: `-v` is the global `--verbose` flag, and a `down`

@@ -91,7 +91,7 @@ fn status_does_not_claim_another_deployments_chap_core() {
 }
 
 /// The gap this closes. A deployment can sit for good with chap-core `up`, the
-/// `dhis2` row `up` and the Modeling App unable to reach CHAP at all, because
+/// `dhis2` row `up` and the Modeling App unable to reach Chap at all, because
 /// the only line that ever named `chaps dhis2 connect` was printed minutes
 /// earlier, when the component was added and DHIS2 did not exist yet.
 ///
@@ -128,7 +128,7 @@ fn status_names_the_connect_a_running_dhis2_has_not_had() {
         "{text}"
     );
     assert!(
-        text.contains("chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`"),
+        text.contains("chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`"),
         "{text}"
     );
     // Under the verdict, with the model hints, rather than on the row.
@@ -516,7 +516,7 @@ fn dhis2_show_names_a_route_whose_token_chap_core_refuses() {
 }
 
 /// The trap the step exists for: the demo dumps ship a `chap` route aimed at an
-/// external CHAP server, with the right code and the right authority, so a
+/// external Chap server, with the right code and the right authority, so a
 /// "create if absent" implementation would leave the deployment sending its
 /// data to a stranger.
 #[cfg(unix)]
@@ -1091,7 +1091,7 @@ fn dhis2_show_marks_a_route_that_points_somewhere_else() {
 
 /// A route that is right in every field is not a route that works: when
 /// nothing answers through it, `show` says so rather than "the Modeling App can
-/// reach CHAP".
+/// reach Chap".
 #[cfg(unix)]
 #[test]
 fn dhis2_show_counts_a_route_nothing_answers_through_as_missing() {
@@ -1124,7 +1124,7 @@ fn dhis2_show_counts_a_route_nothing_answers_through_as_missing() {
     );
     assert!(missing.contains("502"), "{missing}");
     assert!(
-        !report["next"].as_str().unwrap().contains("can reach CHAP"),
+        !report["next"].as_str().unwrap().contains("can reach Chap"),
         "{report}"
     );
 }
@@ -1144,7 +1144,7 @@ fn dhis2_connect_does_the_route_the_apps_and_then_analytics() {
         .stdout(predicates::str::contains("installed Modeling App 7.1.0"))
         .stdout(predicates::str::contains("analytics finished in"))
         .stdout(predicates::str::contains(
-            "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`",
+            "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`",
         ));
 
     // The order is the route, then the apps, then the long one.
@@ -1371,7 +1371,7 @@ fn external_dhis2_sandbox() -> (Sandbox, PathBuf, TempDir) {
     (sandbox, dir, empty)
 }
 
-/// The shape most real deployments have: CHAP beside a DHIS2 that already runs
+/// The shape most real deployments have: Chap beside a DHIS2 that already runs
 /// elsewhere, reached with a personal access token.
 #[cfg(unix)]
 #[test]
@@ -1456,7 +1456,7 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
             "`chaps dhis2 apps` installs them",
         ))
         .stdout(predicates::str::contains(
-            "the Modeling App can reach CHAP once it is installed",
+            "the Modeling App can reach Chap once it is installed",
         ));
     assert!(
         !stand_in.asked().iter().any(
@@ -1510,7 +1510,7 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
 /// chaps did not create an external DHIS2, so it knows none of its passwords:
 /// `admin` / `district` is never tried, and the report names what to set.
 /// An external DHIS2 whose admin installed both apps already: `connect` sets
-/// the route and says the Modeling App reaches CHAP now, not once installed.
+/// the route and says the Modeling App reaches Chap now, not once installed.
 #[cfg(unix)]
 #[test]
 fn connect_on_an_external_dhis2_with_both_apps_says_it_is_ready() {
@@ -1543,7 +1543,7 @@ fn connect_on_an_external_dhis2_with_both_apps_says_it_is_ready() {
             "skipped: installing apps: both are there already",
         ))
         .stdout(predicates::str::contains(
-            "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`",
+            "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`",
         ));
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
     assert!(!stdout.contains("once it is installed"), "{stdout}");

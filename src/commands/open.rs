@@ -352,7 +352,7 @@ fn human(report: &OpenReport, out: &Out) -> String {
             text.push_str(&out.backticks(match report.answering {
                 Some(true) => {
                     "the external DHIS2 recorded by `chaps dhis2 use` answered at that address; \
-                     `chaps dhis2 show` says whether CHAP is connected to it"
+                     `chaps dhis2 show` says whether Chap is connected to it"
                 }
                 _ => {
                     "the external DHIS2 recorded by `chaps dhis2 use` did not answer at that \

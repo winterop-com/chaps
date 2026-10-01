@@ -102,7 +102,7 @@ fn only_a_proved_route_with_both_apps_counts_as_connected() {
     // not the apps were attempted.
     assert_eq!(judge(&unverified, None), Judgement::Broken);
 
-    // One app short is a DHIS2 with no CHAP user interface in it.
+    // One app short is a DHIS2 with no Chap user interface in it.
     assert_eq!(
         judge(
             &created,
@@ -547,7 +547,7 @@ fn show_on_a_connected_instance_says_it_is_connected() {
         analytics: dhis2::AnalyticsEvidence::RanHere,
         apps: shown_apps(&["7.1.0", "1.16.2"]),
         missing: Vec::new(),
-        next: "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`".to_string(),
+        next: "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string(),
     };
     let text = human_show(&report, &out());
     assert!(text.contains("http://chap:8000/** (healthy)"), "{text}");

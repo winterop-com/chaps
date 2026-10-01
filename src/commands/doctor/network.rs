@@ -1,4 +1,4 @@
-//! Checks of the hosts CHAP needs: ghcr.io, the marketplace, GitHub and chaps' own releases.
+//! Checks of the hosts Chap needs: ghcr.io, the marketplace, GitHub and chaps' own releases.
 
 use super::*;
 
@@ -129,7 +129,7 @@ pub fn probe(url: &str, timeout: Duration) -> std::result::Result<u16, String> {
     answer
 }
 
-/// One line per host CHAP needs, or three skipped lines under `--offline`.
+/// One line per host Chap needs, or three skipped lines under `--offline`.
 pub fn network_checks(probed: Option<&Probed>) -> Vec<Check> {
     let hosts: [(&str, &str, &str, &str); 3] = [
         (

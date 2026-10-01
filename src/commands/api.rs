@@ -1,6 +1,6 @@
 //! `chaps api` — one authenticated request to chap-core, and its answer.
 //!
-//! The escape hatch under every other command that talks to CHAP: `chaps
+//! The escape hatch under every other command that talks to Chap: `chaps
 //! status` asks two fixed questions and `chaps jobs` reads one endpoint, and
 //! everything else chap-core can do is reached from here. It is deliberately
 //! thin - a base URL, a token and a body - so that the things it is used for
@@ -10,7 +10,7 @@
 //!
 //! What it adds over `curl` is exactly three things: the base URL of *this*
 //! deployment, the `Authorization` header from its `.env`, and an exit code
-//! that tells "CHAP is not up" (2) from "CHAP said no" (1).
+//! that tells "Chap is not up" (2) from "Chap said no" (1).
 
 use crate::api::{Answer, Api};
 use crate::cli::ApiArgs;

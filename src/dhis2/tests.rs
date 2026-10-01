@@ -355,7 +355,7 @@ fn the_listed_auth_is_read_as_its_type() {
 }
 
 /// The whole point of the step: the demo dumps ship this route pointed at
-/// somebody else's CHAP, so a missing route and a wrong one are both work.
+/// somebody else's Chap, so a missing route and a wrong one are both work.
 #[test]
 fn a_route_pointing_elsewhere_is_repointed_and_not_skipped() {
     let target = route_target("");

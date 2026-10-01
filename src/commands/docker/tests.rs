@@ -478,7 +478,7 @@ fn up_names_the_connect_a_dhis2_deployment_still_needs() {
     let asked = up_summary(&Out::default(), &[], &after, &components);
     assert!(
         asked.ends_with(
-            "\nchaps has not connected this DHIS2 to CHAP; \
+            "\nchaps has not connected this DHIS2 to Chap; \
                  run `chaps dhis2 connect` once DHIS2 answers"
         ),
         "{asked}"
@@ -542,7 +542,7 @@ fn a_config_edited_after_its_container_started_is_recreated() {
 
 /// `down --volumes` takes `dhis2_db` with it, and the next `chaps up`
 /// restores the seed dump into a new one - which ships a `chap` route
-/// pointing at somebody else's CHAP. So the record of a connect goes with
+/// pointing at somebody else's Chap. So the record of a connect goes with
 /// the volume it was true of, and the line says why.
 #[test]
 fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
@@ -830,6 +830,6 @@ fn logs_names_the_services_there_are() {
 fn the_empty_state_line_says_what_to_do_about_it() {
     assert_eq!(
         NOTHING_RUNNING,
-        "nothing is running for this project; start CHAP with `chaps up`"
+        "nothing is running for this project; start Chap with `chaps up`"
     );
 }

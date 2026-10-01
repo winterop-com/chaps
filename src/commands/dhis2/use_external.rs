@@ -207,7 +207,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         (probe, _) if probe.accepted == Some(false) => {
             "fix the credential named above, then run `chaps dhis2 use` again to ask it".to_string()
         }
-        (_, None) => "run `chaps dhis2 connect` to point its route at this CHAP".to_string(),
+        (_, None) => "run `chaps dhis2 connect` to point its route at this Chap".to_string(),
         (_, Some(_)) => "run `chaps dhis2 show` to see what it has".to_string(),
     };
     let report = UseReport {

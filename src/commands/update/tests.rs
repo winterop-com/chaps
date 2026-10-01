@@ -1043,7 +1043,7 @@ fn the_closing_line_is_one_of_four_things() {
     // Something moved and there is nothing running to be behind it.
     assert_eq!(
         closing_line(Some("chap-core v2.3.0 -> v2.3.1"), &[], Some(false)),
-        "updated chap-core v2.3.0 -> v2.3.1; CHAP is not running, the new versions start \
+        "updated chap-core v2.3.0 -> v2.3.1; Chap is not running, the new versions start \
              with `chaps up`"
     );
     // Something moved, the stack is up, and none of it was affected.

@@ -452,7 +452,7 @@ pub(super) fn stack_check(
             ID,
             NAME,
             "no container of this project is running",
-            "run `chaps up` to start CHAP",
+            "run `chaps up` to start Chap",
         );
     }
     let url = project.api_url();

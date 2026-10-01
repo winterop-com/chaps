@@ -163,7 +163,7 @@ fn ocs_part(components: &Components, facts: &OcsFacts) -> Option<ComponentPart> 
 /// and could not check the route if it wanted to. What it can do is say what
 /// `.chaps/components.yaml` holds, in words that cannot be read as a verdict on
 /// the route - the command and the time it ran - so that an operator whose
-/// Modeling App cannot see CHAP finds the answer on the line they were already
+/// Modeling App cannot see Chap finds the answer on the line they were already
 /// reading. [`crate::commands::status`] is where the same fact turns into a
 /// hint, and only there, because that is the command that has asked DHIS2
 /// whether it is even answering.

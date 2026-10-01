@@ -170,7 +170,7 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         crate::tui::run_tui(ctx, &project, &registry)?.unwrap_or_default()
     } else if !components.chap_core.enabled && args.models == "default" {
         // The default model set is a default, not a request: it is the set a
-        // CHAP deployment starts with, and a deployment without chap-core asks
+        // Chap deployment starts with, and a deployment without chap-core asks
         // for its model services by name.
         Selection::default()
     } else {

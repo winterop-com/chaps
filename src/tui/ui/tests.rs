@@ -530,7 +530,7 @@ fn the_overlay_title_keeps_the_state_and_cuts_the_id() {
     );
 }
 
-/// The order is the one the CHAP Modeling App uses: what it does, what
+/// The order is the one the Chap Modeling App uses: what it does, what
 /// it is, who wrote it, then how this deployment runs it.
 #[test]
 fn the_overlay_leads_with_what_the_model_does() {

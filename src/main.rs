@@ -1,4 +1,4 @@
-//! `chaps` — deploy and manage CHAP, the Climate Health Analytics Platform:
+//! `chaps` — deploy and manage Chap, the Climate Health Analytics Platform:
 //! chap-core and marketplace model services on Docker Compose.
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.
@@ -390,7 +390,7 @@ fn exit_code(err: &anyhow::Error) -> i32 {
         // The code clap exits with for a usage error, because that is what
         // this is: a usage error clap could not catch.
         Some(ChapError::Usage(_)) => 2,
-        // "CHAP is not up" is a different answer from "CHAP said no", and a
+        // "Chap is not up" is a different answer from "Chap said no", and a
         // script driving `chaps api` has to be able to tell them apart.
         Some(ChapError::Unreachable { .. } | ChapError::Dhis2Unreachable { .. }) => 2,
         _ => 1,

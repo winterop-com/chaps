@@ -22,7 +22,7 @@ const ACCEPT: &str = "application/vnd.oci.image.index.v1+json, \
      application/vnd.oci.image.manifest.v1+json, \
      application/vnd.docker.distribution.manifest.v2+json";
 
-/// The architecture a CHAP model image is published for.
+/// The architecture a Chap model image is published for.
 pub const AMD64: &str = "amd64";
 
 /// What an image says about how it runs.

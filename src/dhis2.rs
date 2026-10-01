@@ -1,6 +1,6 @@
-//! DHIS2's Web API, and the three things that let the Modeling App reach CHAP.
+//! DHIS2's Web API, and the three things that let the Modeling App reach Chap.
 //!
-//! Nothing in a CHAP deployment talks to DHIS2 and nothing in DHIS2 talks to
+//! Nothing in a Chap deployment talks to DHIS2 and nothing in DHIS2 talks to
 //! chap-core. The only thing that talks to both is the Modeling App running in
 //! a browser, and it reaches chap-core through **DHIS2's Route API**: a `Route`
 //! row inside DHIS2 with `code: "chap"`, which DHIS2 then reverse-proxies under
@@ -9,7 +9,7 @@
 //!
 //! - the route, or the app redirects to `/get-started`;
 //! - the analytics tables, or the app has nothing to send;
-//! - the apps themselves, installed from the App Hub, or there is no CHAP user
+//! - the apps themselves, installed from the App Hub, or there is no Chap user
 //!   interface at all.
 //!
 //! This is a second HTTP client rather than a second caller of
@@ -197,13 +197,13 @@ pub const DEFAULT_USERNAME: &str = "admin";
 /// production server is a failed login in its audit log and nothing else.
 pub const DEFAULT_PASSWORD: &str = "district";
 
-/// The two apps a CHAP deployment wants, in the order they are installed.
+/// The two apps a Chap deployment wants, in the order they are installed.
 pub const HUB_APPS: &[HubAppRef] = &[
     HubAppRef {
         id: "a29851f9-82a7-4ecd-8b2c-58e0f220bc75",
         name: "Modeling App",
         label: "the Modeling App",
-        what: "the CHAP user interface inside DHIS2",
+        what: "the Chap user interface inside DHIS2",
     },
     HubAppRef {
         id: "effb986c-a3c7-485e-a2f6-5e54ff9df7c3",

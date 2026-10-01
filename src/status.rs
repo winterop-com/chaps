@@ -121,7 +121,7 @@ pub struct StatusReport {
     /// Read off `.chaps/components.yaml` and nothing else. It says what chaps
     /// has recorded, never what DHIS2 has: the route can have been deleted,
     /// repointed or disabled since, and `false` here is not evidence that the
-    /// Modeling App can reach CHAP. `chaps dhis2 show` is the command that
+    /// Modeling App can reach Chap. `chaps dhis2 show` is the command that
     /// asks DHIS2.
     ///
     /// [`Components::dhis2_needs_connecting`]: crate::components::Components::dhis2_needs_connecting

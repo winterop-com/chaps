@@ -288,15 +288,15 @@ pub(super) fn apply_chap_core(
     match set_env_chap_tag(&project.dir, &update.old_tag, &tag)? {
         EnvTag::Updated | EnvTag::NoFile => {}
         EnvTag::Commented => output::warn(&format!(
-            ".env has {CHAP_TAG_ENV_VAR} commented out, so CHAP still follows the compose \
+            ".env has {CHAP_TAG_ENV_VAR} commented out, so Chap still follows the compose \
              default; set `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),
         EnvTag::Foreign(value) => output::warn(&format!(
             ".env pins {CHAP_TAG_ENV_VAR}={value}, which is yours, not ours; it is left alone, so \
-             CHAP keeps running {value} rather than {tag}"
+             Chap keeps running {value} rather than {tag}"
         )),
         EnvTag::Absent => output::warn(&format!(
-            ".env does not mention {CHAP_TAG_ENV_VAR}, so CHAP follows the compose default; \
+            ".env does not mention {CHAP_TAG_ENV_VAR}, so Chap follows the compose default; \
              add `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),
     }

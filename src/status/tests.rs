@@ -1175,7 +1175,7 @@ fn every_problem_row_gets_its_own_hint() {
             "chapkit-rwanda-malaria-bym-model: restart it with \
                  `chaps restart --all chapkit-rwanda-malaria-bym-model`"
                 .to_string(),
-            "auto-arima-chapkit: start CHAP with `chaps up`, \
+            "auto-arima-chapkit: start Chap with `chaps up`, \
                  then `chaps logs auto-arima-chapkit`"
                 .to_string(),
         ]

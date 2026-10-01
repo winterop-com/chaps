@@ -13,7 +13,7 @@ use std::time::Duration;
 
 /// What a project with no containers at all is told, instead of a table of
 /// rows that all say the same thing.
-const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
+const NOT_RUNNING: &str = "Chap is not running; start it with `chaps up`";
 
 /// The name the chap-core line opens with, and the one the component lines are
 /// padded to line up with.
@@ -227,7 +227,7 @@ fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
 ///
 /// [`ApiHealth::Off`] is exactly "chap-core is not a component of this
 /// deployment", so the report already carries the answer and the choice needs
-/// no project: a deployment that has no CHAP in it is never told that CHAP is
+/// no project: a deployment that has no Chap in it is never told that Chap is
 /// not running.
 fn nothing_running_line(report: &StatusReport) -> &'static str {
     match report.api {
@@ -254,7 +254,7 @@ fn nothing_running_line(report: &StatusReport) -> &'static str {
 fn not_running(report: &StatusReport, out: &Out) -> String {
     let line = nothing_running_line(report);
     // The port answering anyway is the one thing worth adding: it is why a
-    // browser on it shows a CHAP while this says none is running.
+    // browser on it shows a Chap while this says none is running.
     let elsewhere = report
         .api_elsewhere
         .as_deref()
@@ -469,7 +469,7 @@ fn human(report: &StatusReport, out: &Out) -> String {
     text
 }
 
-/// The hint that this deployment's DHIS2 has still to be connected to CHAP,
+/// The hint that this deployment's DHIS2 has still to be connected to Chap,
 /// for a run where it is worth acting on.
 ///
 /// Two conditions, and the second is the one worth arguing about. The first is

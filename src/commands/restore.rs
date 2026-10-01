@@ -71,7 +71,7 @@ pub struct RestoreReport {
     pub components: Vec<String>,
     /// Services that were stopped first.
     pub stopped: Vec<String>,
-    /// Whether CHAP was started again.
+    /// Whether Chap was started again.
     pub started: bool,
 }
 
@@ -439,10 +439,10 @@ fn human(report: &RestoreReport, out: &Out) -> String {
     text.push('\n');
     if report.started {
         text.push_str(
-            &out.backticks("CHAP is starting; `chaps status` says when the models are back"),
+            &out.backticks("Chap is starting; `chaps status` says when the models are back"),
         );
     } else {
-        text.push_str(&out.backticks("CHAP was left as it is; start it with `chaps up`"));
+        text.push_str(&out.backticks("Chap was left as it is; start it with `chaps up`"));
     }
     text.push('\n');
     text

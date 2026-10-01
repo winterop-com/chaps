@@ -242,7 +242,7 @@ pub fn render_manifest(manifest: &Manifest) -> Result<String> {
 /// Default archive name: `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz`.
 ///
 /// The project name is folded to the characters a file name should hold, so a
-/// directory called `CHAP prod (eu)` still yields something scriptable.
+/// directory called `Chap prod (eu)` still yields something scriptable.
 pub fn archive_name(project: &str, stamp: &str) -> String {
     let mut safe = String::with_capacity(project.len());
     for ch in project.chars() {
@@ -250,7 +250,7 @@ pub fn archive_name(project: &str, stamp: &str) -> String {
             safe.push(ch);
         } else if !safe.ends_with('-') {
             // A run of unusable characters collapses to one separator, so
-            // `CHAP prod (eu)` does not become `CHAP-prod--eu-`.
+            // `Chap prod (eu)` does not become `Chap-prod--eu-`.
             safe.push('-');
         }
     }

@@ -129,7 +129,7 @@ pub struct Dhis2Component {
     /// So it is cleared wherever the thing it was true of can have gone:
     /// [`Components::set_enabled`] forgets it when the component is switched
     /// off - the seed dump a re-enabled DHIS2 restores ships a `chap` route
-    /// pointing at somebody else's CHAP, and a stale record would hide exactly
+    /// pointing at somebody else's Chap, and a stale record would hide exactly
     /// that - and `chaps down --volumes` forgets it with `dhis2_db` itself.
     ///
     /// A `components.yaml` written before this field loads as `None`, which is

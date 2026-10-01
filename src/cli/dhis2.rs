@@ -1,8 +1,8 @@
-//! `chaps dhis2`: connecting DHIS2 and this deployment's CHAP.
+//! `chaps dhis2`: connecting DHIS2 and this deployment's Chap.
 
 use clap::{Args, Subcommand};
 
-/// Let the DHIS2 Modeling App reach this deployment's CHAP
+/// Let the DHIS2 Modeling App reach this deployment's Chap
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct Dhis2Args {

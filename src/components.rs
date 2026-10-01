@@ -186,7 +186,7 @@ pub enum Component {
     Ocs,
     /// An S3-compatible object store, for OCS to keep its objects in.
     S3,
-    /// DHIS2 and its own database, beside CHAP.
+    /// DHIS2 and its own database, beside Chap.
     Dhis2,
 }
 
@@ -212,7 +212,7 @@ impl Component {
     /// One line saying what it is, for `chaps components list`.
     pub fn summary(self) -> &'static str {
         match self {
-            Component::ChapCore => "CHAP itself: chap-core, its worker, Valkey and PostgreSQL",
+            Component::ChapCore => "Chap itself: chap-core, its worker, Valkey and PostgreSQL",
             Component::Ocs => "Open Climate Service: climate data, reachable at http://ocs:9000",
             Component::S3 => "RustFS, an S3-compatible object store OCS will keep objects in",
             Component::Dhis2 => "DHIS2 and its own database, for a deployment that wants one",

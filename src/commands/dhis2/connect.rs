@@ -22,7 +22,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     if session.external().is_some() {
         let mut left = Vec::new();
         // Only a listing that names both apps lets the report say the Modeling
-        // App can reach CHAP now rather than once it is installed.
+        // App can reach Chap now rather than once it is installed.
         let installed = match chap_apps(&session) {
             Ok(apps) => {
                 left.extend(missing_apps(&apps));
@@ -43,10 +43,10 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
             instance: session.instance(),
             next: match (route.verified, installed) {
                 (true, true) => {
-                    "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`"
+                    "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`"
                         .to_string()
                 }
-                (true, false) => "the Modeling App can reach CHAP once it is installed; open \
+                (true, false) => "the Modeling App can reach Chap once it is installed; open \
                                   DHIS2 with `chaps open dhis2`"
                     .to_string(),
                 (false, _) => "run `chaps dhis2 show` to see what is still missing".to_string(),
@@ -82,7 +82,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         instance: session.instance(),
         next: match done {
             true => {
-                "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`".to_string()
+                "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string()
             }
             false => "run `chaps dhis2 show` to see what is still missing".to_string(),
         },
@@ -143,8 +143,8 @@ pub(super) enum Judgement {
 /// chap-core answered through, and both apps installed.
 ///
 /// **Two of the three steps, and deliberately so.** The hint is there because a
-/// DHIS2 beside a CHAP cannot be used at all - the Modeling App redirects to
-/// `/get-started` without the route, and there is no CHAP user interface in
+/// DHIS2 beside a Chap cannot be used at all - the Modeling App redirects to
+/// `/get-started` without the route, and there is no Chap user interface in
 /// DHIS2 without the apps. Neither is true of analytics: the app is installed,
 /// reaches chap-core and works, and empty `analytics_*` tables are a deployment
 /// with no data rather than one that cannot talk to itself. `chaps dhis2 show`
@@ -189,10 +189,10 @@ pub(super) fn judge(route: &RouteReport, apps: Option<&AppsReport>) -> Judgement
 /// brings the hint back on a deployment whose connect has stopped working, and
 /// the cost of being wrong is one line naming an idempotent command, where the
 /// cost of the other mistake is a deployment that reports itself healthy while
-/// the Modeling App cannot reach CHAP. That trade only holds when the run
+/// the Modeling App cannot reach Chap. That trade only holds when the run
 /// actually found something wrong, which is why [`Judgement::Unknown`] writes
 /// nothing in either direction: absence of evidence would otherwise make
-/// `chaps up` say "chaps has not connected this DHIS2 to CHAP" about a
+/// `chaps up` say "chaps has not connected this DHIS2 to Chap" about a
 /// deployment chaps did connect, because of a flag on an unrelated step.
 ///
 /// The file is only written when the value moves, so re-running `connect` on a

@@ -1235,7 +1235,7 @@ fn restart_on_a_deployment_that_was_never_started_says_to_start_it() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "CHAP is not running; start it with `chaps up`",
+            "Chap is not running; start it with `chaps up`",
         ));
 
     // And the same before it has any opinion about the service names it was
@@ -1243,7 +1243,7 @@ fn restart_on_a_deployment_that_was_never_started_says_to_start_it() {
     chap_in(&sandbox, &dir, &["restart", "--all", "chap"])
         .assert()
         .failure()
-        .stdout(predicates::str::contains("CHAP is not running"));
+        .stdout(predicates::str::contains("Chap is not running"));
 }
 
 #[test]

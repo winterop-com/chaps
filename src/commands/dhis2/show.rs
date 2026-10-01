@@ -51,7 +51,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         )),
         // A row that is right in every field and that nothing answers through
         // is the one case the proxied request exists to catch: the app would
-        // be told CHAP is reachable and then fail on its first request.
+        // be told Chap is reachable and then fail on its first request.
         Some(route) if !route.verified => missing.push(format!(
             "nothing answered through the `chap` route: {}; run `chaps status` to see whether \
              chap-core is up",
@@ -87,7 +87,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let report = ShowReport {
         next: match report.missing.is_empty() {
             true => {
-                "the Modeling App can reach CHAP; open DHIS2 with `chaps open dhis2`".to_string()
+                "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string()
             }
             false => "run `chaps dhis2 connect` to do the rest".to_string(),
         },
@@ -99,7 +99,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
 /// The two apps chaps installs, as this instance has them.
 ///
 /// **The two, and not the rest.** `show` exists to say whether DHIS2 has what
-/// CHAP needs; the climate demo ships 29 bundled apps of its own, the same 29
+/// Chap needs; the climate demo ships 29 bundled apps of its own, the same 29
 /// every DHIS2 ships, and printing them turned the one row that answers the
 /// question into an inventory with the answer somewhere in the middle of it.
 /// A count of the others would be a number that is always about thirty and

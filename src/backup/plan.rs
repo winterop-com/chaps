@@ -71,7 +71,7 @@ pub struct RestorePlan {
     pub components: Vec<PlannedComponent>,
     /// Running services that will be stopped first.
     pub stop: Vec<String>,
-    /// Whether CHAP is brought back up at the end.
+    /// Whether Chap is brought back up at the end.
     pub start: bool,
     /// The compose project name the deployment is left with. See
     /// [`restored_compose_project`].
@@ -197,7 +197,7 @@ pub fn plan_text(plan: &RestorePlan) -> String {
     if plan.start {
         text.push_str("then runs    docker compose up -d\n");
     } else {
-        text.push_str("then leaves  CHAP as it is (--no-start)\n");
+        text.push_str("then leaves  Chap as it is (--no-start)\n");
     }
     text
 }

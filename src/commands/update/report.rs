@@ -78,7 +78,7 @@ pub fn closing_line(
     }
     match running {
         Some(false) => {
-            format!("{head}; CHAP is not running, the new versions start with `chaps up`")
+            format!("{head}; Chap is not running, the new versions start with `chaps up`")
         }
         Some(true) => format!("{head}; nothing needs a restart"),
         // Docker would not say what is running, so neither will we.

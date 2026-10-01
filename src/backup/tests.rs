@@ -170,8 +170,8 @@ fn archive_names_carry_the_project_and_the_stamp() {
         "chaps-backup-e2e-20260923-071000.tar.gz"
     );
     assert_eq!(
-        archive_name("CHAP prod (eu)", "20260923-071000"),
-        "chaps-backup-CHAP-prod-eu-20260923-071000.tar.gz"
+        archive_name("Chap prod (eu)", "20260923-071000"),
+        "chaps-backup-Chap-prod-eu-20260923-071000.tar.gz"
     );
     assert_eq!(
         archive_name("", "20260923-071000"),
@@ -617,7 +617,7 @@ fn the_plan_says_whose_identity_the_deployment_keeps() {
 fn the_plan_of_a_stopped_stack_says_there_is_nothing_to_stop() {
     let text = plan_text(&plan(false, vec![]));
     assert!(text.contains("nothing is running, so nothing is stopped first"));
-    assert!(text.contains("then leaves  CHAP as it is (--no-start)"));
+    assert!(text.contains("then leaves  Chap as it is (--no-start)"));
 }
 
 #[test]

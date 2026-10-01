@@ -5,7 +5,7 @@ use super::*;
 /// A DHIS2 this deployment did not start, which `chaps dhis2` talks to in
 /// place of the `dhis2` component. Recorded by `chaps dhis2 use`.
 ///
-/// The shape of most real deployments: CHAP beside a DHIS2 that already runs
+/// The shape of most real deployments: Chap beside a DHIS2 that already runs
 /// somewhere else. Nothing is rendered from it - there is no container - and
 /// it cannot be recorded while the `dhis2` component is on, because the two
 /// would each be "this deployment's DHIS2".

@@ -150,7 +150,7 @@ fn the_verdict_names_the_connect_a_running_dhis2_still_needs() {
              dhis2       up   http://localhost:8080\n\
              \n\
              no models enabled; run `chaps models enable ID` to add one\n  \
-             chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`\n"
+             chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`\n"
     );
 
     // Still starting is still not answering, which is the wait the command
@@ -325,7 +325,7 @@ fn the_layout_names_every_state_once_and_hints_once_per_problem() {
              2 of 3 models are not registered.\n\
              \x20 chapkit-rwanda-malaria-bym-model: restart it with \
              `chaps restart --all chapkit-rwanda-malaria-bym-model`\n\
-             \x20 auto-arima-chapkit: start CHAP with `chaps up`, \
+             \x20 auto-arima-chapkit: start Chap with `chaps up`, \
              then `chaps logs auto-arima-chapkit`\n"
     );
     // The proxy URL appears once, not once per internal row, and the
@@ -389,7 +389,7 @@ fn a_down_api_prints_the_state_and_leaves_the_verdict_to_the_error_line() {
 
 #[test]
 fn the_never_started_line_replaces_the_whole_report() {
-    assert_eq!(NOT_RUNNING, "CHAP is not running; start it with `chaps up`");
+    assert_eq!(NOT_RUNNING, "Chap is not running; start it with `chaps up`");
 }
 
 /// One component row.
@@ -427,7 +427,7 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
     ]);
     let line = nothing_running_line(&report);
     assert_eq!(line, crate::status::NOTHING_RUNNING);
-    assert!(!line.contains("CHAP"), "{line}");
+    assert!(!line.contains("Chap"), "{line}");
     assert!(line.contains("`chaps up`"), "{line}");
 
     // The rows are recorded state, not something docker had to answer, so
@@ -442,7 +442,7 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
     );
 
     // chap-core in the set: the one line is the whole answer again, and it
-    // names CHAP because there is one to name.
+    // names Chap because there is one to name.
     let bare = up(Vec::new(), &[], &[]);
     assert_eq!(nothing_running_line(&bare), NOT_RUNNING);
     assert_eq!(not_running(&bare, &Out::default()), NOT_RUNNING);

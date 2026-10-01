@@ -77,7 +77,7 @@ impl std::str::FromStr for ComponentPortArg {
 
 /// The one-liner both `chaps -h` and `chaps --help` open with. There is no
 /// `long_about`: the two spellings of help say the same thing.
-const ABOUT: &str = "deploy CHAP, the Climate Health Analytics Platform, and its services";
+const ABOUT: &str = "deploy Chap, the Climate Health Analytics Platform, and its services";
 
 /// The last line of `chaps --help`. Anything longer than a clause belongs in
 /// the book, so the help points at it instead of repeating it.
@@ -96,7 +96,7 @@ pub const DOCS_URL: &str = "https://winterop-com.github.io/chaps/";
 /// each command's own options.
 const GLOBAL: &str = "Global options";
 
-/// Deploy CHAP, the Climate Health Analytics Platform, and its services.
+/// Deploy Chap, the Climate Health Analytics Platform, and its services.
 #[derive(Debug, Parser)]
 // `bin_name` as well as `name`: without it clap takes the usage line from
 // argv[0], so the same help reads `chaps.exe` on Windows and `chaps`
@@ -169,10 +169,10 @@ pub enum Command {
     /// Move the pins to what upstream publishes now, and pull
     Update(UpdateArgs),
 
-    /// Sync, then start CHAP (docker compose up)
+    /// Sync, then start Chap (docker compose up)
     Up(UpArgs),
 
-    /// Stop CHAP (docker compose down)
+    /// Stop Chap (docker compose down)
     Down(DownArgs),
 
     /// Show container logs (docker compose logs)
@@ -205,7 +205,7 @@ pub enum Command {
     /// Turn API authentication on or off, and show the token
     Auth(AuthArgs),
 
-    /// Let the DHIS2 Modeling App reach this deployment's CHAP
+    /// Let the DHIS2 Modeling App reach this deployment's Chap
     Dhis2(Dhis2Args),
 
     /// Update chaps itself, and report what this build is

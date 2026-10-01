@@ -91,7 +91,7 @@ pub const DHIS2_CONTAINER_PORT: u16 = 8080;
 /// Database image the component runs. PostGIS is not an optimisation here:
 /// DHIS2's own startup check throws without the `postgis`, `pg_trgm` and
 /// `btree_gin` extensions. This is the tag both `dhis2-core`'s own compose file
-/// and the CHAP team's DHIS2 deployment use.
+/// and the Chap team's DHIS2 deployment use.
 pub const DHIS2_DB_IMAGE: &str = "ghcr.io/baosystems/postgis:16-3.5";
 /// Image the seed-dump one-shot runs: it needs `wget`, `gzip` and `sed -E` and
 /// nothing else.

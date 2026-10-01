@@ -78,7 +78,7 @@ pub(super) fn restore_database(
             }
             return Err(anyhow::anyhow!(
                 "pg_restore failed (exit {}): {}. The database is as pg_restore left it; \
-                 nothing else was restored and CHAP was not started",
+                 nothing else was restored and Chap was not started",
                 piped.code,
                 failure_reason(&piped.stderr)
             ));

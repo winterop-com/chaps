@@ -218,7 +218,7 @@ pub fn down_next(volumes_removed: bool) -> &'static str {
 /// is one of the volumes it takes. The record left behind would then be a
 /// record of a route in a database that no longer exists, suppressing the hint
 /// on the next `chaps up` - which restores the seed dump, and that dump ships a
-/// `chap` route pointing at a CHAP this deployment has nothing to do with.
+/// `chap` route pointing at a Chap this deployment has nothing to do with.
 ///
 /// Measured against what docker no longer holds rather than against the flag on
 /// the command line: compose removes the volumes its own files declare, so a

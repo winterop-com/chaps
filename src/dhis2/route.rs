@@ -158,7 +158,7 @@ pub fn route_in(listing: &serde_json::Value) -> Option<Route> {
 /// reaches `/health` and nothing else.
 ///
 /// **The URL is what makes this a repoint rather than a create.** The climate
-/// demo dumps ship a `chap` route of their own, aimed at an external CHAP
+/// demo dumps ship a `chap` route of their own, aimed at an external Chap
 /// server, with the right code, the right authority and not disabled - so an
 /// implementation that created the route only when one was absent would leave
 /// the deployment sending its data to a stranger's chap-core, and would look

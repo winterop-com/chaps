@@ -13,12 +13,12 @@ use crate::project::Project;
 /// What `logs` and `docker ps` say for a project that has no containers at
 /// all. Both would otherwise print nothing whatsoever.
 pub(super) const NOTHING_RUNNING: &str =
-    "nothing is running for this project; start CHAP with `chaps up`";
+    "nothing is running for this project; start Chap with `chaps up`";
 
 /// What `restart` says when there is nothing to recreate. Recreating is not
 /// starting: a deployment that is down is `chaps up`'s to bring up, the same
 /// answer `chaps status` gives.
-const NOT_RUNNING: &str = "CHAP is not running; start it with `chaps up`";
+const NOT_RUNNING: &str = "Chap is not running; start it with `chaps up`";
 
 /// The hint that closes a detached `up`.
 const AFTER_UP: &str = "run `chaps status` to check that everything answers";
