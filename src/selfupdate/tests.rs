@@ -1,4 +1,10 @@
+use super::check::{check_path, disabled_by};
+use super::install::{backup_path, get_text, map_error, sha256_for, staged_path};
+use super::release::{parse_release, release_at, same_commit};
 use super::*;
+use crate::chapcore::sha256_hex;
+use crate::error::ChapError;
+use std::path::{Path, PathBuf};
 
 const LINUX: &str = "x86_64-unknown-linux-musl";
 const MAC: &str = "aarch64-apple-darwin";
