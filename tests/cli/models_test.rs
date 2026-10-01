@@ -8,7 +8,7 @@ use tempfile::TempDir;
 /// A project with the three stand-in models enabled, pointed at a chap-core
 /// that answers the `models test --backtest` path.
 fn tested_project(sandbox: &Sandbox) -> (PathBuf, u16) {
-    let port = free_port();
+    let port = chap_core_server();
     sandbox
         .init(&[
             "--models",
@@ -18,7 +18,6 @@ fn tested_project(sandbox: &Sandbox) -> (PathBuf, u16) {
         ])
         .assert()
         .success();
-    chap_core_server(port);
     (sandbox.project(), port)
 }
 
@@ -28,7 +27,7 @@ fn tested_project(sandbox: &Sandbox) -> (PathBuf, u16) {
 #[test]
 fn models_test_backtest_skips_a_model_chap_core_cannot_reach() {
     let sandbox = Sandbox::new();
-    let port = free_port();
+    let port = unreachable_models_chap_core_server();
     sandbox
         .init(&[
             "--models",
@@ -38,7 +37,6 @@ fn models_test_backtest_skips_a_model_chap_core_cannot_reach() {
         ])
         .assert()
         .success();
-    unreachable_models_chap_core_server(port);
     let dir = sandbox.project();
 
     let out = chap_in(&sandbox, &dir, &["models", "test", "--all", "--backtest"])
@@ -64,12 +62,11 @@ fn models_test_backtest_skips_a_model_chap_core_cannot_reach() {
 #[test]
 fn models_test_takes_a_model_registered_from_outside_the_deployment() {
     let sandbox = Sandbox::new();
-    let port = free_port();
+    let port = chap_core_server();
     sandbox
         .init(&["--models", "none", "--api-port", &port.to_string()])
         .assert()
         .success();
-    chap_core_server(port);
     let dir = sandbox.project();
 
     chap_in(&sandbox, &dir, &["models", "test", "--all"])

@@ -38,12 +38,11 @@ fn running_docker(services: &[&str]) -> (TempDir, PathBuf) {
 }
 
 fn deployment(sandbox: &Sandbox, models: &str) -> (PathBuf, u16) {
-    let port = free_port();
+    let port = chap_core_server();
     sandbox
         .init(&["--models", models, "--api-port", &port.to_string()])
         .assert()
         .success();
-    chap_core_server(port);
     (sandbox.project(), port)
 }
 

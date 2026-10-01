@@ -55,36 +55,38 @@ pub(crate) fn job_list() -> String {
     )
 }
 
-/// A stand-in for chap-core's job and CRUD endpoints, on `port`.
+/// A stand-in for chap-core's job and CRUD endpoints, on the port it returns.
 ///
 /// Answers the paths `chaps jobs` and `chaps api` reach, and nothing else:
 /// the point is the shapes - a bare JSON string for a status and for a log, a
 /// `detail` object for a 404, a `message` for a cancel - because those are
 /// what the commands render. The thread lives as long as the test process.
-pub(crate) fn chap_core_server(port: u16) {
-    chap_core_server_with(port, false);
+///
+/// The server binds before anything is written, and the port is the one the
+/// kernel gave that bind: a port picked first and bound later is free for a
+/// parallel test to take in between. `chaps init --api-port` with it only
+/// notes that the port is busy.
+pub(crate) fn chap_core_server() -> u16 {
+    serve_chap_core(false, false)
 }
 
 /// [`chap_core_server`] behind a token: every request without a Bearer header
 /// is answered 401, the way chap-core answers one when `CHAP_API_TOKEN` is set.
-pub(crate) fn protected_chap_core_server(port: u16) {
-    chap_core_server_with(port, true);
+pub(crate) fn protected_chap_core_server() -> u16 {
+    serve_chap_core(true, false)
 }
 
 /// [`chap_core_server`] that cannot reach its models: every proxied
 /// `/health` is a 502.
-pub(crate) fn unreachable_models_chap_core_server(port: u16) {
-    serve_chap_core(port, false, true);
+pub(crate) fn unreachable_models_chap_core_server() -> u16 {
+    serve_chap_core(false, true)
 }
 
-pub(crate) fn chap_core_server_with(port: u16, protected: bool) {
-    serve_chap_core(port, protected, false);
-}
-
-fn serve_chap_core(port: u16, protected: bool, unreachable: bool) {
+fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
     use std::io::Write;
 
-    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("a free port");
+    let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+    let port = listener.local_addr().expect("a local address").port();
     std::thread::spawn(move || {
         // What this server was asked to do, for the tests that check the
         // cleanup: one server per port, so the record is this thread's own.
@@ -130,6 +132,7 @@ fn serve_chap_core(port: u16, protected: bool, unreachable: bool) {
             let _ = stream.flush();
         }
     });
+    port
 }
 
 /// The three models the `models test` stand-in knows, and what each one is

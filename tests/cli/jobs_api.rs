@@ -3,12 +3,11 @@ use std::path::PathBuf;
 
 /// A project whose API port is the one the stand-in chap-core listens on.
 fn served_project(sandbox: &Sandbox) -> PathBuf {
-    let port = free_port();
+    let port = chap_core_server();
     sandbox
         .init(&["--models", "none", "--api-port", &port.to_string()])
         .assert()
         .success();
-    chap_core_server(port);
     sandbox.project()
 }
 
@@ -19,12 +18,11 @@ fn served_project(sandbox: &Sandbox) -> PathBuf {
 #[test]
 fn jobs_sends_the_exported_token_when_env_has_none() {
     let sandbox = Sandbox::new();
-    let port = free_port();
+    let port = protected_chap_core_server();
     sandbox
         .init(&["--models", "none", "--api-port", &port.to_string()])
         .assert()
         .success();
-    protected_chap_core_server(port);
     let dir = sandbox.project();
 
     chap_in(&sandbox, &dir, &["jobs"])

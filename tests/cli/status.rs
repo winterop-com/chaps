@@ -81,7 +81,7 @@ fn status_does_not_call_something_that_is_not_chap_core_up() {
 fn status_calls_a_refused_token_a_refused_token_and_not_down() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
-    let port = free_port();
+    let port = protected_chap_core_server();
     sandbox
         .init(&[
             "--models",
@@ -91,7 +91,6 @@ fn status_calls_a_refused_token_a_refused_token_and_not_down() {
         ])
         .assert()
         .success();
-    protected_chap_core_server(port);
     let url = format!("http://127.0.0.1:{port}");
 
     let out = chap_in(&sandbox, &dir, &["status", "--url", &url])
