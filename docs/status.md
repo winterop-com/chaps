@@ -20,7 +20,7 @@ models without a host port are reachable through chap-core at http://localhost:8
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
+  auto-arima-chapkit: start Chap with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
 In a deployment without chap-core nothing registers, so the STATE column says
@@ -97,12 +97,12 @@ nothing has recorded a `chaps dhis2 connect` for this deployment:
 
 ```text
 no models enabled; run `chaps models enable ID` to add one
-  chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+  chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
 ```
 
 Being `up` is not being connected: the Modeling App reaches chap-core through a
 DHIS2 route that nothing creates on its own, and a deployment can otherwise sit
-with both rows `up` and the app unable to see CHAP at all. The line is read off
+with both rows `up` and the app unable to see Chap at all. The line is read off
 `.chaps/components.yaml` and asks DHIS2 nothing, which is why it says what
 *chaps* has recorded; it waits for the row to read `up`, because a DHIS2 that is
 not answering cannot be connected to anything. It is not printed on a deployment
@@ -246,7 +246,7 @@ can have registered with a chap-core that has never started. A deployment that
 is chap-core and nothing else is then the one line
 
 ```text
-CHAP is not running; start it with `chaps up`
+Chap is not running; start it with `chaps up`
 ```
 
 A deployment that has components prints their rows first and puts that line
@@ -263,7 +263,7 @@ nothing in this deployment is running; start it with `chaps up`
 ```
 
 That wording is the other half of it: a deployment chap-core is not a component
-of is never told that CHAP is not running, because there is no CHAP in it to be
+of is never told that Chap is not running, because there is no Chap in it to be
 running.
 
 `--url` turns the short-circuit off, because then the question is about that

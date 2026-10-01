@@ -3,13 +3,13 @@
 Helping someone as an AI assistant? Start at [For AI assistants](./ai.md),
 which turns these pages into a menu of options with the exact commands.
 
-`chaps` deploys CHAP, but CHAP is only one of the shapes a deployment can take.
+`chaps` deploys Chap, but Chap is only one of the shapes a deployment can take.
 The same directory layout, the same commands and the same `chaps up` /
 `chaps status` / `chaps doctor` loop work for any combination of:
 
 | Piece | What it is | How you ask for it |
 | --- | --- | --- |
-| chap-core | CHAP itself: the API, its worker, Valkey and PostgreSQL | on by default; `--without chap-core` or `--only` leaves it out |
+| chap-core | Chap itself: the API, its worker, Valkey and PostgreSQL | on by default; `--without chap-core` or `--only` leaves it out |
 | model services | chapkit forecasting models from the marketplace, or your own | `--models ID,...`, later `chaps models enable ID` |
 | `ocs` | Open Climate Service: climate data over STAC and openEO | `--with ocs`, or `--only ocs` |
 | `s3` | an S3-compatible object store for OCS to keep objects in | `--with s3`, or `--only ocs,s3` |
@@ -31,21 +31,21 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 | only one model service | [A chapkit model service on its own](./use-cases/model-alone.md) | `chaps init ewars --only none --models chapkit_ewars_model` |
 | only some model services | [Several model services side by side](./use-cases/models-alone.md) | `chaps init models --only none --models ID,ID` |
 
-## CHAP
+## Chap
 
-- [CHAP with forecasting models](./use-cases/chap-with-models.md): chap-core and the models it runs; the default, or every model in the marketplace.
-- [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md): chap-core with Open Climate Service beside it.
-- [CHAP with a local DHIS2 and the Modeling App](./use-cases/chap-with-local-dhis2.md): chap-core, models and a DHIS2 of the version you pick, connected.
-- [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md): chap-core on a server, used by a DHIS2 someone else runs.
-- [Combinations](./use-cases/combinations.md): OCS and DHIS2 without CHAP, a model beside OCS, everything at once.
+- [Chap with forecasting models](./use-cases/chap-with-models.md): chap-core and the models it runs; the default, or every model in the marketplace.
+- [Chap with climate data from OCS](./use-cases/chap-with-ocs.md): chap-core with Open Climate Service beside it.
+- [Chap with a local DHIS2 and the Modeling App](./use-cases/chap-with-local-dhis2.md): chap-core, models and a DHIS2 of the version you pick, connected.
+- [Chap for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md): chap-core on a server, used by a DHIS2 someone else runs.
+- [Combinations](./use-cases/combinations.md): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
 
-## Developing CHAP, a model or DHIS2
+## Developing Chap, a model or DHIS2
 
-- [Your model from its checkout, with CHAP](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
-- [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in CHAP without publishing it.
+- [Your model from its checkout, with Chap](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.
+- [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in Chap without publishing it.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; chaps runs the models and registers them with it.
 - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md): chaps builds chap-core from your clone and runs it with everything else.
-- [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md): your DHIS2, chaps' chap-core, connected.
+- [A DHIS2 you run yourself, with Chap from chaps](./use-cases/dhis2-dev-with-chap.md): your DHIS2, chaps' chap-core, connected.
 - [A DHIS2 from chaps, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md): chaps' DHIS2, your chap-core, connected.
 
 ## More than one, and changing your mind

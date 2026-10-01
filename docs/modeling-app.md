@@ -3,7 +3,7 @@
 A walk from a fresh deployment to an evaluated model and a three-month dengue
 forecast, by clicking in the Modeling App. It takes about fifteen minutes, most
 of it waiting for the model. It starts where
-[CHAP with a local DHIS2](./use-cases/chap-with-local-dhis2.md) ends:
+[Chap with a local DHIS2](./use-cases/chap-with-local-dhis2.md) ends:
 
 ```sh
 chaps init mychap --models default --with dhis2
@@ -157,6 +157,6 @@ none to go into until someone creates them in DHIS2's Maintenance app.
 | `Oops! Sorry, an unexpected error`, or `Unnamed evaluation` rows, after the deployment was recreated | The browser holds a login to the DHIS2 that was removed: open DHIS2 again and log in. See [Troubleshooting](./troubleshooting.md#oops-sorry-an-unexpected-error-or-unnamed-evaluation-in-the-modeling-app). |
 | A job in **Jobs** says it failed | `chaps jobs`, then `chaps jobs logs ID` with the id it prints: the model's own error is at the end. |
 
-More on connecting DHIS2 and CHAP: [DHIS2](./dhis2.md). The Modeling App's own
+More on connecting DHIS2 and Chap: [DHIS2](./dhis2.md). The Modeling App's own
 guide is at
 [chap.dhis2.org](https://chap.dhis2.org/chap-modeling-platform/modeling-app/).

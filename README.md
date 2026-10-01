@@ -9,16 +9,16 @@
 > [winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
 > ([`docs/ai.md`](docs/ai.md)) first.**
 
-[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
 cases of climate-sensitive diseases such as dengue and malaria from past case
 counts, climate data and population, and scores how well each forecasting model
 would have done on the past before anyone relies on it. It is often used
 together with [DHIS2](https://dhis2.org), through the Modeling App.
 
-`chaps` deploys and manages CHAP and the services around it, as Docker Compose
+`chaps` deploys and manages Chap and the services around it, as Docker Compose
 deployments: [chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
 services published in the
-[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace),
+[Chap model marketplace](https://github.com/dhis2-chap/model-marketplace),
 [Open Climate Service](https://github.com/dhis2/open-climate-service) with an
 S3 store, and [DHIS2](https://dhis2.org). They deploy together or any of them
 on its own. One command writes a self-contained deployment directory, and after
@@ -30,31 +30,31 @@ Python, no uv, no checkout of chap-core.
 ## Use cases
 
 An AI agent helping someone starts at [`docs/ai.md`](docs/ai.md): a short
-explanation of CHAP, a question that finds the right option, and for each
+explanation of Chap, a question that finds the right option, and for each
 option the exact commands and how to tell that it worked. The pages below are
 the detail behind each option.
 
-To learn CHAP by clicking through it, start with
-[CHAP with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html)
+To learn Chap by clicking through it, start with
+[Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html)
 and then
 [Your first forecast in the Modeling App](https://winterop-com.github.io/chaps/modeling-app.html):
 an evaluation and a three-month dengue forecast on demo data from Laos.
 
-- [CHAP with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
-- [CHAP with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
-- [CHAP with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
-- [CHAP for a DHIS2 that runs elsewhere](https://winterop-com.github.io/chaps/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
-- [An OCS server on its own](https://winterop-com.github.io/chaps/use-cases/ocs-alone.html): Open Climate Service and its object store, no CHAP.
+- [Chap with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
+- [Chap with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
+- [Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
+- [Chap for a DHIS2 that runs elsewhere](https://winterop-com.github.io/chaps/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
+- [An OCS server on its own](https://winterop-com.github.io/chaps/use-cases/ocs-alone.html): Open Climate Service and its object store, no Chap.
 - [A DHIS2 on its own](https://winterop-com.github.io/chaps/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else; 2.41, 2.42, 2.43 or the next one.
 - [A chapkit model service on its own](https://winterop-com.github.io/chaps/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
 - [Several model services side by side](https://winterop-com.github.io/chaps/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
-- [Your model from its checkout, with CHAP](https://winterop-com.github.io/chaps/use-cases/model-on-host.html): chaps runs chap-core; you run your model with `uv run` and it registers.
+- [Your model from its checkout, with Chap](https://winterop-com.github.io/chaps/use-cases/model-on-host.html): chaps runs chap-core; you run your model with `uv run` and it registers.
 - [chap-core from its checkout, with the models](https://winterop-com.github.io/chaps/use-cases/chap-core-on-host.html): you run chap-core; chaps runs the models and registers them with it.
 - [chap-core built from its checkout](https://winterop-com.github.io/chaps/use-cases/chap-core-from-checkout.html): chaps builds chap-core from your clone and runs it with everything else.
-- [A DHIS2 you run yourself, with CHAP from chaps](https://winterop-com.github.io/chaps/use-cases/dhis2-dev-with-chap.html): your DHIS2, chaps' chap-core, connected.
+- [A DHIS2 you run yourself, with Chap from chaps](https://winterop-com.github.io/chaps/use-cases/dhis2-dev-with-chap.html): your DHIS2, chaps' chap-core, connected.
 - [A DHIS2 from chaps, with a chap-core elsewhere](https://winterop-com.github.io/chaps/use-cases/dhis2-with-chap-core-elsewhere.html): chaps' DHIS2, your chap-core, connected.
-- [A model image you built yourself](https://winterop-com.github.io/chaps/use-cases/local-model-image.html): `docker build` a model and run it in CHAP without publishing it.
-- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): OCS and DHIS2 without CHAP, a model beside OCS, everything at once.
+- [A model image you built yourself](https://winterop-com.github.io/chaps/use-cases/local-model-image.html): `docker build` a model and run it in Chap without publishing it.
+- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
 - [Several deployments on one machine](https://winterop-com.github.io/chaps/use-cases/several-deployments.html): taking turns on the default ports, or giving each its own.
 - [Growing a deployment](https://winterop-com.github.io/chaps/use-cases/growing.html): Moving a deployment from one shape to another.
 

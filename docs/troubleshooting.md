@@ -1,8 +1,8 @@
 # Troubleshooting
 
 Start with `chaps doctor`. It runs the whole checklist in one pass - Docker,
-Compose, the architecture, free disk, the hosts CHAP pulls from, and, inside a
-deployment, the files, the ports, the pins, the images and whether CHAP is up -
+Compose, the architecture, free disk, the hosts Chap pulls from, and, inside a
+deployment, the files, the ports, the pins, the images and whether Chap is up -
 and prints what to do about every line that is not `ok`. Most of the sections
 below are one of its lines with the reasoning spelled out. See
 [Doctor](./doctor.md).
@@ -70,7 +70,7 @@ the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 ## `this deployment's chap-core is not running`
 
 ```text
-CHAP is not running; start it with `chaps up`
+Chap is not running; start it with `chaps up`
   this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `chaps -C /srv/first down`, or run `chaps up --replace` here
 ```
 
@@ -552,7 +552,7 @@ plus the model's host port:
 The same applies the other way round, to a model you run from its checkout
 against a chap-core in chaps: `SERVICEKIT_HOST` must be `host.docker.internal`
 and the model must listen on `0.0.0.0`. See
-[Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
+[Your model from its checkout, with Chap](./use-cases/model-on-host.md).
 
 ## `publishes no public image at`
 
@@ -747,7 +747,7 @@ instead of being killed, which is tidier and no more successful. The heap itself
 is `DHIS2_JAVA_TOOL_OPTIONS` in `.env`, commented with the default
 `-Xms2g -Xmx4g -XX:+UseG1GC`. See [Memory](./dhis2.md#memory).
 
-## The Modeling App does not see CHAP
+## The Modeling App does not see Chap
 
 Because nothing has connected the two yet, and one command does all of it:
 
@@ -762,7 +762,7 @@ The app does not reach chap-core directly. It goes through a DHIS2 Route with
 
 The trap is that it will **look** configured. The climate demo dumps ship a
 `chap` route of their own - right code, right authority, not disabled - aimed at
-an external CHAP server, so a seeded instance has a route by that name resolving
+an external Chap server, so a seeded instance has a route by that name resolving
 to somebody else's chap-core. `chaps dhis2 route` repoints it rather than skipping
 it, and says where it pointed:
 
@@ -774,10 +774,10 @@ repointed the `chap` route at http://chap:8000/**
 
 `chaps dhis2 show` is the one to run first: it names each piece that is missing
 and changes nothing. If the route is right and the app still shows no figures,
-analytics has not been generated - `chaps dhis2 analytics`. If there is no CHAP
+analytics has not been generated - `chaps dhis2 analytics`. If there is no Chap
 entry in DHIS2's apps menu at all, the app is not installed -
 `chaps dhis2 apps`. See
-[Connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap).
+[Connecting the Modeling App to Chap](./dhis2.md#connecting-the-modeling-app-to-chap).
 
 Do not read a **silent** `chaps up` or `chaps status` as an answer here. Those
 two name `chaps dhis2 connect` only until one has been recorded, and the record
@@ -800,13 +800,13 @@ holds. Open `http://localhost:8780/` (or the address `chaps open dhis2
 --no-browser` prints), log in again with `admin` / `district`, and open the
 Modeling App from the app menu.
 
-## `chaps has not connected this DHIS2 to CHAP`
+## `chaps has not connected this DHIS2 to Chap`
 
 `chaps up` and `chaps status` close with this while `.chaps/components.yaml`
 records no `chaps dhis2 connect` for this deployment:
 
 ```text
-chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
 ```
 
 Do what it says, once DHIS2 answers. The command is idempotent, so running it on
@@ -1086,7 +1086,7 @@ what the files say, and
 chaps restart
 ```
 
-recreates exactly those, leaving the rest running. If the line says CHAP is not
+recreates exactly those, leaving the rest running. If the line says Chap is not
 running instead, `chaps up` starts it with the new versions. See
 [Updating](./updating.md).
 

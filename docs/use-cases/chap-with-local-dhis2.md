@@ -1,7 +1,7 @@
-# CHAP with a local DHIS2 and the Modeling App
+# Chap with a local DHIS2 and the Modeling App
 
 A complete local setup: chap-core, its models, and a DHIS2 seeded from the demo
-database, connected so the Modeling App in DHIS2 talks to this CHAP. For
+database, connected so the Modeling App in DHIS2 talks to this Chap. For
 development, demos and training.
 
 ```sh
@@ -13,7 +13,7 @@ chaps dhis2 connect          # the route to chap-core, the apps, analytics
 chaps open dhis2
 ```
 
-`chaps up` does not connect DHIS2 to CHAP on its own; `chaps dhis2 connect` is
+`chaps up` does not connect DHIS2 to Chap on its own; `chaps dhis2 connect` is
 the step that does, and `up` and `status` remind you until it has run once.
 
 It worked when `chaps dhis2 connect` ends without `error:`, `chaps open dhis2`
@@ -34,13 +34,13 @@ chaps init mychap --models default --with dhis2 --dhis2-image dhis2/core-dev --d
 
 The Laos climate demo database exists for 2.42 only, so these start with an
 empty DHIS2 (still with `admin` / `district`); `dhis2 connect` works the same.
-Do not seed them with DHIS2's Sierra Leone demo when you want CHAP connected:
+Do not seed them with DHIS2's Sierra Leone demo when you want Chap connected:
 its `admin` is not a superuser, and DHIS2 refuses it the route. See
 [A DHIS2 on its own](./dhis2-alone.md#picking-the-version) for the versions and
 the data.
 
 Next: [DHIS2](../dhis2.md), especially
-[Connecting the Modeling App to CHAP](../dhis2.md#connecting-the-modeling-app-to-chap)
+[Connecting the Modeling App to Chap](../dhis2.md#connecting-the-modeling-app-to-chap)
 and [Memory](../dhis2.md#memory).
 
 All shapes: [Use cases](../use-cases.md).

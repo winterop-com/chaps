@@ -34,8 +34,8 @@ See [Running one model](./run.md).
 | `chaps jobs [list] [--status S].. [--type T] [--limit N]` | The backtests, predictions and datasets chap-core has run, newest first, with what each one cost and which of them failed. `show`, `logs`, `cancel` and `delete` take one job id, or enough of its start to name one. |
 | `chaps api METHOD PATH [--data JSON\|@FILE\|-] [--url URL] [--raw]` | One authenticated request to chap-core's API, with this deployment's base URL and token filled in. JSON comes back pretty-printed; the exit code is 0 for a 2xx, 1 for a 4xx/5xx and 2 when chap-core is not answering. |
 | `chaps update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. `--chap-tag` moves chap-core to another tag (a release, `latest`, `master` or `dev`) instead, asking first when the move goes backwards, which `--yes` answers; `--list-tags` lists where it can go and writes nothing. |
-| `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts CHAP pulls from, and - inside a project - the files, the ports, the pins, the images and whether CHAP is up. Works anywhere. |
-| `chaps dhis2 connect` | Let the DHIS2 Modeling App reach this deployment's CHAP: the `chap` route, the apps, then analytics. `show`, `route`, `analytics` and `apps` are the same work one step at a time; `chaps dhis2 use` points them at a DHIS2 that runs elsewhere. |
+| `chaps doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts Chap pulls from, and - inside a project - the files, the ports, the pins, the images and whether Chap is up. Works anywhere. |
+| `chaps dhis2 connect` | Let the DHIS2 Modeling App reach this deployment's Chap: the `chap` route, the apps, then analytics. `show`, `route`, `analytics` and `apps` are the same work one step at a time; `chaps dhis2 use` points them at a DHIS2 that runs elsewhere. |
 
 `chaps up` starts what is on disk, `chaps update` fetches newer versions, and
 `chaps restart` applies them to the services that are running. That is the
@@ -99,7 +99,7 @@ was given. See [Models and the marketplace](./models.md).
 | `chaps components disable NAME [--purge]` | Turn it off, remove its compose file and sync, keeping its data volumes and naming each one; `--purge` removes them too, and is refused for chap-core. |
 
 A component is a service (or a small group) that `chaps sync` renders one
-compose file for: `chap-core`, which is CHAP itself and is on unless you turn it
+compose file for: `chap-core`, which is Chap itself and is on unless you turn it
 off, `ocs` (Open Climate Service), `s3` (the object store OCS will use) and
 `dhis2` (a demo or development DHIS2 with its own database). The set lives in
 `.chaps/components.yaml`. `chaps init --with ocs,s3`, `--without chap-core` and
@@ -137,7 +137,7 @@ shell history. `chaps up` does none of this and
 has been recorded in `.chaps/components.yaml`. That record suppresses the hint
 and is never evidence that the route is right; `chaps dhis2 show` is what asks
 DHIS2. See [Connecting the Modeling App to
-CHAP](./dhis2.md#connecting-the-modeling-app-to-chap) and [`connected_at`, and
+Chap](./dhis2.md#connecting-the-modeling-app-to-chap) and [`connected_at`, and
 what it is not](./dhis2.md#connected_at-and-what-it-is-not).
 
 ## Authentication

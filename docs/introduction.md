@@ -1,6 +1,6 @@
 # Introduction
 
-[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
 cases of climate-sensitive diseases such as dengue and malaria. It learns from
 past case counts together with climate data and population, scores how well
 each forecasting model would have done on the past, and predicts the coming
@@ -8,19 +8,19 @@ months per district or province. It is often used together with DHIS2,
 through the Modeling App. [Your first forecast in the Modeling App](./modeling-app.md)
 shows it end to end on demo data.
 
-`chaps` runs the CHAP stack. The name is what it does: **CHAP Stack**. It
-deploys and manages [CHAP](https://chap.dhis2.org), the Climate Health
+`chaps` runs the Chap stack. The name is what it does: **Chap Stack**. It
+deploys and manages [Chap](https://chap.dhis2.org), the Climate Health
 Analytics Platform, and the services around it, as Docker Compose deployments:
 [chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
 services published in the
-[CHAP model marketplace](https://github.com/dhis2-chap/model-marketplace),
+[Chap model marketplace](https://github.com/dhis2-chap/model-marketplace),
 [Open Climate Service](https://github.com/dhis2/open-climate-service) (OCS) with
 an S3-compatible object store, and [DHIS2](https://dhis2.org).
 
 They deploy together or any of them on its own. A deployment is made of
 **components** (chap-core, OCS, the object store, DHIS2) plus the model
 services you enable. chap-core is on unless you leave it out, so the default is
-a CHAP deployment. `chaps init --only ocs,s3` is an OCS server,
+a Chap deployment. `chaps init --only ocs,s3` is an OCS server,
 `chaps init --only dhis2` a DHIS2, and
 `chaps init --only none --models ID` one model service answering on its own
 port. [Use cases](./use-cases.md) walks through each shape, and
@@ -36,7 +36,7 @@ deployment is meant to be.
 ```sh
 chaps init mychap --models default   # writes the deployment directory
 chaps init mychap --with ocs         # ...with Open Climate Service beside it
-chaps init climate --only ocs,s3     # or OCS alone, with no CHAP at all
+chaps init climate --only ocs,s3     # or OCS alone, with no Chap at all
 cd mychap
 chaps up                             # sync the compose files, docker compose up -d
 chaps status                         # chap-core health and registered models
@@ -73,7 +73,7 @@ are the only commands that move a version.
 
 ## The pure server promise
 
-A machine that runs CHAP with `chaps` needs Docker and one binary. Nothing
+A machine that runs Chap with `chaps` needs Docker and one binary. Nothing
 else: no Python, no `uv`, no checkout of chap-core, no build step on the
 server. The Linux releases are static musl builds, so the same file runs on any
 distribution.

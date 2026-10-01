@@ -592,7 +592,7 @@ error: chapkit_ewars_model is a marketplace model, so there is no local definiti
 ### What it needs, and what it refuses
 
 `chaps models add` reads GitHub's REST API and ghcr; both are public for the
-CHAP model repositories, so neither needs a credential. GitHub allows 60
+Chap model repositories, so neither needs a credential. GitHub allows 60
 requests an hour to an address that sends none, and `chaps` sends
 `GITHUB_TOKEN` (or `GH_TOKEN`) where the environment names one, for 5000 an
 hour instead - it is never stored and never printed, and `chaps doctor`'s
@@ -733,7 +733,7 @@ chaps · components                                             registry: embedd
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ chap-core    enabled  http://localhost:8700    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│ ▸ ✓ chap-core    enabled  http://localhost:8700    Chap itself: chap-core, its worker, Valkey and PostgreSQL         │
 │   ✓ ocs          enabled  http://localhost:8790    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │     s3           off      -                        RustFS, an S3-compatible object store OCS will keep objects in    │
 │     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
@@ -741,7 +741,7 @@ chaps · components                                             registry: embedd
 │                                                                                                                      │
 │                                                                                                                      │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ chap-core  enabled here  http://localhost:8700  compose.yml + compose.chaps.yml  CHAP itself: chap-co~  i for details│
+│ chap-core  enabled here  http://localhost:8700  compose.yml + compose.chaps.yml  Chap itself: chap-co~  i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  [j/k] move  [tab] page  [space] toggle  [i] info  [o] open  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
@@ -762,7 +762,7 @@ chaps · components                                             registry: embedd
 ╭ Components ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     COMPONENT    STATE    REACH                    WHAT IT IS                                                        │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│   ✓ chap-core    enabled  http://localhost:8700    CHAP itself: chap-core, its worker, Valkey and PostgreSQL         │
+│   ✓ chap-core    enabled  http://localhost:8700    Chap itself: chap-core, its worker, Valkey and PostgreSQL         │
 │   ✓ ocs          enabled  http://localhost:8790    Open Climate Service: climate data, reachable at http://ocs:9000  │
 │ ▸ + s3           adding   internal                 RustFS, an S3-compatible object store OCS will keep objects in    │
 │     dhis2        off      -                        DHIS2 and its own database, for a deployment that wants one       │
@@ -884,7 +884,7 @@ versions to choose between. See
 [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
 ### The details, and the command palette
 
-`i` or `Enter` opens the full entry over the list, in the order the CHAP
+`i` or `Enter` opens the full entry over the list, in the order the Chap
 Modeling App presents a model: what it does, what it is, who wrote it, and
 only then how this deployment runs it.
 

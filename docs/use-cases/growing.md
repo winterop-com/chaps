@@ -4,7 +4,7 @@ Nothing about the first `init` is final. Components go on and off with
 `chaps components enable NAME` / `disable NAME`, models with `chaps models
 enable ID` / `disable ID`, and `chaps up` applies the change.
 
-The move people make most is from a standalone piece to CHAP: a model service
+The move people make most is from a standalone piece to Chap: a model service
 or an OCS that was running alone gets chap-core added beside it.
 
 ```sh

@@ -1,4 +1,4 @@
-# Your model from its checkout, with CHAP
+# Your model from its checkout, with Chap
 
 For developing a chapkit model: chaps runs chap-core, and you run the model
 from its own checkout on this machine (with `uv run`, a debugger, hot reload),

@@ -1,10 +1,10 @@
 # chaps
 
-> chaps deploys CHAP (the Climate Health Analytics Platform) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
+> chaps deploys Chap (the Climate Health Analytics Platform) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
 
-CHAP forecasts cases of climate-sensitive diseases such as dengue and malaria from past case counts, climate data and population, and evaluates each forecasting model on past data before it is used. It is often used together with DHIS2, through the Modeling App.
+Chap forecasts cases of climate-sensitive diseases such as dengue and malaria from past case counts, climate data and population, and evaluates each forecasting model on past data before it is used. It is often used together with DHIS2, through the Modeling App.
 
-If you are helping someone use chaps, start with the page for AI assistants. It explains CHAP in plain words, asks one question to find the right option, and gives for each option the exact commands and how to tell that it worked.
+If you are helping someone use chaps, start with the page for AI assistants. It explains Chap in plain words, asks one question to find the right option, and gives for each option the exact commands and how to tell that it worked.
 
 - [For AI assistants](https://winterop-com.github.io/chaps/ai.html): start here
 - [Your first forecast in the Modeling App](https://winterop-com.github.io/chaps/modeling-app.html): an evaluation and a forecast, step by step with screenshots

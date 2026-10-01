@@ -99,10 +99,10 @@ updated 1 model pin; restart needed: chap, worker (run `chaps restart`)
 Something moved and there is nothing running for it to be ahead of:
 
 ```text
-updated chap-core v2.3.0 -> v2.3.1; CHAP is not running, the new versions start with `chaps up`
+updated chap-core v2.3.0 -> v2.3.1; Chap is not running, the new versions start with `chaps up`
 ```
 
-Something moved, CHAP is up, and none of it was affected:
+Something moved, Chap is up, and none of it was affected:
 
 ```text
 updated 1 model pin; nothing needs a restart
@@ -173,7 +173,7 @@ it does have. A deployment with nothing running at all is not this command's
 job, and it says which command it is, then exits non-zero:
 
 ```text
-CHAP is not running; start it with `chaps up`
+Chap is not running; start it with `chaps up`
 ```
 
 `--all` is for the case where nothing has changed and a restart is still what
@@ -211,7 +211,7 @@ it downloads the `compose.ghcr.yml` that release publishes, moves
 `chap_image_tag`, and rewrites the single active `CHAP_IMAGE_TAG=` line in
 `.env`. Only that line, and only when it still says what the project recorded.
 A value you pinned yourself, or the commented placeholder, is left alone with a
-warning saying what CHAP will actually run.
+warning saying what Chap will actually run.
 
 ## Moving tags
 

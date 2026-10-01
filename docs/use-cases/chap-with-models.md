@@ -1,4 +1,4 @@
-# CHAP with forecasting models
+# Chap with forecasting models
 
 The default, and what most deployments are: chap-core plus the models it runs.
 

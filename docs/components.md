@@ -6,10 +6,10 @@ component like the others and is on unless you turn it off; the rest are opt-in.
 
 | Component | What it is | On by default |
 | --- | --- | --- |
-| `chap-core` | CHAP itself: chap-core, its worker, Valkey and PostgreSQL, plus the model overlays on top. | yes |
+| `chap-core` | Chap itself: chap-core, its worker, Valkey and PostgreSQL, plus the model overlays on top. | yes |
 | `ocs` | [Open Climate Service](https://github.com/dhis2/open-climate-service), beside chap-core, reachable inside the deployment at `http://ocs:9000`. | no |
 | `s3` | [RustFS](https://github.com/rustfs/rustfs), an S3-compatible object store for OCS to keep its objects in. | no |
-| `dhis2` | A demo or development [DHIS2](https://dhis2.org) and its own PostgreSQL, for a deployment that wants one beside CHAP. See [DHIS2](./dhis2.md). | no |
+| `dhis2` | A demo or development [DHIS2](https://dhis2.org) and its own PostgreSQL, for a deployment that wants one beside Chap. See [DHIS2](./dhis2.md). | no |
 
 ```sh
 chaps components list
@@ -17,7 +17,7 @@ chaps components list
 
 ```text
 COMPONENT  STATE    REACH                  WHAT IT IS
-chap-core  enabled  http://localhost:8700  CHAP itself: chap-core, its worker, Valkey and PostgreSQL
+chap-core  enabled  http://localhost:8700  Chap itself: chap-core, its worker, Valkey and PostgreSQL
 ocs        enabled  http://localhost:8790  Open Climate Service: climate data, reachable at http://ocs:9000
 s3         off      -                      RustFS, an S3-compatible object store OCS will keep objects in
 dhis2      enabled  http://localhost:8780  DHIS2 and its own database, for a deployment that wants one
@@ -415,7 +415,7 @@ only. It ships its own `HEALTHCHECK`, so the compose file declares none.
 OCS serves a web interface as well as an API, so it is published on a host port
 by default (8790). chap-core reaches it inside the deployment at
 `http://ocs:9000`, on the compose default network, which is what makes OCS
-usable as a data source for CHAP: OCS's own example configuration carries a
+usable as a data source for Chap: OCS's own example configuration carries a
 commented-out `chirps-to-chap` workflow trigger for exactly that, and the file
 scaffolded here leaves it out, so adding it is yours.
 
@@ -774,7 +774,7 @@ opening an XML error document. See
 ## DHIS2
 
 The `dhis2` component is a demo or development DHIS2 and a PostgreSQL of its own,
-published on 8780 by default, for a deployment that wants one beside CHAP. CHAP
+published on 8780 by default, for a deployment that wants one beside Chap. Chap
 is often deployed with DHIS2 and not always, so this is one way to get one rather
 than something a deployment needs.
 
@@ -789,7 +789,7 @@ and the `--port` flag do not cover. It has a chapter of its own:
   starts with `chaps backup`.
 
 One thing to read before deploying it:
-[connecting the Modeling App to CHAP](./dhis2.md#connecting-the-modeling-app-to-chap)
+[connecting the Modeling App to Chap](./dhis2.md#connecting-the-modeling-app-to-chap)
 is a step of its own. The app reaches chap-core through a DHIS2 Route with
 `code: "chap"`, `chaps up` does not create it, and a seeded instance carries a
 `chap` route from the demo dump that points at somebody else's server - so it
@@ -802,7 +802,7 @@ all of it.
 name it:
 
 ```sh
-chaps init climate --only ocs,s3      # OCS and its object store, no CHAP
+chaps init climate --only ocs,s3      # OCS and its object store, no Chap
 chaps init dhis --only dhis2          # a DHIS2 on its own
 ```
 
@@ -819,7 +819,7 @@ Neither `compose.yml` nor `compose.chaps.yml` is rendered, and the `-f` list is
 just the component files and the (empty) marketplace umbrella. `chaps status`
 leaves out the chap-core line and counts components rather than models in its
 closing line; a deployment with nothing running is told that nothing in it is
-running, never that CHAP is not, because there is no CHAP here to be running.
+running, never that Chap is not, because there is no Chap here to be running.
 `chaps doctor` judges the deployment by its components alone.
 
 `init` asks GitHub nothing about chap-core for such a deployment: no release is
@@ -868,7 +868,7 @@ chap-core` puts the orchestrator URL back, and the models register on the next
 `chaps up`; the host ports they were given stay until you
 `chaps models unexpose` them.
 
-The default model set is a default for a CHAP deployment, not something you
+The default model set is a default for a Chap deployment, not something you
 asked for, so `--without chap-core` or `--only` with no `--models` starts with
 no models. Name the ones you want with `--models ID,...`.
 

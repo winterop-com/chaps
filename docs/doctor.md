@@ -4,10 +4,10 @@
 on before, and the first one to run when something is wrong. It asks, in one
 pass, every question the other commands assume the answer to: is Docker there,
 is its daemon up, is Compose new enough, is there disk, can this machine reach
-the hosts CHAP pulls from, and is this the newest `chaps`. Inside a deployment
+the hosts Chap pulls from, and is this the newest `chaps`. Inside a deployment
 directory it goes on to the project: its compose project name, the files, the
 compose files, `.env`, the volumes, the host ports, the pins, the images and
-whether CHAP is up.
+whether Chap is up.
 
 ```sh
 chaps doctor
@@ -17,7 +17,7 @@ chaps doctor
 ok    docker cli                        docker 29.8.1
 ok    docker daemon                     Docker Engine 29.8.0
 ok    docker compose                    v2.24.6
-warn  os and arch                       macos/aarch64; CHAP images are linux/amd64 only, so they run under emulation
+warn  os and arch                       macos/aarch64; Chap images are linux/amd64 only, so they run under emulation
       nothing to do: Rosetta runs the amd64 images, they are only slower
 ok    disk space                        633.1 GB free on /Users/you/mychap
 ok    network ghcr.io                   reachable (HTTP 401)
@@ -37,7 +37,7 @@ ok    chap-core pin                     v2.3.1 is the newest release
 ok    image chapkit-ewars-model         ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0 (linux/amd64)
 ok    registry pin chapkit_ewars_model  sha-24d58c0 is the newest build on main
 skip  health                            no container of this project is running
-      run `chaps up` to start CHAP
+      run `chaps up` to start Chap
 
 20 checks: 17 ok, 1 warn, 1 fail, 1 skipped
 ```
@@ -48,7 +48,7 @@ Four words carry the verdict, and only one of them is a problem:
 | --- | --- | --- |
 | `ok` | green | Nothing to do. |
 | `warn` | yellow | It works, but something will bite later. |
-| `fail` | red | CHAP will not work until this is dealt with. |
+| `fail` | red | Chap will not work until this is dealt with. |
 | `skip` | dim | Not evaluated: there was nothing to ask, or asking was ruled out. |
 
 A line that is not `ok` carries an indented line under it saying what to do

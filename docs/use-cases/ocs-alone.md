@@ -1,6 +1,6 @@
 # An OCS server on its own
 
-Open Climate Service and no CHAP at all: a climate data server for anything
+Open Climate Service and no Chap at all: a climate data server for anything
 that speaks STAC or openEO.
 
 ```sh
@@ -12,7 +12,7 @@ chaps open ocs
 ```
 
 You get OCS on `http://localhost:8790`, keeping its objects in the S3-compatible
-store beside it. Nothing CHAP-specific is created: no `compose.yml`, and no
+store beside it. Nothing Chap-specific is created: no `compose.yml`, and no
 chap-core release is looked up. It worked when `chaps status` shows `ocs` as
 `up` and `chaps open ocs` opens its web interface.
 
@@ -50,7 +50,7 @@ curl http://localhost:8790/dataset-templates
 ```
 
 lists every dataset OCS knows, and `"ingestable": true` marks the ones
-`/ingestions` takes. The ones CHAP models use:
+`/ingestions` takes. The ones Chap models use:
 
 | Dataset id | Period | Account |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ the earlier ingestion rather than downloading it twice.
 
 ## Getting it out
 
-Values per district or province, as the CSV CHAP reads: OCS averages the
+Values per district or province, as the CSV Chap reads: OCS averages the
 dataset over each area in a GeoJSON `FeatureCollection` whose feature ids
 become the `location` column. A DHIS2 hands out its org units in that shape,
 so with the demo DHIS2 (`--with dhis2`, or option 1 on the

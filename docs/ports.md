@@ -201,7 +201,7 @@ chaps init --api-port 8710 --force
 ```
 
 over an existing deployment moves `.chaps/project.yaml` and `compose.chaps.yml`
-and then warns that the older `CHAP_API_PORT=` line is still what CHAP
+and then warns that the older `CHAP_API_PORT=` line is still what Chap
 will use. Edit that line, or pass `--fresh-env` (which rotates the database
 password too; see the [`.env` contract](./concepts.md#the-env-contract)).
 
@@ -254,7 +254,7 @@ nothing behind: a listening socket has no `TIME_WAIT`. It takes four binds
 rather than one, because `std` sets `SO_REUSEADDR` on Unix and on BSD (macOS
 included) that lets a wildcard bind succeed next to a loopback-only listener
 and the other way round. Only the same address reliably collides, so every
-address CHAP could be published on is tried in turn.
+address Chap could be published on is tried in turn.
 
 ## Internal-only models and the proxy URL
 

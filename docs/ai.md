@@ -4,12 +4,12 @@ This page is written for an AI assistant helping someone set something up with
 `chaps`. If a person pointed you here, follow the steps below in order. Keep
 your answers short and concrete, and give one command at a time.
 
-## What CHAP is
+## What Chap is
 
 Use this when the person asks what they are installing, or seems unsure why
 they would want it.
 
-[CHAP](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
 cases of climate-sensitive diseases such as dengue and malaria. It learns from
 past case counts together with climate data (rainfall, temperature) and
 population, and predicts the next months for each district or province. Before
@@ -18,7 +18,7 @@ forecasts it, and scores how close the forecast came. Ministries of health use
 it together with [DHIS2](https://dhis2.org), the health information system
 where their case data already lives, through the **Modeling App** inside DHIS2.
 
-`chaps` is the installer. It runs CHAP, its forecasting models, a DHIS2 with
+`chaps` is the installer. It runs Chap, its forecasting models, a DHIS2 with
 demo data and the other pieces on one computer with Docker, so the person can
 use them without setting each one up by hand.
 
@@ -26,10 +26,10 @@ A few words the person will see:
 
 | Word | Meaning |
 | --- | --- |
-| chap-core | CHAP itself: the service that trains and runs the models. |
+| chap-core | Chap itself: the service that trains and runs the models. |
 | model | One forecasting method, for example CHAP-EWARS. Each runs in its own container. |
 | DHIS2 | The health information system. `chaps` can run a demo one with data from Laos. |
-| Modeling App | CHAP's user interface, installed inside DHIS2. |
+| Modeling App | Chap's user interface, installed inside DHIS2. |
 | evaluation | Testing a model on past data it did not see, with scores. Also called a backtest. |
 | prediction | A forecast for the coming months. |
 | OCS | Open Climate Service: downloads and serves climate data. Optional. |
@@ -38,11 +38,11 @@ A few words the person will see:
 
 1. **Ask what they want to do**, in one question, and match the answer to a
    group in [The options](#the-options). Do not show all eighteen options.
-   - *Learn CHAP, try forecasting, see what it does* (a student, an analyst, a
+   - *Learn Chap, try forecasting, see what it does* (a student, an analyst, a
      public health person): **option 1**. It is the only one with a user
      interface they can click through. If their computer cannot give Docker
      8 GB of memory, option 2 instead (6 GB).
-   - *Run CHAP for a DHIS2 that already exists*: option 5.
+   - *Run Chap for a DHIS2 that already exists*: option 5.
    - *One piece on its own* (climate data, one model, a DHIS2): options 6 to 10.
    - *Develop a model, chap-core or DHIS2*: options 11 to 17.
    - *Two deployments at once*: option 18.
@@ -148,30 +148,30 @@ old one first as shown in [Every option: stop, start, remove](#every-option-stop
 
 | # | Option | Pick this if the person wants to... |
 | --- | --- | --- |
-| | **Use CHAP** | |
-| 1 | [CHAP in DHIS2, with the Modeling App](#1-chap-in-dhis2-with-the-modeling-app) | learn CHAP: evaluate a model and make a forecast by clicking |
-| 2 | [CHAP with forecasting models](#2-chap-with-forecasting-models) | run CHAP without DHIS2, from the terminal or its API |
-| 3 | [CHAP with climate data](#3-chap-with-climate-data) | use CHAP together with Open Climate Service |
-| 4 | [CHAP with every model](#4-chap-with-every-model) | try all the forecasting models, not just one |
-| 5 | [CHAP for a DHIS2 that already exists](#5-chap-for-a-dhis2-that-already-exists) | connect CHAP to a DHIS2 someone else runs |
+| | **Use Chap** | |
+| 1 | [Chap in DHIS2, with the Modeling App](#1-chap-in-dhis2-with-the-modeling-app) | learn Chap: evaluate a model and make a forecast by clicking |
+| 2 | [Chap with forecasting models](#2-chap-with-forecasting-models) | run Chap without DHIS2, from the terminal or its API |
+| 3 | [Chap with climate data](#3-chap-with-climate-data) | use Chap together with Open Climate Service |
+| 4 | [Chap with every model](#4-chap-with-every-model) | try all the forecasting models, not just one |
+| 5 | [Chap for a DHIS2 that already exists](#5-chap-for-a-dhis2-that-already-exists) | connect Chap to a DHIS2 someone else runs |
 | | **One piece on its own** | |
-| 6 | [Climate data only](#6-climate-data-only) | run Open Climate Service, no CHAP |
-| 7 | [One forecasting model only](#7-one-forecasting-model-only) | call one model's API directly, no CHAP |
-| 8 | [DHIS2 only](#8-dhis2-only) | have a DHIS2 to play with, no CHAP |
+| 6 | [Climate data only](#6-climate-data-only) | run Open Climate Service, no Chap |
+| 7 | [One forecasting model only](#7-one-forecasting-model-only) | call one model's API directly, no Chap |
+| 8 | [DHIS2 only](#8-dhis2-only) | have a DHIS2 to play with, no Chap |
 | 9 | [A particular DHIS2 version](#9-a-particular-dhis2-version) | run DHIS2 2.41, 2.43 or the next, unreleased one |
-| 10 | [Climate data and DHIS2, no CHAP](#10-climate-data-and-dhis2-no-chap) | have OCS and a DHIS2 together, without CHAP |
+| 10 | [Climate data and DHIS2, no Chap](#10-climate-data-and-dhis2-no-chap) | have OCS and a DHIS2 together, without Chap |
 | | **Develop** | |
 | 11 | [My own model](#11-my-own-model) | run a model they wrote themselves |
-| 12 | [My own model, while I work on it](#12-my-own-model-while-i-work-on-it) | develop a model in its folder and have CHAP use it |
+| 12 | [My own model, while I work on it](#12-my-own-model-while-i-work-on-it) | develop a model in its folder and have Chap use it |
 | 13 | [A model image I built](#13-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
 | 14 | [My own chap-core, with the models](#14-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
 | 15 | [chap-core built from my checkout](#15-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
-| 16 | [My own DHIS2, with CHAP](#16-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to CHAP from chaps |
+| 16 | [My own DHIS2, with Chap](#16-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to Chap from chaps |
 | 17 | [A DHIS2, with my own chap-core](#17-a-dhis2-with-my-own-chap-core) | have chaps run DHIS2 in front of the chap-core they are developing |
 | | **More than one** | |
 | 18 | [Two of these at the same time](#18-two-of-these-at-the-same-time) | keep one option running while starting another |
 
-### 1. CHAP in DHIS2, with the Modeling App
+### 1. Chap in DHIS2, with the Modeling App
 
 Needs 8 GB of memory for Docker. The DHIS2 comes with demo data from Laos:
 weekly dengue cases for 2019 to 2024 in 18 provinces, with rainfall,
@@ -193,7 +193,7 @@ chaps open dhis2
 ```
 
 `chaps dhis2 connect` waits for DHIS2 to finish starting, then takes about a
-minute: it connects DHIS2 to CHAP, installs
+minute: it connects DHIS2 to Chap, installs
 the Modeling App and the Climate App, and prepares the data the Modeling App
 reads. It worked when DHIS2 opens in the browser, the login `admin` /
 `district` works, and typing `Modeling` in the app menu (the grid icon at the
@@ -202,9 +202,9 @@ top right) finds **Modeling**.
 Next: [Your first forecast in the Modeling App](./modeling-app.md), which takes
 them from here to an evaluation and a forecast in about fifteen minutes.
 
-More: [CHAP with a local DHIS2](./use-cases/chap-with-local-dhis2.md).
+More: [Chap with a local DHIS2](./use-cases/chap-with-local-dhis2.md).
 
-### 2. CHAP with forecasting models
+### 2. Chap with forecasting models
 
 chap-core and one model, without DHIS2: less memory, but no user interface
 beyond chap-core's API page.
@@ -224,9 +224,9 @@ some say `not registered`, wait a minute and run `chaps status` again. Then
 
 Next: [What to try next without DHIS2](#what-to-try-next-without-dhis2).
 
-More: [CHAP with forecasting models](./use-cases/chap-with-models.md).
+More: [Chap with forecasting models](./use-cases/chap-with-models.md).
 
-### 3. CHAP with climate data
+### 3. Chap with climate data
 
 ```sh
 chaps init mychap --models default --with ocs,s3
@@ -244,9 +244,9 @@ demo DHIS2, until the person changes it.
 
 Next, when they want climate data: [Getting climate data](#getting-climate-data).
 
-More: [CHAP with climate data from OCS](./use-cases/chap-with-ocs.md).
+More: [Chap with climate data from OCS](./use-cases/chap-with-ocs.md).
 
-### 4. CHAP with every model
+### 4. Chap with every model
 
 Like option 2, with every marketplace model. The first start pulls large
 images and the checks take several minutes.
@@ -264,9 +264,9 @@ registered and `chaps models test --all` says every model passes. Add
 `--with dhis2` to the `chaps init` line to compare them in the Modeling App
 (8 GB of memory, then as in option 1 from `chaps dhis2 connect`).
 
-More: [CHAP with forecasting models](./use-cases/chap-with-models.md#every-model-in-the-marketplace).
+More: [Chap with forecasting models](./use-cases/chap-with-models.md#every-model-in-the-marketplace).
 
-### 5. CHAP for a DHIS2 that already exists
+### 5. Chap for a DHIS2 that already exists
 
 The person needs the DHIS2 address, an admin account on it, and an address at
 which that DHIS2 can reach this computer (not `localhost`).
@@ -291,7 +291,7 @@ the `.env` file in the folder, then run `chaps dhis2 connect` again. If
 address, with no path, to `route.remote_servers_allowed` in its `dhis.conf`
 and restart it; the error line names the exact value.
 
-More: [CHAP for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md).
+More: [Chap for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md).
 
 ### 6. Climate data only
 
@@ -383,13 +383,13 @@ chaps status
 
 Run `chaps status` every minute until the `dhis2` line says `up`, then
 `chaps open dhis2`. It worked when the login `admin` / `district` works. To
-have CHAP with it, use option 1 with the same `--dhis2-tag` (and
+have Chap with it, use option 1 with the same `--dhis2-tag` (and
 `--dhis2-image`) added to its `chaps init` line; without demo data there is
 nothing to forecast until they import some.
 
 More: [A DHIS2 on its own](./use-cases/dhis2-alone.md#picking-the-version).
 
-### 10. Climate data and DHIS2, no CHAP
+### 10. Climate data and DHIS2, no Chap
 
 Needs 8 GB of memory for Docker.
 
@@ -454,7 +454,7 @@ It worked when `chaps status`, run in the `mychap` folder, lists the model with
 the state `unmanaged` and a LAST PING of a few seconds (unmanaged because chaps
 did not start it, which is expected).
 
-More: [Your model from its checkout, with CHAP](./use-cases/model-on-host.md).
+More: [Your model from its checkout, with Chap](./use-cases/model-on-host.md).
 
 ### 13. A model image I built
 
@@ -523,7 +523,7 @@ models registered. After changing the code, `chaps up` again rebuilds it.
 
 More: [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md).
 
-### 16. My own DHIS2, with CHAP
+### 16. My own DHIS2, with Chap
 
 For someone who already runs DHIS2 on this machine (for DHIS2 or app work).
 Ask whether their DHIS2 runs in Docker. If it does not:
@@ -536,7 +536,7 @@ chaps dhis2 use http://localhost:8080 --chap-url http://localhost:8700
 chaps dhis2 connect
 ```
 
-If it runs in Docker, it reaches CHAP through `host.docker.internal`:
+If it runs in Docker, it reaches Chap through `host.docker.internal`:
 
 ```sh
 chaps init mychap --models default
@@ -561,7 +561,7 @@ DHIS2's `dhis.conf`, restart their DHIS2, and run `chaps dhis2 connect` again.
 A value with a path, such as `http://localhost:8700/**`, stops DHIS2 from
 starting at all.
 
-More: [A DHIS2 you run yourself, with CHAP from chaps](./use-cases/dhis2-dev-with-chap.md).
+More: [A DHIS2 you run yourself, with Chap from chaps](./use-cases/dhis2-dev-with-chap.md).
 
 ### 17. A DHIS2, with my own chap-core
 
@@ -650,7 +650,7 @@ curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json
 It worked when the answer contains `"status":"completed"`.
 `curl http://localhost:8790/dataset-templates` lists every other dataset;
 temperature (`era5land_temperature_monthly`) needs a Copernicus account, whose
-key goes in `.env`. To get the values out per province as the CSV CHAP reads,
+key goes in `.env`. To get the values out per province as the CSV Chap reads,
 or as a NetCDF file, follow
 [Getting it out](./use-cases/ocs-alone.md#getting-it-out) step by step.
 

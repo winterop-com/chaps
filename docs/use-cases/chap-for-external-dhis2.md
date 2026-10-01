@@ -1,4 +1,4 @@
-# CHAP for a DHIS2 that runs elsewhere
+# Chap for a DHIS2 that runs elsewhere
 
 chap-core and its models on a server, used by an existing DHIS2 instance.
 

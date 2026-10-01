@@ -118,8 +118,8 @@ chaps api METHOD PATH [--data JSON|@FILE|-] [--url URL] [--raw] [--timeout SECON
 
 `chaps api` is `curl` with the three things that are tedious to get right
 filled in: the base URL of *this* deployment, the `Authorization: Bearer`
-header from its `.env`, and an exit code that distinguishes CHAP being down
-from CHAP saying no.
+header from its `.env`, and an exit code that distinguishes Chap being down
+from Chap saying no.
 
 | Part | Rule |
 | --- | --- |

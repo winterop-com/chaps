@@ -46,13 +46,13 @@ The seed is applied once, when the database is first created; after that the
 database is DHIS2's. DHIS2's Sierra Leone demo is published for 2.41, 2.42 and
 2.43 at that address pattern. It has no climate data, and its `admin` is not a
 superuser: it cannot create the route the Modeling App uses, so pick it for a
-DHIS2 on its own, not for one you will connect to CHAP.
+DHIS2 on its own, not for one you will connect to Chap.
 
 ## Next
 
 `chaps dhis2 connect` refuses here, since there is no chap-core to connect to;
 `chaps components enable chap-core` adds one, and
-[CHAP with a local DHIS2](./chap-with-local-dhis2.md) is that shape from the
+[Chap with a local DHIS2](./chap-with-local-dhis2.md) is that shape from the
 start. More: [The seed](../dhis2.md#the-seed),
 [Changing the DHIS2 version](../dhis2.md#changing-the-dhis2-version),
 [Memory](../dhis2.md#memory).

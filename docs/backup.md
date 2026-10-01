@@ -66,7 +66,7 @@ existing directory to put it in.
 
 PostgreSQL has to be running for the database part, because the dump goes
 through `docker compose exec`; when it is not, the command stops and says to
-start CHAP or pass `--no-db`.
+start Chap or pass `--no-db`.
 
 Model data is read through the overlay's one-shot `<service_id>-init`
 container, which mounts the same named volume at the same path as the model

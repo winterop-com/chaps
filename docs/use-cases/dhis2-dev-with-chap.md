@@ -1,4 +1,4 @@
-# A DHIS2 you run yourself, with CHAP from chaps
+# A DHIS2 you run yourself, with Chap from chaps
 
 For DHIS2 or Modeling App development: you run DHIS2 your own way on this
 machine (from its source, or its own compose project), and chaps runs chap-core

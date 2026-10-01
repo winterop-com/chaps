@@ -1,28 +1,28 @@
 # DHIS2
 
 The `dhis2` component runs a DHIS2 instance and a PostgreSQL of its own beside
-CHAP, for a deployment that wants one.
+Chap, for a deployment that wants one.
 
 ```sh
 chaps init mychap --with dhis2
 chaps components enable dhis2      # or afterwards
 chaps dhis2 connect                # once DHIS2 answers, so the Modeling App can
-                                   # reach CHAP
+                                   # reach Chap
 ```
 
 ## What this component is for
 
-A demo or a development DHIS2: something to log into while trying CHAP out,
+A demo or a development DHIS2: something to log into while trying Chap out,
 developing against it, or showing it. It is not a way to run DHIS2 in
 production, and that is upstream's own judgement of the images rather than a
 limitation of `chaps` - `docker/DOCKERHUB.md` in `dhis2/dhis2-core` says *"We
 cannot recommend the images for use in production"*. A production DHIS2 is
-deployed by other means, and a CHAP deployment can be pointed at one without
-this component: see [Connecting the Modeling App to CHAP](#connecting-the-modeling-app-to-chap)
+deployed by other means, and a Chap deployment can be pointed at one without
+this component: see [Connecting the Modeling App to Chap](#connecting-the-modeling-app-to-chap)
 for what the connection is made of, all of which is requests to DHIS2 that you
 can make against an instance `chaps` did not deploy.
 
-CHAP is often deployed **with** DHIS2 and not always. A deployment that already
+Chap is often deployed **with** DHIS2 and not always. A deployment that already
 has a DHIS2, or does not want one, leaves this component off and loses nothing:
 chap-core, the models and OCS do not depend on it, and there is no `depends_on`
 between DHIS2 and anything else here. This component is one way to get a DHIS2,
@@ -75,7 +75,7 @@ Three reasons, and the first is enough on its own.
 
 The two databases are therefore separate containers with separate volumes and
 separate passwords, and `DHIS2_DB_PASSWORD` in `.env` has nothing to do with the
-CHAP one.
+Chap one.
 
 The health check on `dhis2-db` probes over TCP (`pg_isready -h 127.0.0.1`) on
 purpose: while the entrypoint runs its init scripts the server listens on the
@@ -297,7 +297,7 @@ is identical.
 
 **Minutes, not seconds.** DHIS2 migrates its whole schema before it serves a
 request, and a seeded deployment restores the dump before that. Every other
-service in a CHAP deployment answers in seconds, so an operator who does not know
+service in a Chap deployment answers in seconds, so an operator who does not know
 this reads the first `chaps status` as a broken deployment. Both `chaps init
 --with dhis2` and `chaps components enable dhis2` say so, and
 
@@ -394,9 +394,9 @@ Moving the seed does not need this care and moving the tag does, which is why th
 two are the settings the browser's components page deliberately does not edit:
 its `i` overlay names both and sends you to `.chaps/components.yaml`.
 
-## Connecting the Modeling App to CHAP
+## Connecting the Modeling App to Chap
 
-A DHIS2 and a CHAP started side by side cannot talk, and the reason is worth
+A DHIS2 and a Chap started side by side cannot talk, and the reason is worth
 understanding before the commands make sense: **chap-core never calls DHIS2 and
 DHIS2 never calls chap-core.** The only thing that talks to both is the Modeling
 App running in a browser, and it reaches chap-core through **DHIS2's Route API** -
@@ -407,9 +407,9 @@ Three things follow from that, and they are the three the commands do:
 
 | Without it | What the app does |
 | --- | --- |
-| the `chap` route | redirects to `/get-started`; it cannot see CHAP at all |
+| the `chap` route | redirects to `/get-started`; it cannot see Chap at all |
 | the `analytics_*` tables | has no data to send, and nothing on screen says why |
-| the apps themselves | there is no CHAP user interface in DHIS2 |
+| the apps themselves | there is no Chap user interface in DHIS2 |
 
 ```sh
 chaps dhis2 show        # what this instance has, changing nothing
@@ -455,7 +455,7 @@ That note is printed at the one moment DHIS2 does not exist yet. What follows it
 is `chaps up`, then several minutes of restoring a dump and migrating a schema,
 and by the time anything can be connected the note is far up the scrollback. A
 deployment can therefore sit for good with every row `up`, `chaps doctor`
-reporting no problem, and the Modeling App unable to reach CHAP at all.
+reporting no problem, and the Modeling App unable to reach Chap at all.
 
 So the two commands that report on a running deployment say it again, and go on
 saying it until a connect has been recorded. `chaps up` closes with it, under
@@ -464,7 +464,7 @@ the line it always ends on:
 ```text
 unchanged: chap, dhis2
 run `chaps status` to check that everything answers
-chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect` once DHIS2 answers
+chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect` once DHIS2 answers
 ```
 
 and `chaps status` puts it under its verdict, with the model hints:
@@ -474,7 +474,7 @@ chap-core   up   http://localhost:8700   2.42.6   auth: off
 dhis2       up   http://localhost:8780
 
 no models enabled; run `chaps models enable ID` to add one
-  chaps has not connected this DHIS2 to CHAP; run `chaps dhis2 connect`
+  chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
 ```
 
 Both lines come off `.chaps/components.yaml` and nothing else. Neither asks
@@ -513,7 +513,7 @@ reads DHIS2 to check it.
 asks DHIS2.** It reads the route out of the instance, proxies a request through
 it to prove chap-core answers, lists which of the two apps are installed and
 says what the analytics timestamp is worth - and it writes nothing, so it is
-safe to run on anything. If the question is *can the Modeling App reach CHAP*,
+safe to run on anything. If the question is *can the Modeling App reach Chap*,
 that is the command; `connected_at` cannot answer it and does not try.
 
 `connect` says as much where it writes the record:
@@ -527,8 +527,8 @@ recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop aski
 
 A run of `chaps dhis2 connect` that ended with a **verified route and both apps
 in place**. Two of the three steps, and deliberately so: the hint exists because
-a DHIS2 beside a CHAP cannot be used at all without them - the app redirects to
-`/get-started` with no route, and there is no CHAP user interface in DHIS2 with
+a DHIS2 beside a Chap cannot be used at all without them - the app redirects to
+`/get-started` with no route, and there is no Chap user interface in DHIS2 with
 no apps. Analytics is not part of it. The Modeling App reaches chap-core and
 works without the `analytics_*` tables; empty tables are a deployment with no
 data rather than one that cannot talk to itself, `chaps dhis2 analytics
@@ -548,7 +548,7 @@ it is rewritten, and one DHIS2 lists with no header auth at all is rewritten
 before anything is asked. The Modeling App itself never needs the token.
 
 The single-step verbs record nothing. `chaps dhis2 route` alone leaves a
-deployment with a route and no apps, which is still one nobody can use CHAP
+deployment with a route and no apps, which is still one nobody can use Chap
 from.
 
 `chaps dhis2 connect --offline` is the third answer, and it is neither of the
@@ -575,7 +575,7 @@ means the next `chaps up` restores [the seed dump](#the-seed) into a database
 being created **and that dump ships a `chap` route of its own, pointed at an
 external server**. A record that survived would suppress the one line asking the
 operator to repoint it, on a deployment whose Modeling App is quietly talking to
-somebody else's CHAP. Disabling the component is the same hazard by another
+somebody else's Chap. Disabling the component is the same hazard by another
 route, which is why it clears the record whether or not `--purge` was given: a
 `dhis2_db` kept on disk may be re-created from the dump later anyway.
 
@@ -678,7 +678,7 @@ error: DHIS2 at https://dhis2.example.org did not accept the API token (API toke
 
 ### A DHIS2 that runs elsewhere
 
-Most real deployments put CHAP beside a DHIS2 that already runs on a server of
+Most real deployments put Chap beside a DHIS2 that already runs on a server of
 its own. `chaps dhis2 use` records one, and from then on every `chaps dhis2`
 verb talks to it instead of the `dhis2` component:
 
@@ -721,7 +721,7 @@ chap-url  https://chap.example.org
 route     https://chap.example.org/**
 login     API token from `.env` (accepted)
 connected never recorded
-run `chaps dhis2 connect` to point its route at this CHAP
+run `chaps dhis2 connect` to point its route at this Chap
 ```
 
 | Form | What it does |
@@ -762,7 +762,7 @@ DHIS2 is recorded. Each names the command that clears the way.
 ### The route is repointed, not created
 
 **A seeded instance already has a `chap` route, and it points at a stranger's
-CHAP.** The climate demo dumps ship one - right code, right authority, not
+Chap.** The climate demo dumps ship one - right code, right authority, not
 disabled - aimed at an external server, so it looks fully configured. A
 "create if absent" implementation would skip it and the deployment would quietly
 send its data somewhere else.
@@ -903,7 +903,7 @@ upload is built.
 
 | App | What it is for |
 | --- | --- |
-| Modeling App | the CHAP user interface inside DHIS2 |
+| Modeling App | the Chap user interface inside DHIS2 |
 | DHIS2 Climate App | imports climate data into DHIS2 through Google Earth Engine, which is where the Modeling App's covariates come from - chap-core does not fetch them |
 
 A version whose `minDhisVersion` is newer than the instance is skipped: DHIS2

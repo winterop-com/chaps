@@ -4,8 +4,8 @@ This file is for changing chaps. If you are helping someone use chaps rather
 than change it, read `docs/ai.md` instead and follow it.
 
 chaps is a Rust CLI (crate and binary `chaps`) that deploys and
-manages CHAP, the Climate Health Analytics Platform, and the services around
-it, all through docker compose: chap-core, model services from the CHAP model
+manages Chap, the Climate Health Analytics Platform, and the services around
+it, all through docker compose: chap-core, model services from the Chap model
 marketplace, the Open Climate Service (OCS) with an S3 store, and DHIS2. They
 deploy together or any of them on its own; chap-core is one component among
 the others, and a deployment without it is a first-class shape, not a
@@ -17,10 +17,10 @@ This file holds the rules that are not derivable from the code.
 
 ## Wording
 
-- The product is "CHAP" or "chap-core". Never write "stack" in anything a user
+- The product is "Chap" or "chap-core". Never write "stack" in anything a user
   sees: help, messages, docs. The one exception is `docs/introduction.md`, where
-  "CHAP Stack" is the etymology of the binary's name and stays; leave it alone.
-  Do not describe CHAP as a DHIS2 product; it is often deployed with DHIS2, not
+  "Chap Stack" is the etymology of the binary's name and stays; leave it alone.
+  Do not describe Chap as a DHIS2 product; it is often deployed with DHIS2, not
   always.
 - Every `--help` string is one clause of about 70 characters. Explanations go
   in `docs/`, never in `long_about`, never as paragraphs on args. Global

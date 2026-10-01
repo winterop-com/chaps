@@ -9,7 +9,7 @@ chaps doctor
 ```
 
 One line per check: Docker, Compose, the CPU architecture, free disk, and
-whether this machine can reach the hosts CHAP pulls from. Anything that is not
+whether this machine can reach the hosts Chap pulls from. Anything that is not
 `ok` comes with the line that fixes it. It works anywhere, and inside a
 deployment directory it checks the deployment too. See [Doctor](./doctor.md).
 
@@ -82,7 +82,7 @@ chaps up
 ```
 
 `up` renders the compose files from `.chaps/` first, then checks that every
-host port CHAP is about to publish is free, then calls
+host port Chap is about to publish is free, then calls
 `docker compose up -d` and reports what started or was recreated and what it
 left alone.
 
@@ -109,14 +109,14 @@ models without a host port are reachable through chap-core at http://localhost:8
 
 2 of 3 models are not registered.
   chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start CHAP with `chaps up`, then `chaps logs auto-arima-chapkit`
+  auto-arima-chapkit: start Chap with `chaps up`, then `chaps logs auto-arima-chapkit`
 ```
 
 On a deployment whose containers do not exist at all, `status` skips the table
 and says so:
 
 ```text
-CHAP is not running; start it with `chaps up`
+Chap is not running; start it with `chaps up`
 ```
 
 [Status and output](./status.md) explains every column and every state.
