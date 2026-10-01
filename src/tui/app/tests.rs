@@ -1,4 +1,6 @@
 use super::*;
+use super::{edit::*, selection::*};
+use crate::compose::PortRequest;
 use crate::registry::load_embedded;
 
 const EWARS: &str = "chapkit_ewars_model";
