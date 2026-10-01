@@ -120,6 +120,10 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
             explain_unhealthy(ctx, &project, &ran.stderr);
         }
         ran.code
+    } else if matches!(cmd, DockerCmd::Logs(_)) && !ctx.out.color {
+        // Containers colour their own lines whatever compose is told, so a
+        // reader that is not a terminal gets them with the escapes removed.
+        docker::run_compose_plain(&project, &args)?
     } else {
         docker::run_compose(&project, &args)?
     };

@@ -93,6 +93,10 @@ pub struct LogsArgs {
     #[arg(short = 'f', long)]
     pub follow: bool,
 
+    /// Show only the last N lines of each service's log
+    #[arg(long, value_name = "N")]
+    pub tail: Option<usize>,
+
     /// Services to show logs for; all of them when omitted
     #[arg(value_name = "SERVICE")]
     pub services: Vec<String>,

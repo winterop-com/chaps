@@ -14,6 +14,7 @@ mod doctor;
 mod help;
 mod init;
 mod jobs_api;
+mod logs;
 mod models;
 mod models_add;
 mod models_test;

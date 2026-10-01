@@ -318,6 +318,7 @@ fn ps_asks_docker_for_json_under_the_global_flag() {
 fn logs_maps_follow_and_service_names() {
     let cmd = DockerCmd::Logs(LogsArgs {
         follow: true,
+        tail: None,
         services: vec!["chap".to_string(), "chapkit-ewars-model".to_string()],
     });
     assert_eq!(
@@ -327,9 +328,20 @@ fn logs_maps_follow_and_service_names() {
 
     let cmd = DockerCmd::Logs(LogsArgs {
         follow: false,
+        tail: None,
         services: vec![],
     });
     assert_eq!(args_for(&cmd, TERM), vec!["logs"]);
+}
+
+#[test]
+fn logs_passes_tail_through() {
+    let cmd = DockerCmd::Logs(LogsArgs {
+        follow: false,
+        tail: Some(60),
+        services: vec!["chap".to_string()],
+    });
+    assert_eq!(args_for(&cmd, TERM), vec!["logs", "--tail", "60", "chap"]);
 }
 
 #[test]

@@ -5,6 +5,7 @@
 //! discovery.
 
 mod images;
+mod plain;
 mod ps;
 mod query;
 mod version;
@@ -14,6 +15,7 @@ pub use images::{
     ContainerBuild, container_builds, image_config, image_ids, pull_image, running_build,
     uid_gid_in_image,
 };
+pub use plain::run_compose_plain;
 pub use ps::{
     Container, all_containers, all_containers_or_why, diff_containers, ps_entries,
     running_containers, running_containers_or_why, running_of, running_services,
@@ -55,11 +57,6 @@ pub const INCLUDE_COMPOSE_VERSION: (u32, u32, u32) = (2, 20, 0);
 /// shell's "command not found".
 pub const DOCKER_NOT_FOUND: i32 = 127;
 
-/// The leading `docker` arguments for a project: `compose -f ... -f ...`.
-///
-/// The paths are absolute so the child process does not depend on its working
-/// directory, and they are in the order recorded in `.chaps/project.yaml`: later files
-/// override earlier ones.
 /// Echo a `docker` invocation under `-v`, the way a person would have typed it.
 ///
 /// Every spawn in this module goes through it, so `-v` is a complete record of
@@ -68,6 +65,11 @@ fn trace_command(args: &[String]) {
     crate::output::verbose(&format!("$ docker {}", args.join(" ")));
 }
 
+/// The leading `docker` arguments for a project: `compose -f ... -f ...`.
+///
+/// The paths are absolute so the child process does not depend on its working
+/// directory, and they are in the order recorded in `.chaps/project.yaml`: later files
+/// override earlier ones.
 pub fn compose_args(project: &Project) -> Vec<String> {
     let mut args = Vec::with_capacity(1 + project.state.compose_files.len() * 2);
     args.push("compose".to_string());

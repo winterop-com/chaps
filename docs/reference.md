@@ -375,6 +375,7 @@ Usage: chaps logs [OPTIONS] [SERVICE]...
 | Argument | Description |
 | --- | --- |
 | `-f, --follow` | Keep streaming new output. |
+| `--tail <N>` | Show only the last N lines of each service's log. |
 | `<SERVICE>...` | Services to show logs for; all of them when omitted. |
 
 ## chaps restart

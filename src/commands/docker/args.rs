@@ -83,6 +83,10 @@ pub fn args_for(cmd: &DockerCmd, shell: Shell) -> Vec<String> {
             if args.follow {
                 out.push("-f".to_string());
             }
+            if let Some(n) = args.tail {
+                out.push("--tail".to_string());
+                out.push(n.to_string());
+            }
             out.extend(args.services.iter().cloned());
             out
         }

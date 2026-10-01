@@ -2,6 +2,7 @@ use super::images::{
     image_config_with, parse_container_builds, parse_image_config, parse_repo_digest,
     parse_uid_gid, short_digest,
 };
+use super::plain::strip_ansi;
 use super::ps::{containers, parse_ps_json};
 use super::query::{parse_config_hashes, parse_service_images};
 use super::version::parse_version;
@@ -642,4 +643,26 @@ fn the_image_config_is_asked_for_amd64_and_retried_without_the_flag() {
     };
     assert_eq!(image_config_with("img:tag", &no_docker), None);
     assert_eq!(*runs.borrow(), 1);
+}
+
+#[test]
+fn strip_ansi_removes_colour_and_cursor_escapes() {
+    let line = b"\x1b[32mINFO\x1b[0m model \x1b[1;31mready\x1b[0m\n";
+    assert_eq!(strip_ansi(line), b"INFO model ready\n");
+    assert_eq!(strip_ansi(b"\x1b[2K\x1b[1Gdone"), b"done");
+}
+
+#[test]
+fn strip_ansi_removes_osc_and_two_byte_escapes() {
+    assert_eq!(strip_ansi(b"\x1b]0;title\x07text"), b"text");
+    assert_eq!(strip_ansi(b"\x1b]8;;http://x\x1b\\link"), b"link");
+    assert_eq!(strip_ansi(b"a\x1b(Bb"), b"ab");
+}
+
+#[test]
+fn strip_ansi_keeps_plain_text_and_drops_a_cut_off_escape() {
+    assert_eq!(strip_ansi(b"plain text\n"), b"plain text\n");
+    assert_eq!(strip_ansi("ål ✓\n".as_bytes()), "ål ✓\n".as_bytes());
+    assert_eq!(strip_ansi(b"end\x1b[3"), b"end");
+    assert_eq!(strip_ansi(b"end\x1b"), b"end");
 }
