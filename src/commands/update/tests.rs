@@ -1,8 +1,20 @@
+use super::chap_core::*;
+use super::components::*;
+use super::models::*;
+use super::report::*;
+use super::restart::*;
+use super::tags::*;
 use super::*;
+use crate::chapcore;
 use crate::compose::apply::apply_with;
+use crate::compose::resolve::UserSource;
 use crate::compose::{EnableRequest, Selection};
+use crate::output::Out;
+use crate::project::ManualModel;
 use crate::project::ProjectState;
 use crate::registry::{Channel, load_embedded};
+use crate::registry::{Registry, VersionSelector};
+use std::collections::BTreeMap;
 
 fn project_with(ids: &[&str]) -> (tempfile::TempDir, Project, Registry) {
     let dir = tempfile::tempdir().unwrap();
@@ -801,9 +813,9 @@ fn the_component_rows_cover_every_enabled_component() {
     assert_eq!(
         named,
         vec![
-            ("ocs", components::OCS_IMAGE, "main", false),
-            ("s3", components::S3_IMAGE, "latest", false),
-            ("dhis2", components::DHIS2_IMAGE, "2.41", false),
+            ("ocs", crate::components::OCS_IMAGE, "main", false),
+            ("s3", crate::components::S3_IMAGE, "latest", false),
+            ("dhis2", crate::components::DHIS2_IMAGE, "2.41", false),
         ]
     );
     assert_eq!(
@@ -815,7 +827,7 @@ fn the_component_rows_cover_every_enabled_component() {
     // such rather than quietly overridden - exactly as OCS's is.
     std::fs::write(
         project.dir.join(crate::project::ENV_FILE),
-        format!("{}=2.42.1.0\n", components::DHIS2_TAG_ENV_VAR),
+        format!("{}=2.42.1.0\n", crate::components::DHIS2_TAG_ENV_VAR),
     )
     .expect("an .env");
     let rows = plan_components(&project);
