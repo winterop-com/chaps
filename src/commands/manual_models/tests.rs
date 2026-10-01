@@ -181,3 +181,32 @@ fn the_date_is_the_day_in_utc() {
     assert_eq!(date.matches('-').count(), 2, "{date}");
     assert_eq!(short("b1d6c31f4b2f0d8a"), "b1d6c31");
 }
+
+#[test]
+fn a_source_added_before_is_found_again_under_its_id() {
+    let mut project = project_with(&[("thing_2", "thing-2")]);
+    let url = "https://github.com/someone/thing_2";
+    assert_eq!(added_as(&project, url, None).as_deref(), Some("thing_2"));
+    assert_eq!(
+        added_as(&project, &format!("{url}.git/"), Some("auto")).as_deref(),
+        Some("thing_2")
+    );
+    // `--id` naming another entry asks for a copy beside it.
+    assert_eq!(added_as(&project, url, Some("thing_3")), None);
+    assert_eq!(
+        added_as(&project, url, Some("thing_2")).as_deref(),
+        Some("thing_2")
+    );
+
+    // An image is the same entry only at the same tag, and only an entry
+    // that was added from the image rather than from a repository.
+    let image = "ghcr.io/someone/thing_2:sha-0000000";
+    assert_eq!(added_as(&project, image, None), None);
+    project.state.manual.get_mut("thing_2").unwrap().repository = None;
+    assert_eq!(added_as(&project, image, None).as_deref(), Some("thing_2"));
+    assert_eq!(
+        added_as(&project, "ghcr.io/someone/thing_2:sha-1111111", None),
+        None
+    );
+    assert_eq!(added_as(&project, "chapkit_ewars_model", None), None);
+}

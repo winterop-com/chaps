@@ -36,6 +36,29 @@ fn docker_running(services: &[&str]) -> (TempDir, PathBuf) {
     (temp, bin)
 }
 
+/// A `docker` that refuses `compose up` the way a pull of a missing image
+/// does, and answers everything else with success.
+fn docker_failing_up() -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let script = "#!/bin/sh\n\
+         case \"$*\" in\n\
+         *' up '*) echo ' m Pulling' >&2; \
+         echo 'Error response from daemon: pull access denied' >&2; \
+         echo 'denied' >&2; exit 1;;\n\
+         esac\n\
+         exit 0\n";
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin)
+}
+
 fn data(sandbox: &Sandbox) -> PathBuf {
     sandbox.cache.path().join("data")
 }
@@ -241,4 +264,139 @@ fn ps_and_stop_before_any_run_say_so() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("`chaps ps` lists what is"));
+}
+
+#[test]
+fn stop_with_a_group_and_no_id_stops_the_group_and_purge_removes_it() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&["chapkit-ewars-model", "auto-arima-chapkit"]);
+    let cwd = sandbox.home.path();
+    for model in ["chapkit_ewars_model", "auto_arima_chapkit"] {
+        run_json(
+            &sandbox,
+            cwd,
+            &bin,
+            &["run", model, "--group", "trial", "--no-wait"],
+        );
+    }
+    let dir = data(&sandbox).join("run").join("trial");
+
+    let stopped = run_json(&sandbox, cwd, &bin, &["stop", "--group", "trial"]);
+    assert_eq!(stopped["stopped"].as_array().unwrap().len(), 2, "{stopped}");
+    assert_eq!(stopped["removed"], serde_json::json!([]));
+    assert!(dir.exists(), "a stop without --purge keeps the group");
+
+    let purged = run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["stop", "--group", "trial", "--purge"],
+    );
+    assert_eq!(purged["removed"], serde_json::json!(["trial"]), "{purged}");
+    assert!(!dir.exists(), "an emptied group is taken away by --purge");
+}
+
+#[test]
+fn run_of_an_unknown_id_says_so_and_makes_no_group() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&[]);
+    let cwd = sandbox.home.path();
+    let out = chap_with_docker(&sandbox, cwd, &bin, &["--json", "run", "does_not_exist"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(
+        doc["hint"], "`chaps models search does_not_exist` finds one",
+        "{doc}"
+    );
+    assert!(!data(&sandbox).join("run").join("default").exists());
+}
+
+#[test]
+fn a_usage_error_under_json_is_json() {
+    let sandbox = Sandbox::new();
+    let out = chap_in(&sandbox, sandbox.home.path(), &["--json", "stop"])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    assert_eq!(doc["ok"], false);
+    assert!(
+        doc["error"]
+            .as_str()
+            .unwrap()
+            .contains("required arguments were not provided"),
+        "{doc}"
+    );
+    assert_eq!(doc["hint"], "`chaps stop --help` lists what it takes");
+}
+
+#[test]
+fn a_run_that_cannot_start_takes_its_model_back_out() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_failing_up();
+    let cwd = sandbox.home.path();
+    let out = chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &["--json", "run", "chapkit_ewars_model", "--group", "trial"],
+    )
+    .assert()
+    .failure()
+    .get_output()
+    .stdout
+    .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    assert!(
+        doc["error"]
+            .as_str()
+            .unwrap()
+            .contains("Error response from daemon: pull access denied"),
+        "{doc}"
+    );
+    assert_eq!(
+        doc["hint"],
+        "fix that, then `chaps run chapkit_ewars_model --group trial` tries again"
+    );
+    let dir = data(&sandbox).join("run").join("trial");
+    let models = &state(&dir)["models"];
+    assert!(models.as_object().is_none_or(|m| m.is_empty()), "{models}");
+}
+
+#[test]
+fn parallel_runs_into_a_new_group_all_land_in_it() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&["chapkit-ewars-model", "auto-arima-chapkit"]);
+    let cwd = sandbox.home.path();
+    let codes: Vec<Option<i32>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = ["chapkit_ewars_model", "auto_arima_chapkit"]
+            .into_iter()
+            .map(|model| {
+                let (sandbox, bin) = (&sandbox, &bin);
+                scope.spawn(move || {
+                    chap_with_docker(
+                        sandbox,
+                        cwd,
+                        bin,
+                        &["--json", "run", model, "--group", "fresh", "--no-wait"],
+                    )
+                    .output()
+                    .expect("chaps ran")
+                    .status
+                    .code()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(codes, vec![Some(0), Some(0)]);
+    let ps = run_json(&sandbox, cwd, &bin, &["ps", "--group", "fresh"]);
+    assert_eq!(ps["models"].as_array().unwrap().len(), 2, "{ps}");
 }

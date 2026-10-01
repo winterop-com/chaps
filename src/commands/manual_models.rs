@@ -76,7 +76,7 @@ struct RemoveReport {
 /// model holds all leave the deployment exactly as it was.
 pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
-    match add_in(ctx, &mut project, args)? {
+    match add_in(ctx, &mut project, args, false)? {
         Added::Marketplace(report) => {
             let changed = super::enable::Changed::new(&report, &report, &project);
             ctx.out.emit_ok(&changed, || {
@@ -105,8 +105,14 @@ pub(crate) enum Added {
 }
 
 /// [`add`] on a project the caller has loaded and locked, writing the state
-/// and printing nothing.
-pub(crate) fn add_in(ctx: &Ctx, project: &mut Project, args: &ModelsAddArgs) -> Result<Added> {
+/// and printing nothing. `allow_template` lets a source that is a marketplace
+/// template be enabled, which `chaps run --allow-template` asks for.
+pub(crate) fn add_in(
+    ctx: &Ctx,
+    project: &mut Project,
+    args: &ModelsAddArgs,
+    allow_template: bool,
+) -> Result<Added> {
     // A source the marketplace already lists is that model: it is enabled
     // from the marketplace, curated pin and all, unless `--id` asks for a
     // separate entry beside it.
@@ -130,7 +136,7 @@ pub(crate) fn add_in(ctx: &Ctx, project: &mut Project, args: &ModelsAddArgs) -> 
                     bind: args.bind,
                     data_dir: args.data_dir.clone(),
                     user: args.user.clone(),
-                    allow_template: false,
+                    allow_template,
                 },
             )?;
             return Ok(Added::Marketplace(report));
@@ -340,15 +346,6 @@ fn marketplace_match(
     source: &crate::manual::source::Source,
 ) -> Option<(String, Option<String>)> {
     use crate::manual::source::Source;
-    let same_repo = |a: &str, b: &str| {
-        let norm = |s: &str| {
-            s.trim()
-                .trim_end_matches('/')
-                .trim_end_matches(".git")
-                .to_lowercase()
-        };
-        norm(a) == norm(b)
-    };
     match source {
         Source::Repo(repo) => marketplace
             .models
@@ -365,6 +362,40 @@ fn marketplace_match(
                 .map(|v| (m.id.clone(), Some(v.version.clone())))
         }),
         Source::Local(_) => None,
+    }
+}
+
+/// Whether two repository URLs name the same repository.
+fn same_repo(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        s.trim()
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_lowercase()
+    };
+    norm(a) == norm(b)
+}
+
+/// The id an earlier add recorded `source` under: the same repository, or the
+/// same image at the same tag. `None` when nothing was added from it, or when
+/// `id` asks for an entry other than the one found.
+pub(crate) fn added_as(project: &Project, source: &str, id: Option<&str>) -> Option<String> {
+    use crate::manual::source::Source;
+    let source = Source::parse(source).ok()?;
+    let (found, _) = project.state.manual.iter().find(|(_, m)| match &source {
+        Source::Repo(repo) => m
+            .repository
+            .as_deref()
+            .is_some_and(|r| same_repo(r, &repo.url())),
+        Source::Image(image) | Source::Local(image) => {
+            m.repository.is_none()
+                && m.image.eq_ignore_ascii_case(&image.image)
+                && m.tag == image.tag
+        }
+    })?;
+    match id.map(str::trim) {
+        None | Some(AUTO_ID) => Some(found.clone()),
+        Some(other) => (other == found).then(|| found.clone()),
     }
 }
 

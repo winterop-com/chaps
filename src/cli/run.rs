@@ -27,6 +27,10 @@ pub struct ModelRunArgs {
     #[arg(long, value_name = "NAME")]
     pub group: Option<String>,
 
+    /// Start a marketplace template, which is not a deployable model
+    #[arg(long)]
+    pub allow_template: bool,
+
     /// Return once the container started, without waiting for it to answer
     #[arg(long)]
     pub no_wait: bool,
@@ -61,10 +65,10 @@ pub struct TopArgs {
 #[derive(Debug, Clone, Args)]
 pub struct ModelStopArgs {
     /// Id or service id of the model
-    #[arg(value_name = "ID", required_unless_present = "all")]
+    #[arg(value_name = "ID", required_unless_present_any = ["all", "group"])]
     pub id: Option<String>,
 
-    /// Group the model runs in, when more than one group has it
+    /// Group to stop in; every model in it when no id is given
     #[arg(long, value_name = "NAME")]
     pub group: Option<String>,
 
@@ -72,7 +76,7 @@ pub struct ModelStopArgs {
     #[arg(long, conflicts_with = "id")]
     pub all: bool,
 
-    /// Delete the model's data volume as well
+    /// Delete the data volumes too, and a group left empty with them
     #[arg(long)]
     pub purge: bool,
 }

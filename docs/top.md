@@ -46,8 +46,9 @@ deployment and which service each one is, and the directory compose ran in;
 from that directory `chaps top` reads the deployment's state for the URLs. A
 deployment whose directory is gone still shows, without them.
 
-The deployment the command runs in, and every `chaps run` group, show even with
-nothing running: their enabled models are listed as `not running`. Containers
+The deployment the command runs in, and every `chaps run` group with a model
+enabled, show even with nothing running: their enabled models are listed as
+`not running`. A group with no model is left out. Containers
 from before chaps labelled them are not found until the next `chaps up`
 recreates them with their labels.
 

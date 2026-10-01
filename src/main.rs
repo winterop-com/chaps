@@ -240,13 +240,18 @@ fn parse() -> Cli {
     } else {
         hide_project_commands(Cli::command())
     };
+    let json = argv
+        .iter()
+        .skip(1)
+        .take_while(|a| *a != "--")
+        .any(|a| a == "--json");
     let matches = match command.try_get_matches_from(&argv) {
         Ok(matches) => matches,
-        Err(err) => print_and_exit(err),
+        Err(err) => print_and_exit(err, json),
     };
     let mut cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
-        Err(err) => print_and_exit(err),
+        Err(err) => print_and_exit(err, json),
     };
     // A deployment created with `--registry-url` keeps using that registry:
     // the flag only has to be typed again to override it for one run.
@@ -271,9 +276,56 @@ fn parse() -> Cli {
 /// ends on the docs line, however it was reached (`chaps --help`, `chaps -h`,
 /// `chaps help`, or `chaps` with nothing after it) - so a subcommand's help
 /// still ends on its last line.
-fn print_and_exit(err: clap::Error) -> ! {
+///
+/// Under `--json` a usage error is the same JSON object every other failure
+/// is, on stdout, so a caller that parses one parses both; help and the
+/// version are still clap's text.
+fn print_and_exit(err: clap::Error, json: bool) -> ! {
     use clap::error::ErrorKind;
     use std::io::Write;
+
+    if json && err.use_stderr() {
+        // clap's text is the message, wrapped over indented lines, then a
+        // tip or two and the usage line, which are what the causes carry.
+        let rendered = err.render().to_string();
+        let lines: Vec<&str> = rendered
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("For more information"))
+            .collect();
+        let split = lines
+            .iter()
+            .position(|l| l.starts_with("tip:") || l.starts_with("Usage:"))
+            .unwrap_or(lines.len());
+        let message = lines[..split]
+            .join(" ")
+            .trim_start_matches("error: ")
+            .to_string();
+        let causes = &lines[split..];
+        // `Usage: chaps stop [OPTIONS] <ID>` names the command to ask.
+        let command = causes
+            .iter()
+            .find_map(|l| l.strip_prefix("Usage: "))
+            .map(|usage| {
+                usage
+                    .split_whitespace()
+                    .take_while(|w| !w.starts_with(['<', '[', '-']))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|| "chaps".to_string());
+        let value = serde_json::json!({
+            "ok": false,
+            "hint": format!("`{command} --help` lists what it takes"),
+            "error": message,
+            "causes": causes,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
+        std::process::exit(err.exit_code());
+    }
 
     let ends_on_the_docs_line = matches!(
         err.kind(),

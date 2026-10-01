@@ -605,6 +605,21 @@ until it exits. It is usually a `chaps up` rendering its files or an
 find the command still running against this directory (`ps aux | grep chaps`)
 and let it finish or stop it; the lock goes with the process.
 
+## `did not start (...)` from `chaps run`
+
+`chaps run` asked compose to start the model and compose refused; the
+parentheses hold the line compose said it with. `pull access denied` or
+`denied` is an image that does not exist or is private: check the reference
+(`chaps models search` for a marketplace id). `port is already allocated` is a
+host port something else took between the pick and the start; run again. The
+model was taken back out, so the `chaps run` the message names starts afresh.
+
+## `there is no marketplace model ...`
+
+`chaps run` was given a word with no tag, which is a marketplace id, and the
+catalogue has no such id. `chaps models search <word>` finds the right one. A
+local image needs its tag: `chaps run my-model:dev`.
+
 ## `not ready after 300s`
 
 `chaps up --wait` gave up: the names after the colon are what never answered,

@@ -8,7 +8,7 @@ fn a_taken_port_says_who_has_it() {
             holder: PortHolder::ComposeFile,
         }
         .to_string(),
-        "host port 5001 is already in use by another compose file"
+        "host port 5001 is already in use by another compose file; pick another with `--port <n>`, or `--port auto`"
     );
     assert_eq!(
         ChapError::PortInUse {
@@ -16,6 +16,6 @@ fn a_taken_port_says_who_has_it() {
             holder: PortHolder::Host,
         }
         .to_string(),
-        "host port 8000 is already in use by the host (something is listening)"
+        "host port 8000 is already in use by the host (something is listening); pick another with `--port <n>`, or `--port auto`"
     );
 }

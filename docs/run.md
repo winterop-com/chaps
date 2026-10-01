@@ -34,8 +34,23 @@ soon as the container started.
 | A local image, `name:tag` with no registry | Runs the image from the local store, never pulled. |
 
 A model that is already enabled is started as it is: a second `chaps run` of
-the same id does not move its version or its port. `--id` names an added model
-(`--id auto` picks a free one), exactly as on `models add`.
+the same id does not move its version or its port. The same holds for a
+repository or an image: one added before, by an earlier `chaps run` or
+`models add`, is that entry again, enabled or not, so running the same URL twice
+starts one model, not two. An image counts as the same only at the same tag.
+`--id` names an added model (`--id auto` picks a free one), exactly as on
+`models add`; an `--id` other than the one the source was added under adds a
+second copy beside it.
+
+A word with no `:`, `/` or `@` is a marketplace id, never a local image (a local
+image always carries a tag), so `chaps run does_not_exist` says there is no such
+model and names `chaps models search`. A marketplace template is refused like it
+is on `models enable`; `--allow-template` starts it anyway.
+
+When the container cannot be started - the image does not exist, the pull is
+denied, the port is taken - `run` says what compose said and takes the model it
+enabled back out, so `chaps ps` does not list it and the next `chaps run` of the
+same source starts afresh. The definition of an added model stays.
 
 ## Where it runs: groups
 
@@ -97,15 +112,17 @@ state `chaps status` would give it: `up` when its `/health` answers,
 
 `chaps stop ID` stops a model and takes its overlay away, in whichever group
 has it; when two groups do, it asks for `--group`. `chaps stop --all` stops
-every model in every group, and `--group NAME --all` every model in one. The
-data volume stays, as with `models disable`, and so does the definition of an
-added model, so `chaps run ID` starts it again without asking GitHub.
-`--purge` takes the volume too.
+every model in every group, and `chaps stop --group NAME` every model in one.
+The data volume stays, as with `models disable`, and so does the definition of
+an added model, so `chaps run ID` starts it again without asking GitHub.
+`--purge` takes the volume too, and a group it leaves with no model in it goes
+as well: its network and its directory. `chaps stop --all --purge` removes
+every group.
 
 The deployment behind a group is an ordinary chaps deployment, so every other
 command works on it with `-C`: `chaps -C ~/.local/share/chaps/run/default logs
-chapkit-ewars-model`, `chaps -C ... status`, `chaps -C ... down --volumes`.
-Removing the group's directory after a `down --volumes` removes the group.
+chapkit-ewars-model`, `chaps -C ... status`. Messages from inside a group name
+their commands that way.
 
 ## For tools
 
@@ -127,9 +144,15 @@ Every one of the three takes `--json` and prints one document on stdout:
 ```
 
 `chaps ps --json` is `{"models": [...]}` with the same fields per model plus
-`state`; `chaps stop --json` lists what it `stopped`. A failure is
-`{"ok": false, "error": ..., "hint": ...}` like every other command's; see
+`state`; `chaps stop --json` lists what it `stopped` and the groups it
+`removed`. A failure is `{"ok": false, "error": ..., "hint": ...}` like every
+other command's, a usage error included; see
 [`--json` for scripts and tools](./commands.md#--json-for-scripts-and-tools).
+docker's own progress, such as a pull, goes to stderr, so stdout is the one
+document.
+
 Two `chaps run` started at the same time into one group wait for each other
 rather than writing over each other, and land on different ports; see
-[One change at a time](./concepts.md#one-change-at-a-time).
+[One change at a time](./concepts.md#one-change-at-a-time). That holds for a
+group neither of them has created yet, and for two runs of the same model,
+which start it once and both report it.

@@ -486,6 +486,14 @@ pub fn run_compose_piped(
         stderr,
     })
 }
+/// Remove a compose project's default network, which `compose down` leaves
+/// behind once the compose files have no services left to name it. Best
+/// effort: a network that is not there is what was wanted.
+pub fn remove_default_network(project_name: &str) {
+    let args = ["network", "rm", &format!("{project_name}_default")].map(str::to_string);
+    let _ = docker_capture(&args);
+}
+
 /// Run a plain `docker` command (no `compose`, no project) and return its
 /// stdout, or `None` when it could not be run or answered non-zero.
 ///

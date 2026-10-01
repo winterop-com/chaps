@@ -80,6 +80,7 @@ Usage: chaps run [OPTIONS] <MODEL>
 | `--bind <ADDR>` | Host address to publish the port on, e.g. 0.0.0.0 for the network. |
 | `--id <ID\|auto>` | Identifier to record an added model under, or auto for a free one. |
 | `--group <NAME>` | Group to start it in, outside a deployment; ps and stop take it too. |
+| `--allow-template` | Start a marketplace template, which is not a deployable model. |
 | `--no-wait` | Return once the container started, without waiting for it to answer. |
 | `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
 
@@ -106,9 +107,9 @@ Usage: chaps stop [OPTIONS] [ID]
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Id or service id of the model. |
-| `--group <NAME>` | Group the model runs in, when more than one group has it. |
+| `--group <NAME>` | Group to stop in; every model in it when no id is given. |
 | `--all` | Stop every model in the group, or in every group. |
-| `--purge` | Delete the model's data volume as well. |
+| `--purge` | Delete the data volumes too, and a group left empty with them. |
 
 ## chaps top
 

@@ -148,8 +148,13 @@ pub fn build(
         let Some(name) = project.compose_project_name() else {
             continue;
         };
+        let group = project.state.group.clone();
+        // A group with nothing in it is nothing to watch; `chaps run` makes
+        // it again when it is wanted.
+        if group.is_some() && project.state.models.is_empty() && !nodes.contains_key(&name) {
+            continue;
+        }
         let node = nodes.entry(name.clone()).or_insert_with(|| {
-            let group = project.state.group.clone();
             let kind = match group {
                 Some(_) => Kind::Run,
                 None => Kind::Init,

@@ -28,7 +28,7 @@ pub enum ChapError {
     UnknownComponent(String),
 
     #[error(
-        "`{0}` is a template, not a deployable model; pass --allow-template to enable it anyway"
+        "`{0}` is a template, not a deployable model; pass `--allow-template` to enable it anyway"
     )]
     IsTemplate(String),
 
@@ -38,7 +38,9 @@ pub enum ChapError {
     #[error("version {version} of `{id}` is yanked")]
     YankedVersion { id: String, version: String },
 
-    #[error("host port {port} is already in use by {holder}")]
+    #[error(
+        "host port {port} is already in use by {holder}; pick another with `--port <n>`, or `--port auto`"
+    )]
     PortInUse { port: u16, holder: PortHolder },
 
     #[error(
