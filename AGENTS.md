@@ -39,6 +39,10 @@ This file holds the rules that are not derivable from the code.
 - Rust 2024, clap derive, serde_yaml_ng, ureq 3 (blocking), ratatui. Keep the
   binary static and dependency-light; a server install is Docker plus this
   one file.
+- A code file stays under about 600 lines; past that it becomes a folder
+  module split by concern (`foo.rs` + `foo/<concern>.rs`, never `mod.rs`).
+  Unit tests always go in `foo/tests.rs` behind `#[cfg(test)] mod tests;`,
+  never inline.
 - State lives in `.chaps/` as YAML (`project.yaml`, `models.yaml`,
   `components.yaml`, `models-manual.yaml`); the compose files next to it are
   rendered from that state by `chaps sync` and carry the one-line header

@@ -28,11 +28,13 @@ make clean     # remove target/ and bin/
 cargo test
 ```
 
-Unit tests live next to the code they cover, in a `mod tests` at the bottom of
-each module; once they outgrow the code beside them they move to
-`<module>/tests.rs` (`src/status.rs` and `src/status/tests.rs`), declared as
-`#[cfg(test)] mod tests;`. A file past about 2000 lines is split, by concern
-for code and by moving its tests out first. `tests/cli/` is the end-to-end suite: it runs the built binary
+Unit tests live next to the code they cover, always in `<module>/tests.rs`
+(`src/status.rs` and `src/status/tests.rs`), declared at the bottom of the
+module as `#[cfg(test)] mod tests;`; there are no inline `mod tests { }`
+blocks. A code file stays under about 600 lines: past that it becomes a folder
+module split by concern, `foo.rs` with the module doc, the `mod` lines and the
+re-exports, and `foo/<concern>.rs` beside it. Modules are `foo.rs` + `foo/`,
+never `foo/mod.rs`. `tests/cli/` is the end-to-end suite: it runs the built binary
 against temporary directories, and every run is `--offline` with its own cache
 directory, so the embedded marketplace snapshot is what the CLI sees and no
 test touches the network or the developer's real cache. It is one test binary
