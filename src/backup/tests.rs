@@ -1,3 +1,6 @@
+use super::files::{is_compose_file, is_contained_relative};
+use super::pg_restore::{PgRestoreError, pg_restore_error_is_ignorable, pg_restore_ignored_count};
+use super::volumes::{ComponentVolume, volume_read_args, volume_write_args};
 use super::*;
 
 /// The model restore used to clear `dir/*` alone, so a `.stale` written
