@@ -1,3 +1,6 @@
+use super::configured::ConfiguredModel;
+use super::dataset::{Observation, period_code};
+use super::summary::first_sentence;
 use super::*;
 
 /// What a passing `chapkit test` prints, cut to the block this parser
