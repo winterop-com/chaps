@@ -1,4 +1,13 @@
+use super::components::*;
+use super::dropped::*;
+use super::env::*;
+use super::ports::*;
+use super::summary::*;
 use super::*;
+use crate::chapcore;
+use crate::cli::ComponentPortArg;
+use crate::components::Components;
+use crate::project::{AuthState, cached_compose_file};
 use crate::registry::load_embedded;
 
 /// A deployment without chap-core can take models too, and is told how
