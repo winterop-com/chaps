@@ -62,6 +62,10 @@ fn a_model_registered_under_its_own_id_is_told_to_take_that_id() {
     assert!(said[1].contains("chaps restart --all other"), "{said:?}");
 }
 
+use super::components::parse_dataset_count;
+use super::lines::{TEST_HINT_ONE, components_closing_line};
+use super::probe::{is_not_chap_core, parse_revision, parse_version, port_of};
+use super::time::ago;
 use super::*;
 
 const URL: &str = "http://localhost:8000";
