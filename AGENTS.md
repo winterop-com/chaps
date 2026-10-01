@@ -31,8 +31,8 @@ This file holds the rules that are not derivable from the code.
   state ("up" means chap-core answered, not that compose returned).
 - No emojis anywhere: code, comments, commits, docs, output.
 - Messages name the file or command the reader must go to, in backticks, and
-  give the way out on the same line: `port 8000 is already in use ...; free
-  it, or run \`chaps init --api-port 8001 --force\``.
+  give the way out on the same line: `port 8700 is already in use on this
+  machine (needed by chap); free it, or set CHAP_API_PORT=8701 in \`.env\``.
 
 ## Code
 
@@ -50,8 +50,10 @@ This file holds the rules that are not derivable from the code.
 - Upstream's `compose.yml` is kept byte for byte at the pinned chap-core tag;
   chaps changes behaviour through `compose.chaps.yml` (`!override`, needs
   Compose 2.24.4) and per-model overlays.
-- Model images are amd64-only; every overlay pins `platform: linux/amd64`.
-  The service user comes from the image config (`src/compose/resolve.rs`),
+- Marketplace model images are amd64-only, so their overlays pin
+  `platform: linux/amd64`; a model added by URL or image is pinned only when
+  its image is amd64-only. The service user comes from the image config
+  (`src/compose/resolve.rs`),
   not from assumptions; a root image gets no `user:` line, and its init
   container chowns to `0:0` like every other model's.
 - Talk to chap-core through `src/api.rs` (base URL from the project, Bearer
@@ -67,10 +69,12 @@ This file holds the rules that are not derivable from the code.
   to the code, CLI tests in `tests/cli/` (a module per concern, shared
   helpers in `tests/cli/common/`) against the routed local HTTP
   server that stands in for the marketplace, GitHub, ghcr and chap-core
-  (`--registry-url`, `CHAPS_GITHUB_API`, `CHAPS_GHCR_URL`).
+  (`--registry-url`, `CHAPS_GITHUB_API`, `CHAPS_GHCR_URL`), and the DHIS2
+  stand-in in `tests/cli/dhis2_stand_in.rs`.
 - Tests never depend on the machine: no fixed low ports (use 18xxx), no real
   docker unless gated by `docker_ready()`, `CHAPS_NO_DOCKER_PROBE=1` in the
-  sandbox, and paths compared as `PathBuf` so Windows CI passes.
+  sandbox, paths compared as `PathBuf` so Windows CI passes, and no browser
+  window (`chaps open` only with `--no-browser` or `--json`).
 - Golden files under `tests/fixtures/` are the rendered compose files; update
   them deliberately, with the reason in the commit.
 - `docs/reference.md` is generated from the clap help by `make
@@ -86,6 +90,10 @@ the exact message or log line a user will search for. When a command gains an
 option, the docs chapter gets the explanation the help text is not allowed to
 carry.
 
+`docs/ai.md` is what an AI assistant follows to set chaps up for someone,
+command by command. A change to a command or message it uses updates its
+steps and its "It worked when" lines in the same commit.
+
 ## Commits and releases
 
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`), one
@@ -97,10 +105,6 @@ carry.
   universal binary, `SHA256SUMS`). Every push to main also publishes the `dev`
   pre-release. Release notes are generated from the commit types by
   `scripts/release-notes.sh`, so commit subjects are the changelog.
-- chaps is unreleased outside this repository. Do not mention it in issues,
-  tickets or messages to upstream projects (chap-core, chapkit, the
-  marketplace, OCS); describe reproductions with their own compose files and
-  docker.
 
 ## Reference checkouts
 
