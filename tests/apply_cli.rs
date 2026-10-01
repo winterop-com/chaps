@@ -169,15 +169,20 @@ fn a_forced_init_that_cannot_apply_leaves_the_deployment_it_found_alone() {
 fn a_model_runs_on_its_own_in_a_deployment_without_chap_core() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
-    sandbox.init(&["--only", "none"]).assert().success();
+    // A port base of its own, clear of whatever this machine already
+    // publishes in the default 5001 range.
+    sandbox
+        .init(&["--only", "none", "--port-base", "18110"])
+        .assert()
+        .success();
 
     sandbox
         .models(&["enable", "chapkit_ewars_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("http://localhost:5001"));
+        .stdout(predicates::str::contains("http://localhost:18110"));
     let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
-    assert!(overlay.contains("\"5001:8000\""), "{overlay}");
+    assert!(overlay.contains("\"18110:8000\""), "{overlay}");
     assert!(
         !overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"),
         "{overlay}"
@@ -194,7 +199,7 @@ fn a_model_runs_on_its_own_in_a_deployment_without_chap_core() {
     let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
     assert!(overlay.contains("SERVICEKIT_ORCHESTRATOR_URL"), "{overlay}");
     assert!(overlay.contains("      chap:\n"), "{overlay}");
-    assert!(overlay.contains("\"5001:8000\""), "{overlay}");
+    assert!(overlay.contains("\"18110:8000\""), "{overlay}");
 
     // And off again with the model still on: allowed, the model stays.
     sandbox
@@ -221,6 +226,8 @@ fn models_register_with_a_chap_core_elsewhere() {
             "http://localhost:18999",
             "--models",
             "chapkit_ewars_model",
+            "--port-base",
+            "18120",
         ])
         .assert()
         .success()
@@ -240,7 +247,7 @@ fn models_register_with_a_chap_core_elsewhere() {
         "{overlay}"
     );
     assert!(overlay.contains("SERVICEKIT_HOST: localhost"), "{overlay}");
-    assert!(overlay.contains("SERVICEKIT_PORT: \"5001\""), "{overlay}");
+    assert!(overlay.contains("SERVICEKIT_PORT: \"18120\""), "{overlay}");
     assert!(
         overlay.contains("host.docker.internal:host-gateway"),
         "{overlay}"
@@ -374,7 +381,7 @@ fn a_dhis2_here_can_route_to_a_chap_core_elsewhere() {
 fn disabling_chap_core_publishes_the_models_left_behind() {
     let sandbox = Sandbox::new();
     sandbox
-        .init(&["--models", "chapkit_ewars_model"])
+        .init(&["--models", "chapkit_ewars_model", "--port-base", "18130"])
         .assert()
         .success();
     sandbox
@@ -382,7 +389,7 @@ fn disabling_chap_core_publishes_the_models_left_behind() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "chapkit_ewars_model now registers nowhere and is published on http://localhost:5001",
+            "chapkit_ewars_model now registers nowhere and is published on http://localhost:18130",
         ));
 }
 

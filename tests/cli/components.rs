@@ -760,13 +760,21 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
         ))
         .stderr(predicates::str::contains("no chap-core").not());
 
-    // A model asked for at the same time runs on its own, on a host port.
+    // A model asked for at the same time runs on its own, on a host port:
+    // under a port base of its own, clear of the default 5001 range.
     let other = Sandbox::new();
     other
-        .init(&["--only", "ocs", "--models", "chapkit_ewars_model"])
+        .init(&[
+            "--only",
+            "ocs",
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            "18140",
+        ])
         .assert()
         .success()
-        .stdout(predicates::str::contains("http://localhost:5001"));
+        .stdout(predicates::str::contains("http://localhost:18140"));
     assert!(!other.project().join("compose.yml").exists());
 }
 
