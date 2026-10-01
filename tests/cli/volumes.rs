@@ -178,6 +178,7 @@ fn live_up_then_purge_removes_the_model_volume() {
             let mut down = Command::cargo_bin("chaps").expect("the chaps binary is built");
             let _ = down
                 .env("CHAPS_CACHE_DIR", &self.cache)
+                .env("CHAPS_DATA_DIR", self.cache.join("data"))
                 .current_dir(&self.dir)
                 .args(["--offline", "down", "--volumes", "--yes"])
                 .output();

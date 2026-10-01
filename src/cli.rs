@@ -13,12 +13,14 @@ mod lifecycle;
 mod models;
 mod operate;
 mod project;
+mod run;
 
 pub use dhis2::*;
 pub use lifecycle::*;
 pub use models::*;
 pub use operate::*;
 pub use project::*;
+pub use run::*;
 
 use crate::compose::PortRequest;
 use crate::registry::DEFAULT_REGISTRY_URL;
@@ -150,6 +152,15 @@ pub struct Cli {
 pub enum Command {
     /// Create a deployment directory: compose files, .env and .chaps/
     Init(Box<InitArgs>),
+
+    /// Start one model and print where it answers
+    Run(ModelRunArgs),
+
+    /// List the models that run, and where each one answers
+    Ps(ModelPsArgs),
+
+    /// Stop a model and take its overlay away; its data stays
+    Stop(ModelStopArgs),
 
     /// Browse and manage marketplace models
     Models(ModelsArgs),

@@ -51,10 +51,10 @@ fn no_help_is_longer_than_a_screen_and_no_option_longer_than_a_clause() {
     /// One screen of `--help`, and one clause of option help.
     ///
     /// The root listing is the only thing near the line: it grows by one
-    /// row per top-level command, and there are now twenty-three of them.
+    /// row per top-level command, and there are now twenty-six of them.
     /// Outside a deployment the listing is shorter still, because the
     /// commands that need a project are hidden from it.
-    const MAX_LINES: usize = 44;
+    const MAX_LINES: usize = 48;
     const MAX_CHARS: usize = 90;
 
     fn check(command: &mut clap::Command, path: &str) {
@@ -568,12 +568,9 @@ fn docker_needs_a_subcommand() {
 
 #[test]
 fn the_old_top_level_docker_commands_are_gone() {
-    for argv in [
-        ["chap", "ps"],
-        ["chap", "pull"],
-        ["chap", "compose"],
-        ["chap", "exec"],
-    ] {
+    // `chaps ps` is back as a command of its own - the models `chaps run`
+    // started - and `chaps docker ps` is still compose's.
+    for argv in [["chap", "pull"], ["chap", "compose"], ["chap", "exec"]] {
         assert!(
             Cli::try_parse_from(argv).is_err(),
             "{argv:?} must live under `chaps docker` now"

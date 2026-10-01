@@ -157,6 +157,20 @@ impl PortAllocator {
 pub fn allocator_for(project: &Project, freed: &BTreeSet<u16>) -> Result<PortAllocator> {
     let mut used: BTreeSet<u16> = project.used_ports();
     used.extend(PortAllocator::scan_compose_dir(&project.dir)?);
+    // The `chaps run` groups share one machine and one port range, and a
+    // stopped model in one group still owns its port for when it starts
+    // again: the other groups' compose files count as taken too.
+    let groups = crate::paths::run_groups_dir();
+    if project.dir.parent() == Some(groups.as_path())
+        && let Ok(entries) = std::fs::read_dir(&groups)
+    {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if dir != project.dir && dir.is_dir() {
+                used.extend(PortAllocator::scan_compose_dir(&dir)?);
+            }
+        }
+    }
     for port in freed {
         used.remove(port);
     }

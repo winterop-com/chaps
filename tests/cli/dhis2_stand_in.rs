@@ -573,6 +573,7 @@ pub(crate) fn dhis2_chap(
 ) -> Command {
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
         .env("CHAPS_NO_UPDATE_CHECK", "1")
         .env("CHAPS_NO_DOCKER_PROBE", "1")
         // A password or a token in the developer's own shell would otherwise

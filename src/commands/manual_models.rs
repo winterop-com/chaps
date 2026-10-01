@@ -34,7 +34,7 @@ fn user_source(origin: Origin) -> crate::compose::UserSource {
 /// What `models add` did, and the shape of its `--json`.
 #[derive(Debug, Serialize)]
 pub(crate) struct AddReport {
-    id: String,
+    pub(crate) id: String,
     service_id: String,
     display_name: String,
     /// The repository URL or image reference the model was added from.

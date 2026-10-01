@@ -8,6 +8,16 @@ The groups below are the shape of the tool. The
 [Command reference](./reference.md) is generated from the `--help` texts and
 lists every command, every flag and every default.
 
+## Running one model
+
+| Command | What it does |
+| --- | --- |
+| `chaps run MODEL [--port N\|auto] [--bind ADDR] [--group NAME] [--no-wait] [--timeout S]` | Start one model - a marketplace id, a GitHub repository URL, a ghcr image or a local image - and print where it answers, once it does. Outside a deployment it runs in a `chaps run` group under the data directory, on `127.0.0.1`; inside one, in that deployment. |
+| `chaps ps [--group NAME]` | Every model in every group (or in the deployment the command is inside), with its state and URL. |
+| `chaps stop ID\|--all [--group NAME] [--purge]` | Stop a model, in whichever group has it, and take its overlay away; the data stays. |
+
+See [Running one model](./run.md).
+
 ## The everyday verbs
 
 | Command | What it does |

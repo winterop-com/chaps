@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 fn spawn(sandbox: &Sandbox, args: &[&str]) -> std::process::Child {
     Command::new(assert_cmd::cargo::cargo_bin("chaps"))
         .env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
         .env("CHAPS_NO_DOCKER_PROBE", "1")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")

@@ -86,6 +86,7 @@ the deployment's `model_bind:` in `.chaps/project.yaml`, which the deployment
 every address as before. `--bind 0.0.0.0` asks for every
 address explicitly, which is how one model leaves a loopback default. An IPv6
 address is written bare (`--bind ::1`) and rendered in brackets.
+[`chaps run`](./run.md) groups publish every model on `127.0.0.1`.
 
 The URLs chaps prints say `localhost`, which is right for every address and
 for loopback. For a model bound to one LAN address, use that address instead.

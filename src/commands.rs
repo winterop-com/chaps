@@ -18,6 +18,7 @@ pub mod modeltest;
 pub mod open;
 pub mod registry;
 pub mod restore;
+pub mod run;
 pub mod selfcmd;
 pub mod status;
 pub mod sync;

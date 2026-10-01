@@ -44,6 +44,12 @@ const POSTGRES_DB: &str = "chap_core";
 /// `args.source` names a chap-core checkout to build from instead of a
 /// release to pull; see [`checkout_source`].
 pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
+    create(ctx, args, true)
+}
+
+/// [`run`], printing its report only when `report_it` is set: `chaps run`
+/// creates its deployment on the way to something else, and says so itself.
+pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> {
     let checkout = args.source.as_deref().map(checkout_source).transpose()?;
     // The positional DIR is relative to the working directory, not to -C:
     // `chaps init foo` is a fresh deployment, not an operation on a project.
@@ -381,6 +387,9 @@ pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
         "auth": project.state.auth,
         "report": report,
     });
+    if !report_it {
+        return Ok(());
+    }
     ctx.out.emit(&value, || {
         summary(
             &ctx.out,

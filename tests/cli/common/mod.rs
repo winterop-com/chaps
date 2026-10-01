@@ -40,6 +40,7 @@ impl Sandbox {
     pub(crate) fn chap(&self) -> Command {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
             // A token in the developer's own shell would otherwise be sent
             // to whatever these tests point the API at, and would change what
             // the `github api` line says from one machine to the next.
@@ -113,6 +114,7 @@ impl Sandbox {
         let base = format!("http://127.0.0.1:{port}");
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
             .env("CHAPS_NO_UPDATE_CHECK", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
@@ -135,6 +137,7 @@ impl Sandbox {
         let base = format!("http://127.0.0.1:{port}");
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
             .env("CHAPS_NO_UPDATE_CHECK", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
@@ -199,6 +202,7 @@ pub(crate) fn json_of(cmd: &mut Command) -> Json {
 pub(crate) fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
         .current_dir(cwd)
@@ -471,6 +475,7 @@ pub(crate) fn bare() -> (TempDir, Command) {
     let cache = tempfile::tempdir().unwrap();
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", cache.path())
+        .env("CHAPS_DATA_DIR", cache.path().join("data"))
         .env("CHAPS_NO_UPDATE_CHECK", "1")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")

@@ -195,6 +195,7 @@ fn the_root_help_ends_on_a_blank_line() {
     let mut bare = Command::cargo_bin("chaps").expect("the chaps binary is built");
     let bare = bare
         .env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
         .current_dir(sandbox.home.path())
         .assert()
         .code(2)

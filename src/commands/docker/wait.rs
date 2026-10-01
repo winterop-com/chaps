@@ -42,8 +42,13 @@ pub struct ModelReadiness {
 
 /// Probe until chap-core answers and every model this project enables is
 /// registered (or, without chap-core, answers on its own port), or until
-/// `timeout` runs out.
-pub fn wait_until_ready(ctx: &Ctx, project: &Project, timeout: Duration) -> Readiness {
+/// `timeout` runs out. `only` narrows the models to one service.
+pub fn wait_until_ready(
+    ctx: &Ctx,
+    project: &Project,
+    timeout: Duration,
+    only: Option<&str>,
+) -> Readiness {
     let start = Instant::now();
     let token = crate::api::token_for(Some(&project.dir));
     let url = project.api_url();
@@ -60,7 +65,7 @@ pub fn wait_until_ready(ctx: &Ctx, project: &Project, timeout: Duration) -> Read
             token.as_deref(),
             true,
         );
-        let readiness = readiness_of(project, &report, start.elapsed());
+        let readiness = readiness_of(project, &report, start.elapsed(), only);
         if readiness.ready || start.elapsed() >= timeout {
             return readiness;
         }
@@ -71,13 +76,19 @@ pub fn wait_until_ready(ctx: &Ctx, project: &Project, timeout: Duration) -> Read
 }
 
 /// Read one status report as ready or not.
-fn readiness_of(project: &Project, report: &StatusReport, waited: Duration) -> Readiness {
+fn readiness_of(
+    project: &Project,
+    report: &StatusReport,
+    waited: Duration,
+    only: Option<&str>,
+) -> Readiness {
     let has_api = project.state.components.has_chap_core_api();
     let api_up = !has_api || matches!(report.api, ApiHealth::Up { .. });
     let models: Vec<ModelReadiness> = project
         .state
         .models
         .iter()
+        .filter(|(_, model)| only.is_none_or(|service| model.service_id == service))
         .map(|(id, model)| {
             let row = report.models.iter().find(|r| r.id == model.service_id);
             let state = row.map(|r| r.state).unwrap_or(ModelState::NotRunning);

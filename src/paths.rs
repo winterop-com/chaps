@@ -25,6 +25,35 @@ pub fn cache_dir() -> PathBuf {
     PathBuf::from(".chap-cache")
 }
 
+/// Directory for what chaps keeps for this user beyond the cache: the
+/// deployment `chaps run` uses when it is not run inside one.
+///
+/// Resolution order:
+/// 1. `$CHAPS_DATA_DIR`
+/// 2. `$XDG_DATA_HOME/chaps`
+/// 3. `$HOME/.local/share/chaps`
+/// 4. `./.chaps-data` (last resort, as for the cache)
+pub fn data_dir() -> PathBuf {
+    if let Some(dir) = non_empty_env("CHAPS_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Some(dir) = non_empty_env("XDG_DATA_HOME") {
+        return PathBuf::from(dir).join("chaps");
+    }
+    if let Some(home) = non_empty_env("HOME") {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("chaps");
+    }
+    PathBuf::from(".chaps-data")
+}
+
+/// Directory holding the `chaps run` groups, one deployment each.
+pub fn run_groups_dir() -> PathBuf {
+    data_dir().join("run")
+}
+
 fn non_empty_env(key: &str) -> Option<String> {
     match std::env::var(key) {
         Ok(v) if !v.is_empty() => Some(v),

@@ -11,7 +11,7 @@ mod down;
 mod preflight;
 mod removal;
 mod report;
-mod wait;
+pub(crate) mod wait;
 
 pub use removal::{UNNAMEABLE_VOLUME, kept_volume_line, purge_volume, stop_and_remove};
 
@@ -191,7 +191,8 @@ fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<wait::Readines
         ctx,
         &format!("waiting up to {timeout}s for chap-core and the models to answer"),
     );
-    let readiness = wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout));
+    let readiness =
+        wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout), None);
     note(ctx, &ready_lines(&ctx.out, &readiness));
     if readiness.ready {
         return Ok(readiness);

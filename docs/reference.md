@@ -26,7 +26,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -64,6 +64,51 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--ocs-name <NAME>` | Country or region the OCS instance covers, e.g. Malawi. |
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
+
+## chaps run
+
+Start one model and print where it answers.
+
+```text
+Usage: chaps run [OPTIONS] <MODEL>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<MODEL>` | Marketplace id, GitHub repository URL, ghcr image, or local image:tag. |
+| `--port <PORT\|auto>` | Host port to publish the model on, or auto for a free one. Default: `auto`. |
+| `--bind <ADDR>` | Host address to publish the port on, e.g. 0.0.0.0 for the network. |
+| `--id <ID\|auto>` | Identifier to record an added model under, or auto for a free one. |
+| `--group <NAME>` | Group to start it in, outside a deployment; ps and stop take it too. |
+| `--no-wait` | Return once the container started, without waiting for it to answer. |
+| `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
+
+## chaps ps
+
+List the models that run, and where each one answers.
+
+```text
+Usage: chaps ps [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `--group <NAME>` | List this group only; every group when omitted. |
+
+## chaps stop
+
+Stop a model and take its overlay away; its data stays.
+
+```text
+Usage: chaps stop [OPTIONS] [ID]
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Id or service id of the model. |
+| `--group <NAME>` | Group the model runs in, when more than one group has it. |
+| `--all` | Stop every model in the group, or in every group. |
+| `--purge` | Delete the model's data volume as well. |
 
 ## chaps models
 

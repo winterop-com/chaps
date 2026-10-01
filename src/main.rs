@@ -132,6 +132,9 @@ fn wants_update_notice(command: &Command) -> bool {
 fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
     match &cli.command {
         Command::Init(args) => commands::init::run(ctx, args),
+        Command::Run(args) => commands::run::run(ctx, args),
+        Command::Ps(args) => commands::run::ps(ctx, args),
+        Command::Stop(args) => commands::run::stop(ctx, args),
 
         Command::Models(m) => match &m.command {
             ModelsCmd::List(args) => commands::models::list(ctx, args),
