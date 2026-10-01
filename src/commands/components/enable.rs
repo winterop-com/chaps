@@ -17,7 +17,7 @@ use crate::project::{ENV_FILE, Project};
 /// Turn a component on, or change the settings of one that already is.
 pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     if component == Component::Dhis2
         && let Some(external) = &project.state.components.dhis2_external
     {

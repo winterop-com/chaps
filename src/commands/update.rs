@@ -96,7 +96,7 @@ impl UpdateReport {
 /// Refresh the registry, re-resolve every channel-following model, sync and
 /// pull, then say what needs restarting.
 pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     // A listing writes nothing and asks the marketplace nothing, so it is
     // answered before the refresh that the rest of the command needs.
     if args.list_tags {

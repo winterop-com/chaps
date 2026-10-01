@@ -115,7 +115,7 @@ fn data_sources(project: &Project, body: &str) -> Vec<(&'static str, Option<Stri
 
 /// `chaps auth enable`: put both secrets in `.env` and render the overlays.
 pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
     let effective = auth::state_of(&body);
 
@@ -169,7 +169,7 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
 
 /// `chaps auth disable`: comment both secrets out and render the overlays.
 pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
     let effective = auth::state_of(&body);
 
@@ -211,7 +211,7 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
 
 /// `chaps auth rotate`: replace both secrets with new ones.
 pub fn rotate(ctx: &Ctx, _args: &AuthRotateArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
     let token = auth::random_secret()?;
     let key = auth::random_secret()?;

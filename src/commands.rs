@@ -103,8 +103,13 @@ impl Ctx {
     /// directories the way git finds `.git`.
     pub fn project(&self) -> crate::error::Result<crate::project::Project> {
         let project = crate::project::Project::find(&self.project_dir)?;
-        // Which deployment a command actually landed on is the first thing to
-        // check when it is not the one you meant.
+        self.trace_project(&project);
+        Ok(project)
+    }
+
+    /// Which deployment a command actually landed on, under `-d`: the first
+    /// thing to check when it is not the one you meant.
+    fn trace_project(&self, project: &crate::project::Project) {
         self.out.debug(&format!(
             "project: {} (state in {})",
             project.dir.display(),
@@ -114,7 +119,17 @@ impl Ctx {
                 .join(crate::project::PROJECT_FILE)
                 .display()
         ));
-        Ok(project)
+    }
+
+    /// [`Ctx::project`] for a command that changes the deployment: the state
+    /// is locked before it is read, and stays locked until the returned
+    /// [`StateLock`] is dropped.
+    pub fn project_mut(
+        &self,
+    ) -> crate::error::Result<(crate::project::Project, crate::project::StateLock)> {
+        let (project, lock) = crate::project::Project::find_locked(&self.project_dir)?;
+        self.trace_project(&project);
+        Ok((project, lock))
     }
 }
 

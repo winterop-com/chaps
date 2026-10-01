@@ -5,10 +5,12 @@
 //! components. They are intent; the compose files at the project root are
 //! artifacts rendered from them by `chaps sync`.
 
+mod lock;
 mod manual;
 mod naming;
 mod store;
 
+pub use lock::{LOCK_FILE, StateLock};
 pub use manual::{ManualModel, ManualModels};
 pub use naming::{derived_project_name, new_compose_project_name, normalized_project_name};
 

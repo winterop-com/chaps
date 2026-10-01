@@ -17,7 +17,7 @@ use crate::project::Project;
 /// removes them with the component.
 pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     let component = Component::from_name(&args.name)?;
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let before = project.state.components.clone();
 
     // Said before anything is stopped: a `--purge` that cannot do the one

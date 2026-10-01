@@ -596,6 +596,15 @@ at the top of the checkout. Point it at the directory `git clone` created, not
 a subdirectory. A very old chap-core may predate one of the three files; check
 out a newer commit.
 
+## `another chaps command is changing this deployment; waiting for it to finish`
+
+Another chaps command on the same deployment holds the state lock (see
+[One change at a time](./concepts.md#one-change-at-a-time)), and this one waits
+until it exits. It is usually a `chaps up` rendering its files or an
+`chaps update` checking the marketplace, and it ends on its own. If it does not,
+find the command still running against this directory (`ps aux | grep chaps`)
+and let it finish or stop it; the lock goes with the process.
+
 ## A hand edit disappeared
 
 `chaps sync` re-renders the artifacts from `.chaps/`, so an edit to

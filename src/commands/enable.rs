@@ -21,7 +21,7 @@ use std::path::PathBuf;
 /// No host port unless `--port` asks for one: chap-core reaches the service
 /// over the compose network, which is the URL the service registers.
 pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
 
     // --version and --channel conflict in the parser, so at most one is set.
@@ -63,7 +63,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
 /// lingers for as long as the machine does. `--purge` is how the data goes
 /// with the model.
 pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
 
     // Accept either identifier, but only for a model this project enabled:
@@ -262,7 +262,7 @@ struct PortChange {
 /// port-only change carries, but it would still have to resolve the rest of
 /// the request it is not making.
 fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
     let id = enabled_id(&project, wanted).ok_or_else(|| ChapError::UnknownModel(wanted.into()))?;
     let previous = project.state.models[&id].host_port;

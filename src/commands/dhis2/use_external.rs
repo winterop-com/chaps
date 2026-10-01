@@ -70,7 +70,7 @@ pub struct UseReport {
 /// record that is wrong is still written - the URL can be right for a DHIS2
 /// that is down for maintenance - and the report says what did not answer.
 pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let before = project.state.components.dhis2_external.clone();
     let component = project.state.components.dhis2.enabled;
     let mut listed_login = false;

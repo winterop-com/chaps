@@ -80,6 +80,28 @@ that `chaps sync` undoes. Edit the copy in `.chaps/` instead, and `sync` will
 follow it, and say that the checksum no longer matches. When the copy is
 missing, `sync` leaves `compose.yml` alone rather than guessing.
 
+### One change at a time
+
+Every command that changes `.chaps/` takes an exclusive lock on
+`.chaps/lock` before it reads the state and keeps it until it has written it
+back: `models enable`, `disable`, `add`, `remove`, `expose`, the `components`
+commands, `sync`, `update`, `restore`, `auth`, `dhis2 use`, `down`, and `up`
+while it renders the compose files. A second such command on the same
+deployment waits for the first, and says so on stderr:
+
+```text
+another chaps command is changing this deployment; waiting for it to finish
+```
+
+So two `models enable --port auto` started together, from two terminals or
+from a tool that runs chaps for its users, end with both models enabled on
+different ports. `up` lets go of the lock once the files are written, so a
+long image pull does not hold up the next `models enable`. Commands that only
+read - `status`, `models list`, `logs` - never wait. The operating system
+releases the lock when the command exits, however it exits, so there is no
+stale lock file to clear; `.chaps/lock` is left in place and is not part of a
+backup.
+
 ## `chaps sync`
 
 ```sh

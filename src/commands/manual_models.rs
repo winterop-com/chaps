@@ -75,7 +75,7 @@ struct RemoveReport {
 /// no published build, an id that is already taken or a service name another
 /// model holds all leave the deployment exactly as it was.
 pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let endpoints = Endpoints::from_env(ctx.registry.offline);
     let request = AddRequest {
         source: args.source.clone(),
@@ -177,7 +177,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
 /// A marketplace model is refused rather than half-removed: there is no local
 /// definition to delete, and what the caller wants is `models disable`.
 pub fn remove(ctx: &Ctx, args: &ModelsRemoveArgs) -> Result<()> {
-    let mut project = ctx.project()?;
+    let (mut project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
     let Some(id) = manual_id(&project, &args.id) else {
         return Err(match crate::registry::load(&ctx.registry)?.get(&args.id) {

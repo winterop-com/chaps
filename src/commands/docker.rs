@@ -45,7 +45,16 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
             ))));
         }
     }
-    let mut project = ctx.project()?;
+    // `up` renders the compose files from `.chaps/` and `down` may clear a
+    // record in it, so both hold the state lock; `up` lets go of it once the
+    // files are written, before compose starts anything.
+    let (mut project, mut lock) = match cmd {
+        DockerCmd::Up(_) | DockerCmd::Down(_) => {
+            let (project, lock) = ctx.project_mut()?;
+            (project, Some(lock))
+        }
+        _ => (ctx.project()?, None),
+    };
     if let DockerCmd::Up(args) = cmd {
         let registry = super::registry_for(ctx, Some(&project))?;
         let report = sync(&mut project, &registry, false)?;
@@ -61,6 +70,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         if !args.no_preflight {
             preflight(ctx, &project, args.replace)?;
         }
+        lock.take();
     }
     warn_about_old_compose();
 
