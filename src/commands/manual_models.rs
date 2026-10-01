@@ -33,7 +33,7 @@ fn user_source(origin: Origin) -> crate::compose::UserSource {
 
 /// What `models add` did, and the shape of its `--json`.
 #[derive(Debug, Serialize)]
-struct AddReport {
+pub(crate) struct AddReport {
     id: String,
     service_id: String,
     display_name: String,
@@ -75,10 +75,41 @@ struct RemoveReport {
 /// no published build, an id that is already taken or a service name another
 /// model holds all leave the deployment exactly as it was.
 pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
+    let (mut project, _lock) = ctx.project_mut()?;
+    match add_in(ctx, &mut project, args)? {
+        Added::Marketplace(report) => {
+            let changed = super::enable::Changed::new(&report, &report, &project);
+            ctx.out.emit_ok(&changed, || {
+                super::enable::summary(&report, &[], &project, &ctx.out)
+            })
+        }
+        Added::Manual(report, resolved) => {
+            let notes = report.notes.clone();
+            let changed = super::enable::Changed::new(&report, &report.apply, &project);
+            ctx.out.emit_ok(&changed, || {
+                format!(
+                    "{}{}",
+                    added_block(&resolved, &ctx.out),
+                    super::enable::summary(&report.apply, &notes, &project, &ctx.out)
+                )
+            })
+        }
+    }
+}
+
+/// What [`add_in`] did: enabled the marketplace model the source names, or
+/// added a definition of its own.
+pub(crate) enum Added {
+    Marketplace(ApplyReport),
+    Manual(Box<AddReport>, Box<Resolved>),
+}
+
+/// [`add`] on a project the caller has loaded and locked, writing the state
+/// and printing nothing.
+pub(crate) fn add_in(ctx: &Ctx, project: &mut Project, args: &ModelsAddArgs) -> Result<Added> {
     // A source the marketplace already lists is that model: it is enabled
     // from the marketplace, curated pin and all, unless `--id` asks for a
-    // separate entry beside it. Settled before the lock, which `enable` takes
-    // itself.
+    // separate entry beside it.
     if args.id.is_none() {
         let source = crate::manual::source::Source::parse(&args.source)?;
         let marketplace = crate::registry::load(&ctx.registry)?;
@@ -88,8 +119,9 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
                  (pass `--id <other>` to add it beside it instead)",
                 args.source.trim()
             ));
-            return super::enable::enable(
+            let report = super::enable::enable_in(
                 ctx,
+                project,
                 &crate::cli::ModelsEnableArgs {
                     id,
                     channel: None,
@@ -100,14 +132,14 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
                     user: args.user.clone(),
                     allow_template: false,
                 },
-            );
+            )?;
+            return Ok(Added::Marketplace(report));
         }
     }
 
-    let (mut project, _lock) = ctx.project_mut()?;
     let endpoints = Endpoints::from_env(ctx.registry.offline);
     let id = match args.id.as_deref().map(str::trim) {
-        Some(AUTO_ID) => Some(free_id(ctx, &project, &args.source)?),
+        Some(AUTO_ID) => Some(free_id(ctx, project, &args.source)?),
         _ => args.id.clone(),
     };
     let request = AddRequest {
@@ -126,7 +158,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
     // collision with it can be told from one with an earlier `models add`.
     let names = manual::names(&request)?;
     let mut registry = crate::registry::load(&ctx.registry)?;
-    check_free(&project, &registry, &names)?;
+    check_free(project, &registry, &names)?;
 
     let resolved = manual::resolve(&request, &endpoints)?;
 
@@ -168,7 +200,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
         }],
         ..Selection::default()
     };
-    let applied = apply(&mut project, &registry, &selection, &endpoints)?;
+    let applied = apply(project, &registry, &selection, &endpoints)?;
 
     let mut notes = resolved.notes.clone();
     // Only a deployment with a chap-core has anything to register with.
@@ -196,14 +228,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
         notes: notes.clone(),
         apply: applied,
     };
-    let changed = super::enable::Changed::new(&report, &report.apply, &project);
-    ctx.out.emit_ok(&changed, || {
-        format!(
-            "{}{}",
-            added_block(&resolved, &ctx.out),
-            super::enable::summary(&report.apply, &notes, &project, &ctx.out)
-        )
-    })
+    Ok(Added::Manual(Box::new(report), Box::new(resolved)))
 }
 
 /// Remove a manually added model: disable it if it is on, then drop the

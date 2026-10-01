@@ -22,7 +22,20 @@ use std::path::PathBuf;
 /// over the compose network, which is the URL the service registers.
 pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
-    let registry = super::registry_for(ctx, Some(&project))?;
+    let report = enable_in(ctx, &mut project, args)?;
+    let changed = Changed::new(&report, &report, &project);
+    ctx.out
+        .emit_ok(&changed, || summary(&report, &[], &project, &ctx.out))
+}
+
+/// [`enable`] on a project the caller has loaded and locked, writing the
+/// state and printing nothing.
+pub(crate) fn enable_in(
+    ctx: &Ctx,
+    project: &mut Project,
+    args: &ModelsEnableArgs,
+) -> Result<ApplyReport> {
+    let registry = super::registry_for(ctx, Some(project))?;
 
     // --version and --channel conflict in the parser, so at most one is set.
     let selector = match (&args.version, args.channel) {
@@ -49,10 +62,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     };
 
     let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
-    let report = apply(&mut project, &registry, &selection, &endpoints)?;
-    let changed = Changed::new(&report, &report, &project);
-    ctx.out
-        .emit_ok(&changed, || summary(&report, &[], &project, &ctx.out))
+    apply(project, &registry, &selection, &endpoints)
 }
 
 /// One model a command left enabled, the way a `--json` caller wants it: the
