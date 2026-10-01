@@ -666,3 +666,44 @@ fn strip_ansi_keeps_plain_text_and_drops_a_cut_off_escape() {
     assert_eq!(strip_ansi(b"end\x1b[3"), b"end");
     assert_eq!(strip_ansi(b"end\x1b"), b"end");
 }
+
+#[test]
+fn stats_lines_are_read_by_container_name() {
+    let text = r#"{"Name":"default-ab12cd-chapkit-ewars-model-1","CPUPerc":"1.50%","MemUsage":"181.2MiB / 7.654GiB"}
+not json
+{"Name":"other-1","CPUPerc":"0.00%"}"#;
+    let usage = super::stats::parse_stats(text);
+    assert_eq!(usage.len(), 2);
+    assert_eq!(
+        usage["default-ab12cd-chapkit-ewars-model-1"],
+        Usage {
+            cpu: "1.50%".to_string(),
+            memory: "181.2MiB / 7.654GiB".to_string(),
+        }
+    );
+    assert_eq!(usage["other-1"].memory, "");
+}
+
+#[test]
+fn a_label_list_keeps_commas_inside_values() {
+    let labels = super::labels::parse_label_list(
+        "com.docker.compose.project=demo-ab12cd,com.docker.compose.project.config_files=/d/compose.yml,/d/compose.chaps.yml,com.winterop.chaps.role=chap-core",
+    );
+    assert_eq!(labels["com.docker.compose.project"], "demo-ab12cd");
+    assert_eq!(
+        labels["com.docker.compose.project.config_files"],
+        "/d/compose.yml,/d/compose.chaps.yml"
+    );
+    assert_eq!(labels["com.winterop.chaps.role"], "chap-core");
+}
+
+#[test]
+fn labeled_containers_say_their_health() {
+    let text = r#"{"ID":"abc","Names":"demo-chap-1","State":"running","Status":"Up 5 minutes (healthy)","Labels":"com.winterop.chaps.role=chap-core"}
+{"ID":"def","Names":"demo-m-1","State":"exited","Status":"Exited (1) 2 minutes ago","Labels":"com.winterop.chaps.role=model,com.winterop.chaps.model=m"}"#;
+    let rows = super::labels::parse_labeled(text);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].health(), Some("healthy"));
+    assert_eq!(rows[1].health(), None);
+    assert_eq!(rows[1].label("com.winterop.chaps.model"), Some("m"));
+}

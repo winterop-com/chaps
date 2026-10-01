@@ -15,6 +15,7 @@ lists every command, every flag and every default.
 | `chaps run MODEL [--port N\|auto] [--bind ADDR] [--group NAME] [--no-wait] [--timeout S]` | Start one model - a marketplace id, a GitHub repository URL, a ghcr image or a local image - and print where it answers, once it does. Outside a deployment it runs in a `chaps run` group under the data directory, on `127.0.0.1`; inside one, in that deployment. |
 | `chaps ps [--group NAME]` | Every model in every group (or in the deployment the command is inside), with its state and URL. |
 | `chaps stop ID\|--all [--group NAME] [--purge]` | Stop a model, in whichever group has it, and take its overlay away; the data stays. |
+| `chaps top [--interval S]` | Every chaps deployment on the machine as a live tree - `init` deployments and `run` groups, every service with its state, CPU, memory and URL - with logs and stop on a key. One snapshot off a terminal. See [chaps top](./top.md). |
 
 See [Running one model](./run.md).
 

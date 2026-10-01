@@ -8,7 +8,7 @@
 
 mod clock;
 
-pub use clock::{ago, human_age, local_clock};
+pub use clock::{ago, human_age, local_clock, local_clock_seconds};
 
 use crate::error::Result;
 use console::{Style, measure_text_width};

@@ -6,6 +6,7 @@
 - [Install](./install.md)
 - [Quickstart](./quickstart.md)
 - [Running one model](./run.md)
+  - [Watching everything: chaps top](./top.md)
 - [Your first forecast in the Modeling App](./modeling-app.md)
 - [Use cases](./use-cases.md)
   - [CHAP with forecasting models](./use-cases/chap-with-models.md)

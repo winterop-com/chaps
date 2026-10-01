@@ -527,14 +527,7 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
 
     let mut stopped = Vec::new();
     for (group, dir, id) in wanted {
-        let ctx = &Ctx {
-            project_dir: dir.clone(),
-            ..ctx.clone()
-        };
-        let (mut project, _lock) = ctx.project_mut()?;
-        let registry = super::registry_for(ctx, Some(&project))?;
-        let (report, notes) =
-            super::enable::disable_enabled(&mut project, &registry, &id, args.purge, false)?;
+        let (report, notes) = stop_in(ctx, &dir, &id, args.purge)?;
         stopped.push(StoppedModel {
             group,
             id,
@@ -571,6 +564,24 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
         text.push_str(&ctx.out.backticks(&again));
         text
     })
+}
+
+/// Stop one enabled model of the deployment in `dir`, printing nothing: what
+/// `chaps stop` and the stop key of `chaps top` share.
+pub(crate) fn stop_in(
+    ctx: &Ctx,
+    dir: &Path,
+    id: &str,
+    purge: bool,
+) -> Result<(super::enable::DisableReport, Vec<String>)> {
+    let ctx = &Ctx {
+        project_dir: dir.to_path_buf(),
+        ..ctx.clone()
+    };
+    let (mut project, _lock) = ctx.project_mut()?;
+    let id = enabled_id(&project, id).ok_or_else(|| ChapError::UnknownModel(id.to_string()))?;
+    let registry = super::registry_for(ctx, Some(&project))?;
+    super::enable::disable_enabled(&mut project, &registry, &id, purge, false)
 }
 
 /// A progress line: stdout for a person, stderr under `--json`.

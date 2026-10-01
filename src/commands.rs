@@ -22,6 +22,7 @@ pub mod run;
 pub mod selfcmd;
 pub mod status;
 pub mod sync;
+pub mod top;
 pub mod tui;
 pub mod update;
 

@@ -162,6 +162,9 @@ pub enum Command {
     /// Stop a model and take its overlay away; its data stays
     Stop(ModelStopArgs),
 
+    /// Watch every chaps deployment on this machine as a live tree
+    Top(TopArgs),
+
     /// Browse and manage marketplace models
     Models(ModelsArgs),
 

@@ -1,0 +1,88 @@
+//! `chaps top` off a terminal: one snapshot of every chaps deployment, found
+//! by the labels on its containers. Unix only: the stand-in docker is a shell
+//! script.
+
+#![cfg(unix)]
+
+use crate::common::*;
+use std::path::PathBuf;
+use tempfile::TempDir;
+
+/// A `docker` that lists two labelled containers of one deployment, and
+/// what they use.
+fn labelled_docker(dir: &std::path::Path) -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let labels = |service: &str, role: &str| {
+        format!(
+            "com.docker.compose.project=demo-ab12cd,com.docker.compose.service={service},\
+             com.docker.compose.project.working_dir={},com.winterop.chaps.role={role}",
+            dir.display()
+        )
+    };
+    let ps = format!(
+        "{{\"ID\":\"a\",\"Names\":\"demo-ab12cd-chap-1\",\"State\":\"running\",\
+         \"Status\":\"Up 3 minutes (healthy)\",\"Labels\":\"{}\"}}\\n\
+         {{\"ID\":\"b\",\"Names\":\"demo-ab12cd-dhis2-1\",\"State\":\"exited\",\
+         \"Status\":\"Exited (1) 1 minute ago\",\"Labels\":\"{}\"}}\\n",
+        labels("chap", "chap-core"),
+        labels("dhis2", "dhis2")
+    );
+    let stats = "{\"Name\":\"demo-ab12cd-chap-1\",\"CPUPerc\":\"2.00%%\",\
+                 \"MemUsage\":\"300MiB / 8GiB\"}\\n";
+    let script = format!(
+        "#!/bin/sh\n\
+         case \"$*\" in\n\
+         *'ps -a --filter label=com.winterop.chaps.role'*) printf '{ps}'; exit 0;;\n\
+         *'stats --no-stream'*) printf '{stats}'; exit 0;;\n\
+         esac\n\
+         exit 0\n"
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin)
+}
+
+#[test]
+fn top_off_a_terminal_prints_one_snapshot_of_the_tree() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--with", "dhis2"])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let (_fake, bin) = labelled_docker(&dir);
+    let cwd = sandbox.home.path();
+
+    let out = chap_with_docker(&sandbox, cwd, &bin, &["top"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(text.contains("chapx  init  1/2 running"), "{text}");
+    assert!(text.contains("running (healthy)"), "{text}");
+    assert!(text.contains("2.00%"), "{text}");
+    assert!(text.contains("exited"), "{text}");
+    assert!(text.contains("a snapshot"), "{text}");
+
+    let out = chap_with_docker(&sandbox, cwd, &bin, &["--json", "top"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let doc: serde_json::Value = serde_json::from_slice(&out).expect("one JSON document");
+    let node = &doc["deployments"][0];
+    assert_eq!(node["kind"], "init");
+    assert_eq!(node["services"][0]["service"], "chap");
+    assert_eq!(node["services"][0]["role"], "chap-core");
+    assert_eq!(node["services"][1]["role"], "dhis2");
+}

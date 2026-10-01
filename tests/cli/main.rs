@@ -21,6 +21,7 @@ mod models_add;
 mod models_test;
 mod run;
 mod status;
+mod top;
 mod update;
 mod volumes;
 mod wait;

@@ -49,6 +49,14 @@ pub struct ModelPsArgs {
     pub group: Option<String>,
 }
 
+/// Watch every chaps deployment on this machine as a live tree
+#[derive(Debug, Clone, Args)]
+pub struct TopArgs {
+    /// Seconds between two looks at docker
+    #[arg(long, value_name = "SECONDS", default_value_t = 2, value_parser = clap::value_parser!(u64).range(1..))]
+    pub interval: u64,
+}
+
 /// Stop a model and take its overlay away; its data stays
 #[derive(Debug, Clone, Args)]
 pub struct ModelStopArgs {

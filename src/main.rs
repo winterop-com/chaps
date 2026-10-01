@@ -28,6 +28,7 @@ mod project;
 mod registry;
 mod selfupdate;
 mod status;
+mod top;
 mod tui;
 
 use clap::{CommandFactory, FromArgMatches};
@@ -135,6 +136,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         Command::Run(args) => commands::run::run(ctx, args),
         Command::Ps(args) => commands::run::ps(ctx, args),
         Command::Stop(args) => commands::run::stop(ctx, args),
+        Command::Top(args) => commands::top::run(ctx, args),
 
         Command::Models(m) => match &m.command {
             ModelsCmd::List(args) => commands::models::list(ctx, args),

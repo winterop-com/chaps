@@ -5,9 +5,11 @@
 //! discovery.
 
 mod images;
+mod labels;
 mod plain;
 mod ps;
 mod query;
+mod stats;
 mod version;
 mod volumes;
 
@@ -15,7 +17,11 @@ pub use images::{
     ContainerBuild, container_builds, image_config, image_ids, pull_image, running_build,
     uid_gid_in_image,
 };
-pub use plain::run_compose_plain;
+pub use labels::{
+    COMPOSE_DIR_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, GROUP_LABEL, KIND_LABEL,
+    Labeled, MODEL_LABEL, ROLE_LABEL, chaps_containers,
+};
+pub use plain::{run_compose_plain, strip_ansi};
 pub use ps::{
     Container, all_containers, all_containers_or_why, diff_containers, ps_entries,
     running_containers, running_containers_or_why, running_of, running_services,
@@ -25,6 +31,7 @@ pub use query::{
     compose_ls_dirs, compose_ls_json, compose_project_name, config_hashes, config_services,
     container_publishing, image_count, service_images, service_logs,
 };
+pub use stats::{Usage, container_usage};
 pub use version::{check_compose_version, compose_version};
 pub use volumes::{
     Removal, ocs_data_bytes, remove_volume, volume_exists, volume_names_with_prefix,

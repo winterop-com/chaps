@@ -35,6 +35,15 @@ pub fn local_clock(unix: u64) -> String {
     clock_of(unix, local_offset(unix as i64))
 }
 
+/// [`local_clock`] to the second, for a screen that refreshes every few.
+pub fn local_clock_seconds(unix: u64) -> String {
+    let local = (unix as i64)
+        .saturating_add(local_offset(unix as i64))
+        .max(0) as u64;
+    let (_, _, _, hour, minute, second) = crate::backup::utc_parts(local);
+    format!("{hour:02}:{minute:02}:{second:02}")
+}
+
 /// [`local_clock`] with the offset handed in, so the formatting is testable
 /// on a machine in any time zone.
 pub(super) fn clock_of(unix: u64, offset: i64) -> String {
