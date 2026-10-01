@@ -23,7 +23,7 @@ source:
   runtime_image: ghcr.io/dhis2-chap/chapkit-r-inla
 
 attribution:
-  author: Global Health Resilience group, BSC (wrapped for CHAP by HISP Centre)
+  author: Global Health Resilience group, BSC (wrapped for Chap by HISP Centre)
   organization: Barcelona Supercomputing Center
   # The wrapper's maintainer, not BSC: they authored the model but do not
   # support this service.

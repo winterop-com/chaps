@@ -23,7 +23,7 @@ source:
   runtime_image: ghcr.io/dhis2-chap/chapkit-py
 
 attribution:
-  author: CHAP team
+  author: Chap team
   organization: HISP Centre, University of Oslo
   contact: morten@dhis2.org
 

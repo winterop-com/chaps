@@ -1,7 +1,7 @@
-# CHAP Model Marketplace — registry index
+# Chap Model Marketplace — registry index
 #
 # This file is the entry point for the marketplace site. Every model listed
-# here has been reviewed and verified by the CHAP maintainers; a model (or a
+# here has been reviewed and verified by the Chap maintainers; a model (or a
 # new version of one) only lands in this repo through a pull request approved
 # by three maintainers.
 #
@@ -16,11 +16,11 @@
 schema_version: 2
 
 marketplace:
-  name: CHAP Model Marketplace
+  name: Chap Model Marketplace
   description: >-
-    Curated, verified forecasting models for CHAP, the Climate & Health
+    Curated, verified forecasting models for Chap, the Climate & Health
     Analytics Platform. Every listed model and every version pin is reviewed
-    by the CHAP maintainers before it appears here.
+    by the Chap maintainers before it appears here.
   # The marketplace's own repository. The site build ingests this repo's open
   # pull requests so an in-review model or version pin can appear on the site
   # with its running approval count before it merges.
@@ -28,10 +28,10 @@ marketplace:
   documentation:
     chap: https://chap.dhis2.org
     # Only chapkit model services are supported. Every listed model is a
-    # chapkit 2 service published as a container image; the install guide
-    # is chapkit's own deployment walkthrough.
-    install: https://dhis2-chap.github.io/chapkit/guides/deploying-to-chap-core/
-    # How CHAP talks to a running chapkit service over HTTP.
+    # chapkit 2 service published as a container image, installed into a
+    # running Chap with `chap-admin install <id>`.
+    install: https://chap.dhis2.org/chap-modeling-platform/chap-cli/chap-core-cli-setup/#running-marketplace-models
+    # How Chap talks to a running chapkit service over HTTP.
     chap_chapkit: https://chap.dhis2.org/chap-modeling-platform/external_models/chapkit/
     chapkit: https://dhis2-chap.github.io/chapkit/
     # The chapkit base images the listed services are built on.
