@@ -1,5 +1,11 @@
+use super::args::*;
+use super::down::*;
+use super::removal::*;
+use super::report::*;
 use super::*;
 use crate::cli::{ConfigArgs, DownArgs, ExecArgs, LogsArgs, PsArgs, PullArgs, RunArgs, UpArgs};
+use crate::components::Components;
+use crate::output::Out;
 
 /// A `docker compose ps` that ran and was refused.
 fn refused_ps() -> docker::QueryFailure {
