@@ -7,15 +7,12 @@
 //! time: a changed label makes compose recreate the container, so an upgrade
 //! of this CLI must render the same labels as the one before it.
 
-/// What the container is: one of the `ROLE_*` values.
-pub const LABEL_ROLE: &str = "com.winterop.chaps.role";
-/// The marketplace id, on a model service and its init container.
-pub const LABEL_MODEL: &str = "com.winterop.chaps.model";
-/// [`KIND_RUN`] for a `chaps run` group, [`KIND_INIT`] for a deployment
-/// `chaps init` wrote.
-pub const LABEL_KIND: &str = "com.winterop.chaps.kind";
-/// The group name, on the containers of a `chaps run` group only.
-pub const LABEL_GROUP: &str = "com.winterop.chaps.group";
+// The keys are defined once, beside the query that reads them back
+// ([`crate::docker::chaps_containers`]); these are the names the renderers use.
+pub const LABEL_ROLE: &str = crate::docker::ROLE_LABEL;
+pub const LABEL_MODEL: &str = crate::docker::MODEL_LABEL;
+pub const LABEL_KIND: &str = crate::docker::KIND_LABEL;
+pub const LABEL_GROUP: &str = crate::docker::GROUP_LABEL;
 
 /// Every service of the chap-core component: the API, the worker and the
 /// databases upstream's `compose.yml` defines.

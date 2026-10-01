@@ -149,10 +149,7 @@ pub fn build(
             continue;
         };
         let node = nodes.entry(name.clone()).or_insert_with(|| {
-            // A directory under the groups directory is a `chaps run` group.
-            let group = (dir.parent() == Some(crate::paths::run_groups_dir().as_path()))
-                .then(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()))
-                .flatten();
+            let group = project.state.group.clone();
             let kind = match group {
                 Some(_) => Kind::Run,
                 None => Kind::Init,

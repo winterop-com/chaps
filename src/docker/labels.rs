@@ -4,8 +4,7 @@
 use super::docker_capture;
 use std::collections::BTreeMap;
 
-/// Which part of a deployment a container belongs to: `chap-core`, `model`,
-/// `ocs`, `s3` or `dhis2`.
+/// What the container is: `chap-core`, `model`, `ocs`, `s3` or `dhis2`.
 pub const ROLE_LABEL: &str = "com.winterop.chaps.role";
 /// The marketplace id of a model service, and of its init container.
 pub const MODEL_LABEL: &str = "com.winterop.chaps.model";
