@@ -75,11 +75,44 @@ struct RemoveReport {
 /// no published build, an id that is already taken or a service name another
 /// model holds all leave the deployment exactly as it was.
 pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
+    // A source the marketplace already lists is that model: it is enabled
+    // from the marketplace, curated pin and all, unless `--id` asks for a
+    // separate entry beside it. Settled before the lock, which `enable` takes
+    // itself.
+    if args.id.is_none() {
+        let source = crate::manual::source::Source::parse(&args.source)?;
+        let marketplace = crate::registry::load(&ctx.registry)?;
+        if let Some((id, version)) = marketplace_match(&marketplace, &source) {
+            output::notice(&format!(
+                "{} is the marketplace model {id}; enabling that \
+                 (pass `--id <other>` to add it beside it instead)",
+                args.source.trim()
+            ));
+            return super::enable::enable(
+                ctx,
+                &crate::cli::ModelsEnableArgs {
+                    id,
+                    channel: None,
+                    version,
+                    port: args.port,
+                    bind: args.bind,
+                    data_dir: args.data_dir.clone(),
+                    user: args.user.clone(),
+                    allow_template: false,
+                },
+            );
+        }
+    }
+
     let (mut project, _lock) = ctx.project_mut()?;
     let endpoints = Endpoints::from_env(ctx.registry.offline);
+    let id = match args.id.as_deref().map(str::trim) {
+        Some(AUTO_ID) => Some(free_id(ctx, &project, &args.source)?),
+        _ => args.id.clone(),
+    };
     let request = AddRequest {
         source: args.source.clone(),
-        id: args.id.clone(),
+        id,
         service_id: args.service_id.clone(),
         display_name: args.name.clone(),
         data_dir: args.data_dir.clone(),
@@ -267,6 +300,63 @@ fn manual_id(project: &Project, wanted: &str) -> Option<String> {
         .map(|(id, _)| id.clone())
 }
 
+/// The `--id` value that picks a free id.
+const AUTO_ID: &str = "auto";
+
+/// The marketplace model a source names, and the exact version when the
+/// source pins one: a repository the marketplace lists, or an image of one of
+/// its models at one of the tags its versions publish.
+///
+/// A local image is never a match: a build from a checkout is what
+/// `models add` is for, even of a model the marketplace lists.
+fn marketplace_match(
+    marketplace: &Registry,
+    source: &crate::manual::source::Source,
+) -> Option<(String, Option<String>)> {
+    use crate::manual::source::Source;
+    let same_repo = |a: &str, b: &str| {
+        let norm = |s: &str| {
+            s.trim()
+                .trim_end_matches('/')
+                .trim_end_matches(".git")
+                .to_lowercase()
+        };
+        norm(a) == norm(b)
+    };
+    match source {
+        Source::Repo(repo) => marketplace
+            .models
+            .iter()
+            .find(|m| same_repo(&m.source.repository, &repo.url()))
+            .map(|m| (m.id.clone(), None)),
+        Source::Image(image) => marketplace.models.iter().find_map(|m| {
+            if !m.source.image.eq_ignore_ascii_case(&image.image) {
+                return None;
+            }
+            m.versions
+                .iter()
+                .find(|v| v.image_tag == image.tag)
+                .map(|v| (m.id.clone(), Some(v.version.clone())))
+        }),
+        Source::Local(_) => None,
+    }
+}
+
+/// The source's own id, or that id with the lowest `_2`, `_3`, ... suffix
+/// that neither the marketplace nor this deployment uses yet.
+fn free_id(ctx: &Ctx, project: &Project, source: &str) -> Result<String> {
+    let base = crate::manual::source::Source::parse(source)?.default_id();
+    let marketplace = crate::registry::load(&ctx.registry)?;
+    let taken = |id: &str| {
+        marketplace.models.iter().any(|m| m.id == id) || project.state.manual.contains_key(id)
+    };
+    let id = std::iter::once(base.clone())
+        .chain((2..).map(|n| format!("{base}_{n}")))
+        .find(|id| !taken(id))
+        .expect("an unbounded sequence has a free id");
+    Ok(id)
+}
+
 /// Whether the id and the service name this add wants are free.
 ///
 /// The marketplace is checked first because it is the one this deployment
@@ -278,7 +368,7 @@ fn check_free(project: &Project, marketplace: &Registry, names: &Names) -> Resul
     if let Some(model) = marketplace.models.iter().find(|m| m.id == *id) {
         return Err(anyhow::anyhow!(
             "the marketplace already lists {id} ({}); run `chaps models enable {id}`, \
-             or pass `--id <other>` to add this one beside it",
+             or pass `--id auto` (or `--id <other>`) to add this one beside it",
             model.display_name
         ));
     }

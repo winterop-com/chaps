@@ -112,8 +112,8 @@ pub struct ModelsAddArgs {
     #[arg(value_name = "SOURCE")]
     pub source: String,
 
-    /// Identifier to record the model under
-    #[arg(long, value_name = "ID")]
+    /// Identifier to record the model under, or auto for a free one
+    #[arg(long, value_name = "ID|auto")]
     pub id: Option<String>,
 
     /// Compose service name, which must match the service's own id

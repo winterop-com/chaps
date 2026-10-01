@@ -622,3 +622,64 @@ fn models_add_outside_a_project_says_so() {
         .failure()
         .stderr(predicates::str::contains("not a chaps project"));
 }
+
+#[test]
+fn models_add_of_a_marketplace_repository_enables_the_marketplace_model() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    // Offline is fine: nothing is resolved from GitHub, the catalogue has it.
+    sandbox
+        .models(&[
+            "add",
+            "https://github.com/chap-models/chapkit_ewars_model/",
+            "--port",
+            "auto",
+        ])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "is the marketplace model chapkit_ewars_model; enabling that",
+        ));
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["channel"],
+        "stable"
+    );
+    assert_eq!(manual_models(&dir), Json::Null);
+}
+
+#[test]
+fn models_add_of_a_marketplace_image_pins_the_version_that_tag_is() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox
+        .models(&["add", "ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0"])
+        .assert()
+        .success();
+    let model = &state(&dir)["models"]["chapkit_ewars_model"];
+    assert_eq!(model["version"], "1.0.3");
+    assert_eq!(model["image_tag"], "sha-24d58c0");
+    assert_eq!(model["channel"], Json::Null);
+}
+
+#[test]
+fn models_add_with_id_auto_picks_a_free_id_beside_the_marketplace_one() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL, "--id", "auto"])
+        .assert()
+        .success();
+    // The first add took the plain id, so the second gets the suffix.
+    sandbox
+        .online(port)
+        .args(["models", "add", REPO_URL, "--id", "auto"])
+        .assert()
+        .success();
+    let manual = manual_models(&dir);
+    assert!(
+        manual.get("chapkit_example_manual_model_2").is_some(),
+        "{manual}"
+    );
+}

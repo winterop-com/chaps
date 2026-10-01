@@ -487,8 +487,35 @@ model, and from the same two fields of the same image config; see
 only where the answer is recorded: `.chaps/models-manual.yaml` holds a manual
 model's definition, `.chaps/models.yaml` holds every enabled model's.
 
-`--port N|auto` publishes a host port, exactly as on `models enable`, and is
-the one flag that is about the deployment rather than about the model.
+`--port N|auto` and `--bind ADDR` publish a host port, exactly as on
+`models enable`, and are the flags about the deployment rather than about the
+model.
+
+### A source the marketplace already lists
+
+`models add` is for models the catalogue does not have, but a URL copied from
+a model's page usually names one it does. Without `--id`, such a source is
+enabled as the marketplace model, with the catalogue's reviewed pin:
+
+```sh
+chaps models add https://github.com/chap-models/chapkit_ewars_model
+# note: ... is the marketplace model chapkit_ewars_model; enabling that
+#       (pass `--id <other>` to add it beside it instead)
+chaps models add ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0
+# the same, pinned to 1.0.3, the version that tag is
+```
+
+A repository URL matches the entry with that `repository` (case, a trailing
+slash and `.git` aside) and follows its stable channel; an image matches only
+when its tag is one the entry's versions publish, and pins that version. Any
+other tag of the same image is a build the catalogue has not reviewed, so it is
+refused with the hint below. A local image (`my-model:dev`) is never matched:
+running your own build of a listed model is what `models add` is for.
+
+To keep a separate entry anyway - a fork's builds, a branch the catalogue does
+not follow - pass `--id`. `--id auto` takes the source's own id, or that id
+with the lowest free `_2`, `_3`, ... suffix when the marketplace or an earlier
+`models add` already uses it.
 
 The **service id has to match the id the service registers with chap-core**
 (chapkit's `MLServiceInfo.id`). It is the Compose service name, the DNS name
@@ -578,7 +605,8 @@ pull --platform linux/amd64` that puts it there.
 
 Refused rather than guessed at: a bare image name (`chapkit_dengue_model`), an
 image on a registry other than ghcr, an image reference with no tag or digest,
-an id or service name the marketplace already uses, and an id this deployment
+an id or service name the marketplace already uses (`--id auto` picks a free
+id), and an id this deployment
 has already added. The marketplace always wins a collision, so an id it
 publishes later shadows nothing: the local entry is reported and ignored until
 it is removed or renamed.

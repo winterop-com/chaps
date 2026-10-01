@@ -141,7 +141,7 @@ Usage: chaps models add [OPTIONS] <SOURCE>
 | Argument | Description |
 | --- | --- |
 | `<SOURCE>` | GitHub repository URL, ghcr image reference, or local image name:tag. |
-| `--id <ID>` | Identifier to record the model under. |
+| `--id <ID\|auto>` | Identifier to record the model under, or auto for a free one. |
 | `--service-id <ID>` | Compose service name, which must match the service's own id. |
 | `--name <NAME>` | Name to show in the listings. |
 | `--port <PORT\|auto>` | Host port to publish the model on, or auto for a free one. |
