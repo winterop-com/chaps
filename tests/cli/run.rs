@@ -59,6 +59,27 @@ fn docker_failing_up() -> (TempDir, PathBuf) {
     (temp, bin)
 }
 
+/// A `docker` whose local image store holds every image asked about, as one
+/// that runs as user 1000 in `/app`, and whose compose commands succeed.
+fn docker_with_local_images() -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let script = "#!/bin/sh\n\
+         case \"$*\" in\n\
+         'image inspect'*) printf '1000\\t/app\\tnull\\t[\"serve\"]\\n'; exit 0;;\n\
+         esac\n\
+         exit 0\n";
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin)
+}
+
 fn data(sandbox: &Sandbox) -> PathBuf {
     sandbox.cache.path().join("data")
 }
@@ -399,4 +420,92 @@ fn parallel_runs_into_a_new_group_all_land_in_it() {
     assert_eq!(codes, vec![Some(0), Some(0)]);
     let ps = run_json(&sandbox, cwd, &bin, &["ps", "--group", "fresh"]);
     assert_eq!(ps["models"].as_array().unwrap().len(), 2, "{ps}");
+}
+
+/// `models remove` has no `--group`, so an error from inside a group names it
+/// with the `-C <group dir>` that reaches the group from anywhere.
+#[test]
+fn an_error_inside_a_group_names_models_remove_with_the_group_dir() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_with_local_images();
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "localone:1",
+            "--id",
+            "mine",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    );
+    let out = chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "--json",
+            "run",
+            "localtwo:1",
+            "--id",
+            "mine",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    )
+    .assert()
+    .failure()
+    .get_output()
+    .stdout
+    .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    let dir = data(&sandbox).join("run").join("trial");
+    let said = format!("{} {}", doc["error"], doc["hint"]);
+    assert!(
+        said.contains(&format!("`chaps -C {} models remove mine`", dir.display())),
+        "{doc}"
+    );
+}
+
+/// `logs` has no `--group` either: a run into a group names its log with `-C`.
+#[test]
+fn a_run_into_a_group_names_its_log_with_the_group_dir() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let cwd = sandbox.home.path();
+    let out = chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let text = String::from_utf8(out).expect("text");
+    let dir = data(&sandbox).join("run").join("trial");
+    assert!(
+        text.contains(&format!(
+            "`chaps -C {} logs chapkit-ewars-model`",
+            dir.display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("`chaps stop chapkit_ewars_model --group trial`"),
+        "{text}"
+    );
 }
