@@ -19,6 +19,7 @@ use crate::compose::UserSource;
 use crate::registry::Channel;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 /// Directory that marks a project, at the root of a project directory.
@@ -252,6 +253,10 @@ pub struct ProjectState {
     /// Ordered `-f` list, relative to the project directory.
     pub compose_files: Vec<String>,
     pub port_range: (u16, u16),
+    /// The address model host ports are published on when a model names none
+    /// of its own: `127.0.0.1` for the deployment `chaps run` keeps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_bind: Option<IpAddr>,
     /// Files at the project root that `chaps sync` wrote last time, relative
     /// to the project directory. Only these are ever removed by a later sync.
     #[serde(default)]
@@ -283,6 +288,7 @@ impl Default for ProjectState {
             auth: AuthState::default(),
             compose_files: default_compose_files(),
             port_range: DEFAULT_PORT_RANGE,
+            model_bind: None,
             rendered_files: Vec::new(),
             models: BTreeMap::new(),
             manual: ManualModels::new(),
@@ -311,6 +317,13 @@ pub struct EnabledModel {
     /// optional holds a number, which still loads as `Some`.
     #[serde(default)]
     pub host_port: Option<u16>,
+    /// The host address [`host_port`] is published on: `127.0.0.1` keeps the
+    /// model off the network. `None` follows [`ProjectState::model_bind`],
+    /// and with neither compose publishes on every address the host has.
+    ///
+    /// [`host_port`]: EnabledModel::host_port
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<IpAddr>,
     pub data_dir: String,
     /// What the container runs as: `root`, a numeric `uid:gid`, or an account
     /// name nothing could turn into numbers.

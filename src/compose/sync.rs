@@ -206,6 +206,18 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         spec.registration_key = registration_key;
         spec.standalone = standalone;
         spec.external_chap_core = external.clone();
+        spec.bind = model.bind.or(project.state.model_bind);
+        // A chap-core elsewhere calls the model back on its host port, and a
+        // port published on loopback only answers this machine's own
+        // processes, which a container is not.
+        if let (Some(_), Some(bind), Some(port)) = (&external, spec.bind, spec.host_port)
+            && bind.is_loopback()
+        {
+            report.warnings.push(format!(
+                "{id} is published on {bind}:{port} only, which the chap-core it registers \
+                 with cannot call back; run `chaps models expose {id} --bind 0.0.0.0`"
+            ));
+        }
         // The overlay's init container chowns the data volume from busybox,
         // which resolves no account name of its own, so the user has to be
         // expressible as numbers. An unknown one still renders, with the

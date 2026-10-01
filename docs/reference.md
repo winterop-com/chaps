@@ -145,6 +145,7 @@ Usage: chaps models add [OPTIONS] <SOURCE>
 | `--service-id <ID>` | Compose service name, which must match the service's own id. |
 | `--name <NAME>` | Name to show in the listings. |
 | `--port <PORT\|auto>` | Host port to publish the model on, or auto for a free one. |
+| `--bind <ADDR>` | Host address to publish the port on, e.g. 127.0.0.1 for this machine. |
 | `--data-dir <PATH>` | Data directory inside the container. |
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--runtime-amd64` | Record the image as published for amd64 only. |
@@ -176,6 +177,7 @@ Usage: chaps models enable [OPTIONS] <ID>
 | `--channel <CHANNEL>` | Follow a release channel instead of pinning a version. Values: `stable`, `latest`. |
 | `--version <VERSION>` | Pin an exact version from the model's versions list. |
 | `--port <PORT\|auto>` | Host port to publish the model on, or auto for a free one. |
+| `--bind <ADDR>` | Host address to publish the port on, e.g. 127.0.0.1 for this machine. |
 | `--data-dir <PATH>` | Data directory inside the container. |
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--allow-template` | Enable a template even though it is not a model. |
@@ -205,6 +207,7 @@ Usage: chaps models expose [OPTIONS] <ID>
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
 | `--port <PORT\|auto>` | Host port to publish on, or auto for the lowest free one. |
+| `--bind <ADDR>` | Host address to publish the port on, e.g. 127.0.0.1 for this machine. |
 
 ## chaps models unexpose
 

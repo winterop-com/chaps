@@ -128,6 +128,10 @@ pub struct ModelsAddArgs {
     #[arg(long, value_name = "PORT|auto")]
     pub port: Option<PortArg>,
 
+    /// Host address to publish the port on, e.g. 127.0.0.1 for this machine
+    #[arg(long, value_name = "ADDR")]
+    pub bind: Option<std::net::IpAddr>,
+
     /// Data directory inside the container
     #[arg(long, value_name = "PATH")]
     pub data_dir: Option<String>,
@@ -172,6 +176,10 @@ pub struct ModelsEnableArgs {
     #[arg(long, value_name = "PORT|auto")]
     pub port: Option<PortArg>,
 
+    /// Host address to publish the port on, e.g. 127.0.0.1 for this machine
+    #[arg(long, value_name = "ADDR")]
+    pub bind: Option<std::net::IpAddr>,
+
     /// Data directory inside the container
     #[arg(long, value_name = "PATH")]
     pub data_dir: Option<String>,
@@ -207,6 +215,10 @@ pub struct ModelsExposeArgs {
     /// Host port to publish on, or auto for the lowest free one
     #[arg(long, value_name = "PORT|auto")]
     pub port: Option<PortArg>,
+
+    /// Host address to publish the port on, e.g. 127.0.0.1 for this machine
+    #[arg(long, value_name = "ADDR")]
+    pub bind: Option<std::net::IpAddr>,
 }
 
 /// Take an enabled model's host port away again

@@ -53,6 +53,7 @@ fn state_with_port(
             version: version.version.clone(),
             channel,
             host_port,
+            bind: None,
             data_dir: "/work/data".to_string(),
             user: "chapkit:chapkit".to_string(),
             user_from: Default::default(),

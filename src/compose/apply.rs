@@ -44,6 +44,9 @@ pub struct EnableRequest {
     /// model being enabled for the first time means none at all. `Some` is an
     /// explicit decision, [`PortRequest::None`] included.
     pub port: Option<PortRequest>,
+    /// The host address to publish the port on; `None` keeps the one the
+    /// model has, which for a new model is the deployment's default.
+    pub bind: Option<std::net::IpAddr>,
     pub data_dir: Option<String>,
     pub user: Option<String>,
     /// Where [`user`] came from, for a caller that resolved it already.
@@ -75,6 +78,7 @@ impl EnableRequest {
             id: id.into(),
             selector: VersionSelector::default(),
             port: None,
+            bind: None,
             data_dir: None,
             user: None,
             user_from: None,
@@ -296,6 +300,8 @@ pub fn apply_with(
             }
         };
 
+        let bind = req.bind.or_else(|| existing.as_ref().and_then(|e| e.bind));
+
         let known = known_override(&model.id);
         // A manually added model carries its own answers: `models add` read
         // them off the image when the entry was written, and the built-in
@@ -357,6 +363,7 @@ pub fn apply_with(
             // the channel it follows and the platform all stay as they are.
             Some(previous) => EnabledModel {
                 host_port,
+                bind,
                 data_dir,
                 user,
                 user_from,
@@ -381,6 +388,7 @@ pub fn apply_with(
                         VersionSelector::Exact(_) => None,
                     },
                     host_port,
+                    bind,
                     data_dir,
                     user,
                     user_from,

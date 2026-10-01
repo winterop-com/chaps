@@ -123,6 +123,7 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
             id: resolved.id.clone(),
             selector: resolved.selector(),
             port: args.port.map(|p| p.0),
+            bind: args.bind,
             data_dir: Some(resolved.data_dir.clone()),
             user: Some(resolved.user.clone()),
             // `models add` has already asked the image; saying where its

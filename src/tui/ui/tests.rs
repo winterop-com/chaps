@@ -146,6 +146,7 @@ fn state_with_ewars(registry: &Registry, host_port: Option<u16>) -> ProjectState
             version: model.channels.stable.clone(),
             channel: Some(Channel::Stable),
             host_port,
+            bind: None,
             data_dir: "/app/data".into(),
             user: "chapkit:chapkit".into(),
             user_from: Default::default(),

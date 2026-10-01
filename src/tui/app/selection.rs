@@ -206,6 +206,7 @@ fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest
         id: model.id.clone(),
         selector: VersionSelector::Channel(row.channel),
         port,
+        bind: None,
         // Data dirs and users keep whatever the project already has; the
         // browser does not edit them. A toggled row is enabled afresh, so its
         // user is read off the image like any other `models enable`.

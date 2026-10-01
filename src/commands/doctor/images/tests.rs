@@ -100,6 +100,7 @@ fn the_user_checks_cover_every_enabled_model() {
         version: "1.0.0".into(),
         channel: None,
         host_port: None,
+        bind: None,
         data_dir: "/app/data".into(),
         user: "1000:1000".into(),
         user_from: Default::default(),

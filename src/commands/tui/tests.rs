@@ -10,6 +10,7 @@ fn model(port: Option<u16>) -> EnabledModel {
         version: "1.0.0".into(),
         channel: Some(Channel::Stable),
         host_port: port,
+        bind: None,
         data_dir: "/app/data".into(),
         user: "chapkit:chapkit".into(),
         user_from: Default::default(),

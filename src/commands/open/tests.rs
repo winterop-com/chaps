@@ -16,6 +16,7 @@ fn a_model_opens_its_docs_on_its_port_or_through_chap_core() {
         version: String::new(),
         channel: None,
         host_port: Some(5001),
+        bind: None,
         data_dir: String::new(),
         user: String::new(),
         user_from: Default::default(),

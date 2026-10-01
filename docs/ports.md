@@ -65,6 +65,36 @@ nothing on the machine listening on it. So two models never collide, and
 neither does a model and something else you are running. `--port N` claims one
 explicitly, and the command fails if it is taken.
 
+## Which address a model port is published on
+
+Compose publishes a host port on every address the machine has, so a model
+with a port is reachable from the network unless a firewall says otherwise.
+Models have no login, so on a laptop or a shared server that is often more
+than you meant. `--bind` names the address instead:
+
+```sh
+chaps models enable chapkit_ewars_model --port auto --bind 127.0.0.1
+chaps models expose chapkit_ewars_model --bind 127.0.0.1   # an enabled one
+chaps models add ghcr.io/org/model:latest --port auto --bind 127.0.0.1
+```
+
+The overlay then publishes `"127.0.0.1:5001:8000"`, which only this machine's
+own processes can reach: `docker port <container>` shows `127.0.0.1:5001`. A
+model's own `--bind` is recorded as `bind:` in `.chaps/models.yaml` and wins over
+the deployment's `model_bind:` in `.chaps/project.yaml`, which the deployment
+`chaps run` keeps sets to `127.0.0.1`; with neither, the port is published on
+every address as before. `--bind 0.0.0.0` asks for every
+address explicitly, which is how one model leaves a loopback default. An IPv6
+address is written bare (`--bind ::1`) and rendered in brackets.
+
+The URLs chaps prints say `localhost`, which is right for every address and
+for loopback. For a model bound to one LAN address, use that address instead.
+
+A model registered with a chap-core elsewhere must stay reachable from it:
+chap-core calls it back on its host port, and a loopback-only port does not
+answer a container. `chaps sync` warns when a model is set up that way and
+names the `expose --bind 0.0.0.0` that undoes it.
+
 ## Component ports
 
 A component publishes a well-known port of its own rather than one from the

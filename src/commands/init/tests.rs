@@ -535,6 +535,7 @@ fn model_record() -> crate::project::EnabledModel {
         version: "1.0.0".into(),
         channel: None,
         host_port: None,
+        bind: None,
         data_dir: "/app/data".into(),
         user: "chapkit:chapkit".into(),
         user_from: Default::default(),

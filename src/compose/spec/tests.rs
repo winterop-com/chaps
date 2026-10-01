@@ -96,6 +96,7 @@ fn from_enabled_replays_the_recorded_state() {
         version: "0.9.0".into(),
         channel: None,
         host_port: Some(5007),
+        bind: None,
         data_dir: "/srv/data".into(),
         user: "1000:1000".into(),
         user_from: Default::default(),

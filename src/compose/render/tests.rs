@@ -256,6 +256,24 @@ fn an_overlay_publishes_a_port_only_when_one_was_asked_for() {
 }
 
 #[test]
+fn a_bound_port_names_its_host_address() {
+    let mut spec = published_spec("chapkit_ewars_model", 5002);
+    spec.bind = Some("127.0.0.1".parse().unwrap());
+    let svc = &parse(&render_overlay(&spec))["services"]["chapkit-ewars-model"];
+    assert_eq!(
+        svc["ports"],
+        Value::Sequence(vec![Value::String("127.0.0.1:5002:8000".into())])
+    );
+
+    spec.bind = Some("::1".parse().unwrap());
+    let svc = &parse(&render_overlay(&spec))["services"]["chapkit-ewars-model"];
+    assert_eq!(
+        svc["ports"],
+        Value::Sequence(vec![Value::String("[::1]:5002:8000".into())])
+    );
+}
+
+#[test]
 fn the_chaps_overlay_replaces_the_api_port_rather_than_adding_to_it() {
     let text = render_chaps_overlay(8000, None, None);
     assert_no_tokens(&text);

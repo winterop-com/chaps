@@ -322,6 +322,9 @@ pub struct OverlaySpec {
     /// Host port to publish 8000 on, or `None` for a service that is only
     /// `expose`d on the compose network - the default.
     pub host_port: Option<u16>,
+    /// The host address [`OverlaySpec::host_port`] is published on, or `None`
+    /// for every address the host has.
+    pub bind: Option<std::net::IpAddr>,
     /// `Some("linux/amd64")` for R-INLA services.
     pub platform: Option<String>,
     pub data_dir: String,
@@ -378,6 +381,7 @@ impl OverlaySpec {
             image_tag: v.image_tag.clone(),
             tag_env_var: tag_env_var(&m.id),
             host_port,
+            bind: None,
             // Every model image the marketplace publishes today is amd64-only
             // (checked with `docker manifest inspect`; only the simple multistep
             // model also ships arm64), and chap-core itself is amd64-only, so
@@ -425,6 +429,7 @@ impl OverlaySpec {
             image_tag: e.image_tag.clone(),
             tag_env_var: tag_env_var(id),
             host_port: e.host_port,
+            bind: e.bind,
             platform: e.platform.clone(),
             data_dir: e.data_dir.clone(),
             user: e.user.clone(),

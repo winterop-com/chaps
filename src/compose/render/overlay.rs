@@ -191,7 +191,12 @@ fn port_lines(spec: &OverlaySpec) -> String {
     let inside = container_port(spec);
     let mut out = format!("    expose:\n      - \"{inside}\"\n");
     if let Some(port) = spec.host_port {
-        out.push_str(&format!("    ports:\n      - \"{port}:{inside}\"\n"));
+        let host = match spec.bind {
+            Some(std::net::IpAddr::V4(addr)) => format!("{addr}:"),
+            Some(std::net::IpAddr::V6(addr)) => format!("[{addr}]:"),
+            None => String::new(),
+        };
+        out.push_str(&format!("    ports:\n      - \"{host}{port}:{inside}\"\n"));
     }
     out
 }

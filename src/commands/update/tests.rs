@@ -379,6 +379,7 @@ fn row(id: &str) -> ModelUpdate {
             version: "1.0.0".into(),
             channel: Some(Channel::Stable),
             host_port: None,
+            bind: None,
             data_dir: "/work/data".into(),
             user: "chapkit:chapkit".into(),
             user_from: Default::default(),

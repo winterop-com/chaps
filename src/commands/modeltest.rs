@@ -265,6 +265,7 @@ fn unmanaged(service_id: &str) -> EnabledModel {
         version: String::new(),
         channel: None,
         host_port: None,
+        bind: None,
         data_dir: String::new(),
         user: String::new(),
         user_from: Default::default(),

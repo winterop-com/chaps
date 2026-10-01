@@ -248,14 +248,19 @@ fn service_host_ports(doc: &Value) -> Vec<(String, u16)> {
     out
 }
 
-/// The host side of `"8000"`, `"5002:8000"`, `"5002:8000/tcp"` or
-/// `"127.0.0.1:5002:8000"`.
+/// The host side of `"8000"`, `"5002:8000"`, `"5002:8000/tcp"`,
+/// `"127.0.0.1:5002:8000"` or `"[::1]:5002:8000"`.
 ///
 /// A bare container port publishes on an ephemeral host port, and a range
 /// (`"5000-5010:8000"`) is not a single number; both yield `None` rather than
 /// a wrong guess.
 fn host_port_of_short_form(entry: &str) -> Option<u16> {
     let entry = entry.split('/').next().unwrap_or(entry);
+    // An IPv6 host address is bracketed and full of colons of its own.
+    let entry = match entry.strip_prefix('[') {
+        Some(rest) => return rest.split_once("]:")?.1.split(':').next()?.parse().ok(),
+        None => entry,
+    };
     let parts: Vec<&str> = entry.split(':').collect();
     let host = match parts.len() {
         // "8000": container port only, no host port published.

@@ -35,6 +35,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
             id: args.id.clone(),
             selector,
             port: args.port.map(|p| p.0),
+            bind: args.bind,
             data_dir: args.data_dir.clone(),
             user: args.user.clone(),
             user_from: None,
@@ -231,12 +232,12 @@ pub fn expose(ctx: &Ctx, args: &ModelsExposeArgs) -> Result<()> {
     // Omitting --port means "any free one": someone who wanted a specific
     // number would have said so.
     let request = args.port.map(|p| p.0).unwrap_or(PortRequest::Auto);
-    set_host_port(ctx, &args.id, request)
+    set_host_port(ctx, &args.id, request, args.bind)
 }
 
 /// Take an enabled model's host port away again.
 pub fn unexpose(ctx: &Ctx, args: &ModelsUnexposeArgs) -> Result<()> {
-    set_host_port(ctx, &args.id, PortRequest::None)
+    set_host_port(ctx, &args.id, PortRequest::None, None)
 }
 
 /// What `expose` and `unexpose` did, for `--json`.
@@ -261,7 +262,12 @@ struct PortChange {
 /// for the same thing with `keep_version`, which is what the browser's
 /// port-only change carries, but it would still have to resolve the rest of
 /// the request it is not making.
-fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
+fn set_host_port(
+    ctx: &Ctx,
+    wanted: &str,
+    request: PortRequest,
+    bind: Option<std::net::IpAddr>,
+) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
     let id = enabled_id(&project, wanted).ok_or_else(|| ChapError::UnknownModel(wanted.into()))?;
@@ -289,6 +295,9 @@ fn set_host_port(ctx: &Ctx, wanted: &str, request: PortRequest) -> Result<()> {
         .get_mut(&id)
         .expect("enabled_id only returns keys that are present");
     entry.host_port = host_port;
+    if bind.is_some() {
+        entry.bind = bind;
+    }
     let service_id = entry.service_id.clone();
 
     let synced = sync(&mut project, &registry, false)?;

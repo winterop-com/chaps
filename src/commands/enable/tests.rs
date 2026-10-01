@@ -10,6 +10,7 @@ fn project_with_ewars(host_port: Option<u16>) -> Project {
         version: "1.0.0".into(),
         channel: Some(Channel::Stable),
         host_port,
+        bind: None,
         data_dir: "/app/data".into(),
         user: "chapkit:chapkit".into(),
         user_from: Default::default(),

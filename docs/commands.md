@@ -63,11 +63,11 @@ that reaches the passthrough (`chaps down -- -v`) is refused and told to use
 | `chaps models search QUERY` | Search id, name and summary. |
 | `chaps models info ID` | Everything known about one model. |
 | `chaps models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--seed`, `--timeout`, `--keep`). |
-| `chaps models add SOURCE` | Add a model the marketplace does not list, from a GitHub repository URL or a ghcr image reference, and enable it (`--id`, `--service-id`, `--name`, `--port`, `--data-dir`, `--user`, `--runtime-amd64`). |
+| `chaps models add SOURCE` | Add a model the marketplace does not list, from a GitHub repository URL or a ghcr image reference, and enable it (`--id`, `--service-id`, `--name`, `--port`, `--bind`, `--data-dir`, `--user`, `--runtime-amd64`). |
 | `chaps models remove ID [--purge]` | Disable such a model if it is on, then drop its definition from `.chaps/models-manual.yaml`; `--purge` removes its data volume too. |
-| `chaps models enable ID` | Record the model in `.chaps/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--data-dir`, `--user`, `--allow-template`). |
+| `chaps models enable ID` | Record the model in `.chaps/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--bind`, `--data-dir`, `--user`, `--allow-template`). |
 | `chaps models disable ID [--purge]` | Drop the model from `.chaps/models.yaml` and remove its overlay, keeping its data volume and naming it; `--purge` removes that volume too. |
-| `chaps models expose ID [--port N\|auto]` | Publish a host port for an enabled model, without touching the version it is pinned to. |
+| `chaps models expose ID [--port N\|auto] [--bind ADDR]` | Publish a host port for an enabled model, without touching the version it is pinned to; `--bind 127.0.0.1` keeps it on this machine. See [Ports](./ports.md#which-address-a-model-port-is-published-on). |
 | `chaps models unexpose ID` | Take that host port away again. |
 | `chaps ui` | Open the browser: marketplace models and components, on two pages `Tab` moves between. One `s` saves both. |
 

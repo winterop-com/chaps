@@ -428,3 +428,61 @@ fn an_exact_version_pins_without_a_channel() {
         .failure()
         .stderr(predicates::str::contains("no version `9.9.9`"));
 }
+
+#[test]
+fn bind_puts_the_host_address_in_front_of_the_published_port() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let base = port_base();
+    sandbox
+        .init(&["--models", "none", "--port-base", &base.to_string()])
+        .assert()
+        .success();
+
+    sandbox
+        .models(&[
+            "enable",
+            "chapkit_ewars_model",
+            "--port",
+            "auto",
+            "--bind",
+            "127.0.0.1",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["bind"],
+        "127.0.0.1"
+    );
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(
+        overlay.contains(&format!("\"127.0.0.1:{base}:8000\"")),
+        "{overlay}"
+    );
+
+    // expose moves the address along with the port, and keeps it when no
+    // address is given.
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--bind", "0.0.0.0"])
+        .assert()
+        .success();
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["bind"],
+        "0.0.0.0"
+    );
+    sandbox
+        .models(&["expose", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["bind"],
+        "0.0.0.0"
+    );
+    let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
+    assert!(overlay.contains("\"0.0.0.0:"), "{overlay}");
+
+    sandbox
+        .models(&["enable", "auto_arima_chapkit", "--bind", "not-an-address"])
+        .assert()
+        .failure();
+}

@@ -20,6 +20,7 @@ fn enabled_on(host_port: Option<u16>) -> EnabledModel {
         version: "1.0.0".into(),
         channel: Some(Channel::Stable),
         host_port,
+        bind: None,
         data_dir: "/app/data".into(),
         // What `models enable` records today: the numeric pair the image's
         // `USER chapkit` resolves to.

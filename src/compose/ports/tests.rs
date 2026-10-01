@@ -122,6 +122,8 @@ fn short_form_entries_yield_the_host_side() {
     assert_eq!(host_port_of_short_form("5002:8000"), Some(5002));
     assert_eq!(host_port_of_short_form("5002:8000/tcp"), Some(5002));
     assert_eq!(host_port_of_short_form("127.0.0.1:5003:8000"), Some(5003));
+    assert_eq!(host_port_of_short_form("[::1]:5004:8000"), Some(5004));
+    assert_eq!(host_port_of_short_form("[::1]:5004:8000/tcp"), Some(5004));
     assert_eq!(host_port_of_short_form("0.0.0.0:5004:8000/udp"), Some(5004));
     assert_eq!(host_port_of_short_form("8000"), None);
     assert_eq!(host_port_of_short_form("5000-5010:8000"), None);
@@ -286,6 +288,7 @@ fn allocator_for_seeds_from_the_state_and_the_directory() {
         version: "1.0.0".into(),
         channel: None,
         host_port: Some(5001),
+        bind: None,
         data_dir: "/app/data".into(),
         user: "chapkit:chapkit".into(),
         user_from: Default::default(),
