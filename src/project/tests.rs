@@ -1,4 +1,9 @@
+use super::naming::*;
+use super::store::*;
 use super::*;
+use crate::components::COMPONENTS_FILE;
+use crate::error::ChapError;
+use std::path::Path;
 
 #[test]
 fn a_manual_models_source_is_what_models_add_takes() {

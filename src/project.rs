@@ -5,13 +5,19 @@
 //! components. They are intent; the compose files at the project root are
 //! artifacts rendered from them by `chaps sync`.
 
-use crate::components::{COMPONENTS_FILE, Components};
+mod manual;
+mod naming;
+mod store;
+
+pub use manual::{ManualModel, ManualModels};
+pub use naming::{derived_project_name, new_compose_project_name, normalized_project_name};
+
+use crate::components::Components;
 use crate::compose::UserSource;
-use crate::error::{ChapError, Result};
 use crate::registry::Channel;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Directory that marks a project, at the root of a project directory.
 pub const CHAPS_DIR: &str = ".chaps";
@@ -114,93 +120,6 @@ impl ApiPortSource {
     }
 }
 
-/// How many random hex characters a generated compose project name ends in.
-///
-/// Three bytes: short enough to keep a container name readable, and 16 million
-/// values is far more than the handful of deployments one machine ever holds.
-pub const PROJECT_SUFFIX_BYTES: usize = 3;
-
-/// The longest slug a generated compose project name starts with.
-///
-/// Compose puts the project name in front of every container and volume name,
-/// and a name nobody can read on a `docker ps` line helps no one.
-const MAX_SLUG: usize = 32;
-
-/// What a generated name falls back to when the directory name yields no
-/// usable slug at all (`~/深度`, say).
-const FALLBACK_SLUG: &str = "chaps";
-
-/// The compose project name compose itself would derive from a directory name.
-///
-/// Compose lowercases the name, drops every character outside `[a-z0-9_-]` and
-/// trims leading `_` and `-`. This mirrors that rule exactly, because it is
-/// what an existing deployment's containers and volumes are already named
-/// after: recording this value changes nothing, which is the point.
-///
-/// `None` when nothing is left, which is a directory compose would refuse to
-/// name a project after either.
-pub fn normalized_project_name(dir_name: &str) -> Option<String> {
-    let kept: String = dir_name
-        .chars()
-        .map(|c| c.to_ascii_lowercase())
-        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-')
-        .collect();
-    let trimmed = kept.trim_start_matches(['_', '-']);
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-/// The same, for the directory itself. `None` for a path with no file name,
-/// or one whose name normalises to nothing.
-pub fn derived_project_name(dir: &Path) -> Option<String> {
-    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    normalized_project_name(&dir.file_name()?.to_string_lossy())
-}
-
-/// The readable half of a generated compose project name.
-///
-/// Lowercase `[a-z0-9-]` starting with a letter or a digit, which is what
-/// Compose accepts and what reads as the deployment's own name on a
-/// `docker ps` line. Anything else folds to a single `-`.
-pub fn project_slug(dir_name: &str) -> String {
-    let mut out = String::with_capacity(dir_name.len());
-    for ch in dir_name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-        } else if !out.is_empty() && !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    let out = out.trim_matches('-');
-    let out: String = out.chars().take(MAX_SLUG).collect();
-    let out = out.trim_matches('-').to_string();
-    if out.is_empty() {
-        return FALLBACK_SLUG.to_string();
-    }
-    out
-}
-
-/// `<slug>-<suffix>`, the compose project name a new deployment gets.
-pub fn compose_project_name(dir_name: &str, suffix: &str) -> String {
-    format!("{}-{suffix}", project_slug(dir_name))
-}
-
-/// A compose project name for a deployment being created in `dir`.
-///
-/// The directory name is only half of it: two directories both called `demo`
-/// would otherwise share every named volume, so a fresh deployment gets six
-/// random hex characters of its own. See [`ProjectState::compose_project`].
-pub fn new_compose_project_name(dir: &Path) -> Result<String> {
-    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let name = dir
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    Ok(compose_project_name(
-        &name,
-        &crate::auth::random_hex(PROJECT_SUFFIX_BYTES)?,
-    ))
-}
-
 /// File name of the cached copy of chap-core's `compose.ghcr.yml` at `tag`,
 /// inside [`CHAPS_DIR`].
 ///
@@ -218,15 +137,6 @@ pub fn cached_compose_file(tag: &str) -> String {
     }
     format!("compose.chap-core.{safe}.yml")
 }
-
-/// The first line of every file in `.chaps/`.
-///
-/// One line, the same in each of them: what each file holds and which command
-/// edits it is documented, and a generated file that carries the explanation
-/// too is one more copy to keep in step.
-const MANAGED_HEADER: &str =
-    "# Managed by chaps; change it with the chaps commands, not by hand.\n";
-
 /// Where the base `compose.yml` is rendered from.
 ///
 /// `compose.yml` is an artifact like the overlays: [`crate::compose::sync()`]
@@ -421,142 +331,6 @@ pub struct EnabledModel {
     pub compose_file: String,
 }
 
-impl ManualModel {
-    /// What `chaps models add` was given, or its equivalent: the repository
-    /// when it came from one, else the pinned image reference.
-    pub fn source(&self) -> String {
-        match &self.repository {
-            Some(repository) => repository.clone(),
-            None if self.tag.starts_with('@') => format!("{}{}", self.image, self.tag),
-            None => format!("{}:{}", self.image, self.tag),
-        }
-    }
-}
-
-/// The manual model definitions of a deployment, keyed by id.
-pub type ManualModels = BTreeMap<String, ManualModel>;
-
-/// One model added with `chaps models add`, as recorded in
-/// `models-manual.yaml`.
-///
-/// Everything a marketplace file would have said about it, and nothing about
-/// whether it is enabled: that stays in `models.yaml`, so a manually added
-/// model can be disabled and enabled again like any other.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ManualModel {
-    /// Compose service name and DNS name. It has to match the id the service
-    /// registers with chap-core under, or `chaps status` sees an unmanaged
-    /// service next to a model that never arrived.
-    pub service_id: String,
-    pub display_name: String,
-    /// The GitHub repository it was added from, when it was added from one.
-    #[serde(default)]
-    pub repository: Option<String>,
-    /// Tagless image reference, lowercase.
-    pub image: String,
-    /// The pin: a `sha-<short commit>` tag, or `@sha256:...` for a digest.
-    pub tag: String,
-    /// The commit the tag was built from, where it is known.
-    #[serde(default)]
-    pub commit: Option<String>,
-    /// The branch `chaps update` follows, or `None` for a pinned entry.
-    #[serde(default)]
-    pub follow: Option<String>,
-    /// The data directory the image writes to, as `models add` resolved it.
-    ///
-    /// The marketplace's equivalent is [`crate::compose::overrides`], which
-    /// is a table of images this CLI ships with and cannot grow an entry for
-    /// a model it has never seen. Recording it here is what makes `models
-    /// disable` followed by `models enable` bring the model back as it was,
-    /// rather than on the chapkit defaults.
-    #[serde(default)]
-    pub data_dir: Option<String>,
-    /// The `user:group` the container runs as, likewise.
-    #[serde(default)]
-    pub user: Option<String>,
-    /// Whether the image is published for amd64 only, which is what the
-    /// synthesised entry reports as the R-INLA runtime.
-    #[serde(default)]
-    pub runtime_amd64: bool,
-    /// `YYYY-MM-DD`, the day it was added.
-    pub added: String,
-}
-
-impl ManualModel {
-    /// The marketplace entry this definition stands in for.
-    ///
-    /// One version, which both channels point at, so every path that resolves
-    /// a model - `enable`, `sync`, `update`, the browser - reaches the
-    /// recorded pin without a special case. The status is gray and the
-    /// summary says where it came from, because nothing here was reviewed by
-    /// the marketplace.
-    pub fn to_model(&self, id: &str) -> crate::registry::Model {
-        use crate::registry::model::{
-            Attribution, Channels, Compatibility, Covariates, Kind, Source, Version, VersionStatus,
-        };
-        let origin = self
-            .repository
-            .clone()
-            .unwrap_or_else(|| crate::compose::image_ref(&self.image, &self.tag));
-        crate::registry::Model {
-            schema_version: 2,
-            id: id.to_string(),
-            service_id: self.service_id.clone(),
-            display_name: self.display_name.clone(),
-            kind: Kind::Model,
-            assessed_status: crate::registry::AssessedStatus::Gray,
-            summary: format!("added manually from {origin}"),
-            source: Source {
-                repository: origin,
-                image: self.image.clone(),
-                runtime_image: match self.runtime_amd64 {
-                    true => crate::registry::model::R_INLA_RUNTIME.to_string(),
-                    false => String::new(),
-                },
-            },
-            attribution: Attribution {
-                author: String::new(),
-                organization: None,
-                contact: None,
-                citation: None,
-            },
-            maintainers: Vec::new(),
-            compatibility: Compatibility {
-                period_types: Vec::new(),
-                min_prediction_periods: 0,
-                max_prediction_periods: 0,
-                requires_geo: false,
-            },
-            covariates: Covariates {
-                required: Vec::new(),
-                defaults: Vec::new(),
-                allow_free_additional: false,
-            },
-            channels: Channels {
-                stable: self.tag.clone(),
-                latest: self.tag.clone(),
-            },
-            versions: vec![Version {
-                version: self.tag.clone(),
-                commit: self.commit.clone().unwrap_or_default(),
-                image_tag: self.tag.clone(),
-                chapkit: String::new(),
-                status: VersionStatus::Unstable,
-                verified_by: Vec::new(),
-                changelog: None,
-                notes: None,
-            }],
-            configurations: BTreeMap::new(),
-            manual: true,
-        }
-    }
-
-    /// The image reference this entry pins.
-    pub fn image_ref(&self) -> String {
-        crate::compose::image_ref(&self.image, &self.tag)
-    }
-}
-
 /// A project directory plus its parsed state.
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -565,173 +339,6 @@ pub struct Project {
 }
 
 impl Project {
-    /// Whether `dir` itself holds a `.chaps/project.yaml`.
-    pub fn exists(dir: &Path) -> bool {
-        dir.join(CHAPS_DIR).join(PROJECT_FILE).is_file()
-    }
-
-    /// The project directory that contains `start`: `start` itself or the
-    /// nearest ancestor holding a `.chaps/project.yaml`, like git's discovery
-    /// of `.git`.
-    pub fn find_root(start: &Path) -> Option<PathBuf> {
-        let start = std::path::absolute(start).ok()?;
-        let mut dir: &Path = &start;
-        loop {
-            if Project::exists(dir) {
-                return Some(dir.to_path_buf());
-            }
-            dir = dir.parent()?;
-        }
-    }
-
-    /// The marketplace registry `project.yaml` under `root` records, which
-    /// `chaps init --registry-url` wrote there.
-    ///
-    /// Read on its own rather than through [`Project::load`], because it is
-    /// asked before any command runs: a deployment whose other state files do
-    /// not load still has a registry, and the command that reports the broken
-    /// file needs it. `None` for a file that is missing or does not parse, and
-    /// the command then goes on with the default.
-    pub fn saved_registry_url(root: &Path) -> Option<String> {
-        let body = std::fs::read_to_string(root.join(CHAPS_DIR).join(PROJECT_FILE)).ok()?;
-        let state: serde_yaml_ng::Value = serde_yaml_ng::from_str(&body).ok()?;
-        state
-            .get("registry_url")?
-            .as_str()
-            .map(str::trim)
-            .filter(|url| !url.is_empty())
-            .map(str::to_string)
-    }
-
-    /// Load the project that contains `start`, walking up parent directories.
-    ///
-    /// Errors with [`ChapError::NotAProject`] naming `start` when no ancestor
-    /// is a project.
-    pub fn find(start: &Path) -> Result<Project> {
-        match Project::find_root(start) {
-            Some(root) => Project::load(&root),
-            None => {
-                let shown = std::path::absolute(start).unwrap_or_else(|_| start.to_path_buf());
-                Err(ChapError::NotAProject(shown).into())
-            }
-        }
-    }
-
-    /// Read `dir/.chaps/project.yaml` and `dir/.chaps/models.yaml`.
-    ///
-    /// Errors with [`ChapError::NotAProject`] when `project.yaml` is absent;
-    /// a missing `models.yaml` means no models are enabled.
-    pub fn load(dir: &Path) -> Result<Project> {
-        let chaps = dir.join(CHAPS_DIR);
-        let project_path = chaps.join(PROJECT_FILE);
-        let body = match std::fs::read_to_string(&project_path) {
-            Ok(body) => body,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ChapError::NotAProject(dir.to_path_buf()).into());
-            }
-            Err(e) => {
-                return Err(
-                    anyhow::Error::new(e).context(format!("reading {}", project_path.display()))
-                );
-            }
-        };
-        let mut state: ProjectState = serde_yaml_ng::from_str(&body).map_err(|e| {
-            anyhow::anyhow!("{}: invalid project.yaml: {e}", project_path.display())
-        })?;
-
-        let models_path = chaps.join(MODELS_FILE);
-        state.models = match std::fs::read_to_string(&models_path) {
-            Ok(body) if is_blank_yaml(&body) => BTreeMap::new(),
-            Ok(body) => serde_yaml_ng::from_str(&body).map_err(|e| {
-                anyhow::anyhow!("{}: invalid models.yaml: {e}", models_path.display())
-            })?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-            Err(e) => {
-                return Err(
-                    anyhow::Error::new(e).context(format!("reading {}", models_path.display()))
-                );
-            }
-        };
-
-        // Definitions, not enablements: a deployment that has added no model
-        // of its own has no such file, which is not a state to migrate.
-        let manual_path = chaps.join(MANUAL_MODELS_FILE);
-        state.manual = match std::fs::read_to_string(&manual_path) {
-            Ok(body) if is_blank_yaml(&body) => ManualModels::new(),
-            Ok(body) => serde_yaml_ng::from_str(&body).map_err(|e| {
-                anyhow::anyhow!("{}: invalid models-manual.yaml: {e}", manual_path.display())
-            })?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ManualModels::new(),
-            Err(e) => {
-                return Err(
-                    anyhow::Error::new(e).context(format!("reading {}", manual_path.display()))
-                );
-            }
-        };
-
-        // Every field of `Components` defaults, so a missing or comment-only
-        // file is "chap-core and nothing else" rather than an error.
-        let components_path = chaps.join(COMPONENTS_FILE);
-        state.components = match std::fs::read_to_string(&components_path) {
-            Ok(body) if is_blank_yaml(&body) => Components::default(),
-            Ok(body) => serde_yaml_ng::from_str(&body).map_err(|e| {
-                anyhow::anyhow!(
-                    "{}: invalid components.yaml: {e}",
-                    components_path.display()
-                )
-            })?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Components::default(),
-            Err(e) => {
-                return Err(
-                    anyhow::Error::new(e).context(format!("reading {}", components_path.display()))
-                );
-            }
-        };
-        check_file_names(&state)?;
-        Ok(Project {
-            dir: dir.to_path_buf(),
-            state,
-        })
-    }
-
-    /// Write `.chaps/project.yaml` and `.chaps/models.yaml`.
-    ///
-    /// Each file goes to a temporary sibling first and is renamed into place,
-    /// so a crash never leaves a half-written state file behind.
-    pub fn save(&self) -> Result<()> {
-        let chaps = self.dir.join(CHAPS_DIR);
-        std::fs::create_dir_all(&chaps)
-            .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
-
-        let project_body = format!("{MANAGED_HEADER}{}", serde_yaml_ng::to_string(&self.state)?);
-        write_atomically(&chaps.join(PROJECT_FILE), &project_body)?;
-
-        let models_body = format!(
-            "{MANAGED_HEADER}{}",
-            serde_yaml_ng::to_string(&self.state.models)?
-        );
-        write_atomically(&chaps.join(MODELS_FILE), &models_body)?;
-
-        // Written only by a deployment that has one: an empty file in every
-        // other project would be a file to explain, and `chaps models remove`
-        // leaves the (now empty) one it emptied rather than deleting a file
-        // the operator can see.
-        let manual_path = chaps.join(MANUAL_MODELS_FILE);
-        if !self.state.manual.is_empty() || manual_path.is_file() {
-            let manual_body = format!(
-                "{MANAGED_HEADER}{}",
-                serde_yaml_ng::to_string(&self.state.manual)?
-            );
-            write_atomically(&manual_path, &manual_body)?;
-        }
-
-        let components_body = format!(
-            "{MANAGED_HEADER}{}",
-            serde_yaml_ng::to_string(&self.state.components)?
-        );
-        write_atomically(&chaps.join(COMPONENTS_FILE), &components_body)
-    }
-
     /// The `.chaps/` directory of this project.
     pub fn chaps_dir(&self) -> PathBuf {
         self.dir.join(CHAPS_DIR)
@@ -919,61 +526,6 @@ impl Project {
     pub fn proxy_url(&self, service_id: &str) -> String {
         format!("{}/v2/services/{service_id}/run/", self.api_url())
     }
-}
-
-/// Whether `name` is one file directly in the deployment directory: no
-/// separator, no drive, nothing that climbs out of it.
-///
-/// Every compose file chaps renders is such a name (`compose.yml`,
-/// `compose.<service>.yml`), and `sync` writes and removes them with
-/// `dir.join(name)` - which an absolute path or a `..` would take outside the
-/// directory. State that arrives from elsewhere, a restored backup above all,
-/// is held to this before anything joins it.
-pub fn is_plain_file_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':', '\0'])
-}
-
-/// Refuse state whose compose file names are not plain file names. See
-/// [`is_plain_file_name`].
-fn check_file_names(state: &ProjectState) -> Result<()> {
-    let way_out = "chaps only writes `compose.<service>.yml` there; correct the entry by hand, \
-                   or run `chaps init --force` to rebuild the state";
-    for (id, model) in &state.models {
-        if !is_plain_file_name(&model.compose_file) {
-            return Err(anyhow::anyhow!(
-                "`{CHAPS_DIR}/{MODELS_FILE}` gives {id} the compose file `{}`, which is not a \
-                 file in this deployment's directory; {way_out}",
-                model.compose_file
-            ));
-        }
-    }
-    for name in state.compose_files.iter().chain(&state.rendered_files) {
-        if !is_plain_file_name(name) {
-            return Err(anyhow::anyhow!(
-                "`{CHAPS_DIR}/{PROJECT_FILE}` lists the compose file `{name}`, which is not a \
-                 file in this deployment's directory; {way_out}"
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// A YAML document with nothing but comments and blank lines.
-fn is_blank_yaml(body: &str) -> bool {
-    body.lines()
-        .all(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
-}
-
-fn write_atomically(path: &Path, body: &str) -> Result<()> {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.tmp"));
-    std::fs::write(&tmp, body).map_err(|e| anyhow::anyhow!("writing {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|e| anyhow::anyhow!("renaming {} to {}: {e}", tmp.display(), path.display()))?;
-    Ok(())
 }
 
 #[cfg(test)]
