@@ -297,11 +297,11 @@ mod tests {
         let opts = opts(tmp.path());
         let (index, models) = snapshot();
         write(&opts, &index, &models).unwrap();
-        backdate(&opts, Duration::from_secs(90_000));
+        backdate(&opts, Duration::from_hours(25));
 
         let (_, _, age) = read(&opts).unwrap().unwrap();
-        assert!(age >= Duration::from_secs(90_000), "age was {age:?}");
-        assert!(age < Duration::from_secs(90_600));
+        assert!(age >= Duration::from_hours(25), "age was {age:?}");
+        assert!(age < Duration::from_mins(1510));
     }
 
     #[test]

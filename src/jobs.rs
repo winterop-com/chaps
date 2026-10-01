@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(took_text(Duration::from_secs(129)), "2m 9s");
         assert_eq!(took_text(Duration::from_secs(3599)), "59m 59s");
         assert_eq!(took_text(Duration::from_secs(3600)), "1h 0m");
-        assert_eq!(took_text(Duration::from_secs(7_380)), "2h 3m");
+        assert_eq!(took_text(Duration::from_mins(123)), "2h 3m");
     }
 
     #[test]

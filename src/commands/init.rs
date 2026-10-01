@@ -1167,7 +1167,10 @@ fn env_auth(env: EnvAction, path: &Path) -> AuthState {
         .unwrap_or_default()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one summary line per piece init decided"
+)]
 fn summary(
     out: &Out,
     dir: &Path,

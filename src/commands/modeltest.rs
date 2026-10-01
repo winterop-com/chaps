@@ -282,7 +282,10 @@ fn unmanaged(service_id: &str) -> EnabledModel {
 // ---------------------------------------------------------------------------
 
 /// Run `chapkit test` inside one model's container and read what it printed.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the run's context and the one model it tests"
+)]
 fn model_level(
     ctx: &Ctx,
     project: &Project,

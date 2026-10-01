@@ -944,8 +944,8 @@ mod tests {
         assert_eq!(human_age(Duration::from_secs(0)), "0 seconds");
         assert_eq!(human_age(Duration::from_secs(1)), "1 second");
         assert_eq!(human_age(Duration::from_secs(90)), "1 minute");
-        assert_eq!(human_age(Duration::from_secs(3 * 3600)), "3 hours");
-        assert_eq!(human_age(Duration::from_secs(50 * 3600)), "2 days");
+        assert_eq!(human_age(Duration::from_hours(3)), "3 hours");
+        assert_eq!(human_age(Duration::from_hours(50)), "2 days");
     }
 
     #[test]
@@ -954,8 +954,8 @@ mod tests {
         assert_eq!(ago(Duration::from_secs(12)), "12s ago");
         assert_eq!(ago(Duration::from_secs(59)), "59s ago");
         assert_eq!(ago(Duration::from_secs(180)), "3m ago");
-        assert_eq!(ago(Duration::from_secs(3 * 3600)), "3h ago");
-        assert_eq!(ago(Duration::from_secs(50 * 3600)), "2d ago");
+        assert_eq!(ago(Duration::from_hours(3)), "3h ago");
+        assert_eq!(ago(Duration::from_hours(50)), "2d ago");
         // The same boundary human_age uses, so the two never disagree.
         assert_eq!(ago(Duration::from_secs(60)), "1m ago");
         assert_eq!(human_age(Duration::from_secs(60)), "1 minute");

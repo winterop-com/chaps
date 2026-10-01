@@ -19,7 +19,7 @@ pub const DEFAULT_REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml";
 
 /// How long a cached snapshot is considered fresh.
-pub const CACHE_TTL: Duration = Duration::from_secs(24 * 3600);
+pub const CACHE_TTL: Duration = Duration::from_hours(24);
 
 /// Default network timeout for registry requests.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);

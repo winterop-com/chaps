@@ -1789,7 +1789,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
 /// adds later - are ignored.
 #[derive(Debug, Deserialize)]
 struct ServicesBody {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "required in the envelope, never read")]
     count: u64,
     services: Vec<WireService>,
 }

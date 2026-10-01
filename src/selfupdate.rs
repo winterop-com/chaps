@@ -62,7 +62,7 @@ const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
 pub const CHECK_FILE: &str = "self-update-check.json";
 
 /// How long an update check is considered fresh.
-pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+pub const CHECK_INTERVAL: Duration = Duration::from_hours(24);
 
 /// Timeout for the background check, short enough that a slow network costs a
 /// command nothing worth noticing.
