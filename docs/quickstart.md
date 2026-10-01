@@ -31,6 +31,9 @@ Wrote:
   compose.marketplace.yml
   .chaps/project.yaml
   .chaps/models.yaml
+  .chaps/components.yaml
+
+components: chap-core
 
 chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)
 API:       http://localhost:8700
@@ -94,7 +97,7 @@ chaps status
 ```
 
 ```text
-chap-core   up   http://localhost:8700   v2.3.1   auth: off
+chap-core   up   http://localhost:8700   2.3.1   auth: off
 
 MODEL                             STATE                    REACH               LAST PING
 chapkit-ewars-model               registered               port 5001           12s ago
@@ -136,6 +139,8 @@ chaps models info chapkit_rwanda_malaria_bym_model
 chaps models enable chapkit_rwanda_malaria_bym_model --channel stable
 chaps up                                     # apply it
 ```
+
+`chaps models list` shows the whole catalogue and what this project enabled:
 
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
