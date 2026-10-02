@@ -1740,3 +1740,50 @@ fn enabling_dhis2_names_the_command_that_connects_it_to_chap() {
     assert!(env.contains("# DHIS2_ADMIN_PASSWORD=district"), "{env}");
     assert_eq!(env_value(&env, "DHIS2_ADMIN_PASSWORD"), None, "{env}");
 }
+
+/// An external DHIS2 is recorded as connected only when the route works and
+/// both apps are there, as a local one is: without the apps, `chaps up` and
+/// `chaps status` keep the connect hint.
+#[cfg(unix)]
+#[test]
+fn connect_on_an_external_dhis2_without_the_apps_records_nothing() {
+    // An external DHIS2 records it under `dhis2_external`.
+    let recorded = |dir: &std::path::Path| {
+        read(&dir.join(".chaps").join("components.yaml"))
+            .lines()
+            .any(|line| line.trim_start().starts_with("connected_at: 20"))
+    };
+    for (apps, connected) in [
+        (Vec::new(), false),
+        (
+            vec![
+                serde_json::json!({"name": "Modeling", "key": "modeling", "version": "7.1.0"}),
+                serde_json::json!({"name": "DHIS2 Climate App", "key": "dhis2-climate-app", "version": "1.16.2"}),
+            ],
+            true,
+        ),
+    ] {
+        let stand_in = Dhis2StandIn::with(Dhis2State {
+            apps,
+            ..Dhis2State::default()
+        });
+        let (sandbox, dir, empty) = external_dhis2_sandbox();
+        let url = format!("http://127.0.0.1:{}", stand_in.port);
+        let env = dir.join(".env");
+        let body = read(&env);
+        std::fs::write(&env, format!("{body}DHIS2_API_TOKEN=d2p_sekret\n")).unwrap();
+        dhis2_chap(
+            &sandbox,
+            &dir,
+            empty.path(),
+            None,
+            &["use", &url, "--chap-url", EXTERNAL_CHAP_URL],
+        )
+        .assert()
+        .success();
+        dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
+            .assert()
+            .success();
+        assert_eq!(recorded(&dir), connected);
+    }
+}

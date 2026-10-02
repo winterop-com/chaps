@@ -23,20 +23,25 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         let mut left = Vec::new();
         // Only a listing that names both apps lets the report say the Modeling
         // App can reach Chap now rather than once it is installed.
-        let installed = match chap_apps(&session) {
+        let listed = match chap_apps(&session) {
             Ok(apps) => {
                 left.extend(missing_apps(&apps));
-                left.is_empty()
+                true
             }
             Err(err) => {
                 ctx.out.verbose(&format!("could not list the apps: {err}"));
                 false
             }
         };
+        let installed = listed && left.is_empty();
         let notes = external_left_alone(&left);
-        let judgement = match route.verified {
-            true => Judgement::Connected,
-            false => Judgement::Broken,
+        // Connected means what it means for a local DHIS2: the route works
+        // and the apps are there. An app listing that failed proves neither.
+        let judgement = match (route.verified, listed, installed) {
+            (false, _, _) => Judgement::Broken,
+            (true, false, _) => Judgement::Unknown,
+            (true, true, true) => Judgement::Connected,
+            (true, true, false) => Judgement::Broken,
         };
         let record = record_connect(ctx, &mut session.project, judgement)?;
         let report = Dhis2Report {
