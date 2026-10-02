@@ -44,6 +44,9 @@ pub fn image_verdict(
                 "this docker CLI has `docker manifest` behind its experimental flag",
             )
         }
+        Outcome::Done { stderr, .. } if !manifest_missing(stderr) => {
+            unanswered(id, name, reference, stderr)
+        }
         Outcome::Done { stderr, .. } => Check::fail(
             id,
             name,
@@ -51,6 +54,30 @@ pub fn image_verdict(
             format!("run `chaps models enable {marketplace_id}` to resolve the pin again"),
         ),
     }
+}
+
+/// Whether `docker manifest inspect` said the tag does not exist, as opposed
+/// to the registry refusing or failing to answer - a rate limit, a 5xx, an
+/// `unauthorized` - which says nothing about the tag.
+pub fn manifest_missing(stderr: &str) -> bool {
+    let text = stderr.to_ascii_lowercase();
+    text.contains("no such manifest")
+        || text.contains("manifest unknown")
+        || text.contains("not found")
+}
+
+/// A registry that answered without saying whether the tag exists: a warning
+/// that quotes it, never a "not found" that sends the operator to re-pin.
+fn unanswered(id: String, name: String, reference: &str, stderr: &str) -> Check {
+    Check::warn(
+        id,
+        name,
+        format!(
+            "the registry did not say whether {reference} exists: {}",
+            first_line(stderr)
+        ),
+        "a rate limit or a registry outage reads like this; run `chaps doctor` again later",
+    )
 }
 
 /// Why the image manifests were not looked up, or `None` when they were.
@@ -101,6 +128,9 @@ pub fn component_image_verdict(name: &str, reference: &str, outcome: &Outcome) -
                 "this docker CLI has `docker manifest` behind its experimental flag",
             )
         }
+        Outcome::Done { stderr, .. } if !manifest_missing(stderr) => {
+            unanswered(id, check_name, reference, stderr)
+        }
         Outcome::Done { stderr, .. } => Check::fail(
             id,
             check_name,
@@ -123,27 +153,54 @@ pub fn component_image_verdict(name: &str, reference: &str, outcome: &Outcome) -
 /// `chaps doctor` to report a chaps bug as the operator's problem, and the
 /// `fix` line would name a variable that does not exist. chap-core's own
 /// postgres and valkey are left out on the same rule.
-pub fn component_images(components: &Components) -> Vec<(String, String)> {
+///
+/// Each tag as compose will read it: the variable in `.env` (`env`) when it
+/// sets one, the recorded tag otherwise - the compose files render
+/// `${VAR:-recorded}`, so an override there is what actually gets pulled.
+pub fn component_images(components: &Components, env: &str) -> Vec<(String, String)> {
+    let tag = |var: &str, recorded: &str| {
+        crate::dotenv::non_empty(env, var).unwrap_or_else(|| recorded.to_string())
+    };
     let mut images = Vec::new();
     if components.ocs.enabled {
         images.push((
             crate::compose::OCS_SERVICE.to_string(),
-            format!("{OCS_IMAGE}:{}", components.ocs.image_tag),
+            format!(
+                "{OCS_IMAGE}:{}",
+                tag(OCS_TAG_ENV_VAR, &components.ocs.image_tag)
+            ),
         ));
     }
     if components.s3.enabled {
         images.push((
             crate::compose::S3_SERVICE.to_string(),
-            format!("{S3_IMAGE}:{S3_DEFAULT_TAG}"),
+            format!("{S3_IMAGE}:{}", tag(S3_TAG_ENV_VAR, S3_DEFAULT_TAG)),
         ));
     }
     if components.dhis2.enabled {
         images.push((
             crate::compose::DHIS2_SERVICE.to_string(),
-            format!("{}:{}", components.dhis2.image, components.dhis2.image_tag),
+            format!(
+                "{}:{}",
+                components.dhis2.image,
+                tag(DHIS2_TAG_ENV_VAR, &components.dhis2.image_tag)
+            ),
         ));
     }
     images
+}
+
+/// The image reference compose pulls for one model: its tag variable in
+/// `.env` when that sets one, the pinned tag otherwise.
+pub fn model_reference(id: &str, model: &crate::project::EnabledModel, env: &str) -> String {
+    let tag = crate::dotenv::non_empty(env, &crate::compose::tag_env_var(id))
+        .unwrap_or_else(|| model.image_tag.clone());
+    crate::compose::image_ref(&model.image, &tag)
+}
+
+/// This deployment's `.env`, or nothing.
+fn env_body(project: &Project) -> String {
+    std::fs::read_to_string(project.dir.join(ENV_FILE)).unwrap_or_default()
 }
 
 /// One line per enabled model: does the user its overlay runs it as still
@@ -168,12 +225,13 @@ fn user_checks_with(
     have_cli: bool,
     declared: &dyn Fn(&str) -> Option<(String, String)>,
 ) -> Vec<Check> {
+    let env = env_body(project);
     project
         .state
         .models
         .iter()
         .map(|(id, model)| {
-            let reference = crate::compose::image_ref(&model.image, &model.image_tag);
+            let reference = model_reference(id, model, &env);
             let found = have_cli
                 .then(|| declared(&reference))
                 .flatten()
@@ -244,7 +302,8 @@ pub(super) fn image_checks(
     probed: Option<&Probed>,
     have_cli: bool,
 ) -> Vec<Check> {
-    // Marketplace id, service id and the exact reference the overlay pins.
+    // Marketplace id, service id and the exact reference compose pulls.
+    let env = env_body(project);
     let models: Vec<(String, String, String)> = project
         .state
         .models
@@ -253,11 +312,11 @@ pub(super) fn image_checks(
             (
                 id.clone(),
                 model.service_id.clone(),
-                crate::compose::image_ref(&model.image, &model.image_tag),
+                model_reference(id, model, &env),
             )
         })
         .collect();
-    let components = component_images(&project.state.components);
+    let components = component_images(&project.state.components, &env);
 
     if let Some(reason) = image_skip_reason(probed, have_cli) {
         let model_skips = models.iter().map(|(_, service_id, _)| service_id);

@@ -156,14 +156,14 @@ fn the_user_checks_cover_every_enabled_model() {
 
 #[test]
 fn the_component_images_are_the_ones_the_enabled_set_pulls() {
-    assert!(component_images(&Components::default()).is_empty());
+    assert!(component_images(&Components::default(), "").is_empty());
 
     let mut components = Components::default();
     components.set_enabled(crate::components::Component::Ocs, true);
     components.set_enabled(crate::components::Component::S3, true);
     components.set_enabled(Component::Dhis2, true);
     assert_eq!(
-        component_images(&components),
+        component_images(&components, ""),
         vec![
             (
                 "ocs".to_string(),
@@ -177,7 +177,7 @@ fn the_component_images_are_the_ones_the_enabled_set_pulls() {
         ]
     );
     assert!(
-        !component_images(&components)
+        !component_images(&components, "")
             .iter()
             .any(|(_, reference)| reference.contains("postgis")),
         "the database image has no tag a deployment can move"
@@ -404,4 +404,67 @@ fn the_stack_check_follows_what_status_found() {
     assert_eq!(status, Status::Fail);
     assert!(detail.contains("connection refused"), "{detail}");
     assert!(fix.unwrap().contains("chaps logs chap"));
+}
+
+/// A registry that refuses or fails says nothing about the tag: a warning
+/// that quotes it, while a manifest that does not exist still fails.
+#[test]
+fn only_a_missing_manifest_fails_an_image_line() {
+    let limited = image_verdict(
+        "chapkit_ewars_model",
+        "chapkit-ewars-model",
+        "ghcr.io/chap-models/chapkit_ewars_model:sha-1",
+        &done(false, "", "toomanyrequests: retry later"),
+    );
+    assert_eq!(limited.status, Status::Warn, "{limited:?}");
+    assert!(limited.detail.contains("toomanyrequests"), "{limited:?}");
+
+    let missing = image_verdict(
+        "chapkit_ewars_model",
+        "chapkit-ewars-model",
+        "ghcr.io/chap-models/chapkit_ewars_model:sha-1",
+        &done(false, "", "manifest unknown: manifest unknown"),
+    );
+    assert_eq!(missing.status, Status::Fail, "{missing:?}");
+
+    let hub = component_image_verdict("dhis2", "dhis2/core:2.42", &done(false, "", "unauthorized"));
+    assert_eq!(hub.status, Status::Warn, "{hub:?}");
+    assert!(manifest_missing("no such manifest: docker.io/x:y"));
+}
+
+/// The tag compose pulls is the one `.env` overrides it with, so that is the
+/// one checked.
+#[test]
+fn an_env_tag_override_is_the_reference_checked() {
+    let mut components = Components::default();
+    components.ocs.enabled = true;
+    let env = format!("{OCS_TAG_ENV_VAR}=bad\n");
+    assert_eq!(
+        component_images(&components, &env)[0].1,
+        format!("{OCS_IMAGE}:bad")
+    );
+
+    let model = crate::project::EnabledModel {
+        service_id: "m".into(),
+        image: "ghcr.io/chap-models/m".into(),
+        image_tag: "sha-1".into(),
+        version: "1.0.0".into(),
+        channel: None,
+        host_port: None,
+        bind: None,
+        data_dir: "/app/data".into(),
+        user: "1000:1000".into(),
+        user_from: Default::default(),
+        platform: None,
+        compose_file: "compose.m.yml".into(),
+    };
+    let var = crate::compose::tag_env_var("m");
+    assert_eq!(
+        model_reference("m", &model, ""),
+        "ghcr.io/chap-models/m:sha-1"
+    );
+    assert_eq!(
+        model_reference("m", &model, &format!("{var}=sha-2\n")),
+        "ghcr.io/chap-models/m:sha-2"
+    );
 }
