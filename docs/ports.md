@@ -60,8 +60,9 @@ which `CHAP_API_PORT` in `.env` sets - and the footer names that line instead. S
 
 Model ports come from the range 5001 to 5999, with 5001 the default lowest
 (`init --port-base` moves it). A port has to be free twice over: unclaimed by
-`.chaps/models.yaml` and by every `compose*.yml` in the directory, and with
-nothing on the machine listening on it. So two models never collide, and
+`.chaps/models.yaml`, by every `compose*.yml` in the directory and by
+chap-core's API port as `.env` sets it, and with nothing on the machine
+listening on it. So two models never collide, and
 neither does a model and something else you are running. `--port N` claims one
 explicitly, and the command fails if it is taken.
 
@@ -106,6 +107,10 @@ model range:
 | `ocs` | 8790 | OCS serves a web interface as well as an API, so it is published. |
 | `s3` | none | OCS reaches the object store at `http://s3:9000` inside the deployment; nothing out here needs it. |
 | `dhis2` | 8780 | Not the container's 8080, which a DHIS2 already running on this machine likely holds. DHIS2 is a web application people log into. |
+
+A component port that one of this deployment's own models already publishes
+is warned about when it is set, whether or not that model is up, with the next
+free port as the way out: `chaps up` could not start both.
 
 Each is set at creation time or afterwards, and `none` is how any of them is
 kept off the host entirely:

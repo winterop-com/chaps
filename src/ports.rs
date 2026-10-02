@@ -298,9 +298,28 @@ fn component_port_line(
         return None;
     }
     // A port another deployment publishes is as good as taken when suggesting
-    // one: moving onto it would trade one collision for another.
-    let taken = |port: u16| busy(port) || others.iter().any(|other| other.holds(port));
+    // one: moving onto it would trade one collision for another. So is one
+    // this deployment already gives to another of its own services.
+    let own: Vec<PortClaim> = claims(project)
+        .into_iter()
+        .filter(|held| held.service != claim.service)
+        .collect();
+    let taken = |port: u16| {
+        busy(port)
+            || others.iter().any(|other| other.holds(port))
+            || own.iter().any(|held| held.port == port)
+    };
     let suggestion = first_free(port.saturating_add(1), u16::MAX, &taken);
+    // Another service of this very deployment on the same port: whether or
+    // not it is up, the next `chaps up` cannot start both.
+    if let Some(held) = own.iter().find(|held| held.port == port) {
+        return Some(format!(
+            "port {port} is also published by {} in this deployment, so `chaps up` cannot start \
+             both; pick another with `--port {}`",
+            held.service,
+            suggestion.unwrap_or(port.saturating_add(1))
+        ));
+    }
     // One line either way, and the listener is the half that is in the way
     // today.
     if busy(port) {

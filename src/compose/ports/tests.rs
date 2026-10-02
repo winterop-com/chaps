@@ -311,3 +311,19 @@ fn allocator_for_seeds_from_the_state_and_the_directory() {
     let mut alloc = allocator_for(&project, &BTreeSet::from([5001])).unwrap();
     assert_eq!(alloc.allocate(&all_free).unwrap(), 5001);
 }
+
+/// chap-core's API port as `.env` sets it is not a number the compose scan
+/// can read, so the allocator reserves it: a model never gets it.
+#[test]
+fn the_allocator_never_hands_out_the_api_port() {
+    use crate::project::ProjectState;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".env"), "CHAP_API_PORT=5001\n").unwrap();
+    let project = Project {
+        dir: dir.path().to_path_buf(),
+        state: ProjectState::default(),
+    };
+    assert!(project.state.components.chap_core.enabled);
+    let mut allocator = allocator_for(&project, &BTreeSet::new()).unwrap();
+    assert_eq!(allocator.allocate(&|_| false).unwrap(), 5002);
+}

@@ -157,6 +157,14 @@ impl PortAllocator {
 pub fn allocator_for(project: &Project, freed: &BTreeSet<u16>) -> Result<PortAllocator> {
     let mut used: BTreeSet<u16> = project.used_ports();
     used.extend(PortAllocator::scan_compose_dir(&project.dir)?);
+    // chap-core's API port as `.env` sets it: `${CHAP_API_PORT:-8700}` in the
+    // compose files is not a number the scan above can read, and a model
+    // handed that port could never start beside chap-core.
+    if project.state.components.chap_core.enabled
+        && project.state.components.chap_core_external.is_none()
+    {
+        used.insert(project.effective_api_port());
+    }
     // The `chaps run` groups share one machine and one port range, and a
     // stopped model in one group still owns its port for when it starts
     // again: the other groups' compose files count as taken too.

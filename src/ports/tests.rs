@@ -724,3 +724,21 @@ fn several_deployments_are_named_three_at_a_time_and_then_counted() {
         "{line}"
     );
 }
+
+/// A component asked onto a port one of this deployment's own models
+/// publishes: whether or not the model is up, `chaps up` cannot start both.
+#[test]
+fn a_component_on_a_port_its_own_model_publishes_is_warned_about() {
+    let (_dir, project) = project();
+    let line = component_port_line(
+        &project,
+        Component::Ocs,
+        5001,
+        &|_| false,
+        &BTreeSet::new(),
+        &[],
+    )
+    .expect("a warning");
+    assert!(line.contains("also published by loud"), "{line}");
+    assert!(line.contains("--port 5002"), "{line}");
+}
