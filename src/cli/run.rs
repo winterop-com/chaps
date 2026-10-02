@@ -57,7 +57,7 @@ pub struct ModelPsArgs {
 #[derive(Debug, Clone, Args)]
 pub struct TopArgs {
     /// Seconds between two looks at docker
-    #[arg(long, value_name = "SECONDS", default_value_t = 2, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(long, value_name = "SECONDS", default_value_t = 2, value_parser = clap::value_parser!(u64).range(1..=3600))]
     pub interval: u64,
 }
 

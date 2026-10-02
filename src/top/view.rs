@@ -29,6 +29,8 @@ pub struct Logs {
 pub struct Confirm {
     pub dir: PathBuf,
     pub id: String,
+    /// The deployment it is taken out of, as the tree names it.
+    pub deployment: String,
 }
 
 /// Everything the screen shows.
@@ -180,7 +182,15 @@ fn header<'a>(app: &App, theme: &Theme) -> Paragraph<'a> {
 fn footer<'a>(app: &App, theme: &Theme) -> Paragraph<'a> {
     if let Some(confirm) = &app.confirm {
         return Paragraph::new(Line::from(vec![
-            Span::styled(format!(" stop {}? ", confirm.id), theme.warn_style()),
+            // A stop takes the model out of the deployment, not only its
+            // container: `chaps up` does not bring it back.
+            Span::styled(
+                format!(
+                    " stop {} and take it out of {} (its data stays)? ",
+                    confirm.id, confirm.deployment
+                ),
+                theme.warn_style(),
+            ),
             Span::styled("y", theme.accent_style()),
             Span::raw(" yes  "),
             Span::styled("n", theme.accent_style()),

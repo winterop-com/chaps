@@ -1,5 +1,5 @@
 use super::data::{Kind, build};
-use super::view::{App, Entry, draw};
+use super::view::{App, Confirm, Entry, draw};
 use crate::docker::{Labeled, Usage};
 use crate::project::{EnabledModel, Project, ProjectState};
 use crate::tui::theme::Theme;
@@ -247,5 +247,24 @@ fn a_refresh_keeps_the_cursor_on_the_same_service() {
     assert_eq!(
         app.selected_service().map(|(_, s)| s.service.as_str()),
         Some("chapkit-ewars-model")
+    );
+}
+
+/// A stop takes the model out of the deployment, and the prompt says so: an
+/// operator who only means to restart it must not find it gone after `up`.
+#[test]
+fn the_stop_prompt_says_the_model_leaves_the_deployment() {
+    let app = App {
+        confirm: Some(Confirm {
+            dir: std::path::PathBuf::from("/srv/chap"),
+            id: "chapkit_ewars_model".to_string(),
+            deployment: "chap".to_string(),
+        }),
+        ..App::default()
+    };
+    let text = screen(&app);
+    assert!(
+        text.contains("stop chapkit_ewars_model and take it out of chap (its data stays)?"),
+        "{text}"
     );
 }

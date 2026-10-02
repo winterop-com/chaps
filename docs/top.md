@@ -28,12 +28,12 @@ models - and what each container is doing.
 | --- | --- |
 | `j`/`k`, the arrows | Move. |
 | `enter`, space | Fold or unfold the deployment under the cursor. |
-| `l` | Show the last 200 lines of the service's log in a pane underneath, colour codes removed; `l` or `esc` closes it. |
-| `s` | Stop the model under the cursor, after a `y`: the same as `chaps stop`. Only a model stops here; a whole deployment stops with `chaps -C DIR down`, which the footer names. |
+| `l` | Show the last 200 lines of the service's log in a pane underneath, colour codes removed; `l` or `esc` closes it. The log is asked for on a thread of its own, so the pane says `asking docker ...` until it arrives and a slow daemon never holds up a key. |
+| `s` | Stop the model under the cursor, after a `y`: the same as `chaps stop`, which takes the model out of its deployment - its overlay goes and `chaps up` no longer starts it; its data stays. The prompt says so. `chaps run` or `chaps models enable` brings it back. Only a model stops here; a whole deployment stops with `chaps -C DIR down`, which the footer names. |
 | `r` | Look again now rather than at the next tick. |
 | `q`, `esc` | Quit. |
 
-`--interval SECONDS` (2 by default) sets how often docker is asked. Docker is
+`--interval SECONDS` (2 by default, at most 3600) sets how often docker is asked. Docker is
 asked from a thread of its own, so a slow daemon never holds up a key.
 
 ## How it finds them

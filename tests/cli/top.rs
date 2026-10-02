@@ -86,3 +86,17 @@ fn top_off_a_terminal_prints_one_snapshot_of_the_tree() {
     assert_eq!(node["services"][0]["role"], "chap-core");
     assert_eq!(node["services"][1]["role"], "dhis2");
 }
+
+/// `--interval` is bounded, so the collector's wait cannot overflow.
+#[test]
+fn top_refuses_an_interval_over_an_hour() {
+    let sandbox = Sandbox::new();
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &["top", "--interval", "3601"],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains("3601"));
+}
