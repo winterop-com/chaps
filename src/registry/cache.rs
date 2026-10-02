@@ -192,9 +192,12 @@ fn entry_path(dir: &Path, rel: &str) -> std::result::Result<PathBuf, String> {
 
 fn write_atomic(path: &Path, body: &str) -> Result<()> {
     // A hidden sibling, so the temporary file can never collide with a real
-    // entry file and is obviously not part of the snapshot if one is left.
+    // entry file and is obviously not part of the snapshot if one is left -
+    // and this process's own: the cache is shared by every chaps on the
+    // machine, and two refreshing at once must not truncate or rename each
+    // other's file.
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let tmp = path.with_file_name(format!(".{name}.tmp"));
+    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
     std::fs::write(&tmp, body).map_err(|e| anyhow::anyhow!("writing {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path)
         .map_err(|e| anyhow::anyhow!("renaming {} to {}: {e}", tmp.display(), path.display()))
