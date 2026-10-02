@@ -426,7 +426,13 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
         )));
 
         if let Some(project) = project {
-            checks.extend(project_checks(ctx, project, probed.as_ref(), have_cli));
+            checks.extend(project_checks(
+                ctx,
+                project,
+                probed.as_ref(),
+                have_cli,
+                info.succeeded(),
+            ));
         }
         checks
     })
@@ -438,13 +444,17 @@ fn project_checks(
     project: &Project,
     probed: Option<&Probed>,
     have_cli: bool,
+    daemon: bool,
 ) -> Vec<Check> {
     // The containers are asked for once, before the checks that need them:
     // the ports they hold are not conflicts, whether any of them is up
     // decides the `stack` check, and which of them is up decides where the
     // `components` and `volumes` lines read what OCS holds - from inside the
     // container, or from its volume.
-    let containers = docker::all_containers(project);
+    // Only of a daemon that answered `docker info`: these calls have no
+    // deadline of their own, and a daemon that is down or wedged would read
+    // as "nothing there" or hold the checklist open.
+    let containers = daemon.then(|| docker::all_containers(project)).flatten();
     let running: BTreeSet<String> = containers
         .as_deref()
         .map(docker::running_of)
@@ -472,7 +482,10 @@ fn project_checks(
                 .ok()
                 .as_deref(),
         ),
-        volumes_check(project, &running),
+        match daemon {
+            true => volumes_check(project, &running),
+            false => no_daemon("volumes"),
+        },
     ];
     checks.extend(manual_checks(ctx, project));
 
@@ -522,9 +535,23 @@ fn project_checks(
     }
     checks.extend(image_checks(project, probed, have_cli));
     checks.extend(registry_pin_checks(ctx, project, &catalogue));
-    checks.extend(user_checks(project, have_cli));
-    checks.push(stack_check(project, containers.as_deref(), &running));
+    checks.extend(user_checks(project, daemon));
+    checks.push(match daemon {
+        true => stack_check(project, containers.as_deref(), &running),
+        false => no_daemon("health"),
+    });
     checks
+}
+
+/// A project check that needs the daemon, when `docker info` did not answer:
+/// a skip that says so, rather than a verdict on what docker would not say.
+fn no_daemon(name: &str) -> Check {
+    Check::skip_with(
+        name,
+        name,
+        "the docker daemon is not answering",
+        "start Docker (see the `docker daemon` line), then run `chaps doctor` again",
+    )
 }
 
 #[cfg(test)]

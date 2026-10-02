@@ -75,11 +75,10 @@ fn a_models_user_is_checked_against_the_image_it_pins() {
         )
     );
 
-    // No docker CLI at all is a different reason, and no pull would fix
-    // it.
+    // No daemon to ask is a different reason, and no pull would fix it.
     let no_cli = user_check("m", "m", None, "1000:1000", None);
     assert_eq!(no_cli.status, Status::Skip);
-    assert!(no_cli.detail.contains("no docker CLI"), "{no_cli:?}");
+    assert!(no_cli.detail.contains("no docker daemon"), "{no_cli:?}");
     assert_eq!(no_cli.fix, None);
 
     // And an account name only the image can resolve proves nothing about
@@ -123,10 +122,13 @@ fn the_user_checks_cover_every_enabled_model() {
     assert_eq!(checks[0].id, "user-chapkit-ewars-model");
     assert_eq!(checks[0].status, Status::Warn);
 
-    // Without a docker CLI nothing is asked, but the line is still there.
-    let skipped = user_checks_with(&project, false, &|_| panic!("no CLI, no question"));
+    // Without a daemon nothing is asked, but the line is still there.
+    let skipped = user_checks_with(&project, false, &|_| panic!("no daemon, no question"));
     assert_eq!(skipped[0].status, Status::Skip);
-    assert!(skipped[0].detail.contains("no docker CLI"), "{skipped:?}");
+    assert!(
+        skipped[0].detail.contains("no docker daemon"),
+        "{skipped:?}"
+    );
 
     // A daemon that cannot answer for the amd64 variant - an arm64 host
     // that has pulled nothing, or has pulled only its own architecture -

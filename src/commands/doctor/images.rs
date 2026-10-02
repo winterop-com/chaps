@@ -158,8 +158,8 @@ pub fn component_images(components: &Components) -> Vec<(String, String)> {
 /// image can be asked without a network round trip per model, so a model whose
 /// amd64 image is not in this machine's image store is skipped rather than
 /// guessed at.
-pub(super) fn user_checks(project: &Project, have_cli: bool) -> Vec<Check> {
-    user_checks_with(project, have_cli, &crate::docker::image_config)
+pub(super) fn user_checks(project: &Project, daemon: bool) -> Vec<Check> {
+    user_checks_with(project, daemon, &crate::docker::image_config)
 }
 
 /// [`user_checks`] with the daemon injected, so the verdicts can be tested.
@@ -202,7 +202,11 @@ pub fn user_check(
     let name = format!("user {service_id}");
     let Some(declared) = declared else {
         let Some(reference) = reference else {
-            return Check::skip(check_id, name, format!("{recorded}; no docker CLI to ask"));
+            return Check::skip(
+                check_id,
+                name,
+                format!("{recorded}; no docker daemon to ask"),
+            );
         };
         return Check::skip_with(
             check_id,
