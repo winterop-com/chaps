@@ -31,6 +31,12 @@ impl Sandbox {
     fn chap(&self, cwd: &Path, args: &[&str]) -> Command {
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            // The data directory too: `init` records the deployment there, and
+            // a test must not write the developer's own record.
+            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
+            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
             .current_dir(cwd)
             .arg("--offline")
             .args(args);
@@ -44,6 +50,12 @@ impl Sandbox {
         let port = free_port().to_string();
         let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
         cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+            // The data directory too: `init` records the deployment there, and
+            // a test must not write the developer's own record.
+            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
+            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
             .current_dir(self.home.path())
             .arg("--offline")
             .arg("init")

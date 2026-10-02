@@ -17,6 +17,7 @@ fn bare() -> (TempDir, Command) {
     let cache = tempfile::tempdir().unwrap();
     let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
     cmd.env("CHAPS_CACHE_DIR", cache.path())
+        .env("CHAPS_DATA_DIR", cache.path().join("data"))
         .env("CHAPS_NO_UPDATE_CHECK", "1")
         .current_dir(cache.path());
     (cache, cmd)
