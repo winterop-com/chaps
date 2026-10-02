@@ -10,13 +10,17 @@ pub fn docker_cli_check(outcome: &Outcome) -> Check {
     match outcome {
         Outcome::Done {
             ok: true, stdout, ..
-        } => Check::ok("docker-cli", NAME, format!("docker {}", first_line(stdout))),
+        } => Check::ok(
+            "docker-cli",
+            NAME,
+            format!("docker {}", cli_version(stdout)),
+        ),
         Outcome::Missing => Check::fail("docker-cli", NAME, "`docker` is not on PATH", FIX),
         Outcome::TimedOut => Check::fail(
             "docker-cli",
             NAME,
             format!(
-                "`docker version` did not answer within {}s",
+                "`docker --version` did not answer within {}s",
                 DOCKER_TIMEOUT.as_secs()
             ),
             "check whether the docker CLI is wedged, and reinstall it if it is",
@@ -24,6 +28,17 @@ pub fn docker_cli_check(outcome: &Outcome) -> Check {
         Outcome::Failed(why) => Check::fail("docker-cli", NAME, why.clone(), FIX),
         Outcome::Done { stderr, .. } => Check::fail("docker-cli", NAME, first_line(stderr), FIX),
     }
+}
+
+/// The version out of `docker --version` (`Docker version 29.8.1, build
+/// 1234567`), or the first line as it is when it does not read like that.
+fn cli_version(stdout: &str) -> String {
+    let line = first_line(stdout);
+    line.strip_prefix("Docker version ")
+        .and_then(|rest| rest.split(',').next())
+        .map(str::trim)
+        .unwrap_or(&line)
+        .to_string()
 }
 
 /// Why `docker info` could not reach a daemon.

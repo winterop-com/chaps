@@ -18,6 +18,10 @@ fn a_missing_docker_binary_says_where_to_get_one() {
     assert_eq!(check.status, Status::Ok);
     assert_eq!(check.detail, "docker 29.8.1");
 
+    // What `docker --version` prints, daemon or no daemon.
+    let check = docker_cli_check(&done(true, "Docker version 29.8.1, build 1a2b3c4\n", ""));
+    assert_eq!(check.detail, "docker 29.8.1");
+
     assert_eq!(docker_cli_check(&Outcome::TimedOut).status, Status::Fail);
 }
 

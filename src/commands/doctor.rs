@@ -379,11 +379,11 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
 
         let mut checks = Vec::new();
 
-        let client = run_bounded(
-            "docker",
-            &["version", "--format", "{{.Client.Version}}"],
-            DOCKER_TIMEOUT,
-        );
+        // `docker --version` and not `docker version`: the latter asks the
+        // daemon too and exits non-zero when it is down, which would read as
+        // a missing CLI and hide the `docker daemon` line that says to start
+        // it.
+        let client = run_bounded("docker", &["--version"], DOCKER_TIMEOUT);
         let have_cli = client.succeeded();
         checks.push(docker_cli_check(&client));
 

@@ -68,7 +68,7 @@ These run everywhere, inside a deployment directory or not.
 
 | Check | What it asks | What a bad answer means |
 | --- | --- | --- |
-| `docker cli` | `docker version` answers | `docker` is not on `PATH`. Install Docker Desktop or the docker CLI from <https://docs.docker.com/get-docker/>. |
+| `docker cli` | `docker --version` answers | Asked without the daemon, so a Docker Desktop that is not started reads as such on the `docker daemon` line below rather than as a missing CLI. Fails when `docker` is not on `PATH`. Install Docker Desktop or the docker CLI from <https://docs.docker.com/get-docker/>. |
 | `docker daemon` | `docker info` reaches a daemon | Either nothing is listening, which is `open Docker Desktop` or `sudo systemctl start docker`, or the socket refuses this user, which is `sudo usermod -aG docker $USER` and a fresh login. The two are told apart by what Docker printed, because the fixes have nothing in common. |
 | `docker compose` | `docker compose version` and how old it is | Below 2.24.4 the API port override will not work: `compose.chaps.yml` uses `!override`, which arrived in 2.24.4, so the API is published on two ports. Below 2.20 the model overlays will not load either: `compose.marketplace.yml` uses `include:`, which arrived in 2.20. A warning rather than a failure, because the base services still run. |
 | `os and arch` | what this host is | On an arm64 host it warns: chap-core and every marketplace image are published for amd64 only. On macOS that is nothing to do, Rosetta runs them. On arm64 Linux it needs qemu/binfmt: `docker run --privileged --rm tonistiigi/binfmt --install amd64`. Nothing is probed, because probing means running an amd64 container, which is far too slow for a checklist. |
