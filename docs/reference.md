@@ -788,7 +788,7 @@ Usage: chaps dhis2 show [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
-| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
 ## chaps dhis2 route
 
@@ -801,7 +801,7 @@ Usage: chaps dhis2 route [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
-| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
 ## chaps dhis2 analytics
 
@@ -814,7 +814,7 @@ Usage: chaps dhis2 analytics [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
-| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
 
@@ -829,7 +829,7 @@ Usage: chaps dhis2 apps [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
-| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
 ## chaps dhis2 connect
 
@@ -842,7 +842,7 @@ Usage: chaps dhis2 connect [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
-| `--wait <SECONDS>` | Seconds to wait for DHIS2's API to start answering. Default: `1200`. |
+| `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
 

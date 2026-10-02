@@ -372,7 +372,14 @@ fn open_session(ctx: &Ctx, common: &Dhis2CommonArgs) -> Result<Session> {
     let base = client.base().to_string();
     let external = components.dhis2_external.is_some();
     let ready = client.wait_for_api(
-        Duration::from_secs(common.wait),
+        Duration::from_secs(
+            common
+                .wait
+                .unwrap_or(match components.dhis2_external.is_some() {
+                    true => crate::dhis2::EXTERNAL_API_WAIT,
+                    false => crate::dhis2::DEFAULT_API_WAIT,
+                }),
+        ),
         dhis2::POLL_INTERVAL,
         // A command that is about to sit here for twenty minutes says so, on
         // stderr, so a `--json` stdout stays one document. A DHIS2 that is

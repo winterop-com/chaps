@@ -145,6 +145,13 @@ pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// and a shorter default would turn a slow first start into a failure.
 pub const DEFAULT_API_WAIT: u64 = 1200;
 
+/// How long to wait for a DHIS2 that runs elsewhere by default: one minute.
+///
+/// An external DHIS2 is not migrating behind this deployment's back; it is up
+/// or it is not, and a mistyped URL or one behind single sign-on should fail
+/// in a minute rather than after twenty.
+pub const EXTERNAL_API_WAIT: u64 = 60;
+
 /// How long to wait for an analytics run by default: one hour.
 ///
 /// Tens of seconds on demo data and much longer on real data, and a run that

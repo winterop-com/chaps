@@ -43,9 +43,9 @@ pub struct Dhis2CommonArgs {
     #[arg(long, value_name = "NAME")]
     pub user: Option<String>,
 
-    /// Seconds to wait for DHIS2's API to start answering
-    #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_API_WAIT)]
-    pub wait: u64,
+    /// Seconds to wait for DHIS2's API; 1200 local, 60 external by default
+    #[arg(long, value_name = "SECONDS")]
+    pub wait: Option<u64>,
 }
 
 /// Say what DHIS2 has: the chap route, analytics and the apps

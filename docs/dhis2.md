@@ -955,7 +955,10 @@ refuse on every machine docker is absent from - so the container check degrades
 to a trace line and DHIS2 is asked directly.
 
 Then `/api/ping` is polled until it answers, for twenty minutes by default
-(`--wait SECONDS`), because that is what a first start can take. A DHIS2 that is
+(`--wait SECONDS`), because that is what a first start can take. An external
+DHIS2 recorded with `chaps dhis2 use` is not migrating behind this
+deployment's back, so it gets one minute by default: a mistyped URL or one
+behind single sign-on fails in a minute rather than in twenty. A DHIS2 that is
 already answering says nothing at all; one that is not says so once:
 
 ```text
