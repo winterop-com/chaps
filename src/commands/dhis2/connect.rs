@@ -218,7 +218,6 @@ pub(super) fn record_connect(
         true => ConnectRecord::Recorded,
         false => ConnectRecord::Cleared,
     };
-    *project.state.components.dhis2_connected_at_mut() = at;
-    project.save()?;
+    project.update_saved(|state| *state.components.dhis2_connected_at_mut() = at.clone())?;
     Ok(record)
 }

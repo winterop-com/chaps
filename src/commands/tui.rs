@@ -20,7 +20,7 @@ use crate::tui::run_tui;
 pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     // The browser edits a deployment, so there has to be one; the error already
     // tells the user to run `chaps init`.
-    let mut project = ctx.project()?;
+    let project = ctx.project()?;
     let registry = super::registry_for(ctx, Some(&project))?;
 
     let Some(selection) = run_tui(ctx, &project, &registry)? else {
@@ -30,6 +30,12 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         println!("no changes");
         return Ok(());
     }
+
+    // The browser may have been open for minutes, and another chaps may have
+    // changed the deployment meanwhile: the selection is applied to the state
+    // as it is now, read under the lock that keeps it so until the save.
+    let (mut project, _lock) = ctx.project_mut()?;
+    let registry = super::registry_for(ctx, Some(&project))?;
 
     // Answered before anything is stopped or written, so a selection that was
     // never going to apply leaves the deployment exactly as it was.

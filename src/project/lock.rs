@@ -61,4 +61,25 @@ impl Project {
         let lock = StateLock::acquire(&root)?;
         Ok((Project::load(&root)?, lock))
     }
+
+    /// Change the saved state of the deployment in `dir`, under its lock and
+    /// on the state as it is on disk now, and save it.
+    ///
+    /// For a command that read the project long before it writes - a
+    /// `dhis2 connect` waiting on DHIS2, a `down` waiting on compose - and
+    /// changes one thing: saving its own copy would write back whatever it
+    /// read, over anything another chaps saved meanwhile. `self` gets the
+    /// same change, so the caller goes on with what it set. Never called by
+    /// a command that already holds this deployment's lock: the lock waits
+    /// for its holder, which would be the caller itself.
+    pub fn update_saved(&mut self, change: impl Fn(&mut super::ProjectState)) -> Result<()> {
+        let (mut fresh, _lock) = Project::find_locked(&self.dir)?;
+        change(&mut fresh.state);
+        fresh.save()?;
+        change(&mut self.state);
+        Ok(())
+    }
 }
+
+#[cfg(test)]
+mod tests;
