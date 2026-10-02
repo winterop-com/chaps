@@ -199,6 +199,10 @@ pub fn job_id_of(response: &serde_json::Value) -> Option<String> {
     Some(id).filter(|id| !id.trim().is_empty())
 }
 
+/// How many polls of an analytics job may fail in a row before the wait
+/// gives up.
+const MAX_POLL_FAILURES: u32 = 3;
+
 impl Dhis2 {
     /// Poll one analytics job until it is no longer running.
     ///
@@ -216,8 +220,27 @@ impl Dhis2 {
         let until = Instant::now() + timeout;
         let path = job_path(job);
         let mut last = String::new();
+        // A poll that fails while DHIS2 is busy generating the tables - a
+        // timeout in the populate phase - says nothing about the run; only
+        // several in a row end the wait.
+        let mut failures = 0;
         loop {
-            let progress = progress_of(&self.get_json(&path)?);
+            let progress = match self.get_json(&path) {
+                Ok(answer) => {
+                    failures = 0;
+                    progress_of(&answer)
+                }
+                Err(err) if failures < MAX_POLL_FAILURES => {
+                    failures += 1;
+                    crate::output::verbose(&format!(
+                        "polling analytics job {job} failed ({failures} of {MAX_POLL_FAILURES}): \
+                         {err:#}"
+                    ));
+                    std::thread::sleep(interval);
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
             if let Some(progress) = &progress
                 && progress.message() != last
             {

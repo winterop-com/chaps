@@ -8,9 +8,14 @@ pub fn analytics(ctx: &Ctx, args: &Dhis2AnalyticsArgs) -> Result<()> {
     let analytics = run_analytics(ctx, &session, args.timeout, args.no_wait)?;
     let report = Dhis2Report {
         instance: session.instance(),
-        next: match analytics.finished {
-            true => "run `chaps dhis2 show` to see what is still missing".to_string(),
-            false => "run `chaps dhis2 analytics` again to watch the same run".to_string(),
+        next: match (analytics.finished, analytics.job.is_empty()) {
+            (true, _) => "run `chaps dhis2 show` to see what is still missing".to_string(),
+            // Watching again finds the job while it runs; without its id a
+            // second run could just as well start another generation.
+            (false, false) => "run `chaps dhis2 analytics` again to watch the same run".to_string(),
+            (false, true) => "DHIS2 did not say which job it started; `chaps dhis2 show` says \
+                              when the analytics tables are ready"
+                .to_string(),
         },
         route: None,
         apps: None,
@@ -50,8 +55,15 @@ pub(super) fn run_analytics(
             let response = answer.json().unwrap_or(serde_json::Value::Null);
             // An id that could not be read is not a failure: DHIS2 has started
             // the run, and the run it is running is the one to watch.
+            // Asked twice, a moment apart: DHIS2 may not list the job it has
+            // just accepted yet.
+            let running = || dhis2::running_job(&client.get_json(&dhis2::jobs_path()).ok()?);
             let job = dhis2::job_id_of(&response)
-                .or_else(|| dhis2::running_job(&client.get_json(&dhis2::jobs_path()).ok()?))
+                .or_else(running)
+                .or_else(|| {
+                    std::thread::sleep(Duration::from_secs(2));
+                    running()
+                })
                 .unwrap_or_default();
             (job, true)
         }
