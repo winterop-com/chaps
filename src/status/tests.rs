@@ -68,6 +68,58 @@ use super::probe::{is_not_chap_core, parse_revision, parse_version, port_of};
 use super::time::ago;
 use super::*;
 
+mod components;
+
+/// Something listening on a component's host port, answering the way that
+/// component does and recording what it was asked - so a test can tell "no
+/// request was made" from "a request came back empty".
+struct StandIn {
+    port: u16,
+    asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl StandIn {
+    /// The paths it was asked for, in order.
+    fn asked(&self) -> Vec<String> {
+        self.asked.lock().expect("the request log").clone()
+    }
+}
+
+/// A loopback server that logs every path it is asked for and answers each
+/// one with whatever `answer` gives back: a status code and a body.
+fn stand_in(answer: fn(&str) -> (u16, &'static str)) -> StandIn {
+    use std::io::{BufRead, BufReader, Write};
+    let listener =
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = asked.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut request = String::new();
+            if BufReader::new(&stream).read_line(&mut request).is_err() {
+                continue;
+            }
+            let path = request
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_string();
+            let (code, body) = answer(&path);
+            log.lock().expect("the request log").push(path);
+            let reason = if code == 200 { "OK" } else { "Not Found" };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    StandIn { port, asked }
+}
+
 const URL: &str = "http://localhost:8000";
 
 const SERVICES: &str = r#"{
@@ -596,322 +648,6 @@ fn the_closing_line_counts_what_the_project_enables() {
         "no models enabled here; the unmanaged one above registered from outside this \
              deployment"
     );
-}
-
-/// A deployment with OCS enabled, published on `port` when it has one.
-fn ocs_project(port: Option<u16>) -> Project {
-    let mut state = crate::project::ProjectState::default();
-    state.components.ocs.enabled = true;
-    state.components.ocs.port = port;
-    Project {
-        dir: std::path::PathBuf::from("/tmp/chapx"),
-        state,
-    }
-}
-
-/// A deployment with DHIS2 enabled, published on `port` when it has one.
-fn dhis2_project(port: Option<u16>) -> Project {
-    let mut state = crate::project::ProjectState::default();
-    state.components.dhis2.enabled = true;
-    state.components.dhis2.port = port;
-    Project {
-        dir: std::path::PathBuf::from("/tmp/chapx"),
-        state,
-    }
-}
-
-/// Something listening on a component's host port, answering the way that
-/// component does and recording what it was asked - so a test can tell "no
-/// request was made" from "a request came back empty".
-struct StandIn {
-    port: u16,
-    asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
-}
-
-impl StandIn {
-    /// The paths it was asked for, in order.
-    fn asked(&self) -> Vec<String> {
-        self.asked.lock().expect("the request log").clone()
-    }
-}
-
-/// A loopback server that logs every path it is asked for and answers each
-/// one with whatever `answer` gives back: a status code and a body.
-fn stand_in(answer: fn(&str) -> (u16, &'static str)) -> StandIn {
-    use std::io::{BufRead, BufReader, Write};
-    let listener =
-        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
-    let port = listener.local_addr().expect("the bound address").port();
-    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let log = asked.clone();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(mut stream) = stream else { break };
-            let mut request = String::new();
-            if BufReader::new(&stream).read_line(&mut request).is_err() {
-                continue;
-            }
-            let path = request
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or_default()
-                .to_string();
-            let (code, body) = answer(&path);
-            log.lock().expect("the request log").push(path);
-            let reason = if code == 200 { "OK" } else { "Not Found" };
-            let _ = write!(
-                stream,
-                "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
-                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-        }
-    });
-    StandIn { port, asked }
-}
-
-/// An OCS: `/health` and the dataset list, both 200.
-fn stand_in_ocs() -> StandIn {
-    stand_in(|path| match path.starts_with("/datasets") {
-        true => (200, DATASETS),
-        false => (200, r#"{"status":"success","message":"healthy"}"#),
-    })
-}
-
-/// A DHIS2 whose API layer is alive: `/api/ping` answers, as the container's
-/// own healthcheck asks it to.
-fn stand_in_dhis2() -> StandIn {
-    stand_in(|path| match path == DHIS2_PING_PATH {
-        true => (200, "pong"),
-        false => (404, r#"{"httpStatusCode":404}"#),
-    })
-}
-
-/// The falsely healthy DHIS2: Tomcat is up and serving, and every `/api/*`
-/// request answers 404 because the Spring context never came up.
-fn stand_in_broken_dhis2() -> StandIn {
-    stand_in(|_| (404, "<html><body>Not Found</body></html>"))
-}
-
-/// A port nothing is listening on: taken to learn a free number, then let
-/// go, so a connection to it is refused rather than left hanging.
-fn closed_port() -> u16 {
-    let listener =
-        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
-    listener.local_addr().expect("the bound address").port()
-}
-
-/// Short, because none of these tests waits for anything: the one request
-/// that fails is refused, not timed out.
-fn probe_agent() -> ureq::Agent {
-    agent(Duration::from_millis(500))
-}
-
-/// The row of a deployment that has not been started costs no request at
-/// all. Nothing is there to answer, so the only thing a probe could buy is
-/// a timeout on every `chaps status` - or an answer from whatever else
-/// holds that host port, which is how a stopped OCS came to read as `up`
-/// beside another deployment's OCS on the same default 9000.
-#[test]
-fn a_component_that_is_not_running_is_not_asked_and_still_reports_its_health_url() {
-    // Answering, and deliberately not this deployment's.
-    let stand_in = stand_in_ocs();
-    let rows = component_rows(
-        &ocs_project(Some(stand_in.port)),
-        &probe_agent(),
-        &BTreeSet::new(),
-    );
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].state, ComponentState::NotRunning);
-    assert!(
-        stand_in.asked().is_empty(),
-        "no request was worth making: {:?}",
-        stand_in.asked()
-    );
-    // `--json` keeps every field it had: the address is known from the
-    // record, so it is reported whether the instance is up or not.
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{}/health", stand_in.port).as_str())
-    );
-    assert_eq!(rows[0].reach, format!("http://localhost:{}", stand_in.port));
-    assert!(!rows[0].read_only);
-    // Nothing was asked, so there is nothing it holds to report.
-    assert_eq!(rows[0].datasets, None);
-    assert_eq!(rows[0].data_bytes, None);
-}
-
-/// The distinction the probe is there for: a container that is up and
-/// answering is `up`, and it is the answer that carries the dataset count.
-#[test]
-fn a_running_component_is_asked_and_reports_what_it_holds() {
-    let stand_in = stand_in_ocs();
-    let rows = component_rows(
-        &ocs_project(Some(stand_in.port)),
-        &probe_agent(),
-        &running(&[crate::compose::OCS_SERVICE]),
-    );
-    assert_eq!(rows[0].state, ComponentState::Up);
-    assert_eq!(rows[0].datasets, Some(3));
-    assert_eq!(
-        stand_in.asked(),
-        vec![HEALTH_PATH.to_string(), DATASETS_PATH.to_string()]
-    );
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{}/health", stand_in.port).as_str())
-    );
-}
-
-/// The other half of that distinction: the container is up but nothing is
-/// answering on its port yet, which is a wait rather than a fault.
-#[test]
-fn a_running_component_that_does_not_answer_yet_is_starting() {
-    let port = closed_port();
-    let rows = component_rows(
-        &ocs_project(Some(port)),
-        &probe_agent(),
-        &running(&[crate::compose::OCS_SERVICE]),
-    );
-    assert_eq!(rows[0].state, ComponentState::Starting);
-    // Asked and not answered, so there is still no count to put on the line.
-    assert_eq!(rows[0].datasets, None);
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{port}/health").as_str())
-    );
-}
-
-/// An instance that publishes no host port is judged by its container
-/// alone, as it always has been: there is no address out here to ask.
-#[test]
-fn an_instance_with_no_host_port_is_judged_by_its_container() {
-    let project = ocs_project(None);
-    let rows = component_rows(
-        &project,
-        &probe_agent(),
-        &running(&[crate::compose::OCS_SERVICE]),
-    );
-    assert_eq!(rows[0].state, ComponentState::Up);
-    assert_eq!(rows[0].reach, "internal");
-    assert_eq!(rows[0].health_url, None);
-    assert_eq!(rows[0].datasets, None);
-
-    let rows = component_rows(&project, &probe_agent(), &BTreeSet::new());
-    assert_eq!(rows[0].state, ComponentState::NotRunning);
-    assert_eq!(rows[0].health_url, None);
-}
-
-/// The DHIS2 row is judged the same way the OCS one is: the container first,
-/// then one request - and the request is `/api/ping`, which is the only
-/// route an instance this CLI has no login for will answer.
-#[test]
-fn a_running_dhis2_is_up_only_once_api_ping_answers() {
-    let stand_in = stand_in_dhis2();
-    let rows = component_rows(
-        &dhis2_project(Some(stand_in.port)),
-        &probe_agent(),
-        &running(&[crate::compose::DHIS2_SERVICE]),
-    );
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].name, "dhis2");
-    assert_eq!(rows[0].state, ComponentState::Up);
-    assert_eq!(stand_in.asked(), vec![DHIS2_PING_PATH.to_string()]);
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
-    );
-    assert_eq!(rows[0].reach, format!("http://localhost:{}", stand_in.port));
-    // None of the OCS fields is a DHIS2 fact, and none of them appears.
-    assert!(!rows[0].read_only);
-    assert_eq!(rows[0].datasets, None);
-    assert_eq!(rows[0].data_bytes, None);
-}
-
-/// The failure the request exists to catch, and the whole reason the row
-/// does not stop at the container: DHIS2 reports itself healthy while every
-/// `/api/*` request 404s, which is what a failed Spring context looks like
-/// from outside. `up` would be the one wrong answer here.
-#[test]
-fn a_dhis2_that_serves_pages_but_no_api_is_not_up() {
-    let stand_in = stand_in_broken_dhis2();
-    let rows = component_rows(
-        &dhis2_project(Some(stand_in.port)),
-        &probe_agent(),
-        &running(&[crate::compose::DHIS2_SERVICE]),
-    );
-    assert_eq!(rows[0].state, ComponentState::Starting);
-    assert_ne!(rows[0].state, ComponentState::Up);
-    assert_eq!(stand_in.asked(), vec![DHIS2_PING_PATH.to_string()]);
-    // The address is recorded state, so the field says the same thing
-    // whatever the instance answered.
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
-    );
-}
-
-/// A DHIS2 that was never started costs no request, for the reason the OCS
-/// row costs none: the only thing a probe could buy is a timeout, or an
-/// answer from whatever else holds that host port.
-#[test]
-fn a_dhis2_that_is_not_running_is_not_asked() {
-    let stand_in = stand_in_dhis2();
-    let rows = component_rows(
-        &dhis2_project(Some(stand_in.port)),
-        &probe_agent(),
-        &BTreeSet::new(),
-    );
-    assert_eq!(rows[0].state, ComponentState::NotRunning);
-    assert!(
-        stand_in.asked().is_empty(),
-        "no request was worth making: {:?}",
-        stand_in.asked()
-    );
-    assert_eq!(
-        rows[0].health_url.as_deref(),
-        Some(format!("http://localhost:{}/api/ping", stand_in.port).as_str())
-    );
-}
-
-/// An instance behind a reverse proxy publishes no host port, so there is no
-/// address out here to ask and the container is the whole answer.
-#[test]
-fn a_dhis2_with_no_host_port_is_judged_by_its_container() {
-    let project = dhis2_project(None);
-    let rows = component_rows(
-        &project,
-        &probe_agent(),
-        &running(&[crate::compose::DHIS2_SERVICE]),
-    );
-    assert_eq!(rows[0].state, ComponentState::Up);
-    assert_eq!(rows[0].reach, "internal");
-    assert_eq!(rows[0].health_url, None);
-
-    let rows = component_rows(&project, &probe_agent(), &BTreeSet::new());
-    assert_eq!(rows[0].state, ComponentState::NotRunning);
-    assert_eq!(rows[0].health_url, None);
-}
-
-/// The rows come in the order the components are rendered, which is the
-/// order the lines are printed in.
-#[test]
-fn the_component_rows_follow_the_render_order() {
-    let mut state = crate::project::ProjectState::default();
-    state.components.ocs.enabled = true;
-    state.components.ocs.port = None;
-    state.components.s3.enabled = true;
-    state.components.dhis2.enabled = true;
-    state.components.dhis2.port = None;
-    let project = Project {
-        dir: std::path::PathBuf::from("/tmp/chapx"),
-        state,
-    };
-    let names: Vec<String> = component_rows(&project, &probe_agent(), &BTreeSet::new())
-        .into_iter()
-        .map(|row| row.name)
-        .collect();
-    assert_eq!(names, vec!["ocs", "s3", "dhis2"]);
 }
 
 /// One component row, for the lines a deployment without chap-core adds up
