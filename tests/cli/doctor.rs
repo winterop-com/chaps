@@ -55,13 +55,15 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
     // `init` generates a password, writes the pin comments and leaves
     // authentication off, which is a complete `.env` and not a warning.
     assert_eq!(doctor_status(&report, "env"), "ok", "{report}");
-    // Nothing has ever been started here.
+    // Nothing has ever been started here: the way out is `chaps up`, or, on a
+    // machine whose docker is not answering, starting Docker first.
     assert_eq!(doctor_status(&report, "health"), "skip", "{report}");
+    let fix = doctor_check(&report, "health")["fix"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert!(
-        doctor_check(&report, "health")["fix"]
-            .as_str()
-            .unwrap()
-            .contains("chaps up"),
+        fix.contains("chaps up") || fix.contains("start Docker"),
         "{report}"
     );
 
