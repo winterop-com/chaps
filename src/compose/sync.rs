@@ -257,6 +257,9 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
                 overrides::FALLBACK_UID_GID
             ));
         }
+        // A hand-edited `models-manual.yaml` never passed `models add`'s check.
+        crate::manual::source::check_not_reserved(&model.service_id)
+            .map_err(|e| anyhow::anyhow!("{id}: {e:#}"))?;
         overlays.push(model.compose_file.clone());
         desired.push((model.compose_file.clone(), render_overlay(&spec)));
     }
@@ -264,6 +267,18 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         MARKETPLACE_COMPOSE.to_string(),
         render_umbrella(&overlays, project_name.as_deref()),
     ));
+
+    // Two outputs of one name would be one file, the second written over the
+    // first; refused before anything is written.
+    let mut seen = BTreeSet::new();
+    for (name, _) in &desired {
+        if !seen.insert(name.as_str()) {
+            return Err(anyhow::anyhow!(
+                "two parts of this deployment would both be written to `{name}`; give one of \
+                 the models another `service_id:` in `.chaps/models-manual.yaml`, then `chaps sync`"
+            ));
+        }
+    }
 
     for (name, content) in &desired {
         let path = dir.join(name);

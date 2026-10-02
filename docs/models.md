@@ -474,7 +474,7 @@ reviewed catalogue entry:
 | Value | Where it comes from |
 | --- | --- |
 | id | `--id`, else the repository or image name in snake_case. |
-| service | `--service-id`, else the id with hyphens. |
+| service | `--service-id`, else the id with hyphens. Not one of the names chaps uses itself - `chap`, `worker`, `redis`, `postgres`, `ocs`, `s3`, `s3-init`, `dhis2`, `dhis2-db`, `dhis2-prep`, `chaps`, `marketplace` - which a model would be merged into or written over; `models add` and `sync` refuse them. |
 | name | `--name`, else the repository or image name. |
 | pin | The newest published `sha-` build of the branch, or the tag or digest that was named. |
 | data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else `/work/data`. |

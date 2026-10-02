@@ -1312,3 +1312,20 @@ fn overlay_name_shape() {
     assert!(!is_overlay_name("compose.yaml"));
     assert!(!is_overlay_name("notes.yml"));
 }
+
+/// A service id chaps keeps for itself that reached the state by hand is
+/// refused at render time, before `compose.chaps.yml` is written over.
+#[test]
+fn sync_refuses_a_model_on_a_reserved_service_id() {
+    let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
+    let chaps_before = read(&dir.path().join("compose.chaps.yml"));
+    let model = project.state.models.get_mut("chapkit_ewars_model").unwrap();
+    model.service_id = "chaps".to_string();
+    model.compose_file = "compose.chaps.yml".to_string();
+    let err = sync(&mut project, &registry, false).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("chaps uses for its own services"),
+        "{err:#}"
+    );
+    assert_eq!(read(&dir.path().join("compose.chaps.yml")), chaps_before);
+}

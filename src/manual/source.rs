@@ -304,11 +304,43 @@ pub fn check_id(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Names a model's service id must not take: the services chap-core and the
+/// components run as, which a model of that name would be merged into, and
+/// the stems of the compose files chaps writes besides the overlays
+/// (`compose.chaps.yml`, `compose.marketplace.yml`), which an overlay of that
+/// name would be written over. A test holds this to the templates.
+pub const RESERVED_SERVICE_IDS: &[&str] = &[
+    "chap",
+    "worker",
+    "redis",
+    "postgres",
+    "ocs",
+    "s3",
+    "s3-init",
+    "dhis2",
+    "dhis2-db",
+    "dhis2-prep",
+    "chaps",
+    "marketplace",
+];
+
+/// The error for a service id chaps keeps for itself, or `Ok`.
+pub fn check_not_reserved(service_id: &str) -> Result<()> {
+    if RESERVED_SERVICE_IDS.contains(&service_id) {
+        return Err(anyhow::anyhow!(
+            "`{service_id}` is a name chaps uses for its own services and files; pass \
+             `--service-id <another>`, or edit `service_id:` in `.chaps/models-manual.yaml`"
+        ));
+    }
+    Ok(())
+}
+
 /// Whether `service_id` is usable as a compose service and DNS name.
 pub fn check_service_id(service_id: &str) -> Result<()> {
     if service_id.is_empty() {
         return Err(anyhow::anyhow!("the service id is empty"));
     }
+    check_not_reserved(service_id)?;
     let first = service_id.chars().next().unwrap_or('-');
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
         return Err(anyhow::anyhow!(

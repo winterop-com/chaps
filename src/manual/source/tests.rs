@@ -159,3 +159,48 @@ fn an_id_and_a_service_id_are_checked_against_what_names_a_volume() {
         assert!(check_service_id(bad).is_err(), "{bad}");
     }
 }
+
+/// Every service chap-core or a component runs as is a name a model may not
+/// take; a template that gains a service and not a line here fails this.
+#[test]
+fn the_reserved_service_ids_cover_every_service_the_templates_define() {
+    let templates = [
+        include_str!("../../compose/templates/compose.base.yml"),
+        include_str!("../../compose/templates/compose.ocs.yml"),
+        include_str!("../../compose/templates/compose.s3.yml"),
+        include_str!("../../compose/templates/compose.dhis2.yml"),
+    ];
+    // The templates carry placeholders and are not YAML until rendered, so
+    // the service names are read off the lines: two spaces in, under
+    // `services:`.
+    for template in templates {
+        let mut in_services = false;
+        let mut found = 0;
+        for line in template.lines() {
+            if !line.starts_with(' ') && !line.trim().is_empty() {
+                in_services = line.trim_end() == "services:";
+                continue;
+            }
+            let Some(name) = line
+                .strip_prefix("  ")
+                .filter(|rest| !rest.starts_with(' ') && !rest.starts_with('#'))
+                .and_then(|rest| rest.trim_end().strip_suffix(':'))
+            else {
+                continue;
+            };
+            if !in_services {
+                continue;
+            }
+            found += 1;
+            assert!(
+                RESERVED_SERVICE_IDS.contains(&name),
+                "`{name}` is a service chaps runs and is not reserved"
+            );
+        }
+        assert!(found > 0, "no service found in a template");
+    }
+    for stem in ["chaps", "marketplace"] {
+        assert!(check_service_id(stem).is_err(), "{stem}");
+    }
+    assert!(check_service_id("chapkit-ewars-model").is_ok());
+}

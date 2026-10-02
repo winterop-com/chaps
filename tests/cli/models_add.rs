@@ -484,6 +484,18 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
         .stderr(predicates::str::contains("--service-id"));
     assert_eq!(manual_models(&dir), Json::Null, "nothing was written");
 
+    // Nor one chaps uses for itself: `chaps` would be written over
+    // `compose.chaps.yml`, `chap` merged into chap-core's own service.
+    for reserved in ["chaps", "chap", "marketplace", "dhis2"] {
+        sandbox
+            .online(port)
+            .args(["models", "add", REPO_URL, "--service-id", reserved])
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("chaps uses for its own services"));
+    }
+    assert_eq!(manual_models(&dir), Json::Null, "nothing was written");
+
     // Adding the same source twice needs a name of its own.
     sandbox
         .online(port)
