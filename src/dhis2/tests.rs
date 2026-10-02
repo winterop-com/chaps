@@ -1059,18 +1059,19 @@ fn the_url_is_the_base_and_the_path_with_one_slash_between_them() {
     );
 }
 
-/// Port 9 is the discard service, so this covers the transport-error path
-/// without a network - and the sentence is DHIS2's, not chap-core's.
+/// A port nothing listens on covers the transport-error path without a
+/// network - and the sentence is DHIS2's, not chap-core's.
 #[test]
 fn an_unreachable_dhis2_says_so_in_its_own_words() {
+    let base = crate::test_support::unreachable_base();
     let dhis2 = Dhis2::new(
-        "http://127.0.0.1:9",
+        &base,
         Credentials::new("admin", "district", CredentialSource::Default),
         Duration::from_secs(2),
     );
     let err = dhis2
         .send("GET", SYSTEM_INFO_PATH, None)
-        .expect_err("nothing is listening on port 9");
+        .expect_err("nothing is listening there");
     assert!(
         matches!(
             err.downcast_ref::<ChapError>(),
@@ -1079,7 +1080,7 @@ fn an_unreachable_dhis2_says_so_in_its_own_words() {
         "{err}"
     );
     let text = err.to_string();
-    assert!(text.contains("DHIS2 at http://127.0.0.1:9"), "{text}");
+    assert!(text.contains(&format!("DHIS2 at {base}")), "{text}");
     assert!(text.contains("`chaps status`"), "{text}");
     assert!(!text.contains("chap-core"), "{text}");
 }
@@ -1089,7 +1090,7 @@ fn an_unreachable_dhis2_says_so_in_its_own_words() {
 #[test]
 fn a_wait_that_runs_out_names_the_logs_and_the_flag() {
     let dhis2 = Dhis2::new(
-        "http://127.0.0.1:9",
+        &crate::test_support::unreachable_base(),
         Credentials::new("admin", "district", CredentialSource::Default),
         Duration::from_millis(200),
     );
@@ -1100,7 +1101,7 @@ fn a_wait_that_runs_out_names_the_logs_and_the_flag() {
             Duration::from_millis(1),
             &mut |_| said += 1,
         )
-        .expect_err("nothing is listening on port 9");
+        .expect_err("nothing is listening there");
     let text = err.to_string();
     assert!(text.contains("`chaps logs dhis2`"), "{text}");
     assert!(text.contains("--wait SECONDS"), "{text}");

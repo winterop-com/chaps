@@ -1,8 +1,10 @@
 use super::*;
 
-/// Port 9 is the discard service and is not listening on a developer
-/// machine, so this exercises the transport-error path without a network.
-const UNREACHABLE: &str = "http://127.0.0.1:9/registry.yaml";
+/// A port nothing listens on, so this exercises the transport-error path
+/// without a network.
+fn unreachable() -> String {
+    format!("{}/registry.yaml", crate::test_support::unreachable_base())
+}
 
 #[test]
 fn a_status_code_becomes_a_typed_http_error() {
@@ -34,11 +36,12 @@ fn a_transport_failure_keeps_the_url_as_context() {
 
 #[test]
 fn an_unreachable_registry_is_an_error_not_a_hang() {
+    let url = unreachable();
     let opts = RegistryOptions {
-        url: UNREACHABLE.to_string(),
+        url: url.clone(),
         timeout: Duration::from_secs(2),
         ..RegistryOptions::default()
     };
-    let err = fetch_registry(&opts).expect_err("nothing is listening on port 9");
-    assert!(err.to_string().contains(UNREACHABLE), "{err}");
+    let err = fetch_registry(&opts).expect_err("nothing is listening there");
+    assert!(err.to_string().contains(&url), "{err}");
 }

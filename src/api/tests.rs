@@ -100,14 +100,15 @@ fn query_values_are_escaped_and_appended() {
     );
 }
 
-/// Port 9 is the discard service, so this covers the transport-error path
-/// without a network.
+/// A port nothing listens on covers the transport-error path without a
+/// network.
 #[test]
 fn an_unreachable_api_is_the_error_status_uses() {
-    let api = Api::new("http://127.0.0.1:9", None, Duration::from_secs(2));
+    let base = crate::test_support::unreachable_base();
+    let api = Api::new(&base, None, Duration::from_secs(2));
     let err = api
         .send("GET", "/v1/jobs", None)
-        .expect_err("nothing is listening on port 9");
+        .expect_err("nothing is listening there");
     assert!(
         matches!(
             err.downcast_ref::<ChapError>(),
@@ -116,7 +117,7 @@ fn an_unreachable_api_is_the_error_status_uses() {
         "{err}"
     );
     let text = err.to_string();
-    assert!(text.contains("http://127.0.0.1:9"), "{text}");
+    assert!(text.contains(&base), "{text}");
     assert!(text.contains("is not responding"), "{text}");
     assert!(text.contains("chaps status"), "{text}");
 }

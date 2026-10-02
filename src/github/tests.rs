@@ -177,11 +177,12 @@ fn the_quota_payload_yields_the_core_bucket() {
     assert_eq!(parse_quota(r#"{"rate":{"limit":60}}"#), None);
 }
 
-/// Port 9 is the discard service, so this covers the transport-error path
-/// without a network.
+/// A port nothing listens on covers the transport-error path without a
+/// network.
 #[test]
 fn an_unreachable_host_is_an_error_not_a_hang() {
-    let err = get_ok("http://127.0.0.1:9/rate_limit", Duration::from_secs(2))
-        .expect_err("nothing is listening on port 9");
-    assert!(err.to_string().contains("127.0.0.1:9"), "{err}");
+    let base = crate::test_support::unreachable_base();
+    let err = get_ok(&format!("{base}/rate_limit"), Duration::from_secs(2))
+        .expect_err("nothing is listening there");
+    assert!(err.to_string().contains(&base[7..]), "{err}");
 }

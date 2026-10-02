@@ -735,13 +735,14 @@ fn the_download_urls_name_the_repository_and_the_tag() {
     assert!(release_url("v0.2.0").ends_with("/releases/tags/v0.2.0"));
 }
 
-/// Port 9 is the discard service, so this covers the transport-error path
-/// without a network.
+/// A port nothing listens on covers the transport-error path without a
+/// network.
 #[test]
 fn an_unreachable_host_is_an_error_not_a_hang() {
-    let err = get_text("http://127.0.0.1:9/releases/latest", Duration::from_secs(2))
-        .expect_err("nothing is listening on port 9");
-    assert!(err.to_string().contains("127.0.0.1:9"), "{err}");
+    let base = crate::test_support::unreachable_base();
+    let err = get_text(&format!("{base}/releases/latest"), Duration::from_secs(2))
+        .expect_err("nothing is listening there");
+    assert!(err.to_string().contains(&base[7..]), "{err}");
 }
 
 #[test]

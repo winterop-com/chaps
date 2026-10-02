@@ -140,16 +140,14 @@ fn sha256_matches_the_published_vectors() {
     assert_eq!(sha256_hex("services: {}\n".as_bytes()).len(), 64);
 }
 
-/// Port 9 is the discard service, so this covers the transport-error path
-/// without a network.
+/// A port nothing listens on covers the transport-error path without a
+/// network.
 #[test]
 fn an_unreachable_host_is_an_error_not_a_hang() {
-    let err = get(
-        "http://127.0.0.1:9/compose.ghcr.yml",
-        Duration::from_secs(2),
-    )
-    .expect_err("nothing is listening on port 9");
-    assert!(err.to_string().contains("127.0.0.1:9"), "{err}");
+    let base = crate::test_support::unreachable_base();
+    let err = get(&format!("{base}/compose.ghcr.yml"), Duration::from_secs(2))
+        .expect_err("nothing is listening there");
+    assert!(err.to_string().contains(&base[7..]), "{err}");
 }
 
 #[test]

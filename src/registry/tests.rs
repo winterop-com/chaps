@@ -169,13 +169,19 @@ fn parse_rejects_a_missing_model_file() {
     assert!(err.to_string().contains("missing"));
 }
 
-/// Port 9 is the discard service and is not listening, so every test in
-/// this module exercises the "network failed" branch without a network.
-const UNREACHABLE: &str = "http://127.0.0.1:9/registry.yaml";
+/// A port nothing listens on, so every test in this module exercises the
+/// "network failed" branch without a network. One URL for the whole run: the
+/// cache is keyed by it.
+fn unreachable() -> String {
+    format!(
+        "{}/registry.yaml",
+        crate::test_support::shared_unreachable_base()
+    )
+}
 
 fn opts(cache_dir: &std::path::Path, offline: bool) -> RegistryOptions {
     RegistryOptions {
-        url: UNREACHABLE.to_string(),
+        url: unreachable(),
         offline,
         cache_dir: cache_dir.to_path_buf(),
         timeout: Duration::from_secs(2),
@@ -256,7 +262,7 @@ fn an_unreachable_registry_falls_back_to_a_stale_cache() {
         other => panic!("expected a stale cache, got {other:?}"),
     }
     assert_eq!(r.models.len(), 1, "the seeded cache, not the snapshot");
-    assert_eq!(r.url, UNREACHABLE);
+    assert_eq!(r.url, unreachable());
 }
 
 #[test]
