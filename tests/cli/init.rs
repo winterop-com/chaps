@@ -613,10 +613,12 @@ fn the_chap_tag_reaches_the_env_file_and_the_state() {
     assert!(!env.contains("# CHAP_IMAGE_TAG"));
     // The base file still reads the variable with `latest` as its default.
     assert!(read(&dir.join("compose.yml")).contains("${CHAP_IMAGE_TAG:-latest}"));
-    // Nothing was cached, so nothing but the three state files is in .chaps/.
+    // Nothing was cached, so nothing but the three state files is in .chaps/
+    // - and the lock every command that writes them takes.
     let mut names: Vec<String> = std::fs::read_dir(dir.join(".chaps"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "lock")
         .collect();
     names.sort();
     assert_eq!(

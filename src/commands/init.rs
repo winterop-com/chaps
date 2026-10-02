@@ -262,6 +262,12 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
 
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
+    // The state lock every other writer of `.chaps/` takes: an `init --force`
+    // over a deployment another chaps is changing waits for it rather than
+    // writing over it half-way.
+    std::fs::create_dir_all(dir.join(CHAPS_DIR))
+        .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.join(CHAPS_DIR).display()))?;
+    let _lock = crate::project::StateLock::acquire(&dir)?;
     let mut written = Vec::new();
 
     // The raw copy of chap-core's compose.ghcr.yml goes in first: `sync`
