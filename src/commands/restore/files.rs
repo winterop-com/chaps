@@ -36,8 +36,10 @@ pub(super) fn restore_files(
     let incoming = std::fs::read(from.join(ENV_FILE)).ok();
     if backup::keep_env_copy(current.as_deref(), incoming.as_deref()) {
         let kept = project.dir.join(ENV_BACKUP_FILE);
-        std::fs::write(&kept, current.clone().unwrap_or_default())
-            .map_err(|e| anyhow::anyhow!("writing {}: {e}", kept.display()))?;
+        crate::dotenv::write(
+            &kept,
+            &String::from_utf8_lossy(current.as_deref().unwrap_or_default()),
+        )?;
         report.env_backup = Some(ENV_BACKUP_FILE.to_string());
     }
 
@@ -45,6 +47,8 @@ pub(super) fn restore_files(
         backup::copy_file(&from, &project.dir, rel)?;
         report.files.push(rel.clone());
     }
+    // Copied with the mode it had in the archive; closed to its owner again.
+    crate::dotenv::protect(&project.dir.join(ENV_FILE));
     report.removed_state = remove_state_not_in(&project.dir, &report.plan.files)?;
 
     // A database's credentials live in its volume as well as in `.env`, and a
@@ -74,8 +78,7 @@ pub(super) fn restore_files(
         let (body, moved) =
             backup::keep_credentials(&restored_env, &String::from_utf8_lossy(current), &kept);
         if !moved.is_empty() {
-            std::fs::write(&env, body)
-                .map_err(|e| anyhow::anyhow!("writing {}: {e}", env.display()))?;
+            crate::dotenv::write(&env, &body)?;
             report.kept_credentials = moved;
         }
     }

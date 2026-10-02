@@ -277,5 +277,57 @@ fn is_commented(line: &str, key: &str) -> bool {
         .is_some()
 }
 
+/// Write `.env` the one way every command does: to a temporary file of this
+/// process's own, readable by its owner only, renamed over the old one. A
+/// crash or a full disk then leaves the old file whole - it holds the
+/// database password, which nothing else records - and the API token, the
+/// registration key and the passwords in it are never readable by other
+/// users of the machine.
+pub fn write(path: &std::path::Path, body: &str) -> crate::error::Result<()> {
+    use std::io::Write;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&tmp).and_then(|mut file| {
+        file.write_all(body.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(anyhow::anyhow!("writing {}: {e}", tmp.display()));
+    }
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::anyhow!("renaming {} to {}: {e}", tmp.display(), path.display())
+    })
+}
+
+/// Make an existing `.env` readable by its owner only, as [`write`] creates
+/// it: for one an older chaps wrote, or one a restore copied in. Best-effort;
+/// a file that is not there is left alone.
+pub fn protect(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
 #[cfg(test)]
 mod tests;

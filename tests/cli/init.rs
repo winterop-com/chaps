@@ -1418,3 +1418,22 @@ fn init_force_refuses_when_the_compose_project_name_cannot_be_read() {
         ));
     assert_eq!(read(&project), "compose_project: [oops");
 }
+
+/// `.env` holds the database password, the API token and the registration
+/// key, so `init` writes it readable by its owner only.
+#[cfg(unix)]
+#[test]
+fn init_writes_env_readable_by_its_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--only", "none", "--models", "none"])
+        .assert()
+        .success();
+    let mode = std::fs::metadata(sandbox.project().join(".env"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+}

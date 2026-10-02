@@ -59,7 +59,7 @@ pub(crate) fn append_env_pins(project: &Project, check: bool) -> Result<Option<P
         out.push('\n');
         out.push_str(section);
     }
-    std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    crate::dotenv::write(&path, &out)?;
     Ok(Some(path))
 }
 
@@ -222,7 +222,7 @@ pub fn refresh_env_pin(dir: &Path, var: &str, tag: &str) -> Result<bool> {
     if !changed {
         return Ok(false);
     }
-    std::fs::write(&path, out).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+    crate::dotenv::write(&path, &out)?;
     Ok(true)
 }
 
@@ -273,8 +273,7 @@ pub fn set_env_chap_tag(dir: &Path, old: &str, new: &str) -> Result<EnvTag> {
     crate::dotenv::set(&mut lines, CHAP_TAG_ENV_VAR, new);
     let out = crate::dotenv::join(&lines);
     if out != body {
-        std::fs::write(&path, &out)
-            .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
+        crate::dotenv::write(&path, &out)?;
     }
     Ok(EnvTag::Updated)
 }

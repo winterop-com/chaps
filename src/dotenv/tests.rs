@@ -186,3 +186,41 @@ fn a_commented_placeholder_carries_no_value_to_recover() {
         Some("v w")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn env_is_written_whole_and_readable_by_its_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(".env");
+    std::fs::write(&path, "OLD=1\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    write(&path, "POSTGRES_PASSWORD=secret\n").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "POSTGRES_PASSWORD=secret\n"
+    );
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let leftovers: Vec<_> = std::fs::read_dir(temp.path())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name() != ".env")
+        .collect();
+    assert!(leftovers.is_empty(), "no temporary file is left behind");
+}
+
+#[cfg(unix)]
+#[test]
+fn protect_closes_an_existing_env_to_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(".env");
+    std::fs::write(&path, "A=1\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    protect(&path);
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    protect(&temp.path().join("missing"));
+}

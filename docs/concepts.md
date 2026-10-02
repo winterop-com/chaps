@@ -268,6 +268,11 @@ That is deliberate. The file holds the database password the PostgreSQL volume
 was created with, plus the API token and the registration key, and a rotated
 password leaves chap-core unable to authenticate against its own data.
 
+Because of what it holds, `.env` is readable by its owner only (mode 600), and
+every write goes to a temporary file that is renamed over it, so a crash or a
+full disk never leaves half a file. A `.env` an older chaps wrote readable by
+everyone is closed the next time `chaps sync` or `chaps up` runs.
+
 Those two secrets are the one exception to "written once", and a narrow one.
 `chaps init --api-token` fills them in as it renders the file;
 `chaps auth enable`, `disable` and `rotate` rewrite exactly those two lines

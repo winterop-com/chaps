@@ -289,9 +289,9 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
                  `chaps down --volumes` or change the role with ALTER USER",
             );
         }
-        std::fs::write(
+        crate::dotenv::write(
             &env_path,
-            render_env(&EnvSpec {
+            &render_env(&EnvSpec {
                 postgres_user: POSTGRES_USER.to_string(),
                 postgres_password: random_password()?,
                 postgres_db: POSTGRES_DB.to_string(),
@@ -302,8 +302,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
                 // apply() appends one commented pin per enabled model.
                 model_tag_pins: Vec::new(),
             }),
-        )
-        .map_err(|e| anyhow::anyhow!("writing {}: {e}", env_path.display()))?;
+        )?;
         written.push(env_path.clone());
     }
 

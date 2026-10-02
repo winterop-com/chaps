@@ -328,7 +328,7 @@ fn read_env(project: &Project) -> Result<String> {
 
 fn write_env(project: &Project, body: &str) -> Result<()> {
     let path = project.dir.join(ENV_FILE);
-    std::fs::write(&path, body).map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))
+    crate::dotenv::write(&path, body)
 }
 
 /// The `written  <file>` block, empty when the render changed nothing.
