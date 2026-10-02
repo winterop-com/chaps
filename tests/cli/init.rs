@@ -945,9 +945,11 @@ fn init_warns_when_something_is_already_listening_on_the_api_port() {
 #[test]
 fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
     let sandbox = Sandbox::new();
-    // A port high enough that the test says nothing about what this machine
-    // has on 8000, and nothing is listening on it either way.
-    let port = "18400";
+    // A port nothing listens on, so the only thing that can make it busy is
+    // the deployment beside it - not a parallel test that happened to pick
+    // the same fixed number.
+    let port = free_port().to_string();
+    let port = port.as_str();
     sandbox
         .chap()
         .arg("init")
@@ -968,13 +970,17 @@ fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
         // A warning, not a refusal: two deployments on one port is a fine way
         // to take turns, and the directory is worth writing either way.
         .success()
+        // The suggested port is the next free one, which this machine decides.
         .stderr(predicates::str::contains(format!(
-            "port 18400 is also used by a ({first}), which is not running; both cannot be up at \
-             once. Keep it, or set CHAP_API_PORT=18401 in `.env`"
+            "port {port} is also used by a ({first}), which is not running; both cannot be up at \
+             once. Keep it, or set CHAP_API_PORT="
         )));
 
     // Written all the same, at the port that was asked for.
-    assert_eq!(state(&sandbox.home.path().join("b"))["api_port"], 18400);
+    assert_eq!(
+        state(&sandbox.home.path().join("b"))["api_port"],
+        port.parse::<u16>().unwrap()
+    );
 }
 
 #[test]
@@ -984,14 +990,14 @@ fn init_on_a_port_no_other_deployment_uses_warns_about_nothing() {
         .chap()
         .arg("init")
         .arg("a")
-        .args(["--models", "none", "--api-port", "18400"])
+        .args(["--models", "none", "--api-port", &free_port().to_string()])
         .assert()
         .success();
     sandbox
         .chap()
         .arg("init")
         .arg("b")
-        .args(["--models", "none", "--api-port", "18401"])
+        .args(["--models", "none", "--api-port", &free_port().to_string()])
         .assert()
         .success()
         .stderr(predicates::str::contains("is also used by").not());
