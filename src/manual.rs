@@ -201,6 +201,12 @@ pub fn names(req: &AddRequest) -> Result<Names> {
         None => source::default_service_id(&id),
     };
     source::check_service_id(&service_id)?;
+    if let Some(dir) = &req.data_dir {
+        crate::compose::apply::check_data_dir(dir.trim())?;
+    }
+    if let Some(user) = &req.user {
+        crate::compose::apply::check_user(user.trim())?;
+    }
     let display_name = match &req.display_name {
         Some(name) => name.trim().to_string(),
         None => default_display_name(&source),

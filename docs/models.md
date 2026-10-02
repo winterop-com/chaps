@@ -477,8 +477,8 @@ reviewed catalogue entry:
 | service | `--service-id`, else the id with hyphens. Not one of the names chaps uses itself - `chap`, `worker`, `redis`, `postgres`, `ocs`, `s3`, `s3-init`, `dhis2`, `dhis2-db`, `dhis2-prep`, `chaps`, `marketplace` - which a model would be merged into or written over; `models add` and `sync` refuse them. |
 | name | `--name`, else the repository or image name. |
 | pin | The newest published `sha-` build of the branch, or the tag or digest that was named. |
-| data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else `/work/data`. |
-| user | `--user`, else the image's own `User` when it is numeric or an account `chaps` knows, else the numbers a `docker run ... id -u` probe reads out of the image, else the name with a warning. |
+| data dir | `--data-dir`, else `<WorkingDir>/data` from the image config, else `/work/data`. A `--data-dir` is an absolute path of letters, digits, `/`, `.`, `_` and `-`: it goes into the rendered YAML and the init container's `chown` as it is. |
+| user | `--user` (a name or an id, with a group after a `:`, such as `1000:1000`), else the image's own `User` when it is numeric or an account `chaps` knows, else the numbers a `docker run ... id -u` probe reads out of the image, else the name with a warning. |
 | amd64 | Whether ghcr publishes the image for amd64 alone; `--runtime-amd64` records it either way. |
 
 The data directory and the user are resolved the same way for a marketplace

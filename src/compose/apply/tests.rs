@@ -709,3 +709,39 @@ fn a_plan_writes_nothing_and_fails_before_any_file() {
     write_planned(&mut project, &registry, report).unwrap();
     assert!(dir.path().join("compose.chapkit-ewars-model.yml").is_file());
 }
+
+/// What goes into the rendered YAML and the init container's `chown` as it
+/// is: a path or a user that would break either is refused up front.
+#[test]
+fn a_data_dir_or_user_that_would_break_the_yaml_is_refused() {
+    assert!(check_data_dir("/app/data").is_ok());
+    assert!(check_data_dir("/work/my-model_1.0").is_ok());
+    for bad in ["app/data", "/data: x #y", "/my data", "/data;rm", ""] {
+        assert!(check_data_dir(bad).is_err(), "{bad:?}");
+    }
+    for good in ["1000:1000", "chapkit:chapkit", "root", "0"] {
+        assert!(check_user(good).is_ok(), "{good:?}");
+    }
+    for bad in ["1000:", ":1000", "a b", "x;y", ""] {
+        assert!(check_user(bad).is_err(), "{bad:?}");
+    }
+
+    let registry = load_embedded().unwrap();
+    let (_dir, project) = project();
+    let mut sel = enable(&["chapkit_ewars_model"]);
+    sel.enable[0].data_dir = Some("/data: x #y".to_string());
+    assert!(validate(&project, &registry, &sel).is_err());
+}
+
+/// Two requests in one selection on one compose service would be one overlay,
+/// the second written over the first.
+#[test]
+fn two_models_on_one_service_in_one_selection_are_refused() {
+    let mut registry = load_embedded().unwrap();
+    let service = registry.models[0].service_id.clone();
+    registry.models[1].service_id = service.clone();
+    let (first, second) = (registry.models[0].id.clone(), registry.models[1].id.clone());
+    let (_dir, project) = project();
+    let err = validate(&project, &registry, &enable(&[&first, &second])).unwrap_err();
+    assert!(err.to_string().contains(&service), "{err}");
+}

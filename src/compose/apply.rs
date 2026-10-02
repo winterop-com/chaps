@@ -186,6 +186,67 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
         if !(req.keep_version && project.state.models.contains_key(&model.id)) {
             model.resolve(&req.selector)?;
         }
+        // Two requests in one selection on one service would render to one
+        // overlay, the second written over the first.
+        if let Some(twin) = sel.enable.iter().find(|other| {
+            other.id != req.id
+                && registry
+                    .get(&other.id)
+                    .is_some_and(|o| o.service_id == model.service_id)
+        }) {
+            return Err(anyhow::anyhow!(
+                "{} and {} both run as the compose service `{}`; enable one of them",
+                req.id,
+                twin.id,
+                model.service_id
+            ));
+        }
+        if let Some(dir) = &req.data_dir {
+            check_data_dir(dir)?;
+        }
+        if let Some(user) = &req.user {
+            check_user(user)?;
+        }
+    }
+    Ok(())
+}
+
+/// A `--data-dir` that goes into the rendered YAML and the init container's
+/// `chown` as it is: an absolute path of characters neither YAML nor a shell
+/// reads as anything but a path.
+pub fn check_data_dir(dir: &str) -> Result<()> {
+    let ok = dir.starts_with('/')
+        && dir
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'));
+    if !ok {
+        return Err(ChapError::Usage(format!(
+            "`{dir}` is not a data directory chaps can render; give an absolute path of \
+             letters, digits, `/`, `.`, `_` and `-`, such as `--data-dir /app/data`"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// A `--user` as compose and `chown` take it: a name or a numeric id,
+/// optionally with a group after a `:`.
+pub fn check_user(user: &str) -> Result<()> {
+    let part = |p: &str| {
+        !p.is_empty()
+            && p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    let ok = match user.split_once(':') {
+        Some((name, group)) => part(name) && part(group),
+        None => part(user),
+    };
+    if !ok {
+        return Err(ChapError::Usage(format!(
+            "`{user}` is not a user chaps can render; give a name or an id, with a group after \
+             a `:` if needed, such as `--user 1000:1000`"
+        ))
+        .into());
     }
     Ok(())
 }
