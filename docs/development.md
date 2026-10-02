@@ -258,8 +258,12 @@ same six the `winterop-com/maneki` desktop build uses. `--scope org` sets them
 on the organisation with `--visibility selected` instead of on this repository
 alone; `--dry-run` shows what would be set.
 
-Without the secrets the workflow still succeeds and publishes unsigned macOS
-binaries, so a fork or a first tag is never blocked on them.
+Without the secrets a branch push or a dispatch run still succeeds with
+unsigned macOS binaries, so a fork can exercise the build. A tag run fails
+instead: a release is never published unsigned under notes that say it is
+signed. The publish job also refuses a tag that does not match the version in
+`Cargo.toml`, and publishes a tag with a suffix (`v1.0.0-rc.1`) as a
+pre-release that never becomes `releases/latest`.
 
 ### Preparing the Apple certificate
 
@@ -324,8 +328,13 @@ an annotated `v0.2.0` tag, and then prints the push command rather than
 pushing. Nothing reaches GitHub until you run it:
 
 ```sh
-git push origin main v0.2.0
+git push --atomic origin main v0.2.0
 ```
+
+`--atomic` lands the branch and the tag together or not at all, so a rejected
+branch never leaves a tag building a release. With `--push` the script also
+fetches `origin/main` first and stops if it holds commits the local branch
+does not.
 
 `make release-tag VERSION=0.2.0 PUSH=1`, or `scripts/release.sh 0.2.0 --push`,
 pushes straight away.
@@ -442,10 +451,12 @@ about itself.
   that this build did not produce - a target that was renamed or dropped -
   after the upload rather than before it, which keeps the release from
   briefly missing an archive.
-- `concurrency: release-<ref>` with `cancel-in-progress` for anything that is
-  not a tag means a burst of pushes to `main` does not queue seven-target
-  builds behind each other. A tag run is in a group of its own, named after
-  the tag, and is never cancelled.
+- `concurrency: release-<ref>` keeps one run going and one waiting per ref,
+  and a newer push replaces the waiting one, so a burst of pushes to `main`
+  builds the first and the newest commit. A run is never cancelled once it
+  has started: one cut off while `publish-dev` uploads would leave the `dev`
+  release with archives and `SHA256SUMS` from different commits. Every
+  third-party action is pinned to a commit SHA, with its version in a comment.
 
 The two publish jobs are guarded against each other: `publish` runs only for
 `refs/tags/v*` and `publish-dev` only for a push to `refs/heads/main`.

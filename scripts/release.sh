@@ -95,6 +95,18 @@ if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
   exit 1
 fi
 
+# The tag has to land on a commit that is on the remote branch, so the local
+# branch must already hold everything the remote has. Checked before anything
+# is bumped, while being wrong costs nothing. Only with --push, which is the
+# run that talks to the remote anyway.
+if [ "$push" -eq 1 ]; then
+  git fetch --quiet origin "$BRANCH"
+  if ! git merge-base --is-ancestor "origin/${BRANCH}" HEAD; then
+    echo "error: origin/${BRANCH} has commits this branch does not; pull them first" >&2
+    exit 1
+  fi
+fi
+
 current="$(grep -m1 '^version = "' Cargo.toml | sed 's/^version = "\(.*\)"$/\1/')"
 if [ "$current" = "$version" ]; then
   echo "error: Cargo.toml is already at ${version}" >&2
@@ -134,8 +146,11 @@ echo
 echo "==> committed and tagged ${tag}"
 
 if [ "$push" -eq 1 ]; then
-  echo "==> git push origin ${BRANCH} ${tag}"
-  git push origin "$BRANCH" "$tag"
+  # Atomic: the branch and the tag land together or not at all, so a
+  # rejected branch never leaves a pushed tag building a release from a
+  # commit that is not on it.
+  echo "==> git push --atomic origin ${BRANCH} ${tag}"
+  git push --atomic origin "$BRANCH" "$tag"
   echo
   echo "the release workflow is building; follow it with:"
   echo "  gh run list --workflow release --limit 1"
@@ -143,7 +158,7 @@ else
   echo
   echo "nothing has been pushed. To publish the release:"
   echo
-  echo "  git push origin ${BRANCH} ${tag}"
+  echo "  git push --atomic origin ${BRANCH} ${tag}"
   echo
   echo "To undo instead:"
   echo
