@@ -117,9 +117,9 @@ fn the_column_headings_line_up_with_the_rows() {
     assert_eq!(column_of(head, "MODEL"), column_of(row, "CHAP-EWARS"));
     assert_eq!(column_of(head, "ID"), column_of(row, "chapkit_ewars_model"));
     assert_eq!(column_of(head, "STATUS"), column_of(row, "●"));
-    assert_eq!(column_of(head, "VERSION"), column_of(row, "1.0.3"));
+    assert_eq!(column_of(head, "VERSION"), column_of(row, "1.0.4"));
     // And the version has lost the `v` the old list put in front of it.
-    assert!(!row.contains("v1.0.3"), "{row}");
+    assert!(!row.contains("v1.0.4"), "{row}");
 
     let enabled = state_with_ewars(&registry, Some(5001));
     let app = App::new(&registry, &enabled);
@@ -285,7 +285,7 @@ fn the_summary_strip_describes_the_row_under_the_cursor() {
     let head = line_text(&lines[0]);
     assert!(head.starts_with("CHAP-EWARS"), "{head}");
     assert!(head.contains("● limited data"), "{head}");
-    assert!(head.contains("1.0.3 (sha-"), "{head}");
+    assert!(head.contains("1.0.4 (sha-"), "{head}");
     assert!(head.contains("not enabled"), "{head}");
     assert!(head.contains("requires population"), "{head}");
     assert!(head.ends_with("i for details"), "{head}");
@@ -412,7 +412,7 @@ fn the_channel_dialog_lists_both_channels_and_marks_the_one_in_force() {
     assert!(screen.contains("Channel for CHAP-EWARS"), "{screen}");
     let stable = line_with(&screen, "stable");
     assert!(stable.contains("▸ ✓ stable"), "{stable}");
-    assert!(stable.contains("1.0.3"), "the version it resolves to");
+    assert!(stable.contains("1.0.4"), "the version it resolves to");
     let latest = line_with(&screen, "latest");
     assert!(latest.contains("latest"), "{latest}");
     assert!(!latest.contains('▸'), "{latest}");
@@ -452,7 +452,7 @@ fn the_details_overlay_opens_closes_and_scrolls() {
         // The colour word is only worth printing next to what it means.
         "● orange, shows promise on limited data",
         "http://localhost:5001",
-        "1.0.3 (sha-24d58c0) · verified · channels stable, latest",
+        "1.0.4 (sha-964eea8) · verified · channels stable, latest",
         "ghcr.io/chap-models/chapkit_ewars_model:sha-",
         "amd64 only",
         "/app/data",
@@ -590,6 +590,9 @@ fn a_model_with_more_than_one_version_lists_them_all() {
         .iter_mut()
         .find(|m| m.id == EWARS)
         .expect("the ewars model");
+    // Only the stable release and the one added here, whatever else the
+    // catalogue holds by now.
+    model.versions.truncate(1);
     let mut older = model.versions[0].clone();
     older.version = "1.0.1".to_string();
     older.image_tag = "sha-0000001".to_string();
@@ -607,7 +610,7 @@ fn a_model_with_more_than_one_version_lists_them_all() {
         .position(|l| l.starts_with("version"))
         .expect("a version row");
     assert!(
-        lines[at].contains("1.0.3 (sha-24d58c0) · verified · channels stable, latest"),
+        lines[at].contains("1.0.4 (sha-964eea8) · verified · channels stable, latest"),
         "{:?}",
         lines[at]
     );
