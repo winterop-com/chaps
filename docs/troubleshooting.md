@@ -645,6 +645,15 @@ resumed it before starting anything else; nothing more to do. A model that
 answers nothing and shows no error in `chaps logs` may be in this state: run
 `chaps up` to resume it.
 
+## `... redirects (301) to ...`
+
+The address chaps was given answers with a redirect - most often `http://`
+behind a proxy that sends everything to `https://`, or a missing or extra
+path. chaps does not follow redirects: doing so drops the token or password
+and turns a `POST` into a `GET`, and the answer would then read as wrong
+credentials. Use the address the message names: `--url` for `chaps api`,
+`chaps dhis2 use <url>` for a DHIS2.
+
 ## `there is no marketplace model ...`
 
 `chaps run` was given a word with no tag, which is a marketplace id, and the

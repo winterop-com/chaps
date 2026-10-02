@@ -510,3 +510,41 @@ fn api_url_to_another_server_does_not_carry_this_deployments_token() {
     .success()
     .stdout(predicates::str::contains("\"auth\": true"));
 }
+
+/// A redirect is reported, not followed: following it would drop the token
+/// and turn the answer into a misleading 401.
+#[test]
+fn api_reports_a_redirect_instead_of_following_it() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                b"HTTP/1.1 301 Moved Permanently\r\nLocation: https://chap.example.org/v1/jobs\r\n\
+                  Content-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    let sandbox = Sandbox::new();
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &[
+            "api",
+            "GET",
+            "/v1/jobs",
+            "--url",
+            &format!("http://127.0.0.1:{port}"),
+        ],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains(
+        "redirects (301) to https://chap.example.org/v1/jobs",
+    ))
+    .stderr(predicates::str::contains("`--url`"));
+}
