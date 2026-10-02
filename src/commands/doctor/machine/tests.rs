@@ -296,3 +296,33 @@ fn the_memory_thresholds_are_six_and_four_gigabytes() {
     assert_eq!(memory_check(false, Some(32 * GB)).status, Status::Skip);
     assert_eq!(memory_check(true, Some(32 * GB)).status, Status::Ok);
 }
+
+#[test]
+fn leftovers_warn_and_name_cleanup_only_when_there_are_volumes() {
+    use crate::commands::cleanup::{Findings, Leftover};
+    assert_eq!(leftovers_check(None).status, Status::Skip);
+    assert_eq!(
+        leftovers_check(Some(&Findings::default())).status,
+        Status::Ok
+    );
+
+    let findings = Findings {
+        leftovers: vec![Leftover {
+            project: "demo-1a2b3c".to_string(),
+            dir: std::path::PathBuf::from("/gone/demo"),
+            volumes: vec![
+                "demo-1a2b3c_ck_x_data".to_string(),
+                "demo-1a2b3c_pg".to_string(),
+            ],
+            network: None,
+        }],
+        ..Findings::default()
+    };
+    let check = leftovers_check(Some(&findings));
+    assert_eq!(check.status, Status::Warn);
+    assert_eq!(
+        check.detail,
+        "2 volumes of 1 removed deployment still in docker"
+    );
+    assert!(check.fix.unwrap().contains("`chaps cleanup`"));
+}

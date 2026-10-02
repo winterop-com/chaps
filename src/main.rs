@@ -18,6 +18,7 @@ mod dotenv;
 mod error;
 mod github;
 mod jobs;
+mod known;
 mod manual;
 mod modeltest;
 mod open;
@@ -192,6 +193,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         Command::Api(args) => commands::api::run(ctx, args),
 
         Command::Doctor(args) => commands::doctor::run(ctx, args),
+        Command::Cleanup(args) => commands::cleanup::run(ctx, args),
 
         Command::Auth(a) => match &a.command {
             AuthSub::Show(args) => commands::auth::show(ctx, args),

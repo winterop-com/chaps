@@ -614,6 +614,21 @@ parentheses hold the line compose said it with. `pull access denied` or
 host port something else took between the pick and the start; run again. The
 model was taken back out, so the `chaps run` the message names starts afresh.
 
+## `leftovers: N volumes of M removed deployments still in docker`
+
+`chaps doctor` found volumes of deployments whose directory is gone. Nothing
+uses them and no chaps command would name them again, so they only take disk
+space. `chaps cleanup --dry-run` lists them, and `chaps cleanup` deletes them
+after asking. A deployment you moved rather than deleted counts as removed
+until a chaps command runs in its new directory; run `chaps sync` there first.
+See [Cleaning up after removed deployments](./doctor.md#cleaning-up-after-removed-deployments).
+
+## `--json cannot ask before deleting data` from `chaps cleanup`
+
+`chaps cleanup` deletes data and asks first, and a `--json` run (or one with
+no terminal) has nobody to ask. `chaps cleanup --dry-run` lists what would go;
+`chaps cleanup --yes` deletes it without asking.
+
 ## `docker would not remove volume ...` from `chaps stop --purge`
 
 Purging a group removes every volume compose made for it, and docker refused

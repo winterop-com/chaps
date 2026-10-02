@@ -402,6 +402,12 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
 
         let measured = disk_path(engine.root_dir.as_deref());
         checks.push(disk_check(&measured, free_bytes(&measured)));
+        checks.push(leftovers_check(
+            have_cli
+                .then(crate::commands::cleanup::find)
+                .flatten()
+                .as_ref(),
+        ));
         // Only a deployment that runs DHIS2 is asked about memory. It is the
         // one service here whose failure below a few gigabytes is a silent kill
         // rather than an error, and a line about a limit nothing else in a

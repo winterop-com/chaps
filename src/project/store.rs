@@ -181,7 +181,11 @@ impl Project {
             "{MANAGED_HEADER}{}",
             serde_yaml_ng::to_string(&self.state.components)?
         );
-        write_atomically(&chaps.join(COMPONENTS_FILE), &components_body)
+        write_atomically(&chaps.join(COMPONENTS_FILE), &components_body)?;
+        // So `chaps cleanup` can tell this deployment's volumes from a
+        // deleted one's.
+        crate::known::record(self);
+        Ok(())
     }
 }
 

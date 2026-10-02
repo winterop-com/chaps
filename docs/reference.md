@@ -26,7 +26,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps top`](#chaps-top), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps top`](#chaps-top), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps cleanup`](#chaps-cleanup), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -695,6 +695,19 @@ Run a checklist over this machine and this deployment.
 ```text
 Usage: chaps doctor [OPTIONS]
 ```
+
+## chaps cleanup
+
+Delete the volumes of deployments whose directory is gone.
+
+```text
+Usage: chaps cleanup [OPTIONS]
+```
+
+| Argument | Description |
+| --- | --- |
+| `-n, --dry-run` | List what would be deleted and change nothing. |
+| `--yes` | Delete without asking first. |
 
 ## chaps auth
 

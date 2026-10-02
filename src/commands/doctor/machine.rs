@@ -425,5 +425,33 @@ pub fn chaps_check(latest: ReleaseList<'_>) -> Check {
     }
 }
 
+/// The `leftovers` line: volumes that deployments whose directory is gone
+/// left in docker, which nothing else in chaps would ever name again.
+/// `None` when docker could not be asked.
+pub fn leftovers_check(findings: Option<&crate::commands::cleanup::Findings>) -> Check {
+    let Some(findings) = findings else {
+        return Check::skip("leftovers", "leftovers", "docker could not be asked");
+    };
+    let volumes = findings.volume_count();
+    if volumes == 0 {
+        return Check::ok(
+            "leftovers",
+            "leftovers",
+            "no volumes left by removed deployments",
+        );
+    }
+    let deployments = findings.leftovers.len();
+    Check::warn(
+        "leftovers",
+        "leftovers",
+        format!(
+            "{volumes} volume{} of {deployments} removed deployment{} still in docker",
+            if volumes == 1 { "" } else { "s" },
+            if deployments == 1 { "" } else { "s" },
+        ),
+        "`chaps cleanup` deletes them; `chaps cleanup --dry-run` lists them first",
+    )
+}
+
 #[cfg(test)]
 mod tests;

@@ -78,6 +78,7 @@ These run everywhere, inside a deployment directory or not.
 | `network marketplace` | can it reach `registry.yaml` | The catalogue falls back to the cache and then to the embedded snapshot, so this is a warning too. `chaps registry show` says which one is in use. |
 | `network releases` | can it reach the chap-core release list | `chaps update` needs it; everything else works without it. The answer doubles as the newest release, which `chap-core pin` below compares against. |
 | `github api` | how much of this address's hour is left on GitHub's REST API | `GET /rate_limit`, which GitHub documents as not counting against the limit it reports. Unauthenticated that limit is 60 requests an hour **per address**, which the release lookup, the `chap-core pin` line, every `registry pin <id>` line and every `chaps models add` all spend - a busy operator, or a CI runner sharing its egress address, runs out before lunch. The line says which of the two limits this is: `4990 of 5000 requests left this hour (token)`, or `43 of 60 requests left this hour (no token; set GITHUB_TOKEN for 5000)`. It warns when nothing is left, with the clock time the window resets at; it never fails, because every check that needs GitHub already degrades to a skip with the reason on its own line. See [a used-up rate limit](./troubleshooting.md#githubs-rate-limit-is-used-up). |
+| `leftovers` | volumes that deployments whose directory is gone left in docker | Warns with how many volumes of how many removed deployments are still there: `chaps cleanup` deletes them, `chaps cleanup --dry-run` lists them first. Nothing else in chaps would ever name those volumes again. See [Cleaning up after removed deployments](#cleaning-up-after-removed-deployments). Skipped when there is no docker to ask. |
 | `chaps` | version, target, install method, newer release | Warns when a newer release exists: `chaps self update`. Under `--offline` the line still names the build, as a `skip`: whether there is an update is the one thing this run did not ask. |
 
 An anonymous request to `ghcr.io/v2/` answers `401`, which is the registry
@@ -105,6 +106,34 @@ public read. `chaps` never writes the token anywhere - not to `.chaps/`, not
 to `.env`, not to the cache - and never prints it: a `-v` trace says
 `Authorization: Bearer <token>` and nothing more. Nothing on the command line
 sets it, because a token on a command line is a token in the shell history.
+
+## Cleaning up after removed deployments
+
+Deleting a deployment's directory does not delete what docker holds for it:
+its volumes, with the models' data and any database, stay until something
+removes them, and once the directory is gone no chaps command names them any
+more. `chaps cleanup` is that something:
+
+```sh
+chaps cleanup --dry-run     # list what would go, change nothing
+chaps cleanup               # list it, ask, then delete
+chaps cleanup --yes         # delete without asking, for a script
+```
+
+A deployment counts as removed only when chaps can prove it. Every time
+chaps saves a deployment it records its compose project name and its
+directory in `deployments.yaml` in its data directory (`$CHAPS_DATA_DIR`,
+else `$XDG_DATA_HOME/chaps`, else `~/.local/share/chaps`). A recorded
+deployment whose directory no longer holds it - deleted, or written over by
+`chaps init --force` - is removed; one that is only down still has its
+directory, and its data stays. Volumes of a compose project chaps never
+recorded are not touched, and neither is a volume any container still
+mounts, nor a removed deployment that still has containers (the line names
+the `docker compose -p <project> down` that removes them).
+
+A deployment you moved to another directory is recorded again the next time
+any chaps command saves it there; until then it looks removed, so run
+`chaps sync` in its new place before `chaps cleanup`.
 
 ## Project checks
 

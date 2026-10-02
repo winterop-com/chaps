@@ -3,6 +3,7 @@
 pub mod api;
 pub mod auth;
 pub mod backup;
+pub mod cleanup;
 pub mod completions;
 pub mod components;
 pub mod dhis2;

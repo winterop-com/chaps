@@ -6,6 +6,7 @@
 
 mod auth;
 mod backup;
+mod cleanup;
 mod common;
 mod components;
 mod dhis2;

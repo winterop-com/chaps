@@ -224,6 +224,18 @@ pub struct ApiArgs {
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {}
 
+/// Delete the volumes of deployments whose directory is gone
+#[derive(Debug, Clone, Args)]
+pub struct CleanupArgs {
+    /// List what would be deleted and change nothing
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
+
+    /// Delete without asking first
+    #[arg(long, conflicts_with = "dry_run")]
+    pub yes: bool,
+}
+
 /// Turn API authentication on or off, and show the token
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]

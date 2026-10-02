@@ -6,6 +6,7 @@
 
 mod images;
 mod labels;
+mod leftovers;
 mod plain;
 mod ps;
 mod query;
@@ -21,6 +22,7 @@ pub use labels::{
     COMPOSE_DIR_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, GROUP_LABEL, KIND_LABEL,
     Labeled, MODEL_LABEL, ROLE_LABEL, chaps_containers,
 };
+pub use leftovers::{default_network_exists, project_has_containers, volume_in_use};
 pub use plain::{run_compose_plain, strip_ansi};
 pub use ps::{
     Container, all_containers, all_containers_or_why, diff_containers, ps_entries,
