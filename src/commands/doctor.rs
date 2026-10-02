@@ -402,8 +402,10 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
 
         let measured = disk_path(engine.root_dir.as_deref());
         checks.push(disk_check(&measured, free_bytes(&measured)));
+        // Only asked of a daemon that answered `docker info`: these are
+        // plain docker calls with no deadline of their own.
         checks.push(leftovers_check(
-            have_cli
+            info.succeeded()
                 .then(crate::commands::cleanup::find)
                 .flatten()
                 .as_ref(),

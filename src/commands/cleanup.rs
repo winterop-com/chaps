@@ -172,7 +172,19 @@ fn remove(report: &mut CleanupReport) {
         }
         if let Some(network) = &leftover.network {
             docker::remove_default_network(&leftover.project);
-            report.removed_networks.push(network.clone());
+            // Asked again rather than assumed: docker refuses a network a
+            // container is still attached to.
+            match docker::default_network_exists(&leftover.project) {
+                false => report.removed_networks.push(network.clone()),
+                true => {
+                    all_gone = false;
+                    report.refused.push(Refusal {
+                        volume: network.clone(),
+                        why: "docker kept the network; a container is still attached to it"
+                            .to_string(),
+                    });
+                }
+            }
         }
         if all_gone {
             done.push(leftover.project.clone());
@@ -287,8 +299,8 @@ fn summary(ctx: &Ctx, report: &CleanupReport) -> String {
     }
     for refusal in &report.refused {
         text.push_str(&ctx.out.backticks(&format!(
-            "kept volume {}: {}; `docker ps -a --filter volume={}` shows what holds it\n",
-            refusal.volume, refusal.why, refusal.volume
+            "kept {}: {}; `docker ps -a` shows what holds it\n",
+            refusal.volume, refusal.why
         )));
     }
     text.push_str(&format!(

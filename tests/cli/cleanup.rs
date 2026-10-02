@@ -17,6 +17,9 @@ fn docker_with_leftovers() -> (TempDir, PathBuf, PathBuf) {
     let bin = temp.path().join("bin");
     std::fs::create_dir_all(&bin).expect("a bin directory");
     let log = temp.path().join("calls.log");
+    // The networks `network rm` took, one empty file each.
+    let gone = temp.path().join("networks-removed");
+    std::fs::create_dir_all(&gone).expect("a directory for removed networks");
     let script = format!(
         "#!/bin/sh\n\
          echo \"$*\" >> '{log}'\n\
@@ -24,12 +27,15 @@ fn docker_with_leftovers() -> (TempDir, PathBuf, PathBuf) {
          'ps -a -q --filter volume='*_busy_data) echo 0123456789ab; exit 0;;\n\
          'ps -a -q --filter label=com.docker.compose.project=running-'*) echo 0123456789ab; exit 0;;\n\
          'ps -a -q --filter '*) exit 0;;\n\
+         'network rm '*) touch \"{gone}/$3\"; exit 0;;\n\
+         'network inspect '*) test ! -e \"{gone}/$3\"; exit $?;;\n\
          'volume ls --filter label=com.docker.compose.project='*) \
          p=\"${{4#label=com.docker.compose.project=}}\"; \
          echo \"${{p}}_ck_model_data\"; echo \"${{p}}_busy_data\"; exit 0;;\n\
          esac\n\
          exit 0\n",
-        log = log.display()
+        log = log.display(),
+        gone = gone.display()
     );
     let docker = bin.join("docker");
     std::fs::write(&docker, script).expect("the fake docker");

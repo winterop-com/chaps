@@ -698,7 +698,7 @@ Usage: chaps doctor [OPTIONS]
 
 ## chaps cleanup
 
-Delete the volumes of deployments whose directory is gone.
+Delete what deployments whose directory is gone left in docker.
 
 ```text
 Usage: chaps cleanup [OPTIONS]

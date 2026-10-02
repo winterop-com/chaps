@@ -224,7 +224,7 @@ pub struct ApiArgs {
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {}
 
-/// Delete the volumes of deployments whose directory is gone
+/// Delete what deployments whose directory is gone left in docker
 #[derive(Debug, Clone, Args)]
 pub struct CleanupArgs {
     /// List what would be deleted and change nothing

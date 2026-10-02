@@ -216,7 +216,7 @@ pub enum Command {
     /// Run a checklist over this machine and this deployment
     Doctor(DoctorArgs),
 
-    /// Delete the volumes of deployments whose directory is gone
+    /// Delete what deployments whose directory is gone left in docker
     Cleanup(CleanupArgs),
 
     /// Turn API authentication on or off, and show the token
