@@ -362,8 +362,8 @@ why chap is unhealthy:
   user "chap"
   ERROR:    Application startup failed. Exiting.
   the database volume holds a different password than .env (a previous deployment with the
-  same name, or --fresh-env); run `chaps doctor`, or remove the volume with
-  `chaps down --volumes` if this deployment's data can go
+  same name, or --fresh-env); the `volumes` line of `chaps doctor` says which, and
+  `chaps down --volumes` removes the volume if this deployment's data can go
 ```
 
 The same lines close `chaps status` and `chaps doctor`'s `health` check, and

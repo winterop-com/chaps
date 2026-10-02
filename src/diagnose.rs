@@ -272,8 +272,8 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
     if text.contains("password authentication failed for user") {
         return Some(
             "the database volume holds a different password than .env (a previous deployment \
-             with the same name, or --fresh-env); run `chaps doctor`, or remove the volume with \
-             `chaps down --volumes` if this deployment's data can go"
+             with the same name, or --fresh-env); the `volumes` line of `chaps doctor` says \
+             which, and `chaps down --volumes` removes the volume if this deployment's data can go"
                 .to_string(),
         );
     }

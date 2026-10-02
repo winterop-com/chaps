@@ -218,8 +218,8 @@ why chap is unhealthy:
   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) ... password authentication
   failed for user "chap"
   the database volume holds a different password than .env (a previous deployment with the
-  same name, or --fresh-env); run `chaps doctor`, or remove the volume with
-  `chaps down --volumes` if this deployment's data can go
+  same name, or --fresh-env); the `volumes` line of `chaps doctor` says which, and
+  `chaps down --volumes` removes the volume if this deployment's data can go
 ```
 
 The lines are the tail of the container's own log, filtered to the ones that
