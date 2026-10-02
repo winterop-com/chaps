@@ -34,11 +34,10 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // The token sits at the start of its line and carries its own newline, so
     // an image that needs no platform pin leaves neither a comment nor a blank
     // line behind.
+    // An amd64-only image is pinned to that platform so an arm64 host pulls
+    // the amd64 variant and runs it under emulation.
     let platform_line = match spec.platform.as_deref() {
-        Some(p) => format!(
-            "    # amd64-only image; the pin makes an arm64 host pull that variant.\n\
-             \x20   platform: {p}\n"
-        ),
+        Some(p) => format!("    platform: {p}\n"),
         None => String::new(),
     };
     // chap-core only checks the key when it is configured, so the default is
@@ -54,6 +53,8 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
             "      # SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n"
         )
     };
+    // `$$register` in the URLs below is compose's escape for a literal `$`.
+    //
     // Without chap-core there is nothing to register with and nothing to wait
     // for. servicekit skips registration when SERVICEKIT_ORCHESTRATOR_URL is
     // unset, so the whole block goes rather than pointing at a missing host.
@@ -74,7 +75,6 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         (
             format!(
                 "    environment:\n\
-                 \x20     # $$ is a literal $ for compose.\n\
                  \x20     SERVICEKIT_ORCHESTRATOR_URL: {}/v2/services/$$register\n\
                  \x20     SERVICEKIT_HOST: {}\n\
                  {port_line}{registration_key_lines}\
@@ -92,7 +92,6 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         (
             format!(
                 "    environment:\n\
-                 \x20     # $$ is a literal $ for compose.\n\
                  \x20     SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register\n\
                  {registration_key_lines}"
             ),

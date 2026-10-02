@@ -8,13 +8,11 @@ services:
       com.winterop.chaps.kind: init
     restart: unless-stopped
     image: ghcr.io/chap-models/chapkit_ewars_model:${CHAPKIT_EWARS_MODEL_IMAGE_TAG:-sha-964eea8}
-    # amd64-only image; the pin makes an arm64 host pull that variant.
     platform: linux/amd64
     init: true
     expose:
       - "8000"
     environment:
-      # $$ is a literal $ for compose.
       SERVICEKIT_ORCHESTRATOR_URL: http://chap:8000/v2/services/$$register
       # Uncomment if chap has SERVICEKIT_REGISTRATION_KEY set:
       # SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}
@@ -28,7 +26,7 @@ services:
       - type: tmpfs
         target: /tmp
         tmpfs:
-          size: 2000000000 # 2GB for model workspaces
+          size: 2000000000
       - type: volume
         source: ck_chapkit_ewars_model_data
         target: /app/data
@@ -39,7 +37,6 @@ services:
         condition: service_healthy
 
   chapkit-ewars-model-init:
-    # One-shot: chowns the data volume so the model can write to it, then exits.
     labels:
       com.winterop.chaps.role: model
       com.winterop.chaps.model: "chapkit_ewars_model"

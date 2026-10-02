@@ -14,7 +14,7 @@ services:
       - type: tmpfs
         target: /tmp
         tmpfs:
-          size: 2000000000 # 2GB for model workspaces
+          size: 2000000000
       - type: volume
         source: @VOLUME@
         target: @DATA_DIR@

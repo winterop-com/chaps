@@ -351,11 +351,8 @@ fn the_chaps_overlay_points_gunicorns_control_socket_at_the_tmpfs() {
         parse(&text)["services"]["chap"]["environment"]["XDG_RUNTIME_DIR"].as_str(),
         Some("/tmp")
     );
-    // With a one-line note saying why it is there and when it can go.
-    assert!(
-        text.contains("\n      # Keeps gunicorn's control socket"),
-        "{text}"
-    );
+    // As a key and nothing else: why it is there is in the docs.
+    assert!(!text.contains("# Keeps gunicorn"), "{text}");
     // The worker runs celery, not gunicorn, so it is left alone.
     assert!(
         parse(&text)["services"]["worker"]
@@ -518,8 +515,8 @@ fn overlay_pins_the_platform_and_drops_the_line_cleanly_without_one() {
         Some("linux/amd64")
     );
 
-    // One short line says why the pin is there, and it goes with the pin.
-    assert!(inla.contains("    # amd64-only image;"), "{inla}");
+    // The pin is a key and nothing else: why it is there is in the docs.
+    assert!(!inla.contains("amd64-only"), "{inla}");
 
     let mut spec = overlay_spec("chapkit_simple_multistep_model");
     spec.platform = None;
@@ -527,8 +524,7 @@ fn overlay_pins_the_platform_and_drops_the_line_cleanly_without_one() {
     let doc = parse(&portable);
     let svc = service(&doc, "chapkit-simple-multistep-model");
     assert!(svc.get("platform").is_none(), "no platform when unset");
-    // Dropping the platform line takes its comment with it, and leaves no
-    // blank line behind.
+    // Dropping the platform line leaves no blank line behind.
     assert!(portable.contains("    image: ghcr.io/chap-models/chapkit_simple_multistep_model:"));
     assert!(!portable.contains("amd64-only"));
     assert!(!portable.contains("\n\n    init: true"));

@@ -171,7 +171,6 @@ pub fn render_chaps_overlay(spec: &ChapsOverlaySpec) -> String {
          \x20     - \"${{{API_PORT_ENV_VAR}:-{}}}:8000\"\n\
          \x20   environment:\n\
          \x20     {REGISTRATION_KEY_ENV_VAR}: ${{{REGISTRATION_KEY_ENV_VAR}:-}}\n\
-         \x20     # Keeps gunicorn's control socket off the read-only root; drop it once chap-core disables that socket.\n\
          \x20     XDG_RUNTIME_DIR: /tmp\n\
          {worker}{rest}",
         project_name_block(project_name),
