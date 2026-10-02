@@ -290,7 +290,7 @@ fn json_output_parses_for_init_and_enable() {
         .stdout
         .clone();
     let value: Json = serde_json::from_slice(&out).expect("init --json is JSON");
-    assert_eq!(value["dir"], dir.to_string_lossy().as_ref());
+    assert_eq!(PathBuf::from(value["dir"].as_str().unwrap()), dir);
     let written: Vec<PathBuf> = value["written"]
         .as_array()
         .unwrap()

@@ -433,7 +433,7 @@ about itself.
   `GIT_REVISION` rather than comparing versions, and the once-a-day notice
   does the same. The line the commit is read back from is written by
   `scripts/release-notes.sh`; `commit` and the sha have to stay together in
-  it, and a unit test in `src/selfupdate.rs` checks that they do.
+  it, and a unit test in `src/selfupdate/tests.rs` checks that they do.
 - A stable build never drifts onto a dev one: it follows
   `releases/latest`, which GitHub documents as "the most recent
   non-prerelease, non-draft release", and the notice checks `prerelease`

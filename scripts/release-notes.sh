@@ -251,7 +251,7 @@ notes_for_dev() {
   # `chaps self update` reads the commit back out of these notes, from the
   # "Built from commit" line below: the word `commit` followed by the sha. Keep
   # the two together if this text is ever reworded; a unit test in
-  # `src/selfupdate.rs` checks that they are.
+  # `src/selfupdate/tests.rs` checks that they are.
   cat <<TEXT
 ## Unstable
 
