@@ -220,7 +220,9 @@ Every command that asks chap-core - `jobs`, `models test`, `status`, `doctor`
 and `api` - takes the token from `.env` first and, when `.env` sets none, from
 `CHAP_API_TOKEN` in the environment. Outside a deployment, and inside one
 when `--url` names another server, `chaps api --url` reads only the
-environment, which is the same variable `.env` sets:
+environment, which is the same variable `.env` sets. A redirect is followed,
+and the token goes along only when it stays on the same host, on the same or
+a more secure scheme (`http://` to `https://`):
 
 ```sh
 CHAP_API_TOKEN=$(chaps -C ~/mychap auth token) \

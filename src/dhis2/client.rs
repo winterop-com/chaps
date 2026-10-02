@@ -111,11 +111,9 @@ impl Dhis2 {
                 // in the body of the 409 or the 401, and dropping it would be
                 // dropping the message.
                 .http_status_as_error(false)
-                // Not followed: ureq drops the credentials on a redirect and
-                // turns a POST into a GET, and the 401 that comes back would
-                // blame the password. See `crate::api::redirected`.
-                .max_redirects(0)
-                .max_redirects_will_error(false)
+                // Followed, with the credentials kept only for the same host
+                // on the same or a more secure scheme. See `crate::api`.
+                .redirect_auth_headers(ureq::config::RedirectAuthHeaders::SameHost)
                 .build(),
         );
 
@@ -169,13 +167,6 @@ impl Dhis2 {
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default()
             .to_string();
-        if status.is_redirection() {
-            return Err(crate::api::redirected(
-                &url,
-                &response,
-                "record that address with `chaps dhis2 use <url>`",
-            ));
-        }
         let body = response
             .body_mut()
             .with_config()

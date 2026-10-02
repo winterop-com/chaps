@@ -700,7 +700,10 @@ compose alias `http://chap:8000` resolves only inside this deployment, and
 `localhost` or `127.x` is recorded with a note that it will not work. A
 DHIS2 URL that is plain `http://` on another machine - not this one, not a
 private address - is recorded with a note too: every request carries the
-password or the token, and over `http://` they cross the network unencrypted.
+password or the token, and over `http://` they cross the network unencrypted. A
+DHIS2 that redirects - `http://` to `https://` behind a proxy, say - is
+followed, and its credentials go along only on the same host, never to
+another one.
 
 The record lives in `.chaps/components.yaml`, next to the components:
 

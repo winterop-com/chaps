@@ -200,11 +200,11 @@ impl Api {
                 // body of a 4xx is where chap-core says what was wrong with
                 // the request, and dropping it would be dropping the message.
                 .http_status_as_error(false)
-                // A redirect is answered, not followed: ureq would drop the
-                // token on the way and turn a POST into a body-less GET, and
-                // what came back would read as a refused token.
-                .max_redirects(0)
-                .max_redirects_will_error(false)
+                // Redirects are followed, and the token goes along only to the
+                // same host on the same or a more secure scheme: an http URL
+                // behind an https redirect keeps working, and nothing is
+                // handed to another server.
+                .redirect_auth_headers(ureq::config::RedirectAuthHeaders::SameHost)
                 .build(),
         );
 
@@ -253,13 +253,6 @@ impl Api {
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default()
             .to_string();
-        if status.is_redirection() {
-            return Err(redirected(
-                &url,
-                &response,
-                "pass that address with `--url`",
-            ));
-        }
         let body = response
             .body_mut()
             .with_config()
@@ -297,24 +290,6 @@ impl Api {
 /// The largest answer read: a backtest's full results or a dataset export
 /// run past ureq's 10 MB default, and `chaps api` is the way to fetch them.
 pub const MAX_BODY: u64 = 1 << 30;
-
-/// The error for an answer that redirects: where to, and what to do about it.
-pub fn redirected(
-    url: &str,
-    response: &ureq::http::Response<ureq::Body>,
-    fix: &str,
-) -> anyhow::Error {
-    let location = response
-        .headers()
-        .get("location")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("somewhere it did not say");
-    anyhow::anyhow!(
-        "{url} redirects ({}) to {location}, and chaps does not follow redirects, which would \
-         drop the credentials; {fix}",
-        response.status().as_u16()
-    )
-}
 
 /// The token to send: this deployment's, else the environment's.
 ///

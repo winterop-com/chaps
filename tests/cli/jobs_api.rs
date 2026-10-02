@@ -511,40 +511,56 @@ fn api_url_to_another_server_does_not_carry_this_deployments_token() {
     .stdout(predicates::str::contains("\"auth\": true"));
 }
 
-/// A redirect is reported, not followed: following it would drop the token
-/// and turn the answer into a misleading 401.
+/// A redirect is followed, and the token goes along only to the same host:
+/// an http URL behind a redirect keeps working, and another server never sees
+/// the credentials.
 #[test]
-fn api_reports_a_redirect_instead_of_following_it() {
+fn api_follows_a_redirect_and_keeps_the_token_only_for_the_same_host() {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf);
-            let _ = stream.write_all(
-                b"HTTP/1.1 301 Moved Permanently\r\nLocation: https://chap.example.org/v1/jobs\r\n\
-                  Content-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+            let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+            let response = match path.as_str() {
+                "/same" => format!(
+                    "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{port}/final\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                ),
+                "/other" => format!(
+                    "HTTP/1.1 301 Moved Permanently\r\nLocation: http://localhost:{port}/final\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                ),
+                _ => {
+                    let body = format!(
+                        "{{\"auth\":{}}}",
+                        request.contains("authorization: bearer ")
+                    );
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                }
+            };
+            let _ = stream.write_all(response.as_bytes());
         }
     });
     let sandbox = Sandbox::new();
-    chap_in(
-        &sandbox,
-        sandbox.home.path(),
-        &[
-            "api",
-            "GET",
-            "/v1/jobs",
-            "--url",
-            &format!("http://127.0.0.1:{port}"),
-        ],
-    )
-    .assert()
-    .failure()
-    .stderr(predicates::str::contains(
-        "redirects (301) to https://chap.example.org/v1/jobs",
-    ))
-    .stderr(predicates::str::contains("`--url`"));
+    let url = format!("http://127.0.0.1:{port}");
+    for (path, kept) in [("/same", true), ("/other", false)] {
+        chap_in(
+            &sandbox,
+            sandbox.home.path(),
+            &["api", "GET", path, "--url", &url],
+        )
+        .env("CHAP_API_TOKEN", "sekret")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!("\"auth\": {kept}")));
+    }
 }
