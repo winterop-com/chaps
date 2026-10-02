@@ -141,3 +141,44 @@ fn a_volume_docker_will_not_remove_keeps_the_group() {
     );
     assert!(data(&sandbox).join("run").join("trial").exists());
 }
+
+/// `stop ID --purge` takes away the group it emptied and no other: a group a
+/// plain `stop` emptied earlier is keeping its data on purpose.
+#[test]
+fn purging_one_model_leaves_another_empty_group_and_its_data_alone() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin, log) = docker_with_leftover_volume(true);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["run", "chapkit_ewars_model", "--group", "keep", "--no-wait"],
+    );
+    run_json(&sandbox, cwd, &bin, &["stop", "chapkit_ewars_model"]);
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["run", "auto_arima_chapkit", "--no-wait"],
+    );
+
+    let purged = run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["stop", "auto_arima_chapkit", "--purge"],
+    );
+    assert_eq!(
+        purged["removed"],
+        serde_json::json!(["default"]),
+        "{purged}"
+    );
+    let keep = data(&sandbox).join("run").join("keep");
+    assert!(keep.exists(), "the other empty group stays");
+    let calls = read(&log);
+    assert!(
+        !calls.lines().any(|l| l.starts_with("volume rm keep-")),
+        "{calls}"
+    );
+}

@@ -80,6 +80,7 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
     }
 
     let mut stopped = Vec::new();
+    let stopped_dirs: Vec<PathBuf> = wanted.iter().map(|(_, dir, _)| dir.clone()).collect();
     for (group, dir, id) in wanted {
         let (report, notes) = stop_in(ctx, &dir, &id, args.purge)?;
         // The notes name commands for the deployment, which a group is
@@ -98,7 +99,14 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
     let mut removed = Vec::new();
     let mut removed_volumes = Vec::new();
     if args.purge {
+        // `stop ID --purge` takes away only the group it emptied: another
+        // group with no model left may be keeping data a plain `stop` kept on
+        // purpose. `--group` and `--all` name the groups to empty outright.
+        let emptied: Vec<&PathBuf> = stopped_dirs.iter().collect();
         for (group, dir) in &scope {
+            if args.id.is_some() && !emptied.contains(&dir) {
+                continue;
+            }
             if let Some(group) = group
                 && let Some(volumes) = remove_if_empty(group, dir)?
             {
