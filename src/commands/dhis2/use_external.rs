@@ -192,6 +192,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         );
     }
     notes.extend(loopback_note(&recorded.url, &recorded.chap_url));
+    notes.extend(cleartext_note(&recorded.url));
     if !project.state.components.has_chap_core_api() {
         notes.push(NO_CHAP_CORE.to_string());
     }
@@ -221,6 +222,32 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         next,
     };
     ctx.out.emit(&report, || human_use(&report, &ctx.out))
+}
+
+/// A note for a DHIS2 reached over plain `http://` on another machine: every
+/// request carries the password or the token, and over `http://` they cross
+/// the network as they are. `None` for `https://`, and for this machine or a
+/// private address, where `http://` is the usual setup.
+pub(super) fn cleartext_note(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("http://")?;
+    let authority = rest.split('/').next().unwrap_or_default();
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
+        _ => authority,
+    }
+    .trim_matches(['[', ']']);
+    let local = match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Ok(std::net::IpAddr::V6(ip)) => ip.is_loopback(),
+        Err(_) => host == "localhost" || host.ends_with(".local") || !host.contains('.'),
+    };
+    (!local).then(|| {
+        format!(
+            "{url} is plain http on another machine, so the DHIS2 password or token crosses \
+             the network unencrypted with every request; record its `https://` address with \
+             `chaps dhis2 use` if it has one"
+        )
+    })
 }
 
 /// A URL as it is recorded: `http://` or `https://` with a host, and without a

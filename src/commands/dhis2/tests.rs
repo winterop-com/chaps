@@ -671,3 +671,17 @@ fn a_loopback_chap_url_is_judged_by_where_dhis2_runs() {
         None
     );
 }
+
+/// Plain http to another machine sends the credentials in the clear, so it is
+/// said; this machine, a private address and https are not.
+#[test]
+fn plain_http_to_another_machine_is_noted() {
+    use super::use_external::cleartext_note;
+    assert!(cleartext_note("http://dhis2.example.org").is_some());
+    assert!(cleartext_note("http://203.0.113.7:8080/dhis").is_some());
+    assert!(cleartext_note("https://dhis2.example.org").is_none());
+    assert!(cleartext_note("http://localhost:8080").is_none());
+    assert!(cleartext_note("http://127.0.0.1:8780").is_none());
+    assert!(cleartext_note("http://192.168.1.20:8080").is_none());
+    assert!(cleartext_note("http://dhis2:8080").is_none());
+}

@@ -697,7 +697,10 @@ The route is the only reason for `--chap-url`, and chaps cannot work it out. The
 compose alias `http://chap:8000` resolves only inside this deployment, and
 `localhost` on the DHIS2 server is that server. So the route becomes
 `<chap-url>/**` (`https://chap.example.org/**`), and a `--chap-url` that names
-`localhost` or `127.x` is recorded with a note that it will not work.
+`localhost` or `127.x` is recorded with a note that it will not work. A
+DHIS2 URL that is plain `http://` on another machine - not this one, not a
+private address - is recorded with a note too: every request carries the
+password or the token, and over `http://` they cross the network unencrypted.
 
 The record lives in `.chaps/components.yaml`, next to the components:
 
