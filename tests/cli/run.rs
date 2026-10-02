@@ -509,3 +509,28 @@ fn a_run_into_a_group_names_its_log_with_the_group_dir() {
         "{text}"
     );
 }
+
+/// Under `--json` the way out is the hint and only the hint: the error stops
+/// before it, so a reader that shows both does not say it twice.
+#[test]
+fn a_json_error_does_not_repeat_its_hint() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["run", "chapkit_ewars_model", "--no-wait"],
+    );
+    let out = chap_with_docker(&sandbox, cwd, &bin, &["--json", "stop", "nope"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    let hint = doc["hint"].as_str().expect("a hint");
+    assert!(hint.contains("`chaps ps`"), "{doc}");
+    assert!(!doc["error"].as_str().unwrap().contains(hint), "{doc}");
+}

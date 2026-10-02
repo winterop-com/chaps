@@ -437,7 +437,7 @@ fn hint_of_takes_the_last_clause_that_names_a_command() {
 }
 
 #[test]
-fn a_json_error_says_ok_false_and_carries_the_hint() {
+fn a_json_error_says_ok_false_and_carries_the_hint_once() {
     let out = Out {
         json: true,
         ..Out::default()
@@ -446,5 +446,17 @@ fn a_json_error_says_ok_false_and_carries_the_hint() {
     let value: serde_json::Value = serde_json::from_str(&out.error(&err)).unwrap();
     assert_eq!(value["ok"], false);
     assert_eq!(value["hint"], "free it, or set `CHAP_API_PORT` in `.env`");
-    assert_eq!(value["error"], err.to_string());
+    assert_eq!(value["error"], "port 8700 is in use");
+}
+
+#[test]
+fn a_json_error_without_a_way_out_keeps_the_whole_message() {
+    let out = Out {
+        json: true,
+        ..Out::default()
+    };
+    let err = anyhow::anyhow!("unknown model `x`; nothing else");
+    let value: serde_json::Value = serde_json::from_str(&out.error(&err)).unwrap();
+    assert_eq!(value["hint"], serde_json::Value::Null);
+    assert_eq!(value["error"], "unknown model `x`; nothing else");
 }

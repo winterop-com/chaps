@@ -250,10 +250,10 @@ impl Out {
     pub fn error(&self, err: &anyhow::Error) -> String {
         let causes: Vec<String> = err.chain().skip(1).map(|c| c.to_string()).collect();
         if self.json {
-            let message = err.to_string();
+            let (message, hint) = split_hint(&err.to_string());
             let value = serde_json::json!({
                 "ok": false,
-                "hint": hint_of(&message),
+                "hint": hint,
                 "error": message,
                 "causes": causes,
             });
@@ -283,6 +283,16 @@ impl Out {
 pub fn hint_of(message: &str) -> Option<String> {
     let (_, tail) = message.rsplit_once("; ")?;
     tail.contains('`').then(|| tail.trim().to_string())
+}
+
+/// A message as `(error, hint)` for a `--json` reader: the way out
+/// [`hint_of`] finds is taken off the end of the error, so a reader that shows
+/// both does not say it twice.
+pub fn split_hint(message: &str) -> (String, Option<String>) {
+    match (hint_of(message), message.rsplit_once("; ")) {
+        (Some(hint), Some((head, _))) => (head.trim_end().to_string(), Some(hint)),
+        _ => (message.to_string(), None),
+    }
 }
 
 /// Remember `--no-color` for the stderr side, which has no [`Out`] to consult.

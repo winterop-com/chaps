@@ -238,10 +238,11 @@ A tool that drives chaps reads stdout and branches on one field:
   {"ok": false, "error": "...", "hint": "run `chaps ...`", "causes": []}
   ```
 
-  `error` is the whole message, as the terminal shows it after `error:`;
-  `hint` is its last clause when that clause names a command or a flag to use
-  instead (`pass \`--id auto\` ... to add this one beside it`), and `null`
-  when the message has no way out to give. A usage error - an unknown flag, a
+  `hint` is the way out: the message's last clause when that clause names a
+  command or a flag to use instead (`pass \`--id auto\` ... to add this one
+  beside it`), and `null` when the message has no way out to give. `error` is
+  the message up to that clause, so the two never say the same thing; the
+  terminal shows them together after `error:`. A usage error - an unknown flag, a
   missing argument - is the same document, with clap's message as `error` and
   the command's `--help` as `hint`, and exits 2.
 - `models enable` and `models add` list what they enabled under `models`, one
