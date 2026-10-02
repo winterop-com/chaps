@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 /// A `docker` in which every compose project has two volumes, one free and
-/// one a container still mounts, and a network; it writes each call to
-/// `calls.log`.
+/// one a container still mounts, and a network, and a project whose
+/// directory is called `running` still has a container; it writes each call
+/// to `calls.log`.
 fn docker_with_leftovers() -> (TempDir, PathBuf, PathBuf) {
     let temp = tempfile::tempdir().expect("a directory for the fake docker");
     let bin = temp.path().join("bin");
@@ -21,6 +22,7 @@ fn docker_with_leftovers() -> (TempDir, PathBuf, PathBuf) {
          echo \"$*\" >> '{log}'\n\
          case \"$*\" in\n\
          'ps -a -q --filter volume='*_busy_data) echo 0123456789ab; exit 0;;\n\
+         'ps -a -q --filter label=com.docker.compose.project=running-'*) echo 0123456789ab; exit 0;;\n\
          'ps -a -q --filter '*) exit 0;;\n\
          'volume ls --filter label=com.docker.compose.project='*) \
          p=\"${{4#label=com.docker.compose.project=}}\"; \
@@ -179,4 +181,34 @@ fn cleanup_yes_deletes_the_leftovers_and_forgets_the_deployment() {
         text.contains("nothing to clean up: 1 recorded deployment is still in place"),
         "{text}"
     );
+}
+
+/// A removed deployment that still has a container is not cleaned up: its
+/// volumes may be in use, and the line names the command that stops it.
+#[test]
+fn a_removed_deployment_with_containers_is_kept_and_says_how_to_stop_them() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.home.path().join("running");
+    sandbox
+        .chap()
+        .args(["init"])
+        .arg(&dir)
+        .args(["--only", "none", "--models", "none"])
+        .assert()
+        .success();
+    let name = state(&dir)["compose_project"].as_str().unwrap().to_string();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let (_fake, bin, log) = docker_with_leftovers();
+
+    let doc = json(&sandbox, &bin, &["cleanup", "--yes"]);
+    assert_eq!(doc["leftovers"], serde_json::json!([]), "{doc}");
+    assert_eq!(doc["kept"][0]["project"], name.as_str());
+    assert!(
+        doc["kept"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("`docker compose -p {name} down`")),
+        "{doc}"
+    );
+    assert!(!read(&log).contains("volume rm"));
 }

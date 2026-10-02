@@ -124,12 +124,16 @@ A deployment counts as removed only when chaps can prove it. Every time
 chaps saves a deployment it records its compose project name and its
 directory in `deployments.yaml` in its data directory (`$CHAPS_DATA_DIR`,
 else `$XDG_DATA_HOME/chaps`, else `~/.local/share/chaps`). A recorded
-deployment whose directory no longer holds it - deleted, or written over by
-`chaps init --force` - is removed; one that is only down still has its
-directory, and its data stays. Volumes of a compose project chaps never
-recorded are not touched, and neither is a volume any container still
-mounts, nor a removed deployment that still has containers (the line names
-the `docker compose -p <project> down` that removes them).
+deployment is removed when its directory was deleted from a parent directory
+that is still there, or when the directory now holds a deployment of another
+name (`chaps init --force` wrote over it). Only the name in
+`.chaps/project.yaml` is read, so a typo in another state file never makes a
+deployment look removed. Everything else is kept and said on a line of its
+own: a `project.yaml` that cannot be read, a directory missing along with its
+parent (as on a disk that is not mounted), and a removed deployment that
+still has containers (the line names the `docker compose -p <project> down`
+that removes them). Volumes of a compose project chaps never recorded are not
+touched, and neither is a volume any container still mounts.
 
 A deployment you moved to another directory is recorded again the next time
 any chaps command saves it there; until then it looks removed, so run

@@ -55,6 +55,31 @@ impl Project {
             .map(str::to_string)
     }
 
+    /// The compose project name `dir`'s `project.yaml` records, read on its
+    /// own like [`Project::saved_registry_url`]: a typo in another state file
+    /// must not make a deployment look like it has no name, because what
+    /// follows from "no name" - a fresh one, or "this deployment is gone" -
+    /// strands or deletes its data.
+    ///
+    /// `Ok(None)` when there is no `project.yaml`, or it records no name;
+    /// an error when it is there and cannot be read or parsed.
+    pub fn recorded_name(dir: &Path) -> Result<Option<String>> {
+        let path = dir.join(CHAPS_DIR).join(PROJECT_FILE);
+        let body = match std::fs::read_to_string(&path) {
+            Ok(body) => body,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(anyhow::anyhow!("reading {}: {e}", path.display())),
+        };
+        let state: serde_yaml_ng::Value = serde_yaml_ng::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        Ok(state
+            .get("compose_project")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string))
+    }
+
     /// Load the project that contains `start`, walking up parent directories.
     ///
     /// Errors with [`ChapError::NotAProject`] naming `start` when no ancestor

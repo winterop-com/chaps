@@ -24,10 +24,11 @@ fn an_unreadable_record_is_an_empty_one() {
 }
 
 #[test]
-fn a_deployment_is_present_only_while_its_directory_holds_that_name() {
+fn a_deployment_is_gone_only_when_that_can_be_proven() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path().join("demo");
-    assert!(!is_present("demo-1a2b3c", &dir), "no directory");
+    // Deleted from a parent that is still there.
+    assert_eq!(presence("demo-1a2b3c", &dir), Presence::Gone);
 
     let mut project = Project {
         dir: dir.clone(),
@@ -35,7 +36,45 @@ fn a_deployment_is_present_only_while_its_directory_holds_that_name() {
     };
     project.state.compose_project = "demo-1a2b3c".to_string();
     project.save().unwrap();
-    assert!(is_present("demo-1a2b3c", &dir));
+    assert_eq!(presence("demo-1a2b3c", &dir), Presence::Present);
     // `init --force` wrote a new deployment over it: the old name is gone.
-    assert!(!is_present("demo-999999", &dir));
+    assert_eq!(presence("demo-999999", &dir), Presence::Gone);
+}
+
+#[test]
+fn a_typo_in_another_state_file_keeps_the_deployment() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("demo");
+    let mut project = Project {
+        dir: dir.clone(),
+        state: Default::default(),
+    };
+    project.state.compose_project = "demo-1a2b3c".to_string();
+    project.save().unwrap();
+    std::fs::write(
+        dir.join(".chaps").join("components.yaml"),
+        "chap_core: [oops",
+    )
+    .unwrap();
+    assert!(Project::load(&dir).is_err(), "the typo breaks a full load");
+    assert_eq!(presence("demo-1a2b3c", &dir), Presence::Present);
+}
+
+#[test]
+fn an_unreadable_name_or_a_missing_parent_is_not_proof() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("demo");
+    std::fs::create_dir_all(dir.join(".chaps")).unwrap();
+    std::fs::write(
+        dir.join(".chaps").join("project.yaml"),
+        "compose_project: [oops",
+    )
+    .unwrap();
+    assert!(matches!(presence("demo-1a2b3c", &dir), Presence::Unsure(_)));
+
+    let unmounted = temp.path().join("Volumes").join("Ext").join("demo");
+    assert!(matches!(
+        presence("demo-1a2b3c", &unmounted),
+        Presence::Unsure(_)
+    ));
 }

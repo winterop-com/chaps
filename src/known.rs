@@ -66,16 +66,44 @@ pub fn forget(names: &[String]) -> crate::error::Result<()> {
     write(&path, &known)
 }
 
-/// Whether the deployment recorded as `name` in `dir` is still there: the
-/// directory holds a chaps project, and that project still has this name.
-/// A directory `chaps init --force` wrote over holds a new name, so the old
-/// one's volumes are left behind just as if it had been deleted.
-pub fn is_present(name: &str, dir: &Path) -> bool {
-    Project::exists(dir)
-        && Project::load(dir)
-            .ok()
-            .and_then(|p| p.compose_project_name())
-            .is_some_and(|n| n == name)
+/// Whether the deployment recorded as `name` in `dir` is still there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Presence {
+    /// The directory holds it.
+    Present,
+    /// Provably gone: the directory was deleted from a parent that is still
+    /// there, or it now holds a deployment of another name (`chaps init
+    /// --force` wrote over it).
+    Gone,
+    /// Neither can be proven, and why. Kept, because deleting a live
+    /// deployment's data is the one mistake that cannot be undone.
+    Unsure(String),
+}
+
+/// Where the deployment recorded as `name` in `dir` stands. Only the name in
+/// `project.yaml` is read, so a typo in another state file does not make a
+/// deployment look gone.
+pub fn presence(name: &str, dir: &Path) -> Presence {
+    if dir.exists() {
+        return match Project::recorded_name(dir) {
+            Ok(Some(recorded)) if recorded == name => Presence::Present,
+            Ok(Some(_)) => Presence::Gone,
+            Ok(None) => Presence::Unsure(format!(
+                "{} records no compose project name; `chaps -C {} sync` writes it",
+                dir.display(),
+                dir.display()
+            )),
+            Err(err) => Presence::Unsure(format!("{err:#}; fix that file, then run this again")),
+        };
+    }
+    match dir.parent() {
+        Some(parent) if parent.exists() => Presence::Gone,
+        _ => Presence::Unsure(format!(
+            "{} is missing along with its parent directory, as on a disk that is not mounted; \
+             mount it, or remove its volumes with `docker volume rm` once you are sure",
+            dir.display()
+        )),
+    }
 }
 
 /// Write the record through a temporary file of this process's own, so two

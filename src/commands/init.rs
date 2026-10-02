@@ -408,10 +408,31 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
 
 /// The model definitions a re-init carries over, which is all of them: they
 /// are the deployment's own, and nothing else records them.
+///
+/// Read from their own file when the rest of the state does not load, which
+/// is when `--force` is most often run; a file that cannot be read either is
+/// said out loud rather than dropped in silence.
 fn carried_manual(dir: &Path) -> crate::project::ManualModels {
-    Project::load(dir)
-        .map(|existing| existing.state.manual)
-        .unwrap_or_default()
+    if let Ok(existing) = Project::load(dir) {
+        return existing.state.manual;
+    }
+    let path = dir
+        .join(crate::project::CHAPS_DIR)
+        .join(crate::project::MANUAL_MODELS_FILE);
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Default::default();
+    };
+    match serde_yaml_ng::from_str::<Option<crate::project::ManualModels>>(&body) {
+        Ok(manual) => manual.unwrap_or_default(),
+        Err(e) => {
+            crate::output::warn(&format!(
+                "the models added to this deployment are not carried over: {}: {e}; \
+                 `chaps models add` adds them again",
+                path.display()
+            ));
+            Default::default()
+        }
+    }
 }
 
 /// The compose project name this deployment gets: the prefix every container
@@ -428,10 +449,23 @@ fn carried_manual(dir: &Path) -> crate::project::ManualModels {
 /// the old name. For one written before the name was recorded that is the
 /// directory name compose has been deriving all along, which is what the next
 /// `sync` would write down anyway.
+///
+/// The name is read from `project.yaml` on its own, so a deployment whose
+/// other state files do not load - the state `--force` is run to repair -
+/// still keeps it. When that file itself cannot be read, a fresh name would
+/// leave the database behind, so the run stops instead.
 fn compose_project(dir: &Path) -> Result<String> {
-    if let Ok(existing) = Project::load(dir) {
-        if let Some(name) = existing.compose_project() {
-            return Ok(name.to_string());
+    if Project::exists(dir) {
+        let recorded = Project::recorded_name(dir).map_err(|err| {
+            anyhow::anyhow!(
+                "{err:#}, so the name this deployment's containers and volumes run under is \
+                 unknown and a new one would leave its data behind; fix `compose_project:` in \
+                 that file, or move {} away to start a new deployment",
+                dir.display()
+            )
+        })?;
+        if let Some(name) = recorded {
+            return Ok(name);
         }
         if let Some(derived) = crate::project::derived_project_name(dir) {
             return Ok(derived);

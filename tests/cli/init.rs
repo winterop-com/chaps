@@ -1370,3 +1370,51 @@ fn init_of_an_empty_deployment_names_adding_a_model_next() {
         .success()
         .stdout(predicates::str::contains("&& chaps up\n  chaps status"));
 }
+
+/// `init --force` is the way out of broken state, and it keeps the compose
+/// project name - and so the data - of the deployment it rebuilds, read from
+/// `project.yaml` on its own even when another state file does not load.
+#[test]
+fn init_force_over_broken_state_keeps_the_compose_project_name() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--only", "none", "--models", "none"])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let before = state(&dir)["compose_project"].as_str().unwrap().to_string();
+    std::fs::write(
+        dir.join(".chaps").join("components.yaml"),
+        "chap_core: [oops",
+    )
+    .unwrap();
+
+    sandbox
+        .init(&["--only", "none", "--models", "none", "--force"])
+        .assert()
+        .success();
+    assert_eq!(state(&dir)["compose_project"], before.as_str());
+}
+
+/// A `project.yaml` that cannot be read hides the name the data lives under,
+/// so `init --force` stops rather than start the deployment over on a new one.
+#[test]
+fn init_force_refuses_when_the_compose_project_name_cannot_be_read() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--only", "none", "--models", "none"])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let project = dir.join(".chaps").join("project.yaml");
+    std::fs::write(&project, "compose_project: [oops").unwrap();
+
+    sandbox
+        .init(&["--only", "none", "--models", "none", "--force"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "fix `compose_project:` in that file",
+        ));
+    assert_eq!(read(&project), "compose_project: [oops");
+}

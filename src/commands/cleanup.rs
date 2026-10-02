@@ -76,9 +76,20 @@ struct Refusal {
 pub fn find() -> Option<Findings> {
     let mut findings = Findings::default();
     for (project, dir) in crate::known::load() {
-        if crate::known::is_present(&project, &dir) {
-            findings.present += 1;
-            continue;
+        match crate::known::presence(&project, &dir) {
+            crate::known::Presence::Present => {
+                findings.present += 1;
+                continue;
+            }
+            crate::known::Presence::Unsure(reason) => {
+                findings.kept.push(Kept {
+                    project,
+                    dir,
+                    reason,
+                });
+                continue;
+            }
+            crate::known::Presence::Gone => {}
         }
         if docker::project_has_containers(&project)? {
             findings.kept.push(Kept {
