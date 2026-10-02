@@ -126,6 +126,19 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         ));
     }
 
+    // A volume that could not be read is a backup that is not whole: the
+    // archive stays, for what it does hold, and the run fails so a cron job
+    // or a script hears about it.
+    let failed = failed_reads(&manifest);
+    if !failed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "{} was written without the data of {} (see the warnings above); fix what stopped \
+             the read, then `chaps backup create` again",
+            out.display(),
+            failed.join(", ")
+        ));
+    }
+
     let report = BackupReport {
         size_bytes: backup::file_size(&out),
         path: out,
@@ -133,6 +146,24 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         no_chap_core,
     };
     ctx.out.emit(&report, || human(&report, &ctx.out))
+}
+
+/// The models and volumes whose read failed, as opposed to data there was no
+/// reason to read: a model never started has nothing to lose.
+fn failed_reads(manifest: &backup::Manifest) -> Vec<&str> {
+    manifest
+        .models
+        .iter()
+        .filter(|m| m.failed)
+        .map(|m| m.service_id.as_str())
+        .chain(
+            manifest
+                .components
+                .iter()
+                .filter(|c| c.failed)
+                .map(|c| c.volume.as_str()),
+        )
+        .collect()
 }
 
 /// Pack the stage into a temporary sibling of `out` and rename it into place.

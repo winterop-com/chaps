@@ -167,6 +167,10 @@ pub struct ManifestModel {
     /// Why the data was not captured, when it was not.
     #[serde(default)]
     pub skipped: Option<String>,
+    /// Whether that was a read that failed, rather than data there was no
+    /// reason to read: what makes `backup create` exit non-zero.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
     /// How the service was held still while its volume was read, and for how
     /// long: `paused for 1.4 s`. `None` when it was not running, so there was
     /// nothing that could write while tar read.
@@ -203,6 +207,10 @@ pub struct ManifestComponent {
     /// Why the data was not captured, when it was not.
     #[serde(default)]
     pub skipped: Option<String>,
+    /// Whether that was a read that failed, rather than data there was no
+    /// reason to read: what makes `backup create` exit non-zero.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
     /// How the service was held still while its volume was read. See
     /// [`ManifestModel::quiesce`].
     #[serde(default)]

@@ -42,6 +42,7 @@ fn manifest() -> Manifest {
                 path: Some(model_member("chapkit-ewars-model")),
                 size_bytes: 40960,
                 skipped: None,
+                failed: false,
                 quiesce: Some("paused for 1.4 s".into()),
             },
             ManifestModel {
@@ -56,6 +57,7 @@ fn manifest() -> Manifest {
                 path: None,
                 size_bytes: 0,
                 skipped: Some("no volume yet".into()),
+                failed: false,
                 quiesce: None,
             },
         ],
@@ -68,6 +70,7 @@ fn manifest() -> Manifest {
                 path: Some(component_member("ocs")),
                 size_bytes: 4096,
                 skipped: None,
+                failed: false,
                 quiesce: Some("paused for 0.3 s".into()),
             },
             ManifestComponent {
@@ -78,6 +81,7 @@ fn manifest() -> Manifest {
                 path: None,
                 size_bytes: 0,
                 skipped: Some("no volume yet".into()),
+                failed: false,
                 quiesce: None,
             },
         ],

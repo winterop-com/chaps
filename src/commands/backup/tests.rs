@@ -17,6 +17,7 @@ fn model(service_id: &str, skipped: Option<&str>) -> ManifestModel {
         path: skipped.is_none().then(|| model_member(service_id)),
         size_bytes: if skipped.is_none() { 40960 } else { 0 },
         skipped: skipped.map(str::to_string),
+        failed: false,
         quiesce: skipped.is_none().then(|| "paused for 1.4 s".to_string()),
     }
 }
@@ -30,6 +31,7 @@ fn component(name: &str, skipped: Option<&str>) -> ManifestComponent {
         path: skipped.is_none().then(|| backup::component_member(name)),
         size_bytes: if skipped.is_none() { 4096 } else { 0 },
         skipped: skipped.map(str::to_string),
+        failed: false,
         quiesce: None,
     }
 }
@@ -201,4 +203,36 @@ fn the_compose_argument_lists_never_ask_for_a_terminal() {
 fn the_project_name_falls_back_to_something_printable() {
     assert_eq!(project_name(Path::new("/srv/e2e")), "e2e");
     assert_eq!(project_name(Path::new("/")), "chaps");
+}
+
+/// A read that failed makes the run fail; data there was no reason to read -
+/// a model never started - does not.
+#[test]
+fn only_a_failed_read_fails_the_backup() {
+    let mut broken = model(
+        "auto-arima-chapkit",
+        Some("reading /work/data failed (exit 1): x"),
+    );
+    broken.failed = true;
+    let mut ocs = component("ocs", Some("reading ocs_data failed (exit 1): x"));
+    ocs.failed = true;
+    let report = report_with(
+        true,
+        vec![
+            model("chapkit-ewars-model", None),
+            model("never-started", Some("no volume yet")),
+            broken,
+        ],
+        vec![ocs],
+    );
+    assert_eq!(
+        failed_reads(&report.manifest),
+        vec!["auto-arima-chapkit", "ocs_data"]
+    );
+    let fine = report_with(
+        true,
+        vec![model("never-started", Some("no volume yet"))],
+        vec![],
+    );
+    assert!(failed_reads(&fine.manifest).is_empty());
 }

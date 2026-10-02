@@ -102,6 +102,7 @@ fn manifest() -> Manifest {
             path: Some(model_member("chapkit-ewars-model")),
             size_bytes: 40960,
             skipped: None,
+            failed: false,
             quiesce: Some("paused for 1.4 s".into()),
         }],
         components: vec![ManifestComponent {
@@ -112,6 +113,7 @@ fn manifest() -> Manifest {
             path: Some(component_member("ocs")),
             size_bytes: 4096,
             skipped: None,
+            failed: false,
             quiesce: None,
         }],
     }
@@ -293,6 +295,9 @@ fn the_file_list_takes_env_chaps_and_the_root_compose_files() {
     write(".chaps/models.yaml", "{}\n");
     write(".chaps/compose.chap-core.v2.3.1.yml", "services: {}\n");
     write(".chaps/.models.yaml.tmp", "half written");
+    // The locks of running commands: the state lock and `chaps run`'s.
+    write(".chaps/lock", "");
+    write(".chaps/up-chapkit-ewars-model.lock", "");
     write(".chaps/tmp/backup-1/manifest.yaml", "staged");
     write("ocs/climate-service.yaml", "sources: []\n");
     write("ocs/extra/regions.csv", "id,name\n");

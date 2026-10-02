@@ -87,9 +87,12 @@ fn collect_under(dir: &Path, prefix: &str, out: &mut Vec<String>) {
             collect_under(&entry.path(), &path, out);
         } else if name.starts_with('.') && name.ends_with(".tmp") {
             continue;
-        } else if prefix == crate::project::CHAPS_DIR && name == crate::project::LOCK_FILE {
-            // The lock of whichever command is running; it belongs to this
-            // machine's processes, not to the deployment.
+        } else if prefix == crate::project::CHAPS_DIR
+            && (name == crate::project::LOCK_FILE || name.ends_with(".lock"))
+        {
+            // The locks of whichever commands are running - the state lock and
+            // `chaps run`'s `up-<service>.lock` - belong to this machine's
+            // processes, not to the deployment.
             continue;
         } else {
             out.push(path);

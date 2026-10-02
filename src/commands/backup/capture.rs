@@ -110,6 +110,7 @@ pub(super) fn capture_models(
             path: None,
             size_bytes: 0,
             skipped: None,
+            failed: false,
             quiesce: None,
         };
         if skip {
@@ -146,6 +147,7 @@ pub(super) fn capture_models(
         let piped = piped?;
         if piped.code != 0 {
             let _ = std::fs::remove_file(&dest);
+            entry.failed = true;
             entry.skipped = Some(format!(
                 "reading {} failed (exit {}): {}",
                 model.data_dir,
@@ -196,6 +198,7 @@ pub(super) fn capture_components(
             path: None,
             size_bytes: 0,
             skipped: None,
+            failed: false,
             quiesce: None,
         };
         if skip {
@@ -231,6 +234,7 @@ pub(super) fn capture_components(
         let piped = read?;
         if piped.code != 0 {
             let _ = std::fs::remove_file(&dest);
+            entry.failed = true;
             entry.skipped = Some(format!(
                 "reading {volume} failed (exit {}): {}",
                 piped.code,

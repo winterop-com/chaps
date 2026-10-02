@@ -73,7 +73,11 @@ container, which mounts the same named volume at the same path as the model
 itself, so it works whether the model is running, stopped, or was brought down
 entirely. Every model overlay has one, root included. A model that has never
 started has no volume yet; it is skipped with a warning and recorded as such
-in the manifest.
+in the manifest. A read that fails - the busybox image cannot be pulled, tar
+errors out - is different: the archive is still written, for what it does
+hold, and the volume is recorded as failed in the manifest, but `backup
+create` exits non-zero and names what it could not read, so a cron job or a
+script does not take a partial backup for a whole one.
 
 Component data is read through a throwaway `busybox` container instead: no
 component one-shot - `s3-init`, `dhis2-dump`, `dhis2-prep` - mounts a volume
