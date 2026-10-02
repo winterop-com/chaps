@@ -1844,3 +1844,22 @@ fn toggling_a_hidden_template_only_hints() {
     assert_eq!(app.message.as_deref(), Some(TEMPLATE_HIDDEN_HINT));
     assert!(!app.has_changes());
 }
+
+/// Ctrl-C from the palette or the filter asks about unsaved edits, as it does
+/// from the list: neither may drop a session's toggles without a word.
+#[test]
+fn quitting_from_the_palette_or_the_filter_asks_first_when_dirty() {
+    let registry = registry();
+    for open in [Action::Palette, Action::StartFilter] {
+        let mut app = App::new(&registry, &empty_state());
+        focus(&mut app, EWARS);
+        app.reduce(Action::Toggle);
+        app.reduce(open.clone());
+        assert!(app.reduce(Action::Quit).is_none(), "{open:?}");
+        assert_eq!(app.mode, Mode::ConfirmQuit, "{open:?}");
+        assert!(app.dirty);
+    }
+    let mut clean = App::new(&registry, &empty_state());
+    clean.reduce(Action::Palette);
+    assert_eq!(clean.reduce(Action::Quit), Some(Outcome::Quit));
+}

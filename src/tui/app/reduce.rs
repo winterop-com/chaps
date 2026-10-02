@@ -111,7 +111,12 @@ impl App<'_> {
             Action::Up => self.palette_cursor = self.palette_cursor.saturating_sub(1),
             Action::PaletteRun => return self.run_command(),
             Action::Palette | Action::FilterCancel => self.close_palette(),
-            Action::Quit => return Some(Outcome::Quit),
+            // Quitting from the palette asks about unsaved edits the same way
+            // quitting from the list does.
+            Action::Quit => {
+                self.close_palette();
+                return self.quit();
+            }
             _ => {}
         }
         None
@@ -166,7 +171,10 @@ impl App<'_> {
             }
             Action::Up => self.move_by(-1),
             Action::Down => self.move_by(1),
-            Action::Quit => return Some(Outcome::Quit),
+            Action::Quit => {
+                self.mode = Mode::Browse;
+                return self.quit();
+            }
             _ => {}
         }
         None
