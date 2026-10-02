@@ -68,6 +68,9 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         }
         // After the sync, because the files it just wrote are the ones whose
         // ports we are about to probe.
+        // Before the preflight, which would count the port a paused
+        // container still holds as taken by something else.
+        resume_paused(ctx, &project);
         if !args.no_preflight {
             preflight(ctx, &project, args.replace)?;
         }
@@ -277,6 +280,40 @@ enum Pre {
     /// Do not run docker at all, and exit with this code: the caller has
     /// already been told what there was to know.
     Skip(i32),
+}
+
+/// Resume what this deployment has left paused.
+///
+/// A `chaps backup create` interrupted while it held a service still leaves
+/// it paused, and `compose up` counts a paused container as running, so it
+/// would stay frozen. `up` is what an operator runs to get things going
+/// again, so it resumes them first and says so.
+fn resume_paused(ctx: &Ctx, project: &Project) {
+    let paused = docker::all_containers(project)
+        .map(|containers| paused_services(&containers))
+        .unwrap_or_default();
+    if paused.is_empty() {
+        return;
+    }
+    note(
+        ctx,
+        &format!(
+            "resuming {}, left paused (an interrupted `chaps backup create`?)",
+            paused.join(", ")
+        ),
+    );
+    let mut unpause = vec!["unpause".to_string()];
+    unpause.extend(paused);
+    let _ = docker::compose_output(project, &unpause);
+}
+
+/// The services among `containers` that docker reports paused.
+fn paused_services(containers: &[docker::Container]) -> Vec<String> {
+    containers
+        .iter()
+        .filter(|c| c.state.eq_ignore_ascii_case("paused"))
+        .map(|c| c.service.clone())
+        .collect()
 }
 
 impl Pre {

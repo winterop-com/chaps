@@ -637,6 +637,14 @@ is left behind that chaps cannot reach. `docker ps -a --filter volume=<volume>`
 shows what holds it; stop that, run the `docker volume rm` the message names,
 then the same `chaps stop --group <group> --purge` again.
 
+## `resuming ..., left paused` from `chaps up`
+
+A service of this deployment was paused, which is what a `chaps backup
+create` interrupted while it held the service still leaves behind. `chaps up`
+resumed it before starting anything else; nothing more to do. A model that
+answers nothing and shows no error in `chaps logs` may be in this state: run
+`chaps up` to resume it.
+
 ## `there is no marketplace model ...`
 
 `chaps run` was given a word with no tag, which is a marketplace id, and the

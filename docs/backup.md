@@ -101,7 +101,10 @@ models    chapkit-ewars-model  /app/data  (40.0 KB, paused for 1.4 s)
 its storage, so nothing writes into a half-read tar - a chapkit model keeps a
 live SQLite database in its data directory, and a tar of a file that is being
 written to is a tar of a torn database. The service is always let go again,
-including when the read fails. Where `pause` is unsupported the service is
+including when the read fails - except when the backup itself is interrupted
+(Ctrl-C) while it holds one: then the service stays paused, and the next
+`chaps up` resumes it and says so (`resuming chapkit-ewars-model, left
+paused`). Where `pause` is unsupported the service is
 stopped and started instead (`stopped for 6.0 s`), and where neither works the
 read goes ahead with a warning. The database needs none of this: `pg_dump`
 reads one transactional snapshot, however busy chap-core is while it runs.

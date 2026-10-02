@@ -851,3 +851,17 @@ fn the_empty_state_line_says_what_to_do_about_it() {
         "nothing is running for this project; start Chap with `chaps up`"
     );
 }
+
+/// What `up` resumes before it starts anything: only what docker reports
+/// paused.
+#[test]
+fn up_resumes_only_the_paused_services() {
+    let mut paused = container("chapkit-ewars-model", "a", "1");
+    paused.state = "paused".to_string();
+    let mut running = container("chap", "b", "1");
+    running.state = "running".to_string();
+    assert_eq!(
+        paused_services(&[paused, running]),
+        vec!["chapkit-ewars-model".to_string()]
+    );
+}
