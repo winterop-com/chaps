@@ -42,7 +42,7 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<()> {
         // Unreachable: `resolve_project` fails when there is neither.
         (None, None) => return Err(no_target()),
     };
-    let token = crate::api::token_for(project.as_ref().map(|p| p.dir.as_path()));
+    let token = crate::api::token_for_url(&base, project.as_ref());
     let api = Api::new(&base, token, Duration::from_secs(args.timeout));
 
     let answer = api.send_json(&method, &path, body.as_deref())?;

@@ -293,6 +293,51 @@ pub fn token_for(project_dir: Option<&std::path::Path>) -> Option<String> {
     pick_token(from_project, from_env)
 }
 
+/// The token for a request to `url`, from a command that may be inside
+/// `project`: this deployment's own token only when `url` is this
+/// deployment's API, else only the environment's.
+///
+/// `chaps api --url` aimed at another server from inside a deployment would
+/// otherwise hand that server this deployment's token.
+pub fn token_for_url(url: &str, project: Option<&crate::project::Project>) -> Option<String> {
+    match project {
+        Some(project) if same_origin(url, &project.api_url()) => token_for(Some(&project.dir)),
+        _ => token_for(None),
+    }
+}
+
+/// Whether two URLs reach the same server: scheme, host and port, with the
+/// usual names of this machine counted as one.
+pub fn same_origin(a: &str, b: &str) -> bool {
+    origin(a).is_some() && origin(a) == origin(b)
+}
+
+fn origin(url: &str) -> Option<(String, String, u16)> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => (host, port.parse().ok()?),
+        _ => (
+            authority,
+            match scheme.as_str() {
+                "https" => 443,
+                "http" => 80,
+                _ => return None,
+            },
+        ),
+    };
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    let host = match host.as_str() {
+        "localhost" | "127.0.0.1" | "::1" => "localhost".to_string(),
+        _ => host,
+    };
+    Some((scheme, host, port))
+}
+
 /// [`token_for`]'s rule, with both sources handed in.
 ///
 /// An empty or blank value is no token at all: `CHAP_API_TOKEN=` in a shell

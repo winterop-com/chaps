@@ -146,3 +146,32 @@ fn the_deployments_token_wins_and_the_environment_is_the_fallback() {
         Some("spaced")
     );
 }
+
+#[test]
+fn same_origin_compares_scheme_host_and_port() {
+    assert!(same_origin(
+        "http://localhost:8700",
+        "http://127.0.0.1:8700/v1/jobs"
+    ));
+    assert!(same_origin(
+        "https://chap.example.org",
+        "https://CHAP.example.org:443/x"
+    ));
+    assert!(!same_origin(
+        "http://localhost:8700",
+        "http://localhost:8701"
+    ));
+    assert!(!same_origin(
+        "http://chap.example.org",
+        "https://chap.example.org"
+    ));
+    assert!(!same_origin(
+        "http://localhost:8700",
+        "http://staging.example.org:8700"
+    ));
+    assert!(!same_origin(
+        "http://user@evil.example:8700",
+        "http://localhost:8700"
+    ));
+    assert!(!same_origin("not a url", "not a url"));
+}

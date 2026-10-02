@@ -126,7 +126,7 @@ from Chap saying no.
 | `METHOD` | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, in any case. Anything else is a usage error before a byte is sent. |
 | `PATH` | Starts with `/`, and may carry a query string: `/v1/analytics/evaluation-entry?backtestId=3&quantiles=0.5`. |
 | `--data` | The JSON body: inline, `@path` to read a file, or `-` to read stdin. It is checked as JSON here and then sent byte for byte, with `Content-Type: application/json`. |
-| `--url` | Talk to another chap-core instead of this deployment's. Works outside a project, where the token comes from `CHAP_API_TOKEN` in the environment. |
+| `--url` | Talk to another chap-core instead of this deployment's. Works outside a project. The token sent is this deployment's own only when the URL is this deployment's API (same scheme, host and port; `localhost` and `127.0.0.1` count as one); to any other server only `CHAP_API_TOKEN` from the environment goes, so a typo in the host never hands it this deployment's token. |
 | `--raw` | Write the body through untouched, without any of the rendering below. |
 
 The answer goes to stdout, rendered the way it reads best:
@@ -218,8 +218,9 @@ value inside the report that says what it protects. See
 
 Every command that asks chap-core - `jobs`, `models test`, `status`, `doctor`
 and `api` - takes the token from `.env` first and, when `.env` sets none, from
-`CHAP_API_TOKEN` in the environment. Outside a deployment, `chaps api --url`
-reads only the environment, which is the same variable `.env` sets:
+`CHAP_API_TOKEN` in the environment. Outside a deployment, and inside one
+when `--url` names another server, `chaps api --url` reads only the
+environment, which is the same variable `.env` sets:
 
 ```sh
 CHAP_API_TOKEN=$(chaps -C ~/mychap auth token) \

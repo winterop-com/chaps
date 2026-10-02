@@ -464,3 +464,49 @@ fn api_and_jobs_send_the_token_this_deployment_holds() {
     assert!(stderr.contains("Authorization: Bearer <token>"), "{stderr}");
     assert!(!stderr.contains(&token), "the token leaked:\n{stderr}");
 }
+
+/// `--url` aimed at another server from inside a protected deployment does not
+/// hand it this deployment's token; aimed at this deployment's own API, by
+/// `127.0.0.1` rather than `localhost`, it still does.
+#[test]
+fn api_url_to_another_server_does_not_carry_this_deployments_token() {
+    let sandbox = Sandbox::new();
+    let dir = served_project(&sandbox);
+    sandbox.auth(&["enable"]).assert().success();
+    let own = env_value(&sandbox.env(), "CHAP_API_PORT")
+        .expect("the api port is in .env")
+        .to_string();
+    let other = chap_core_server();
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "api",
+            "GET",
+            "/v1/whoami",
+            "--url",
+            &format!("http://127.0.0.1:{other}"),
+        ],
+    )
+    .env_remove("CHAP_API_TOKEN")
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("\"auth\": false"));
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "api",
+            "GET",
+            "/v1/whoami",
+            "--url",
+            &format!("http://127.0.0.1:{own}"),
+        ],
+    )
+    .env_remove("CHAP_API_TOKEN")
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("\"auth\": true"));
+}
