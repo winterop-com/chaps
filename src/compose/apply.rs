@@ -221,6 +221,37 @@ pub fn apply_with(
     busy: &dyn Fn(u16) -> bool,
     resolve: ResolveFn,
 ) -> Result<ApplyReport> {
+    let report = plan_with(project, registry, sel, busy, resolve)?;
+    write_planned(project, registry, report)
+}
+
+/// Render and save what [`plan_with`] decided.
+pub fn write_planned(
+    project: &mut Project,
+    registry: &Registry,
+    mut report: ApplyReport,
+) -> Result<ApplyReport> {
+    // One rendering path: sync writes the overlays, the umbrella and the .env
+    // pins, removes the overlays of disabled models, and saves .chaps/.
+    let synced = sync(project, registry, false)?;
+    report.written = synced.written;
+    report.removed = synced.removed;
+    report.warnings.extend(synced.warnings);
+    Ok(report)
+}
+
+/// Everything [`apply`] decides, made on `project` in memory and nothing
+/// written: the checks, the ports and the users. What fails, fails here,
+/// before [`write_planned`] touches a file - so a caller with something to do
+/// in between (`chaps ui` stopping the components it switches off) does it
+/// only for a selection that will apply.
+pub(crate) fn plan_with(
+    project: &mut Project,
+    registry: &Registry,
+    sel: &Selection,
+    busy: &dyn Fn(u16) -> bool,
+    resolve: ResolveFn,
+) -> Result<ApplyReport> {
     validate(project, registry, sel)?;
     let mut report = ApplyReport::default();
 
@@ -483,12 +514,6 @@ pub fn apply_with(
         }
     }
 
-    // One rendering path: sync writes the overlays, the umbrella and the .env
-    // pins, removes the overlays of disabled models, and saves .chaps/.
-    let synced = sync(project, registry, false)?;
-    report.written = synced.written;
-    report.removed = synced.removed;
-    report.warnings.extend(synced.warnings);
     Ok(report)
 }
 

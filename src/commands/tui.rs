@@ -10,7 +10,7 @@
 use crate::cli::UiArgs;
 use crate::commands::Ctx;
 use crate::components::Components;
-use crate::compose::{ApplyReport, apply};
+use crate::compose::ApplyReport;
 use crate::error::Result;
 use crate::tui::run_tui;
 
@@ -34,19 +34,38 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     // The browser may have been open for minutes, and another chaps may have
     // changed the deployment meanwhile: the selection is applied to the state
     // as it is now, read under the lock that keeps it so until the save.
-    let (mut project, _lock) = ctx.project_mut()?;
+    let (project, _lock) = ctx.project_mut()?;
     let registry = super::registry_for(ctx, Some(&project))?;
 
-    // Answered before anything is stopped or written, so a selection that was
-    // never going to apply leaves the deployment exactly as it was.
-    crate::compose::apply::validate(&project, &registry, &selection)?;
+    // Planned before anything is stopped or written - the checks, the ports,
+    // the users - so a selection that was never going to apply leaves the
+    // deployment exactly as it was, its components running included.
+    let before = project.state.components.clone();
+    let wanted = selection
+        .components
+        .clone()
+        .unwrap_or_else(|| before.clone());
+    // A component this save switches off is still running while the plan is
+    // made, and is stopped before anything starts on its port: that port is
+    // free for the plan.
+    let freed: Vec<u16> = crate::components::Component::ALL
+        .iter()
+        .filter(|c| before.is_enabled(**c) && !wanted.is_enabled(**c))
+        .filter_map(|c| before.port_of(*c))
+        .collect();
+    let busy = |port: u16| !freed.contains(&port) && crate::ports::is_busy(port);
+    let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+    let mut planned = project.clone();
+    let plan =
+        crate::compose::apply::plan_with(&mut planned, &registry, &selection, &busy, &|req| {
+            crate::compose::resolve::from_image(req, &endpoints)
+        })?;
 
     // The containers of a component being switched off go now, while the
     // compose files that define them are still there: a service whose
     // definition has just been removed cannot be stopped by name, and one left
     // running keeps its host port published long after the component is gone.
     // Volumes are not touched - `--purge` stays a `components disable` flag.
-    let before = project.state.components.clone();
     let after: Components = selection
         .components
         .clone()
@@ -59,8 +78,7 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
         crate::output::warn(&note);
     }
 
-    let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
-    let report = apply(&mut project, &registry, &selection, &endpoints)?;
+    let report = crate::compose::apply::write_planned(&mut planned, &registry, plan)?;
     ctx.out.emit(&report, || human(&report, &stopped))?;
     Ok(())
 }

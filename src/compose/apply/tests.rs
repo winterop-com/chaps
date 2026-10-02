@@ -665,3 +665,47 @@ fn a_port_range_from_a_narrower_port_base_is_honoured() {
     let report = apply(&mut project, &registry, &publish(&["chapkit_ewars_model"])).unwrap();
     assert_eq!(report.enabled[0].1.host_port, Some(5500));
 }
+
+/// A plan decides and writes nothing; one that fails - a fixed port something
+/// holds - fails before any file exists, which is what lets `chaps ui` stop a
+/// component only once its save is certain to apply.
+#[test]
+fn a_plan_writes_nothing_and_fails_before_any_file() {
+    let registry = load_embedded().unwrap();
+    let (dir, mut project) = project();
+    let mut sel = enable(&["chapkit_ewars_model"]);
+    sel.enable[0].port = Some(PortRequest::Fixed(5200));
+
+    let held = |port: u16| port == 5200;
+    assert!(
+        plan_with(
+            &mut project.clone(),
+            &registry,
+            &sel,
+            &held,
+            &resolve::from_table
+        )
+        .is_err()
+    );
+    assert!(
+        std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+        "nothing written"
+    );
+
+    let report = plan_with(
+        &mut project,
+        &registry,
+        &sel,
+        &all_free,
+        &resolve::from_table,
+    )
+    .unwrap();
+    assert!(project.state.models.contains_key("chapkit_ewars_model"));
+    assert!(
+        std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+        "still nothing"
+    );
+
+    write_planned(&mut project, &registry, report).unwrap();
+    assert!(dir.path().join("compose.chapkit-ewars-model.yml").is_file());
+}
