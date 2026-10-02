@@ -49,10 +49,19 @@ covariates:
   allow_free_additional: true
 
 channels:
-  stable: 0.1.1
-  latest: 0.1.1
+  stable: 0.1.2
+  latest: 0.1.2
 
 versions:
+  - version: 0.1.2
+    commit: 10b2bc7c7d66e825f382c002e56f7a38c5ca9293
+    image_tag: sha-10b2bc7
+    chapkit: ">=2.2.0,<3"
+    status: verified
+    # Pinned by the maintainers without the three-approval round.
+    verified_by: []
+    changelog: >-
+      Exposes the service's metrics on /metrics (Prometheus format, OpenTelemetry). Built on chapkit 2.2.0 and servicekit 3.0.0. No change to the model.
   - version: 0.1.1
     commit: 6c1d9ee76f39194cde8df0794a761a648526bb63
     image_tag: sha-6c1d9ee

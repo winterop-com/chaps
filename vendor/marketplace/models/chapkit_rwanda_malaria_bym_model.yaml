@@ -58,10 +58,19 @@ covariates:
   allow_free_additional: true
 
 channels:
-  stable: 0.1.2
-  latest: 0.1.2
+  stable: 0.1.3
+  latest: 0.1.3
 
 versions:
+  - version: 0.1.3
+    commit: 1ee5ea1792ea2cbbb591ace37c7b58d7a96f6f3a
+    image_tag: sha-1ee5ea1
+    chapkit: ">=2.2.0,<3"
+    status: verified
+    # Pinned by the maintainers without the three-approval round.
+    verified_by: []
+    changelog: >-
+      Metrics on /metrics now use the stable OpenTelemetry names (http_server_request_duration_seconds_*). Built on chapkit 2.2.0 and servicekit 3.0.0. No change to the model.
   - version: 0.1.2
     commit: a7b2892d74c694f5140a315357061ab2592897c6
     image_tag: sha-a7b2892

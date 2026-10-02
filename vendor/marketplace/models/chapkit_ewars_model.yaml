@@ -58,10 +58,19 @@ covariates:
 # what production chap instances should run. `latest` is the newest pin of
 # any status; it diverges from `stable` while a new version is under review.
 channels:
-  stable: 1.0.3
-  latest: 1.0.3
+  stable: 1.0.4
+  latest: 1.0.4
 
 versions:
+  - version: 1.0.4
+    commit: 964eea8bfdb194ca8985723216e94f1ac63aa4f1
+    image_tag: sha-964eea8
+    chapkit: ">=2.2.0,<3"
+    status: verified
+    # Pinned by the maintainers without the three-approval round.
+    verified_by: []
+    changelog: >-
+      Exposes the service's metrics on /metrics (Prometheus format, OpenTelemetry). Built on chapkit 2.2.0 and servicekit 3.0.0. No change to the model.
   - version: 1.0.3
     commit: 24d58c08a793cd1af8f804c92a53f83943b80c84
     image_tag: sha-24d58c0
