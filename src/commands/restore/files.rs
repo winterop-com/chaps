@@ -9,7 +9,7 @@ use crate::components::COMPONENTS_FILE;
 use crate::compose::sync;
 use crate::error::Result;
 use crate::output;
-use crate::project::{CHAPS_DIR, ENV_FILE, MANUAL_MODELS_FILE, MODELS_FILE, Project};
+use crate::project::{CHAPS_DIR, ENV_FILE, MANUAL_MODELS_FILE, MODELS_FILE, PROJECT_FILE, Project};
 use std::path::Path;
 
 /// Unpack `files/` over the project directory, then re-render the compose
@@ -42,6 +42,15 @@ pub(super) fn restore_files(
         )?;
         report.env_backup = Some(ENV_BACKUP_FILE.to_string());
     }
+
+    // The name this deployment runs under is written into the arriving
+    // `project.yaml` before any file lands, so a restore that stops part-way
+    // never leaves this directory pointed at the archive's containers and
+    // volumes. See the longer note below.
+    let archived_name = std::fs::read_to_string(from.join(CHAPS_DIR).join(PROJECT_FILE))
+        .ok()
+        .and_then(|body| backup::archived_compose_project(&body));
+    stage_identity(&from, &project.state.compose_project, args.adopt_identity)?;
 
     for rel in &report.plan.files {
         backup::copy_file(&from, &project.dir, rel)?;
@@ -94,8 +103,8 @@ pub(super) fn restore_files(
     // deployment at the other one's volumes and abandon its own. Everything
     // else in the file is the archive's to restore, the API port included -
     // the `.env` beside it sets that too, and the two have to agree.
-    let archived = restored.state.compose_project.clone();
-    restored.state.compose_project = backup::restored_compose_project(
+    let archived = archived_name.unwrap_or_default();
+    restored.state.compose_project = identity(
         &project.state.compose_project,
         &archived,
         args.adopt_identity,
@@ -157,3 +166,48 @@ fn archived_identity_differs(current: &str, plan: &RestorePlan) -> bool {
         .map(str::trim)
         .is_some_and(|archived| !archived.is_empty() && archived != current)
 }
+
+/// The compose project name a restore leaves this deployment with: the
+/// archive's under `--adopt-identity` when it records one, this deployment's
+/// own otherwise.
+fn identity(destination: &str, archived: &str, adopt: bool) -> String {
+    let name = backup::restored_compose_project(destination, archived, adopt);
+    match name.is_empty() {
+        true => destination.trim().to_string(),
+        false => name,
+    }
+}
+
+/// Write [`identity`] into the staged `.chaps/project.yaml` under `from`,
+/// leaving every other key as the archive has it. Plain YAML, because the
+/// file may come from a chaps that writes fields this one does not know.
+fn stage_identity(from: &Path, destination: &str, adopt: bool) -> Result<()> {
+    let path = from.join(CHAPS_DIR).join(PROJECT_FILE);
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let archived = backup::archived_compose_project(&body).unwrap_or_default();
+    let name = identity(destination, &archived, adopt);
+    if name.is_empty() || name == archived {
+        return Ok(());
+    }
+    let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&body)
+        .map_err(|e| anyhow::anyhow!("reading the archived {}: {e}", path.display()))?;
+    let Some(map) = value.as_mapping_mut() else {
+        return Ok(());
+    };
+    map.insert("compose_project".into(), name.into());
+    let header = body
+        .lines()
+        .take_while(|line| line.starts_with('#'))
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+    std::fs::write(
+        &path,
+        format!("{header}{}", serde_yaml_ng::to_string(&value)?),
+    )
+    .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests;

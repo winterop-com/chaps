@@ -141,8 +141,19 @@ pub fn copy_file(from: &Path, to: &Path, rel: &str) -> Result<()> {
         std::fs::create_dir_all(parent)
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", parent.display()))?;
     }
-    std::fs::copy(&src, &dst)
-        .map_err(|e| anyhow::anyhow!("copying {} to {}: {e}", src.display(), dst.display()))?;
+    // Through a temporary file and a rename, so a restore that stops part-way
+    // leaves each file either as it was or as the archive has it, never half.
+    let name = dst
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = dst.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::copy(&src, &tmp)
+        .map_err(|e| anyhow::anyhow!("copying {} to {}: {e}", src.display(), tmp.display()))?;
+    std::fs::rename(&tmp, &dst).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::anyhow!("renaming {} to {}: {e}", tmp.display(), dst.display())
+    })?;
     Ok(())
 }
 
