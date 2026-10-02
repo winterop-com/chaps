@@ -14,9 +14,13 @@ use tempfile::TempDir;
 
 mod chap_core;
 mod hub;
+#[cfg(unix)]
+mod run;
 
 pub(crate) use chap_core::*;
 pub(crate) use hub::*;
+#[cfg(unix)]
+pub(crate) use run::*;
 
 /// A cache directory plus the project directory the tests write into.
 pub(crate) struct Sandbox {

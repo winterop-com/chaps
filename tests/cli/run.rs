@@ -7,99 +7,11 @@
 use crate::common::*;
 use serde_json::Value as Json;
 use std::path::{Path, PathBuf};
-use tempfile::TempDir;
-
-/// A `docker` whose compose commands succeed and whose `ps` reports the
-/// listed services running in every project.
-fn docker_running(services: &[&str]) -> (TempDir, PathBuf) {
-    let temp = tempfile::tempdir().expect("a directory for the fake docker");
-    let bin = temp.path().join("bin");
-    std::fs::create_dir_all(&bin).expect("a bin directory");
-    let rows: String = services
-        .iter()
-        .map(|s| format!("{{\"Service\":\"{s}\",\"State\":\"running\"}}\\n"))
-        .collect();
-    let script = format!(
-        "#!/bin/sh\n\
-         case \"$*\" in\n\
-         *' ps '*) printf '{rows}'; exit 0;;\n\
-         esac\n\
-         exit 0\n"
-    );
-    let docker = bin.join("docker");
-    std::fs::write(&docker, script).expect("the fake docker");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
-            .expect("an executable fake docker");
-    }
-    (temp, bin)
-}
-
-/// A `docker` that refuses `compose up` the way a pull of a missing image
-/// does, and answers everything else with success.
-fn docker_failing_up() -> (TempDir, PathBuf) {
-    let temp = tempfile::tempdir().expect("a directory for the fake docker");
-    let bin = temp.path().join("bin");
-    std::fs::create_dir_all(&bin).expect("a bin directory");
-    let script = "#!/bin/sh\n\
-         case \"$*\" in\n\
-         *' up '*) echo ' m Pulling' >&2; \
-         echo 'Error response from daemon: pull access denied' >&2; \
-         echo 'denied' >&2; exit 1;;\n\
-         esac\n\
-         exit 0\n";
-    let docker = bin.join("docker");
-    std::fs::write(&docker, script).expect("the fake docker");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
-            .expect("an executable fake docker");
-    }
-    (temp, bin)
-}
-
-/// A `docker` whose local image store holds every image asked about, as one
-/// that runs as user 1000 in `/app`, and whose compose commands succeed.
-fn docker_with_local_images() -> (TempDir, PathBuf) {
-    let temp = tempfile::tempdir().expect("a directory for the fake docker");
-    let bin = temp.path().join("bin");
-    std::fs::create_dir_all(&bin).expect("a bin directory");
-    let script = "#!/bin/sh\n\
-         case \"$*\" in\n\
-         'image inspect'*) printf '1000\\t/app\\tnull\\t[\"serve\"]\\n'; exit 0;;\n\
-         esac\n\
-         exit 0\n";
-    let docker = bin.join("docker");
-    std::fs::write(&docker, script).expect("the fake docker");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
-            .expect("an executable fake docker");
-    }
-    (temp, bin)
-}
-
-fn data(sandbox: &Sandbox) -> PathBuf {
-    sandbox.cache.path().join("data")
-}
-
-fn run_json(sandbox: &Sandbox, cwd: &Path, bin: &Path, args: &[&str]) -> Json {
-    let mut argv = vec!["--json"];
-    argv.extend_from_slice(args);
-    let out = chap_with_docker(sandbox, cwd, bin, &argv)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    serde_json::from_slice(&out).expect("one JSON document")
-}
 
 #[test]
 fn run_outside_a_deployment_starts_the_model_in_a_group_on_loopback() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model"]);
     let cwd = sandbox.home.path();
 
     let doc = run_json(
@@ -140,7 +52,7 @@ fn run_outside_a_deployment_starts_the_model_in_a_group_on_loopback() {
 #[test]
 fn groups_keep_models_apart_and_ps_and_stop_find_them() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model", "auto-arima-chapkit"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model", "auto-arima-chapkit"]);
     let cwd = sandbox.home.path();
 
     run_json(
@@ -194,7 +106,7 @@ fn groups_keep_models_apart_and_ps_and_stop_find_them() {
 #[test]
 fn a_group_labels_its_containers_with_the_run_kind_and_its_name() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model"]);
     let cwd = sandbox.home.path();
     run_json(
         &sandbox,
@@ -227,7 +139,7 @@ fn a_group_labels_its_containers_with_the_run_kind_and_its_name() {
 #[test]
 fn run_inside_a_deployment_uses_it_and_refuses_a_group() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["auto-arima-chapkit"]);
+    let (_fake, bin) = docker_running_services(&["auto-arima-chapkit"]);
     sandbox
         .init(&["--models", "none", "--port-base", &port_base().to_string()])
         .assert()
@@ -271,56 +183,9 @@ fn run_inside_a_deployment_uses_it_and_refuses_a_group() {
 }
 
 #[test]
-fn ps_and_stop_before_any_run_say_so() {
-    let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&[]);
-    let cwd = sandbox.home.path();
-    chap_with_docker(&sandbox, cwd, &bin, &["ps"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "nothing has been started with `chaps run` yet",
-        ));
-    chap_with_docker(&sandbox, cwd, &bin, &["stop", "chapkit_ewars_model"])
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("`chaps ps` lists what is"));
-}
-
-#[test]
-fn stop_with_a_group_and_no_id_stops_the_group_and_purge_removes_it() {
-    let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model", "auto-arima-chapkit"]);
-    let cwd = sandbox.home.path();
-    for model in ["chapkit_ewars_model", "auto_arima_chapkit"] {
-        run_json(
-            &sandbox,
-            cwd,
-            &bin,
-            &["run", model, "--group", "trial", "--no-wait"],
-        );
-    }
-    let dir = data(&sandbox).join("run").join("trial");
-
-    let stopped = run_json(&sandbox, cwd, &bin, &["stop", "--group", "trial"]);
-    assert_eq!(stopped["stopped"].as_array().unwrap().len(), 2, "{stopped}");
-    assert_eq!(stopped["removed"], serde_json::json!([]));
-    assert!(dir.exists(), "a stop without --purge keeps the group");
-
-    let purged = run_json(
-        &sandbox,
-        cwd,
-        &bin,
-        &["stop", "--group", "trial", "--purge"],
-    );
-    assert_eq!(purged["removed"], serde_json::json!(["trial"]), "{purged}");
-    assert!(!dir.exists(), "an emptied group is taken away by --purge");
-}
-
-#[test]
 fn run_of_an_unknown_id_says_so_and_makes_no_group() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&[]);
+    let (_fake, bin) = docker_running_services(&[]);
     let cwd = sandbox.home.path();
     let out = chap_with_docker(&sandbox, cwd, &bin, &["--json", "run", "does_not_exist"])
         .assert()
@@ -394,7 +259,7 @@ fn a_run_that_cannot_start_takes_its_model_back_out() {
 #[test]
 fn parallel_runs_into_a_new_group_all_land_in_it() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model", "auto-arima-chapkit"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model", "auto-arima-chapkit"]);
     let cwd = sandbox.home.path();
     let codes: Vec<Option<i32>> = std::thread::scope(|scope| {
         let handles: Vec<_> = ["chapkit_ewars_model", "auto_arima_chapkit"]
@@ -476,7 +341,7 @@ fn an_error_inside_a_group_names_models_remove_with_the_group_dir() {
 #[test]
 fn a_run_into_a_group_names_its_log_with_the_group_dir() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model"]);
     let cwd = sandbox.home.path();
     let out = chap_with_docker(
         &sandbox,
@@ -515,7 +380,7 @@ fn a_run_into_a_group_names_its_log_with_the_group_dir() {
 #[test]
 fn a_json_error_does_not_repeat_its_hint() {
     let sandbox = Sandbox::new();
-    let (_fake, bin) = docker_running(&["chapkit-ewars-model"]);
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model"]);
     let cwd = sandbox.home.path();
     run_json(
         &sandbox,
@@ -533,126 +398,4 @@ fn a_json_error_does_not_repeat_its_hint() {
     let hint = doc["hint"].as_str().expect("a hint");
     assert!(hint.contains("`chaps ps`"), "{doc}");
     assert!(!doc["error"].as_str().unwrap().contains(hint), "{doc}");
-}
-
-/// A `docker` that holds one leftover volume for every compose project, the
-/// one a model stopped earlier left, and writes each call to `calls.log`.
-/// `volume rm` succeeds when `rm_ok`, and is refused the way a volume still in
-/// use is otherwise.
-fn docker_with_leftover_volume(rm_ok: bool) -> (TempDir, PathBuf, PathBuf) {
-    let temp = tempfile::tempdir().expect("a directory for the fake docker");
-    let bin = temp.path().join("bin");
-    std::fs::create_dir_all(&bin).expect("a bin directory");
-    let log = temp.path().join("calls.log");
-    let rm = match rm_ok {
-        true => "exit 0",
-        false => "echo 'Error response from daemon: remove x: volume is in use' >&2; exit 1",
-    };
-    let script = format!(
-        "#!/bin/sh\n\
-         echo \"$*\" >> '{log}'\n\
-         case \"$*\" in\n\
-         'volume ls --filter label=com.docker.compose.project='*) \
-         echo \"${{4#label=com.docker.compose.project=}}_ck_old_model_data\"; exit 0;;\n\
-         'volume rm '*) {rm};;\n\
-         esac\n\
-         exit 0\n",
-        log = log.display()
-    );
-    let docker = bin.join("docker");
-    std::fs::write(&docker, script).expect("the fake docker");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
-            .expect("an executable fake docker");
-    }
-    (temp, bin, log)
-}
-
-/// A model stopped without `--purge` keeps its volume and loses its overlay,
-/// so `compose down --volumes` no longer knows the volume; purging the group
-/// finds it by the compose project label and removes it.
-#[test]
-fn purging_a_group_removes_the_volume_of_a_model_stopped_before() {
-    let sandbox = Sandbox::new();
-    let (_fake, bin, log) = docker_with_leftover_volume(true);
-    let cwd = sandbox.home.path();
-    run_json(
-        &sandbox,
-        cwd,
-        &bin,
-        &[
-            "run",
-            "chapkit_ewars_model",
-            "--group",
-            "trial",
-            "--no-wait",
-        ],
-    );
-    run_json(&sandbox, cwd, &bin, &["stop", "chapkit_ewars_model"]);
-    let dir = data(&sandbox).join("run").join("trial");
-    assert!(dir.exists());
-
-    let purged = run_json(
-        &sandbox,
-        cwd,
-        &bin,
-        &["stop", "--group", "trial", "--purge"],
-    );
-    assert_eq!(purged["removed"], serde_json::json!(["trial"]), "{purged}");
-    let volume = purged["removed_volumes"][0].as_str().expect("a volume");
-    assert!(volume.ends_with("_ck_old_model_data"), "{purged}");
-    assert!(
-        read(&log)
-            .lines()
-            .any(|l| l == format!("volume rm {volume}")),
-        "{}",
-        read(&log)
-    );
-    assert!(!dir.exists());
-}
-
-/// A volume docker will not remove keeps the group, so nothing is left that
-/// no chaps command can reach, and the error says how to finish.
-#[test]
-fn a_volume_docker_will_not_remove_keeps_the_group() {
-    let sandbox = Sandbox::new();
-    let (_fake, bin, _log) = docker_with_leftover_volume(false);
-    let cwd = sandbox.home.path();
-    run_json(
-        &sandbox,
-        cwd,
-        &bin,
-        &[
-            "run",
-            "chapkit_ewars_model",
-            "--group",
-            "trial",
-            "--no-wait",
-        ],
-    );
-    let out = chap_with_docker(
-        &sandbox,
-        cwd,
-        &bin,
-        &["--json", "stop", "--group", "trial", "--purge"],
-    )
-    .assert()
-    .failure()
-    .get_output()
-    .stdout
-    .clone();
-    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
-    assert!(
-        doc["error"].as_str().unwrap().contains("volume is in use"),
-        "{doc}"
-    );
-    assert!(
-        doc["hint"]
-            .as_str()
-            .unwrap()
-            .contains("`chaps stop --group trial --purge`"),
-        "{doc}"
-    );
-    assert!(data(&sandbox).join("run").join("trial").exists());
 }
