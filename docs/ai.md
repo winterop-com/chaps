@@ -334,6 +334,10 @@ list` shows their ids, and `chaps run` takes any of them, a GitHub repository
 URL or a ghcr image the same way. `chaps ps` lists what runs, `chaps top` shows
 it live, and `chaps stop chapkit_ewars_model` stops it.
 
+More than one works the same way: one `chaps run` per model, each on its own
+port, and `chaps ps` lists them all. `--group NAME` keeps a set apart, and
+`chaps stop --group NAME --purge` removes that set with its data.
+
 For a folder of its own instead, with `chaps status` and the rest:
 
 ```sh
@@ -348,7 +352,8 @@ port in the REACH column, usually `http://localhost:5001`, and
 `chaps open chapkit_ewars_model` opens its documentation.
 
 More: [Running one model](./run.md),
-[A chapkit model service on its own](./use-cases/model-alone.md).
+[A chapkit model service on its own](./use-cases/model-alone.md),
+[Any number of model services, no folder](./use-cases/models-with-run.md).
 
 ### 8. DHIS2 only
 
