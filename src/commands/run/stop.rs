@@ -17,6 +17,8 @@ struct StopReport {
     stopped: Vec<StoppedModel>,
     /// The groups `--purge` emptied and took away.
     removed: Vec<String>,
+    /// The volumes of those groups that went with them.
+    removed_volumes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,22 +96,34 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
         });
     }
     let mut removed = Vec::new();
+    let mut removed_volumes = Vec::new();
     if args.purge {
         for (group, dir) in &scope {
             if let Some(group) = group
-                && remove_if_empty(group, dir)?
+                && let Some(volumes) = remove_if_empty(group, dir)?
             {
                 removed.push(group.clone());
+                removed_volumes.extend(volumes);
             }
         }
     }
-    let report = StopReport { stopped, removed };
+    let report = StopReport {
+        stopped,
+        removed,
+        removed_volumes,
+    };
     ctx.out.emit_ok(&report, || {
         let mut text = String::new();
         let removed: String = report
             .removed
             .iter()
             .map(|group| format!("{} group {group}\n", ctx.out.warn("removed")))
+            .chain(
+                report
+                    .removed_volumes
+                    .iter()
+                    .map(|volume| format!("{} volume {volume}\n", ctx.out.warn("removed"))),
+            )
             .collect();
         if report.stopped.is_empty() {
             text.push_str(&removed);

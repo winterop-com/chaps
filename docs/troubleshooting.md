@@ -614,6 +614,14 @@ parentheses hold the line compose said it with. `pull access denied` or
 host port something else took between the pick and the start; run again. The
 model was taken back out, so the `chaps run` the message names starts afresh.
 
+## `docker would not remove volume ...` from `chaps stop --purge`
+
+Purging a group removes every volume compose made for it, and docker refused
+one, usually because a container still uses it. The group was kept, so nothing
+is left behind that chaps cannot reach. `docker ps -a --filter volume=<volume>`
+shows what holds it; stop that, run the `docker volume rm` the message names,
+then the same `chaps stop --group <group> --purge` again.
+
 ## `there is no marketplace model ...`
 
 `chaps run` was given a word with no tag, which is a marketplace id, and the

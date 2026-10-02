@@ -116,8 +116,11 @@ every model in every group, and `chaps stop --group NAME` every model in one.
 The data volume stays, as with `models disable`, and so does the definition of
 an added model, so `chaps run ID` starts it again without asking GitHub.
 `--purge` takes the volume too, and a group it leaves with no model in it goes
-as well: its network and its directory. `chaps stop --all --purge` removes
-every group.
+as well: its network, its directory and every volume compose made for it,
+including the volume of a model stopped earlier without `--purge`. `chaps stop
+--all --purge` removes every group. A volume docker will not remove keeps its
+group, so the same `chaps stop --group NAME --purge` can finish the job once
+the volume is free.
 
 The deployment behind a group is an ordinary chaps deployment, so every other
 command works on it with `-C`: `chaps -C ~/.local/share/chaps/run/default logs
@@ -144,8 +147,8 @@ Every one of the three takes `--json` and prints one document on stdout:
 ```
 
 `chaps ps --json` is `{"models": [...]}` with the same fields per model plus
-`state`; `chaps stop --json` lists what it `stopped` and the groups it
-`removed`. A failure is `{"ok": false, "error": ..., "hint": ...}` like every
+`state`; `chaps stop --json` lists what it `stopped`, the groups it
+`removed` and the volumes that went with them, `removed_volumes`. A failure is `{"ok": false, "error": ..., "hint": ...}` like every
 other command's, a usage error included; see
 [`--json` for scripts and tools](./commands.md#--json-for-scripts-and-tools).
 docker's own progress, such as a pull, goes to stderr, so stdout is the one

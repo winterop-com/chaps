@@ -534,3 +534,125 @@ fn a_json_error_does_not_repeat_its_hint() {
     assert!(hint.contains("`chaps ps`"), "{doc}");
     assert!(!doc["error"].as_str().unwrap().contains(hint), "{doc}");
 }
+
+/// A `docker` that holds one leftover volume for every compose project, the
+/// one a model stopped earlier left, and writes each call to `calls.log`.
+/// `volume rm` succeeds when `rm_ok`, and is refused the way a volume still in
+/// use is otherwise.
+fn docker_with_leftover_volume(rm_ok: bool) -> (TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let rm = match rm_ok {
+        true => "exit 0",
+        false => "echo 'Error response from daemon: remove x: volume is in use' >&2; exit 1",
+    };
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{log}'\n\
+         case \"$*\" in\n\
+         'volume ls --filter label=com.docker.compose.project='*) \
+         echo \"${{4#label=com.docker.compose.project=}}_ck_old_model_data\"; exit 0;;\n\
+         'volume rm '*) {rm};;\n\
+         esac\n\
+         exit 0\n",
+        log = log.display()
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin, log)
+}
+
+/// A model stopped without `--purge` keeps its volume and loses its overlay,
+/// so `compose down --volumes` no longer knows the volume; purging the group
+/// finds it by the compose project label and removes it.
+#[test]
+fn purging_a_group_removes_the_volume_of_a_model_stopped_before() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin, log) = docker_with_leftover_volume(true);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    );
+    run_json(&sandbox, cwd, &bin, &["stop", "chapkit_ewars_model"]);
+    let dir = data(&sandbox).join("run").join("trial");
+    assert!(dir.exists());
+
+    let purged = run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["stop", "--group", "trial", "--purge"],
+    );
+    assert_eq!(purged["removed"], serde_json::json!(["trial"]), "{purged}");
+    let volume = purged["removed_volumes"][0].as_str().expect("a volume");
+    assert!(volume.ends_with("_ck_old_model_data"), "{purged}");
+    assert!(
+        read(&log)
+            .lines()
+            .any(|l| l == format!("volume rm {volume}")),
+        "{}",
+        read(&log)
+    );
+    assert!(!dir.exists());
+}
+
+/// A volume docker will not remove keeps the group, so nothing is left that
+/// no chaps command can reach, and the error says how to finish.
+#[test]
+fn a_volume_docker_will_not_remove_keeps_the_group() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin, _log) = docker_with_leftover_volume(false);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "trial",
+            "--no-wait",
+        ],
+    );
+    let out = chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &["--json", "stop", "--group", "trial", "--purge"],
+    )
+    .assert()
+    .failure()
+    .get_output()
+    .stdout
+    .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    assert!(
+        doc["error"].as_str().unwrap().contains("volume is in use"),
+        "{doc}"
+    );
+    assert!(
+        doc["hint"]
+            .as_str()
+            .unwrap()
+            .contains("`chaps stop --group trial --purge`"),
+        "{doc}"
+    );
+    assert!(data(&sandbox).join("run").join("trial").exists());
+}

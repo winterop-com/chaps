@@ -40,6 +40,31 @@ pub fn volume_names_with_prefix(prefix: &str) -> Vec<String> {
         .collect()
 }
 
+/// The names of the volumes compose created for the project `name`
+/// (`docker volume ls --filter label=com.docker.compose.project=<name>`),
+/// whether or not a compose file still declares them: a model stopped
+/// earlier took its overlay, and so its volume's only trace, with it.
+///
+/// Best-effort: an empty list when docker could not be asked.
+pub fn volume_names_of_project(name: &str) -> Vec<String> {
+    let args = vec![
+        "volume".to_string(),
+        "ls".to_string(),
+        "--filter".to_string(),
+        format!("label=com.docker.compose.project={name}"),
+        "--format".to_string(),
+        "{{.Name}}".to_string(),
+    ];
+    let Some(text) = docker_capture(&args) else {
+        return Vec::new();
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// The same volumes, each with the time docker created it.
 pub fn volumes_with_prefix(prefix: &str) -> Vec<Volume> {
     let names = volume_names_with_prefix(prefix);

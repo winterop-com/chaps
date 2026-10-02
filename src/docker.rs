@@ -34,8 +34,8 @@ pub use query::{
 pub use stats::{Usage, container_usage};
 pub use version::{check_compose_version, compose_version};
 pub use volumes::{
-    Removal, ocs_data_bytes, remove_volume, volume_exists, volume_names_with_prefix,
-    volume_size_bytes, volumes_with_prefix,
+    Removal, ocs_data_bytes, remove_volume, volume_exists, volume_names_of_project,
+    volume_names_with_prefix, volume_size_bytes, volumes_with_prefix,
 };
 
 use crate::error::{ChapError, Result};

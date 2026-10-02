@@ -70,15 +70,21 @@ pub(super) fn lock_file(path: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
-/// Take a group with no models left away: its compose project, its volumes
-/// and its directory. A group that still has a model stays.
-pub(super) fn remove_if_empty(group: &str, dir: &Path) -> Result<bool> {
+/// Take a group away when it holds no model: its containers, its network,
+/// every volume compose made for it and its directory. The volumes are found
+/// by the compose project label, not by the compose files, because a model
+/// stopped earlier left no file that names its volume. The directory goes
+/// last, so a volume docker would not remove keeps the group, and another
+/// `chaps stop --group <group> --purge` can try again.
+///
+/// `None` when the group still holds a model; otherwise the volumes removed.
+pub(super) fn remove_if_empty(group: &str, dir: &Path) -> Result<Option<Vec<String>>> {
     let _lock = lock_group(group)?;
     let Ok(project) = Project::load(dir) else {
-        return Ok(false);
+        return Ok(None);
     };
     if !project.state.models.is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
     let down = ["down", "--remove-orphans", "--volumes"].map(str::to_string);
     let (code, _, stderr) = docker::compose_output(&project, &down)?;
@@ -88,9 +94,22 @@ pub(super) fn remove_if_empty(group: &str, dir: &Path) -> Result<bool> {
             last_line(&stderr).unwrap_or_default()
         ));
     }
+    let mut removed = Vec::new();
     if let Some(name) = project.compose_project_name() {
+        for volume in docker::volume_names_of_project(&name) {
+            match docker::remove_volume(&volume) {
+                docker::Removal::Removed => removed.push(volume),
+                docker::Removal::NotFound => {}
+                docker::Removal::Refused(why) => {
+                    return Err(anyhow::anyhow!(
+                        "removing group {group}: docker would not remove volume {volume} ({why}); \
+                         run `docker volume rm {volume}`, then `chaps stop --group {group} --purge`"
+                    ));
+                }
+            }
+        }
         docker::remove_default_network(&name);
     }
     std::fs::remove_dir_all(dir).map_err(|e| anyhow::anyhow!("removing {}: {e}", dir.display()))?;
-    Ok(true)
+    Ok(Some(removed))
 }
