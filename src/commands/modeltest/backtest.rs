@@ -271,10 +271,16 @@ pub(super) fn backtest_level(
             );
         }
         Err(err) => {
+            // The dataset this run uploaded stays behind as it does on the
+            // deadline, and is named the same way so it can be removed.
             return run.end(
                 Verdict::Skip,
                 "chap-core stopped answering",
-                Some(first_line(&err.to_string())),
+                Some(format!(
+                    "{}; dataset {dataset} was left behind, and `chaps api DELETE \
+                     /v1/crud/datasets/{dataset}` removes it once chap-core answers",
+                    first_line(&err.to_string())
+                )),
             );
         }
     }
