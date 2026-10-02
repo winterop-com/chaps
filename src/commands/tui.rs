@@ -24,10 +24,11 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     let registry = super::registry_for(ctx, Some(&project))?;
 
     let Some(selection) = run_tui(ctx, &project, &registry)? else {
+        println!("left the browser; nothing was written, and `chaps ui` opens it again");
         return Ok(());
     };
     if selection.is_empty() {
-        println!("no changes");
+        println!("no changes to save; `chaps ui` opens the browser again");
         return Ok(());
     }
 
