@@ -5,6 +5,7 @@
 #![cfg(unix)]
 
 use crate::common::*;
+use predicates::prelude::PredicateBooleanExt;
 use serde_json::Value as Json;
 use std::path::{Path, PathBuf};
 
@@ -398,4 +399,107 @@ fn a_json_error_does_not_repeat_its_hint() {
     let hint = doc["hint"].as_str().expect("a hint");
     assert!(hint.contains("`chaps ps`"), "{doc}");
     assert!(!doc["error"].as_str().unwrap().contains(hint), "{doc}");
+}
+
+/// A `docker` whose compose commands succeed, and that sends Ctrl-C to chaps
+/// (its parent) at one point: `up` while the model starts, or `logs` while
+/// the foreground follows it. Every call goes to `calls.log`.
+fn docker_pressing_ctrl_c_at(
+    step: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{log}'\n\
+         case \"$*\" in\n\
+         *' {step} '*) kill -INT $PPID; sleep 1; exit 130;;\n\
+         esac\n\
+         exit 0\n",
+        log = log.display()
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin, log)
+}
+
+#[test]
+fn ctrl_c_in_the_foreground_stops_the_model_and_keeps_its_data() {
+    let sandbox = Sandbox::new();
+    let (_temp, bin, log) = docker_pressing_ctrl_c_at("logs");
+
+    chap_with_docker(
+        &sandbox,
+        sandbox.home.path(),
+        &bin,
+        &["run", "chapkit_ewars_model", "--no-wait", "--attach"],
+    )
+    .assert()
+    .success()
+    .stderr(predicates::str::contains(
+        "following the log of chapkit-ewars-model; Ctrl-C stops it",
+    ))
+    .stderr(predicates::str::contains(
+        "stopped chapkit_ewars_model; its data stays",
+    ));
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains("logs -f --tail 20 chapkit-ewars-model"),
+        "{calls}"
+    );
+    assert!(!calls.contains("volume rm"), "the data stays: {calls}");
+    chap_with_docker(&sandbox, sandbox.home.path(), &bin, &["ps"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chapkit_ewars_model").not());
+}
+
+#[test]
+fn ctrl_c_while_the_model_starts_takes_it_back_out() {
+    let sandbox = Sandbox::new();
+    let (_temp, bin, _log) = docker_pressing_ctrl_c_at("up");
+
+    chap_with_docker(
+        &sandbox,
+        sandbox.home.path(),
+        &bin,
+        &["run", "chapkit_ewars_model", "--detach"],
+    )
+    .assert()
+    .code(130)
+    .stderr(predicates::str::contains(
+        "stopped by Ctrl-C; chapkit_ewars_model is taken back out",
+    ));
+    chap_with_docker(&sandbox, sandbox.home.path(), &bin, &["ps"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("chapkit_ewars_model").not());
+}
+
+#[test]
+fn off_a_terminal_run_returns_and_leaves_the_model_running() {
+    let sandbox = Sandbox::new();
+    let (_temp, bin) = docker_running_services(&["chapkit-ewars-model"]);
+
+    // No terminal here, so no foreground: the command returns, and its
+    // last line names the stop.
+    chap_with_docker(
+        &sandbox,
+        sandbox.home.path(),
+        &bin,
+        &["run", "chapkit_ewars_model", "--no-wait"],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains(
+        "stop it with `chaps stop chapkit_ewars_model`",
+    ))
+    .stderr(predicates::str::contains("following the log").not());
 }

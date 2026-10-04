@@ -66,7 +66,9 @@ pub fn wait_until_ready(
             true,
         );
         let readiness = readiness_of(project, &report, start.elapsed(), only);
-        if readiness.ready || start.elapsed() >= timeout {
+        // Ctrl-C ends the wait at once: the caller takes back out what it
+        // started, and does not wait out the timeout first.
+        if readiness.ready || start.elapsed() >= timeout || crate::interrupt::requested() {
             return readiness;
         }
         ctx.out

@@ -10,6 +10,7 @@
 //! and tell me where it answers" has one code path, with or without
 //! `chaps init`.
 
+mod foreground;
 mod group;
 mod ps;
 mod stop;
@@ -120,12 +121,25 @@ struct RunReport {
     enabled: bool,
     /// What waiting found; `null` under `--no-wait`.
     wait: Option<Readiness>,
+    /// Whether the model's container ran before this command, so neither
+    /// Ctrl-C nor the end of the foreground stops it.
+    #[serde(skip)]
+    was_running: bool,
 }
 
-/// Enable the model if it is not, start its container, and wait for it.
+/// Enable the model if it is not, start its container, and wait for it;
+/// then, in the foreground, follow its log until Ctrl-C, which stops it.
 pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
+    let in_group = Project::find_root(&ctx.project_dir).is_none();
+    let attached = foreground::wanted(ctx, args, in_group);
+    crate::interrupt::install();
     let report = start(ctx, args)?;
-    ctx.out.emit_ok(&report, || run_summary(&report, &ctx.out))
+    ctx.out
+        .emit_ok(&report, || run_summary(&report, &ctx.out, attached))?;
+    match attached {
+        true => foreground::follow(ctx, &report, args.rm),
+        false => Ok(()),
+    }
 }
 
 /// A model `chaps run` started for another command, `chaps chap`.
@@ -205,11 +219,22 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
     ];
     // Two runs of one model would both create its container; the second
     // waits here and finds it running.
+    let was_running = docker::running_services(&project).contains(&service);
     let up_lock = lock_file(
         &dir.join(crate::project::CHAPS_DIR)
             .join(format!("up-{service}.lock")),
     )?;
     let piped = docker::run_compose_teed(&project, &args_up)?;
+    if crate::interrupt::requested() {
+        return Err(foreground::take_back(
+            ctx,
+            &project,
+            &id,
+            &service,
+            enabled,
+            was_running,
+        ));
+    }
     if piped.code != 0 {
         let said = compose_said(&piped.stderr);
         let mut err = anyhow::Error::from(ChapError::DockerFailed(piped.code));
@@ -241,12 +266,23 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
             Some(&service),
         )
     });
+    if crate::interrupt::requested() {
+        return Err(foreground::take_back(
+            ctx,
+            &project,
+            &id,
+            &service,
+            enabled,
+            was_running,
+        ));
+    }
     let report = RunReport {
         model: ModelRef::of(&id, &model, &project),
         group,
         project_dir: dir.clone(),
         enabled,
         wait: readiness,
+        was_running,
     };
     if let Some(wait) = &report.wait
         && !wait.ready
@@ -377,7 +413,7 @@ fn enable_source(
 }
 
 /// The human rendering of a run.
-fn run_summary(report: &RunReport, out: &Out) -> String {
+fn run_summary(report: &RunReport, out: &Out, attached: bool) -> String {
     let url = report
         .model
         .url
@@ -400,6 +436,9 @@ fn run_summary(report: &RunReport, out: &Out) -> String {
     };
     if let Some(group) = report.group.as_deref().filter(|g| *g != DEFAULT_GROUP) {
         text.push_str(&format!("{}\n", out.dim(&format!("in group {group}"))));
+    }
+    if attached {
+        return text;
     }
     text.push_str(&out.backticks(&format!(
         "stop it with `chaps stop {}{}`; {}",

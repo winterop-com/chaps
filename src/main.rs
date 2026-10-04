@@ -17,6 +17,7 @@ mod docker;
 mod dotenv;
 mod error;
 mod github;
+mod interrupt;
 mod jobs;
 mod known;
 mod manual;
@@ -448,6 +449,7 @@ fn exit_code(err: &anyhow::Error) -> i32 {
     match err.downcast_ref::<ChapError>() {
         Some(ChapError::DockerFailed(code)) if *code != 0 => *code,
         Some(ChapError::Exited { code, .. }) if *code != 0 => *code,
+        Some(ChapError::Interrupted(_)) => interrupt::EXIT_CODE,
         // The code clap exits with for a usage error, because that is what
         // this is: a usage error clap could not catch.
         Some(ChapError::Usage(_)) => 2,

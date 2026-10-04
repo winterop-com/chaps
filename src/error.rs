@@ -55,6 +55,10 @@ pub enum ChapError {
     #[error("docker compose exited with status {0}")]
     DockerFailed(i32),
 
+    /// Ctrl-C stopped the command, after it took back out what it started.
+    #[error("stopped by Ctrl-C; {0}")]
+    Interrupted(String),
+
     /// A program chaps ran in a one-shot container exited non-zero. Its own
     /// message is already on the screen, so this names the program, the
     /// status and the way out, and keeps the status as the exit code.

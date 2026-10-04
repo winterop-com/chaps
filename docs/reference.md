@@ -82,6 +82,9 @@ Usage: chaps run [OPTIONS] <MODEL>
 | `--group <NAME>` | Group to start it in, outside a deployment; ps and stop take it too. |
 | `--allow-template` | Start a marketplace template, which is not a deployable model. |
 | `--no-wait` | Return once the container started, without waiting for it to answer. |
+| `--detach` | Return once it answers and leave it running, also in a terminal. |
+| `-a, --attach` | Follow its log until Ctrl-C, which stops it, also off a terminal. |
+| `--rm` | With Ctrl-C, remove the model's data volume too. |
 | `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
 
 ## chaps ps
