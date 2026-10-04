@@ -207,49 +207,6 @@ fn force_keeps_the_compose_project_name_it_found() {
 }
 
 #[test]
-fn a_project_written_before_the_name_existed_records_the_directory_name() {
-    let sandbox = Sandbox::new();
-    let dir = sandbox.project();
-    sandbox.init(&["--models", "none"]).assert().success();
-
-    // What an older chaps wrote: no compose_project at all. Compose was
-    // naming that deployment after its directory, so that is the name its
-    // containers and volumes already carry.
-    let project_yaml = dir.join(".chaps").join("project.yaml");
-    let body = read(&project_yaml);
-    let without: String = body
-        .lines()
-        .filter(|line| !line.starts_with("compose_project:"))
-        .map(|line| format!("{line}\n"))
-        .collect();
-    std::fs::write(&project_yaml, &without).unwrap();
-    assert!(!read(&project_yaml).contains("compose_project:"));
-
-    sandbox
-        .chap()
-        .arg("-C")
-        .arg(&dir)
-        .arg("sync")
-        .assert()
-        .success();
-
-    // The directory name, with no suffix: nothing is renamed, and it is now
-    // written down rather than derived.
-    assert_eq!(state(&dir)["compose_project"].as_str(), Some("chapx"));
-    assert_eq!(compose_name(&dir.join("compose.chaps.yml")), "chapx");
-    assert_eq!(compose_name(&dir.join("compose.marketplace.yml")), "chapx");
-
-    // And a second sync has nothing left to do.
-    sandbox
-        .chap()
-        .arg("-C")
-        .arg(&dir)
-        .args(["sync", "--check"])
-        .assert()
-        .success();
-}
-
-#[test]
 fn docker_accepts_the_stack_with_the_chaps_override() {
     if !docker_ready() {
         return;

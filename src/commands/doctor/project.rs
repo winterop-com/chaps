@@ -117,13 +117,10 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
 /// Compose names a project after its directory unless a file says otherwise,
 /// so two deployments in directories both called `demo` share every container
 /// name and every named volume - a fresh `chaps up` in the second one finds
-/// the first one's database, with a password it has never seen. A deployment
-/// written by this version of `chaps` records a name of its own; an older one
-/// has the directory name and nothing else, which is what this warns about.
-pub fn project_name_verdict(
-    recorded: Option<&str>,
-    dir_name: &str,
-) -> (Status, String, Option<String>) {
+/// the first one's database, with a password it has never seen. `chaps init`
+/// records a name of its own; an empty one is a hand edit, and this warns
+/// about it.
+pub fn project_name_verdict(recorded: Option<&str>) -> (Status, String, Option<String>) {
     if let Some(name) = recorded {
         return (
             Status::Ok,
@@ -131,31 +128,24 @@ pub fn project_name_verdict(
             None,
         );
     }
-    let derived = crate::project::normalized_project_name(dir_name).unwrap_or_default();
     (
         Status::Warn,
         format!(
-            "compose project name is the directory name; volumes can collide with other \
-             deployments named {dir_name}"
+            "`compose_project` is empty in {CHAPS_DIR}/{PROJECT_FILE}; compose names the \
+             deployment after its directory"
         ),
         Some(format!(
-            "run `chaps sync` to record it as `{derived}` in {CHAPS_DIR}/{PROJECT_FILE}; \
-             it is the name compose already uses, so nothing is renamed"
+            "set `compose_project:` in {CHAPS_DIR}/{PROJECT_FILE}, then run `chaps sync`"
         )),
     )
 }
 
 /// The `project` line.
 pub fn project_check(project: &Project) -> Check {
-    let dir_name = project
-        .dir
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
     Check::from_verdict(
         "compose-project",
         "project",
-        project_name_verdict(project.compose_project(), &dir_name),
+        project_name_verdict(project.compose_project()),
     )
 }
 

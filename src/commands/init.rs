@@ -451,9 +451,7 @@ fn carried_manual(dir: &Path) -> crate::project::ManualModels {
 ///
 /// A directory that is already a deployment keeps the name it has, `--force`
 /// included: renaming it would leave its containers and its data behind under
-/// the old name. For one written before the name was recorded that is the
-/// directory name compose has been deriving all along, which is what the next
-/// `sync` would write down anyway.
+/// the old name.
 ///
 /// The name is read from `project.yaml` on its own, so a deployment whose
 /// other state files do not load - the state `--force` is run to repair -
@@ -471,9 +469,6 @@ fn compose_project(dir: &Path) -> Result<String> {
         })?;
         if let Some(name) = recorded {
             return Ok(name);
-        }
-        if let Some(derived) = crate::project::derived_project_name(dir) {
-            return Ok(derived);
         }
     }
     crate::project::new_compose_project_name(dir)

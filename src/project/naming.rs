@@ -1,5 +1,5 @@
-//! The compose project name: what compose would derive from a directory, and
-//! the `<slug>-<suffix>` one `chaps init` generates instead.
+//! The compose project name: the `<slug>-<suffix>` one `chaps init`
+//! generates.
 
 use crate::error::Result;
 use std::path::Path;
@@ -19,32 +19,6 @@ pub(super) const MAX_SLUG: usize = 32;
 /// What a generated name falls back to when the directory name yields no
 /// usable slug at all (`~/深度`, say).
 pub(super) const FALLBACK_SLUG: &str = "chaps";
-
-/// The compose project name compose itself would derive from a directory name.
-///
-/// Compose lowercases the name, drops every character outside `[a-z0-9_-]` and
-/// trims leading `_` and `-`. This mirrors that rule exactly, because it is
-/// what an existing deployment's containers and volumes are already named
-/// after: recording this value changes nothing, which is the point.
-///
-/// `None` when nothing is left, which is a directory compose would refuse to
-/// name a project after either.
-pub fn normalized_project_name(dir_name: &str) -> Option<String> {
-    let kept: String = dir_name
-        .chars()
-        .map(|c| c.to_ascii_lowercase())
-        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-')
-        .collect();
-    let trimmed = kept.trim_start_matches(['_', '-']);
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-/// The same, for the directory itself. `None` for a path with no file name,
-/// or one whose name normalises to nothing.
-pub fn derived_project_name(dir: &Path) -> Option<String> {
-    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
-    normalized_project_name(&dir.file_name()?.to_string_lossy())
-}
 
 /// The readable half of a generated compose project name.
 ///

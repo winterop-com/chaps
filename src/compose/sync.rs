@@ -100,11 +100,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     let mut overlays: Vec<String> = Vec::new();
     let components = project.state.components.clone();
     // The compose project name is settled before anything is rendered: it goes
-    // into every chaps-owned file. A deployment written before the field
-    // existed has no recorded name, and takes the one compose has been
-    // deriving from its directory all along - so writing it down below renames
-    // nothing, and a running deployment keeps every container and volume name
-    // it has. Only `chaps init` generates a name with a suffix of its own.
+    // into every chaps-owned file. `chaps init` records it.
     let project_name = project.compose_project_name();
     // A `chaps run` group, which every container's labels name.
     let group = project.state.group.clone();
@@ -358,15 +354,9 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         return Ok(report);
     }
 
-    // A project written before compose.chaps.yml existed records a two-entry
-    // `-f` list; the first sync after an upgrade puts the new file in it, and
-    // the same step puts the component files in the list when one is enabled.
+    // The `-f` list follows the components: an enabled component puts its
+    // files in the list, and a disabled one takes them out.
     project.state.compose_files = compose_files_for(&components);
-    // The same upgrade step for the compose project name: what was implicit in
-    // the directory name becomes explicit in `project.yaml`, unchanged.
-    if let Some(name) = project_name {
-        project.state.compose_project = name;
-    }
     project.state.rendered_files = desired.into_iter().map(|(f, _)| f).collect();
     project.save()?;
     Ok(report)

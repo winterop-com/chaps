@@ -16,9 +16,7 @@ use std::path::PathBuf;
 /// be a takeover.
 ///
 /// `adopt` is `--adopt-identity`: the archive's name is taken over, which is
-/// what a deployment restoring itself onto a new machine wants. An empty
-/// destination name is one `project.yaml` never recorded; it stays empty, so
-/// compose keeps deriving it from the directory the way it always has.
+/// what a deployment restoring itself onto a new machine wants.
 pub fn restored_compose_project(destination: &str, archived: &str, adopt: bool) -> String {
     if adopt {
         archived.trim().to_string()
@@ -30,8 +28,7 @@ pub fn restored_compose_project(destination: &str, archived: &str, adopt: bool) 
 /// The `compose_project` an archived `.chaps/project.yaml` records, if any.
 ///
 /// Read as plain YAML rather than through `ProjectState`, because this has to
-/// work on a `project.yaml` from any version of chaps, including one this
-/// binary would refuse to deserialise.
+/// work on a `project.yaml` this binary would refuse to deserialise.
 pub fn archived_compose_project(body: &str) -> Option<String> {
     let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(body).ok()?;
     let name = value.get("compose_project")?.as_str()?.trim();
@@ -104,11 +101,7 @@ pub fn identity_line(plan: &RestorePlan) -> String {
     let Some(archived) = plan.archived_compose_project.as_deref() else {
         return String::new();
     };
-    let kept = if plan.compose_project.is_empty() {
-        "the name compose derives from this directory"
-    } else {
-        &plan.compose_project
-    };
+    let kept = &plan.compose_project;
     if plan.adopt_identity {
         return format!(
             "  identity  compose project {archived}, taken over from the archive \

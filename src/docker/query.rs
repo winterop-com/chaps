@@ -1,8 +1,8 @@
 //! What compose says about a deployment's files: its services, images,
-//! configuration hashes, logs and project name, and the other compose projects
-//! on this machine.
+//! configuration hashes and logs, and the other compose projects on this
+//! machine.
 
-use super::{compose_capture, compose_output, docker_capture, ps_entries};
+use super::{compose_capture, docker_capture, ps_entries};
 use crate::project::Project;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -117,37 +117,6 @@ pub fn service_logs(project: &Project, service: &str, tail: usize) -> Option<Str
     // `--no-log-prefix` arrived in compose 2.x but not in every 2.x; a
     // compose that rejects it still answers the same question without it.
     .or_else(|| compose_capture(project, &["logs", "--tail", &tail, "--no-color", service]))
-}
-
-/// The compose project name, the prefix every container and named volume of
-/// this deployment carries.
-///
-/// The recorded name when `.chaps/project.yaml` has one - it is the `name:`
-/// key `chaps sync` renders into the compose files, so compose reaches the
-/// same answer without being asked. Otherwise read from
-/// `docker compose config`, which applies the same rules compose itself does
-/// (the directory name, normalised, unless a `name:` key or
-/// `COMPOSE_PROJECT_NAME` says otherwise). Best-effort: `None` when docker
-/// cannot be reached, so callers degrade rather than fail.
-pub fn compose_project_name(project: &Project) -> Option<String> {
-    if let Some(name) = project.compose_project() {
-        return Some(name.to_string());
-    }
-    let args = [
-        "config".to_string(),
-        "--format".to_string(),
-        "json".to_string(),
-    ];
-    let (code, stdout, _) = compose_output(project, &args).ok()?;
-    if code != 0 {
-        return None;
-    }
-    let value: serde_json::Value = serde_json::from_str(&stdout).ok()?;
-    value
-        .get("name")
-        .and_then(|n| n.as_str())
-        .filter(|n| !n.is_empty())
-        .map(str::to_string)
 }
 
 /// Every compose project this docker has seen, running or not, as

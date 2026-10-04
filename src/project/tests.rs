@@ -3,7 +3,6 @@ use super::store::*;
 use super::*;
 use crate::components::COMPONENTS_FILE;
 use crate::error::ChapError;
-use std::path::Path;
 
 #[test]
 fn a_manual_models_source_is_what_models_add_takes() {
@@ -342,56 +341,6 @@ fn load_refuses_a_compose_file_outside_the_directory() {
 }
 
 #[test]
-fn a_models_file_written_before_the_port_was_optional_still_loads() {
-    let dir = tempfile::tempdir().unwrap();
-    let chaps = dir.path().join(CHAPS_DIR);
-    std::fs::create_dir_all(&chaps).unwrap();
-    std::fs::write(
-        chaps.join(PROJECT_FILE),
-        "schema_version: 1\n\
-             generated_by: chaps 0.1.0\n\
-             chap_image_tag: latest\n\
-             registry_url: https://example.test/registry.yaml\n\
-             compose_files:\n\
-             - compose.yml\n\
-             - compose.marketplace.yml\n\
-             port_range:\n\
-             - 5001\n\
-             - 5999\n",
-    )
-    .unwrap();
-    std::fs::write(
-        chaps.join(MODELS_FILE),
-        "chapkit_ewars_model:\n\
-             \x20 service_id: chapkit-ewars-model\n\
-             \x20 image: ghcr.io/chap-models/chapkit_ewars_model\n\
-             \x20 image_tag: sha-fa880a1\n\
-             \x20 version: 1.0.0\n\
-             \x20 channel: stable\n\
-             \x20 host_port: 5001\n\
-             \x20 data_dir: /app/data\n\
-             \x20 user: chapkit:chapkit\n\
-             \x20 platform: linux/amd64\n\
-             \x20 compose_file: compose.chapkit-ewars-model.yml\n",
-    )
-    .unwrap();
-
-    let loaded = Project::load(dir.path()).unwrap();
-    // The old two-entry -f list and the missing api_port both default.
-    assert_eq!(loaded.state.api_port, DEFAULT_API_PORT);
-    assert_eq!(
-        loaded.state.compose_files,
-        vec!["compose.yml", "compose.marketplace.yml"]
-    );
-    assert_eq!(
-        loaded.state.models["chapkit_ewars_model"].host_port,
-        Some(5001),
-        "a recorded number is still a published port"
-    );
-    assert_eq!(loaded.used_ports(), BTreeSet::from([5001]));
-}
-
-#[test]
 fn the_api_and_proxy_urls_follow_the_api_port() {
     let project = Project {
         dir: PathBuf::from("/tmp/chapx"),
@@ -591,32 +540,6 @@ fn the_compose_source_round_trips_both_ways() {
 }
 
 #[test]
-fn a_project_file_written_before_the_compose_source_still_loads() {
-    let dir = tempfile::tempdir().unwrap();
-    let chaps = dir.path().join(CHAPS_DIR);
-    std::fs::create_dir_all(&chaps).unwrap();
-    std::fs::write(
-        chaps.join(PROJECT_FILE),
-        "schema_version: 1\n\
-             generated_by: chaps 0.1.0\n\
-             chap_image_tag: latest\n\
-             registry_url: https://example.test/registry.yaml\n\
-             compose_files:\n\
-             - compose.yml\n\
-             - compose.marketplace.yml\n\
-             port_range:\n\
-             - 5001\n\
-             - 5999\n",
-    )
-    .unwrap();
-    let loaded = Project::load(dir.path()).unwrap();
-    assert_eq!(loaded.state.chap_compose_source, ComposeSource::Embedded);
-    // The same file predates the auth block, which loads as "off".
-    assert_eq!(loaded.state.auth, AuthState::default());
-    assert!(!loaded.state.auth.is_on());
-}
-
-#[test]
 fn the_auth_block_round_trips_as_two_booleans_and_no_secret() {
     let dir = tempfile::tempdir().unwrap();
     let project = Project {
@@ -651,7 +574,7 @@ fn the_auth_block_round_trips_as_two_booleans_and_no_secret() {
 }
 
 #[test]
-fn the_compose_project_name_round_trips_and_defaults_to_empty() {
+fn the_compose_project_name_round_trips() {
     let dir = tempfile::tempdir().unwrap();
     let project = Project {
         dir: dir.path().to_path_buf(),
@@ -683,31 +606,6 @@ fn the_compose_project_name_round_trips_and_defaults_to_empty() {
     assert_eq!(
         loaded.prefixed_volume("ocs_data").as_deref(),
         Some("mychap-1ab2c3_ocs_data")
-    );
-
-    // A file written before the field existed loads as "not recorded",
-    // and the name it has is the one compose derives from the directory.
-    let chaps = dir.path().join(CHAPS_DIR);
-    std::fs::write(
-        chaps.join(PROJECT_FILE),
-        "schema_version: 1\n\
-             generated_by: chaps 0.2.2\n\
-             chap_image_tag: latest\n\
-             registry_url: https://example.test/registry.yaml\n\
-             compose_files:\n\
-             - compose.yml\n\
-             - compose.marketplace.yml\n\
-             port_range:\n\
-             - 5001\n\
-             - 5999\n",
-    )
-    .unwrap();
-    let loaded = Project::load(dir.path()).unwrap();
-    assert_eq!(loaded.compose_project(), None);
-    assert_eq!(
-        loaded.compose_project_name(),
-        derived_project_name(dir.path()),
-        "an old project is still named after its directory"
     );
 }
 
@@ -758,36 +656,6 @@ fn the_slug_is_what_compose_accepts_whatever_the_directory_is_called() {
     assert_eq!(long.len(), MAX_SLUG);
 
     assert_eq!(compose_project_name("demo", "1ab2c3"), "demo-1ab2c3");
-}
-
-#[test]
-fn the_derived_name_is_the_one_compose_would_have_used() {
-    // Compose lowercases, drops everything outside [a-z0-9_-] and trims
-    // leading separators. Verified against docker compose 5.5.1.
-    assert_eq!(normalized_project_name("demo").as_deref(), Some("demo"));
-    assert_eq!(
-        normalized_project_name("My Chap").as_deref(),
-        Some("mychap")
-    );
-    assert_eq!(normalized_project_name("demo.1").as_deref(), Some("demo1"));
-    assert_eq!(
-        normalized_project_name("-demo_x").as_deref(),
-        Some("demo_x")
-    );
-    assert_eq!(normalized_project_name("Démo").as_deref(), Some("dmo"));
-    assert_eq!(
-        normalized_project_name("chap+prod").as_deref(),
-        Some("chapprod")
-    );
-    // Nothing left: compose would refuse to name a project after it, so
-    // there is nothing for chaps to record either.
-    assert_eq!(normalized_project_name("..."), None);
-    assert_eq!(normalized_project_name(""), None);
-
-    assert_eq!(
-        derived_project_name(Path::new("/srv/My Chap")).as_deref(),
-        Some("mychap")
-    );
 }
 
 #[test]
@@ -868,28 +736,19 @@ fn the_components_file_round_trips_and_shapes_the_f_list() {
 }
 
 #[test]
-fn a_project_written_before_components_existed_is_chap_core_alone() {
+fn a_missing_or_blank_components_file_is_chap_core_alone() {
     let dir = tempfile::tempdir().unwrap();
-    let chaps = dir.path().join(CHAPS_DIR);
-    std::fs::create_dir_all(&chaps).unwrap();
-    std::fs::write(
-        chaps.join(PROJECT_FILE),
-        "schema_version: 1\n\
-             generated_by: chaps 0.2.1\n\
-             chap_image_tag: latest\n\
-             registry_url: https://example.test/registry.yaml\n\
-             compose_files:\n\
-             - compose.yml\n\
-             - compose.chaps.yml\n\
-             - compose.marketplace.yml\n\
-             port_range:\n\
-             - 5001\n\
-             - 5999\n",
-    )
-    .unwrap();
+    let project = Project {
+        dir: dir.path().to_path_buf(),
+        state: ProjectState {
+            compose_project: "mychap-1ab2c3".into(),
+            ..ProjectState::default()
+        },
+    };
+    project.save().unwrap();
+    let components = dir.path().join(CHAPS_DIR).join(COMPONENTS_FILE);
+    std::fs::remove_file(&components).unwrap();
 
-    // No components.yaml at all: nothing to migrate, and the deployment is
-    // exactly what it was.
     let loaded = Project::load(dir.path()).unwrap();
     assert_eq!(loaded.state.components, Components::default());
     assert!(loaded.state.components.chap_core.enabled);
@@ -900,7 +759,7 @@ fn a_project_written_before_components_existed_is_chap_core_alone() {
     );
 
     // A comment-only file reads the same way.
-    std::fs::write(chaps.join(COMPONENTS_FILE), "# nothing set\n\n").unwrap();
+    std::fs::write(&components, "# nothing set\n\n").unwrap();
     let loaded = Project::load(dir.path()).unwrap();
     assert_eq!(loaded.state.components, Components::default());
 }

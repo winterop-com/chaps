@@ -377,28 +377,21 @@ The two causes worth knowing by name are below. `chaps logs chap` has the rest.
 The PostgreSQL volume holds a role password that is not the one in `.env`.
 There are two ways to get there.
 
-**A volume from another deployment of the same name.** Before `chaps` recorded
-a compose project name, Compose derived one from the directory, so two
-deployments in directories both called `demo` shared `demo_chap-db` - on
-different paths, and even when the first one had been deleted long ago. The
-new deployment's `.env` has a freshly generated password; the inherited volume
-still has the old role. `chaps doctor` says so:
+**A volume from another deployment of the same name.** The volume was made
+by an earlier deployment with the same compose project name, and it still has
+that deployment's role password. The new deployment's `.env` has a freshly
+generated password. `chaps doctor` says so:
 
 ```text
-warn  project   compose project name is the directory name; volumes can collide with other
-                deployments named demo
-      run `chaps sync` to record it as `demo` in .chaps/project.yaml; it is the name compose
-      already uses, so nothing is renamed
-warn  volumes   the database volume demo_chap-db predates this deployment; if chap-core cannot
-                log in, it belongs to an earlier deployment with the same name
+warn  volumes   the database volume demo-1ab2c3_chap-db predates this deployment; if chap-core
+                cannot log in, it belongs to an earlier deployment with the same name
       remove it with `chaps down --volumes` if this deployment's data can go, or keep both
       by giving one of them a name of its own
 ```
 
-A deployment created by this version of `chaps` has a name of its own
-(`demo-1ab2c3`) and cannot collide; see
-[the compose project name](./concepts.md#the-compose-project-name). An older
-one gets that name written down, unchanged, by the next `chaps sync`.
+`chaps init` gives each deployment a name of its own (`demo-1ab2c3`), so this
+happens only when two deployments record the same name; see
+[the compose project name](./concepts.md#the-compose-project-name).
 
 **`init --fresh-env`.** It rotates the PostgreSQL password on purpose, and the
 existing volume was created with the old one.

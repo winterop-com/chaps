@@ -12,7 +12,7 @@ mod store;
 
 pub use lock::{LOCK_FILE, StateLock};
 pub use manual::{ManualModel, ManualModels};
-pub use naming::{derived_project_name, new_compose_project_name, normalized_project_name};
+pub use naming::new_compose_project_name;
 
 use crate::components::Components;
 use crate::compose::UserSource;
@@ -233,13 +233,6 @@ pub struct ProjectState {
     /// deployment deleted long ago. `chaps init` therefore generates
     /// `<slug>-<6 hex>` and `sync` renders it as the top-level `name:` of the
     /// files it owns.
-    ///
-    /// Empty in a `project.yaml` written before the field existed. Those
-    /// deployments keep the name their containers and volumes already carry:
-    /// the first `sync` records the directory name compose was deriving
-    /// anyway, without a suffix, so nothing is renamed and nothing is
-    /// orphaned.
-    #[serde(default)]
     pub compose_project: String,
     pub registry_url: String,
     /// Host port chap-core's API is published on. Written into `.env` as
@@ -373,26 +366,21 @@ impl Project {
             .map(|name| self.chaps_dir().join(name))
     }
 
-    /// The compose project name this deployment records, when it records one.
+    /// The compose project name this deployment records.
     ///
-    /// `None` is a `project.yaml` written before the field existed: compose is
-    /// still naming that deployment after its directory, and the next `sync`
-    /// writes that same name down. See [`ProjectState::compose_project`].
+    /// `None` when the name is empty, so that no caller removes or names a
+    /// volume under the bare prefix `_`. See [`ProjectState::compose_project`].
     pub fn compose_project(&self) -> Option<&str> {
         let name = self.state.compose_project.trim();
         (!name.is_empty()).then_some(name)
     }
 
-    /// The compose project name this deployment has, recorded or not: the
-    /// recorded one, or the one compose derives from the directory name.
+    /// The same name as an owned string.
     ///
     /// Answered without asking docker, which is what makes it usable in
     /// `status` and in the volume checks.
     pub fn compose_project_name(&self) -> Option<String> {
-        match self.compose_project() {
-            Some(name) => Some(name.to_string()),
-            None => derived_project_name(&self.dir),
-        }
+        self.compose_project().map(str::to_string)
     }
 
     /// The prefix compose puts in front of every named volume of this

@@ -30,8 +30,8 @@ pub use ps::{
     service_is_healthy, service_names,
 };
 pub use query::{
-    compose_ls_dirs, compose_ls_json, compose_project_name, config_hashes, config_services,
-    container_publishing, image_count, service_images, service_logs,
+    compose_ls_dirs, compose_ls_json, config_hashes, config_services, container_publishing,
+    image_count, service_images, service_logs,
 };
 pub use stats::{Usage, container_usage};
 pub use version::{check_compose_version, compose_version};

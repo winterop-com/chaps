@@ -93,7 +93,7 @@ pub(super) fn capture_models(
     let prefix = if skip {
         None
     } else {
-        docker::compose_project_name(project)
+        project.compose_project_name()
     };
 
     for (id, model) in &project.state.models {
@@ -186,7 +186,7 @@ pub(super) fn capture_components(
     let prefix = if skip {
         None
     } else {
-        docker::compose_project_name(project)
+        project.compose_project_name()
     };
 
     for part in parts {

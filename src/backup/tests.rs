@@ -603,16 +603,6 @@ fn the_plan_says_whose_identity_the_deployment_keeps() {
         "{text}"
     );
 
-    // A deployment that records no name of its own says so rather than
-    // printing an empty cell.
-    restore.adopt_identity = false;
-    restore.compose_project = String::new();
-    let text = plan_text(&restore);
-    assert!(
-        text.contains("the name compose derives from this directory is kept"),
-        "{text}"
-    );
-
     // Nothing to say when the archive recorded no name at all.
     restore.archived_compose_project = None;
     assert!(!plan_text(&restore).contains("identity"));

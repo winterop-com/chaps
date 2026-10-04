@@ -189,12 +189,8 @@ The name never changes once it is written. `chaps init --force` keeps the one
 it finds, because a new name would leave the running deployment's containers
 and its data behind under the old one.
 
-A deployment created before `chaps` recorded this has no name in
-`project.yaml`. It keeps the one it has: the next `chaps sync` writes the
-directory name down as it stands, with no suffix, so nothing is renamed and no
-volume is orphaned. `chaps doctor` says so until that sync happens, and
 `chaps status --json`, `chaps doctor` and the closing line of `chaps down` all
-name the project either way.
+name the project.
 
 `COMPOSE_PROJECT_NAME` in the environment still wins over the `name:` key, as
 it does for any compose project.

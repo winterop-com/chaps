@@ -201,34 +201,18 @@ fn a_protected_deployment_whose_override_drops_the_key_is_a_warning() {
 }
 
 #[test]
-fn the_project_line_warns_while_the_name_is_only_the_directory() {
-    // A deployment this version wrote records a name of its own.
-    let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"), "demo");
+fn the_project_line_warns_when_the_name_is_empty() {
+    let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"));
     assert_eq!(status, Status::Ok);
     assert_eq!(detail, "demo-1ab2c3 (recorded in .chaps/project.yaml)");
     assert_eq!(fix, None);
 
-    // One written before that has the directory name, which another
-    // deployment in another directory of the same name also has.
-    let (status, detail, fix) = project_name_verdict(None, "demo");
+    // An empty name is a hand edit: compose falls back to the directory.
+    let (status, detail, fix) = project_name_verdict(None);
     assert_eq!(status, Status::Warn);
-    assert_eq!(
-        detail,
-        "compose project name is the directory name; volumes can collide with other \
-             deployments named demo"
-    );
+    assert!(detail.contains("`compose_project` is empty"), "{detail}");
     let fix = fix.unwrap();
     assert!(fix.contains("chaps sync"), "{fix}");
-    // The fix renames nothing: it writes down the name compose already
-    // uses, which is what keeps the running deployment's volumes.
-    assert!(fix.contains("`demo`"), "{fix}");
-    assert!(fix.contains("nothing is renamed"), "{fix}");
-    assert!(
-        project_name_verdict(None, "My Chap")
-            .2
-            .unwrap()
-            .contains("`mychap`")
-    );
 }
 
 /// When `.chaps/project.yaml` was created, in these tests.
