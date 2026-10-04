@@ -1281,3 +1281,11 @@ service URL from the `models:` line that `chaps chap` writes before each run,
 for example `http://auto-arima-chapkit:8000`. When chaps knows which model
 has that port, the message gives that URL.
 
+## `stopped by Ctrl-C; ... is taken back out of ...`
+
+You pressed Ctrl-C while `chaps run` started the model or waited for it to
+answer. chaps took back out what the start put in: the model that this run
+enabled is out of its group again, as after a failed start, and its data stays.
+The command exits with 130. Run the same `chaps run` again to start it. A model
+that ran before the command is left running, and the message says so.
+

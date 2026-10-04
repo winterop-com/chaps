@@ -14,14 +14,51 @@ chaps run my-dengue-model:dev                 # built on this machine
 ```text
 starting chapkit-ewars-model (chapkit_ewars_model in /home/me/.local/share/chaps/run/default)
 running chapkit_ewars_model on http://localhost:5001 (answered in 41s)
-stop it with `chaps stop chapkit_ewars_model`; `chaps -C /home/me/.local/share/chaps/run/default logs chapkit-ewars-model` shows its log
+following the log of chapkit-ewars-model; Ctrl-C stops it
 ```
 
-The command returns once the model answers its own `/health`, so the URL works
+chaps prints the URL once the model answers its own `/health`, so the URL works
 when the line is printed. A first run pulls the image, which takes a while for
 the R-INLA models; `--timeout SECONDS` (300 by default) is how long it waits
-before it fails naming the state the model was in, and `--no-wait` returns as
-soon as the container started.
+before it fails naming the state the model was in.
+
+## In the foreground, and Ctrl-C
+
+In a terminal, `chaps run` stays in the foreground, as `docker run` does. After
+the URL, it shows the model's log, and Ctrl-C stops the model:
+
+```text
+stopped chapkit_ewars_model; its data stays, and `chaps run chapkit_ewars_model` starts it again with it
+```
+
+Ctrl-C takes the model out of its group, as `chaps stop` does. The model's data
+volume stays, so the next run starts with the model's trained state. `--rm`
+removes the data volume too.
+
+`chaps run` returns at once, and leaves the model running, in these cases:
+
+| When | Why |
+| --- | --- |
+| `--detach` | You asked for it: start several models from one terminal, for example. |
+| stdin or stdout is not a terminal | A script, CI or an AI assistant must not wait for a Ctrl-C. |
+| `--json` | A tool reads one document and goes on. |
+| in a deployment of your own | The deployment lives on its own; `chaps down` stops it. |
+| `--no-wait` | It returns as soon as the container started. |
+
+Then the last line names the `chaps stop` that stops the model, and its log
+command. `--attach` keeps the foreground also where it would return, for example
+when you pipe the log; with `--no-wait`, you watch the model start in its log.
+
+A second Ctrl-C exits at once. A model that ran before the command is not
+stopped: Ctrl-C then stops only the log.
+
+**Ctrl-C during the start**, in either mode, takes back out what the start put
+in: a model that this run enabled goes back out of the group, as after a failed
+start. The command then exits with 130:
+
+```text
+error: stopped by Ctrl-C; chapkit_ewars_model is taken back out of /home/me/.local/share/chaps/run/default
+```
 
 ## What the model can be
 
@@ -71,9 +108,9 @@ every container in it carries the labels `com.winterop.chaps.kind: run` and
 containers ([Container labels](./concepts.md#container-labels)):
 
 ```sh
-chaps run chapkit_ewars_model                       # group default
-chaps run auto_arima_chapkit --group trial
-chaps run chapkit_ghr_model --group trial
+chaps run chapkit_ewars_model --detach                      # group default
+chaps run auto_arima_chapkit --group trial --detach
+chaps run chapkit_ghr_model --group trial --detach
 chaps ps
 ```
 

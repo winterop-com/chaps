@@ -327,17 +327,19 @@ No folder needed: from any directory that is not a deployment,
 chaps run chapkit_ewars_model
 ```
 
-It worked when the last lines say `running chapkit_ewars_model on
-http://localhost:5001 (answered in ...)` and name the `chaps stop` that stops
-it. The model's API is at that URL, and its documentation at `/docs` under it.
+It worked when the line `running chapkit_ewars_model on
+http://localhost:5001 (answered in ...)` appears. In a terminal, chaps then
+shows the model's log until Ctrl-C, which stops the model. When you run the
+command for them, it returns at once (there is no terminal) and its last line
+names the `chaps stop` that stops it. The model's API is at that URL, and its documentation at `/docs` under it.
 It is reachable from this machine only. A first run pulls the image, which can
 take several minutes; the command waits for it. Other models: `chaps models
 list` shows their ids, and `chaps run` takes any of them, a GitHub repository
 URL or a ghcr image the same way. `chaps ps` lists what runs, `chaps top` shows
 it live, and `chaps stop chapkit_ewars_model` stops it.
 
-More than one works the same way: one `chaps run` per model, each on its own
-port, and `chaps ps` lists them all. `--group NAME` keeps a set apart, and
+More than one works the same way: one `chaps run --detach` per model (or one
+terminal each), each on its own port, and `chaps ps` lists them all. `--group NAME` keeps a set apart, and
 `chaps stop --group NAME --purge` removes that set with its data.
 
 For a folder of its own instead, with `chaps status` and the rest:

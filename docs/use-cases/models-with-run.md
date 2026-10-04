@@ -8,14 +8,16 @@ that only needs "start this model and tell me where it answers".
 From any directory that is not a deployment:
 
 ```sh
-chaps run chapkit_ewars_model
-chaps run auto_arima_chapkit
-chaps run https://github.com/chap-models/chapkit_ghr_model
+chaps run chapkit_ewars_model --detach
+chaps run auto_arima_chapkit --detach
+chaps run https://github.com/chap-models/chapkit_ghr_model --detach
 chaps ps                     # every model, its state and its URL
 ```
 
-Each `chaps run` returns once the model answers on its `/health` and prints
-where it answers: `running chapkit_ewars_model on http://localhost:5001`. Each
+With `--detach`, each `chaps run` returns once the model answers on its
+`/health` and prints where it answers: `running chapkit_ewars_model on
+http://localhost:5001`. Without it, a terminal keeps the first one in the
+foreground with its log, until Ctrl-C stops it. Each
 model gets the next free port from 5001 up, its own container and its own data
 volume, published on `127.0.0.1` only. The models do not depend on each other.
 A marketplace id, a GitHub repository URL, a ghcr image and a local `name:tag`
