@@ -130,8 +130,9 @@ struct RunReport {
 /// Enable the model if it is not, start its container, and wait for it;
 /// then, in the foreground, follow its log until Ctrl-C, which stops it.
 pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
-    let in_group = Project::find_root(&ctx.project_dir).is_none();
-    let attached = foreground::wanted(ctx, args, in_group);
+    // `--attach` under `--json` would print the log between a tool and its
+    // one document, so `--json` always returns.
+    let attached = args.attach && !ctx.out.json;
     crate::interrupt::install();
     let report = start(ctx, args)?;
     ctx.out

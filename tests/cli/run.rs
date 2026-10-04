@@ -470,7 +470,7 @@ fn ctrl_c_while_the_model_starts_takes_it_back_out() {
         &sandbox,
         sandbox.home.path(),
         &bin,
-        &["run", "chapkit_ewars_model", "--detach"],
+        &["run", "chapkit_ewars_model"],
     )
     .assert()
     .code(130)
@@ -484,12 +484,12 @@ fn ctrl_c_while_the_model_starts_takes_it_back_out() {
 }
 
 #[test]
-fn off_a_terminal_run_returns_and_leaves_the_model_running() {
+fn without_attach_run_returns_and_leaves_the_model_running() {
     let sandbox = Sandbox::new();
     let (_temp, bin) = docker_running_services(&["chapkit-ewars-model"]);
 
-    // No terminal here, so no foreground: the command returns, and its
-    // last line names the stop.
+    // Without -a there is no foreground, as with `chaps up`: the command
+    // returns, and its last line names the stop.
     chap_with_docker(
         &sandbox,
         sandbox.home.path(),

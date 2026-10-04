@@ -324,7 +324,6 @@ fn resolve_model(
         group: args.group.clone(),
         allow_template: false,
         no_wait: false,
-        detach: true,
         attach: false,
         rm: false,
         timeout: args.timeout,

@@ -35,16 +35,12 @@ pub struct ModelRunArgs {
     #[arg(long)]
     pub no_wait: bool,
 
-    /// Return once it answers and leave it running, also in a terminal
-    #[arg(long, conflicts_with = "attach")]
-    pub detach: bool,
-
-    /// Follow its log until Ctrl-C, which stops it, also off a terminal
-    #[arg(short = 'a', long)]
+    /// Run in the foreground and stream its log (Ctrl-C stops the model)
+    #[arg(short = 'a', long, visible_alias = "foreground")]
     pub attach: bool,
 
-    /// With Ctrl-C, remove the model's data volume too
-    #[arg(long, conflicts_with = "detach")]
+    /// With --attach, Ctrl-C also removes the model's data volume
+    #[arg(long, requires = "attach")]
     pub rm: bool,
 
     /// How long to wait for the model to answer, in seconds

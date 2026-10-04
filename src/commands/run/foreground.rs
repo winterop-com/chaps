@@ -1,34 +1,16 @@
-//! `chaps run` in the foreground: follow the model's log until Ctrl-C, then
+//! `chaps run -a`, in the foreground: follow the model's log until Ctrl-C, then
 //! stop what this command started. And Ctrl-C part-way through a start, in
 //! either mode: take back out what the start put in.
 
 use super::{RunReport, stop_in};
-use crate::cli::ModelRunArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::{ChapError, Result};
 use crate::output;
 use crate::project::Project;
-use std::io::IsTerminal;
 
 /// How many lines of the model's log the foreground shows before it follows.
 const TAIL: &str = "20";
-
-/// Whether this run follows the log in the foreground.
-///
-/// `--attach` and `--detach` decide when given. Otherwise the foreground is
-/// for a person at a terminal running a model of a group: a deployment of
-/// one's own lives on its own, and a script, `--json` or `--no-wait` wants
-/// the command to return.
-pub(super) fn wanted(ctx: &Ctx, args: &ModelRunArgs, in_group: bool) -> bool {
-    if args.attach {
-        return true;
-    }
-    if args.detach || args.no_wait || ctx.out.json || !in_group {
-        return false;
-    }
-    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
-}
 
 /// Follow the model's log until Ctrl-C, or until the container stops, then
 /// stop the model when this command started it.
