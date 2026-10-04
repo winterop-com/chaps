@@ -156,6 +156,14 @@ chap-core and the models read `.env` when Compose creates them, so `chaps up`
 has to follow. `chaps init --api-token` does the same thing at creation time.
 See [Authentication](./auth.md).
 
+## The chap CLI
+
+| Command | What it does |
+| --- | --- |
+| `chaps chap [--tag TAG] [--image core\|worker] [--group NAME] [--docker] CHAP_ARGS..` | Run chap-core's own `chap` CLI in a container, with the current directory mounted at the same path, so its file arguments and outputs are on this machine. The image follows `--model-name`; a deployment gives its tag and its network. `--docker` gives the container the docker socket, for `docker_env` models. Works anywhere. |
+
+You need no Python, uv or R for it. See [The chap CLI](./chap-cli.md).
+
 ## Registry
 
 | Command | What it does |

@@ -1200,3 +1200,48 @@ the state with `chaps init --force`. The same message names
 manifest names a file outside the project directory, such as `../.bashrc`.
 `chaps backup create` never writes such a path, so the archive was changed
 after it was made. Restore from another one.
+
+## ``runs in docker (`docker_env` in its MLproject), and the container has no docker socket``
+
+`chaps chap` read the model's `MLproject`, and the model starts a container of
+its own. In the container that `chaps chap` runs, there is no docker socket
+unless you give it. Run the same command again with `--docker` after `chap`:
+`chaps chap --docker eval ...`. The flag gives the container full control of
+docker on this machine. See [Models that run in docker](./chap-cli.md#models-that-run-in-docker).
+
+## `Cannot reach the Docker daemon. The model ... requires Docker to run`
+
+chap-core says this when a `docker_env` model runs without a docker socket. In
+`chaps chap`, the cause is not a stopped Docker: the container did not get
+the socket. chaps did not find `docker_env` before the run, because it could
+not read the model's `MLproject` (for example, under `--offline`). Add
+`--docker`.
+
+## `Rscript: not found` from `chaps chap`
+
+The model needs R, and it ran in the `chap-core` image, which has no R. chaps
+selects the worker image for a GitHub repository or a model directory, so
+this happens with `--image core`, or with a chapkit URL whose service calls R
+itself. Run it again with `--image worker`.
+
+## `FileNotFoundError: [Errno 2] No such file or directory` from `chaps chap`
+
+chap writes an output file into a directory that does not exist. chap does
+not make directories, with or without chaps. Make the directory first
+(`mkdir -p out`), then run the command again. A path outside the current
+directory is mounted from its nearest existing parent, so it has the same
+rule.
+
+## `--offline needs a ghcr.io/dhis2-chap/chap-core image on this machine`
+
+Outside a deployment, `chaps chap` asks GitHub for the newest chap-core
+release. Under `--offline` it uses the newest image of that kind on this
+machine instead, and there is none. Run the command once without `--offline`,
+or give a tag that is on this machine with `--tag`.
+
+## `chap exited with status N; its own message is above`
+
+chap stopped with an error. The cause is chap's own output above this line.
+chaps exits with the same status, so a script can read it. If the run wrote
+files before it stopped, chaps names them.
+

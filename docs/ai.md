@@ -170,6 +170,8 @@ old one first as shown in [Every option: stop, start, remove](#every-option-stop
 | 17 | [A DHIS2, with my own chap-core](#17-a-dhis2-with-my-own-chap-core) | have chaps run DHIS2 in front of the chap-core they are developing |
 | | **More than one** | |
 | 18 | [Two of these at the same time](#18-two-of-these-at-the-same-time) | keep one option running while starting another |
+| | **The chap CLI** | |
+| 19 | [Evaluate a model on my own data](#19-evaluate-a-model-on-my-own-data) | run `chap eval` on their CSV without installing Python or uv |
 
 ### 1. Chap in DHIS2, with the Modeling App
 
@@ -643,6 +645,29 @@ folders' `chaps status` say `up`. Running them one at a time needs none of
 this; see the note below.
 
 More: [Several deployments on one machine](./use-cases/several-deployments.md).
+
+### 19. Evaluate a model on my own data
+
+They have a dataset as a CSV, with a GeoJSON of the same name beside it. Do
+not install Python or uv for them. In the directory with the data:
+
+```sh
+chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
+  --dataset-csv data.csv --output-file eval.nc
+chaps chap plot-backtest eval.nc --output-file eval.html
+```
+
+Use their model's GitHub URL in `--model-name`. The first run pulls an image
+of about 12 GB, so tell them it takes some minutes. If chaps stops with
+`runs in docker`, run the same command with `chaps chap --docker` and tell
+them that the flag gives the container control of docker. An output path must
+be in a directory that exists.
+
+It worked when the last lines say `chap finished; it wrote eval.nc` and
+`chap finished; it wrote eval.html`. They open `eval.html` in a browser.
+
+More: [Evaluating a model on your own data](./use-cases/evaluate-with-chap-cli.md)
+and [The chap CLI](./chap-cli.md).
 
 ## What to try next without DHIS2
 

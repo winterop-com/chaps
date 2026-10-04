@@ -310,7 +310,9 @@ add to it; see [Ports](./ports.md). The other requirement is older: `include:`,
 which `chaps` uses for the umbrella file that names one overlay per enabled
 model, arrived in 2.20.
 
-Nothing else is required. No Python, no `uv`, no checkout of chap-core.
+Nothing else is required. No Python, no `uv`, no checkout of chap-core. This
+is also true for chap-core's own `chap` CLI: `chaps chap` runs it in a
+container. See [The chap CLI](./chap-cli.md).
 
 `chaps` checks the installed Compose version and warns on stderr when it is
 older than 2.24.4 rather than failing, because an older Compose still runs most

@@ -40,6 +40,10 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 - [Chap for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md): chap-core on a server, used by a DHIS2 someone else runs.
 - [Combinations](./use-cases/combinations.md): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
 
+## Evaluating with the chap CLI
+
+- [Evaluating a model on your own data](./use-cases/evaluate-with-chap-cli.md): chap-core's `chap eval` on your CSV, through `chaps chap`, with no Python or uv.
+
 ## Developing Chap, a model or DHIS2
 
 - [Your model from its checkout, with Chap](./use-cases/model-on-host.md): chaps runs chap-core; you run your model with `uv run` and it registers.

@@ -100,7 +100,10 @@ but its `admin` may not create the route `dhis2 connect` writes. Then:
 4. `chaps dhis2 connect`: the route, the apps, analytics;
 5. `chaps models test --all`: every model trains and predicts;
 6. `chaps models test --all --backtest`: a dataset, a backtest and its scores
-   through chap-core, the path the Modeling App takes.
+   through chap-core, the path the Modeling App takes;
+7. `chaps chap eval` of the first model over the deployment's network, on
+   chap-core's Laos example data, then `chaps chap plot-backtest`. Both files
+   must be on the host.
 
 ```sh
 scripts/e2e.sh                          # latest, then master
