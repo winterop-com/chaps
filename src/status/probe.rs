@@ -1,6 +1,6 @@
 //! Asking chap-core over HTTP, and reading its answers strictly.
 
-use super::{ApiHealth, ApiVersion, INFO_PATHS, RegisteredService, SERVICES_PATH};
+use super::{ApiHealth, ApiVersion, INFO_PATH, RegisteredService, SERVICES_PATH};
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -141,10 +141,10 @@ pub fn parse_services(body: &str) -> Result<Vec<RegisteredService>, serde_json::
     Ok(wire.services.into_iter().map(flatten).collect())
 }
 
-/// chap-core's own version, from whichever info endpoint answers.
+/// chap-core's own version, from its info endpoint.
 ///
-/// Best-effort: neither path is required, and a chap-core that publishes
-/// neither still gets a version in the report - the tag the project pins,
+/// Best-effort: the path is not required, and a chap-core that does not
+/// answer it still gets a version in the report - the tag the project pins,
 /// marked as such so nobody reads it as the running build.
 pub(super) fn version_of(
     agent: &ureq::Agent,
@@ -153,18 +153,15 @@ pub(super) fn version_of(
     pinned: &str,
     token: Option<&str>,
 ) -> ApiVersion {
-    if matches!(api, ApiHealth::Up { .. }) {
-        for path in INFO_PATHS {
-            if let Ok(answer) = get(agent, base, path, token)
-                && let Some(version) = parse_version(&answer.body)
-            {
-                return ApiVersion {
-                    value: version,
-                    pinned: false,
-                    revision: parse_revision(&answer.body),
-                };
-            }
-        }
+    if matches!(api, ApiHealth::Up { .. })
+        && let Ok(answer) = get(agent, base, INFO_PATH, token)
+        && let Some(version) = parse_version(&answer.body)
+    {
+        return ApiVersion {
+            value: version,
+            pinned: false,
+            revision: parse_revision(&answer.body),
+        };
     }
     ApiVersion {
         value: pinned.to_string(),

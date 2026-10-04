@@ -39,10 +39,10 @@ use std::time::Duration;
 pub const HEALTH_PATH: &str = "/health";
 /// Path of the service registry chapkit models register themselves with.
 pub const SERVICES_PATH: &str = "/v2/services";
-/// Paths that may carry chap-core's own version, in the order they are tried.
-/// Neither is required: a chap-core that answers neither is still up, and the
-/// version falls back to the tag the project pins.
-pub const INFO_PATHS: &[&str] = &["/system/info", "/v2/info"];
+/// Path of chap-core's own version. It is not required: a chap-core that does
+/// not answer it is still up, and the version falls back to the tag the
+/// project pins.
+pub const INFO_PATH: &str = "/system/info";
 
 /// Path of the OCS dataset list. `f=json` because the same path serves the
 /// landing page as HTML, and the landing page is not something to count.
