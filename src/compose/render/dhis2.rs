@@ -96,7 +96,7 @@ pub const DHIS2_CONTAINER_PORT: u16 = 8080;
 pub const DHIS2_DB_IMAGE: &str = "ghcr.io/baosystems/postgis:16-3.5";
 /// Image the seed-dump one-shot runs: it needs `wget`, `gzip` and `sed -E` and
 /// nothing else.
-pub const DHIS2_DUMP_IMAGE: &str = "alpine:3.22";
+pub const DHIS2_DUMP_IMAGE: &str = "alpine:3.24";
 /// Where a seed dump that is a file rather than a URL is mounted inside the
 /// one-shot.
 ///

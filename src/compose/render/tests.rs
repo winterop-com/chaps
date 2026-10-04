@@ -431,7 +431,7 @@ fn overlay_hands_the_data_volume_to_the_model_user_before_it_starts() {
     // Docker seeds a fresh named volume from the image, ownership
     // included, and root-owns it when the image has no such directory;
     // the model would then fail to open its SQLite file.
-    assert_eq!(init["image"].as_str(), Some("busybox:1.37"));
+    assert_eq!(init["image"].as_str(), Some("busybox:1.38"));
     assert_eq!(init["user"].as_str(), Some("0:0"));
     // Numeric: busybox knows no `chapkit` account.
     assert_eq!(

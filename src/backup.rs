@@ -67,7 +67,7 @@ pub const ENV_BACKUP_FILE: &str = ".env.before-restore";
 /// [`COMPONENT_VOLUMES`], so those are reached by mounting them into a
 /// throwaway container of their own. Pinned rather than `latest`: what reads a
 /// backup a year from now should be what wrote it.
-pub const BUSYBOX_IMAGE: &str = "busybox:1.37";
+pub const BUSYBOX_IMAGE: &str = "busybox:1.38";
 
 /// Archive member holding one model's data directory.
 pub fn model_member(service_id: &str) -> String {

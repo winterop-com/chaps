@@ -41,7 +41,7 @@ services:
       com.winterop.chaps.role: model
       com.winterop.chaps.model: "chapkit_rwanda_malaria_bym_model"
       com.winterop.chaps.kind: init
-    image: busybox:1.37
+    image: busybox:1.38
     command: ["sh", "-c", "chown -R 1000:1000 /work/data"]
     user: "0:0"
     volumes:

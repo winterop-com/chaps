@@ -1,5 +1,5 @@
   @SERVICE_ID@-init:
-@LABELS@    image: busybox:1.37
+@LABELS@    image: busybox:1.38
     command: ["sh", "-c", "chown -R @UID_GID@ @DATA_DIR@"]
     user: "0:0"
     volumes:

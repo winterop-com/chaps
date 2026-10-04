@@ -1019,7 +1019,7 @@ services:
       com.winterop.chaps.role: model
       com.winterop.chaps.model: "chapkit_ewars_model"
       com.winterop.chaps.kind: init
-    image: busybox:1.37
+    image: busybox:1.38
     command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
     user: "0:0"
     volumes:

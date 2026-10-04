@@ -261,8 +261,8 @@ defaulting to `chap` and `chap_core`.
 | hand it to the model | `docker compose run --rm --no-deps -T <service>-init chown -R 1000:1000 <data_dir>` (`0:0` for a root model) |
 | check the connection | `docker compose exec -T postgres psql -U $PGU -d $PGDB -tAc 'select 1'` |
 | hold a service still | `docker compose pause <service>`, and `unpause` afterwards |
-| read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.37 tar -C /v -cf - . > ocs.tar` |
-| write it back | `docker run --rm -i -v <project>_ocs_data:/v busybox:1.37 sh -c 'rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -' < ocs.tar` |
+| read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.38 tar -C /v -cf - . > ocs.tar` |
+| write it back | `docker run --rm -i -v <project>_ocs_data:/v busybox:1.38 sh -c 'rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -' < ocs.tar` |
 
 Stop `chap`, `worker`, the model services and the component services - `ocs`,
 `s3`, `dhis2` and `dhis2-db` - before loading a database or a data volume, and
