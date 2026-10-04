@@ -301,7 +301,7 @@ fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport
 /// Save `.chaps/project.yaml` with the state `.env` actually describes.
 ///
 /// The no-change paths still do this: a project whose recorded booleans drifted
-/// from its `.env` - a hand-edited file, a restore from an older archive -
+/// from its `.env` - a hand-edited file, a restore -
 /// should not need a second command to line up again.
 fn record(project: &mut Project, effective: AuthState) -> Result<()> {
     if project.state.auth == effective {

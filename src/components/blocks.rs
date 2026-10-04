@@ -132,8 +132,7 @@ pub struct Dhis2Component {
     /// pointing at somebody else's Chap, and a stale record would hide exactly
     /// that - and `chaps down --volumes` forgets it with `dhis2_db` itself.
     ///
-    /// A `components.yaml` written before this field loads as `None`, which is
-    /// what it was: nothing had recorded a connect.
+    /// `None` when nothing has recorded a connect.
     #[serde(default)]
     pub connected_at: Option<String>,
 }

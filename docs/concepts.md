@@ -266,8 +266,8 @@ password leaves chap-core unable to authenticate against its own data.
 
 Because of what it holds, `.env` is readable by its owner only (mode 600), and
 every write goes to a temporary file that is renamed over it, so a crash or a
-full disk never leaves half a file. A `.env` an older chaps wrote readable by
-everyone is closed the next time `chaps sync` or `chaps up` runs.
+full disk never leaves half a file. If a restored or hand-made `.env` is
+readable by everyone, the next `chaps sync` or `chaps up` closes it.
 
 Those two secrets are the one exception to "written once", and a narrow one.
 `chaps init --api-token` fills them in as it renders the file;

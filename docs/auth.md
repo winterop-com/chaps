@@ -95,9 +95,7 @@ auth:
 
 That split is deliberate. `.chaps/` is intent, it is small, and it is the kind
 of thing that gets committed, archived and pasted into a bug report; `.env` is
-the file Compose reads and the one to keep out of version control. A
-`project.yaml` written before this field existed loads as both `false`, which is
-what those deployments were.
+the file Compose reads and the one to keep out of version control.
 
 A generated secret is 64 lowercase hex characters, the same thing
 `openssl rand -hex 32` produces. An explicit `--api-token VALUE` (or `chaps

@@ -30,8 +30,7 @@ pub enum UserSource {
     /// image for an account name nothing else could resolve.
     DockerProbe,
     /// The table in [`crate::compose::overrides`], because nothing could be
-    /// asked. It is also what a `models.yaml` written before any of this
-    /// reads as, because that is where its user came from.
+    /// asked. It is also what an entry without `user_from` reads as.
     #[default]
     Table,
 }

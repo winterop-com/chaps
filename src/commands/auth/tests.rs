@@ -50,8 +50,7 @@ fn show_hides_the_token_until_reveal_asks_for_it() {
 
 #[test]
 fn show_flags_a_state_file_that_disagrees_with_the_env() {
-    // `.env` has both, `.chaps/` remembers neither: a hand edit, or a
-    // restore from an archive written before `auth` existed.
+    // `.env` has both, `.chaps/` remembers neither: a hand edit.
     let text = show_human(
         &Out::default(),
         &on(),

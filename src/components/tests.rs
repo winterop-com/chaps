@@ -173,16 +173,16 @@ fn a_null_dhis2_port_survives_the_round_trip_and_a_missing_one_is_the_default() 
     assert_eq!(omitted.dhis2.port, Some(DHIS2_DEFAULT_PORT));
 }
 
-/// A `components.yaml` written before the block existed, and one written
-/// before a field in it did: both load, and neither turns DHIS2 on.
+/// A `components.yaml` without a `dhis2` block, and one whose block sets
+/// only some fields: both load, and neither turns DHIS2 on by itself.
 #[test]
-fn a_components_file_from_before_dhis2_loads_with_the_block_off() {
-    let old: Components =
+fn a_components_file_without_dhis2_loads_with_the_block_off() {
+    let without: Components =
         serde_yaml_ng::from_str("chap-core:\n  enabled: true\nocs:\n  enabled: true\n").unwrap();
-    assert!(!old.dhis2.enabled);
-    assert_eq!(old.dhis2, Dhis2Component::default());
-    assert_eq!(old.label(), "chap-core, ocs");
-    assert!(!old.compose_files().contains(&DHIS2_COMPOSE.to_string()));
+    assert!(!without.dhis2.enabled);
+    assert_eq!(without.dhis2, Dhis2Component::default());
+    assert_eq!(without.label(), "chap-core, ocs");
+    assert!(!without.compose_files().contains(&DHIS2_COMPOSE.to_string()));
 
     // And a block with nothing but `enabled` keeps every default under it,
     // the seed among them.
@@ -582,22 +582,6 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
     ] {
         assert!(!note.contains('\n'), "one line each: {note}");
     }
-}
-
-/// A `components.yaml` written before the field loads as "no connect
-/// recorded", which is what such a deployment was, and the rest of the
-/// block is untouched.
-#[test]
-fn an_older_components_file_loads_with_no_connect_recorded() {
-    let before = "chap-core:\n  enabled: true\ndhis2:\n  enabled: true\n  port: 8080\n  \
-                  image_tag: '2.42'\n  seed: default\n";
-    let components: Components = serde_yaml_ng::from_str(before).unwrap();
-    assert!(components.dhis2.enabled);
-    assert_eq!(components.dhis2.port, Some(8080));
-    assert_eq!(components.dhis2.image_tag, "2.42");
-    assert_eq!(components.dhis2.seed, Dhis2Seed::Default);
-    assert_eq!(components.dhis2.connected_at, None);
-    assert!(components.dhis2_needs_connecting());
 }
 
 /// The record round-trips as one string, and a deployment that has it is

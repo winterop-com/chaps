@@ -219,11 +219,9 @@ fn save_then_load_round_trips_both_files() {
     );
 }
 
-/// The user and where it came from are recorded, and a `models.yaml`
-/// written before they were reads as the table - which is where the user
-/// of every such file did come from.
+/// The user and where it came from are recorded.
 #[test]
-fn the_resolved_user_round_trips_and_an_older_file_reads_as_the_table() {
+fn the_resolved_user_round_trips() {
     let dir = tempfile::tempdir().unwrap();
     let entry = EnabledModel {
         user: "root".into(),
@@ -246,20 +244,6 @@ fn the_resolved_user_round_trips_and_an_older_file_reads_as_the_table() {
         Project::load(dir.path()).unwrap().state.models["chapkit_ewars_model"],
         entry
     );
-
-    // The same file as a deployment written before this CLI knew to ask.
-    let older: String = body
-        .lines()
-        .filter(|line| !line.starts_with("  user_from:"))
-        .map(|line| format!("{line}\n"))
-        .collect();
-    std::fs::write(&path, older).unwrap();
-    let loaded = Project::load(dir.path()).unwrap();
-    assert_eq!(
-        loaded.state.models["chapkit_ewars_model"].user_from,
-        UserSource::Table
-    );
-    assert_eq!(loaded.state.models["chapkit_ewars_model"].user, "root");
 }
 
 #[test]

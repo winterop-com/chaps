@@ -91,8 +91,8 @@ pub fn compose_files_for(components: &Components) -> Vec<String> {
     files
 }
 
-/// [`DEFAULT_API_PORT`], for `serde(default)` on a `project.yaml` written
-/// before the field existed.
+/// [`DEFAULT_API_PORT`], for `serde(default)` on a `project.yaml` that does
+/// not set the field.
 fn default_api_port() -> u16 {
     DEFAULT_API_PORT
 }
@@ -192,9 +192,8 @@ impl ComposeSource {
 /// Booleans only, and deliberately so: the values themselves live in `.env`,
 /// which is the file compose reads and the one nobody should copy around.
 /// `.chaps/` records the intent, so `project.yaml` can be committed, backed up
-/// and pasted into a bug report without leaking a credential. A `project.yaml`
-/// written before this field existed loads as both `false`, which is what it
-/// was.
+/// and pasted into a bug report without leaking a credential. A
+/// `project.yaml` without this field loads as both `false`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthState {
     /// `CHAP_API_TOKEN` is set, so every request needs
@@ -236,8 +235,8 @@ pub struct ProjectState {
     pub compose_project: String,
     pub registry_url: String,
     /// Host port chap-core's API is published on. Written into `.env` as
-    /// `CHAP_API_PORT` and into [`CHAPS_COMPOSE`]; a `project.yaml` from
-    /// before this field loads as [`DEFAULT_API_PORT`], which is what it was.
+    /// `CHAP_API_PORT` and into [`CHAPS_COMPOSE`]; a `project.yaml` without
+    /// it loads as [`DEFAULT_API_PORT`].
     #[serde(default = "default_api_port")]
     pub api_port: u16,
     /// Which shared secrets `.env` sets. See [`AuthState`].
@@ -266,8 +265,7 @@ pub struct ProjectState {
     #[serde(skip)]
     pub manual: ManualModels,
     /// What the deployment is made of. Lives in `components.yaml`; a project
-    /// written before that file existed loads as chap-core alone, which is
-    /// what it was.
+    /// without that file loads as chap-core alone.
     #[serde(skip)]
     pub components: Components,
 }
@@ -311,8 +309,7 @@ pub struct EnabledModel {
     ///
     /// `None` - the default - means the overlay only `expose`s port 8000:
     /// chap-core reaches the model over the compose network and a human goes
-    /// through chap-core's proxy. A `models.yaml` written before this was
-    /// optional holds a number, which still loads as `Some`.
+    /// through chap-core's proxy.
     #[serde(default)]
     pub host_port: Option<u16>,
     /// The host address [`host_port`] is published on: `127.0.0.1` keeps the
@@ -331,9 +328,7 @@ pub struct EnabledModel {
     /// this line, not from a lookup.
     pub user: String,
     /// Where [`user`] came from, for `models info`, the browser and
-    /// `chaps doctor`. A `models.yaml` written before this field existed has
-    /// none and reads as [`UserSource::Table`], which is where its user did
-    /// come from.
+    /// `chaps doctor`. An entry without it reads as [`UserSource::Table`].
     ///
     /// [`user`]: EnabledModel::user
     #[serde(default)]

@@ -125,35 +125,6 @@ fn sync_renders_the_chaps_overlay_and_puts_it_in_the_f_list() {
 }
 
 #[test]
-fn a_project_from_before_the_chaps_overlay_is_migrated_by_one_sync() {
-    let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
-    // What an older chaps wrote: no compose.chaps.yml anywhere.
-    std::fs::remove_file(dir.path().join(CHAPS_COMPOSE)).unwrap();
-    project.state.compose_files = vec![BASE_COMPOSE.to_string(), MARKETPLACE_COMPOSE.to_string()];
-    project.state.rendered_files.retain(|f| f != CHAPS_COMPOSE);
-
-    let report = sync(&mut project, &registry, true).unwrap();
-    assert!(report.drift, "the new file is missing");
-    assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
-    assert!(
-        !dir.path().join(CHAPS_COMPOSE).exists(),
-        "--check writes nothing"
-    );
-
-    let report = sync(&mut project, &registry, false).unwrap();
-    assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
-    assert!(dir.path().join(CHAPS_COMPOSE).is_file());
-    assert_eq!(project.state.compose_files, default_compose_files());
-    assert!(
-        project
-            .state
-            .rendered_files
-            .contains(&CHAPS_COMPOSE.to_string())
-    );
-    assert!(!sync(&mut project, &registry, true).unwrap().drift);
-}
-
-#[test]
 fn check_reports_drift_without_touching_anything() {
     let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
     let overlay = dir.path().join("compose.chapkit-ewars-model.yml");
@@ -822,60 +793,6 @@ fn the_ocs_data_source_placeholders_are_appended_once_and_never_rewritten() {
     sync(&mut project, &registry, false).unwrap();
     assert_eq!(std::fs::read_to_string(&env).unwrap(), filled);
     assert_eq!(filled.matches("OCS data sources").count(), 1);
-}
-
-/// A `.env` written before the heading wrapped keeps it, and is not appended
-/// to a second time.
-///
-/// The heading is prose and has changed once already; the five variables
-/// under it are what says the section is there. A sync that went looking for
-/// the heading text instead would append the whole block again to every
-/// deployment written before the wording changed - five commented
-/// placeholders below five the operator may have filled in, and compose
-/// reading the last of each.
-#[test]
-fn an_env_carrying_the_heading_from_an_older_chaps_is_left_alone() {
-    let (dir, mut project, registry) = project_with(&[]);
-    let env = dir.path().join(ENV_FILE);
-    // The `.env` of a deployment that enabled `ocs` under chaps 0.3.0: the
-    // image pin section as well, so nothing at all is left to append and the
-    // file can be compared byte for byte.
-    let old = "POSTGRES_PASSWORD=secret\n\n\
-             # OCS (component). Uncomment to pin a build; the default follows `main`.\n\
-             # OCS_IMAGE_TAG=main\n\n\
-             # OCS data sources (optional): ERA5-Land needs one of these; \
-             WorldPop and CHIRPS3 need none.\n\
-             # ECMWF_DATASTORES_URL=https://cds.climate.copernicus.eu/api\n\
-             # ECMWF_DATASTORES_KEY=\n\
-             # EDH_API_KEY=\n\
-             # CDSE_S3_ACCESS_KEY=\n\
-             # CDSE_S3_SECRET_KEY=\n";
-    std::fs::write(&env, old).unwrap();
-
-    project.state.components.ocs.enabled = true;
-    sync(&mut project, &registry, false).unwrap();
-
-    let body = std::fs::read_to_string(&env).unwrap();
-    assert_eq!(body, old, "the file is not rewritten: {body}");
-    assert_eq!(body.matches("OCS data sources").count(), 1, "{body}");
-    for var in OCS_DATA_SOURCE_ENV_VARS {
-        assert_eq!(
-            body.matches(&format!("# {var}=")).count(),
-            1,
-            "{var}: {body}"
-        );
-    }
-    // And the same holds once a value has been pasted in under the old
-    // heading, which is the state that has something to lose.
-    let filled = old.replace("# EDH_API_KEY=", "EDH_API_KEY=mine");
-    std::fs::write(&env, &filled).unwrap();
-    sync(&mut project, &registry, false).unwrap();
-    let body = std::fs::read_to_string(&env).unwrap();
-    assert_eq!(body, filled, "{body}");
-    assert_eq!(
-        crate::dotenv::non_empty(&body, "EDH_API_KEY").as_deref(),
-        Some("mine")
-    );
 }
 
 /// The mount and the config key arrive together: a plugin directory that

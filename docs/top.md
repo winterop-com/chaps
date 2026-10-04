@@ -48,9 +48,7 @@ deployment whose directory is gone still shows, without them.
 
 The deployment the command runs in, and every `chaps run` group with a model
 enabled, show even with nothing running: their enabled models are listed as
-`not running`. A group with no model is left out. Containers
-from before chaps labelled them are not found until the next `chaps up`
-recreates them with their labels.
+`not running`. A group with no model is left out.
 
 ## In a script
 

@@ -87,8 +87,8 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     if !check {
         std::fs::create_dir_all(&dir)
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
-        // A `.env` an older chaps wrote is readable by everyone; every sync,
-        // and so every `chaps up`, closes it to its owner.
+        // A restored or hand-made `.env` can be readable by everyone; every
+        // sync, and so every `chaps up`, closes it to its owner.
         crate::dotenv::protect(&dir.join(crate::project::ENV_FILE));
     }
 

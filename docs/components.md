@@ -502,15 +502,6 @@ Uncomment the ones you have, fill them in, and run `chaps up`: a container
 reads `.env` when compose creates it, so a running OCS does not pick up a
 credential that was added after it started.
 
-A deployment whose `.env` already had the section keeps the heading it was
-written with, so one created before this wording still carries it as a single
-line saying `ERA5-Land needs one of these` - the old summary, and the wrong one:
-it made the two ERA5-Land rows look like alternatives. What says the section is
-already there is the five variables, not the heading, so an older `.env` is left
-exactly as it is rather than appended to a second time. Nothing below the heading
-changed, and `chaps` never rewrites `.env`: the stale line is a comment, so
-correct it by hand or leave it.
-
 `compose.ocs.yml` passes all five unconditionally, as `${VAR:-}`. That is safe
 because each of them is read as `os.getenv(...) or <a credentials file>`, so a
 variable that arrives empty is one nothing has: a deployment that sets none of

@@ -6,9 +6,8 @@
 //! `project.yaml` and `models.yaml`: `chaps sync` renders one compose file per
 //! enabled component from it.
 //!
-//! Every field carries a `serde` default, so a project written before this
-//! file existed loads as "chap-core on, nothing else" — which is exactly what
-//! it was. Nothing has to be migrated.
+//! Every field carries a `serde` default, so a file that leaves a field out,
+//! or a project without the file, loads as "chap-core on, nothing else".
 //!
 //! Two fields in here are records rather than intent, and each says so where it
 //! is declared: [`OcsComponent::read_only`] mirrors what

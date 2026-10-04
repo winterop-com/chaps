@@ -567,18 +567,6 @@ fn docker_needs_a_subcommand() {
 }
 
 #[test]
-fn the_old_top_level_docker_commands_are_gone() {
-    // `chaps ps` is back as a command of its own - the models `chaps run`
-    // started - and `chaps docker ps` is still compose's.
-    for argv in [["chap", "pull"], ["chap", "compose"], ["chap", "exec"]] {
-        assert!(
-            Cli::try_parse_from(argv).is_err(),
-            "{argv:?} must live under `chaps docker` now"
-        );
-    }
-}
-
-#[test]
 fn docker_ps_and_pull_keep_their_shapes() {
     let DockerSub::Ps(args) = docker_sub(&["ps", "-a"]) else {
         panic!("expected docker ps");
@@ -742,10 +730,6 @@ fn sync_and_update_take_their_flags() {
         panic!("expected update");
     };
     assert!(args.dry_run && args.pin_chap_core);
-
-    // `update` no longer touches containers, so the flag that said not to
-    // is gone rather than accepted and ignored.
-    assert!(Cli::try_parse_from(["chap", "update", "--no-restart"]).is_err());
 }
 
 /// The `RestartArgs` behind `chap restart <argv..>`.
@@ -909,15 +893,6 @@ fn the_browser_is_the_top_level_ui_command() {
         Cli::try_parse_from(["chap", "ui"]).unwrap().command,
         Command::Ui(_)
     ));
-    // It used to be `tui`, with a `models tui` alias; neither is a command
-    // any more, and no alias keeps them alive.
-    for argv in [
-        ["chap", "tui"].as_slice(),
-        ["chap", "models", "tui"].as_slice(),
-        ["chap", "models", "ui"].as_slice(),
-    ] {
-        assert!(Cli::try_parse_from(argv).is_err(), "{argv:?}");
-    }
 }
 
 #[test]

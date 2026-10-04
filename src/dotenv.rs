@@ -313,8 +313,8 @@ pub fn write(path: &std::path::Path, body: &str) -> crate::error::Result<()> {
 }
 
 /// Make an existing `.env` readable by its owner only, as [`write`] creates
-/// it: for one an older chaps wrote, or one a restore copied in. Best-effort;
-/// a file that is not there is left alone.
+/// it: for one a restore copied in, or one made by hand. Best-effort; a file
+/// that is not there is left alone.
 pub fn protect(path: &std::path::Path) {
     #[cfg(unix)]
     {
