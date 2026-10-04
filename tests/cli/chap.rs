@@ -3,13 +3,16 @@
 #![cfg(unix)]
 
 use crate::common::*;
+use predicates::prelude::PredicateBooleanExt;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 /// A `docker` that lists `v2.3.1` and `master` as the local chap-core tags
 /// and `v2.2.0` as the worker's, answers `network inspect` when `NETWORK_UP`
 /// is set, and for `run` touches `$WRITE` in the current directory and exits
-/// `$CHAP_EXIT`, the way chap does when it writes a file.
+/// `$CHAP_EXIT`, the way chap does when it writes a file. The chapkit probe
+/// exits `$PROBE_EXIT`; compose lists `$RUNNING` as running, and
+/// `$SERVICES` as its services.
 fn fake_docker() -> (TempDir, PathBuf, PathBuf) {
     let temp = tempfile::tempdir().expect("a directory for the fake docker");
     let bin = temp.path().join("bin");
@@ -23,7 +26,13 @@ fn fake_docker() -> (TempDir, PathBuf, PathBuf) {
          'image ls ghcr.io/dhis2-chap/chap-worker'*) printf 'v2.2.0\\n'; exit 0;;\n\
          'network inspect'*) [ -n \"$NETWORK_UP\" ] && exit 0; exit 1;;\n\
          'run --rm -v /var/run/docker.sock'*) echo 0; exit 0;;\n\
-         run*) [ -n \"$WRITE\" ] && touch \"$WRITE\"; exit \"${{CHAP_EXIT:-0}}\";;\n\
+         'run --rm --platform'*) exit \"${{PROBE_EXIT:-0}}\";;\n\
+         run*) echo \"hints=$DOCKER_CLI_HINTS\" >> '{log}'; \
+         [ -n \"$WRITE\" ] && touch \"$WRITE\"; exit \"${{CHAP_EXIT:-0}}\";;\n\
+         compose*' ps --format json'*) [ -n \"$RUNNING\" ] && \
+         printf '{{\"Service\":\"%s\",\"State\":\"running\"}}\\n' \"$RUNNING\"; exit 0;;\n\
+         compose*' config --services'*) printf '%s\\n' $SERVICES; exit 0;;\n\
+         compose*) exit 0;;\n\
          esac\n\
          exit 1\n",
         log = log.display()
@@ -222,13 +231,203 @@ fn a_run_in_a_deployment_uses_its_tag_and_reaches_its_models() {
         Some(format!("{project}_default").as_str())
     );
 
-    // Down, there is no network to join, and the line says how to start it.
+    // Help touches no model, so it says nothing about the models or files.
     chap_with_docker(&sandbox, &dir, &bin, &["chap", "--version"])
+        .env("NETWORK_UP", "1")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("models:").not())
+        .stderr(predicates::str::contains("files:").not())
+        .stderr(predicates::str::contains("chap finished").not());
+}
+
+/// A deployment with one model, its compose project and the model's service.
+fn deployment(sandbox: &Sandbox) -> (PathBuf, String, String) {
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let project = state(&dir)["compose_project"].as_str().unwrap().to_string();
+    let service = state(&dir)["models"]["chapkit_ewars_model"]["service_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    (dir, project, service)
+}
+
+#[test]
+fn a_model_id_in_a_deployment_that_is_down_starts_only_that_model() {
+    let sandbox = Sandbox::new();
+    let (dir, project, service) = deployment(&sandbox);
+    let eval = dir.join("eval");
+    std::fs::create_dir_all(&eval).unwrap();
+    let (_temp, bin, log) = fake_docker();
+    let args = [
+        "chap",
+        "eval",
+        "--model-name",
+        "chapkit_ewars_model",
+        "--output-file",
+        "e.nc",
+    ];
+
+    chap_with_docker(&sandbox, &eval, &bin, &args)
+        .env("NETWORK_UP", "1")
+        .env("SERVICES", format!("chap {service} {service}-init"))
+        .env("WRITE", "e.nc")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "starting {service} for this run, without chap-core"
+        )))
+        .stderr(predicates::str::contains(format!(
+            "model: chapkit_ewars_model at http://{service}:8000 answers"
+        )))
+        .stderr(predicates::str::contains(format!(
+            "{service} keeps running"
+        )))
+        .stderr(predicates::str::contains("chap finished; it wrote e.nc"));
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let up: Vec<&str> = calls.lines().filter(|line| line.contains(" up ")).collect();
+    assert_eq!(up.len(), 2, "{calls}");
+    assert!(
+        up[0].ends_with(&format!("up --no-deps {service}-init")),
+        "{calls}"
+    );
+    assert!(
+        up[1].ends_with(&format!("up -d --no-deps {service}")),
+        "{calls}"
+    );
+    // The start carries the file that takes the registration away, so the
+    // model does not wait on a chap-core that does not run.
+    assert!(
+        up[1].contains(&format!("compose.{project}.{service}.yml")),
+        "{calls}"
+    );
+    assert!(!calls.contains(" stop "), "nothing stopped: {calls}");
+    let run = chap_run(&log);
+    assert_eq!(
+        value_of(&run, "--model-name"),
+        Some(format!("http://{service}:8000").as_str())
+    );
+    assert!(calls.contains("hints=false"), "{calls}");
+}
+
+#[test]
+fn stop_stops_what_the_run_started_and_nothing_that_ran_before() {
+    let sandbox = Sandbox::new();
+    let (dir, _project, service) = deployment(&sandbox);
+    let (_temp, bin, log) = fake_docker();
+    let args = [
+        "chap",
+        "--stop",
+        "eval",
+        "--model-name",
+        "chapkit_ewars_model",
+    ];
+
+    chap_with_docker(&sandbox, &dir, &bin, &args)
+        .env("NETWORK_UP", "1")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "stopped {service}, as --stop asked"
+        )));
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(calls.contains(&format!(" stop {service}")), "{calls}");
+
+    // Running already: nothing is started, and --stop leaves it alone.
+    std::fs::write(&log, "").unwrap();
+    chap_with_docker(&sandbox, &dir, &bin, &args)
+        .env("NETWORK_UP", "1")
+        .env("RUNNING", &service)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("starting").not());
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(!calls.contains(" up "), "{calls}");
+    assert!(!calls.contains(" stop "), "{calls}");
+}
+
+#[test]
+fn a_marketplace_id_the_deployment_does_not_have_is_refused() {
+    let sandbox = Sandbox::new();
+    let (dir, _project, _service) = deployment(&sandbox);
+    let (_temp, bin, log) = fake_docker();
+
+    chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["chap", "eval", "--model-name", "auto_arima_chapkit"],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "`chaps models enable auto_arima_chapkit` adds it",
+    ));
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(!calls.contains("run --rm -i"), "nothing ran: {calls}");
+}
+
+#[test]
+fn a_chapkit_url_that_does_not_answer_is_a_note_and_not_a_traceback() {
+    let sandbox = Sandbox::new();
+    let work = workdir(&sandbox);
+    let (_temp, bin, log) = fake_docker();
+
+    chap_with_docker(
+        &sandbox,
+        &work,
+        &bin,
+        &["chap", "eval", "--model-name", "http://nothing:8000"],
+    )
+    .env("PROBE_EXIT", "7")
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "the model server at http://nothing:8000 is not running",
+    ))
+    .stderr(predicates::str::contains(
+        "--model-name chapkit_ewars_model",
+    ));
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(!calls.contains("run --rm -i"), "chap never ran: {calls}");
+
+    chap_with_docker(
+        &sandbox,
+        &work,
+        &bin,
+        &["chap", "eval", "--model-name", "https://models.example.org"],
+    )
+    .env("PROBE_EXIT", "6")
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "check that the server runs and that this machine can reach it",
+    ));
+}
+
+#[test]
+fn a_run_in_the_deployment_directory_suggests_a_subdirectory() {
+    let sandbox = Sandbox::new();
+    let (dir, _project, _service) = deployment(&sandbox);
+    let (_temp, bin, _log) = fake_docker();
+
+    chap_with_docker(&sandbox, &dir, &bin, &["chap", "validate", "data.csv"])
         .assert()
         .success()
         .stderr(predicates::str::contains(
-            "is not running, so its models are not reachable",
+            "this is the deployment directory",
         ));
+    let eval = dir.join("eval");
+    std::fs::create_dir_all(&eval).unwrap();
+    chap_with_docker(&sandbox, &eval, &bin, &["chap", "validate", "data.csv"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("this is the deployment directory").not());
 }
 
 #[test]
@@ -355,7 +554,57 @@ fn a_model_url_on_localhost_is_refused_before_the_run() {
     .stderr(predicates::str::contains(
         "in the container `localhost` is the container itself",
     ))
-    .stderr(predicates::str::contains("models:"));
+    .stderr(predicates::str::contains(
+        "--model-name chapkit_ewars_model",
+    ));
     let calls = std::fs::read_to_string(&log).unwrap_or_default();
     assert!(!calls.contains("run --rm -i"), "nothing ran: {calls}");
+}
+
+#[test]
+fn chaps_says_first_what_chap_would_end_in_a_traceback_for() {
+    let sandbox = Sandbox::new();
+    let work = workdir(&sandbox);
+    let (_temp, bin, log) = fake_docker();
+
+    chap_with_docker(
+        &sandbox,
+        &work,
+        &bin,
+        &["chap", "eval", "--model-name", "./no_such_model"],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "`./no_such_model` is not a directory here",
+    ));
+    chap_with_docker(&sandbox, &work, &bin, &["chap", "plot-dataset", "d.csv"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("the container has no browser"));
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(!calls.contains("run --rm -i"), "chap never ran: {calls}");
+}
+
+#[test]
+fn the_directory_of_an_output_file_is_made_before_the_run() {
+    let sandbox = Sandbox::new();
+    let work = workdir(&sandbox);
+    let (_temp, bin, _log) = fake_docker();
+
+    chap_with_docker(
+        &sandbox,
+        &work,
+        &bin,
+        &[
+            "chap",
+            "plot-backtest",
+            "a.nc",
+            "--output-file",
+            "out/new/a.html",
+        ],
+    )
+    .assert()
+    .success();
+    assert!(work.join("out/new").is_dir());
 }

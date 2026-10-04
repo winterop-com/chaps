@@ -24,7 +24,9 @@ pub use labels::{
     Labeled, MODEL_LABEL, ROLE_LABEL, chaps_containers,
 };
 pub use leftovers::{default_network_exists, project_has_containers, volume_in_use};
-pub use oneshot::{DOCKER_SOCKET, image_is_local, local_tags, run_plain, socket_gid};
+pub use oneshot::{
+    DOCKER_SOCKET, chapkit_answers, image_is_local, local_tags, run_plain, socket_gid,
+};
 pub use plain::{run_compose_plain, strip_ansi};
 pub use ps::{
     Container, all_containers, all_containers_or_why, diff_containers, ps_entries,
@@ -129,9 +131,23 @@ pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
 /// pipe is not a terminal, so it prints its progress as one line per step
 /// rather than redrawing a block in place.
 pub fn run_compose_teed(project: &Project, extra: &[String]) -> Result<Piped> {
+    run_compose_teed_with(project, &[], extra)
+}
+
+/// [`run_compose_teed`] with more compose files after the project's own, for
+/// a change that holds for this one command only.
+pub fn run_compose_teed_with(
+    project: &Project,
+    files: &[std::path::PathBuf],
+    extra: &[String],
+) -> Result<Piped> {
     use std::io::{Read, Write};
 
     let mut args = compose_args(project);
+    for file in files {
+        args.push("-f".to_string());
+        args.push(file.to_string_lossy().into_owned());
+    }
     args.extend(extra.iter().cloned());
     trace_command(&args);
 
@@ -289,7 +305,20 @@ fn compose_capture(project: &Project, extra: &[&str]) -> Option<String> {
 /// that produces real volume. Returns the exit code, stdout and stderr; a
 /// non-zero exit is the caller's to interpret.
 pub fn compose_output(project: &Project, extra: &[String]) -> Result<(i32, String, String)> {
+    compose_output_with(project, &[], extra)
+}
+
+/// [`compose_output`] with more compose files after the project's own.
+pub fn compose_output_with(
+    project: &Project,
+    files: &[std::path::PathBuf],
+    extra: &[String],
+) -> Result<(i32, String, String)> {
     let mut args = compose_args(project);
+    for file in files {
+        args.push("-f".to_string());
+        args.push(file.to_string_lossy().into_owned());
+    }
     args.extend(extra.iter().cloned());
     trace_command(&args);
     let out = Command::new("docker")

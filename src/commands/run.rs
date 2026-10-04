@@ -124,6 +124,40 @@ struct RunReport {
 
 /// Enable the model if it is not, start its container, and wait for it.
 pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
+    let report = start(ctx, args)?;
+    ctx.out.emit_ok(&report, || run_summary(&report, &ctx.out))
+}
+
+/// A model `chaps run` started for another command, `chaps chap`.
+pub(crate) struct Started {
+    /// The id the model is enabled under.
+    pub(crate) id: String,
+    /// Whether this start enabled it, so the caller can take it out again.
+    pub(crate) enabled: bool,
+    /// The group directory it runs in.
+    pub(crate) dir: PathBuf,
+}
+
+/// [`run`] without its report: enable, start and wait for the model, with
+/// the progress lines on stderr, so the caller's stdout stays its own.
+pub(crate) fn start_quietly(ctx: &Ctx, args: &ModelRunArgs) -> Result<Started> {
+    let quiet = Ctx {
+        out: crate::output::Out {
+            json: true,
+            ..ctx.out
+        },
+        ..ctx.clone()
+    };
+    let report = start(&quiet, args)?;
+    Ok(Started {
+        id: report.model.id.clone(),
+        enabled: report.enabled,
+        dir: report.project_dir,
+    })
+}
+
+/// Everything [`run`] does before it reports.
+fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
     let Target { dir, group } = target(ctx, args.group.as_deref())?;
     check_known(ctx, &dir, &args.source)?;
     if let Some(group) = &group {
@@ -228,7 +262,7 @@ pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
             logs_hint(&dir, &service)
         ));
     }
-    ctx.out.emit_ok(&report, || run_summary(&report, &ctx.out))
+    Ok(report)
 }
 
 /// Refuse a bare word that is neither a marketplace id nor a model of the

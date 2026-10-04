@@ -21,6 +21,14 @@ pub struct ChapArgs {
     #[arg(long)]
     pub docker: bool,
 
+    /// Stop the model this run started, once chap is done
+    #[arg(long)]
+    pub stop: bool,
+
+    /// How long a model this run starts may take to answer, in seconds
+    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
+    pub timeout: u64,
+
     /// Arguments for chap, such as `eval --model-name URL ...`
     #[arg(
         value_name = "CHAP_ARGS",

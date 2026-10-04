@@ -702,6 +702,8 @@ Usage: chaps chap [OPTIONS] [CHAP_ARGS]...
 | `--image <IMAGE>` | Image to run in; chosen from --model-name when omitted. Values: `core`, `worker`. |
 | `--group <NAME>` | `chaps run` group whose network the container joins. |
 | `--docker` | Give the container the docker socket, for docker_env models. |
+| `--stop` | Stop the model this run started, once chap is done. |
+| `--timeout <SECONDS>` | How long a model this run starts may take to answer, in seconds. Default: `300`. |
 | `<CHAP_ARGS>...` | Arguments for chap, such as `eval --model-name URL ...`. |
 
 ## chaps doctor

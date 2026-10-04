@@ -13,10 +13,14 @@ pub const DOCKER_SOCKET: &str = "/var/run/docker.sock";
 
 /// Run `docker <args>` with this process's stdin, stdout and stderr, and give
 /// back the exit code.
+///
+/// The Docker CLI's own hints ("What's next: ...") are turned off: the output
+/// is the program's in the container, and chaps says what comes next itself.
 pub fn run_plain(args: &[String]) -> Result<i32> {
     trace_command(args);
     let status = Command::new("docker")
         .args(args)
+        .env("DOCKER_CLI_HINTS", "false")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -68,6 +72,34 @@ pub fn socket_gid(probe_image: &str) -> Option<u32> {
     ]
     .map(str::to_string);
     docker_capture(&args)?.trim().parse().ok()
+}
+
+/// Whether a chapkit service answers `<url>/api/v1/info`, asked from a
+/// container of `image` on `network`: a service name such as
+/// `http://chapkit-ewars-model:8000` means something only there.
+pub fn chapkit_answers(image: &str, network: Option<&str>, url: &str) -> bool {
+    let mut args: Vec<String> = ["run", "--rm", "--platform", crate::compose::AMD64_PLATFORM]
+        .map(str::to_string)
+        .to_vec();
+    if let Some(network) = network {
+        args.push("--network".to_string());
+        args.push(network.to_string());
+    }
+    args.extend(
+        [
+            "--entrypoint",
+            "curl",
+            image,
+            "-fsS",
+            "-o",
+            "/dev/null",
+            "-m",
+            "5",
+        ]
+        .map(str::to_string),
+    );
+    args.push(format!("{}/api/v1/info", url.trim_end_matches('/')));
+    docker_capture(&args).is_some()
 }
 
 #[cfg(test)]

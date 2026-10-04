@@ -268,3 +268,87 @@ fn a_url_on_this_machine_is_found_with_its_port() {
     assert_eq!(loopback_port("http://auto-arima-chapkit:8000"), None);
     assert_eq!(loopback_port("https://models.example.org:8443"), None);
 }
+
+#[test]
+fn a_run_only_for_help_is_known_as_such() {
+    assert!(is_help(&[]));
+    assert!(is_help(&strings(&["--help"])));
+    assert!(is_help(&strings(&["eval", "-h"])));
+    assert!(is_help(&strings(&["--version"])));
+    assert!(!is_help(&strings(&["eval", "--model-name", "x"])));
+}
+
+#[test]
+fn a_bare_word_that_is_no_file_is_a_model_id() {
+    let word = model_kind(Some("chapkit_ewars_model"));
+    assert_eq!(
+        id_candidate(&word, false).as_deref(),
+        Some("chapkit_ewars_model")
+    );
+    // A directory of that name wins, as it does for chap.
+    assert_eq!(id_candidate(&word, true), None);
+    assert_eq!(id_candidate(&model_kind(Some("./model")), false), None);
+    assert_eq!(id_candidate(&model_kind(Some("models/m")), false), None);
+    assert_eq!(
+        id_candidate(&model_kind(Some("http://m:8000")), false),
+        None
+    );
+}
+
+#[test]
+fn the_host_of_a_url_is_the_service_name() {
+    assert_eq!(
+        url_host("http://Chapkit-Ewars-Model:8000/").as_deref(),
+        Some("chapkit-ewars-model")
+    );
+    assert_eq!(
+        url_host("https://models.example.org").as_deref(),
+        Some("models.example.org")
+    );
+    assert_eq!(url_host("not a url"), None);
+}
+
+#[test]
+fn the_note_for_a_server_that_does_not_answer_fits_the_url() {
+    let service = unreachable_message("http://nothing:8000");
+    assert!(service.contains("the model server at http://nothing:8000 is not running"));
+    assert!(service.contains("`nothing` is not a model of this deployment or group"));
+    let outside = unreachable_message("https://models.example.org");
+    assert!(outside.contains("check that the server runs"));
+    assert!(!outside.contains("chaps run"));
+}
+
+#[test]
+fn the_model_name_is_replaced_in_either_spelling() {
+    let mut args = strings(&["eval", "--model-name", "chapkit_ewars_model", "--x"]);
+    super::set_model_name(&mut args, "http://m:8000");
+    assert_eq!(
+        args,
+        strings(&["eval", "--model-name", "http://m:8000", "--x"])
+    );
+    let mut args = strings(&["eval", "--model-name=chapkit_ewars_model"]);
+    super::set_model_name(&mut args, "http://m:8000");
+    assert_eq!(args, strings(&["eval", "--model-name=http://m:8000"]));
+}
+
+#[test]
+fn the_output_files_are_read_in_both_spellings() {
+    let args = strings(&[
+        "eval",
+        "--output-file",
+        "out/a.nc",
+        "--output-file=b.html",
+        "x",
+    ]);
+    assert_eq!(output_files(&args), ["out/a.nc", "b.html"]);
+    assert!(output_files(&strings(&["validate", "d.csv"])).is_empty());
+}
+
+#[test]
+fn plot_dataset_is_refused_because_it_needs_a_browser() {
+    let why = needs_a_browser(&strings(&["plot-dataset", "d.csv"])).unwrap();
+    assert!(why.contains("no browser"));
+    assert!(why.contains("plot-backtest"));
+    assert!(needs_a_browser(&strings(&["plot-dataset", "--help"])).is_none());
+    assert!(needs_a_browser(&strings(&["plot-backtest", "a.nc"])).is_none());
+}

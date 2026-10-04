@@ -22,11 +22,17 @@ const SKIPPED: &[&str] = &["node_modules", "target", "__pycache__"];
 pub struct Snapshot(BTreeMap<PathBuf, SystemTime>);
 
 impl Snapshot {
-    /// Look at `roots`, at most [`MAX_DEPTH`] levels down.
-    pub fn take(roots: &[PathBuf]) -> Snapshot {
+    /// Look at `roots`, at most [`MAX_DEPTH`] levels down, and at `named`,
+    /// the files the arguments name, wherever they are.
+    pub fn take(roots: &[PathBuf], named: &[PathBuf]) -> Snapshot {
         let mut files = BTreeMap::new();
         for root in roots {
             walk(root, 0, &mut files);
+        }
+        for file in named {
+            if let Ok(changed) = std::fs::metadata(file).and_then(|meta| meta.modified()) {
+                files.insert(file.clone(), changed);
+            }
         }
         Snapshot(files)
     }

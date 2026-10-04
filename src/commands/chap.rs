@@ -7,8 +7,9 @@
 
 mod files;
 mod plan;
+mod start;
 
-use crate::cli::{ChapArgs, ChapImage};
+use crate::cli::{ChapArgs, ChapImage, ModelRunArgs, PortArg};
 use crate::commands::Ctx;
 use crate::commands::run::target;
 use crate::docker;
@@ -17,8 +18,10 @@ use crate::output;
 use crate::project::Project;
 use files::Snapshot;
 use plan::{ModelKind, RunSpec};
+use start::{Model, Started};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// The exit code `docker run` gives when it could not start the container
 /// at all: an image that does not pull, a mount docker refuses.
@@ -37,9 +40,41 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
     }
     let cwd = std::env::current_dir()
         .map_err(|e| anyhow::anyhow!("reading the current directory: {e}"))?;
-    let place = Place::find(ctx, args.group.as_deref())?;
+    let help = plan::is_help(&args.args);
+    if let Some(why) = plan::needs_a_browser(&args.args) {
+        return Err(ChapError::Usage(why).into());
+    }
+    let mut place = Place::find(ctx, args.group.as_deref())?;
+    let mut chap_args = args.args.clone();
+    let mut kind = plan::model_kind(plan::model_name(&chap_args));
 
-    let kind = plan::model_kind(plan::model_name(&args.args));
+    if let ModelKind::Chapkit(url) = &kind
+        && let Some(port) = plan::loopback_port(url)
+    {
+        return Err(ChapError::Usage(loopback_refusal(url, port, &place)).into());
+    }
+
+    if let ModelKind::Local(path) = &kind
+        && !cwd.join(path).exists()
+        && plan::id_candidate(&kind, false).is_none()
+    {
+        return Err(ChapError::Usage(format!(
+            "`{}` is not a directory here; give a model directory, a GitHub URL or a model id \
+             such as `chapkit_ewars_model`",
+            path.display()
+        ))
+        .into());
+    }
+
+    // A model id, or the URL of a model chaps knows: start the model when it
+    // does not run, and give chap its URL on the network.
+    let (model, started) = resolve_model(ctx, args, &cwd, &kind, &mut place)?;
+    if let Some(model) = &model {
+        let url = model.url();
+        set_model_name(&mut chap_args, &url);
+        kind = ModelKind::Chapkit(url);
+    }
+
     let image = args
         .image
         .unwrap_or_else(|| plan::image_for(&kind, place.deployment.is_some()));
@@ -52,16 +87,19 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
     )?;
     let reference = format!("{repository}:{tag}");
 
-    if let ModelKind::Chapkit(url) = &kind
-        && let Some(port) = plan::loopback_port(url)
+    if args.image == Some(ChapImage::Core)
+        && matches!(kind, ModelKind::GitHub { .. } | ModelKind::Local(_))
     {
-        return Err(ChapError::Usage(loopback_refusal(url, port, &place)).into());
+        output::warn(
+            "the core image has no R, so an R model fails in it with `Rscript: not found`; \
+             without --image, chaps runs this model in the worker image",
+        );
     }
     if !args.docker && runs_in_docker(ctx, &kind, &cwd) {
         return Err(ChapError::Usage(format!(
             "`{}` runs in docker (`docker_env` in its MLproject), and the container has no \
              docker socket; run it again with `chaps chap --docker ...`",
-            plan::model_name(&args.args).unwrap_or_default()
+            plan::model_name(&chap_args).unwrap_or_default()
         ))
         .into());
     }
@@ -71,7 +109,21 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         std::fs::create_dir_all(data.join(dir))
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", data.join(dir).display()))?;
     }
-    let outside = plan::outside_paths(&args.args, &cwd);
+    // chap does not make the directory of an output file, and fails with a
+    // traceback when it is not there; chaps makes it.
+    let outputs: Vec<PathBuf> = plan::output_files(&chap_args)
+        .iter()
+        .map(|file| plan::normalize(&cwd.join(file)))
+        .collect();
+    for file in &outputs {
+        if let Some(dir) = file.parent()
+            && !dir.exists()
+        {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
+        }
+    }
+    let outside = plan::outside_paths(&chap_args, &cwd);
     let mounts =
         plan::mount_dirs(&outside, &[cwd.clone(), data.clone()], Path::exists).map_err(|path| {
             ChapError::Usage(format!(
@@ -81,6 +133,51 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
                 cwd.display()
             ))
         })?;
+
+    announce(&Announce {
+        args: &chap_args,
+        image,
+        reference: &reference,
+        cwd: &cwd,
+        mounts: &mounts,
+        place: &place,
+        socket: args.docker,
+        list_models: model.is_none() && matches!(kind, ModelKind::Chapkit(_)),
+    });
+
+    // A chapkit service has to answer before chap is started, or chap ends
+    // in a traceback. One that this run started is given the time to.
+    if let ModelKind::Chapkit(url) = &kind {
+        let network = place.network.as_deref();
+        let wait = match &started {
+            Some(_) => Duration::from_secs(args.timeout),
+            None => Duration::ZERO,
+        };
+        if !start::wait_for(&reference, network, url, wait) {
+            let message = match &model {
+                Some(model) => format!(
+                    "{} did not answer on {url} within {}s; `chaps -C {} logs {}` says why",
+                    model.service,
+                    args.timeout,
+                    place
+                        .project
+                        .as_ref()
+                        .map(|p| p.dir.display().to_string())
+                        .unwrap_or_default(),
+                    model.service
+                ),
+                None => plan::unreachable_message(url),
+            };
+            return Err(ChapError::Usage(message).into());
+        }
+        if !help {
+            let name = model
+                .as_ref()
+                .map(|m| format!("{} at ", m.id))
+                .unwrap_or_default();
+            output::notice(&format!("model: {name}{url} answers"));
+        }
+    }
 
     let socket_group = args.docker.then(|| {
         let gid = docker::socket_gid(crate::backup::BUSYBOX_IMAGE);
@@ -100,26 +197,39 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         network: place.network.clone(),
         docker: socket_group,
         tty: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
-        args: args.args.clone(),
+        args: chap_args,
     };
 
-    announce(
-        &args.args,
-        image,
-        &reference,
-        &cwd,
-        &mounts,
-        &place,
-        args.docker,
-    );
     let roots: Vec<PathBuf> = std::iter::once(cwd.clone()).chain(mounts).collect();
-    let before = Snapshot::take(&roots);
+    let before = Snapshot::take(&roots, &outputs);
     let code = docker::run_plain(&plan::docker_args(&spec))?;
-    let written = before.written(&Snapshot::take(&roots));
+    let written = before.written(&Snapshot::take(&roots, &outputs));
 
+    let result = finish(code, help, &written, &cwd, &reference);
+    match (&started, args.stop) {
+        (Some(started), true) => start::stop(ctx, started),
+        (Some(_), false) => output::notice(&keeps_running(&model, &place)),
+        (None, true) => {
+            if let Some(model) = &model {
+                output::notice(&format!(
+                    "{} ran before this run, so --stop left it running",
+                    model.id
+                ));
+            }
+        }
+        (None, false) => {}
+    }
+    result
+}
+
+/// The run's own result: the closing line, or the error that names chap's
+/// exit status.
+fn finish(code: i32, help: bool, written: &[PathBuf], cwd: &Path, reference: &str) -> Result<()> {
     match code {
         0 => {
-            report(&written, &cwd);
+            if !help {
+                report(written, cwd);
+            }
             Ok(())
         }
         DOCKER_RUN_FAILED => Err(ChapError::Exited {
@@ -133,7 +243,7 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         .into()),
         _ => {
             if !written.is_empty() {
-                report(&written, &cwd);
+                report(written, cwd);
             }
             Err(ChapError::Exited {
                 command: "chap",
@@ -142,6 +252,129 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
             }
             .into())
         }
+    }
+}
+
+/// The model the run needs, when `--model-name` is a model id or the URL of
+/// a model chaps knows, and what the run started for it.
+///
+/// - A model of the deployment or group: started on its own when it does
+///   not run, with no chap-core.
+/// - A marketplace id outside a deployment: started in a `chaps run` group.
+/// - A marketplace id in a deployment: refused, because enabling a model
+///   changes the deployment, and that is `chaps models enable`.
+fn resolve_model(
+    ctx: &Ctx,
+    args: &ChapArgs,
+    cwd: &Path,
+    kind: &ModelKind,
+    place: &mut Place,
+) -> Result<(Option<Model>, Option<Started>)> {
+    let exists = matches!(kind, ModelKind::Local(path) if cwd.join(path).exists());
+    let id = plan::id_candidate(kind, exists);
+    let host = match kind {
+        ModelKind::Chapkit(url) => plan::url_host(url),
+        _ => None,
+    };
+    if id.is_none() && host.is_none() {
+        return Ok((None, None));
+    }
+    let known = place
+        .project
+        .as_ref()
+        .and_then(|project| start::model_in(project, id.as_deref(), host.as_deref()));
+
+    if let Some(model) = known {
+        let project = place.project.clone().expect("the model was found in it");
+        if docker::running_services(&project).contains(&model.service) {
+            return Ok((Some(model), None));
+        }
+        output::notice(&format!(
+            "starting {} for this run, without chap-core",
+            model.service
+        ));
+        let files = start::start_service(&project, &model)?;
+        *place = Place::find(ctx, args.group.as_deref())?;
+        let started = Started::Service {
+            project: Box::new(project),
+            model: model.clone(),
+            files,
+        };
+        return Ok((Some(model), Some(started)));
+    }
+
+    let Some(id) = id else {
+        // A URL of something chaps does not run: the probe before the run
+        // says whether it answers.
+        return Ok((None, None));
+    };
+    if let Some(project) = &place.deployment {
+        return Err(ChapError::Usage(format!(
+            "`{id}` is not a model of the deployment at {}; `chaps models enable {id}` adds \
+             it, and `chaps models list` lists the ids",
+            project.dir.display()
+        ))
+        .into());
+    }
+    let run = ModelRunArgs {
+        source: id.clone(),
+        port: "auto".parse::<PortArg>().map_err(|e| anyhow::anyhow!(e))?,
+        bind: None,
+        id: None,
+        group: args.group.clone(),
+        allow_template: false,
+        no_wait: false,
+        timeout: args.timeout,
+    };
+    let group = crate::commands::run::start_quietly(ctx, &run)?;
+    *place = Place::find(ctx, args.group.as_deref())?;
+    let project = place
+        .project
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("the group at {} did not load", group.dir.display()))?;
+    let model = start::model_in(project, Some(&group.id), None)
+        .ok_or_else(|| anyhow::anyhow!("{} is not in the group it was started in", group.id))?;
+    let started = group.enabled.then(|| Started::Group {
+        dir: group.dir.clone(),
+        model: model.clone(),
+    });
+    Ok((Some(model), started))
+}
+
+/// Put `url` in place of the `--model-name` value, in either spelling.
+fn set_model_name(args: &mut [String], url: &str) {
+    let mut next_is_value = false;
+    for arg in args.iter_mut() {
+        if next_is_value {
+            *arg = url.to_string();
+            return;
+        }
+        if arg == "--model-name" {
+            next_is_value = true;
+        } else if arg.starts_with("--model-name=") {
+            *arg = format!("--model-name={url}");
+            return;
+        }
+    }
+}
+
+/// The closing note for a model this run started and left running.
+fn keeps_running(model: &Option<Model>, place: &Place) -> String {
+    let Some(model) = model else {
+        return String::new();
+    };
+    match &place.deployment {
+        Some(project) => format!(
+            "{} keeps running for the next run; `chaps -C {} down` stops it, and `--stop` \
+             stops it after a run",
+            model.service,
+            project.dir.display()
+        ),
+        None => format!(
+            "{} keeps running for the next run; `chaps stop {}` stops it, and `--stop` stops \
+             it after a run",
+            model.id, model.id
+        ),
     }
 }
 
@@ -216,9 +449,8 @@ fn loopback_refusal(url: &str, port: u16, place: &Place) -> String {
         ),
         _ => format!(
             "`{url}` is this machine, and in the container `localhost` is the container \
-             itself; start the model with `chaps run MODEL` and use the `http://SERVICE:{}` \
-             URL that `chaps chap` lists on its `models:` line",
-            plan::MODEL_PORT
+             itself; give the model id instead (`--model-name chapkit_ewars_model`), and \
+             chaps starts the model and gives chap its URL on the network"
         ),
     }
 }
@@ -304,16 +536,31 @@ fn host_user() -> Option<(u32, u32)> {
 }
 
 /// The lines before the run: the image, the directories chap sees, and the
-/// models it can reach.
-fn announce(
-    args: &[String],
+/// models it can reach. A run that only asks for help gets the first line.
+struct Announce<'a> {
+    args: &'a [String],
     image: ChapImage,
-    reference: &str,
-    cwd: &Path,
-    mounts: &[PathBuf],
-    place: &Place,
+    reference: &'a str,
+    cwd: &'a Path,
+    mounts: &'a [PathBuf],
+    place: &'a Place,
     socket: bool,
-) {
+    /// Whether to list the models on the network: for a URL chaps did not
+    /// resolve to one of them.
+    list_models: bool,
+}
+
+fn announce(what: &Announce) {
+    let Announce {
+        args,
+        image,
+        reference,
+        cwd,
+        mounts,
+        place,
+        socket,
+        list_models,
+    } = *what;
     let command = args.first().map(String::as_str).unwrap_or("--help");
     let pull = match docker::image_is_local(reference) {
         true => String::new(),
@@ -323,26 +570,26 @@ fn announce(
         ),
     };
     output::notice(&format!("running `chap {command}` in {reference}{pull}"));
+    if plan::is_help(args) {
+        return;
+    }
     let mut seen: Vec<String> = vec![cwd.display().to_string()];
     seen.extend(mounts.iter().map(|dir| dir.display().to_string()));
     output::notice(&format!(
         "files: chap reads and writes in {}",
         seen.join(", ")
     ));
-    match (&place.project, &place.network) {
-        (Some(_), Some(_)) => {
-            let urls = place.model_urls();
-            if !urls.is_empty() {
-                output::notice(&format!("models: {}", urls.join(", ")));
-            }
-        }
-        (Some(project), None) => output::notice(&format!(
-            "models: {} is not running, so its models are not reachable; `chaps -C {} up` \
-             starts it",
-            project.dir.display(),
-            project.dir.display()
-        )),
-        _ => {}
+    if place.deployment.as_ref().is_some_and(|p| p.dir == cwd) {
+        output::notice(
+            "files: this is the deployment directory; a subdirectory (`mkdir eval && cd eval`) \
+             keeps chap's files apart from the compose files",
+        );
+    }
+    let urls = place.model_urls();
+    // A model chaps resolved gets its own line once it answers; the list is
+    // for a URL that may be one of them.
+    if list_models && place.network.is_some() && !urls.is_empty() {
+        output::notice(&format!("models: {}", urls.join(", ")));
     }
     if socket {
         output::warn("--docker gives the container control of docker on this machine");

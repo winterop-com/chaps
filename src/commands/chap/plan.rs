@@ -123,6 +123,85 @@ pub fn loopback_port(url: &str) -> Option<u16> {
     loopback.then(|| port.unwrap_or(80))
 }
 
+/// Whether the chap arguments only ask for help or the version: no
+/// arguments, or `--help`, `-h` or `--version` anywhere. Such a run touches
+/// no model and writes no file, so chaps says nothing about either.
+pub fn is_help(args: &[String]) -> bool {
+    args.is_empty()
+        || args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version"))
+}
+
+/// A `--model-name` that can only be a model id: one word, no scheme, no
+/// path separator, and no file or directory of that name here.
+pub fn id_candidate(kind: &ModelKind, exists: bool) -> Option<String> {
+    match kind {
+        ModelKind::Local(path) if !exists => {
+            let text = path.to_string_lossy();
+            let word = !text.is_empty() && !text.starts_with('.') && !text.contains(['/', '\\']);
+            word.then(|| text.into_owned())
+        }
+        _ => None,
+    }
+}
+
+/// The host of a chapkit URL, the service name on a compose network:
+/// `chapkit-ewars-model` for `http://chapkit-ewars-model:8000/`.
+pub fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let authority = rest.split('/').next()?;
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => host,
+        _ => authority,
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
+/// The note for a chapkit URL that does not answer: what is wrong, and the
+/// way out that fits the URL.
+pub fn unreachable_message(url: &str) -> String {
+    let head = format!(
+        "the model server at {url} is not running (no answer on /api/v1/info), so chap was \
+         not started"
+    );
+    match url_host(url) {
+        Some(host) if !host.contains('.') => format!(
+            "{head}; `{host}` is not a model of this deployment or group. Give a model id \
+             instead (`--model-name chapkit_ewars_model`) and chaps starts it, or start one \
+             with `chaps run ID`; the `models:` line lists the URLs that answer"
+        ),
+        _ => format!("{head}; check that the server runs and that this machine can reach it"),
+    }
+}
+
+/// The values of `--output-file` in the chap arguments, in either spelling.
+pub fn output_files(args: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        if arg == "--output-file" {
+            if let Some(value) = rest.next() {
+                found.push(value.clone());
+            }
+        } else if let Some(value) = arg.strip_prefix("--output-file=") {
+            found.push(value.to_string());
+        }
+    }
+    found
+}
+
+/// Why a chap command cannot work in a container, when chaps knows it does
+/// not: `plot-dataset` shows its plot in a browser and writes no file.
+pub fn needs_a_browser(args: &[String]) -> Option<String> {
+    (args.first().map(String::as_str) == Some("plot-dataset") && !is_help(args)).then(|| {
+        "`chap plot-dataset` shows its plot in a browser and writes no file, and the \
+         container has no browser; `chaps chap plot-backtest` writes a plot of an \
+         evaluation to a file"
+            .to_string()
+    })
+}
+
 /// The image a model runs in.
 ///
 /// The models that are not chapkit services run in the worker image, as
@@ -131,6 +210,7 @@ pub fn loopback_port(url: &str) -> Option<u16> {
 /// smaller image does those. Inside a deployment the worker image is local
 /// already, so it is the one used there.
 pub fn image_for(kind: &ModelKind, in_deployment: bool) -> ChapImage {
+    // A model id resolves to a chapkit service before the run.
     if in_deployment {
         return ChapImage::Worker;
     }
@@ -274,7 +354,8 @@ pub fn environment(data: &Path) -> Vec<(&'static str, String)> {
     let at = |rest: &str| data.join(rest).to_string_lossy().into_owned();
     vec![
         ("HOME", "/tmp".to_string()),
-        ("MPLCONFIGDIR", "/tmp".to_string()),
+        // Kept, so matplotlib builds its font cache once and not on every run.
+        ("MPLCONFIGDIR", at("cache/matplotlib")),
         ("CHAP_RUNS_DIR", at("runs")),
         ("XDG_CACHE_HOME", at("cache")),
         ("UV_CACHE_DIR", at("cache/uv")),
