@@ -19,10 +19,21 @@ This file holds the rules that are not derivable from the code.
 
 - Write in ASD-STE100 Simplified Technical English. This applies to help,
   messages, docs, commit subjects, and to the agent's own replies in the
-  session. The rules to keep:
+  session. Two modes:
+  - Strict for help strings, messages, and instructions (`docs/ai.md`, the
+    steps in a chapter). Apply every rule below.
+  - STE-flavored for explanatory prose in `docs/`, commit bodies, and PR
+    text. Apply every rule, but the word rules are advice, not law.
+
+  The rules to keep:
   - One word, one meaning. Use the simple, common word ("use", not
     "utilize"; "start", not "initiate"; "make sure", not "ensure").
     Technical names (commands, files, options, products) stay as they are.
+  - One name for one thing. Do not call one thing "deployment", then
+    "project", then "directory" in the same text.
+  - No phrasal verbs. Write "start", not "spin up"; "remove", not "take off".
+  - Keep the modality. Do not change "may have failed" to "failed". A
+    message claims only what chaps checked.
   - Sentences of at most 20 words in instructions and 25 words in
     descriptions. Paragraphs of at most six sentences.
   - Active voice and simple tenses: present, past, future.
