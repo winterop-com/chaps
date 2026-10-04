@@ -1,11 +1,12 @@
 # Slides
 
-Five slide decks, one for each audience. Each one is a web page that you can
+Six slide decks, one for each audience. Each one is a web page that you can
 present in a browser, and a PDF in 16:9. <a href="slides/index.html" target="_blank" rel="noopener">All the decks on one page</a>.
 
 | Deck | For | Web | PDF |
 | --- | --- | --- | --- |
 | An overview | anyone who is new to chaps | <a href="slides/overview.html" target="_blank" rel="noopener">open</a> | <a href="slides/overview.pdf" target="_blank" rel="noopener">PDF</a> |
+| Running models with chaps run | anyone who needs a model and its URL | <a href="slides/running-models.html" target="_blank" rel="noopener">open</a> | <a href="slides/running-models.pdf" target="_blank" rel="noopener">PDF</a> |
 | The chap CLI, without Python | people who use `uvx --from chap-core chap` | <a href="slides/chap-cli-users.html" target="_blank" rel="noopener">open</a> | <a href="slides/chap-cli-users.pdf" target="_blank" rel="noopener">PDF</a> |
 | Chap behind the Modeling App | people who use DHIS2 and the Modeling App | <a href="slides/modeling-app-users.html" target="_blank" rel="noopener">open</a> | <a href="slides/modeling-app-users.pdf" target="_blank" rel="noopener">PDF</a> |
 | A workshop | students, in a hands-on session of about one hour | <a href="slides/workshop.html" target="_blank" rel="noopener">open</a> | <a href="slides/workshop.pdf" target="_blank" rel="noopener">PDF</a> |

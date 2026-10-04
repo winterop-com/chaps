@@ -4,7 +4,7 @@ theme: chaps
 paginate: true
 footer: chaps - the chap CLI without Python
 title: The chap CLI, without Python
-description: For people who use `uvx --from chap-core chap`: the same commands through chaps chap
+description: For people who use `uvx --from chap-core chap`: the same commands through chaps chap, and how it works
 ---
 
 <!-- _class: title -->
@@ -16,6 +16,20 @@ description: For people who use `uvx --from chap-core chap`: the same commands t
 ## `uvx --from chap-core chap` becomes `chaps chap`
 
 For people who use the chap CLI already
+
+---
+
+## What this deck covers
+
+1. What changes for you, and what does not
+2. How `chaps chap` runs chap: the container, the mounts, the user
+3. Which image and which chap-core version it runs
+4. Models: GitHub, directories, URLs, and marketplace ids
+5. Models that run in docker
+6. Your files: what is visible, what is written, what chaps reports
+7. Every message that stops a run, and what to do
+8. A full example: three models, compared
+9. Troubleshooting
 
 ---
 
@@ -66,43 +80,144 @@ chaps chap plot-backtest r.nc --output-file r.html
 
 ---
 
-## Your files stay where they are
+## The options of chaps itself
 
-chaps mounts your current directory at **the same path** in the container.
+They come **between** `chap` and chap's own command:
 
-- `--dataset-csv laos_subset.csv` reads your file. The `.geojson` beside it is
-  found, as before.
-- `--output-file r.nc` writes to your directory, and the file belongs to you.
-- A path outside the directory (`../out/r.nc`, `/data/r.nc`) is mounted too.
-- chaps makes the directory of an output file if it does not exist.
+| Option | What it does |
+| --- | --- |
+| `--tag TAG` | The chap-core version to run |
+| `--image core` or `--image worker` | The image to run in |
+| `--group NAME` | The `chaps run` group whose models chap can reach |
+| `--stop` | Stop the model that this run started, after the run |
+| `--timeout SECONDS` | How long to wait for a model that chaps starts (300) |
+| `--docker` | Give the container the docker socket |
+
+For example: `chaps chap --tag master --docker eval ...`. `chaps chap --help`
+shows these options, and `chaps chap` alone shows chap's own help.
+
+---
+
+## Under the hood: one `docker run`
 
 ```text
-files: chap reads and writes in /home/me/work
-chap finished; it wrote r.nc
-`chaps chap plot-backtest r.nc --output-file r.html` plots it
+docker run --rm -i [-t] --init --platform linux/amd64
+  --user <your uid>:<your gid>
+  -v <cwd>:<cwd> -w <cwd>
+  -v <data>/chap:<data>/chap
+  -e HOME=/tmp -e CHAP_RUNS_DIR=<data>/chap/runs ...
+  [--network <deployment>_default]
+  --label com.winterop.chaps.kind=cli
+  ghcr.io/dhis2-chap/chap-worker:v2.3.1 chap eval ...
+```
+
+- `--rm`: the container goes when chap stops. `--init` passes Ctrl-C on.
+- `--platform linux/amd64`: the chap-core images are amd64. On Apple
+  silicon, they run under emulation.
+- `-t` only when your terminal is a terminal, so a pipe works too.
+
+---
+
+## The same path, inside and outside
+
+`-v <cwd>:<cwd> -w <cwd>` mounts your directory **at the same path**:
+
+- `--dataset-csv laos_subset.csv` reads your file, and finds the
+  `.geojson` beside it, as before.
+- `--output-file r.nc` writes into your directory.
+- An absolute path in the output means the same file on both sides.
+
+`--user <uid>:<gid>` runs chap as you, so the files belong to you, not to
+root.
+
+---
+
+## The caches: the second run is faster
+
+`<data>` is chaps' data directory: `~/.local/share/chaps`, or
+`$CHAPS_DATA_DIR`. chaps sets:
+
+| Variable | Value | What it keeps |
+| --- | --- | --- |
+| `CHAP_RUNS_DIR` | `<data>/chap/runs` | one directory for each model |
+| `UV_CACHE_DIR` | `<data>/chap/cache/uv` | Python packages |
+| `UV_PYTHON_INSTALL_DIR` | `<data>/chap/cache/python` | Python versions |
+| `RENV_PATHS_ROOT` | `<data>/chap/cache/renv` | R packages |
+| `RENV_CONFIG_SANDBOX_ENABLED` | `FALSE` | no read-only sandbox |
+| `MPLCONFIGDIR` | `<data>/chap/cache/matplotlib` | the font cache |
+
+With the sandbox off, `rm -rf ~/.local/share/chaps/chap` deletes all of it.
+
+---
+
+## Which image
+
+| `--model-name` | Image | Size on disk |
+| --- | --- | --- |
+| a GitHub repository, a model directory | `chap-worker` | about 12 GB |
+| a chapkit URL, a model id | `chap-core` | about 2.4 GB |
+| no model (`plot-backtest`, `export-metrics`) | `chap-core` | about 2.4 GB |
+| anything, in a deployment | `chap-worker` | already there |
+
+- The worker image has uv, R and INLA. chap-core's own worker runs models in
+  it.
+- `--image core` or `--image worker` overrides the choice.
+- `--image core` with a GitHub model gets a warning first: an R model fails
+  there with `Rscript: not found`.
+
+---
+
+## Which chap-core version
+
+1. `--tag TAG`, when you give it.
+2. In a deployment: **the deployment's tag**, so the CLI and the server are
+   the same version.
+3. Outside a deployment: **the newest chap-core release**, from GitHub.
+4. With `--offline`: the newest image of that kind on this machine.
+
+If GitHub does not answer, chaps uses the newest local image, and says so:
+
+```text
+warning: the newest chap-core release could not be read; using v2.3.1, the
+newest image on this machine
 ```
 
 ---
 
-## Models: what is new
+## The lines before the run
+
+```text
+running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.3.1; the first run pulls it, about 12 GB
+files: chap reads and writes in /home/me/work
+model: chapkit_ewars_model at http://chapkit-ewars-model:8000 answers
+```
+
+- The image and its tag, and the size when it is not local yet.
+- The directories that chap can see.
+- The model, when chaps checked that it answers.
+
+A run that only asks for help (`chaps chap`, `--help`, `--version`) gets
+only the first line.
+
+---
+
+## Models: four kinds
 
 | `--model-name` | What happens |
 | --- | --- |
-| a GitHub repository | As before. It runs in the worker image (uv, R, INLA). |
-| a model directory | As before. |
-| a chapkit URL | chaps checks that it answers **before** chap starts. |
-| **a marketplace id** | **chaps starts the model for you.** |
+| `https://github.com/...` | chap clones it, and runs it in the worker image |
+| `./my_model` (a directory) | chap runs it from your directory |
+| `http://...` (a chapkit service) | chaps checks that it answers, then chap calls it |
+| **`chapkit_ewars_model` (an id)** | **chaps starts the model, then chap calls it** |
 
-```sh
-chaps chap eval --model-name chapkit_ewars_model \
-  --dataset-csv laos_subset.csv --output-file ewars.nc
-```
-
-No `docker run`, no port, no URL to copy.
+A word is a model id only when no file or directory of that name is in the
+current directory. A directory of the same name wins, as it does for chap.
 
 ---
 
-## A marketplace model, started for you
+## A model id: chaps starts the model
+
+Outside a deployment, chaps starts the model in a `chaps run` group:
 
 ```text
 starting chapkit-ewars-model (chapkit_ewars_model in ~/.local/share/chaps/run/default)
@@ -113,87 +228,242 @@ chapkit_ewars_model keeps running for the next run; `chaps stop chapkit_ewars_mo
 stops it, and `--stop` stops it after a run
 ```
 
-- The model keeps running, so the next evaluation starts at once.
-- `--stop` stops it after the run.
-- `chaps models list` lists the ids.
+The container joins the group's network, where the model has its service
+name. chaps gives chap that URL in place of the id.
+
+---
+
+## A model id in a deployment: no `chaps up`
+
+```sh
+cd ~/mychap && mkdir -p eval && cd eval
+chaps chap eval --model-name chapkit_ewars_model \
+  --dataset-csv laos_subset.csv --output-file ewars.nc
+```
+
+```text
+starting chapkit-ewars-model for this run, without chap-core
+```
+
+- chaps starts **only that model**, with `--no-deps`: chap-core, postgres and
+  redis stay down.
+- For this start, the model gets no registration settings, so it does not wait
+  for a chap-core that does not run.
+- A later `chaps up` recreates the model, and it registers as usual.
+
+---
+
+## Keep it running, or stop it
+
+| Situation | After the run |
+| --- | --- |
+| chaps started the model | It keeps running, so the next run starts at once |
+| chaps started it, with `--stop` | chaps stops it |
+| the model ran before | chaps never stops it |
+
+```text
+chapkit_ewars_model ran before this run, so --stop left it running
+```
+
+`--timeout SECONDS` (300) is how long chaps waits for a model that it
+starts. A first start pulls the model's image (1 to 7 GB), and chaps shows
+that pull.
+
+---
+
+## A chapkit URL: checked before chap starts
+
+chaps asks the URL for `/api/v1/info`, from a container on the same network.
+If nothing answers, chap is not started:
+
+```text
+error: the model server at http://nothing:8000 is not running (no answer on
+/api/v1/info), so chap was not started; `nothing` is not a model of this
+deployment or group. Give a model id instead (`--model-name
+chapkit_ewars_model`) and chaps starts it, or start one with `chaps run ID`;
+the `models:` line lists the URLs that answer
+```
+
+For a server elsewhere, the message ends with "check that the server runs and
+that this machine can reach it".
+
+---
+
+## Not `localhost`
+
+`chaps ps` shows a model at `http://localhost:5001`. That URL works on your
+machine. In the container, `localhost` is the container itself:
+
+```text
+error: `http://localhost:5001` is this machine, and in the container
+`localhost` is the container itself; use `--model-name
+http://auto-arima-chapkit:8000`, the same model on the network
+```
+
+When chaps knows which model has that port, the message names its service
+URL. Otherwise, it tells you to give the model id.
 
 ---
 
 ## Models that run in docker
 
 A model with `docker_env` in its `MLproject` starts a container of its own.
+chaps reads the `MLproject` first (from GitHub, or from your directory):
+
+```text
+error: `https://github.com/dhis2-chap/chap_auto_ewars` runs in docker
+(`docker_env` in its MLproject), and the container has no docker socket;
+run it again with `chaps chap --docker ...`
+```
 
 ```sh
 chaps chap --docker eval --model-name https://github.com/dhis2-chap/chap_auto_ewars \
   --dataset-csv laos_subset.csv --output-file ewars.nc
 ```
 
-- chaps reads the `MLproject` first. Without `--docker`, it stops before the
-  run and tells you to add the flag.
-- `--docker` gives the container the docker socket, which is full control of
-  docker. chaps warns when you give it.
+---
+
+## What `--docker` does
+
+- It mounts `/var/run/docker.sock` in the container. Docker Desktop, Colima
+  and OrbStack all answer that path.
+- It adds the socket's group to the container user, as the container sees it
+  (on Docker Desktop, group 0).
+- The run directories are at the same path on both sides, so the paths that
+  chap gives docker are real paths on your machine.
+
+```text
+warning: --docker gives the container control of docker on this machine
+```
+
+The socket is full control of docker. So `--docker` is never the default.
 
 ---
 
-## Fewer stack traces
+## Your files: what chaps does for you
 
-chaps checks before chap starts, and says what is wrong in one line:
+- **Output directories:** chaps makes the directory of each `--output-file`
+  that does not exist. chap does not, and it fails with a traceback.
+- **Paths outside the directory:** `../out/r.nc`, `/data/r.nc` or
+  `--output-file=/data/r.nc`. chaps mounts the nearest existing directory
+  above the path, at the same path.
+- **The deployment directory:** if you run `chaps chap` there, chaps tells
+  you that a subdirectory (`mkdir eval && cd eval`) keeps chap's files apart
+  from the compose files.
+
+---
+
+## What chaps reports after the run
 
 ```text
-error: the model server at http://nothing:8000 is not running (no answer on
-/api/v1/info), so chap was not started; ...
+chap finished; it wrote ewars.nc
+`chaps chap plot-backtest ewars.nc --output-file ewars.html` plots it
 ```
 
-```text
-error: `http://localhost:5001` is this machine, and in the container `localhost`
-is the container itself; give the model id instead ...
-```
+- chaps looks at the mounted directories before and after the run, and names
+  the files that are new or changed.
+- It also names the files that the arguments name, wherever they are.
+- For a `.nc` file, it gives the command that plots it.
+- When chap fails, chaps exits with chap's own status:
 
 ```text
-error: `./no_such_model` is not a directory here; give a model directory, a
-GitHub URL or a model id such as `chapkit_ewars_model`
+error: chap exited with status 1; its own message is above
 ```
 
 ---
 
-## Versions and caches
+## Every message that stops a run
 
-- **Outside a deployment:** the newest chap-core release.
-- **In a deployment:** the deployment's chap-core version, so the CLI and the
-  server are the same.
-- **`--tag master`**, or any tag, to try another version.
-- **Caches:** the model runs, uv, Python and R packages are kept in
-  `~/.local/share/chaps/chap`. The second run of a model installs nothing.
+| chaps says | What to do |
+| --- | --- |
+| `--json does not apply` | Drop `--json`: the output is chap's own |
+| `` `./x` is not a directory here `` | Give a directory, a GitHub URL or a model id |
+| `is not a model of the deployment` | `chaps models enable ID`, then run again |
+| `there is no marketplace model` | `chaps models search WORD` finds the id |
+| ``there is no `chaps run` group called`` | `chaps ps` lists the groups |
+| `no directory above it exists to mount` | Make the directory first |
+| `--offline needs a ... image on this machine` | Run once without `--offline`, or give `--tag` |
+| `` `chap plot-dataset` shows its plot in a browser `` | Use `plot-backtest`, which writes a file |
+
+---
+
+## chap's commands in a container
+
+| Command | In `chaps chap` |
+| --- | --- |
+| `eval` | yes, with every kind of model |
+| `plot-backtest` | yes, it writes a file |
+| `export-metrics` | yes |
+| `validate` | yes |
+| `test` | yes |
+| `plot-dataset` | **no**: it opens a browser, and a container has none |
+
+chaps refuses `plot-dataset` before the run and names `plot-backtest`.
+
+---
+
+## A full example: three models, compared (1)
+
+Get the data, and check it:
 
 ```sh
-rm -rf ~/.local/share/chaps/chap     # to get the space back
+mkdir -p ~/compare && cd ~/compare
+curl -fsSO https://raw.githubusercontent.com/dhis2-chap/chap-core/master/example_data/laos_subset.csv
+curl -fsSO https://raw.githubusercontent.com/dhis2-chap/chap-core/master/example_data/laos_subset.geojson
+chaps chap validate laos_subset.csv
+```
+
+```text
+Validation passed: no issues found.
 ```
 
 ---
 
-## Compare models, as before
+## A full example: three models, compared (2)
 
 ```sh
-chaps chap eval --model-name chapkit_ewars_model \
-  --dataset-csv laos_subset.csv --output-file ewars.nc
+chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
+  --dataset-csv laos_subset.csv --output-file out/r.nc \
+  --backtest-params.n-splits 3 --backtest-params.n-periods 3
 chaps chap eval --model-name auto_arima_chapkit \
-  --dataset-csv laos_subset.csv --output-file arima.nc
-chaps chap export-metrics ewars.nc arima.nc --output-file comparison.csv
+  --dataset-csv laos_subset.csv --output-file out/arima.nc \
+  --backtest-params.n-splits 3 --backtest-params.n-periods 3
+chaps chap --stop eval --model-name chapkit_simple_multistep_model \
+  --dataset-csv laos_subset.csv --output-file out/multistep.nc \
+  --backtest-params.n-splits 3 --backtest-params.n-periods 3
 ```
 
-One row for each model: `crps`, `mae`, `rmse`, `coverage_10_90` and more.
+chaps makes `out/` with the first run. The third run stops its model after.
 
 ---
 
-## What does not change, and what does not work
+## A full example: three models, compared (3)
 
-- **Does not change:** chap's own output, its options and its files.
-- **`chap plot-dataset`** opens a browser, and a container has none. chaps
-  says so before the run. Use `plot-backtest`, which writes a file.
-- **On Apple silicon**, the images run under emulation, so a run is slower.
-- **The first run downloads large images:** 2.4 GB for `chap-core`, 12 GB for
-  `chap-worker`, and 1 to 7 GB for each marketplace model. chaps says so
-  before it pulls. On a slow network, run `docker pull` in advance.
+```sh
+chaps chap export-metrics out/r.nc out/arima.nc out/multistep.nc \
+  --output-file out/comparison.csv
+chaps chap plot-backtest out/arima.nc --output-file out/arima.html
+chaps stop auto_arima_chapkit
+```
+
+- `comparison.csv` has one row for each model: `crps`, `mae`, `rmse`,
+  `coverage_10_90` and more. Lower is better for the errors.
+- chap can print `RuntimeWarning` lines about `log1p`. They do not stop the
+  run.
+
+---
+
+## Troubleshooting
+
+| You see | Cause and fix |
+| --- | --- |
+| `Cannot reach the Docker daemon. The model ... requires Docker` | A `docker_env` model ran without the socket. Add `--docker`. |
+| `Rscript: not found` | An R model in the `chap-core` image. Drop `--image core`. |
+| `FileNotFoundError: [Errno 2]` | An output directory that chaps could not make. Make it, then run again. |
+| `did not answer on http://...:8000 within 300s` | A slow first start. Give a longer `--timeout`. |
+| `docker run exited with status 125` | The image did not pull. Check the tag, or run `chaps doctor`. |
+
+Each message is in the book's Troubleshooting chapter, with more detail.
 
 ---
 
@@ -205,5 +475,7 @@ chaps doctor
 chaps chap
 ```
 
-The full guide, from install to a comparison of two models:
-**https://winterop-com.github.io/chaps/use-cases/evaluate-with-chap-cli.html**
+- The full guide, from install to a comparison of two models:
+  **https://winterop-com.github.io/chaps/use-cases/evaluate-with-chap-cli.html**
+- The chapter about `chaps chap`:
+  **https://winterop-com.github.io/chaps/chap-cli.html**

@@ -271,7 +271,7 @@ The default. For each model, `chaps` runs chapkit's own end-to-end test inside
 that model's container:
 
 ```text
-docker compose exec -T <service> chapkit test --url http://127.0.0.1:8700 --timeout 300
+docker compose exec -T <service> chapkit test --url http://127.0.0.1:8000 --timeout 300
 ```
 
 chapkit reads the service's own configuration schema, creates a config from it,
