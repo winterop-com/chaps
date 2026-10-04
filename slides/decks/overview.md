@@ -11,9 +11,9 @@ description: What chaps is, what it deploys and how it works, for technical peop
 <!-- _paginate: false -->
 <!-- _footer: '' -->
 
-# chaps
+# Deploying Chap with one binary
 
-## Deploy Chap, the Climate Health Analytics Platform, with Docker
+## The Climate Health Analytics Platform, its models, OCS and DHIS2, with Docker
 
 An overview for technical people
 

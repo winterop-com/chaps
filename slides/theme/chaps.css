@@ -1,131 +1,227 @@
 /* @theme chaps */
 /*
- * The theme of every chaps deck: plain, readable on a projector, and code
+ * The theme of every chaps deck: paper and ink, one quiet accent, and code
  * blocks that look like the terminal the commands run in. 16:9, 1280 x 720.
  */
 @import 'default';
 
 :root {
-  --ink: #1d2330;
-  --muted: #5b6475;
-  --accent: #1f6feb;
-  --accent-soft: #e8f0fe;
-  --term-bg: #10141c;
-  --term-ink: #e6edf3;
-  --term-dim: #8b95a5;
-  --rule: #d8dee8;
+  --paper: #fbfaf7;
+  --ink: #17191c;
+  --muted: #6b6f76;
+  --rule: #e4e1da;
+  --accent: #1f6b52;
+  --accent-soft: #eef3f0;
+  --code-bg: #f1efe9;
+  --term-bg: #1b1d21;
+  --term-ink: #e8e6e3;
+  --term-dim: #8c8f94;
+  --term-string: #b5d3a8;
 }
 
 section {
-  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-  font-size: 28px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 27px;
+  line-height: 1.5;
   color: var(--ink);
-  background: #ffffff;
-  padding: 56px 72px;
+  background: var(--paper);
+  padding: 64px 80px 56px;
   justify-content: flex-start;
 }
 
 h1 {
-  font-size: 54px;
+  font-size: 60px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
   color: var(--ink);
-  margin-bottom: 12px;
+  margin: 0 0 16px;
 }
 
 h2 {
-  font-size: 40px;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ink);
-  border-bottom: 3px solid var(--accent);
-  padding-bottom: 8px;
-  margin-bottom: 24px;
+  margin: 0 0 28px;
+  padding: 0;
+  border: none;
+}
+
+/* A short accent rule under each slide title. */
+h2::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin-top: 14px;
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 h3 {
-  font-size: 30px;
-  color: var(--accent);
+  font-size: 28px;
+  color: var(--ink);
 }
 
 strong {
-  color: var(--accent);
+  color: var(--ink);
+  font-weight: 650;
 }
 
 a {
   color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+ul,
+ol {
+  padding-left: 1.1em;
+}
+
+li {
+  margin: 4px 0;
+}
+
+li::marker {
+  color: var(--muted);
 }
 
 code {
   font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
-  background: var(--accent-soft);
+  background: var(--code-bg);
   color: var(--ink);
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-size: 0.9em;
+  font-size: 0.86em;
 }
 
 pre {
   background: var(--term-bg);
-  border-radius: 10px;
-  padding: 18px 22px;
-  font-size: 21px;
-  line-height: 1.45;
+  border-radius: 8px;
+  padding: 18px 24px;
+  font-size: 20px;
+  line-height: 1.5;
+  margin: 18px 0;
 }
 
 pre code {
   background: transparent;
   color: var(--term-ink);
   padding: 0;
+  font-size: 1em;
+}
+
+/*
+ * A terminal shows commands in one colour, so the code does too: plain text
+ * light, comments dim, strings a soft green.
+ */
+pre code [class^='hljs-'],
+pre code [class*=' hljs-'] {
+  color: var(--term-ink);
+}
+
+pre code .hljs-comment {
+  color: var(--term-dim);
+}
+
+pre code .hljs-string {
+  color: var(--term-string);
 }
 
 table {
-  font-size: 22px;
+  font-size: 21px;
   border-collapse: collapse;
+  margin: 8px 0 16px;
 }
 
 th {
-  background: var(--accent-soft);
+  text-align: left;
+  font-weight: 650;
   color: var(--ink);
+  background: transparent;
+  border-bottom: 2px solid var(--ink);
 }
 
 th,
 td {
-  border: 1px solid var(--rule);
-  padding: 6px 12px;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 18px 8px 0;
+}
+
+tr:nth-child(2n) td {
+  background: transparent;
 }
 
 blockquote {
-  border-left: 6px solid var(--accent);
+  border-left: 4px solid var(--accent);
   background: var(--accent-soft);
   color: var(--ink);
-  padding: 12px 20px;
+  padding: 14px 22px;
+  margin: 16px 0;
   font-style: normal;
+  border-radius: 0 6px 6px 0;
 }
 
 footer,
 header {
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
+  left: 80px;
 }
 
 section::after {
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
+  right: 80px;
 }
 
-/* The title slide of a deck. */
+/* The title slide of a deck: large type on paper, nothing else. */
 section.title {
   justify-content: center;
-  background: linear-gradient(135deg, #0f2a5a 0%, #1f6feb 100%);
-  color: #ffffff;
+  padding-left: 96px;
 }
 
-section.title h1,
-section.title h2,
-section.title strong {
-  color: #ffffff;
-  border: none;
+section.title h1 {
+  font-size: 72px;
+  max-width: 980px;
+}
+
+section.title h1::before {
+  content: 'chaps';
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 28px;
+}
+
+section.title h2 {
+  font-size: 32px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0 0 40px;
+  max-width: 980px;
+}
+
+section.title h2::after {
+  display: none;
 }
 
 section.title p {
-  color: #dbe7ff;
+  font-size: 22px;
+  color: var(--muted);
+  border-top: 1px solid var(--rule);
+  padding-top: 20px;
+  max-width: 980px;
+}
+
+section.title code {
+  font-size: 0.8em;
 }
 
 /* A slide that says one thing large. */
@@ -139,30 +235,39 @@ section.statement {
 .columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 36px;
+  gap: 48px;
 }
 
 /* Small print under a slide: a source, a link. */
 .small {
-  font-size: 20px;
+  font-size: 19px;
   color: var(--muted);
 }
 
 /*
- * Code colours. The default highlighting marks shell words such as `eval`
- * and `test` as keywords and draws strings in a dark blue that is hard to
- * read on the dark background. A terminal shows commands in one colour, so
- * these do too: plain text light, comments dim, strings light green.
+ * The default theme draws a box around tables and between their columns,
+ * with selectors stronger than the ones above; these win over it.
  */
-pre code [class^='hljs-'],
-pre code [class*=' hljs-'] {
-  color: var(--term-ink);
+section table {
+  border: none;
 }
 
-pre code .hljs-comment {
-  color: var(--term-dim);
+section table tr {
+  background: transparent;
 }
 
-pre code .hljs-string {
-  color: #a5d6a7;
+section table th,
+section table td {
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+}
+
+section table th {
+  border-bottom: 2px solid var(--ink);
+}
+
+/* Every content slide starts at the top, whatever its length. */
+section:not(.title):not(.statement) {
+  justify-content: flex-start;
 }
