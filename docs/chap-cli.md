@@ -15,10 +15,22 @@ chaps chap plot-backtest r.nc --output-file r.html
 chaps chap export-metrics r.nc --output-file r.csv
 ```
 
+For a guide from an empty machine to a comparison of two models, see
+[Evaluating a model on your own data](./use-cases/evaluate-with-chap-cli.md).
+
 Each argument after `chap` goes to chap unchanged. To read chap's own help,
 run `chaps chap` with no arguments, or `chaps chap eval --help` for one
-command. `chaps chap --help` shows only the chaps options: `--tag`, `--image`,
-`--group` and `--docker`.
+command. `chaps chap --help` shows only the options of chaps itself. These
+come between `chap` and chap's own command:
+
+| Option | What it does |
+| --- | --- |
+| `--tag TAG` | The chap-core version to run. See [Which version](#which-version). |
+| `--image core` or `--image worker` | The image to run in. See [Which image](#which-image). |
+| `--group NAME` | The `chaps run` group whose models chap can reach. See [The models of a deployment](#the-models-of-a-deployment). |
+| `--docker` | Give the container the docker socket. See [Models that run in docker](#models-that-run-in-docker). |
+
+For example: `chaps chap --tag master --docker eval --model-name ...`.
 
 ## Your files
 
@@ -88,7 +100,12 @@ them:
 models: chapkit_ewars_model at http://chapkit-ewars-model:8000
 ```
 
-Give that URL to `--model-name`. If the deployment does not run, chaps says so
+Give that URL to `--model-name`. Do not use the `http://localhost:PORT` URL
+that `chaps ps` or `chaps status` shows: in the container, `localhost` is the
+container itself, so that URL reaches nothing. chaps refuses such a URL before
+the run, and names the service URL of the same model when it knows it.
+
+If the deployment does not run, chaps says so
 and names `chaps up`. Outside a deployment, the container joins the network of
 the default `chaps run` group, if it exists. Thus a model that
 `chaps run auto_arima_chapkit` started answers at its service name too.

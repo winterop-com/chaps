@@ -657,8 +657,10 @@ chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r 
 chaps chap plot-backtest eval.nc --output-file eval.html
 ```
 
-Use their model's GitHub URL in `--model-name`. The first run pulls an image
-of about 12 GB, so tell them it takes some minutes. If chaps stops with
+Use their model's GitHub URL in `--model-name`. For a model that
+`chaps run` started, use the `http://SERVICE:8000` URL from the `models:`
+line that `chaps chap` writes, never the `localhost` URL. The first run pulls
+an image of about 12 GB, so tell them it takes some minutes. If chaps stops with
 `runs in docker`, run the same command with `chaps chap --docker` and tell
 them that the flag gives the container control of docker. An output path must
 be in a directory that exists.
@@ -666,8 +668,9 @@ be in a directory that exists.
 It worked when the last lines say `chap finished; it wrote eval.nc` and
 `chap finished; it wrote eval.html`. They open `eval.html` in a browser.
 
-More: [Evaluating a model on your own data](./use-cases/evaluate-with-chap-cli.md)
-and [The chap CLI](./chap-cli.md).
+More: [Evaluating a model on your own data](./use-cases/evaluate-with-chap-cli.md),
+which goes from installing chaps to a comparison of two models, and
+[The chap CLI](./chap-cli.md).
 
 ## What to try next without DHIS2
 

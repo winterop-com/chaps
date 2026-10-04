@@ -1245,3 +1245,12 @@ chap stopped with an error. The cause is chap's own output above this line.
 chaps exits with the same status, so a script can read it. If the run wrote
 files before it stopped, chaps names them.
 
+## `` `http://localhost:...` is this machine, and in the container `localhost` is the container itself ``
+
+`chaps chap` got a model URL on `localhost` (or `127.0.0.1`). That is the URL
+`chaps ps` shows, and it works from your machine. chap runs in a container,
+where `localhost` is the container, so the URL reaches nothing. Use the
+service URL from the `models:` line that `chaps chap` writes before each run,
+for example `http://auto-arima-chapkit:8000`. When chaps knows which model
+has that port, the message gives that URL.
+
