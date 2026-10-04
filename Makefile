@@ -5,7 +5,7 @@ BIN    := bin/chaps
 PREFIX ?= $(HOME)/.local
 ARGS   ?=
 .DEFAULT_GOAL := help
-.PHONY: help check lint test build e2e release run install vendor docs docs-reference docs-serve release-tag clean
+.PHONY: help check lint test build e2e release run install vendor docs docs-reference docs-serve slides release-tag clean
 help: ## Show this help
 	@echo "chaps - make targets:"
 	@echo ""
@@ -47,6 +47,11 @@ docs-reference: ## Regenerate docs/reference.md from the CLI help texts
 	$(CARGO) run -q -- docs-markdown > docs/reference.md
 docs: docs-reference ## Build the mdbook documentation into site/
 	mdbook build
+MARP   ?= bunx @marp-team/marp-cli@4.5.1
+slides: ## Build the slide decks into site/slides/: HTML and 16:9 PDF
+	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --html
+	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --pdf
+
 docs-serve: ## Serve the documentation at localhost:3000 and open a browser
 	mdbook serve --open
 release-tag: ## Bump the version, run the checks, commit and tag (VERSION=x.y.z, PUSH=1 to push)

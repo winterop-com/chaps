@@ -43,4 +43,5 @@
 - [The chap CLI](./chap-cli.md)
 - [Doctor](./doctor.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Slides](./slides.md)
 - [Development](./development.md)

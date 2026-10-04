@@ -1,0 +1,168 @@
+/* @theme chaps */
+/*
+ * The theme of every chaps deck: plain, readable on a projector, and code
+ * blocks that look like the terminal the commands run in. 16:9, 1280 x 720.
+ */
+@import 'default';
+
+:root {
+  --ink: #1d2330;
+  --muted: #5b6475;
+  --accent: #1f6feb;
+  --accent-soft: #e8f0fe;
+  --term-bg: #10141c;
+  --term-ink: #e6edf3;
+  --term-dim: #8b95a5;
+  --rule: #d8dee8;
+}
+
+section {
+  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 28px;
+  color: var(--ink);
+  background: #ffffff;
+  padding: 56px 72px;
+  justify-content: flex-start;
+}
+
+h1 {
+  font-size: 54px;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+
+h2 {
+  font-size: 40px;
+  color: var(--ink);
+  border-bottom: 3px solid var(--accent);
+  padding-bottom: 8px;
+  margin-bottom: 24px;
+}
+
+h3 {
+  font-size: 30px;
+  color: var(--accent);
+}
+
+strong {
+  color: var(--accent);
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  background: var(--accent-soft);
+  color: var(--ink);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--term-bg);
+  border-radius: 10px;
+  padding: 18px 22px;
+  font-size: 21px;
+  line-height: 1.45;
+}
+
+pre code {
+  background: transparent;
+  color: var(--term-ink);
+  padding: 0;
+}
+
+table {
+  font-size: 22px;
+  border-collapse: collapse;
+}
+
+th {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+th,
+td {
+  border: 1px solid var(--rule);
+  padding: 6px 12px;
+}
+
+blockquote {
+  border-left: 6px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  padding: 12px 20px;
+  font-style: normal;
+}
+
+footer,
+header {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+section::after {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+/* The title slide of a deck. */
+section.title {
+  justify-content: center;
+  background: linear-gradient(135deg, #0f2a5a 0%, #1f6feb 100%);
+  color: #ffffff;
+}
+
+section.title h1,
+section.title h2,
+section.title strong {
+  color: #ffffff;
+  border: none;
+}
+
+section.title p {
+  color: #dbe7ff;
+}
+
+/* A slide that says one thing large. */
+section.statement {
+  justify-content: center;
+  text-align: center;
+  font-size: 40px;
+}
+
+/* Two columns: the left half and the right half. */
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 36px;
+}
+
+/* Small print under a slide: a source, a link. */
+.small {
+  font-size: 20px;
+  color: var(--muted);
+}
+
+/*
+ * Code colours. The default highlighting marks shell words such as `eval`
+ * and `test` as keywords and draws strings in a dark blue that is hard to
+ * read on the dark background. A terminal shows commands in one colour, so
+ * these do too: plain text light, comments dim, strings light green.
+ */
+pre code [class^='hljs-'],
+pre code [class*=' hljs-'] {
+  color: var(--term-ink);
+}
+
+pre code .hljs-comment {
+  color: var(--term-dim);
+}
+
+pre code .hljs-string {
+  color: #a5d6a7;
+}

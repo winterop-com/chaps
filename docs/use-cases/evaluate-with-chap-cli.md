@@ -18,9 +18,21 @@ user.
 
 - Linux or macOS. On Windows, use WSL with the Linux binary.
 - Docker, and it must run. On macOS, start Docker Desktop.
-- About 15 GB of free disk space. The first run downloads the chap-core
-  images: about 12 GB for the image that runs R models, and about 2.4 GB for
-  the smaller one.
+- About 25 GB of free disk space, for the images that the steps download:
+
+  | Image | Size on disk | Step |
+  | --- | --- | --- |
+  | `ghcr.io/dhis2-chap/chap-worker` | about 12 GB | 4, the model from GitHub |
+  | `ghcr.io/dhis2-chap/chap-core` | about 2.4 GB | 5 to 7 |
+  | `auto_arima_chapkit` | about 6.2 GB | 6, the marketplace model |
+
+  chaps says before each run when it must download an image first. On a slow
+  network, download the images in advance:
+
+  ```sh
+  docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
+  docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-core:v2.3.1
+  ```
 - A connection to the internet for the first run.
 
 The first run of each step takes some minutes, because Docker downloads the

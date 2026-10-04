@@ -128,6 +128,27 @@ can then set the tags, the DHIS2 versions (`none` leaves DHIS2 out) and the
 models. Each job puts `report.md` in the run summary and keeps the report and
 the logs as an artifact for 14 days.
 
+## Slides
+
+The slide decks are [Marp](https://marp.app/) Markdown: one file for each deck
+in `slides/decks/`, and one theme, `slides/theme/chaps.css`. A `---` line
+starts a new slide.
+
+```sh
+make slides      # every deck, as HTML and as a 16:9 PDF, into site/slides/
+```
+
+`make slides` runs a pinned Marp CLI through `bunx`, so it needs bun. The PDF
+also needs Chrome or Chromium on the machine. The `docs` workflow builds the
+slides after the book, so Pages serves them at `/slides/`, and
+`docs/slides.md` links each one.
+
+Run `make docs` first and `make slides` after it: `mdbook build` empties
+`site/`, and that removes the slides.
+
+Each command and each output on a slide must be one that chaps really runs
+or prints. Copy it from a real run, or from the chapter that it comes from.
+
 ## The build script
 
 `build.rs` produces four things the compiler cannot work out on its own.
