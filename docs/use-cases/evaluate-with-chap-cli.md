@@ -145,41 +145,35 @@ each location.
 ## Step 6: Evaluate a second model, from the marketplace
 
 A model from the [marketplace](../models.md) is a model service: a container
-with an HTTP API. Start one with `chaps run`:
-
-```sh
-chaps run auto_arima_chapkit
-```
-
-It worked when chaps writes `running auto_arima_chapkit on
-http://localhost:5001` (the port can be different).
-
-**Do not give that `localhost` URL to `chaps chap`.** In the container that
-runs chap, `localhost` is that container. chaps puts chap's container on the
-same network as the model, where the model has its service name. The
-`models:` line that `chaps chap` writes before each run shows that URL:
-
-```text
-models: auto_arima_chapkit at http://auto-arima-chapkit:8000
-```
-
-Evaluate the model with that URL:
+with an HTTP API. Give its id to `--model-name`, and chaps starts it for you:
 
 ```sh
 chaps chap eval \
-  --model-name http://auto-arima-chapkit:8000 \
+  --model-name auto_arima_chapkit \
   --dataset-csv laos_subset.csv \
   --output-file auto_arima.nc \
   --backtest-params.n-splits 3 \
   --backtest-params.n-periods 3
 ```
 
-It worked when chaps writes `chap finished; it wrote auto_arima.nc`. This run
-uses the smaller `chap-core` image, because chap only talks HTTP to a model
-service.
+chaps starts the model, waits until it answers, and then runs chap:
 
-If you give the `localhost` URL by mistake, chaps stops before the run, and
-its message gives the correct URL.
+```text
+starting auto-arima-chapkit (auto_arima_chapkit in /home/me/.local/share/chaps/run/default)
+running `chap eval` in ghcr.io/dhis2-chap/chap-core:v2.3.1
+files: chap reads and writes in /home/me/chap-eval
+model: auto_arima_chapkit at http://auto-arima-chapkit:8000 answers
+...
+chap finished; it wrote auto_arima.nc
+auto_arima_chapkit keeps running for the next run; `chaps stop auto_arima_chapkit` stops it, and `--stop` stops it after a run
+```
+
+It worked when you see `chap finished; it wrote auto_arima.nc`. The first
+time, the model's image is downloaded, which takes some minutes.
+
+This run uses the smaller `chap-core` image, because chap only talks HTTP to
+a model service. The model keeps running, so a second evaluation of it starts
+at once. `chaps ps` lists it. Find more ids with `chaps models list`.
 
 ## Step 7: Compare the two models
 
@@ -228,7 +222,9 @@ docker image rm ghcr.io/dhis2-chap/chap-worker:v2.3.1
 
 | chaps writes | What to do |
 | --- | --- |
-| `` `http://localhost:...` is this machine `` | Use the URL from the `models:` line, as in step 6. |
+| `` `http://localhost:...` is this machine `` | Give the model id instead, as in step 6. |
+| `the model server at ... is not running` | The URL does not answer. Give a model id, and chaps starts the model. |
+| `is not a model of the deployment` | In a deployment, add the model first with `chaps models enable ID`. |
 | ``runs in docker (`docker_env` in its MLproject)`` | The model starts a container of its own. Run the same command with `chaps chap --docker ...`. See [Models that run in docker](../chap-cli.md#models-that-run-in-docker). |
 | `FileNotFoundError: [Errno 2] No such file or directory` | The directory of the output file does not exist. Make it with `mkdir -p`, then run again. |
 | `Rscript: not found` | The model needs R. Add `--image worker` after `chap`. |
@@ -240,9 +236,9 @@ More messages are in [Troubleshooting](../troubleshooting.md).
 ## Next
 
 - To evaluate the models of a [deployment](../concepts.md), run `chaps chap`
-  in the deployment's directory, or give it with `-C`:
-  `chaps -C ~/mychap chap eval --model-name http://chapkit-ewars-model:8000 ...`.
-  The `models:` line lists the deployment's models.
+  in a subdirectory of it (`mkdir eval && cd eval`), and give the model id:
+  `chaps chap eval --model-name chapkit_ewars_model ...`. The deployment does
+  not need to run: chaps starts only that model, without chap-core.
 - To use another chap-core version, add `--tag`, for example
   `chaps chap --tag master eval ...`.
 - For chap's own options, run `chaps chap eval --help`.

@@ -657,9 +657,9 @@ chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r 
 chaps chap plot-backtest eval.nc --output-file eval.html
 ```
 
-Use their model's GitHub URL in `--model-name`. For a model that
-`chaps run` started, use the `http://SERVICE:8000` URL from the `models:`
-line that `chaps chap` writes, never the `localhost` URL. The first run pulls
+Use their model's GitHub URL in `--model-name`, or a marketplace id such as
+`chapkit_ewars_model`: chaps starts that model by itself, and they need no
+`chaps up`. Never give a `localhost` URL. The first run pulls
 an image of about 12 GB, so tell them it takes some minutes. If chaps stops with
 `runs in docker`, run the same command with `chaps chap --docker` and tell
 them that the flag gives the container control of docker. An output path must

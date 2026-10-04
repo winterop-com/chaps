@@ -1245,6 +1245,33 @@ chap stopped with an error. The cause is chap's own output above this line.
 chaps exits with the same status, so a script can read it. If the run wrote
 files before it stopped, chaps names them.
 
+## `the model server at ... is not running (no answer on /api/v1/info), so chap was not started`
+
+`chaps chap` asked the `--model-name` URL for `/api/v1/info` before the run,
+and nothing answered. chap was not started, so there is no traceback.
+
+- A service name such as `http://chapkit-ewars-model:8000` that chaps does
+  not know: give the model id instead (`--model-name chapkit_ewars_model`).
+  chaps then starts the model. In a deployment, the model must be enabled
+  first.
+- A server elsewhere: check that it runs, and that this machine can reach
+  it.
+
+## `` `ID` is not a model of the deployment at ...; `chaps models enable ID` adds it ``
+
+In a deployment, `chaps chap` starts only the models that the deployment has.
+It does not add a model for an evaluation, because that changes the
+deployment. Run `chaps models enable ID`, then the same command again. Or run
+`chaps chap` outside the deployment, where it starts the model in a
+`chaps run` group.
+
+## `... did not answer on http://...:8000 within 300s`
+
+chaps started the model for the run, and the model did not answer in time. A
+first start pulls the model's image, and an R model can take some minutes.
+Run the command again with a longer `--timeout`. The message names the
+`chaps logs` command that shows why the model does not start.
+
 ## `` `http://localhost:...` is this machine, and in the container `localhost` is the container itself ``
 
 `chaps chap` got a model URL on `localhost` (or `127.0.0.1`). That is the URL

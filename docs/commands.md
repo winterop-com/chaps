@@ -160,7 +160,7 @@ See [Authentication](./auth.md).
 
 | Command | What it does |
 | --- | --- |
-| `chaps chap [--tag TAG] [--image core\|worker] [--group NAME] [--docker] CHAP_ARGS..` | Run chap-core's own `chap` CLI in a container, with the current directory mounted at the same path, so its file arguments and outputs are on this machine. The image follows `--model-name`; a deployment gives its tag and its network. `--docker` gives the container the docker socket, for `docker_env` models. Works anywhere. |
+| `chaps chap [--tag TAG] [--image core\|worker] [--group NAME] [--stop] [--timeout S] [--docker] CHAP_ARGS..` | Run chap-core's own `chap` CLI in a container, with the current directory mounted at the same path, so its file arguments and outputs are on this machine. A model id in `--model-name` starts that model, without chap-core and without `chaps up`, and `--stop` stops it after the run. The image follows `--model-name`; a deployment gives its tag and its network. `--docker` gives the container the docker socket, for `docker_env` models. Works anywhere. |
 
 You need no Python, uv or R for it. See [The chap CLI](./chap-cli.md).
 
