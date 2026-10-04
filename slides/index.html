@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <title>chaps slides</title>
 <meta name="description" content="Slide decks about chaps, for five audiences: present them in a browser or download them as PDF.">
+<script>
+  // Follow the book: the theme chosen in its menu (mdbook saves it as
+  // `mdbook-theme`), else the system's dark mode, as the book does.
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('mdbook-theme'); } catch (e) {}
+    if (saved) { saved = saved.replace(/^"|"$/g, ''); }
+    var dark = saved
+      ? ['coal', 'navy', 'ayu'].indexOf(saved) !== -1
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
 <style>
   :root {
     --paper: #fbfaf7;
@@ -12,6 +25,25 @@
     --muted: #6b6f76;
     --rule: #e4e1da;
     --accent: #1f6b52;
+  }
+  /* The book's navy theme. Without JavaScript, the system setting decides. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: hsl(226, 23%, 11%);
+      --card: hsl(226, 15%, 17%);
+      --ink: #e1e2ec;
+      --muted: #9a9cb3;
+      --rule: #2d334f;
+      --accent: #7cc4a0;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: hsl(226, 23%, 11%);
+    --card: hsl(226, 15%, 17%);
+    --ink: #e1e2ec;
+    --muted: #9a9cb3;
+    --rule: #2d334f;
+    --accent: #7cc4a0;
   }
   * { box-sizing: border-box; }
   body {
