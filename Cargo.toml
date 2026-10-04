@@ -1,6 +1,6 @@
 [package]
 name = "chaps"
-version = "0.99.9"
+version = "0.99.10"
 edition = "2024"
 rust-version = "1.91"
 description = "Deploy Chap, the Climate Health Analytics Platform, and its services with Docker Compose"
