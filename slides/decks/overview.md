@@ -385,7 +385,7 @@ running chapkit_ewars_model on http://localhost:5001 (answered in 41s)
 
 - A marketplace id, a GitHub URL, a ghcr image or a local image.
 - No directory to keep: the model runs in a group under chaps' data directory.
-- In a terminal it then shows the model's log. Ctrl-C stops the model.
+- `-a` keeps it in the foreground with its log, and Ctrl-C stops the model.
 - `chaps ps` lists the models, and `chaps stop` stops them.
 
 See the **chaps run** deck for groups, ports and `chaps top`.

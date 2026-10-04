@@ -47,7 +47,7 @@ and about **25 GB** of free disk space.
 ```sh
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-core:v2.3.1
-chaps run auto_arima_chapkit --detach && chaps stop auto_arima_chapkit
+chaps run auto_arima_chapkit && chaps stop auto_arima_chapkit
 ```
 
 ---

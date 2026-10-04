@@ -8,17 +8,16 @@ behind something other than chap-core.
 The quickest way needs no folder at all:
 
 ```sh
-chaps run chapkit_ewars_model --detach                               # a marketplace model
-chaps run https://github.com/chap-models/chapkit_ghr_model --detach  # by repository
-chaps run ghcr.io/my-org/chapkit_dengue_model:sha-1eb8cf1 --detach   # by image
+chaps run chapkit_ewars_model                               # a marketplace model
+chaps run https://github.com/chap-models/chapkit_ghr_model  # by repository
+chaps run ghcr.io/my-org/chapkit_dengue_model:sha-1eb8cf1   # by image
 chaps ps
 chaps stop chapkit_ewars_model
 ```
 
 `chaps run` keeps the model in a group under chaps' data directory, publishes
-it on `127.0.0.1` only, and prints its URL once it answers. In a terminal it
-then shows the model's log, and Ctrl-C stops the model; `--detach` returns and
-leaves it running. See
+it on `127.0.0.1` only, and returns once it answers. `-a` keeps it in the
+foreground with its log, until Ctrl-C stops it. See
 [Running one model](../run.md). For a deployment directory of your own, with
 `chaps status`, `chaps doctor` and everything else:
 

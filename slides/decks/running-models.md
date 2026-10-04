@@ -44,20 +44,24 @@ chaps run chapkit_ewars_model
 starting chapkit-ewars-model (chapkit_ewars_model in
   /home/me/.local/share/chaps/run/default)
 running chapkit_ewars_model on http://localhost:5001 (answered in 41s)
-following the log of chapkit-ewars-model; Ctrl-C stops it
+stop it with `chaps stop chapkit_ewars_model`;
+  `chaps -C /home/me/.local/share/chaps/run/default logs chapkit-ewars-model`
+  shows its log
 ```
 
-- chaps prints the URL when the model answers its own `/health`, so the URL
-  works when the line is printed.
-- Then it shows the model's log, as `docker run` does.
+- The command returns when the model answers its own `/health`.
+- So the URL works when the line is printed. The model keeps running.
 
 ---
 
-## In the foreground, and Ctrl-C
+## In the foreground: `-a`
 
-In a terminal, `chaps run` stays in the foreground. Ctrl-C stops the model:
+`-a` (also `--attach` or `--foreground`, as on `chaps up`) stays in the
+foreground with the model's log. Ctrl-C stops the model:
 
 ```text
+following the log of chapkit-ewars-model; Ctrl-C stops it
+...
 stopped chapkit_ewars_model; its data stays, and `chaps run chapkit_ewars_model`
 starts it again with it
 ```
@@ -65,22 +69,6 @@ starts it again with it
 - The model goes out of its group, as with `chaps stop`. Its data stays.
 - `--rm`: Ctrl-C removes the data volume too.
 - A model that ran before the command keeps running. Ctrl-C stops only the log.
-- A second Ctrl-C exits at once.
-
----
-
-## When `chaps run` returns at once
-
-| When | Why |
-| --- | --- |
-| `--detach` | start several models from one terminal |
-| no terminal: a script, CI, an AI assistant | nobody is there to press Ctrl-C |
-| `--json` | a tool reads one document and goes on |
-| in a deployment of your own | the deployment lives on its own |
-| `--no-wait` | it returns when the container started |
-
-Then the model keeps running, and the last line names `chaps stop`.
-`--attach` keeps the foreground, also when you pipe the log.
 
 ---
 
@@ -146,9 +134,9 @@ network carry its name, so a stop in one group touches nothing else.
 ## Two groups side by side
 
 ```sh
-chaps run chapkit_ewars_model --detach              # group default
-chaps run auto_arima_chapkit --group trial --detach
-chaps run chapkit_ghr_model --group trial --detach
+chaps run chapkit_ewars_model              # group default
+chaps run auto_arima_chapkit --group trial
+chaps run chapkit_ghr_model --group trial
 chaps ps
 ```
 
@@ -398,13 +386,13 @@ chaps --json run chapkit_ewars_model
 
 | You want | Command |
 | --- | --- |
-| a model and its URL, with its log | `chaps run ID` |
-| a model in the background | `chaps run ID --detach` |
+| a model and its URL | `chaps run ID` |
+| a model in the foreground, with its log | `chaps run ID -a` |
 | the models that run | `chaps ps` |
 | a live view | `chaps top` |
 | its log | `chaps -C ~/.local/share/chaps/run/default logs SERVICE` |
 | to evaluate it | `chaps chap eval --model-name ID ...` |
-| to stop it | Ctrl-C, or `chaps stop ID` |
+| to stop it | `chaps stop ID`, or Ctrl-C with `-a` |
 | to remove it and its data | `chaps stop ID --purge` |
 
 The chapter: **https://winterop-com.github.io/chaps/run.html**

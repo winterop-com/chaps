@@ -118,8 +118,8 @@ running chapkit_ewars_model on http://localhost:5001 (answered in 41s)
 ```
 
 - No deployment directory: the model runs in a `chaps run` group.
-- In a terminal, `chaps run` then shows the model's log. Ctrl-C stops the
-  model, and its data stays. `--detach` returns and leaves it running.
+- `chaps run -a` stays in the foreground with the model's log. Ctrl-C stops
+  the model, and its data stays.
 - `chaps ps` lists the models, `chaps stop ID` stops one.
 - The first run of a model downloads its image: 1 GB for a Python model, 6 to
   7 GB for an R model.
