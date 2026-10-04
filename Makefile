@@ -52,7 +52,11 @@ slides: ## Build the slide decks into site/slides/: HTML, 16:9 PDF and the index
 	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --html
 	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --pdf
 	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --image png
+	perl -0pi -e 's{<head>(?!<link rel="icon")}{<head><link rel="icon" href="favicon.svg"><link rel="shortcut icon" href="favicon.png">}' site/slides/*.html
 	cp slides/index.html site/slides/index.html
+	@# The book's favicon, under a name without mdbook's hash, on every page.
+	@for ext in svg png; do f=$$(ls site/favicon-*.$$ext 2>/dev/null | head -1); \
+		[ -n "$$f" ] && cp "$$f" site/slides/favicon.$$ext || echo "no site/favicon-*.$$ext; run make docs first for the favicon"; done
 
 docs-serve: ## Serve the documentation at localhost:3000 and open a browser
 	mdbook serve --open
