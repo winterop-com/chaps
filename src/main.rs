@@ -191,6 +191,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
         },
 
         Command::Api(args) => commands::api::run(ctx, args),
+        Command::Chap(args) => commands::chap::run(ctx, args),
 
         Command::Doctor(args) => commands::doctor::run(ctx, args),
         Command::Cleanup(args) => commands::cleanup::run(ctx, args),
@@ -446,6 +447,7 @@ fn run_ui(ctx: &Ctx, args: &cli::UiArgs) -> error::Result<()> {
 fn exit_code(err: &anyhow::Error) -> i32 {
     match err.downcast_ref::<ChapError>() {
         Some(ChapError::DockerFailed(code)) if *code != 0 => *code,
+        Some(ChapError::Exited { code, .. }) if *code != 0 => *code,
         // The code clap exits with for a usage error, because that is what
         // this is: a usage error clap could not catch.
         Some(ChapError::Usage(_)) => 2,

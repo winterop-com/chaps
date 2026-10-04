@@ -454,6 +454,12 @@ fn get(url: &str, timeout: Duration) -> Result<String> {
     Ok(body)
 }
 
+/// [`get`] for the rest of the crate: one raw file, such as a model's
+/// `MLproject`, with no token sent.
+pub(crate) fn get_raw(url: &str, timeout: Duration) -> Result<String> {
+    get(url, timeout)
+}
+
 /// A non-2xx response is a [`ChapError::Http`] (the rate limit and a missing
 /// tag both arrive that way); everything else is a transport failure that
 /// keeps the URL as context.

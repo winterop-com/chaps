@@ -8,6 +8,7 @@
 //! module and `main.rs` are complete: the command modules only read the arg
 //! structs.
 
+mod chap;
 mod dhis2;
 mod lifecycle;
 mod models;
@@ -15,6 +16,7 @@ mod operate;
 mod project;
 mod run;
 
+pub use chap::*;
 pub use dhis2::*;
 pub use lifecycle::*;
 pub use models::*;
@@ -212,6 +214,9 @@ pub enum Command {
 
     /// Send one authenticated request to chap-core's API
     Api(ApiArgs),
+
+    /// Run the chap CLI in a container, with no Python or uv installed
+    Chap(ChapArgs),
 
     /// Run a checklist over this machine and this deployment
     Doctor(DoctorArgs),

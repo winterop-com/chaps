@@ -26,7 +26,7 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps top`](#chaps-top), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps doctor`](#chaps-doctor), [`chaps cleanup`](#chaps-cleanup), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps top`](#chaps-top), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps chap`](#chaps-chap), [`chaps doctor`](#chaps-doctor), [`chaps cleanup`](#chaps-cleanup), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
 
 ## chaps init
 
@@ -687,6 +687,22 @@ Usage: chaps api [OPTIONS] <METHOD> <PATH>
 | `--url <URL>` | Base URL of the chap-core API. |
 | `--raw` | Print the body exactly as it arrived. |
 | `--timeout <SECONDS>` | Request timeout in seconds. Default: `30`. |
+
+## chaps chap
+
+Run the chap CLI in a container, with no Python or uv installed.
+
+```text
+Usage: chaps chap [OPTIONS] [CHAP_ARGS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `--tag <TAG>` | chap-core image tag; the deployment's tag or the newest release if omitted. |
+| `--image <IMAGE>` | Image to run in; chosen from --model-name when omitted. Values: `core`, `worker`. |
+| `--group <NAME>` | `chaps run` group whose network the container joins. |
+| `--docker` | Give the container the docker socket, for docker_env models. |
+| `<CHAP_ARGS>...` | Arguments for chap, such as `eval --model-name URL ...`. |
 
 ## chaps doctor
 

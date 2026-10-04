@@ -1,0 +1,324 @@
+//! What `chaps chap` asks docker for: the image, the mounts and the argument
+//! list. Pure functions only, so the tests can check every case without a
+//! docker daemon.
+
+use crate::cli::ChapImage;
+use std::path::{Component, Path, PathBuf};
+
+/// The image with chap-core's API, and the chap CLI without R.
+pub const CORE_REPOSITORY: &str = "ghcr.io/dhis2-chap/chap-core";
+
+/// The image chap-core's worker runs models in: uv, R and INLA as well.
+pub const WORKER_REPOSITORY: &str = "ghcr.io/dhis2-chap/chap-worker";
+
+/// The port a chapkit model answers on inside its container.
+pub const MODEL_PORT: u16 = 8000;
+
+/// The repository of one of the two images.
+pub fn repository(image: ChapImage) -> &'static str {
+    match image {
+        ChapImage::Core => CORE_REPOSITORY,
+        ChapImage::Worker => WORKER_REPOSITORY,
+    }
+}
+
+/// About how much a first pull of the image downloads, for the line before
+/// the run. Measured on v2.3.1.
+pub fn approximate_size(image: ChapImage) -> &'static str {
+    match image {
+        ChapImage::Core => "2.4 GB",
+        ChapImage::Worker => "12 GB",
+    }
+}
+
+/// What `--model-name` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelKind {
+    /// No `--model-name`: `plot-backtest`, `export-metrics` and the like.
+    None,
+    /// A chapkit service, which chap talks to over HTTP.
+    Chapkit(String),
+    /// A GitHub repository, at a commit when the name carries `@<ref>`.
+    GitHub {
+        owner: String,
+        repo: String,
+        git_ref: Option<String>,
+    },
+    /// A model directory on this machine.
+    Local(PathBuf),
+}
+
+/// The value of `--model-name` in the chap arguments, in either spelling.
+pub fn model_name(args: &[String]) -> Option<&str> {
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        if arg == "--model-name" {
+            return rest.next().map(String::as_str);
+        }
+        if let Some(value) = arg.strip_prefix("--model-name=") {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// What kind of model a `--model-name` value is, the way chap-core decides
+/// it: a GitHub URL is cloned, any other URL is a chapkit service, and
+/// anything else is a directory.
+pub fn model_kind(name: Option<&str>) -> ModelKind {
+    let Some(name) = name else {
+        return ModelKind::None;
+    };
+    let lower = name.to_ascii_lowercase();
+    let without_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"));
+    match without_scheme {
+        Some(rest) if rest.starts_with("github.com/") || rest.starts_with("www.github.com/") => {
+            github_repo(name).unwrap_or_else(|| ModelKind::Chapkit(name.to_string()))
+        }
+        Some(_) => ModelKind::Chapkit(name.to_string()),
+        None => ModelKind::Local(PathBuf::from(name)),
+    }
+}
+
+/// `https://github.com/<owner>/<repo>[@<ref>]`, with the case kept.
+fn github_repo(name: &str) -> Option<ModelKind> {
+    let (_, rest) = name.split_once("://")?;
+    let rest = rest.trim_start_matches("www.");
+    let rest = rest.get("github.com/".len()..)?;
+    let (path, git_ref) = match rest.split_once('@') {
+        Some((path, git_ref)) => (path, Some(git_ref.to_string())),
+        None => (rest, None),
+    };
+    let mut parts = path.trim_end_matches('/').split('/');
+    let owner = parts.next().filter(|p| !p.is_empty())?.to_string();
+    let repo = parts
+        .next()
+        .filter(|p| !p.is_empty())?
+        .trim_end_matches(".git")
+        .to_string();
+    Some(ModelKind::GitHub {
+        owner,
+        repo,
+        git_ref,
+    })
+}
+
+/// The image a model runs in.
+///
+/// The models that are not chapkit services run in the worker image, as
+/// chap-core's own worker runs them: that image has uv and R. A chapkit
+/// service is plain HTTP, and so is every command without a model, so the
+/// smaller image does those. Inside a deployment the worker image is local
+/// already, so it is the one used there.
+pub fn image_for(kind: &ModelKind, in_deployment: bool) -> ChapImage {
+    if in_deployment {
+        return ChapImage::Worker;
+    }
+    match kind {
+        ModelKind::None | ModelKind::Chapkit(_) => ChapImage::Core,
+        ModelKind::GitHub { .. } | ModelKind::Local(_) => ChapImage::Worker,
+    }
+}
+
+/// Whether an `MLproject` file asks for `docker_env`, which needs the docker
+/// socket.
+pub fn uses_docker_env(mlproject: &str) -> bool {
+    mlproject
+        .lines()
+        .any(|line| line.trim_start().starts_with("docker_env:") && !line.starts_with('#'))
+}
+
+/// The newest of a list of image tags: the highest `vX.Y.Z` release, else
+/// the first tag in the list.
+pub fn newest_tag(tags: &[String]) -> Option<String> {
+    let version = |tag: &str| -> Option<(u64, u64, u64)> {
+        let mut parts = tag.strip_prefix('v').unwrap_or(tag).split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch = parts.next()?.parse().ok()?;
+        parts.next().is_none().then_some((major, minor, patch))
+    };
+    tags.iter()
+        .filter_map(|tag| version(tag).map(|v| (v, tag)))
+        .max()
+        .map(|(_, tag)| tag.clone())
+        .or_else(|| tags.first().cloned())
+}
+
+/// `path` with `.` and `..` taken out, without asking the filesystem.
+pub fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// The paths in the chap arguments that are outside `cwd`: an absolute path,
+/// a `../` path, and the same after `=` in `--flag=PATH`. A URL is not a
+/// path.
+pub fn outside_paths(args: &[String], cwd: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for arg in args {
+        let value = match arg.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => value,
+            _ => arg.as_str(),
+        };
+        if value.contains("://") {
+            continue;
+        }
+        let looks_like_path =
+            Path::new(value).is_absolute() || value == ".." || value.starts_with("../");
+        if !looks_like_path {
+            continue;
+        }
+        let path = normalize(&cwd.join(value));
+        if !path.starts_with(cwd) && !found.contains(&path) {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// The directories to mount for `paths`: the nearest parent of each one that
+/// exists, without the ones another mount covers already.
+///
+/// `Err` names a path whose only existing parent is the root directory,
+/// which is not a thing to hand a container.
+pub fn mount_dirs(
+    paths: &[PathBuf],
+    covered: &[PathBuf],
+    exists: impl Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>, PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        let mut dir = path.clone();
+        while !exists(&dir) {
+            if !dir.pop() {
+                break;
+            }
+        }
+        if dir.parent().is_none() {
+            return Err(path.clone());
+        }
+        dirs.push(dir);
+    }
+    dirs.sort();
+    dirs.dedup();
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for dir in dirs {
+        let inside = covered
+            .iter()
+            .chain(kept.iter())
+            .any(|outer| dir.starts_with(outer));
+        if !inside {
+            kept.push(dir);
+        }
+    }
+    Ok(kept)
+}
+
+/// Everything one `docker run` of the chap CLI needs.
+#[derive(Debug, Clone)]
+pub struct RunSpec {
+    /// `<repository>:<tag>`.
+    pub image: String,
+    /// The directory chap runs in, mounted at the same path.
+    pub cwd: PathBuf,
+    /// More directories mounted at the same path, for the paths outside `cwd`.
+    pub mounts: Vec<PathBuf>,
+    /// chaps' own directory for the runs and the caches.
+    pub data: PathBuf,
+    /// `uid:gid` to run as; `None` keeps the image's own user.
+    pub user: Option<(u32, u32)>,
+    /// The compose network to join, `<project>_default`.
+    pub network: Option<String>,
+    /// Mount the docker socket, with this group added when it is known.
+    pub docker: Option<Option<u32>>,
+    /// Whether stdin is a terminal, which is when `-t` is asked for.
+    pub tty: bool,
+    /// The arguments for `chap`.
+    pub args: Vec<String>,
+}
+
+/// The environment that puts every cache and every run under `data`, so the
+/// second run of a model installs nothing again, and nothing is written
+/// where the container's user may not write.
+pub fn environment(data: &Path) -> Vec<(&'static str, String)> {
+    let at = |rest: &str| data.join(rest).to_string_lossy().into_owned();
+    vec![
+        ("HOME", "/tmp".to_string()),
+        ("MPLCONFIGDIR", "/tmp".to_string()),
+        ("CHAP_RUNS_DIR", at("runs")),
+        ("XDG_CACHE_HOME", at("cache")),
+        ("UV_CACHE_DIR", at("cache/uv")),
+        ("UV_PYTHON_INSTALL_DIR", at("cache/python")),
+        ("RENV_PATHS_ROOT", at("cache/renv")),
+        // renv makes its sandbox read-only, which leaves a cache nobody can
+        // delete without a chmod first.
+        ("RENV_CONFIG_SANDBOX_ENABLED", "FALSE".to_string()),
+    ]
+}
+
+/// The arguments after `docker`.
+pub fn docker_args(spec: &RunSpec) -> Vec<String> {
+    let mut out: Vec<String> = ["run", "--rm", "-i"].map(str::to_string).to_vec();
+    if spec.tty {
+        out.push("-t".to_string());
+    }
+    out.push("--init".to_string());
+    out.push("--platform".to_string());
+    out.push(crate::compose::AMD64_PLATFORM.to_string());
+    if let Some((uid, gid)) = spec.user {
+        out.push("--user".to_string());
+        out.push(format!("{uid}:{gid}"));
+    }
+    let same_path = |dir: &Path| {
+        let dir = dir.to_string_lossy();
+        format!("{dir}:{dir}")
+    };
+    for dir in std::iter::once(&spec.cwd)
+        .chain(spec.mounts.iter())
+        .chain(std::iter::once(&spec.data))
+    {
+        out.push("-v".to_string());
+        out.push(same_path(dir));
+    }
+    out.push("-w".to_string());
+    out.push(spec.cwd.to_string_lossy().into_owned());
+    for (name, value) in environment(&spec.data) {
+        out.push("-e".to_string());
+        out.push(format!("{name}={value}"));
+    }
+    if let Some(network) = &spec.network {
+        out.push("--network".to_string());
+        out.push(network.clone());
+    }
+    if let Some(group) = spec.docker {
+        let socket = crate::docker::DOCKER_SOCKET;
+        out.push("-v".to_string());
+        out.push(format!("{socket}:{socket}"));
+        if let Some(gid) = group {
+            out.push("--group-add".to_string());
+            out.push(gid.to_string());
+        }
+    }
+    out.push("--label".to_string());
+    out.push(format!("{}=cli", crate::docker::KIND_LABEL));
+    out.push(spec.image.clone());
+    out.push("chap".to_string());
+    if spec.args.is_empty() {
+        out.push("--help".to_string());
+    } else {
+        out.extend(spec.args.iter().cloned());
+    }
+    out
+}

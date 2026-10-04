@@ -6,6 +6,7 @@
 
 mod auth;
 mod backup;
+mod chap;
 mod cleanup;
 mod common;
 mod components;

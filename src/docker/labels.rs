@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 pub const ROLE_LABEL: &str = "com.winterop.chaps.role";
 /// The marketplace id of a model service, and of its init container.
 pub const MODEL_LABEL: &str = "com.winterop.chaps.model";
-/// `run` for a `chaps run` group, `init` for a deployment of its own.
+/// `run` for a `chaps run` group, `init` for a deployment of its own, and
+/// `cli` for the one-shot container `chaps chap` runs.
 pub const KIND_LABEL: &str = "com.winterop.chaps.kind";
 /// The group of a `chaps run` deployment.
 pub const GROUP_LABEL: &str = "com.winterop.chaps.group";

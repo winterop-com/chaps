@@ -55,6 +55,16 @@ pub enum ChapError {
     #[error("docker compose exited with status {0}")]
     DockerFailed(i32),
 
+    /// A program chaps ran in a one-shot container exited non-zero. Its own
+    /// message is already on the screen, so this names the program, the
+    /// status and the way out, and keeps the status as the exit code.
+    #[error("{command} exited with status {code}; {next}")]
+    Exited {
+        command: &'static str,
+        code: i32,
+        next: String,
+    },
+
     /// A mistake about `chaps`'s own command line that clap cannot catch,
     /// such as a `-v` meant for compose reaching `chaps down`'s passthrough.
     #[error("{0}")]

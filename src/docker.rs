@@ -7,6 +7,7 @@
 mod images;
 mod labels;
 mod leftovers;
+mod oneshot;
 mod plain;
 mod ps;
 mod query;
@@ -23,6 +24,7 @@ pub use labels::{
     Labeled, MODEL_LABEL, ROLE_LABEL, chaps_containers,
 };
 pub use leftovers::{default_network_exists, project_has_containers, volume_in_use};
+pub use oneshot::{DOCKER_SOCKET, image_is_local, local_tags, run_plain, socket_gid};
 pub use plain::{run_compose_plain, strip_ansi};
 pub use ps::{
     Container, all_containers, all_containers_or_why, diff_containers, ps_entries,

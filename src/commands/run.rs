@@ -40,10 +40,10 @@ pub const DEFAULT_GROUP: &str = "default";
 const RUN_BIND: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
 /// Where the run family acts: a deployment the caller is inside, or a group.
-struct Target {
-    dir: PathBuf,
+pub(crate) struct Target {
+    pub(crate) dir: PathBuf,
     /// `None` inside a deployment of the caller's own.
-    group: Option<String>,
+    pub(crate) group: Option<String>,
 }
 
 /// The directory holding every group.
@@ -88,7 +88,7 @@ fn group_dir(name: &str) -> Result<PathBuf> {
 }
 
 /// The deployment the command is inside, or the group it names.
-fn target(ctx: &Ctx, group: Option<&str>) -> Result<Target> {
+pub(crate) fn target(ctx: &Ctx, group: Option<&str>) -> Result<Target> {
     if let Some(dir) = Project::find_root(&ctx.project_dir) {
         if group.is_some() {
             return Err(ChapError::Usage(format!(
