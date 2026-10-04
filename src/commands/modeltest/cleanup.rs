@@ -127,18 +127,10 @@ pub(super) fn clean(
         return;
     };
 
-    let new_configs: Vec<(String, String)> = after
-        .configs
-        .iter()
-        .filter(|(id, _)| !before.configs.iter().any(|(was, _)| was == id))
-        .cloned()
-        .collect();
-    let new_artifacts: Vec<String> = after
-        .artifacts
-        .iter()
-        .filter(|id| !before.artifacts.contains(id))
-        .cloned()
-        .collect();
+    let Held {
+        configs: new_configs,
+        artifacts: new_artifacts,
+    } = created(before, &after);
     if new_configs.is_empty() && new_artifacts.is_empty() {
         return;
     }
@@ -195,6 +187,25 @@ pub(super) fn clean(
     }
 }
 
+/// What `after` holds that `before` did not, by id: the configs and the
+/// artifacts the test run made, and nothing that was there before it.
+fn created(before: &Held, after: &Held) -> Held {
+    Held {
+        configs: after
+            .configs
+            .iter()
+            .filter(|(id, _)| !before.configs.iter().any(|(was, _)| was == id))
+            .cloned()
+            .collect(),
+        artifacts: after
+            .artifacts
+            .iter()
+            .filter(|id| !before.artifacts.contains(id))
+            .cloned()
+            .collect(),
+    }
+}
+
 /// `curl -X DELETE` inside the container.
 ///
 /// chap-core's proxy is read-only by design, so a delete cannot go through
@@ -224,3 +235,6 @@ fn delete(ctx: &Ctx, project: &Project, service_id: &str, path: &str) -> bool {
         Err(_) => false,
     }
 }
+
+#[cfg(test)]
+mod tests;
