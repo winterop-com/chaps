@@ -118,6 +118,13 @@ work directory has one row per tag and step with its result and duration, and
 the script exits non-zero when any step failed. It needs Docker with room for
 DHIS2 (about 8 GB) and the network, and it takes a while.
 
+The `e2e` workflow (`.github/workflows/e2e.yml`) runs the script every Monday
+at 03:00 UTC, with one job for each chap-core tag (`latest` and `master`) and
+DHIS2 2.42. To run it at a different time, start it from the Actions tab. You
+can then set the tags, the DHIS2 versions (`none` leaves DHIS2 out) and the
+models. Each job puts `report.md` in the run summary and keeps the report and
+the logs as an artifact for 14 days.
+
 ## The build script
 
 `build.rs` produces four things the compiler cannot work out on its own.

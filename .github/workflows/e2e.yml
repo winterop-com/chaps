@@ -1,0 +1,98 @@
+name: e2e
+run-name: ${{ github.workflow }} ${{ github.ref_name }} (${{ github.event_name }})
+
+# scripts/e2e.sh against real images, one job per chap-core tag. Weekly and on
+# demand, not on every push: each job pulls chap-core, the models, OCS and
+# DHIS2, and waits out DHIS2's first start.
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: chap-core tags, space separated
+        default: "latest master"
+      dhis2:
+        description: DHIS2 versions, space separated, or "none"
+        default: "2.42"
+      models:
+        description: model ids, comma separated, "default" or "all"
+        default: default
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  matrix:
+    name: tags
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.tags.outputs.tags }}
+    steps:
+      - id: tags
+        env:
+          TAGS: ${{ inputs.tags || 'latest master' }}
+        run: echo "tags=$(jq -cn --arg t "$TAGS" '$t | split(" ") | map(select(. != ""))')" >>"$GITHUB_OUTPUT"
+
+  e2e:
+    name: e2e (chap-core ${{ matrix.tag }})
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.matrix.outputs.tags) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The runner image comes with toolchains this job does not use. DHIS2,
+      # chap-core and the R models need the room.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Build
+        run: cargo build
+
+      - name: Run scripts/e2e.sh
+        env:
+          TAG: ${{ matrix.tag }}
+          DHIS2_VERSIONS: ${{ inputs.dhis2 || '2.42' }}
+          MODELS: ${{ inputs.models || 'default' }}
+        run: |
+          args=(--tags "$TAG" --models "$MODELS" --work "$RUNNER_TEMP/e2e")
+          if [ "$DHIS2_VERSIONS" = none ]; then
+            args+=(--no-dhis2)
+          else
+            args+=(--dhis2 "$DHIS2_VERSIONS")
+          fi
+          scripts/e2e.sh "${args[@]}"
+
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/e2e/report.md" ]; then
+            cat "$RUNNER_TEMP/e2e/report.md" >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-${{ matrix.tag }}
+          path: |
+            ${{ runner.temp }}/e2e/report.md
+            ${{ runner.temp }}/e2e/logs-*
+          if-no-files-found: ignore
+          retention-days: 14
