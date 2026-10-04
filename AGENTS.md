@@ -17,6 +17,23 @@ This file holds the rules that are not derivable from the code.
 
 ## Wording
 
+- Write in ASD-STE100 Simplified Technical English. This applies to help,
+  messages, docs, commit subjects, and to the agent's own replies in the
+  session. The rules to keep:
+  - One word, one meaning. Use the simple, common word ("use", not
+    "utilize"; "start", not "initiate"; "make sure", not "ensure").
+    Technical names (commands, files, options, products) stay as they are.
+  - Sentences of at most 20 words in instructions and 25 words in
+    descriptions. Paragraphs of at most six sentences.
+  - Active voice and simple tenses: present, past, future.
+  - Instructions in the imperative, one action per sentence, the condition
+    first: "If the port is in use, set `CHAP_API_PORT` in `.env`."
+  - Keep articles ("the", "a"). No noun clusters of more than three words.
+  - No "-ing" words as nouns or adjectives where a simple form does the job.
+  - Lists for steps and for more than two items.
+
+  Change existing text to STE when you edit it for another reason; do not
+  rewrite files only for STE.
 - The product is "Chap" or "chap-core". Never write "stack" in anything a user
   sees: help, messages, docs. The one exception is `docs/introduction.md`, where
   "Chap Stack" is the etymology of the binary's name and stays; leave it alone.
