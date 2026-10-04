@@ -76,7 +76,8 @@ fn status_does_not_call_something_that_is_not_chap_core_up() {
 
 /// A chap-core that answers 401 is up and refusing the token, not down: the
 /// row says so, the registry it could not read is not guessed at, and the one
-/// error line is about the token rather than the container.
+/// error line is about the token rather than the container. `/health` is open
+/// on a real chap-core, so the 401 comes from the registry.
 #[test]
 fn status_calls_a_refused_token_a_refused_token_and_not_down() {
     let sandbox = Sandbox::new();
@@ -112,6 +113,11 @@ fn status_calls_a_refused_token_a_refused_token_and_not_down() {
         stderr.contains("is up and did not accept the API token"),
         "{stderr}"
     );
+    assert!(
+        stderr.contains("answers /v2/services with HTTP 401"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("something in front of"), "{stderr}");
     assert!(!stderr.contains("not responding"), "{stderr}");
 
     let out = chap_in(&sandbox, &dir, &["--json", "status", "--url", &url])

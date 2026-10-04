@@ -70,8 +70,15 @@ pub(crate) fn chap_core_server() -> u16 {
     serve_chap_core(false, false)
 }
 
-/// [`chap_core_server`] behind a token: every request without a Bearer header
-/// is answered 401, the way chap-core answers one when `CHAP_API_TOKEN` is set.
+/// The paths chap-core answers without a token, copied from `OPEN_PATHS` in
+/// its `rest_api/auth.py` rather than from chaps, so the stand-in does not
+/// agree with chaps by construction.
+const CHAP_CORE_OPEN_PATHS: &[&str] = &["/health", "/health/ready", "/system/info"];
+
+/// [`chap_core_server`] behind a token, the way chap-core is when
+/// `CHAP_API_TOKEN` is set: a request without a Bearer header is answered
+/// 401, except on the paths chap-core leaves open (`OPEN_PATHS` in its
+/// `rest_api/auth.py`).
 pub(crate) fn protected_chap_core_server() -> u16 {
     serve_chap_core(true, false)
 }
@@ -108,11 +115,15 @@ fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
                 .map(|(_, rest)| rest.to_string())
                 .unwrap_or_default();
 
-            let (status, content_type, payload) = match protected && !authed {
+            let route = path
+                .split_once('?')
+                .map_or(path.as_str(), |(route, _)| route);
+            let open = CHAP_CORE_OPEN_PATHS.contains(&route);
+            let (status, content_type, payload) = match protected && !authed && !open {
                 true => (
                     401,
                     "application/json",
-                    r#"{"detail":"Not authenticated"}"#.to_string(),
+                    r#"{"detail":"Missing or invalid API token"}"#.to_string(),
                 ),
                 false => chap_core_route(&method, &path, authed, &body, &mut recorded),
             };
