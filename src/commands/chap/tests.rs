@@ -258,3 +258,13 @@ fn the_written_files_are_named_relative_to_the_current_directory() {
     );
     assert_eq!(describe(&written, Path::new("/w"), 1), "a.nc, and 2 more");
 }
+
+#[test]
+fn a_url_on_this_machine_is_found_with_its_port() {
+    assert_eq!(loopback_port("http://localhost:5001"), Some(5001));
+    assert_eq!(loopback_port("http://127.0.0.1:8000/api"), Some(8000));
+    assert_eq!(loopback_port("http://[::1]:5002"), Some(5002));
+    assert_eq!(loopback_port("http://LOCALHOST"), Some(80));
+    assert_eq!(loopback_port("http://auto-arima-chapkit:8000"), None);
+    assert_eq!(loopback_port("https://models.example.org:8443"), None);
+}

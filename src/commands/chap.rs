@@ -52,6 +52,11 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
     )?;
     let reference = format!("{repository}:{tag}");
 
+    if let ModelKind::Chapkit(url) = &kind
+        && let Some(port) = plan::loopback_port(url)
+    {
+        return Err(ChapError::Usage(loopback_refusal(url, port, &place)).into());
+    }
     if !args.docker && runs_in_docker(ctx, &kind, &cwd) {
         return Err(ChapError::Usage(format!(
             "`{}` runs in docker (`docker_env` in its MLproject), and the container has no \
@@ -189,6 +194,32 @@ impl Place {
             .iter()
             .map(|(id, model)| format!("{id} at http://{}:{}", model.service_id, plan::MODEL_PORT))
             .collect()
+    }
+}
+
+/// Why a model URL on `localhost` cannot work, and the URL that does: the
+/// service name of the model published on that port, when chaps knows it.
+fn loopback_refusal(url: &str, port: u16, place: &Place) -> String {
+    let service = place.project.as_ref().and_then(|project| {
+        project
+            .state
+            .models
+            .values()
+            .find(|model| model.host_port == Some(port))
+            .map(|model| model.service_id.clone())
+    });
+    match (service, &place.network) {
+        (Some(service), Some(_)) => format!(
+            "`{url}` is this machine, and in the container `localhost` is the container \
+             itself; use `--model-name http://{service}:{}`, the same model on the network",
+            plan::MODEL_PORT
+        ),
+        _ => format!(
+            "`{url}` is this machine, and in the container `localhost` is the container \
+             itself; start the model with `chaps run MODEL` and use the `http://SERVICE:{}` \
+             URL that `chaps chap` lists on its `models:` line",
+            plan::MODEL_PORT
+        ),
     }
 }
 

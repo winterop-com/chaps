@@ -334,3 +334,28 @@ fn the_chap_cli_answers_from_the_real_image() {
         .success()
         .stdout(predicates::str::contains("plot-backtest"));
 }
+
+/// `localhost` in the container is the container, so the URL `chaps ps`
+/// prints for a model reaches nothing there; the refusal names the URL that
+/// does.
+#[test]
+fn a_model_url_on_localhost_is_refused_before_the_run() {
+    let sandbox = Sandbox::new();
+    let work = workdir(&sandbox);
+    let (_temp, bin, log) = fake_docker();
+
+    chap_with_docker(
+        &sandbox,
+        &work,
+        &bin,
+        &["chap", "eval", "--model-name", "http://localhost:5001"],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "in the container `localhost` is the container itself",
+    ))
+    .stderr(predicates::str::contains("models:"));
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(!calls.contains("run --rm -i"), "nothing ran: {calls}");
+}

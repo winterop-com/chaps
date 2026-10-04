@@ -105,6 +105,24 @@ fn github_repo(name: &str) -> Option<ModelKind> {
     })
 }
 
+/// The port of a URL on this machine (`localhost`, `127.0.0.1`, `[::1]`,
+/// `0.0.0.0`), or `None` for a URL on another host. In the container these
+/// names are the container itself, so such a URL reaches nothing.
+pub fn loopback_port(url: &str) -> Option<u16> {
+    let rest = url.split_once("://")?.1;
+    let authority = rest.split('/').next().unwrap_or_default();
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => (host, port.parse().ok()),
+        _ => (authority, None),
+    };
+    let host = host.to_ascii_lowercase();
+    let loopback = matches!(
+        host.as_str(),
+        "localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0"
+    );
+    loopback.then(|| port.unwrap_or(80))
+}
+
 /// The image a model runs in.
 ///
 /// The models that are not chapkit services run in the worker image, as
