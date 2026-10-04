@@ -75,6 +75,22 @@ pub(crate) fn chap_core_server() -> u16 {
 /// agree with chaps by construction.
 const CHAP_CORE_OPEN_PATHS: &[&str] = &["/health", "/health/ready", "/system/info"];
 
+/// The version the stand-in chap-core reports on `/system/info`, which no
+/// pin in the tests uses, so a report that shows it read the running build.
+pub(crate) const CHAP_CORE_VERSION: &str = "1.9.3";
+
+/// The revision the stand-in chap-core reports on `/system/info`.
+pub(crate) const CHAP_CORE_REVISION: &str = "0a1b2c3";
+
+/// chap-core's `SystemInfoResponse`, with every field it sends.
+fn system_info(protected: bool) -> String {
+    format!(
+        r#"{{"chap_core_version":"{CHAP_CORE_VERSION}","python_version":"3.13.7",
+  "server_date":"2026-10-04T09:00:00.000000+00:00","server_time_zone_id":"Etc/UTC",
+  "revision":"{CHAP_CORE_REVISION}","auth_required":{protected}}}"#
+    )
+}
+
 /// [`chap_core_server`] behind a token, the way chap-core is when
 /// `CHAP_API_TOKEN` is set: a request without a Bearer header is answered
 /// 401, except on the paths chap-core leaves open (`OPEN_PATHS` in its
@@ -99,6 +115,7 @@ fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
         // cleanup: one server per port, so the record is this thread's own.
         let mut recorded = Recorded {
             unreachable,
+            protected,
             ..Recorded::default()
         };
         for stream in listener.incoming() {
@@ -513,6 +530,9 @@ pub(crate) struct Recorded {
     /// Whether every model's proxied `/health` answers 502, the way chap-core
     /// in a container answers for a model registered as `localhost:<port>`.
     pub(crate) unreachable: bool,
+    /// Whether the server wants a token, which `/system/info` reports as
+    /// `auth_required`.
+    pub(crate) protected: bool,
     /// Every path a `DELETE` reached, in order.
     pub(crate) deleted: Vec<String>,
     /// Observations in the last `make-dataset` body.
@@ -557,6 +577,9 @@ pub(crate) fn chap_core_route(
             json,
             r#"{"status":"success","message":"healthy"}"#.to_string(),
         );
+    }
+    if route == "/system/info" && method == "GET" {
+        return (200, json, system_info(recorded.protected));
     }
     if route == "/v2/services" && method == "GET" {
         return (200, json, service_list());

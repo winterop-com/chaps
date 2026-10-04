@@ -131,6 +131,30 @@ fn status_calls_a_refused_token_a_refused_token_and_not_down() {
     assert_eq!(report["api"]["state"], "rejected");
 }
 
+/// The version on the chap-core line is the one the running build reports on
+/// `/system/info`, with its revision, and not the tag the project pins.
+#[test]
+fn status_reports_the_version_chap_core_runs() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = chap_core_server();
+    sandbox
+        .init(&["--api-port", &port.to_string()])
+        .assert()
+        .success();
+    let url = format!("http://127.0.0.1:{port}");
+
+    let out = chap_in(&sandbox, &dir, &["--json", "status", "--url", &url])
+        .output()
+        .expect("chaps runs")
+        .stdout;
+    let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
+    assert_eq!(report["api"]["state"], "up", "{report}");
+    assert_eq!(report["version"]["value"], CHAP_CORE_VERSION);
+    assert_eq!(report["version"]["pinned"], false);
+    assert_eq!(report["version"]["revision"], CHAP_CORE_REVISION);
+}
+
 #[test]
 fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
     if !docker_ready() {
