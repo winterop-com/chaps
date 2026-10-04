@@ -13,9 +13,10 @@
 # work directory,
 # starts it, waits until every service answers, and then runs, in order:
 # doctor, an OCS check, an OCS ingestion of a few days of CHIRPS3 (public, no
-# credentials), dhis2 connect, models test (every model trains and predicts)
-# and models test --backtest (a dataset, a backtest and its scores through
-# chap-core). A failed step collects the logs and the rest of that tag
+# credentials), dhis2 connect, models test (every model trains and predicts),
+# models test --backtest (a dataset, a backtest and its scores through
+# chap-core) and the chap CLI through `chaps chap` (an evaluation and its
+# plot). A failed step collects the logs and the rest of that tag
 # carries on where it still can. A report is written next to the deployments.
 #
 # Needs Docker with room for DHIS2 (about 8 GB), and the network. Takes a
@@ -168,6 +169,27 @@ ocs_ingest() {
   get "$base/stac/collections/chirps3_precipitation_daily"
 }
 
+# chap_cli DIR LOGS: the chap CLI through `chaps chap`, in a directory of its
+# own: an evaluation of the deployment's first model over its network, on
+# chap-core's Laos example data, then a plot of it. Both files must be on the
+# host afterwards.
+chap_cli() {
+  local dir="$1" work="$2/chap-cli" service data
+  data="https://raw.githubusercontent.com/dhis2-chap/chap-core/master/example_data"
+  service="$(sed -n 's/^ *service_id: *//p' "$dir/.chaps/models.yaml" | head -1)"
+  [ -n "$service" ] || { echo "no enabled model in $dir/.chaps/models.yaml"; return 1; }
+  mkdir -p "$work" || return 1
+  (
+    cd "$work" || exit 1
+    curl -fsSO "$data/laos_subset.csv" && curl -fsSO "$data/laos_subset.geojson" || exit 1
+    "$CHAPS" -C "$dir" chap eval --model-name "http://$service:8000" \
+      --dataset-csv laos_subset.csv --output-file eval.nc \
+      --backtest-params.n-splits 2 --backtest-params.n-periods 3 || exit 1
+    "$CHAPS" -C "$dir" chap plot-backtest eval.nc --output-file eval.html || exit 1
+    test -s eval.nc && test -s eval.html
+  )
+}
+
 # dhis2_seed VERSION: chaps' own seed where it has one (the Laos climate demo,
 # 2.42), and otherwise an empty database. DHIS2's Sierra Leone demo exists for
 # other versions, but its admin is not a superuser and may not create the
@@ -202,6 +224,7 @@ steps() {
     "$CHAPS" -C "$dir" models test --all -v
   run "$label" "models backtest" "$logs/models-backtest.log" \
     "$CHAPS" -C "$dir" models test --all --backtest -v
+  run "$label" "chap cli" "$logs/chap-cli.log" chap_cli "$dir" "$logs"
   "$CHAPS" -C "$dir" status --json >"$logs/status.json" 2>&1
   if [ "$failures" -gt 0 ]; then
     "$CHAPS" -C "$dir" logs >"$logs/compose.log" 2>&1
