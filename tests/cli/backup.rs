@@ -274,3 +274,143 @@ fn backup_outside_a_project_says_so() {
     .failure()
     .stderr(predicates::str::contains("not a chaps project"));
 }
+
+/// `chaps down --volumes --yes` for a deployment, when the guard goes out of
+/// scope: a test that fails half-way still leaves no container or volume
+/// behind.
+struct TakenDown(Option<assert_cmd::Command>);
+
+impl Drop for TakenDown {
+    fn drop(&mut self) {
+        if let Some(mut down) = self.0.take() {
+            let _ = down.output();
+        }
+    }
+}
+
+/// The rows of the probe table, through `psql` in the postgres container.
+fn probe_rows(sandbox: &Sandbox, dir: &std::path::Path) -> Vec<String> {
+    let out = chap_in(
+        sandbox,
+        dir,
+        &[
+            "docker",
+            "exec",
+            "postgres",
+            "psql",
+            "-U",
+            "chap",
+            "-d",
+            "chap_core",
+            "-tAc",
+            "select note from chaps_probe order by note",
+        ],
+    )
+    .output()
+    .expect("chaps runs");
+    assert!(
+        out.status.success(),
+        "psql failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn psql(sandbox: &Sandbox, dir: &std::path::Path, sql: &str) {
+    chap_in(
+        sandbox,
+        dir,
+        &[
+            "docker",
+            "exec",
+            "postgres",
+            "psql",
+            "-U",
+            "chap",
+            "-d",
+            "chap_core",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-c",
+            sql,
+        ],
+    )
+    .assert()
+    .success();
+}
+
+/// The database goes into the archive and comes back out of it: rows written
+/// after the backup are gone after the restore, and the rows from before it
+/// are there again. Only postgres runs, so the test pulls one small image and
+/// not chap-core.
+#[test]
+fn backup_and_restore_bring_the_database_back() {
+    if !docker_ready() {
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project().with_file_name("chaps-backup-db");
+    let mut init = sandbox.chap();
+    init.arg("init")
+        .arg(&dir)
+        .args(["--models", "none", "--api-port"])
+        .arg(free_port().to_string());
+    init.assert().success();
+    let _down = TakenDown(Some(chap_in(
+        &sandbox,
+        &dir,
+        &["down", "--volumes", "--yes"],
+    )));
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &["docker", "run", "--", "up", "-d", "--wait", "postgres"],
+    )
+    .assert()
+    .success();
+    psql(
+        &sandbox,
+        &dir,
+        "create table chaps_probe (note text); insert into chaps_probe values ('before');",
+    );
+
+    let archives = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&archives).unwrap();
+    chap_in(
+        &sandbox,
+        &dir,
+        &["backup", "create", "--out", archives.to_str().unwrap()],
+    )
+    .assert()
+    .success();
+    let archive = only_archive(&archives);
+
+    psql(
+        &sandbox,
+        &dir,
+        "insert into chaps_probe values ('after the backup');",
+    );
+    assert_eq!(probe_rows(&sandbox, &dir), ["after the backup", "before"]);
+
+    chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "backup",
+            "restore",
+            archive.to_str().unwrap(),
+            "--db-only",
+            "--no-start",
+            "--yes",
+        ],
+    )
+    .assert()
+    .success();
+    assert_eq!(probe_rows(&sandbox, &dir), ["before"]);
+}
