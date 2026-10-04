@@ -91,6 +91,27 @@ pub(super) fn start_service(project: &Project, model: &Model) -> Result<Vec<Path
         files.push(file);
     }
 
+    // A first start pulls the model's image, which is 1 to 7 GB. That is
+    // minutes, so it is said, and compose's progress is shown, rather than a
+    // quiet wait that looks like a hang.
+    if let Some(image) = docker::service_images(project).get(&model.service)
+        && !docker::image_is_local(image)
+    {
+        output::notice(&format!(
+            "pulling {image} first; a model image is 1 to 7 GB, so this can take some minutes"
+        ));
+        let pull = ["pull", &model.service].map(str::to_string);
+        let piped = docker::run_compose_teed_with(project, &files, &pull)?;
+        if piped.code != 0 {
+            return Err(
+                anyhow::Error::from(ChapError::DockerFailed(piped.code)).context(format!(
+                    "{image} could not be pulled; its message is above, and `chaps doctor` checks \
+                 the connection to the registry"
+                )),
+            );
+        }
+    }
+
     let init = format!("{}-init", model.service);
     let has_init = docker::config_services(project)
         .map(|services| services.contains(&init))
