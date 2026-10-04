@@ -5,7 +5,7 @@ present in a browser, and a PDF in 16:9. [All the decks on one page](slides/inde
 
 | Deck | For | Web | PDF |
 | --- | --- | --- | --- |
-| An overview | technical people who do not know chaps | [open](slides/overview.html) | [PDF](slides/overview.pdf) |
+| An overview | anyone who is new to chaps | [open](slides/overview.html) | [PDF](slides/overview.pdf) |
 | The chap CLI, without Python | people who use `uvx --from chap-core chap` | [open](slides/chap-cli-users.html) | [PDF](slides/chap-cli-users.pdf) |
 | Chap behind the Modeling App | people who use DHIS2 and the Modeling App | [open](slides/modeling-app-users.html) | [PDF](slides/modeling-app-users.pdf) |
 | A workshop | students, in a hands-on session of about one hour | [open](slides/workshop.html) | [PDF](slides/workshop.pdf) |

@@ -4,7 +4,7 @@ theme: chaps
 paginate: true
 footer: chaps - deploy Chap with Docker
 title: chaps - an overview
-description: What chaps is, what it deploys and how it works, for technical people
+description: What chaps is, what it deploys and how it works
 ---
 
 <!-- _class: title -->
@@ -15,7 +15,7 @@ description: What chaps is, what it deploys and how it works, for technical peop
 
 ## The Climate Health Analytics Platform, its models, OCS and DHIS2, with Docker
 
-An overview for technical people
+What chaps is, what it deploys, and how it works
 
 ---
 
