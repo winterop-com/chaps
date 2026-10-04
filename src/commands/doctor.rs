@@ -478,9 +478,6 @@ fn project_checks(
             std::fs::read_to_string(project.dir.join(ENV_FILE))
                 .ok()
                 .as_deref(),
-            std::fs::read_to_string(project.dir.join(CHAPS_COMPOSE))
-                .ok()
-                .as_deref(),
         ),
         match daemon {
             true => volumes_check(project, &running),

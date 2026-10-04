@@ -101,8 +101,7 @@ pub struct Manifest {
     #[serde(default)]
     pub models: Vec<ManifestModel>,
     /// Every component with persistent state the project had enabled,
-    /// captured or not. Absent in an archive written before components were
-    /// backed up, which is what an empty list says.
+    /// captured or not.
     #[serde(default)]
     pub components: Vec<ManifestComponent>,
 }
@@ -150,8 +149,7 @@ pub struct ManifestModel {
     pub version: String,
     pub image_tag: String,
     /// Host port the service published, or `None` for one that was only
-    /// reachable inside the compose network. An older manifest, written when
-    /// every model had a port, holds a number.
+    /// reachable inside the compose network.
     #[serde(default)]
     pub host_port: Option<u16>,
     pub data_dir: String,

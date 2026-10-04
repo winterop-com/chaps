@@ -74,10 +74,7 @@ services:
 Compose merges `environment` maps across `-f` files additively, so this adds
 the one variable and leaves upstream's file untouched. It is rendered whether
 or not the deployment has a key: with none in `.env` the variable arrives
-empty, which chap-core reads as no key at all. A deployment whose
-`compose.chaps.yml` was rendered by an older `chaps` is missing the line;
-`chaps doctor` says so on its `.env` line, and `chaps sync` followed by
-`chaps restart` puts it back.
+empty, which chap-core reads as no key at all.
 
 ## Where the secrets live
 

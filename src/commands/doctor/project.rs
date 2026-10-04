@@ -350,15 +350,7 @@ fn file_created_at(path: &Path) -> Option<u64> {
 /// line means the pin comments `sync` writes are gone. Whether authentication
 /// is on is reported either way: "off" is a fact an operator has to be able to
 /// see, not a fault.
-///
-/// `chaps_overlay` is the rendered `compose.chaps.yml`, which is where the
-/// registration key is handed to chap-core: a protected deployment whose
-/// override predates that line has a chap-core that answers every model's
-/// registration with a 401.
-pub fn env_verdict(
-    body: Option<&str>,
-    chaps_overlay: Option<&str>,
-) -> (Status, String, Option<String>) {
+pub fn env_verdict(body: Option<&str>) -> (Status, String, Option<String>) {
     let Some(body) = body else {
         return (Status::Skip, "no .env to read".to_string(), None);
     };
@@ -390,21 +382,6 @@ pub fn env_verdict(
         facts.push(format!("no {CHAP_TAG_ENV_VAR} line"));
         fixes.push("run `chaps sync` to write the image pin comments back");
     }
-    // Only a deployment with authentication on has anything to hand over, and
-    // only an override rendered by an older chaps is missing the line.
-    if auth_on
-        && let Some(overlay) = chaps_overlay
-        && !overlay.contains(auth::REGISTRATION_KEY_ENV_VAR)
-    {
-        facts.push(format!(
-            "{CHAPS_COMPOSE} does not pass {} to chap-core",
-            auth::REGISTRATION_KEY_ENV_VAR
-        ));
-        fixes.push(
-            "run `chaps sync`, then `chaps restart`: without that line chap-core answers \
-             every model registration with HTTP 401",
-        );
-    }
 
     let detail = facts.join(", ");
     if fixes.is_empty() {
@@ -418,8 +395,8 @@ const PASSWORD_FIX: &str = "set POSTGRES_PASSWORD in .env to a value of your own
      exists keeps the old password until `ALTER USER` changes it";
 
 /// The `.env` line.
-pub fn env_check(body: Option<&str>, chaps_overlay: Option<&str>) -> Check {
-    Check::from_verdict("env", ".env", env_verdict(body, chaps_overlay))
+pub fn env_check(body: Option<&str>) -> Check {
+    Check::from_verdict("env", ".env", env_verdict(body))
 }
 
 /// Whether one host port the stack publishes is free to publish on.

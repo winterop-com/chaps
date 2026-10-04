@@ -130,12 +130,12 @@ fn the_files_check_points_at_the_directories_of_the_enabled_components() {
 #[test]
 fn the_env_check_reads_the_two_things_that_bite_later() {
     // Nothing to read is not a fault: `project-files` already said so.
-    assert_eq!(env_verdict(None, None).0, Status::Skip);
+    assert_eq!(env_verdict(None).0, Status::Skip);
 
     let good = "POSTGRES_PASSWORD=0123456789abcdef\n\
                     CHAP_API_TOKEN=sekret\n\
                     # CHAP_IMAGE_TAG=latest\n";
-    let (status, detail, fix) = env_verdict(Some(good), Some(OVERRIDE));
+    let (status, detail, fix) = env_verdict(Some(good));
     assert_eq!(status, Status::Ok);
     assert_eq!(
         detail,
@@ -145,59 +145,27 @@ fn the_env_check_reads_the_two_things_that_bite_later() {
 
     // Authentication off is reported, not complained about.
     let open = "POSTGRES_PASSWORD=0123456789abcdef\n# CHAP_API_TOKEN=\nCHAP_IMAGE_TAG=v2.3.1\n";
-    let (status, detail, _) = env_verdict(Some(open), Some(OVERRIDE));
+    let (status, detail, _) = env_verdict(Some(open));
     assert_eq!(status, Status::Ok);
     assert!(detail.starts_with("auth off, "), "{detail}");
 
     // The default password is the one that has to be moved off.
-    let (status, detail, fix) = env_verdict(
-        Some("POSTGRES_PASSWORD=chap\n# CHAP_IMAGE_TAG=latest\n"),
-        None,
-    );
+    let (status, detail, fix) =
+        env_verdict(Some("POSTGRES_PASSWORD=chap\n# CHAP_IMAGE_TAG=latest\n"));
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("the default `chap`"), "{detail}");
     assert!(fix.unwrap().contains("ALTER USER"));
 
     // An unset one resolves to the same default through compose.
-    let (status, detail, _) = env_verdict(Some("# CHAP_IMAGE_TAG=latest\n"), None);
+    let (status, detail, _) = env_verdict(Some("# CHAP_IMAGE_TAG=latest\n"));
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("unset"), "{detail}");
 
     // And a file the pin comments have been cut out of.
-    let (status, detail, fix) = env_verdict(Some("POSTGRES_PASSWORD=0123456789abcdef\n"), None);
+    let (status, detail, fix) = env_verdict(Some("POSTGRES_PASSWORD=0123456789abcdef\n"));
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("no CHAP_IMAGE_TAG line"), "{detail}");
     assert!(fix.unwrap().contains("chaps sync"));
-}
-
-/// A `compose.chaps.yml` as this version renders it: it hands chap-core
-/// the registration key.
-const OVERRIDE: &str = "services:\n  chap:\n    environment:\n      \
-         SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n";
-
-#[test]
-fn a_protected_deployment_whose_override_drops_the_key_is_a_warning() {
-    let protected = "POSTGRES_PASSWORD=0123456789abcdef\n\
-                         CHAP_API_TOKEN=sekret\n\
-                         # CHAP_IMAGE_TAG=latest\n";
-    // What an older chaps rendered: the port override and nothing else.
-    let old_override = "services:\n  chap:\n    ports: !override\n      - \"8000:8000\"\n";
-    let (status, detail, fix) = env_verdict(Some(protected), Some(old_override));
-    assert_eq!(status, Status::Warn);
-    assert!(
-        detail.contains("compose.chaps.yml does not pass SERVICEKIT_REGISTRATION_KEY"),
-        "{detail}"
-    );
-    let fix = fix.unwrap();
-    assert!(fix.contains("chaps sync"), "{fix}");
-    assert!(fix.contains("401"), "{fix}");
-
-    // The override this version renders says nothing.
-    assert_eq!(env_verdict(Some(protected), Some(OVERRIDE)).0, Status::Ok);
-    // Neither does a deployment with no authentication at all: there is
-    // no key to hand over.
-    let open = "POSTGRES_PASSWORD=0123456789abcdef\n# CHAP_IMAGE_TAG=latest\n";
-    assert_eq!(env_verdict(Some(open), Some(old_override)).0, Status::Ok);
 }
 
 #[test]

@@ -1098,12 +1098,12 @@ quoted because bare `no` is YAML's `false`).
 **Every** model overlay gets one, root included, where the chown is to `0:0`.
 A volume docker has just created is root-owned already, so on a fresh
 deployment a root model's init container does nothing - but a volume that
-already exists carries whoever owned it last. A deployment whose `chaps` said
-`1000:1000` for a model that a newer `chaps` resolves as root has a volume
-owned by 1000, and the model cannot write to it: the overlay drops every
+already exists carries whoever owned it last. If a model that ran as
+`1000:1000` now runs as root (a new image, or a `--user` override), its volume
+is owned by 1000, and the model cannot write to it: the overlay drops every
 capability, and `CAP_DAC_OVERRIDE` is the one that lets root ignore the
-permission bits. One busybox one-shot costs a second on `chaps up` and makes
-that upgrade heal itself, which is worth more than the line it saves.
+permission bits. One busybox one-shot costs a second on `chaps up` and repairs
+that change, which is worth more than the line it saves.
 
 The container has a second job: because it mounts the same named volume at the
 same path as the model itself, `chaps backup` reads and writes model data

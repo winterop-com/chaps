@@ -148,8 +148,8 @@ pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
             true,
         ),
     };
-    // A model found enabled may sit behind compose files an older chaps
-    // wrote; one sync makes them current before compose reads them.
+    // Like `chaps up`, one sync renders the compose files from `.chaps/`
+    // before compose reads them.
     let registry = super::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
     for warning in &synced.warnings {

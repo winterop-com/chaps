@@ -145,8 +145,6 @@ fn a_manifest_without_the_optional_parts_still_parses() {
     assert!(parsed.files.is_empty());
     assert!(parsed.database.is_none());
     assert!(parsed.models.is_empty());
-    // An archive written before components were captured says so by
-    // holding none, rather than failing to parse.
     assert!(parsed.components.is_empty());
     assert_eq!(parsed.content_bytes(), 0);
 }
@@ -829,9 +827,8 @@ fn the_table_and_the_component_agree_on_every_volume() {
     );
 }
 
-/// One member per volume, and the name of the one a component with a single
-/// volume keeps is the component's own - which is what makes an archive
-/// written by an earlier chaps restorable by this one.
+/// One member per volume, and a component with a single volume uses its own
+/// name as the member name.
 #[test]
 fn every_component_volume_has_an_archive_member_of_its_own() {
     use crate::components::Component;
@@ -854,7 +851,7 @@ fn every_component_volume_has_an_archive_member_of_its_own() {
         if let [only] = mine.as_slice() {
             assert_eq!(
                 only.member, only.name,
-                "a component with one volume keeps the member name every archive already holds"
+                "a component with one volume uses its own name as the member name"
             );
         }
         for part in mine {

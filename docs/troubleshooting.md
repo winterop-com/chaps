@@ -247,10 +247,10 @@ the overlay is what the model sends; a commented one means
 
 The same line in `compose.chaps.yml` is what chap-core checks it against.
 Upstream's `compose.ghcr.yml` passes only `CHAP_API_TOKEN` into the `chap`
-service, so a `compose.chaps.yml` rendered by an older `chaps` leaves the
-container with no key and the model's `X-Service-Key` is rejected as an invalid
-API token - a 401 in `chaps logs chapkit-ewars-model`. `chaps doctor` reports
-it on the `.env` line; `chaps sync` then `chaps restart` fixes it.
+service, so without that line the container has no key, and the model's
+`X-Service-Key` is rejected as an invalid API token - a 401 in
+`chaps logs chapkit-ewars-model`. `chaps sync` then `chaps restart` puts the
+line back.
 
 ## `unable to open database file`
 
@@ -314,39 +314,6 @@ the two whenever the image's amd64 variant is pulled here.
 `--user <uid>:<gid>` overrides the image, for the rare case where the image is
 wrong about itself. See
 [Data directories and users](./models.md#data-directories-and-users).
-
-### `attempt to write a readonly database` after upgrading chaps
-
-```text
-sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) attempt to write a readonly database
-```
-
-An older `chaps` ran some models as `1000:1000` that this one resolves as
-root, so their `ck_<id>_data` volumes - and the `chapkit.db` in them - are
-owned by uid 1000 while the model now runs as root. Root would normally ignore
-the permission bits, but the overlay drops every capability (`cap_drop: ALL`),
-and `CAP_DAC_OVERRIDE` is the one that lets root do that.
-
-The overlay's own init container is what fixes it, so upgrading is two
-commands:
-
-```sh
-chaps sync     # re-render the overlays
-chaps up       # the init container chowns the volume, then the model starts
-```
-
-`chaps sync` reports the overlays it rewrote, and `chaps up` recreates those
-models; the one-shot chown runs before each one and hands the volume over.
-`chaps status` should then show the model registered.
-
-Only a deployment brought up by hand - `docker compose up` on the rendered
-files, or `chaps up --no-preflight` on files that were never re-rendered -
-needs the chown done by hand:
-
-```sh
-docker run --rm -v <project>_ck_<id>_data:/v busybox:1.37 chown -R 0:0 /v
-chaps restart --all <service_id>
-```
 
 ## `dependency failed to start: container ... is unhealthy`
 
@@ -413,28 +380,6 @@ chaps docker exec postgres psql -U chap -d chap_core
 
 This is why `init` never rewrites a `.env` it finds, `--force` included. See
 the [`.env` contract](./concepts.md#the-env-contract).
-
-## `Control server error: [Errno 30] Read-only file system: '/home/chap'`
-
-```text
-[ERROR] [gunicorn.error] Control server error: [Errno 30] Read-only file system: '/home/chap'
-```
-
-A log line and nothing more: the API starts and serves. chap-core's image runs
-gunicorn 26, which opens a control socket at `$XDG_RUNTIME_DIR/gunicorn.ctl` and
-falls back to `$HOME/.gunicorn/` when that variable is unset. The `chap` service
-runs on a read-only root filesystem as a user with no home directory, so the
-fallback path cannot be created and gunicorn reports it once per start.
-
-A deployment rendered by this version of `chaps` sets `XDG_RUNTIME_DIR: /tmp` in
-the `chap` service's environment in `compose.chaps.yml`, which puts the socket on
-the tmpfs the service already mounts, so the line does not appear. An older
-deployment has the override without it; re-render and recreate the container:
-
-```sh
-chaps sync
-chaps restart
-```
 
 ## `no matching manifest for linux/arm64`
 
