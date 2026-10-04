@@ -18,8 +18,7 @@ pub struct CheckState {
     pub latest: String,
     /// The commit that release was built from, for the `dev` channel, where
     /// the tag never changes and so says nothing on its own. Empty on the
-    /// stable channel and on a state written by an older chaps.
-    #[serde(default)]
+    /// stable channel.
     pub commit: String,
 }
 

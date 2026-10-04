@@ -44,22 +44,6 @@ fn both_macs_take_the_universal_archive() {
 }
 
 #[test]
-fn the_legacy_name_is_the_same_archive_with_the_tag_in_it() {
-    assert_eq!(
-        legacy_asset_name("v0.2.0", LINUX),
-        "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
-    );
-    assert_eq!(
-        legacy_asset_name("v0.2.0", MAC),
-        "chaps-v0.2.0-universal-apple-darwin.tar.gz"
-    );
-    assert_eq!(
-        legacy_asset_name("v0.2.0", WINDOWS),
-        "chaps-v0.2.0-x86_64-pc-windows-msvc.zip"
-    );
-}
-
-#[test]
 fn the_executable_inside_gets_an_exe_on_windows() {
     assert_eq!(binary_name(LINUX), "chaps");
     assert_eq!(binary_name(MAC), "chaps");
@@ -109,12 +93,11 @@ fn a_release_without_a_tag_is_an_error() {
 }
 
 #[test]
-fn the_asset_is_the_version_less_name_with_the_tagged_one_as_a_fallback() {
+fn the_asset_is_the_version_less_name() {
     let full = Release {
         tag: "v0.2.0".to_string(),
         assets: vec![
             "chaps-x86_64-unknown-linux-musl.tar.gz".to_string(),
-            "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string(),
             SUMS_FILE.to_string(),
         ],
         ..Default::default()
@@ -122,16 +105,6 @@ fn the_asset_is_the_version_less_name_with_the_tagged_one_as_a_fallback() {
     assert_eq!(
         pick_asset(&full, LINUX).unwrap(),
         "chaps-x86_64-unknown-linux-musl.tar.gz"
-    );
-
-    // A release from before the rename carries the tagged name alone.
-    let legacy_only = Release {
-        assets: vec!["chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz".to_string()],
-        ..full.clone()
-    };
-    assert_eq!(
-        pick_asset(&legacy_only, LINUX).unwrap(),
-        "chaps-v0.2.0-x86_64-unknown-linux-musl.tar.gz"
     );
 
     // A payload with no asset list is taken at its word.
@@ -698,7 +671,7 @@ fn the_stable_notice_cannot_be_talked_into_offering_a_prerelease() {
 }
 
 #[test]
-fn the_check_state_carries_the_commit_and_survives_an_older_file() {
+fn the_check_state_carries_the_commit() {
     let tmp = tempfile::tempdir().unwrap();
     write_check(
         tmp.path(),
@@ -711,17 +684,6 @@ fn the_check_state_carries_the_commit_and_survives_an_older_file() {
     let state = read_check(tmp.path()).expect("written a moment ago");
     assert_eq!(state.latest, DEV_TAG);
     assert_eq!(state.commit, "0b1c2d3");
-
-    // A file written by a chaps that had no commit field still reads.
-    std::fs::write(
-        check_path(tmp.path()),
-        r#"{"checked_at_unix":1700000000,"latest":"v0.2.1"}"#,
-    )
-    .unwrap();
-    let old = read_check(tmp.path()).expect("an older state is still a state");
-    assert_eq!(old.latest, "v0.2.1");
-    assert!(old.commit.is_empty());
-    assert_eq!(dev_notice_line(&old.commit, "0b1c2d3"), None);
 }
 
 #[test]

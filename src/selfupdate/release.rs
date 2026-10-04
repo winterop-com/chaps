@@ -1,7 +1,7 @@
 //! Releases: reading GitHub's release payload, telling dev builds apart by
 //! commit, and picking the archive this build wants.
 
-use super::{REPO, VERSION, asset_name, latest_release_url, legacy_asset_name, release_url};
+use super::{REPO, VERSION, asset_name, latest_release_url, release_url};
 use crate::error::{ChapError, Result};
 use serde::Deserialize;
 use std::path::Path;
@@ -147,18 +147,13 @@ pub fn dev_update_available(release: &Release, revision: &str) -> bool {
 
 /// The asset `target` should download from `release`.
 ///
-/// The version-less name is what a release carries; a release from v0.2.0 or
-/// earlier, where every asset name held the tag, falls back to the name it
-/// does have. A payload that lists no assets at all is taken at its word
-/// rather than refused, because the name is derivable without it.
+/// The asset name holds no version. A payload that lists no assets is taken
+/// at its word rather than refused, because chaps can derive the name
+/// without the list.
 pub fn pick_asset(release: &Release, target: &str) -> Result<String> {
     let name = asset_name(target);
     if release.assets.is_empty() || release.has_asset(&name) {
         return Ok(name);
-    }
-    let legacy = legacy_asset_name(&release.tag, target);
-    if release.has_asset(&legacy) {
-        return Ok(legacy);
     }
     Err(anyhow::anyhow!(
         "{} has no archive for {target}; it carries {}",

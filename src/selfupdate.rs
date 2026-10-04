@@ -185,14 +185,6 @@ pub fn asset_name(target: &str) -> String {
     format!("chaps-{target}.{}", archive_extension(target))
 }
 
-/// What the same archive was called up to v0.2.0, when every asset name
-/// carried the tag. [`pick_asset`] falls back to it so `self update --version`
-/// still reaches a release published before the rename.
-pub fn legacy_asset_name(tag: &str, target: &str) -> String {
-    let target = asset_target(target);
-    format!("chaps-{tag}-{target}.{}", archive_extension(target))
-}
-
 /// The name of the executable inside the archive.
 pub fn binary_name(target: &str) -> &str {
     if target.contains("-windows-") {
