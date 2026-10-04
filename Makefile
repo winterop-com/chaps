@@ -48,9 +48,11 @@ docs-reference: ## Regenerate docs/reference.md from the CLI help texts
 docs: docs-reference ## Build the mdbook documentation into site/
 	mdbook build
 MARP   ?= bunx @marp-team/marp-cli@4.5.1
-slides: ## Build the slide decks into site/slides/: HTML and 16:9 PDF
+slides: ## Build the slide decks into site/slides/: HTML, 16:9 PDF and the index page
 	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --html
 	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --pdf
+	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --image png
+	cp slides/index.html site/slides/index.html
 
 docs-serve: ## Serve the documentation at localhost:3000 and open a browser
 	mdbook serve --open

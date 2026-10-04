@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chaps slides</title>
+<meta name="description" content="Slide decks about chaps, for five audiences: present them in a browser or download them as PDF.">
+<style>
+  :root {
+    --bg: #f6f8fb;
+    --card: #ffffff;
+    --ink: #1d2330;
+    --muted: #5b6475;
+    --accent: #1f6feb;
+    --accent-ink: #ffffff;
+    --rule: #d8dee8;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 16px rgba(16, 24, 40, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --ink: #e6edf3;
+      --muted: #9aa4b2;
+      --accent: #4c8dff;
+      --accent-ink: #0d1117;
+      --rule: #30363d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --ink: #e6edf3;
+    --muted: #9aa4b2;
+    --accent: #4c8dff;
+    --accent-ink: #0d1117;
+    --rule: #30363d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, #0f2a5a 0%, #1f6feb 100%);
+    color: #ffffff;
+    padding: 48px 0 40px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+  h1 { margin: 0 0 8px; font-size: 2.2rem; letter-spacing: -0.01em; }
+  header p { margin: 0; color: #dbe7ff; max-width: 46rem; }
+  header a { color: #ffffff; }
+  main { padding-top: 32px; padding-bottom: 56px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+    gap: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .thumb {
+    display: block;
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(135deg, #0f2a5a 0%, #1f6feb 100%);
+    border-bottom: 1px solid var(--rule);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .body { padding: 18px 20px 20px; display: flex; flex-direction: column; flex: 1; }
+  .for {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  h2 { font-size: 1.2rem; margin: 0 0 8px; }
+  .body p.what { margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; flex: 1; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    text-decoration: none;
+    border: 1px solid var(--accent);
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn.secondary { color: var(--accent); background: transparent; }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .hint {
+    margin-top: 32px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+  .hint a { color: var(--accent); }
+  kbd {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>chaps slides</h1>
+    <p>Five decks about chaps, one for each audience. Present a deck in the
+      browser, or download it as a 16:9 PDF. The full documentation is in
+      <a href="../index.html">the chaps book</a>.</p>
+  </div>
+</header>
+<main class="wrap">
+  <div class="grid">
+    <article class="card">
+      <a class="thumb" href="overview.html" aria-label="Present the overview"><img src="overview.png" alt="Title slide: chaps, deploy Chap with Docker" loading="lazy"></a>
+      <div class="body">
+        <p class="for">Technical people</p>
+        <h2>An overview</h2>
+        <p class="what">What chaps is, the parts of a deployment, how the state and the compose files work, versions, and the commands to operate it.</p>
+        <div class="actions">
+          <a class="btn primary" href="overview.html">Present</a>
+          <a class="btn secondary" href="overview.pdf" download>PDF</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="chap-cli-users.html" aria-label="Present the chap CLI deck"><img src="chap-cli-users.png" alt="Title slide: the chap CLI, without Python" loading="lazy"></a>
+      <div class="body">
+        <p class="for">Users of the chap CLI</p>
+        <h2>The chap CLI, without Python</h2>
+        <p class="what">From <code>uvx --from chap-core chap</code> to <code>chaps chap</code>: the same commands, no Python, uv or R, and models started by their id.</p>
+        <div class="actions">
+          <a class="btn primary" href="chap-cli-users.html">Present</a>
+          <a class="btn secondary" href="chap-cli-users.pdf" download>PDF</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="modeling-app-users.html" aria-label="Present the Modeling App deck"><img src="modeling-app-users.png" alt="Title slide: Chap behind the Modeling App" loading="lazy"></a>
+      <div class="body">
+        <p class="for">DHIS2 and Modeling App users</p>
+        <h2>Chap behind the Modeling App</h2>
+        <p class="what">What runs behind the Modeling App, and a DHIS2 with Chap and the apps, connected with one command.</p>
+        <div class="actions">
+          <a class="btn primary" href="modeling-app-users.html">Present</a>
+          <a class="btn secondary" href="modeling-app-users.pdf" download>PDF</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="workshop.html" aria-label="Present the workshop"><img src="workshop.png" alt="Title slide: evaluating forecasting models, a workshop" loading="lazy"></a>
+      <div class="body">
+        <p class="for">Students</p>
+        <h2>A workshop</h2>
+        <p class="what">A hands-on session of about one hour, from install to a comparison of two models, with exercises.</p>
+        <div class="actions">
+          <a class="btn primary" href="workshop.html">Present</a>
+          <a class="btn secondary" href="workshop.pdf" download>PDF</a>
+        </div>
+      </div>
+    </article>
+    <article class="card">
+      <a class="thumb" href="model-developers.html" aria-label="Present the model developer deck"><img src="model-developers.png" alt="Title slide: developing a model with chaps" loading="lazy"></a>
+      <div class="body">
+        <p class="for">Model developers</p>
+        <h2>Developing a model</h2>
+        <p class="what">Run a model from four sources, test it, evaluate it on real data, and compare it with the models that exist.</p>
+        <div class="actions">
+          <a class="btn primary" href="model-developers.html">Present</a>
+          <a class="btn secondary" href="model-developers.pdf" download>PDF</a>
+        </div>
+      </div>
+    </article>
+  </div>
+  <p class="hint">In a deck, the arrow keys move between the slides, and <kbd>f</kbd> shows it on the full screen. The decks are Markdown in <a href="https://github.com/winterop-com/chaps/tree/main/slides/decks">slides/decks</a>.</p>
+</main>
+</body>
+</html>

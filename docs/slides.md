@@ -1,7 +1,7 @@
 # Slides
 
 Five slide decks, one for each audience. Each one is a web page that you can
-present in a browser, and a PDF in 16:9.
+present in a browser, and a PDF in 16:9. [All the decks on one page](slides/index.html).
 
 | Deck | For | Web | PDF |
 | --- | --- | --- | --- |

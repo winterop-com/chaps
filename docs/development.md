@@ -138,6 +138,11 @@ starts a new slide.
 make slides      # every deck, as HTML and as a 16:9 PDF, into site/slides/
 ```
 
+`make slides` also writes an image of each deck's title slide, and copies
+`slides/index.html` to `site/slides/index.html`. That page lists the decks, so
+`/slides/` on Pages shows them and not a 404. A new deck needs a card in
+`slides/index.html` and a row in `docs/slides.md`.
+
 `make slides` runs a pinned Marp CLI through `bunx`, so it needs bun. The PDF
 also needs Chrome or Chromium on the machine. The `docs` workflow builds the
 slides after the book, so Pages serves them at `/slides/`, and
