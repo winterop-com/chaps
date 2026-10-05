@@ -451,16 +451,32 @@ with `--port none` has no host port to ask and is judged by its container alone.
 [error    ] registration.aborted [servicekit.api.service_builder] message='App never became ready, skipping registration' port=5001
 ```
 
-servicekit checks that the app answers at `127.0.0.1:<SERVICEKIT_PORT>` inside
-its own container before it registers. With a chap-core elsewhere, chaps sets
-`PORT` and `SERVICEKIT_PORT` to the model's host port so the two agree, and the
-image has to listen on `PORT`. One that starts on a fixed 8000 (the EWARS image
-does) cannot, and never registers with a chap-core elsewhere. Use a model whose
-image honours `PORT`, or run chaps' own chap-core
-(`chaps components enable chap-core`), where every model listens on 8000.
-`chaps models enable` warns about the marketplace images known to do this
-(EWARS), and `chaps status` points here when such a model stays
-`running, not registered` while the chap-core elsewhere answers.
+Before servicekit registers a model, it checks that the app answers inside the
+container. With a chap-core elsewhere, chaps reads the image's command when it
+enables the model, and decides where the app listens:
+
+- An image that starts with `--port 8000` listens on 8000, and its host port
+  maps to 8000.
+- An image whose command names no port gets `PORT` set to its host port.
+
+So this message means that chaps could not read the command, for example
+because the model was enabled `--offline`, or that the image does something
+else. Enable the model again with a network (`chaps models enable <id>`), then
+run `chaps up`. `chaps logs <service>` shows the port that servicekit checked.
+
+## `not registered with ...` from `chaps run`
+
+`chaps run --chap-core URL` started the model, and the chap-core at `URL` did
+not list it within 30 seconds. The model's log says why: run the
+`chaps -C ... logs` command that the message names.
+
+- `registration.attempt_failed` with `Name or service not known` or
+  `Connection refused`: the model cannot reach chap-core. Check that chap-core
+  runs, and that it listens on `0.0.0.0` when it is a process on this machine.
+- `App never became ready`: see the entry above.
+- A 401: chap-core asks for a registration key, and the model has none. See
+  [Authentication](./auth.md) for how a deployment passes the key to its
+  models.
 
 ## `registered, unreachable` / `chap-core cannot reach it at`
 

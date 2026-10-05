@@ -892,11 +892,17 @@ chap-core-external:
   container. Each overlay maps that name to the host gateway, which Docker
   Desktop does anyway and Linux needs.
 - **chap-core calls the models back at `models_host` and their host port**,
-  through `SERVICEKIT_HOST` and `SERVICEKIT_PORT`. The model also listens on
-  that port inside its container (`PORT`, and the published mapping is that
-  port on both sides): servicekit checks the app answers on `SERVICEKIT_PORT`
-  at `127.0.0.1` before it registers, so the two have to agree. An image that
-  ignores `PORT`, such as EWARS, never registers in this shape. Every model gets a host port,
+  through `SERVICEKIT_HOST` and `SERVICEKIT_PORT`. Where the app listens in
+  its container depends on the image, and chaps reads that off the image's
+  command when it enables the model:
+  - An image that starts uvicorn with `--port 8000` (every marketplace model
+    but one) listens on 8000, so the host port maps to 8000. servicekit 3,
+    which these images have, checks 8000 before it registers.
+  - An image whose command names no port reads `PORT` (the Simple Multistep
+    model). Its servicekit 2 checks only `SERVICEKIT_PORT`, so chaps sets
+    `PORT` to the host port and maps that port on both sides.
+
+  Every model gets a host port,
   as in any deployment without chap-core of its own. `localhost` is right for a
   chap-core process on this machine; a chap-core in a container needs
   `--models-host host.docker.internal`, and one on another machine the name it

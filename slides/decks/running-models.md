@@ -238,6 +238,26 @@ chaps stop --all --purge
 
 ---
 
+## Your own chap-core: `--chap-core`
+
+A group has no chap-core, so its models register nowhere. Give it yours:
+
+```sh
+chaps run -a --rm --chap-core http://localhost:8000 \
+  https://github.com/chap-models/chapkit_ghr_model
+```
+
+```text
+running chapkit_ghr_model on http://localhost:5001 (answered in 2s)
+registered with http://localhost:8000
+```
+
+- Every model of the group registers there. `--group NAME` keeps them apart.
+- chaps finds out whether chap-core is a container or a process, and where
+  it must call the models back. `--models-host` sets it.
+
+---
+
 ## A group is a deployment
 
 Every other chaps command works on a group with `-C`:
@@ -392,6 +412,7 @@ chaps --json run chapkit_ewars_model
 | a live view | `chaps top` |
 | its log | `chaps -C ~/.local/share/chaps/run/default logs SERVICE` |
 | to evaluate it | `chaps chap eval --model-name ID ...` |
+| to register it with your chap-core | `chaps run ID --chap-core URL` |
 | to stop it | `chaps stop ID`, or Ctrl-C with `-a` |
 | to remove it and its data | `chaps stop ID --purge` |
 

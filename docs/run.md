@@ -49,6 +49,36 @@ failed start. The command then exits with 130:
 error: stopped by Ctrl-C; chapkit_ewars_model is taken back out of /home/me/.local/share/chaps/run/default
 ```
 
+## Your own chap-core
+
+A group has no chap-core of its own, so its models register nowhere.
+`--chap-core URL` makes them register with a chap-core that runs elsewhere,
+for example one from its own checkout:
+
+```sh
+chaps run -a --rm --chap-core http://localhost:8000 https://github.com/chap-models/chapkit_ghr_model
+```
+
+```text
+running chapkit_ghr_model on http://localhost:5001 (answered in 2s)
+registered with http://localhost:8000
+```
+
+- chaps records the chap-core on the group, as `chaps components enable
+  chap-core --url` does in a deployment. Every model of that group then
+  registers with it. Use `--group NAME` for a group of its own.
+- chaps decides where chap-core calls the models back. A chap-core in a
+  container on this machine calls `host.docker.internal`, and a chap-core
+  process calls `localhost`. `--models-host HOST` sets it.
+- After the start, chaps asks chap-core whether it lists the model, and says
+  `registered with URL` or `not registered with URL`. "Up" means chap-core
+  answered, not only that the container started.
+- A group that had another chap-core moves to the new one. Its models that run
+  now register with the old one until they restart, and chaps says so.
+
+In a deployment of your own, `--chap-core` is refused: set the chap-core there
+with `chaps components enable chap-core --url URL`.
+
 ## What the model can be
 
 | `MODEL` | What `run` does |

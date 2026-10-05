@@ -19,13 +19,10 @@ chaps' own chap-core out and records yours, so:
   `host.docker.internal`, which is this machine from inside a container.
 - **Your chap-core calls each model back on its host port.** Every model gets
   one (5001 up), and registers itself as `localhost:<port>`, which is right for
-  a chap-core running on this machine. The model listens on that same port
-  inside its container, set through `PORT`, because servicekit checks the app
-  answers on the port it registers before it registers at all.
-- **The model image has to honour `PORT`.** Images that start through
-  servicekit's `run_app` do (Simple Multistep, Auto-ARIMA, GHR, Rwanda BYM).
-  The EWARS image starts uvicorn on 8000 whatever `PORT` says, so it never
-  passes that check and never registers in this shape.
+  a chap-core running on this machine. chaps reads each image's command, so
+  the host port reaches the app: an image that starts on `--port 8000` gets
+  its host port mapped to 8000, and one that reads `PORT` is told the host
+  port. Every marketplace model registers in this shape.
 - **The chap-core commands talk to yours.** `chaps status` asks it for its
   health and the registered models, and `chaps jobs`, `chaps api` and
   `chaps models test` send their requests there.
@@ -36,7 +33,17 @@ chaps models test --all
 ```
 
 It worked when `chaps status` shows chap-core `up` at your URL and the models
-`registered`. The models register again every few seconds, so starting your
+`registered`.
+
+**Without a deployment directory**, `chaps run --chap-core` does the same for
+one model at a time:
+
+```sh
+chaps run -a --rm --chap-core http://localhost:8000 https://github.com/chap-models/chapkit_ghr_model
+```
+
+It worked when the lines after the start say `registered with
+http://localhost:8000`. See [Running one model](../run.md#your-own-chap-core). The models register again every few seconds, so starting your
 chap-core after `chaps up`, or restarting it, needs nothing else.
 
 To point an existing deployment at your chap-core, or back:
