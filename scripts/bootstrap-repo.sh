@@ -24,7 +24,7 @@ REPO="${REPO:-${ORG}/${REPO_NAME}}"
 BRANCH="${BRANCH:-main}"
 PAGES_URL="${PAGES_URL:-https://${ORG}.github.io/${REPO_NAME}/}"
 # Kept in step with the `description` in Cargo.toml.
-DESCRIPTION="${DESCRIPTION:-Deploy and manage CHAP, the Climate Health Analytics Platform, with Docker Compose}"
+DESCRIPTION="${DESCRIPTION:-Deploy and manage Chap (climate-informed disease forecasting) with Docker Compose}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"

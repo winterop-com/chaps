@@ -9,7 +9,7 @@ Every command accepts the global options listed under [chaps](#chaps),
 
 ## chaps
 
-deploy Chap, the Climate Health Analytics Platform, and its services.
+deploy Chap (climate-informed disease forecasting) and its services.
 
 ```text
 Usage: chaps [OPTIONS] <COMMAND>

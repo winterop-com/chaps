@@ -1,6 +1,6 @@
 # chaps
 
-> chaps deploys Chap (the Climate Health Analytics Platform) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
+> chaps deploys Chap (climate-informed disease forecasting) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
 
 Chap forecasts cases of climate-sensitive diseases such as dengue and malaria from past case counts, climate data and population, and evaluates each forecasting model on past data before it is used. It is often used together with DHIS2, through the Modeling App.
 

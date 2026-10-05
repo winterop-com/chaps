@@ -1,4 +1,4 @@
-//! `chaps` — deploy and manage Chap, the Climate Health Analytics Platform:
+//! `chaps` — deploy and manage Chap (climate-informed disease forecasting):
 //! chap-core and marketplace model services on Docker Compose.
 
 // Stubs owned by agents A, B and C are not called yet; remove after A/B/C land.

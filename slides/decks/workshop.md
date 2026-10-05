@@ -73,7 +73,7 @@ Start each long command first, and explain while it runs.
 
 | Word | What it means |
 | --- | --- |
-| **Chap** | The Climate Health Analytics Platform: it trains models and makes forecasts |
+| **Chap** | The platform that trains forecasting models and makes forecasts of disease cases |
 | **model** | A program that learns from past cases and climate, and forecasts cases |
 | **backtest** | Forecasts made from points in the past, compared with what happened |
 | **split** | One point in the past from which the model trains and forecasts |

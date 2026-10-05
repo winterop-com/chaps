@@ -3,7 +3,7 @@ name = "chaps"
 version = "0.99.11"
 edition = "2024"
 rust-version = "1.91"
-description = "Deploy Chap, the Climate Health Analytics Platform, and its services with Docker Compose"
+description = "Deploy Chap (climate-informed disease forecasting) and its services with Docker Compose"
 license = "AGPL-3.0-only"
 repository = "https://github.com/winterop-com/chaps"
 

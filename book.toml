@@ -1,6 +1,6 @@
 [book]
 title = "chaps"
-description = "Deploy Chap, the Climate Health Analytics Platform, and its services with Docker Compose"
+description = "Deploy Chap (climate-informed disease forecasting) and its services with Docker Compose"
 authors = ["Morten Hansen"]
 language = "en"
 src = "docs"

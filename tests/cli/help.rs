@@ -126,7 +126,7 @@ fn the_help_says_what_chap_is() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "Climate Health Analytics Platform",
+            "climate-informed disease forecasting",
         ));
 
     // The short help is the one-liner, and says the same thing.
@@ -134,7 +134,7 @@ fn the_help_says_what_chap_is() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "deploy Chap, the Climate Health Analytics Platform, and its services",
+            "deploy Chap (climate-informed disease forecasting) and its services",
         ))
         .get_output()
         .stdout

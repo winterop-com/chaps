@@ -1,6 +1,6 @@
 # Introduction
 
-[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org) forecasts
 cases of climate-sensitive diseases such as dengue and malaria. It learns from
 past case counts together with climate data and population, scores how well
 each forecasting model would have done on the past, and predicts the coming

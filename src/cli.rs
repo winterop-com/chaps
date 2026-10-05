@@ -81,7 +81,7 @@ impl std::str::FromStr for ComponentPortArg {
 
 /// The one-liner both `chaps -h` and `chaps --help` open with. There is no
 /// `long_about`: the two spellings of help say the same thing.
-const ABOUT: &str = "deploy Chap, the Climate Health Analytics Platform, and its services";
+const ABOUT: &str = "deploy Chap (climate-informed disease forecasting) and its services";
 
 /// The last line of `chaps --help`. Anything longer than a clause belongs in
 /// the book, so the help points at it instead of repeating it.
@@ -100,7 +100,7 @@ pub const DOCS_URL: &str = "https://winterop-com.github.io/chaps/";
 /// each command's own options.
 const GLOBAL: &str = "Global options";
 
-/// Deploy Chap, the Climate Health Analytics Platform, and its services.
+/// Deploy Chap (climate-informed disease forecasting) and its services.
 #[derive(Debug, Parser)]
 // `bin_name` as well as `name`: without it clap takes the usage line from
 // argv[0], so the same help reads `chaps.exe` on Windows and `chaps`

@@ -13,7 +13,7 @@ description: What chaps is, what it deploys and how it works
 
 # Deploying Chap with one binary
 
-## The Climate Health Analytics Platform, its models, OCS and DHIS2, with Docker
+## Chap, its models, OCS and DHIS2, with Docker
 
 What chaps is, what it deploys, and how it works
 

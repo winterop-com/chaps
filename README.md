@@ -9,7 +9,7 @@
 > [winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
 > ([`docs/ai.md`](docs/ai.md)) first.**
 
-[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org) forecasts
 cases of climate-sensitive diseases such as dengue and malaria from past case
 counts, climate data and population, and scores how well each forecasting model
 would have done on the past before anyone relies on it. It is often used
