@@ -50,6 +50,10 @@ Next:
   chaps status
 ```
 
+The route through chap-core accepts only GET (and HEAD) requests, for example
+`/api/v1/info`. For anything else, `chaps models expose ID` publishes a port of
+the model's own.
+
 `chaps init mychap --with ocs` adds Open Climate Service beside chap-core, and
 `--with ocs,s3` adds the object store with it. `--with dhis2` adds a demo or
 development DHIS2 and a PostgreSQL of its own; its first start takes minutes
@@ -99,18 +103,18 @@ chaps status
 ```text
 chap-core   up   http://localhost:8700   2.3.1   auth: off
 
-MODEL                             STATE                    REACH               LAST PING
-chapkit-ewars-model               registered               port 5001           12s ago
-chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
-auto-arima-chapkit                not running              via chap-core       -
-some-other-service                unmanaged                http://c0ffee:8000  3s ago
+MODEL                STATE       REACH          LAST PING
+chapkit-ewars-model  registered  via chap-core  4s ago
 
 models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
 
-2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start Chap with `chaps up`, then `chaps logs auto-arima-chapkit`
+1 model registered
+  run `chaps models test --all` to check it can run
 ```
+
+A model can also be `running, not registered` or `not running`, and then
+`status` names the command that fixes it. [Status and output](./status.md)
+shows every state.
 
 On a deployment whose containers do not exist at all, `status` skips the table
 and says so:
@@ -155,7 +159,8 @@ chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malar
 
 ## 5. Reach a model from your own machine
 
-Model services publish no host port of their own. Either go through chap-core:
+Model services publish no host port of their own. Either go through chap-core,
+which accepts only GET (and HEAD) requests:
 
 ```sh
 curl http://localhost:8700/v2/services/chapkit-ewars-model/run/api/v1/info

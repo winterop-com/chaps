@@ -9,12 +9,13 @@ your answers short and concrete, and give one command at a time.
 Use this when the person asks what they are installing, or seems unsure why
 they would want it.
 
-[Chap](https://chap.dhis2.org), the Climate Health Analytics Platform, forecasts
+[Chap](https://chap.dhis2.org) forecasts
 cases of climate-sensitive diseases such as dengue and malaria. It learns from
 past case counts together with climate data (rainfall, temperature) and
 population, and predicts the next months for each district or province. Before
-trusting a model it runs an *evaluation*: it hides the last part of the data,
-forecasts it, and scores how close the forecast came. Ministries of health use
+trusting a model it runs an *evaluation*: it pretends to stand at several past
+points in turn, forecasts the months after each, and scores how close each
+forecast came. Ministries of health use
 it together with [DHIS2](https://dhis2.org), the health information system
 where their case data already lives, through the **Modeling App** inside DHIS2.
 
@@ -26,18 +27,18 @@ A few words the person will see:
 
 | Word | Meaning |
 | --- | --- |
-| chap-core | Chap itself: the service that trains and runs the models. |
+| chap-core | Chap's backend: the service that trains, evaluates and runs the models. The Modeling App is its interface in DHIS2. |
 | model | One forecasting method, for example CHAP-EWARS. Each runs in its own container. |
 | DHIS2 | The health information system. `chaps` can run a demo one with data from Laos. |
 | Modeling App | Chap's user interface, installed inside DHIS2. |
-| evaluation | Testing a model on past data it did not see, with scores. Also called a backtest. |
+| evaluation | Testing a model on past data: it forecasts from several past points and scores each forecast. Also called a backtest. |
 | prediction | A forecast for the coming months. |
 | OCS | Open Climate Service: downloads and serves climate data. Optional. |
 
 ## How to help
 
 1. **Ask what they want to do**, in one question, and match the answer to a
-   group in [The options](#the-options). Do not show all eighteen options.
+   group in [The options](#the-options). Do not show all nineteen options.
    - *Learn Chap, try forecasting, see what it does* (a student, an analyst, a
      public health person): **option 1**. It is the only one with a user
      interface they can click through. If their computer cannot give Docker
