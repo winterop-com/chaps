@@ -326,6 +326,8 @@ fn resolve_model(
         no_wait: false,
         attach: false,
         rm: false,
+        chap_core: None,
+        models_host: None,
         timeout: args.timeout,
     };
     let group = crate::commands::run::start_quietly(ctx, &run)?;

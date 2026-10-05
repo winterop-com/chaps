@@ -503,3 +503,71 @@ fn without_attach_run_returns_and_leaves_the_model_running() {
     ))
     .stderr(predicates::str::contains("following the log").not());
 }
+
+#[test]
+fn chap_core_points_the_group_at_a_chap_core_elsewhere() {
+    let sandbox = Sandbox::new();
+    let (_temp, bin) = docker_running_services(&["chapkit-ewars-model"]);
+
+    chap_with_docker(
+        &sandbox,
+        sandbox.home.path(),
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--no-wait",
+            "--chap-core",
+            "http://localhost:18999",
+            "--models-host",
+            "localhost",
+        ],
+    )
+    .assert()
+    .success();
+
+    let group = data(&sandbox).join("run").join("default");
+    let components = std::fs::read_to_string(group.join(".chaps/components.yaml")).unwrap();
+    assert!(
+        components.contains("url: http://localhost:18999"),
+        "{components}"
+    );
+    let overlay = std::fs::read_to_string(group.join("compose.chapkit-ewars-model.yml")).unwrap();
+    // The model registers there over the host gateway, on its host port, and
+    // the ewars image fixes --port 8000, so the host port maps to 8000.
+    assert!(
+        overlay.contains(
+            "SERVICEKIT_ORCHESTRATOR_URL: http://host.docker.internal:18999/v2/services/$$register"
+        ),
+        "{overlay}"
+    );
+    assert!(overlay.contains(":8000\""), "{overlay}");
+    assert!(!overlay.contains("      PORT: "), "{overlay}");
+}
+
+#[test]
+fn chap_core_in_a_deployment_of_its_own_is_refused_with_the_command_to_use() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let (_temp, bin) = docker_running_services(&["chapkit-ewars-model"]);
+
+    chap_with_docker(
+        &sandbox,
+        &sandbox.project(),
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--chap-core",
+            "http://localhost:18999",
+        ],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "`chaps components enable chap-core --url http://localhost:18999`",
+    ));
+}

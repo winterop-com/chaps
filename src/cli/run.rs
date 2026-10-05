@@ -43,6 +43,14 @@ pub struct ModelRunArgs {
     #[arg(long, requires = "attach")]
     pub rm: bool,
 
+    /// A chap-core elsewhere for the group's models to register with
+    #[arg(long, value_name = "URL")]
+    pub chap_core: Option<String>,
+
+    /// Host that chap-core calls the models back at; detected if omitted
+    #[arg(long, value_name = "HOST", requires = "chap_core")]
+    pub models_host: Option<String>,
+
     /// How long to wait for the model to answer, in seconds
     #[arg(
         long,

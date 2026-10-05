@@ -84,6 +84,8 @@ Usage: chaps run [OPTIONS] <MODEL>
 | `--no-wait` | Return once the container started, without waiting for it to answer. |
 | `-a, --attach, --foreground` | Run in the foreground and stream its log (Ctrl-C stops the model). |
 | `--rm` | With --attach, Ctrl-C also removes the model's data volume. |
+| `--chap-core <URL>` | A chap-core elsewhere for the group's models to register with. |
+| `--models-host <HOST>` | Host that chap-core calls the models back at; detected if omitted. |
 | `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
 
 ## chaps ps

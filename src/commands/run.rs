@@ -10,6 +10,7 @@
 //! and tell me where it answers" has one code path, with or without
 //! `chaps init`.
 
+mod chap_core;
 mod foreground;
 mod group;
 mod ps;
@@ -125,6 +126,12 @@ struct RunReport {
     /// Ctrl-C nor the end of the foreground stops it.
     #[serde(skip)]
     was_running: bool,
+    /// The chap-core elsewhere the model registers with, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chap_core: Option<String>,
+    /// Whether that chap-core listed the model after the start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registered: Option<bool>,
 }
 
 /// Enable the model if it is not, start its container, and wait for it;
@@ -184,6 +191,20 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
     };
 
     let (mut project, lock) = ctx.project_mut()?;
+    if let Some(url) = &args.chap_core {
+        if group.is_none() {
+            return Err(ChapError::Usage(format!(
+                "--chap-core sets the chap-core of a `chaps run` group, and this runs in the \
+                 deployment at {}; set its chap-core with `chaps components enable chap-core \
+                 --url {url}`",
+                dir.display()
+            ))
+            .into());
+        }
+        for note in chap_core::point_group_at(&mut project, url, args.models_host.as_deref())? {
+            crate::output::notice(&note);
+        }
+    }
     let registry = super::registry_for(ctx, Some(&project))?;
     // A repository or image added before is that entry again, not a copy.
     let source = super::manual_models::added_as(&project, &args.source, args.id.as_deref())
@@ -277,6 +298,18 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
             was_running,
         ));
     }
+    // A chap-core elsewhere is only worth naming when it really lists the
+    // model: registration happens inside the model, after it answers.
+    let chap_core = project
+        .state
+        .components
+        .chap_core_external
+        .as_ref()
+        .map(|external| external.url.clone());
+    let registered = match (&chap_core, &readiness) {
+        (Some(_), Some(wait)) if wait.ready => Some(chap_core::registered(&project, &service)),
+        _ => None,
+    };
     let report = RunReport {
         model: ModelRef::of(&id, &model, &project),
         group,
@@ -284,6 +317,8 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
         enabled,
         wait: readiness,
         was_running,
+        chap_core,
+        registered,
     };
     if let Some(wait) = &report.wait
         && !wait.ready
@@ -437,6 +472,23 @@ fn run_summary(report: &RunReport, out: &Out, attached: bool) -> String {
     };
     if let Some(group) = report.group.as_deref().filter(|g| *g != DEFAULT_GROUP) {
         text.push_str(&format!("{}\n", out.dim(&format!("in group {group}"))));
+    }
+    match (&report.chap_core, report.registered) {
+        (Some(url), Some(true)) => {
+            text.push_str(&format!(
+                "{} with {}\n",
+                out.ok("registered"),
+                out.value(url)
+            ));
+        }
+        (Some(url), Some(false)) => text.push_str(&format!(
+            "{}\n",
+            out.warn(&format!(
+                "not registered with {url}; {}",
+                logs_hint(&report.project_dir, &report.model.service_id)
+            ))
+        )),
+        _ => {}
     }
     if attached {
         return text;
