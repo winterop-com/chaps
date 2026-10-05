@@ -86,6 +86,10 @@ forecasting models. They are hidden from `chaps models list` and from the
 browser by default, `--templates` and `--all` show them, and enabling one needs
 `--allow-template`.
 
+These are chapkit templates: the same word as in `chapkit init --template`,
+which starts a new model from one of them. They are not the "model templates"
+of chap-core, which is what a model service registers as.
+
 ## Looking at the catalogue
 
 ```sh
