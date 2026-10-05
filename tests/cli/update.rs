@@ -309,11 +309,7 @@ fn update_without_a_deployment_refreshes_the_registry() {
     update
         .assert()
         .success()
-        .stdout(predicates::str::contains(
-            "updated the marketplace registry",
-        ))
-        .stdout(predicates::str::contains("no pin moved"))
-        .stdout(predicates::str::contains("chaps self update"));
+        .stdout("updated the marketplace registry: 1 model\n");
 }
 
 #[test]

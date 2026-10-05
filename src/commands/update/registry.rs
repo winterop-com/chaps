@@ -4,10 +4,8 @@
 use crate::cli::UpdateArgs;
 use crate::commands::Ctx;
 use crate::error::{ChapError, Result};
-use crate::output;
 use crate::registry as marketplace;
 use serde::Serialize;
-use std::path::PathBuf;
 
 /// What `chaps update` did without a deployment, for `--json`.
 #[derive(Debug, Serialize)]
@@ -18,13 +16,9 @@ struct RegistryRefresh {
     source: String,
     /// How many models it lists.
     models: usize,
-    /// The `chaps run` groups on this machine, which are deployments with
-    /// pins of their own.
-    groups: Vec<PathBuf>,
 }
 
-/// Refresh the registry, say that no pin moved, and name the commands that
-/// update the rest.
+/// Refresh the registry and say so.
 pub(super) fn refresh(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if let Some(flag) = deployment_flag(args) {
         return Err(ChapError::Usage(format!(
@@ -49,12 +43,8 @@ pub(super) fn refresh(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         refreshed: !args.dry_run,
         source: loaded.provenance.describe(),
         models: loaded.models.len(),
-        groups: crate::commands::run::groups()
-            .into_iter()
-            .map(|(_, dir)| dir)
-            .collect(),
     };
-    ctx.out.emit(&report, || human(ctx, &report))
+    ctx.out.emit(&report, || human(&report))
 }
 
 /// The flag that only means something in a deployment, when one was given.
@@ -70,34 +60,16 @@ fn deployment_flag(args: &UpdateArgs) -> Option<&'static str> {
     }
 }
 
-fn human(ctx: &Ctx, report: &RegistryRefresh) -> String {
-    let out = &ctx.out;
-    let mut text = match report.refreshed {
-        true => format!(
-            "{} the marketplace registry: {} models ({})\n",
-            out.ok("updated"),
-            report.models,
+fn human(report: &RegistryRefresh) -> String {
+    let models = match report.models {
+        1 => "1 model".to_string(),
+        n => format!("{n} models"),
+    };
+    match report.refreshed {
+        true => format!("updated the marketplace registry: {models}\n"),
+        false => format!(
+            "the marketplace registry has {models} ({}); --dry-run fetched nothing\n",
             report.source
         ),
-        false => format!(
-            "the marketplace registry has {} models ({}); --dry-run fetched nothing\n",
-            report.models, report.source
-        ),
-    };
-    text.push_str(
-        "this is not a deployment, so no pin moved; `chaps self update` updates chaps itself\n",
-    );
-    for dir in &report.groups {
-        text.push_str(&out.backticks(&format!(
-            "`chaps -C {} update` moves the pins of that `chaps run` group\n",
-            dir.display()
-        )));
     }
-    if report.groups.is_empty() {
-        text.push_str(&output::wrapped(
-            "`chaps update` in a deployment's directory moves its pins and pulls its images",
-            100,
-        ));
-    }
-    text
 }

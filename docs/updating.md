@@ -14,9 +14,9 @@ with anything here.
 | `chaps restart` | Applies what was fetched to the services that are running. |
 
 **Without a deployment**, `chaps update` has no pin to move. It refreshes the
-marketplace registry of this machine instead, as `chaps registry update` does,
-and it names the commands for the rest: `chaps self update` for chaps itself,
-and `chaps -C <group> update` for each `chaps run` group. `--dry-run` reports
+marketplace registry of this machine instead, as `chaps registry update` does.
+`chaps self update` updates chaps itself, and `chaps -C <group> update` updates
+a `chaps run` group. `--dry-run` reports
 the registry that chaps has now, and fetches nothing. `--chap-tag`,
 `--pin-chap-core` and `--list-tags` need a deployment, so they are refused
 there.
