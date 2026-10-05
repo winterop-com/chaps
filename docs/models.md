@@ -236,13 +236,11 @@ component is reported as a leftover, with the same two ways to remove it. See
 
 ```text
 exposed chapkit-ewars-model on http://localhost:5001
-written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
 
 ```text
 unexposed chapkit-ewars-model; it stays registered with chap-core and reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/
-written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
 
@@ -342,7 +340,7 @@ fails inside the model with `KeyError: "['mean_relative_humidity'] not in
 index"`. So at least as many `feature_N` columns are asked for as the
 configuration names, and each covariate the frame lacks takes over a spare one:
 the same kind of synthetic seasonal series under the name the model reads.
-`-v` says which column stood in for which.
+`-vv` says which column stood in for which.
 
 Geometry is asked for whatever the service declares (`include_geo=true`).
 chap-core's dataset always carries a GeoJSON collection, so a model that says
@@ -422,7 +420,7 @@ chap-core's, not the test's, so it is left alone.
 | `--seed N` | Seed the generated data, so two runs compare. Without it every run is fresh data. |
 | `--timeout SECONDS` | How long one model gets: 300 at the model level, 900 with `--backtest`. At the model level the same number is chapkit's per-job deadline. |
 | `--keep` | Do not delete what the run created. |
-| `-v` | Stream `chapkit test`'s whole output as it runs, and narrate every request. This is what to add to a failure. |
+| `-vv` | Stream `chapkit test`'s whole output as it runs, and narrate every request. This is what to add to a failure. |
 | `--json` | One object per model: `id`, `service_id`, `level`, `result`, `seconds`, `summary`, `detail`, and - for a backtest - `job_id`, `backtest_id` and the whole `metrics` object. |
 
 ## Models outside the marketplace
@@ -460,15 +458,17 @@ kind of overlay, listed by `models list`, described by `models info`, moved (or
 not) by `chaps update`, seen by `chaps doctor` and shown in the browser.
 
 ```text
+$ chaps -v models add https://github.com/my-org/chapkit_dengue_model --port 5001
 added chapkit_dengue_model (chapkit-dengue-model)
-  source    https://github.com/my-org/chapkit_dengue_model
-  image     ghcr.io/my-org/chapkit_dengue_model:sha-b1d6c31
-  pin       sha-b1d6c31  (commit b1d6c31)
-  follows   main  (`chaps update` moves the pin)
-  data dir  /work/data  (from the image config)
-  user      10001:10001  (from a docker probe)
-enabled chapkit_dengue_model sha-b1d6c31 on http://localhost:5001 (compose.chapkit-dengue-model.yml)
-note: the service must register with chap-core as `chapkit-dengue-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - run `chaps models remove chapkit_dengue_model`, then add it again with `--service-id <that id>`
+hint: source: https://github.com/my-org/chapkit_dengue_model
+hint: image: ghcr.io/my-org/chapkit_dengue_model:sha-b1d6c31
+hint: pin: sha-b1d6c31 (commit b1d6c31)
+hint: follows: main (`chaps update` moves the pin)
+hint: data dir: /work/data (from the image config)
+hint: user: 10001:10001 (from a docker probe)
+enabled chapkit_dengue_model sha-b1d6c31 on http://localhost:5001
+hint: chapkit_dengue_model is in `compose.chapkit-dengue-model.yml`
+the service must register with chap-core as `chapkit-dengue-model`; if its own MLServiceInfo.id differs, `chaps status` shows it as unmanaged - run `chaps models remove chapkit_dengue_model`, then add it again with `--service-id <that id>`
 run `chaps up` to apply
 ```
 

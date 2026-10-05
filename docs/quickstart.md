@@ -174,7 +174,6 @@ chaps models expose chapkit-ewars-model
 
 ```text
 exposed chapkit-ewars-model on http://localhost:5001
-written  compose.chapkit-ewars-model.yml
 run `chaps up` to apply
 ```
 

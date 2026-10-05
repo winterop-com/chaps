@@ -55,10 +55,18 @@ This file holds the rules that are not derivable from the code.
 - Every `--help` string is one clause of about 70 characters. Explanations go
   in `docs/`, never in `long_about`, never as paragraphs on args. Global
   options sit under `help_heading = "Global options"`.
-- Every command reports what it did and what to do next. No command exits
-  silently, not on success and not when there is nothing to do. Say what was
-  found, what changed, and name the next command. Verify before claiming a
-  state ("up" means chap-core answered, not that compose returned).
+- Every command reports what it did. No command exits silently, not on
+  success and not when there is nothing to do. Verify before claiming a state
+  ("up" means chap-core answered, not that compose returned).
+- A command prints its closing lines through `Out::report` (or `report_ok`),
+  and each line has a level (`src/output/report.rs`, `docs/status.md`):
+  - `info`: what the command did or found, and a step the reader must do
+    next. Keep it short: one line for a simple result.
+  - `warning`: something that needs attention; it goes to stderr.
+  - `hint`: background and optional next commands. Shown only with `-v`.
+  `--json` carries every line in `messages`, with its level. Do not color
+  parts of a sentence; color is for tables, status words and the `warning:`
+  label. `-vv` is the trace on stderr, `-d` adds the response bodies.
 - No emojis anywhere: code, comments, commits, docs, output.
 - Messages name the file or command the reader must go to, in backticks, and
   give the way out on the same line: `port 8700 is already in use on this

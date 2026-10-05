@@ -223,8 +223,8 @@ They are accepted before or after the subcommand, and the
 | --- | --- |
 | `--json` | Machine-readable output: exactly one JSON document on stdout. |
 | `--no-color` | Never colour the output; `NO_COLOR` in the environment does the same. |
-| `-v, --verbose` | Narrate on stderr what runs: commands, HTTP requests, the registry source, the files `sync` compared. |
-| `-d, --debug` | Everything `-v` says, plus response bodies and resolved paths. |
+| `-v, --verbose` | Show the hints: the next commands and the background. `-vv` also narrates on stderr what runs: commands, HTTP requests, the registry source, the files `sync` compared. |
+| `-d, --debug` | Everything `-vv` says, plus response bodies and resolved paths. |
 | `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
 | `--registry-url URL` | A different marketplace index, for a fork or a mirror. Inside a deployment the default is the one `init` recorded. |
 | `--offline` | Never touch the network; use the cache or the embedded snapshot. |

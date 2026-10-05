@@ -60,7 +60,7 @@ deployment and stays green on the ones that are merely worth knowing.
 Every check is bounded. Each external command is killed if it overruns, each
 network probe has a three-second timeout, and the probes run in parallel, so
 `chaps doctor` always finishes and normally does so in a few seconds.
-`-v` prints every command and request it made.
+`-vv` prints every command and request it made.
 
 ## Machine checks
 
@@ -103,7 +103,7 @@ ok    registry pin chapkit_ewars_model  sha-24d58c0 is the newest build on main
 A classic token with no scopes at all, or a fine-grained token with read
 access to public repositories, is enough: everything `chaps` asks GitHub is a
 public read. `chaps` never writes the token anywhere - not to `.chaps/`, not
-to `.env`, not to the cache - and never prints it: a `-v` trace says
+to `.env`, not to the cache - and never prints it: a `-vv` trace says
 `Authorization: Bearer <token>` and nothing more. Nothing on the command line
 sets it, because a token on a command line is a token in the shell history.
 

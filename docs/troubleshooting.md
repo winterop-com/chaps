@@ -7,7 +7,7 @@ and prints what to do about every line that is not `ok`. Most of the sections
 below are one of its lines with the reasoning spelled out. See
 [Doctor](./doctor.md).
 
-When a command does something you did not expect, run it again with `-v`. It
+When a command does something you did not expect, run it again with `-vv`. It
 prints every external command, every HTTP request with its status and timing,
 which catalogue it loaded and which files `sync` compared, all on stderr and
 all out of the way of `--json`. `-d` adds the response bodies and the resolved
@@ -134,7 +134,7 @@ chaps models test chapkit_rwanda_malaria_bym_model -v   # the whole run, as it h
 chaps logs chapkit-rwanda-malaria-bym-model             # what the service itself said
 ```
 
-`-v` streams everything `chapkit test` printed, which includes the phase that
+`-vv` streams everything `chapkit test` printed, which includes the phase that
 failed, the diagnostic artifact it stored and the last lines of the model's
 stderr. `chaps logs <service>` is the other half: a model that cannot open a
 file usually said so on startup too.
@@ -1132,7 +1132,7 @@ ok    github api  reachable, 4990 of 5000 requests left this hour (token)
 ```
 
 The token is read from the environment only. `chaps` never stores it and never
-prints it - a `-v` trace shows `Authorization: Bearer <token>` with nothing
+prints it - a `-vv` trace shows `Authorization: Bearer <token>` with nothing
 behind it - and no command-line flag sets one, because a token on a command
 line is a token in the shell history.
 

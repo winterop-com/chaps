@@ -148,9 +148,9 @@ function:
 | 1 | A 4xx or 5xx. The status line (`HTTP 404 Not Found`) is on stderr and the body is *still* on stdout, because a 422 from chap-core names the field it did not like. |
 | 2 | chap-core could not be reached at all, with the sentence [`chaps status`](./status.md) uses, or the command line was wrong (an unknown method, a path with no leading slash, a `--data` that is not JSON). |
 
-`-v` narrates the request line and the headers that were sent. The token's
+`-vv` narrates the request line and the headers that were sent. The token's
 value never appears - the line reads `Authorization: Bearer <token>` - so a
-`-v` transcript is safe to paste into an issue. `-d` adds the bodies.
+`-vv` transcript is safe to paste into an issue. `-d` adds the bodies.
 
 ## The evaluation flow, end to end
 
@@ -242,5 +242,5 @@ CHAP_API_TOKEN=$(chaps -C ~/mychap auth token) \
 
 Every one of them sends the API token when `.env` sets one, and every one of
 them reports an unreachable chap-core with the sentence `chaps status` uses and
-exit code 2. An id prefix is resolved against the job list, and `-v` says which
+exit code 2. An id prefix is resolved against the job list, and `-vv` says which
 full id it landed on.

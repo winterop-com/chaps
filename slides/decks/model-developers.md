@@ -383,7 +383,7 @@ good.
 | `--seed N` | the same generated data on each run, so two runs compare |
 | `--timeout SECONDS` | 300 at the model level, 900 with `--backtest` |
 | `--keep` | keep what the test made, and say how to delete it |
-| `-v` | the whole output of `chapkit test`, and each request |
+| `-vv` | the whole output of `chapkit test`, and each request |
 | `--json` | one object for each model, with all the metrics |
 
 Without `--keep`, chaps deletes the configs, artifacts, dataset and backtest
@@ -456,7 +456,7 @@ chaps doctor                    # the machine and the deployment
 
 - A failed backtest says why in `chaps jobs logs` and nowhere else.
 - A model test failure names the phase (`train`, `predict`) and the first line
-  of the model's error. Add `-v` for the whole output.
+  of the model's error. Add `-vv` for the whole output.
 
 ---
 

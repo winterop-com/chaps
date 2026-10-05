@@ -300,16 +300,56 @@ instead of the same fact three times over.
 
 ## Output
 
-On a terminal the answer is coloured and errors arrive in a rounded box; piped
-into a file or another program it is the same plain text it has always been, so
-nothing that parses `chaps` output has to change. `--no-color`, or `NO_COLOR`
-in the environment, turns the colour off and keeps the shapes.
+On a terminal, errors arrive in a rounded box, and tables and status words
+have color. Piped into a file or another program, the output is plain text.
+`--no-color`, or `NO_COLOR` in the environment, turns the color off and keeps
+the shapes.
 
-`-v` (`--verbose`) narrates what a command does on the way to its answer, on
-stderr, dimmed and never on stdout:
+### Levels
+
+Each line that a command prints when it is done has a level:
+
+| Level | What it says | Where it goes | Shown |
+| --- | --- | --- | --- |
+| `info` | What the command did or found, and a step you must do next (`run \`chaps up\` to apply`). | stdout | always |
+| `warning` | Something that needs attention. The command still worked. | stderr, after `warning:` | always |
+| `hint` | Background and optional next commands: the files that were written, where a value came from, a command that shows more. | stdout, after `hint:` | with `-v` |
+
+Errors are not a level. A command that fails prints the error on stderr and
+exits with a code that is not 0.
+
+A short example. Without `-v`, `chaps models expose` prints two lines:
 
 ```text
-$ chaps -v status
+$ chaps models expose chapkit-ewars-model
+exposed chapkit-ewars-model on http://localhost:5001
+run `chaps up` to apply
+```
+
+With `-v`, the hints are there too:
+
+```text
+$ chaps -v models expose chapkit-ewars-model
+exposed chapkit-ewars-model on http://localhost:5001
+hint: wrote compose.chapkit-ewars-model.yml
+run `chaps up` to apply
+```
+
+### Verbosity
+
+| Flag | Shows |
+| --- | --- |
+| (none) | The `info` and `warning` lines. |
+| `-v`, `--verbose` | Also the `hint` lines. |
+| `-vv` | Also the trace on stderr: each external command, each HTTP request with its status and time, the registry source, and the files that `sync` compared. |
+| `-d`, `--debug` | Everything `-vv` shows, and also the response bodies (cut to 2 KB), the raw `docker compose ps` JSON, and the path of the project state that the command read. |
+
+`-V` is not a verbosity flag: `chaps -V` (`--version`) prints the version of
+chaps. The trace never goes to stdout, so `-vv` and `-d` never change what a
+script reads:
+
+```text
+$ chaps -vv status
 project: /srv/chapx (state in /srv/chapx/.chaps/project.yaml)
 registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (7 models)
 asking chap-core at http://localhost:8700
@@ -318,10 +358,42 @@ GET http://localhost:8700/v2/services -> 200 in 8ms
 chap-core   up   http://localhost:8700   v2.3.1   auth: on
 ```
 
-`-d` (`--debug`) implies `-v` and adds what came back: response bodies cut to
-2 KB, the raw `docker compose ps` JSON, and the resolved path of the project
-state a command read. Both are global, so they work with `--json` too: stdout
-stays exactly one document either way.
+A token never shows in the trace: a request with a token shows
+`Authorization: Bearer <token>`, so a `-vv` or `-d` transcript is safe to
+paste into an issue.
+
+### With `--json`
+
+`--json` shows all the levels, whatever the verbosity. The document of a
+command that uses levels has a `messages` list with every line and its level:
+
+```json
+{
+  "id": "chapkit_ewars_model",
+  "host_port": 5001,
+  "ok": true,
+  "messages": [
+    {"level": "info", "text": "exposed chapkit-ewars-model on http://localhost:5001"},
+    {"level": "hint", "text": "wrote compose.chapkit-ewars-model.yml"},
+    {"level": "info", "text": "run `chaps up` to apply"}
+  ]
+}
+```
+
+A script reads the fields of the document. The `messages` are the same words
+that a person sees, so a script can show them or keep them in a log.
+
+### Global options
+
+Some options work on every command, and some only on the commands that use
+them. `chaps <command> --help` lists them under "Global options":
+
+| Option | What it does |
+| --- | --- |
+| `--json` | Prints one JSON document on stdout, with all the levels. |
+| `--no-color` | Prints no color. `NO_COLOR` in the environment does the same. |
+| `-v`, `-vv`, `-d` | Sets the verbosity, as in the table above. |
+| `-C DIR` | Uses the deployment in `DIR`, or in a directory above it. |
 
 ## `--json`
 

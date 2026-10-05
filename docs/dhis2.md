@@ -659,7 +659,7 @@ a command line ends up in the shell history and in `ps`. Nothing ever prints the
 secret. A report names the user and says what the credential is and where it was
 found (`password from .env`, `API token from CHAPS_DHIS2_TOKEN`, `the DHIS2
 default password`). For a token, the user is whoever DHIS2 says owns it
-(`GET /api/me`). `-v` traces the header as `Authorization: Basic <admin and its
+(`GET /api/me`). `-vv` traces the header as `Authorization: Basic <admin and its
 password>` or `Authorization: ApiToken <the token>`.
 
 A token is created in DHIS2 under **Profile > Personal access tokens**. Leave its
@@ -855,7 +855,7 @@ A job left `RUNNING` by a hard stop blocks every future run for good;
 [`dhis2-prep`](#four-services-and-three-volumes) resets those on every start,
 which is why that is not a state you have to get out of by hand.
 
-The run is not silent: a step is printed to stderr every half minute, and `-v`
+The run is not silent: a step is printed to stderr every half minute, and `-vv`
 prints every one DHIS2 announces. `--timeout SECONDS` is how long to wait, an
 hour by default, and running out of it is not a cancellation - DHIS2 carries on,
 and the same command watches the same job again.
