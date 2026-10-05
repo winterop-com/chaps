@@ -56,7 +56,6 @@ const PROJECT_ONLY: &[&str] = &[
     "status",
     "jobs",
     "sync",
-    "update",
     "ui",
     "auth",
     "components",

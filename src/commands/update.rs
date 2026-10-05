@@ -31,6 +31,7 @@
 mod chap_core;
 mod components;
 mod models;
+mod registry;
 mod report;
 mod restart;
 mod tags;
@@ -96,6 +97,11 @@ impl UpdateReport {
 /// Refresh the registry, re-resolve every channel-following model, sync and
 /// pull, then say what needs restarting.
 pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
+    // Without a deployment there is no pin to move, but the registry is this
+    // machine's and can still be refreshed.
+    if crate::project::Project::find_root(&ctx.project_dir).is_none() {
+        return registry::refresh(ctx, args);
+    }
     let (mut project, _lock) = ctx.project_mut()?;
     // A listing writes nothing and asks the marketplace nothing, so it is
     // answered before the refresh that the rest of the command needs.

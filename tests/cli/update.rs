@@ -287,3 +287,58 @@ fn list_tags_works_offline_with_what_it_has() {
         "v1.2.3  release  -          pinned",
     ));
 }
+
+/// Without a deployment there is no pin to move, but `chaps update` still
+/// refreshes this machine's marketplace registry and says so.
+#[test]
+fn update_without_a_deployment_refreshes_the_registry() {
+    let sandbox = Sandbox::new();
+    let port = Hub::new().start();
+    let base = format!("http://127.0.0.1:{port}");
+
+    let mut update = assert_cmd::Command::cargo_bin("chaps").unwrap();
+    update
+        .env("CHAPS_CACHE_DIR", sandbox.cache.path())
+        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
+        .env("CHAPS_NO_UPDATE_CHECK", "1")
+        .env("CHAPS_NO_DOCKER_PROBE", "1")
+        .current_dir(sandbox.home.path())
+        .arg("--registry-url")
+        .arg(format!("{base}/registry.yaml"))
+        .arg("update");
+    update
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "updated the marketplace registry",
+        ))
+        .stdout(predicates::str::contains("no pin moved"))
+        .stdout(predicates::str::contains("chaps self update"));
+}
+
+#[test]
+fn update_without_a_deployment_refuses_the_flags_that_move_pins() {
+    let sandbox = Sandbox::new();
+    chap_in(
+        &sandbox,
+        sandbox.home.path(),
+        &["update", "--chap-tag", "master"],
+    )
+    .assert()
+    .code(2)
+    .stderr(predicates::str::contains(
+        "--chap-tag moves the pins of a deployment",
+    ));
+
+    // Offline, a refresh cannot happen, and --dry-run reports the cached one.
+    chap_in(&sandbox, sandbox.home.path(), &["update"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains(
+            "drop --offline, or use --dry-run",
+        ));
+    chap_in(&sandbox, sandbox.home.path(), &["update", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--dry-run fetched nothing"));
+}
