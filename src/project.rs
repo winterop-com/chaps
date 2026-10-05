@@ -333,6 +333,14 @@ pub struct EnabledModel {
     /// [`user`]: EnabledModel::user
     #[serde(default)]
     pub user_from: UserSource,
+    /// Whether the image reads its port from `PORT` rather than fixing 8000,
+    /// read off the image's command with [`user`]. It decides the port a
+    /// model listens on in its container when it registers with a chap-core
+    /// elsewhere. See [`crate::compose::resolve::reads_port_env`].
+    ///
+    /// [`user`]: EnabledModel::user
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reads_port: bool,
     /// `Some("linux/amd64")` for R-INLA services.
     pub platform: Option<String>,
     /// Overlay file name, relative to the project directory.

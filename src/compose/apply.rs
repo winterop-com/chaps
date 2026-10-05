@@ -417,13 +417,14 @@ pub(crate) fn plan_with(
             }
             _ => None,
         };
-        let (data_dir, user, user_from) = match &resolved {
+        let (data_dir, user, user_from, reads_port) = match &resolved {
             Some(resolution) => {
                 report.warnings.extend(resolution.notes.iter().cloned());
                 (
                     resolution.data_dir.clone(),
                     resolution.user.clone(),
                     resolution.user_from,
+                    resolution.reads_port,
                 )
             }
             None => {
@@ -446,7 +447,12 @@ pub(crate) fn plan_with(
                     .or_else(|| req.user.as_ref().map(|_| UserSource::Flag))
                     .or_else(|| existing.as_ref().map(|e| e.user_from))
                     .unwrap_or_default();
-                (data_dir, user, user_from)
+                let reads_port = existing
+                    .as_ref()
+                    .map(|e| e.reads_port)
+                    .or_else(|| manual.as_ref().map(|m| m.reads_port))
+                    .unwrap_or(false);
+                (data_dir, user, user_from, reads_port)
             }
         };
 
@@ -471,6 +477,7 @@ pub(crate) fn plan_with(
                     Some(&user),
                 );
                 EnabledModel {
+                    reads_port,
                     service_id: model.service_id.clone(),
                     image: model.source.image.clone(),
                     image_tag: version.image_tag.clone(),

@@ -876,7 +876,7 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
 }
 
 #[test]
-fn a_model_that_never_registers_elsewhere_is_told_about_port() {
+fn a_model_that_never_registers_elsewhere_is_told_how_to_find_why() {
     let rows = standalone_model_rows(&[("m".to_string(), Some(5001))], &BTreeSet::new(), &|_| {
         true
     });
@@ -892,9 +892,10 @@ fn a_model_that_never_registers_elsewhere_is_told_about_port() {
     assert_eq!(hints.len(), 1);
     assert!(hints[0].contains("App never became ready"), "{hints:?}");
     assert!(
-        hints[0].contains("`chaps components enable chap-core`"),
+        hints[0].contains("registration.attempt_failed"),
         "{hints:?}"
     );
+    assert!(hints[0].contains("`chaps models enable m`"), "{hints:?}");
 }
 
 #[test]

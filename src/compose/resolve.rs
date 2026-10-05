@@ -83,7 +83,26 @@ pub struct Resolution {
     /// `uid:gid`, or the account name when nothing could turn it into numbers.
     pub user: String,
     pub user_from: UserSource,
+    /// Whether the image reads its port from `PORT`, which decides the port
+    /// mapping for a chap-core elsewhere. See [`reads_port_env`].
+    pub reads_port: bool,
     pub notes: Vec<String>,
+}
+
+/// Whether an image's command reads the port from `PORT`, rather than fixing
+/// it.
+///
+/// A chapkit image either starts uvicorn with `--port 8000` itself, or runs a
+/// module that reads `PORT`. The first listens on 8000 whatever it is told,
+/// so the second is the only one a different port can be handed to. A
+/// command that names `--port` fixes it; any other command that is known
+/// reads `PORT`; an unknown command is taken as the common case, 8000.
+pub fn reads_port_env(command: &[String]) -> bool {
+    let fixes_port = command.iter().any(|part| {
+        part.split_whitespace()
+            .any(|word| word == "--port" || word.starts_with("--port="))
+    });
+    !command.is_empty() && !fixes_port
 }
 
 /// How a caller of [`crate::compose::apply::apply_with`] resolves one model.
@@ -97,6 +116,8 @@ pub type RegistryFn<'a> = &'a dyn Fn(&str, &str) -> Result<Option<ghcr::ImageCon
 /// for the `linux/amd64` variant the overlay runs - which is not the same as
 /// "it runs as root", and is why an empty config falls through to the table.
 pub type LocalFn<'a> = &'a dyn Fn(&str) -> Option<(String, String)>;
+/// The command of a local image, `reference -> Entrypoint + Cmd`.
+pub type CommandFn<'a> = &'a dyn Fn(&str) -> Option<Vec<String>>;
 
 /// Resolve one model against the image it pins.
 ///
@@ -111,6 +132,7 @@ pub fn from_image(req: &Request, endpoints: &Endpoints) -> Resolution {
         endpoints,
         &|repository, tag| read_config(repository, tag, endpoints),
         &crate::docker::image_config,
+        &crate::docker::image_command,
         &crate::docker::pull_image,
         &crate::docker::uid_gid_in_image,
     )
@@ -123,6 +145,7 @@ pub fn from_image_with(
     endpoints: &Endpoints,
     registry: RegistryFn,
     local: LocalFn,
+    command: CommandFn,
     pull: PullFn,
     probe: ProbeFn,
 ) -> Resolution {
@@ -153,6 +176,7 @@ pub fn from_image_with(
                 user,
                 working_dir,
                 amd64_only: false,
+                command: command(&reference).unwrap_or_default(),
             },
             UserSource::DockerProbe,
         ));
@@ -201,10 +225,14 @@ pub fn from_image_with(
         }
     };
 
+    let reads_port = declared
+        .as_ref()
+        .is_some_and(|(config, _)| reads_port_env(&config.command));
     Resolution {
         data_dir,
         user: normalize(&user),
         user_from,
+        reads_port,
         notes,
     }
 }
@@ -231,6 +259,7 @@ pub fn from_table(req: &Request) -> Resolution {
             .unwrap_or_else(|| overrides::DEFAULT_DATA_DIR.to_string()),
         user: normalize(&user),
         user_from,
+        reads_port: false,
         notes: Vec::new(),
     }
 }

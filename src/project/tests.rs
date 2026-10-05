@@ -21,6 +21,7 @@ fn a_manual_models_source_is_what_models_add_takes() {
 
 fn enabled(port: Option<u16>) -> EnabledModel {
     EnabledModel {
+        reads_port: false,
         service_id: "chapkit-ewars-model".into(),
         image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
         image_tag: "sha-fa880a1".into(),
@@ -40,6 +41,7 @@ fn enabled(port: Option<u16>) -> EnabledModel {
 /// chapkit_ghr_model` records.
 fn manual() -> ManualModel {
     ManualModel {
+        reads_port: false,
         service_id: "chapkit-ghr-model".into(),
         display_name: "chapkit_ghr_model".into(),
         repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),

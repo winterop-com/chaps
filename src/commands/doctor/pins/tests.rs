@@ -3,6 +3,7 @@ use super::*;
 /// A model this deployment added itself, following `main` at `tag`.
 fn manual_entry(tag: &str, follow: Option<&str>) -> crate::project::ManualModel {
     crate::project::ManualModel {
+        reads_port: false,
         service_id: "chapkit-ghr-model".into(),
         display_name: "chapkit_ghr_model".into(),
         repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),

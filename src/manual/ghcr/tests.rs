@@ -85,6 +85,16 @@ fn a_config_blob_yields_the_user_and_the_working_directory() {
     assert_eq!(config.user, "app");
     assert_eq!(config.working_dir, "/work");
     assert!(!config.amd64_only, "the index says that, not the blob");
+    assert_eq!(config.command, ["/entrypoint.sh"]);
+
+    // The command is the entrypoint, then the cmd: what decides the port.
+    let started = parse_config(
+        r#"{"config":{"Entrypoint":["/usr/bin/tini","--"],"Cmd":["python","-m","m"]}}"#,
+    );
+    assert_eq!(
+        started.command,
+        ["/usr/bin/tini", "--", "python", "-m", "m"]
+    );
 
     // An image that declares neither reads as empty rather than failing.
     let bare = parse_config(r#"{"architecture":"amd64","config":{}}"#);

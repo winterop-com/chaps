@@ -90,6 +90,7 @@ fn from_enabled_replays_the_recorded_state() {
     let r = registry();
     let m = r.get("chapkit_ewars_model").unwrap();
     let enabled = EnabledModel {
+        reads_port: false,
         service_id: "chapkit-ewars-model".into(),
         image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
         image_tag: "sha-0000000".into(),

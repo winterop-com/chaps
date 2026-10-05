@@ -1,6 +1,6 @@
 use super::images::{
-    image_config_with, parse_container_builds, parse_image_config, parse_repo_digest,
-    parse_uid_gid, short_digest,
+    image_config_with, parse_command, parse_container_builds, parse_image_config,
+    parse_repo_digest, parse_uid_gid, short_digest,
 };
 use super::plain::strip_ansi;
 use super::ps::{containers, parse_ps_json};
@@ -720,4 +720,22 @@ fn labeled_containers_say_their_health() {
     assert_eq!(rows[0].health(), Some("healthy"));
     assert_eq!(rows[1].health(), None);
     assert_eq!(rows[1].label("com.winterop.chaps.model"), Some("m"));
+}
+
+#[test]
+fn the_command_is_the_entrypoint_then_the_cmd() {
+    assert_eq!(
+        parse_command("[\"/usr/bin/tini\",\"--\"]\t[\"python\",\"-m\",\"m\"]\n"),
+        Some(
+            ["/usr/bin/tini", "--", "python", "-m", "m"]
+                .map(str::to_string)
+                .to_vec()
+        )
+    );
+    assert_eq!(
+        parse_command("null\t[\"uvicorn\",\"main:app\"]"),
+        Some(["uvicorn", "main:app"].map(str::to_string).to_vec())
+    );
+    assert_eq!(parse_command("null\tnull"), Some(Vec::new()));
+    assert_eq!(parse_command("not json\tnull"), None);
 }

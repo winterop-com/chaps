@@ -240,6 +240,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         entry.image_tag = change.new_tag.clone();
         entry.user = change.new_user.clone();
         entry.user_from = change.user_from;
+        entry.reads_port = change.reads_port;
         refresh_env_pin(&project.dir, &tag_env_var(&change.id), &change.new_tag)?;
     }
     let synced = sync(&mut project, &registry, false)?;

@@ -150,6 +150,8 @@ pub struct Resolved {
     pub user: String,
     pub user_from: Origin,
     pub runtime_amd64: bool,
+    /// Whether the image reads its port from `PORT`.
+    pub reads_port: bool,
     /// What the resolution had to guess at, in the order it came up.
     pub notes: Vec<String>,
 }
@@ -278,6 +280,9 @@ pub fn resolve(req: &AddRequest, endpoints: &Endpoints) -> Result<Resolved> {
         data_dir_from: data_dir.1,
         user,
         user_from,
+        reads_port: config
+            .as_ref()
+            .is_some_and(|c| crate::compose::resolve::reads_port_env(&c.command)),
         runtime_amd64: req.runtime_amd64 || config.map(|c| c.amd64_only).unwrap_or(false),
         notes,
         source,

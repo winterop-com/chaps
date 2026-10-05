@@ -529,6 +529,7 @@ fn a_model_is_kept_by_either_of_its_two_names() {
 /// An enabled-model record with nothing in it that these tests care about.
 fn model_record() -> crate::project::EnabledModel {
     crate::project::EnabledModel {
+        reads_port: false,
         service_id: "x".to_string(),
         image: "ghcr.io/chap-models/x".into(),
         image_tag: "sha-1111111".into(),

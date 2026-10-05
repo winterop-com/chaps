@@ -104,6 +104,7 @@ fn project_with_manual(follow: Option<&str>) -> (tempfile::TempDir, Project, Reg
     project.state.manual.insert(
         "chapkit_example_manual_model".to_string(),
         ManualModel {
+            reads_port: false,
             service_id: "chapkit-example-manual-model".into(),
             display_name: "chapkit_example_manual_model".into(),
             repository: Some("https://github.com/example/chapkit_example_manual_model".into()),
@@ -373,6 +374,7 @@ fn row(id: &str) -> ModelUpdate {
     ModelUpdate::unchanged(
         id,
         &crate::project::EnabledModel {
+            reads_port: false,
             service_id: id.to_string(),
             image: format!("ghcr.io/chap-models/{id}"),
             image_tag: "sha-0000000".into(),

@@ -63,13 +63,18 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // calls the model back at the host and published port the overlay names,
     // since `http://<service_id>:8000` means nothing outside this network.
     let (environment_lines, chap_depends) = if let Some(external) = &spec.external_chap_core {
+        // `SERVICEKIT_PORT` is the port the model registers, which chap-core
+        // calls back on the host. `PORT` moves the app itself to that port,
+        // and only an image that reads it gets it: one that fixes `--port
+        // 8000` listens there, and its host port maps to 8000.
         let port_line = spec
             .host_port
-            .map(|port| {
-                format!(
+            .map(|port| match spec.reads_port {
+                true => format!(
                     "      PORT: \"{port}\"\n\
                      \x20     SERVICEKIT_PORT: \"{port}\"\n"
-                )
+                ),
+                false => format!("      SERVICEKIT_PORT: \"{port}\"\n"),
             })
             .unwrap_or_default();
         (
@@ -189,9 +194,9 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
 /// anything. A published port is for people - `curl`, the model's own `/docs` -
 /// and is opt-in per model. See `docs/ports.md`.
 ///
-/// A model registered with a chap-core elsewhere listens on its host port
-/// inside the container as well (see [`container_port`]), so the mapping is
-/// that port on both sides.
+/// A model registered with a chap-core elsewhere whose image reads `PORT`
+/// listens on its host port inside the container as well (see
+/// [`container_port`]), so the mapping is that port on both sides.
 fn port_lines(spec: &OverlaySpec) -> String {
     let inside = container_port(spec);
     let mut out = format!("    expose:\n      - \"{inside}\"\n");
@@ -208,14 +213,18 @@ fn port_lines(spec: &OverlaySpec) -> String {
 
 /// The port the model listens on inside its container.
 ///
-/// 8000, except for a model registered with a chap-core elsewhere: servicekit
-/// checks that the app answers on `SERVICEKIT_PORT` before it registers, on
-/// `127.0.0.1` inside the container, and that same port is the one chap-core
-/// calls back on the host. The two only agree when the app listens on its host
-/// port, which it is told through `PORT`.
+/// 8000, except for a model registered with a chap-core elsewhere whose image
+/// reads `PORT`: that model listens on its host port.
+///
+/// Before servicekit registers, it checks that the app answers inside the
+/// container. servicekit 2 checks only `SERVICEKIT_PORT`, the host port, so
+/// its app has to listen there, and it is told through `PORT`. servicekit 3
+/// also checks 8000, so an image that fixes `--port 8000` (every marketplace
+/// model but one) stays on 8000, with its host port mapped to it: `PORT`
+/// would not move it, and a mapping to the host port would reach nothing.
 fn container_port(spec: &OverlaySpec) -> u16 {
     match (&spec.external_chap_core, spec.host_port) {
-        (Some(_), Some(port)) => port,
+        (Some(_), Some(port)) if spec.reads_port => port,
         _ => 8000,
     }
 }

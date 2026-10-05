@@ -138,6 +138,7 @@ fn state_with_ewars(registry: &Registry, host_port: Option<u16>) -> ProjectState
     state.models.insert(
         model.id.clone(),
         crate::project::EnabledModel {
+            reads_port: false,
             service_id: model.service_id.clone(),
             image: model.source.image.clone(),
             image_tag: model
@@ -815,6 +816,7 @@ fn a_manually_added_model_is_marked_and_named() {
     state.manual.insert(
         "example_manual_model".to_string(),
         crate::project::ManualModel {
+            reads_port: false,
             service_id: "example-manual-model".into(),
             display_name: "example_manual_model".into(),
             repository: Some("https://github.com/example/example_manual_model".into()),

@@ -178,6 +178,7 @@ pub(crate) fn add_in(
         follow: resolved.follow.clone(),
         data_dir: Some(resolved.data_dir.clone()),
         user: Some(resolved.user.clone()),
+        reads_port: resolved.reads_port,
         runtime_amd64: resolved.runtime_amd64,
         added: today(),
     };

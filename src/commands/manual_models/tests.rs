@@ -13,6 +13,7 @@ fn names_of(id: &str, service_id: &str) -> Names {
 
 fn resolved(id: &str, service_id: &str) -> Resolved {
     Resolved {
+        reads_port: false,
         source: Source::parse("https://github.com/chap-models/chapkit_ghr_model").unwrap(),
         id: id.to_string(),
         service_id: service_id.to_string(),
@@ -36,6 +37,7 @@ fn project_with(manual: &[(&str, &str)]) -> Project {
         state.manual.insert(
             id.to_string(),
             ManualModel {
+                reads_port: false,
                 service_id: service_id.to_string(),
                 display_name: id.to_string(),
                 repository: Some(format!("https://github.com/someone/{id}")),

@@ -34,6 +34,9 @@ pub struct ImageConfig {
     pub working_dir: String,
     /// Whether the image is published for amd64 and nothing else.
     pub amd64_only: bool,
+    /// `config.Entrypoint` then `config.Cmd`: what the container starts. It
+    /// says whether the model's port is fixed or read from `PORT`.
+    pub command: Vec<String>,
 }
 
 /// An anonymous reader of one ghcr repository.
@@ -253,7 +256,7 @@ pub fn config_digest(body: &str) -> Option<String> {
     (!digest.is_empty()).then_some(digest)
 }
 
-/// `config.User` and `config.WorkingDir` of an image config blob.
+/// `config.User`, `config.WorkingDir` and the command of an image config blob.
 pub fn parse_config(body: &str) -> ImageConfig {
     #[derive(Debug, Default, Deserialize)]
     struct Blob {
@@ -266,12 +269,23 @@ pub fn parse_config(body: &str) -> ImageConfig {
         user: String,
         #[serde(default, rename = "WorkingDir")]
         working_dir: String,
+        #[serde(default, rename = "Entrypoint")]
+        entrypoint: Option<Vec<String>>,
+        #[serde(default, rename = "Cmd")]
+        cmd: Option<Vec<String>>,
     }
     let blob: Blob = serde_json::from_str(body).unwrap_or_default();
+    let config = blob.config;
     ImageConfig {
-        user: blob.config.user.trim().to_string(),
-        working_dir: blob.config.working_dir.trim().to_string(),
+        user: config.user.trim().to_string(),
+        working_dir: config.working_dir.trim().to_string(),
         amd64_only: false,
+        command: config
+            .entrypoint
+            .unwrap_or_default()
+            .into_iter()
+            .chain(config.cmd.unwrap_or_default())
+            .collect(),
     }
 }
 

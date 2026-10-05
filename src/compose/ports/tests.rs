@@ -282,6 +282,7 @@ fn allocator_for_seeds_from_the_state_and_the_directory() {
     )
     .unwrap();
     let model = EnabledModel {
+        reads_port: false,
         service_id: "m".into(),
         image: "ghcr.io/x".into(),
         image_tag: "sha-1111111".into(),

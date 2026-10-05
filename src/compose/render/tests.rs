@@ -112,7 +112,8 @@ fn a_standalone_overlay_matches_its_own_golden_fixture() {
 
 /// The shape for a chap-core elsewhere: the service registers there over
 /// the host gateway, under this machine's name and its published port,
-/// and waits for no `chap`.
+/// and waits for no `chap`. The ewars image fixes `--port 8000`, so the host
+/// port maps to 8000 and no `PORT` is set.
 #[test]
 fn an_external_chap_core_overlay_matches_its_own_golden_fixture() {
     let mut spec = overlay_spec("chapkit_ewars_model");
@@ -135,7 +136,37 @@ fn an_external_chap_core_overlay_matches_its_own_golden_fixture() {
         Some("http://host.docker.internal:8000/v2/services/$$register")
     );
     assert_eq!(svc["environment"]["SERVICEKIT_PORT"].as_str(), Some("5001"));
+    assert!(svc["environment"].get("PORT").is_none());
     assert!(svc["depends_on"].get("chap").is_none());
+}
+
+/// An image that reads `PORT` (servicekit 2 checks only `SERVICEKIT_PORT`
+/// before it registers) listens on its host port, so that port is mapped on
+/// both sides and handed to the app.
+#[test]
+fn an_external_chap_core_overlay_moves_an_image_that_reads_port_to_its_host_port() {
+    let mut spec = overlay_spec("chapkit_simple_multistep_model");
+    spec.host_port = Some(5001);
+    spec.standalone = true;
+    spec.reads_port = true;
+    spec.external_chap_core = Some(crate::compose::spec::ExternalRegistration {
+        register_url: "http://host.docker.internal:8000".to_string(),
+        models_host: "localhost".to_string(),
+    });
+    let text = render_overlay(&spec);
+    let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+    let svc = service(&doc, "chapkit-simple-multistep-model");
+    assert_eq!(svc["ports"][0].as_str(), Some("5001:5001"), "{text}");
+    assert_eq!(svc["expose"][0].as_str(), Some("5001"));
+    assert_eq!(svc["environment"]["PORT"].as_str(), Some("5001"));
+    assert_eq!(svc["environment"]["SERVICEKIT_PORT"].as_str(), Some("5001"));
+
+    // Without a chap-core elsewhere, reading PORT changes nothing: the model
+    // listens on 8000 on the compose network.
+    spec.external_chap_core = None;
+    let text = render_overlay(&spec);
+    assert!(text.contains("\"5001:8000\""), "{text}");
+    assert!(!text.contains("PORT: \"5001\""), "{text}");
 }
 
 /// A locally built image has no registry behind it, so compose must never

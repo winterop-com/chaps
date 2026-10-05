@@ -26,6 +26,7 @@ fn config(user: &str, working_dir: &str) -> ghcr::ImageConfig {
         user: user.to_string(),
         working_dir: working_dir.to_string(),
         amd64_only: false,
+        command: Vec::new(),
     }
 }
 
@@ -39,6 +40,7 @@ fn resolve(
         req,
         endpoints,
         &|_, _| Ok(declared.clone()),
+        &|_| None,
         &|_| None,
         &|_| true,
         &|_, _| None,
@@ -95,6 +97,7 @@ fn a_name_nothing_knows_is_kept_with_a_note() {
         &Endpoints::default(),
         &|_, _| Ok(Some(config("app", "/app"))),
         &|_| None,
+        &|_| None,
         &|_| true,
         &|_, name| (name == "app").then_some((10001, 10001)),
     );
@@ -125,6 +128,7 @@ fn the_local_image_comes_before_the_table_and_the_table_says_so() {
         &Endpoints::default(),
         &|_, _| Err(anyhow::anyhow!("no route to host")),
         &|_| Some(("root".to_string(), "/work".to_string())),
+        &|_| None,
         &|_| true,
         &|_, _| None,
     );
@@ -140,6 +144,7 @@ fn the_local_image_comes_before_the_table_and_the_table_says_so() {
             ..Endpoints::default()
         },
         &|_, _| panic!("--offline asks no registry"),
+        &|_| None,
         &|_| None,
         &|_| true,
         &|_, _| None,
@@ -165,6 +170,7 @@ fn a_local_image_store_that_cannot_answer_does_not_mean_root() {
         &request("chapkit_ewars_model", None),
         &Endpoints::default(),
         &|_, _| Err(anyhow::anyhow!("no route to host")),
+        &|_| None,
         &|_| None,
         &|_| true,
         &|_, _| None,
@@ -221,4 +227,26 @@ fn the_sources_read_as_labels() {
     assert_eq!(UserSource::DockerProbe.label(), "docker probe");
     assert_eq!(UserSource::Table.label(), "table");
     assert_eq!(UserSource::default(), UserSource::Table);
+}
+
+#[test]
+fn a_command_that_names_a_port_fixes_it_and_any_other_reads_port() {
+    let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_string).collect() };
+    // The command every marketplace image but one starts with.
+    assert!(!reads_port_env(&words(
+        "uvicorn main:app --host 0.0.0.0 --port 8000"
+    )));
+    assert!(!reads_port_env(&words("uvicorn main:app --port=8000")));
+    // A shell form keeps the whole line in one part.
+    assert!(!reads_port_env(&[
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        "uvicorn main:app --port 8000".to_string(),
+    ]));
+    // The simple multistep model: tini, then a module that reads PORT.
+    assert!(reads_port_env(&words(
+        "/usr/bin/tini -- python -m chapkit_simple_multistep_model"
+    )));
+    // A command nobody could read is the common case: a fixed 8000.
+    assert!(!reads_port_env(&[]));
 }

@@ -180,6 +180,7 @@ fn an_offline_run_refuses_a_repository_and_says_what_to_pass_instead() {
 #[test]
 fn the_selector_follows_a_branch_or_pins_the_tag() {
     let following = Resolved {
+        reads_port: false,
         source: Source::parse("https://github.com/chap-models/chapkit_ghr_model").unwrap(),
         id: "chapkit_ghr_model".into(),
         service_id: "chapkit-ghr-model".into(),

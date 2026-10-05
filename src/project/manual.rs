@@ -60,6 +60,10 @@ pub struct ManualModel {
     /// synthesised entry reports as the R-INLA runtime.
     #[serde(default)]
     pub runtime_amd64: bool,
+    /// Whether the image reads its port from `PORT`, read off its command
+    /// when it was added. See [`crate::compose::resolve::reads_port_env`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reads_port: bool,
     /// `YYYY-MM-DD`, the day it was added.
     pub added: String,
 }

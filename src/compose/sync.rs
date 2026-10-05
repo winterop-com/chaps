@@ -227,11 +227,14 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         spec.external_chap_core = external.clone();
         spec.bind = model.bind.or(project.state.model_bind);
         spec.group = group.clone();
-        // A chap-core elsewhere calls the model back on its host port, and a
-        // port published on loopback only answers this machine's own
-        // processes, which a container is not.
+        // A chap-core elsewhere calls the model back on its host port. On
+        // Linux, a container reaches the host through the docker bridge, and
+        // a port published on loopback does not answer there. Docker Desktop
+        // routes `host.docker.internal` to the host's loopback, so a chap-core
+        // container on macOS reaches it (measured), and the note is Linux's.
         if let (Some(_), Some(bind), Some(port)) = (&external, spec.bind, spec.host_port)
             && bind.is_loopback()
+            && cfg!(target_os = "linux")
         {
             report.warnings.push(format!(
                 "{id} is published on {bind}:{port} only, which the chap-core it registers \

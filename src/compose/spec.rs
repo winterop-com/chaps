@@ -407,6 +407,10 @@ pub struct OverlaySpec {
     /// The `chaps run` group the deployment is, which its labels name; see
     /// [`crate::compose::render::labels_block`].
     pub group: Option<String>,
+    /// Whether the image reads its port from `PORT`, which is the one case
+    /// where a model registered with a chap-core elsewhere listens on its
+    /// host port; see [`crate::compose::resolve::reads_port_env`].
+    pub reads_port: bool,
 }
 
 /// Where a model service registers when chap-core is not in the deployment.
@@ -466,6 +470,7 @@ impl OverlaySpec {
             standalone: false,
             external_chap_core: None,
             group: None,
+            reads_port: false,
         }
     }
 
@@ -501,6 +506,7 @@ impl OverlaySpec {
             standalone: false,
             external_chap_core: None,
             group: None,
+            reads_port: e.reads_port,
         }
     }
 }

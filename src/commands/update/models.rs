@@ -41,6 +41,8 @@ pub struct ModelUpdate {
     ///
     /// [`new_user`]: ModelUpdate::new_user
     pub user_from: UserSource,
+    /// Whether the image at the new tag reads its port from `PORT`.
+    pub reads_port: bool,
 }
 
 impl ModelUpdate {
@@ -61,6 +63,7 @@ impl ModelUpdate {
             old_user: entry.user.clone(),
             new_user: entry.user.clone(),
             user_from: entry.user_from,
+            reads_port: entry.reads_port,
         }
     }
 
@@ -156,6 +159,7 @@ pub(super) fn resolve_users(
         }
         update.new_user = resolution.user;
         update.user_from = resolution.user_from;
+        update.reads_port = resolution.reads_port;
     }
 }
 

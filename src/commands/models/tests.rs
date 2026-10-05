@@ -14,6 +14,7 @@ fn enabled() -> EnabledModel {
 
 fn enabled_on(host_port: Option<u16>) -> EnabledModel {
     EnabledModel {
+        reads_port: false,
         service_id: "chapkit-ewars-model".into(),
         image: "ghcr.io/chap-models/chapkit_ewars_model".into(),
         image_tag: "sha-fa880a1".into(),
@@ -131,6 +132,7 @@ fn a_listing_is_ordered_by_maturity_then_by_name() {
 /// `with_manual` does.
 fn manual_entry() -> ManualModel {
     ManualModel {
+        reads_port: false,
         service_id: "chapkit-ghr-model".into(),
         display_name: "chapkit_ghr_model".into(),
         repository: Some("https://github.com/chap-models/chapkit_ghr_model".into()),

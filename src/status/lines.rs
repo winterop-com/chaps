@@ -216,17 +216,18 @@ pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run
 pub const TEST_HINT_ONE: &str = "run `chaps models test --all` to check it can run";
 
 /// The extra hint for a model that has not registered with a chap-core
-/// elsewhere: registering there needs the image to listen on the port it
-/// advertises, and an image that ignores `PORT` never gets past servicekit's
-/// readiness check.
+/// elsewhere. Its log says which of the two causes it is: it cannot reach
+/// chap-core, or servicekit found no app on the port it checks before it
+/// registers, which is a port chaps read wrong off the image's command.
 pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
     rows.iter()
         .filter(|row| row.state == ModelState::RunningNotRegistered && !row.young)
         .map(|row| {
             format!(
-                "{id}: with a chap-core elsewhere the image has to listen on `PORT`; if \
-                 `chaps logs {id}` shows `App never became ready`, it does not, so run it \
-                 with chaps' own chap-core (`chaps components enable chap-core`)",
+                "{id}: `chaps logs {id}` says why it does not register: \
+                 `registration.attempt_failed` means it cannot reach chap-core, and \
+                 `App never became ready` means it does not listen on the port chaps read \
+                 off its image; enable it again with a network (`chaps models enable {id}`)",
                 id = row.id
             )
         })

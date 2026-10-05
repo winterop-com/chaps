@@ -31,6 +31,7 @@ fn get_matches_id_and_service_id() {
 /// A manual definition as `.chaps/models-manual.yaml` holds one.
 fn manual(id: &str, service_id: &str) -> crate::project::ManualModel {
     crate::project::ManualModel {
+        reads_port: false,
         service_id: service_id.to_string(),
         display_name: id.to_string(),
         repository: Some(format!("https://github.com/chap-models/{id}")),

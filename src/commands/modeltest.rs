@@ -263,6 +263,7 @@ fn unmanaged_services(project: &Project, api: &Api) -> Vec<String> {
 /// means anything, and the empty overlay is what marks it.
 fn unmanaged(service_id: &str) -> EnabledModel {
     EnabledModel {
+        reads_port: false,
         service_id: service_id.to_string(),
         image: String::new(),
         image_tag: String::new(),

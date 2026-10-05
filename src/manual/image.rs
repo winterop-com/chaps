@@ -26,6 +26,7 @@ pub(super) fn image_config(
                 user,
                 working_dir,
                 amd64_only: false,
+                command: crate::docker::image_command(reference).unwrap_or_default(),
             })),
             None => Err(anyhow::anyhow!(
                 "{reference} is not in the local image store for linux/amd64; build it with \
@@ -58,6 +59,7 @@ pub(super) fn image_config(
             user,
             working_dir,
             amd64_only: false,
+            command: crate::docker::image_command(reference).unwrap_or_default(),
         })),
         None if endpoints.offline => Err(anyhow::anyhow!(
             "the amd64 variant of {reference} is not in the local image store and this \

@@ -16,8 +16,8 @@ mod version;
 mod volumes;
 
 pub use images::{
-    ContainerBuild, container_builds, image_config, image_ids, pull_image, running_build,
-    uid_gid_in_image,
+    ContainerBuild, container_builds, image_command, image_config, image_ids, pull_image,
+    running_build, uid_gid_in_image,
 };
 pub use labels::{
     COMPOSE_DIR_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, GROUP_LABEL, KIND_LABEL,

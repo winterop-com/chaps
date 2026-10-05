@@ -298,6 +298,35 @@ pub fn pull_image(reference: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// `config.Entrypoint` then `config.Cmd` of a local image, for the
+/// [`crate::compose::resolve`] fallback when the registry cannot be asked.
+/// `None` when this docker does not have the amd64 variant.
+pub fn image_command(reference: &str) -> Option<Vec<String>> {
+    let args = [
+        "image",
+        "inspect",
+        "--platform",
+        crate::compose::AMD64_PLATFORM,
+        "--format",
+        "{{json .Config.Entrypoint}}\t{{json .Config.Cmd}}",
+        reference,
+    ]
+    .map(str::to_string);
+    parse_command(&docker_capture(&args)?)
+}
+
+/// The two JSON arrays of an `image inspect` command line, joined; `null`
+/// is an empty part.
+pub fn parse_command(text: &str) -> Option<Vec<String>> {
+    let line = text.lines().next()?;
+    let mut command = Vec::new();
+    for part in line.split('\t') {
+        let words: Option<Vec<String>> = serde_json::from_str(part.trim()).ok()?;
+        command.extend(words.unwrap_or_default());
+    }
+    Some(command)
+}
+
 /// The numeric `uid:gid` of an account name inside an image, by asking the
 /// image itself.
 ///
