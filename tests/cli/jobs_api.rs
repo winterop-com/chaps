@@ -209,7 +209,7 @@ fn jobs_takes_an_id_prefix_and_says_when_it_matches_nothing() {
         .stdout(predicates::str::contains("row 4 in chap-core's database"));
 
     // `-v` says which job the prefix landed on.
-    chap_in(&sandbox, &dir, &["-v", "jobs", "show", "11111111"])
+    chap_in(&sandbox, &dir, &["-vv", "jobs", "show", "11111111"])
         .assert()
         .success()
         .stderr(predicates::str::contains(format!("matched {DONE_ID}")));
@@ -457,7 +457,7 @@ fn api_and_jobs_send_the_token_this_deployment_holds() {
     let token = env_value(&sandbox.env(), "CHAP_API_TOKEN")
         .expect("a token")
         .to_string();
-    let assert = chap_in(&sandbox, &dir, &["-v", "api", "GET", "/v1/whoami"])
+    let assert = chap_in(&sandbox, &dir, &["-vv", "api", "GET", "/v1/whoami"])
         .assert()
         .success();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();

@@ -115,11 +115,11 @@ pub struct Cli {
     #[arg(long, global = true, help_heading = GLOBAL)]
     pub no_color: bool,
 
-    /// Show the commands and requests as they run
-    #[arg(short, long, global = true, help_heading = GLOBAL)]
-    pub verbose: bool,
+    /// Show the hints; -vv also shows the commands and requests that run
+    #[arg(short, long, global = true, action = clap::ArgAction::Count, help_heading = GLOBAL)]
+    pub verbose: u8,
 
-    /// --verbose plus raw responses
+    /// -vv plus the raw responses
     #[arg(short, long, global = true, help_heading = GLOBAL)]
     pub debug: bool,
 

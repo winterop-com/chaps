@@ -1,4 +1,10 @@
 use super::*;
+
+fn render(build: impl FnOnce(&mut Report)) -> String {
+    let mut lines = Report::default();
+    build(&mut lines);
+    lines.text()
+}
 use crate::project::{EnabledModel, ProjectState};
 use std::collections::BTreeMap;
 
@@ -76,15 +82,15 @@ fn enabled_report(project: &Project) -> ApplyReport {
 #[test]
 fn the_summary_ends_with_the_next_step() {
     let project = project_with_ewars(Some(5001));
-    let text = summary(&enabled_report(&project), &[], &project, &Out::default());
+    let text = render(|lines| summary(&enabled_report(&project), &[], &project, lines));
     assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001"));
-    assert!(text.ends_with("run `chaps up` to apply"));
+    assert!(text.ends_with("run `chaps up` to apply\n"));
 }
 
 #[test]
 fn a_model_with_no_host_port_is_summarised_with_the_proxy_url() {
     let project = project_with_ewars(None);
-    let text = summary(&enabled_report(&project), &[], &project, &Out::default());
+    let text = render(|lines| summary(&enabled_report(&project), &[], &project, lines));
     assert!(
         text.contains(
             "enabled chapkit_ewars_model v1.0.0 at \
@@ -106,7 +112,7 @@ fn a_manual_models_line_names_its_tag_rather_than_a_version() {
         .expect("just built");
     entry.version = "sha-b1d6c31".into();
     entry.image_tag = "sha-b1d6c31".into();
-    let text = summary(&enabled_report(&project), &[], &project, &Out::default());
+    let text = render(|lines| summary(&enabled_report(&project), &[], &project, lines));
     assert!(
         text.contains("enabled chapkit_ewars_model sha-b1d6c31 at "),
         "{text}"
@@ -122,11 +128,11 @@ fn a_disable_summary_names_the_removed_file() {
         removed: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
         ..ApplyReport::default()
     };
-    let text = summary(&report, &[], &project, &Out::default());
+    let text = render(|lines| summary(&report, &[], &project, lines));
     assert!(text.contains("disabled chapkit_ewars_model"));
-    assert!(text.contains("removed compose.chapkit-ewars-model.yml"));
+    assert!(text.contains("hint: removed compose.chapkit-ewars-model.yml"));
     // Nothing is left for `up` to apply once a model is taken away.
-    assert!(text.ends_with("run `chaps status` to see what is running now"));
+    assert!(text.ends_with("hint: `chaps status` shows what runs now\n"));
 }
 
 #[test]
@@ -140,11 +146,11 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         url: "http://localhost:5001".into(),
         written: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
     };
-    let text = port_summary(&exposed, &project, &[], &Out::default());
+    let text = render(|lines| port_summary(&exposed, &project, &[], lines));
     assert!(text.starts_with("exposed chapkit-ewars-model on http://localhost:5001\n"));
-    assert!(text.contains("written  compose.chapkit-ewars-model.yml\n"));
-    assert!(text.ends_with("run `chaps up` to apply"));
-    assert!(!text.contains("published already"));
+    assert!(text.contains("hint: wrote compose.chapkit-ewars-model.yml\n"));
+    assert!(text.ends_with("run `chaps up` to apply\n"));
+    assert!(!text.contains("no change"));
 
     let internal = PortChange {
         host_port: None,
@@ -153,12 +159,7 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         written: Vec::new(),
         ..exposed
     };
-    let text = port_summary(
-        &internal,
-        &project,
-        &["careful".to_string()],
-        &Out::default(),
-    );
+    let text = render(|lines| port_summary(&internal, &project, &["careful".to_string()], lines));
     assert!(text.starts_with(
         "unexposed chapkit-ewars-model; it stays registered with chap-core and \
              reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/\n"
@@ -171,8 +172,5 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         previous: None,
         ..internal
     };
-    assert!(
-        port_summary(&again, &project, &[], &Out::default())
-            .contains("that is what it published already")
-    );
+    assert!(render(|lines| port_summary(&again, &project, &[], lines)).contains("(no change)"));
 }

@@ -152,29 +152,38 @@ fn tracing_is_off_until_a_flag_turns_it_on() {
     assert!(!quiet.is_verbose());
     assert!(!quiet.is_debug());
 
+    let hints = Out {
+        verbosity: HINTS,
+        ..Out::default()
+    };
+    assert!(hints.shows_hints());
+    assert!(!hints.is_verbose(), "-v shows hints, not the trace");
+
     let verbose = Out {
         verbosity: VERBOSE,
         ..Out::default()
     };
-    assert!(verbose.is_verbose());
-    assert!(!verbose.is_debug(), "-v does not print bodies");
+    assert!(verbose.is_verbose() && verbose.shows_hints());
+    assert!(!verbose.is_debug(), "-vv does not print bodies");
 
     let debug = Out {
         verbosity: DEBUG,
         ..Out::default()
     };
     assert!(debug.is_debug());
-    assert!(debug.is_verbose(), "-d implies -v");
+    assert!(debug.is_verbose(), "-d implies -vv");
 }
 
 #[test]
 fn set_verbosity_maps_the_flags_onto_the_levels() {
-    assert_eq!(set_verbosity(false, false), QUIET);
-    assert_eq!(set_verbosity(true, false), VERBOSE);
-    assert_eq!(set_verbosity(false, true), DEBUG, "-d implies -v");
-    assert_eq!(set_verbosity(true, true), DEBUG);
+    assert_eq!(set_verbosity(0, false), QUIET);
+    assert_eq!(set_verbosity(1, false), HINTS);
+    assert_eq!(set_verbosity(2, false), VERBOSE);
+    assert_eq!(set_verbosity(5, false), VERBOSE);
+    assert_eq!(set_verbosity(0, true), DEBUG, "-d implies -vv");
+    assert_eq!(set_verbosity(1, true), DEBUG);
     // Leave the process as quiet as the other tests expect it.
-    set_verbosity(false, false);
+    set_verbosity(0, false);
 }
 
 #[test]
@@ -459,4 +468,39 @@ fn a_json_error_without_a_way_out_keeps_the_whole_message() {
     let value: serde_json::Value = serde_json::from_str(&out.error(&err)).unwrap();
     assert_eq!(value["hint"], serde_json::Value::Null);
     assert_eq!(value["error"], "unknown model `x`; nothing else");
+}
+
+fn sample_report() -> Report {
+    let mut report = Report::default();
+    report
+        .info("updated the marketplace registry: 7 models")
+        .hint("`chaps self update` updates chaps itself")
+        .warning("the cache is old");
+    report
+}
+
+#[test]
+fn a_report_shows_info_and_warnings_by_default() {
+    let (stdout, stderr) = sample_report().render(false, false);
+    assert_eq!(stdout, "updated the marketplace registry: 7 models\n");
+    assert_eq!(stderr, "warning: the cache is old\n");
+}
+
+#[test]
+fn a_report_shows_the_hints_under_verbose() {
+    let (stdout, _) = sample_report().render(true, false);
+    assert_eq!(
+        stdout,
+        "updated the marketplace registry: 7 models\n\
+         hint: `chaps self update` updates chaps itself\n"
+    );
+}
+
+#[test]
+fn every_message_keeps_its_level_for_json() {
+    let report = sample_report();
+    let json = serde_json::to_value(report.messages()).unwrap();
+    assert_eq!(json[0]["level"], "info");
+    assert_eq!(json[1]["level"], "hint");
+    assert_eq!(json[2]["level"], "warning");
 }

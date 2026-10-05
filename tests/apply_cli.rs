@@ -312,7 +312,7 @@ fn models_register_with_a_chap_core_elsewhere() {
         .models(&["enable", "chapkit_ewars_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(
+        .stderr(predicates::str::contains(
             "cannot register with the chap-core elsewhere",
         ));
 

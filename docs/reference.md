@@ -19,8 +19,8 @@ Usage: chaps [OPTIONS] <COMMAND>
 | --- | --- |
 | `--json` | Emit machine-readable JSON instead of human output. |
 | `--no-color` | Never colour the output (NO_COLOR does the same). |
-| `-v, --verbose` | Show the commands and requests as they run. |
-| `-d, --debug` | --verbose plus raw responses. |
+| `-v, --verbose` | Show the hints; -vv also shows the commands and requests that run. |
+| `-d, --debug` | -vv plus the raw responses. |
 | `-C, --project-dir <DIR>` | Project directory, or any directory inside one. Default: `.`. |
 | `--registry-url <URL>` | URL of the marketplace registry index. Default: `https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml`. |
 | `--offline` | Never touch the network; use the cache or the snapshot. |

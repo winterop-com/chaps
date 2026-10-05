@@ -137,33 +137,23 @@ fn a_manual_model_answers_to_its_id_and_its_service_name() {
 
 #[test]
 fn the_added_block_says_where_every_value_came_from() {
-    let out = Out::default();
-    let text = added_block(&resolved("chapkit_ghr_model", "chapkit-ghr-model"), &out);
+    let render = |resolved: &Resolved| {
+        let mut lines = Report::default();
+        added_block(resolved, &mut lines);
+        lines.text()
+    };
+    let text = render(&resolved("chapkit_ghr_model", "chapkit-ghr-model"));
     assert!(text.starts_with("added chapkit_ghr_model (chapkit-ghr-model)\n"));
-    assert!(
-        text.contains("source    https://github.com/chap-models/chapkit_ghr_model"),
-        "{text}"
-    );
-    assert!(
-        text.contains("image     ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31"),
-        "{text}"
-    );
-    assert!(
-        text.contains("pin       sha-b1d6c31  (commit b1d6c31)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("follows   main  (`chaps update` moves the pin)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("data dir  /work/data  (from the image config)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("user      10001:10001  (from a docker probe)"),
-        "{text}"
-    );
+    for line in [
+        "hint: source: https://github.com/chap-models/chapkit_ghr_model\n",
+        "hint: image: ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31\n",
+        "hint: pin: sha-b1d6c31 (commit b1d6c31)\n",
+        "hint: follows: main (`chaps update` moves the pin)\n",
+        "hint: data dir: /work/data (from the image config)\n",
+        "hint: user: 10001:10001 (from a docker probe)\n",
+    ] {
+        assert!(text.contains(line), "{line} in {text}");
+    }
 
     // A pinned entry says so where the branch would have been.
     let pinned = Resolved {
@@ -171,9 +161,9 @@ fn the_added_block_says_where_every_value_came_from() {
         commit: None,
         ..resolved("chapkit_ghr_model", "chapkit-ghr-model")
     };
-    let text = added_block(&pinned, &out);
-    assert!(text.contains("follows   nothing (pinned)"), "{text}");
-    assert!(text.contains("pin       sha-b1d6c31\n"), "{text}");
+    let text = render(&pinned);
+    assert!(text.contains("hint: follows: nothing (pinned)\n"), "{text}");
+    assert!(text.contains("hint: pin: sha-b1d6c31\n"), "{text}");
 }
 
 #[test]

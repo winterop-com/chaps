@@ -246,7 +246,7 @@ fn doctor_sends_the_github_token_and_says_what_is_left_of_the_hour() {
     let out = sandbox
         .online(port)
         .env("GITHUB_TOKEN", TOKEN)
-        .args(["-v", "--json", "doctor"])
+        .args(["-vv", "--json", "doctor"])
         .output()
         .expect("doctor runs");
     let trace = String::from_utf8(out.stderr).expect("utf-8");

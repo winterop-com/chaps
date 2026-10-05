@@ -642,7 +642,7 @@ fn down_args(argv: &[&str]) -> (bool, DownArgs) {
     let mut args = vec!["chap", "down"];
     args.extend_from_slice(argv);
     let cli = Cli::try_parse_from(args).unwrap();
-    let verbose = cli.verbose;
+    let verbose = cli.verbose > 0;
     let Command::Down(args) = cli.command else {
         panic!("expected down");
     };

@@ -106,13 +106,13 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
         .models(&["enable", "auto_arima_chapkit"])
         .assert()
         .success()
-        .stdout(predicates::str::contains(format!(
+        .stderr(predicates::str::contains(format!(
             "warning: nothing could say what \
              ghcr.io/chap-models/auto_arima_chapkit:{} runs as",
             stable_pin("auto_arima_chapkit").1
         )))
-        .stdout(predicates::str::contains("the built-in table"))
-        .stdout(predicates::str::contains("chaps models enable"));
+        .stderr(predicates::str::contains("the built-in table"))
+        .stderr(predicates::str::contains("chaps models enable"));
 
     // The table's own answer for that image: root, which is the whole point.
     let model = &state(&dir)["models"]["auto_arima_chapkit"];
@@ -156,7 +156,7 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
     let (sandbox, dir, port) = added_sandbox(Hub::new());
     sandbox
         .online(port)
-        .args(["models", "add", REPO_URL])
+        .args(["-v", "models", "add", REPO_URL])
         .assert()
         .success()
         .stdout(predicates::str::contains(
@@ -164,13 +164,13 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
         ))
         // The newest commit has no published build, so the pin lands on the
         // newest build there is.
-        .stdout(predicates::str::contains(format!("pin       {OLD_TAG}")))
-        .stdout(predicates::str::contains("follows   main"))
+        .stdout(predicates::str::contains(format!("hint: pin: {OLD_TAG}")))
+        .stdout(predicates::str::contains("hint: follows: main"))
         .stdout(predicates::str::contains(
-            "data dir  /work/data  (from the image config)",
+            "hint: data dir: /work/data (from the image config)",
         ))
         .stdout(predicates::str::contains(
-            "user      10001:10001  (from the image config)",
+            "hint: user: 10001:10001 (from the image config)",
         ))
         .stdout(predicates::str::contains("must register with chap-core as"))
         .stdout(predicates::str::contains("run `chaps up` to apply"));
@@ -339,11 +339,11 @@ fn models_add_from_an_image_reference_is_pinned() {
     let (sandbox, dir, port) = added_sandbox(Hub::new());
     sandbox
         .online(port)
-        .args(["models", "add", &format!("{IMAGE}:{NEW_TAG}")])
+        .args(["-v", "models", "add", &format!("{IMAGE}:{NEW_TAG}")])
         .assert()
         .success()
-        .stdout(predicates::str::contains(format!("pin       {NEW_TAG}")))
-        .stdout(predicates::str::contains("follows   nothing (pinned)"));
+        .stdout(predicates::str::contains(format!("hint: pin: {NEW_TAG}")))
+        .stdout(predicates::str::contains("hint: follows: nothing (pinned)"));
 
     let entry = &manual_models(&dir)["chapkit_example_manual_model"];
     assert_eq!(entry["tag"], NEW_TAG);
@@ -372,10 +372,10 @@ fn models_add_accepts_a_digest_and_renders_a_digest_reference() {
     let digest = format!("sha256:{}", "a".repeat(64));
     sandbox
         .online(port)
-        .args(["models", "add", &format!("{IMAGE}@{digest}")])
+        .args(["-v", "models", "add", &format!("{IMAGE}@{digest}")])
         .assert()
         .success()
-        .stdout(predicates::str::contains(format!("pin       @{digest}")));
+        .stdout(predicates::str::contains(format!("hint: pin: @{digest}")));
 
     assert_eq!(
         manual_models(&dir)["chapkit_example_manual_model"]["tag"],
@@ -398,11 +398,11 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
     let (sandbox, dir, port) = added_sandbox(Hub::new().running_as("app"));
     sandbox
         .online(port)
-        .args(["models", "add", REPO_URL])
+        .args(["-v", "models", "add", REPO_URL])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "user      app  (from the image config)",
+            "hint: user: app (from the image config)",
         ))
         // The note says what the init container will do instead, and how to
         // decide it properly.
@@ -421,6 +421,7 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
     sandbox
         .online(port)
         .args([
+            "-v",
             "models",
             "add",
             REPO_URL,
@@ -434,7 +435,7 @@ fn models_add_keeps_a_user_it_cannot_resolve_and_says_what_it_will_chown() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "user      10001:10001  (given on the command line)",
+            "hint: user: 10001:10001 (given on the command line)",
         ));
     assert!(
         read(&dir.join("compose.second-manual-model.yml"))
@@ -535,11 +536,14 @@ fn models_remove_takes_the_definition_and_the_overlay_with_it() {
     // Offline: the definition is the deployment's own, so removing it needs
     // nothing from the network.
     sandbox
-        .models(&["remove", "chapkit-example-manual-model"])
+        .models(&["remove", "chapkit-example-manual-model", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "removed chapkit_example_manual_model (models-manual.yaml)",
+            "removed chapkit_example_manual_model\n",
+        ))
+        .stdout(predicates::str::contains(
+            "hint: chapkit_example_manual_model is gone from `models-manual.yaml`",
         ))
         .stdout(predicates::str::contains(
             "disabled chapkit_example_manual_model",

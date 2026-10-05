@@ -4,6 +4,7 @@
 use crate::cli::UpdateArgs;
 use crate::commands::Ctx;
 use crate::error::{ChapError, Result};
+use crate::output;
 use crate::registry as marketplace;
 use serde::Serialize;
 
@@ -44,7 +45,7 @@ pub(super) fn refresh(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         source: loaded.provenance.describe(),
         models: loaded.models.len(),
     };
-    ctx.out.emit(&report, || human(&report))
+    ctx.out.report(&report, |lines| say(&report, lines))
 }
 
 /// The flag that only means something in a deployment, when one was given.
@@ -60,16 +61,19 @@ fn deployment_flag(args: &UpdateArgs) -> Option<&'static str> {
     }
 }
 
-fn human(report: &RegistryRefresh) -> String {
+fn say(report: &RegistryRefresh, lines: &mut output::Report) {
     let models = match report.models {
         1 => "1 model".to_string(),
         n => format!("{n} models"),
     };
     match report.refreshed {
-        true => format!("updated the marketplace registry: {models}\n"),
-        false => format!(
-            "the marketplace registry has {models} ({}); --dry-run fetched nothing\n",
+        true => lines.info(format!("updated the marketplace registry: {models}")),
+        false => lines.info(format!(
+            "the marketplace registry has {models} ({}); --dry-run fetched nothing",
             report.source
-        ),
-    }
+        )),
+    };
+    lines
+        .hint("this directory is not a deployment, so no version pin changed")
+        .hint("`chaps self update` updates chaps itself");
 }

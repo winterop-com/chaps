@@ -381,7 +381,7 @@ fn verbose_narrates_on_stderr_and_leaves_stdout_alone() {
 
     let loud = sandbox
         .chap()
-        .args(["-v", "models", "list"])
+        .args(["-vv", "models", "list"])
         .assert()
         .success()
         .get_output()
@@ -390,16 +390,16 @@ fn verbose_narrates_on_stderr_and_leaves_stdout_alone() {
     assert_eq!(
         String::from_utf8(quiet).expect("utf-8"),
         String::from_utf8(loud.stdout).expect("utf-8"),
-        "-v must never reach stdout"
+        "-vv must never reach stdout"
     );
     let stderr = String::from_utf8(loud.stderr).expect("utf-8 stderr");
     assert!(
         stderr.contains("registry:"),
-        "-v says which catalogue was used: {stderr}"
+        "-vv says which catalogue was used: {stderr}"
     );
     assert!(
         stderr.contains("embedded") || stderr.contains("cache"),
-        "-v names the source it chose: {stderr}"
+        "-vv names the source it chose: {stderr}"
     );
 }
 
@@ -419,7 +419,7 @@ fn debug_implies_verbose_and_adds_the_resolved_project() {
         .stderr
         .clone();
     let stderr = String::from_utf8(out).expect("utf-8 stderr");
-    // -v's half: the files the sync compared.
+    // -vv's half: the files the sync compared.
     assert!(stderr.contains("compared"), "{stderr}");
     // -d's own half: where the state it read actually lives.
     assert!(stderr.contains("project:"), "{stderr}");

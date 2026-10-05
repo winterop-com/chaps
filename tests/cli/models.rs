@@ -167,14 +167,14 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
     let pinned = read(&dir.join(".chaps/models.yaml"));
 
     sandbox
-        .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
+        .models(&["expose", "chapkit_ewars_model", "--port", "auto", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
             "exposed chapkit-ewars-model on http://localhost:{base}",
         )))
         .stdout(predicates::str::contains(
-            "written  compose.chapkit-ewars-model.yml",
+            "hint: wrote compose.chapkit-ewars-model.yml",
         ));
     assert_eq!(
         state(&dir)["models"]["chapkit_ewars_model"]["host_port"],

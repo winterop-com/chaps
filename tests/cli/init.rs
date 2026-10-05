@@ -1124,11 +1124,11 @@ fn sync_never_removes_a_hand_written_overlay() {
     std::fs::write(&custom, "services:\n  mine:\n    image: busybox\n").unwrap();
 
     sandbox
-        .models(&["disable", "auto_arima_chapkit"])
+        .models(&["disable", "auto_arima_chapkit", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "removed compose.auto-arima-chapkit.yml",
+            "hint: removed compose.auto-arima-chapkit.yml",
         ));
     assert!(!dir.join("compose.auto-arima-chapkit.yml").exists());
     assert!(custom.is_file());

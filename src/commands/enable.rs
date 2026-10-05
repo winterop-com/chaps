@@ -9,7 +9,7 @@ use crate::compose::ports::allocator_for;
 use crate::compose::sync::sync;
 use crate::compose::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 use crate::error::{ChapError, Result};
-use crate::output::Out;
+use crate::output::Report;
 use crate::project::Project;
 use crate::registry::{Channel, Registry, VersionSelector};
 use std::collections::BTreeSet;
@@ -25,7 +25,7 @@ pub fn enable(ctx: &Ctx, args: &ModelsEnableArgs) -> Result<()> {
     let report = enable_in(ctx, &mut project, args)?;
     let changed = Changed::new(&report, &report, &project);
     ctx.out
-        .emit_ok(&changed, || summary(&report, &[], &project, &ctx.out))
+        .report_ok(&changed, |lines| summary(&report, &[], &project, lines))
 }
 
 /// [`enable`] on a project the caller has loaded and locked, writing the
@@ -144,8 +144,8 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
         return Err(ChapError::UnknownModel(args.id.clone()).into());
     };
     let (report, notes) = disable_enabled(&mut project, &registry, &id, args.purge, false)?;
-    ctx.out.emit_ok(&report, || {
-        summary(&report.apply, &notes, &project, &ctx.out)
+    ctx.out.report_ok(&report, |lines| {
+        summary(&report.apply, &notes, &project, lines)
     })
 }
 
@@ -257,7 +257,11 @@ fn purge_only(ctx: &Ctx, project: &Project, registry: &Registry, wanted: &str) -
         purged,
         kept_volumes: Vec::new(),
     };
-    ctx.out.emit_ok(&report, || purge_summary(&notes, &ctx.out))
+    ctx.out.report_ok(&report, |lines| {
+        for note in &notes {
+            lines.info(note.as_str());
+        }
+    })
 }
 
 /// The marketplace id a `--purge` on a model that is not enabled is about.
@@ -378,49 +382,42 @@ fn set_host_port(
         previous,
         written: synced.written,
     };
-    ctx.out.emit_ok(&change, || {
-        port_summary(&change, &project, &synced.warnings, &ctx.out)
+    ctx.out.report_ok(&change, |lines| {
+        port_summary(&change, &project, &synced.warnings, lines)
     })
 }
 
-/// The human rendering of one port change.
-fn port_summary(change: &PortChange, project: &Project, warnings: &[String], out: &Out) -> String {
-    let mut text = match change.host_port {
-        Some(port) => format!(
-            "{} {} on {}\n",
-            out.ok("exposed"),
-            change.service_id,
-            out.value(&format!("http://localhost:{port}"))
-        ),
-        None => format!(
-            "{} {}; it stays registered with chap-core and reachable at {}\n",
-            out.warn("unexposed"),
-            change.service_id,
-            out.value(&change.url)
-        ),
+/// The lines of one port change.
+fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lines: &mut Report) {
+    let same = match change.host_port == change.previous {
+        true => " (no change)",
+        false => "",
     };
-    if change.host_port == change.previous {
-        text.push_str(&out.dim("(that is what it published already)"));
-        text.push('\n');
-    }
+    match change.host_port {
+        Some(port) => lines.info(format!(
+            "exposed {} on http://localhost:{port}{same}",
+            change.service_id
+        )),
+        None => lines.info(format!(
+            "unexposed {}{same}; it stays registered with chap-core and reachable at {}",
+            change.service_id, change.url
+        )),
+    };
     for path in &change.written {
-        text.push_str(&format!(
-            "{}  {}\n",
-            out.ok("written"),
-            out.dim(
-                &path
-                    .strip_prefix(&project.dir)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string()
-            )
-        ));
+        lines.hint(format!("wrote {}", relative(project, path)));
     }
     for warning in warnings {
-        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
+        lines.warning(warning.as_str());
     }
-    text.push_str(&out.backticks("run `chaps up` to apply"));
-    text
+    lines.info("run `chaps up` to apply");
+}
+
+/// A path in the deployment, relative to its directory when it is inside it.
+fn relative(project: &Project, path: &std::path::Path) -> String {
+    path.strip_prefix(&project.dir)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 /// Endpoints for a call that enables nothing and therefore looks nothing up.
@@ -445,79 +442,53 @@ pub(crate) fn enabled_id(project: &Project, wanted: &str) -> Option<String> {
         .map(|(id, _)| id.clone())
 }
 
-/// The human rendering of one enable or disable.
+/// The lines of one enable or disable.
 ///
 /// `notes` is what `disable` did beyond the state edit: the container that
-/// was running the model, and the data volume it kept or removed. They belong
-/// in the closing lines, next to the files that were removed.
+/// was running the model, and the data volume it kept or removed. They are
+/// info, because they say what happened to the data.
 pub(crate) fn summary(
     report: &ApplyReport,
     notes: &[String],
     project: &Project,
-    out: &Out,
-) -> String {
-    let mut text = String::new();
+    lines: &mut Report,
+) {
     for (id, model) in report.touched() {
-        let verb = if report.enabled.iter().any(|(e, _)| e == id) {
-            "enabled"
-        } else {
-            "updated"
+        let verb = match report.enabled.iter().any(|(e, _)| e == id) {
+            true => "enabled",
+            false => "updated",
         };
-        text.push_str(&format!(
-            "{} {id} {} {} {}\n",
-            out.ok(verb),
-            // A manually added model's version is its image tag, so `v` in
-            // front of it would read as a version number it does not have.
-            out.dim(&match model.version == model.image_tag {
-                true => model.image_tag.clone(),
-                false => format!("v{}", model.version),
-            }),
-            match model.host_port {
-                Some(port) => format!("on {}", out.value(&format!("http://localhost:{port}"))),
-                None => format!("at {}", out.value(&project.proxy_url(&model.service_id))),
-            },
-            out.dim(&format!("({})", model.compose_file))
-        ));
+        // A manually added model's version is its image tag, so `v` in
+        // front of it would read as a version number it does not have.
+        let version = match model.version == model.image_tag {
+            true => model.image_tag.clone(),
+            false => format!("v{}", model.version),
+        };
+        let place = match model.host_port {
+            Some(port) => format!("on http://localhost:{port}"),
+            None => format!("at {}", project.proxy_url(&model.service_id)),
+        };
+        lines.info(format!("{verb} {id} {version} {place}"));
+        lines.hint(format!("{id} is in `{}`", model.compose_file));
     }
     for id in &report.disabled {
-        text.push_str(&format!("{} {id}\n", out.warn("disabled")));
+        lines.info(format!("disabled {id}"));
     }
     for path in &report.removed {
-        text.push_str(&format!(
-            "{} {}\n",
-            out.bad("removed"),
-            out.dim(
-                &path
-                    .strip_prefix(&project.dir)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string()
-            )
-        ));
+        lines.hint(format!("removed {}", relative(project, path)));
     }
     for warning in &report.warnings {
-        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
+        lines.warning(warning.as_str());
     }
     for note in notes {
-        text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
+        lines.info(note.as_str());
     }
     // Taking a model away has already stopped its container: there is
     // nothing left for `up` to apply, only a deployment to look at.
     match report.touched().next().is_none() {
-        true => text.push_str(&out.backticks("run `chaps status` to see what is running now")),
-        false => text.push_str(&out.backticks("run `chaps up` to apply")),
-    }
-    text
-}
-
-/// The human rendering of a `--purge` that had only a volume to remove.
-///
-/// No closing `chaps up`: nothing was written, so there is nothing to apply.
-fn purge_summary(notes: &[String], out: &Out) -> String {
-    notes
-        .iter()
-        .map(|note| format!("{} {}\n", out.dim("note:"), out.backticks(note)))
-        .collect()
+        true => lines.hint("`chaps status` shows what runs now"),
+        false => lines.info("run `chaps up` to apply"),
+    };
 }
 
 #[cfg(test)]

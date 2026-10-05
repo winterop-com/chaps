@@ -7,8 +7,10 @@
 //! else in the crate calls into `console`.
 
 mod clock;
+mod report;
 
 pub use clock::{ago, human_age, local_clock, local_clock_seconds};
+pub use report::Report;
 
 use crate::error::Result;
 use console::{Style, measure_text_width};
@@ -21,10 +23,12 @@ pub const WRAP_WIDTH: usize = 80;
 
 /// Say nothing but the answer.
 pub const QUIET: u8 = 0;
-/// `-v`: narrate what runs.
-pub const VERBOSE: u8 = 1;
+/// `-v`: the answer and its hints.
+pub const HINTS: u8 = 1;
+/// `-vv`: also narrate what runs.
+pub const VERBOSE: u8 = 2;
 /// `-d`: narrate what runs and what came back.
-pub const DEBUG: u8 = 2;
+pub const DEBUG: u8 = 3;
 
 /// How much of a response body a `-d` line prints.
 pub const MAX_TRACE_BODY: usize = 2048;
@@ -44,7 +48,7 @@ pub struct Out {
     /// terminal gets the same lines a pipe does, so what a person pastes is
     /// what a script parses.
     pub tty: bool,
-    /// [`QUIET`], [`VERBOSE`] or [`DEBUG`]. Tracing never reaches stdout, so
+    /// [`QUIET`], [`HINTS`], [`VERBOSE`] or [`DEBUG`]. Tracing never reaches stdout, so
     /// raising it can never change what a caller parses.
     pub verbosity: u8,
 }
@@ -63,7 +67,12 @@ impl Out {
         }
     }
 
-    /// `-v` or `-d` was given. `-d` implies `-v`: there is no way to ask for
+    /// `-v` or more was given: show the hints of a [`Report`].
+    pub fn shows_hints(&self) -> bool {
+        self.verbosity >= HINTS
+    }
+
+    /// `-vv` or `-d` was given. `-d` implies `-vv`: there is no way to ask for
     /// the bodies without the requests they belong to.
     pub fn is_verbose(&self) -> bool {
         self.verbosity >= VERBOSE
@@ -74,7 +83,7 @@ impl Out {
         self.verbosity >= DEBUG
     }
 
-    /// Narrate one step under `-v`, on stderr, dimmed.
+    /// Narrate one step under `-vv`, on stderr, dimmed.
     pub fn verbose(&self, message: &str) {
         if self.is_verbose() {
             trace(message);
@@ -298,24 +307,24 @@ pub fn split_hint(message: &str) -> (String, Option<String>) {
 /// Remember `--no-color` for the stderr side, which has no [`Out`] to consult.
 static NO_COLOR_FLAG: AtomicBool = AtomicBool::new(false);
 
-/// The same, for `-v` and `-d`: the docker runner and the HTTP helpers sit
+/// The same, for `-v`, `-vv` and `-d`: the docker runner and the HTTP helpers sit
 /// several layers below the command that owns the [`Out`].
 static LEVEL: AtomicU8 = AtomicU8::new(QUIET);
 
-/// Record the global `-v` / `-d` flags. Called once, from `Ctx::from_cli`.
-pub fn set_verbosity(verbose: bool, debug: bool) -> u8 {
-    let level = if debug {
-        DEBUG
-    } else if verbose {
-        VERBOSE
-    } else {
-        QUIET
+/// Record the global `-v` / `-vv` / `-d` flags. Called once, from
+/// `Ctx::from_cli`.
+pub fn set_verbosity(verbose: u8, debug: bool) -> u8 {
+    let level = match (debug, verbose) {
+        (true, _) => DEBUG,
+        (false, 0) => QUIET,
+        (false, 1) => HINTS,
+        (false, _) => VERBOSE,
     };
     LEVEL.store(level, Ordering::Relaxed);
     level
 }
 
-/// Whether `-v` (or `-d`) was given.
+/// Whether `-vv` (or `-d`) was given.
 pub fn verbose_enabled() -> bool {
     LEVEL.load(Ordering::Relaxed) >= VERBOSE
 }
@@ -325,7 +334,7 @@ pub fn debug_enabled() -> bool {
     LEVEL.load(Ordering::Relaxed) >= DEBUG
 }
 
-/// Narrate one step under `-v`, for code with no [`Out`] in reach.
+/// Narrate one step under `-vv`, for code with no [`Out`] in reach.
 pub fn verbose(message: &str) {
     if verbose_enabled() {
         trace(message);
