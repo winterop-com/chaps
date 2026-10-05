@@ -13,6 +13,14 @@ with anything here.
 | `chaps update` | Fetches newer versions: moves the pins, pulls the images. Never touches a container. `--chap-tag` moves chap-core somewhere else entirely. |
 | `chaps restart` | Applies what was fetched to the services that are running. |
 
+**Without a deployment**, `chaps update` has no pin to move. It refreshes the
+marketplace registry of this machine instead, as `chaps registry update` does,
+and it names the commands for the rest: `chaps self update` for chaps itself,
+and `chaps -C <group> update` for each `chaps run` group. `--dry-run` reports
+the registry that chaps has now, and fetches nothing. `--chap-tag`,
+`--pin-chap-core` and `--list-tags` need a deployment, so they are refused
+there.
+
 An update that restarted things by itself would decide for you when your
 deployment goes down, and an update that started a stopped deployment would be
 a deployment nobody asked for. So `update` ends by telling you which of the
