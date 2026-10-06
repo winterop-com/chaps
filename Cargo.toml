@@ -1,6 +1,6 @@
 [package]
 name = "varde"
-version = "0.99.13"
+version = "0.100.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Deploy Chap (climate-informed disease forecasting) and its services with Docker Compose"
