@@ -259,7 +259,7 @@ prints the lines of the log that say why:
 
 ```text
 why dhis2-db is unhealthy:
-  psql:/docker-entrypoint-initdb.d/dump.sql.gz:5: invalid command \restrict
+  psql:<stdin>:5: invalid command \restrict
   the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `chaps components disable dhis2 --purge`, `chaps components enable dhis2` and `chaps up`
 ```
 
@@ -350,7 +350,7 @@ database, not for a server that real users log in to.
 
 The `dhis2-dump` one-shot writes the SQL to `zz-chaps-passwords.sql` in the
 `dhis2_dump` volume. The postgres entrypoint runs the files of that volume in
-name order, so the file runs after `dump.sql.gz`. When the dump did not have
+name order, so the file runs after `dump.sh`, which restores the dump. When the dump did not have
 the `pgcrypto` extension, the file removes it again.
 
 The rules of the seed apply:
@@ -364,9 +364,9 @@ The rules of the seed apply:
 
 The password is plain text in `.chaps/components.yaml` and in
 `compose.dhis2.yml`. Use it for a known password such as `district`, not for a
-secret. `chaps dhis2` logs in as `admin` with `district` when `.env` names no
-password. If you set another password, set `DHIS2_ADMIN_PASSWORD` in `.env` to
-the same value.
+secret. `chaps dhis2` uses it for every user, so `chaps dhis2 analytics --user
+em` logs in as `em` with no other setting. A password in `.env` or in the
+environment still comes first.
 
 ### The default dump comes from a table, not from the tag
 
@@ -396,26 +396,43 @@ warning: chaps knows no DHIS2 demo dump for 2.40, so `dhis2_db` starts empty; na
 
 ### What the one-shot does to the dump
 
-Two things, both learned from a restore that failed.
+The one-shot `dhis2-dump` downloads or copies the dump and keeps it as
+`seed.dump.gz` in the `dhis2_dump` volume. The download goes to `raw.part`
+first, and one `mv` makes it the seed, so a download that stopped is never
+kept. The name does not end in `.sql.gz`, so the PostgreSQL entrypoint does not
+load it by itself.
 
-- **It verifies before it caches.** The download is checked with `gzip -t`,
-  transformed, checked again, and published with one atomic `mv`. A half-finished
-  download that got cached is a dump that restores without an error and leaves
-  most of the data out.
+The restore is one pass. The one-shot writes `dump.sh`, and the entrypoint runs
+it in name order, before the `zz-` scripts:
+
+```text
+gunzip -c seed.dump.gz | sed -E -f chaps-rewrite.sed | psql -v ON_ERROR_STOP=1
+```
+
+The dump is read once, with the `gzip` and `sed` of the PostgreSQL image. On a
+dump of 3.9 GB, the old way took 24 to 40 minutes: three reads with the busybox
+tools of the one-shot, then a fourth read for the restore. The entrypoint runs
+`dump.sh` with `pipefail`, so a truncated dump stops the restore, and the
+[mark](#a-restore-that-stops) reports it.
+
+`chaps-rewrite.sed` changes the dump so that it loads into a new database:
+
 - **It retrofits `--if-exists`.** Published dumps are `pg_dump --clean`
   *without* `--if-exists`, so they open on `DROP` and `ALTER` statements that
-  assume the schema is already there - and the PostgreSQL entrypoint runs init
-  scripts under `psql -v ON_ERROR_STOP=1`, where the first missing object aborts
-  the whole restore. The rewrite makes that opening block a no-op on an empty
-  database. It is idempotent and anchored to the start of each line, so a dump
-  that already carries `--if-exists` is normalised rather than doubled and `COPY`
-  data rows are left alone. `DROP EXTENSION` and `DROP SCHEMA` go entirely: the
-  PostGIS image owns those objects, dropping them fails on the dependency, and
-  the dump recreates what it needs with `CREATE EXTENSION IF NOT EXISTS`.
+  assume the schema is already there, and the restore runs under
+  `ON_ERROR_STOP=1`, where the first missing object stops it. The rewrite is
+  idempotent and anchored to the start of each line, so `COPY` data rows stay
+  as they are. `DROP EXTENSION` and `DROP SCHEMA` go entirely: the PostGIS
+  image owns those objects.
+- **It removes what this PostgreSQL does not know.** A dump of `pg_dump` 17.6
+  or 16.10 and later opens with `\restrict` and closes with `\unrestrict`, and
+  a dump of PostgreSQL 17 sets `transaction_timeout`.
+- **It removes the owners and the grants**, as `pg_dump --no-owner
+  --no-privileges` does. They name the roles of the source server, which do not
+  exist here, so every object belongs to the database user.
 
-An operator's own dump goes through both, because the mounted file is copied into
-the same working directory the download would land in and everything after that
-is identical.
+An operator's own dump goes through the same steps: the mounted file is copied
+to the place where a download goes, and everything after that is the same.
 
 ## The first start
 
@@ -734,7 +751,8 @@ chaps reads are pairs, and the first that has a value wins:
 | 2 | `DHIS2_ADMIN_PASSWORD` in `.env`, for `DHIS2_ADMIN_USERNAME` | The deployment's own answer, and where its other secrets already live. The user is `admin` when the file names none. |
 | 3 | `CHAPS_DHIS2_TOKEN` in the environment | A token kept off disk: `export` it for one shell. |
 | 4 | `CHAPS_DHIS2_PASSWORD` in the environment, for `CHAPS_DHIS2_USERNAME` | A password kept off disk. Without `CHAPS_DHIS2_USERNAME` it is the password of the user `.env` names. |
-| 5 | `admin` / `district` | The DHIS2 default, and only on a DHIS2 chaps deployed. |
+| 5 | `seed_password:` in `.chaps/components.yaml` | For any user, on a DHIS2 chaps restored from a seed with that option. The restore gave every user that password. |
+| 6 | `admin` / `district` | The DHIS2 default, and only on a DHIS2 chaps deployed. |
 
 The default is not a guess. A seeded demo dump ships that user, and a
 Flyway-bootstrapped empty database gets it from `DefaultAdminUserPopulator`, which
