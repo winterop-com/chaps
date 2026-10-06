@@ -224,6 +224,12 @@ pub(super) fn summary(
                 components.dhis2_seed_source(),
             ));
         }
+        if let (Some(_), Some(password)) = (
+            components.dhis2_seed_source(),
+            &components.dhis2.seed_password,
+        ) {
+            dhis2.push(crate::components::dhis2_seed_password_note(password));
+        }
         dhis2.push(DHIS2_FIRST_START_NOTE.to_string());
         // Only with a chap-core to connect it to.
         if components.has_chap_core_api() {

@@ -57,7 +57,7 @@ services:
       # Over TCP on purpose. While the entrypoint runs the init scripts the
       # server listens on the unix socket alone, so a socket probe would report a
       # half-restored database as ready.
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+@DB_HEALTH_TEST@
       interval: 10s
       timeout: 5s
       # Generous, because on a seeded deployment the first start is the restore.

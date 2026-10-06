@@ -43,6 +43,45 @@ const POSTGRES_DB: &str = "chap_core";
 ///
 /// `args.source` names a chap-core checkout to build from instead of a
 /// release to pull; see [`checkout_source`].
+/// Read the DHIS2 version of a local seed dump and settle the tag with it:
+/// the tag of the dump when `--dhis2-tag` is not given, and a refusal for a
+/// tag older than the dump or a dump older than 2.41. A dump that is not on
+/// disk yet, or a URL, is checked by the dump step of the first `chaps up`.
+fn settle_dump_version(
+    components: &mut crate::components::Components,
+    dir: &std::path::Path,
+    tag: Option<&str>,
+) -> Result<Option<String>> {
+    let crate::components::Dhis2Seed::From(source) = &components.dhis2.seed else {
+        return Ok(None);
+    };
+    if !components.dhis2.enabled || components.dhis2.seed.is_url() {
+        return Ok(None);
+    }
+    let path = std::path::Path::new(source);
+    let candidates = [dir.join(path), path.to_path_buf()];
+    let Some(found) = candidates.iter().find(|p| p.is_file()) else {
+        return Ok(None);
+    };
+    crate::output::notice(&format!(
+        "reading the DHIS2 version of {source} from its Flyway table; a large dump takes \
+         about a minute"
+    ));
+    let Some(migration) = crate::components::dump_migration(found)? else {
+        return Ok(None);
+    };
+    let Some(minor) = crate::components::migration_minor(&migration) else {
+        return Ok(None);
+    };
+    components.dhis2.image_tag = crate::components::tag_for_dump(&minor, tag)?;
+    Ok(Some(match tag {
+        Some(_) => format!("{source} is DHIS2 {minor} (Flyway migration {migration})"),
+        None => format!(
+            "{source} is DHIS2 {minor} (Flyway migration {migration}), so DHIS2 runs {minor}"
+        ),
+    }))
+}
+
 pub fn run(ctx: &Ctx, args: &InitArgs) -> Result<()> {
     create(ctx, args, true)
 }
@@ -72,6 +111,9 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
     // compose files are rendered at all, and an unknown name in --with is a
     // typo to report before anything is written.
     let mut components = parse_components(&ComponentFlags::from_args(args, ctx.registry.offline))?;
+    if let Some(note) = settle_dump_version(&mut components, &dir, args.dhis2_tag.as_deref())? {
+        crate::output::notice(&note);
+    }
     // A chap-core elsewhere is instead of this deployment's own, never beside it.
     if let Some(url) = &args.chap_core_url {
         components.set_enabled(Component::ChapCore, false);

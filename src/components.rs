@@ -20,12 +20,14 @@ use serde::{Deserialize, Serialize};
 
 mod args;
 mod blocks;
+mod dump_version;
 mod external;
 mod notes;
 mod seed;
 
 pub use args::*;
 pub use blocks::*;
+pub use dump_version::*;
 pub use external::*;
 pub use notes::*;
 pub use seed::*;

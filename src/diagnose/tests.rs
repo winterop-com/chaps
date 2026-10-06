@@ -261,3 +261,53 @@ fn the_block_names_the_service_and_indents_what_it_said() {
     assert_eq!(down.why, entry.why, "the log is read the same way");
     assert!(block(&[down], &Out::default()).starts_with("why chap is down:\n"));
 }
+
+/// A restore that stopped names its init script, and the hint says that the
+/// volume has to go.
+#[test]
+fn a_seed_restore_that_stopped_says_the_volume_has_to_go() {
+    let logs = "dhis2-db-1  | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/dump.sql.gz\n\
+                dhis2-db-1  | psql:/docker-entrypoint-initdb.d/dump.sql.gz:5: invalid command \\restrict\n";
+    let entry = Unhealthy::of("dhis2-db", logs);
+    assert!(
+        entry
+            .why
+            .iter()
+            .any(|line| line.contains("invalid command")),
+        "{entry:?}"
+    );
+    let hint = entry.hint.expect("a hint");
+    assert!(
+        hint.contains("`chaps components disable dhis2 --purge`"),
+        "{hint}"
+    );
+    // Never every volume: that would take the chap-core database as well.
+    assert!(!hint.contains("down --volumes"), "{hint}");
+}
+
+/// A restore that did not finish can also leave a quiet log: the health
+/// check fails on the missing mark, and the database is asked for it.
+#[test]
+fn a_database_without_the_seed_mark_says_so() {
+    let mark = crate::compose::render::DHIS2_SEED_MARK;
+    assert_eq!(seed_mark_verdict(Some(mark)), None);
+    assert_eq!(seed_mark_verdict(None), None, "no answer, no claim");
+    let (why, hint) = seed_mark_verdict(Some("")).expect("no mark");
+    assert!(why.contains("did not finish"), "{why}");
+    assert!(
+        hint.contains("`chaps components disable dhis2 --purge`"),
+        "{hint}"
+    );
+}
+
+/// A Flyway migration that failed says how to go up one version at a time.
+#[test]
+fn a_failed_dhis2_migration_says_to_go_up_one_version_at_a_time() {
+    let logs = "* ERROR 2026-10-06T09:25:06,997 Migration of schema \"public\" to version \
+                \"2.41.24 - TrackedEntityInstanceToTrackedEntity\" failed! Changes successfully \
+                rolled back. (Log4j2Log.java [main])\n";
+    let entry = Unhealthy::of("dhis2", logs);
+    let hint = entry.hint.expect("a hint");
+    assert!(hint.contains("one version at a time"), "{hint}");
+    assert!(hint.contains("`image_tag:`"), "{hint}");
+}

@@ -33,7 +33,8 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
     working_dir: /opt/dump
     environment:
       DHIS2_DB_DUMP_URL: ${DHIS2_DB_DUMP_URL:-@SEED_URL@}
-    volumes:
+      @TAG_VAR@: ${@TAG_VAR@:-@IMAGE_TAG@}
+@PASSWORD_ENV@    volumes:
       - type: volume
         source: @DUMP_VOLUME@
         target: /opt/dump
@@ -41,6 +42,12 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
     command:
       - |
         set -eu
+@CLEAN_STEP@@PASSWORD_STEP@        # The last init script marks the database as restored. The health check
+        # asks for the mark, so a restore that stopped half way stays unhealthy
+        # after docker starts the database again and postgres skips the init.
+        printf '%s\n' \
+          "SELECT current_database() AS chaps_db \\gset" \
+          "COMMENT ON DATABASE :\"chaps_db\" IS '@SEED_MARK@';" > @MARK_SCRIPT@
         if [ -f dump.sql.gz ]; then
           echo "dump.sql.gz is already prepared"
           exit 0
@@ -62,7 +69,7 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
         # download that gets cached is a dump that restores without an error and
         # leaves most of the data out.
         gzip -t raw.part
-        # Published dumps are `pg_dump --clean` WITHOUT `--if-exists`, so they
+@VERSION_CHECK@        # Published dumps are `pg_dump --clean` WITHOUT `--if-exists`, so they
         # open on DROP and ALTER statements that assume the schema is already
         # there, and the postgres entrypoint runs init scripts under
         # `psql -v ON_ERROR_STOP=1`: the first missing object aborts the whole
@@ -73,7 +80,20 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
         # alone. DROP EXTENSION and DROP SCHEMA go entirely: the postgis image
         # owns those objects, dropping them fails on the dependency, and the dump
         # recreates what it needs with CREATE EXTENSION IF NOT EXISTS.
+        # A dump from a newer pg_dump (17.6 and later, 16.10 and later) opens
+        # with \restrict and closes with \unrestrict, which the psql of this
+        # image does not know, and a dump from PostgreSQL 17 sets
+        # transaction_timeout, which PostgreSQL 16 does not know. All three go.
+        # The owners and the grants name the roles of the source server, which
+        # do not exist here: they go too, as with pg_dump --no-owner
+        # --no-privileges, and every object belongs to the database user.
         gunzip -c raw.part | sed -E '
+          /^\\restrict /d
+          /^\\unrestrict /d
+          /^SET transaction_timeout /d
+          /^ALTER [^;]* OWNER TO /d
+          /^(GRANT|REVOKE) /d
+          /^ALTER DEFAULT PRIVILEGES /d
           s/^ALTER TABLE (IF EXISTS )?(ONLY )?/ALTER TABLE IF EXISTS \2/
           s/^DROP (TABLE|INDEX|SEQUENCE|FUNCTION|VIEW|MATERIALIZED VIEW|TYPE|DOMAIN|AGGREGATE|TRIGGER) (IF EXISTS )?/DROP \1 IF EXISTS /
           /^DROP EXTENSION /d
@@ -84,6 +104,183 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
         mv out.part dump.sql.gz
         rm -f raw.part
         echo "wrote dump.sql.gz ($$(wc -c < dump.sql.gz) bytes)""#;
+
+/// The init script that gives every DHIS2 user one password. The postgres
+/// entrypoint runs the files in `/docker-entrypoint-initdb.d/` in name order,
+/// so this name sorts after `dump.sql.gz`.
+pub const DHIS2_PASSWORD_SCRIPT: &str = "zz-chaps-passwords.sql";
+
+/// The step of the one-shot that writes [`DHIS2_PASSWORD_SCRIPT`], or removes
+/// it when no password is set. It runs before the check for a prepared dump,
+/// so a change of the setting reaches the next restore.
+///
+/// PostgreSQL makes the bcrypt hash itself, with `pgcrypto`: one hash for all
+/// the users, as a hash for each user takes minutes on a large dump.
+///
+/// When the dump has no `pgcrypto` extension, the script installs it in a
+/// schema of its own and removes that schema after the update. The DHIS2 dumps
+/// carry `gen_random_uuid` and other functions of `pgcrypto` in `public`
+/// without the extension, so `CREATE EXTENSION pgcrypto` in `public` fails.
+const PASSWORD_STEP: &str = r#"        # Every DHIS2 user gets the password in DHIS2_SEED_PASSWORD, and every
+        # account is turned on, with no two-factor login and no expiry date. The
+        # postgres entrypoint runs this file after the dump, because the files
+        # run in name order.
+        password=$$(printf '%s' "$${DHIS2_SEED_PASSWORD}" | sed "s/'/''/g")
+        cat > @SCRIPT@ <<EOF
+        SELECT NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') AS chaps_new_pgcrypto \gset
+        \if :chaps_new_pgcrypto
+        CREATE SCHEMA chaps_pgcrypto;
+        CREATE EXTENSION pgcrypto SCHEMA chaps_pgcrypto;
+        \endif
+        SELECT extnamespace::regnamespace AS chaps_pgcrypto_schema FROM pg_extension WHERE extname = 'pgcrypto' \gset
+        UPDATE userinfo SET password = h.hash, disabled = false
+          FROM (SELECT :chaps_pgcrypto_schema.crypt('$$password', :chaps_pgcrypto_schema.gen_salt('bf', 10)) AS hash) AS h;
+        SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'userinfo' AND column_name = 'twofactortype') AS chaps_twofactor \gset
+        \if :chaps_twofactor
+        UPDATE userinfo SET twofactortype = 'NOT_ENABLED', secret = NULL;
+        \endif
+        SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'userinfo' AND column_name = 'accountexpiry') AS chaps_expiry \gset
+        \if :chaps_expiry
+        UPDATE userinfo SET accountexpiry = NULL;
+        \endif
+        \if :chaps_new_pgcrypto
+        DROP SCHEMA chaps_pgcrypto CASCADE;
+        \endif
+        EOF
+        echo "wrote @SCRIPT@: the restore gives every user one password, with no two-factor login"
+"#;
+
+/// The check of the DHIS2 version of a downloaded dump, in the one-shot. Only
+/// for a URL: `chaps init` reads a local dump itself, much faster than busybox
+/// `gunzip`, which needs minutes to reach the Flyway table of a large dump.
+const VERSION_CHECK: &str = r#"        # DHIS2 runs a database of its own minor version or older, and chaps
+        # supports @OLDEST@ and newer. The newest Flyway migration says which
+        # version the dump is. The check comes before the slow rewrite. A local
+        # dump was checked by `chaps init` already, so only a URL gets it.
+        dump_minor=$$(gunzip -c raw.part 2>/dev/null | grep -m1 -A5000 '^COPY public\.flyway_schema_history ' | awk -F'\t' 'NR == 1 {next} $$0 == "\\." {exit} $$2 ~ /^[0-9]/ {print $$2}' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -d. -f1,2)
+        if [ -n "$$dump_minor" ]; then
+          dump_n=$$(echo "$$dump_minor" | awk -F. '{print $$1 * 1000 + $$2}')
+          tag_n=$$(echo "$${@TAG_VAR@}" | awk -F. '/^[0-9]+\.[0-9]+/ {print $$1 * 1000 + $$2}')
+          echo "the dump is DHIS2 $$dump_minor (its newest Flyway migration)"
+          if [ "$$dump_n" -lt @OLDEST_N@ ]; then
+            echo "error: the dump is from DHIS2 $$dump_minor, and chaps supports DHIS2 @OLDEST@ and newer; upgrade the database in DHIS2 first"
+            exit 1
+          fi
+          if [ -n "$$tag_n" ] && [ "$$tag_n" -lt "$$dump_n" ]; then
+            echo "error: DHIS2 $${@TAG_VAR@} is older than the dump (DHIS2 $$dump_minor), and DHIS2 does not run a newer database; set image_tag: $$dump_minor or newer under dhis2: in .chaps/components.yaml, then run chaps sync"
+            exit 1
+          fi
+        fi
+"#;
+
+/// [`crate::components::DHIS2_OLDEST_MINOR`] as the number the shell
+/// compares: `2.41` is 2041.
+fn oldest_number() -> String {
+    match crate::dhis2::version_parts(crate::components::DHIS2_OLDEST_MINOR).as_slice() {
+        [major, minor, ..] => (major * 1000 + minor).to_string(),
+        _ => "0".to_string(),
+    }
+}
+
+/// The init script that empties the data values analytics cannot read.
+pub const DHIS2_CLEAN_SCRIPT: &str = "zz-chaps-clean.sql";
+
+/// The step of the one-shot that writes [`DHIS2_CLEAN_SCRIPT`], for every
+/// seed.
+///
+/// A real DHIS2 database has values that match the number pattern of
+/// analytics but do not fit in `double precision`, such as a number of two
+/// thousand digits. Analytics casts them and stops. The script lists them in
+/// the log of `dhis2-db`, then empties them. Deleted rows too: the outlier
+/// query of analytics reads `datavalue` without the `deleted` filter.
+const CLEAN_STEP: &str = r#"        # Data values that analytics reads as numbers but that do not fit in a
+        # double precision stop every analytics run. The restore lists them in
+        # the log of dhis2-db, then empties them.
+        cat > @SCRIPT@ <<'EOF'
+        SELECT to_regclass('public.datavalue') IS NOT NULL AS chaps_has_datavalue \gset
+        \if :chaps_has_datavalue
+        CREATE TEMP TABLE chaps_unreadable AS
+          SELECT dv.dataelementid, dv.periodid, dv.sourceid, dv.categoryoptioncomboid, dv.attributeoptioncomboid
+          FROM datavalue dv
+          WHERE dv.value ~ '^-?[0-9]+(\.[0-9]+)?$$'
+            AND length(split_part(ltrim(dv.value, '-'), '.', 1)) > 300
+            AND abs(dv.value::numeric) > 1.7976931348623157e308;
+        \echo 'chaps: data values that analytics cannot read as a number, emptied:'
+        SELECT de.uid AS dataelement, de.name, pe.startdate AS period, ou.uid AS orgunit,
+               left(dv.value, 12) AS value_starts, length(dv.value) AS length
+          FROM chaps_unreadable u
+          JOIN datavalue dv USING (dataelementid, periodid, sourceid, categoryoptioncomboid, attributeoptioncomboid)
+          JOIN dataelement de ON de.dataelementid = dv.dataelementid
+          JOIN period pe ON pe.periodid = dv.periodid
+          JOIN organisationunit ou ON ou.organisationunitid = dv.sourceid;
+        UPDATE datavalue dv SET value = NULL
+          FROM chaps_unreadable u
+          WHERE dv.dataelementid = u.dataelementid AND dv.periodid = u.periodid
+            AND dv.sourceid = u.sourceid AND dv.categoryoptioncomboid = u.categoryoptioncomboid
+            AND dv.attributeoptioncomboid = u.attributeoptioncomboid;
+        \endif
+        EOF
+"#;
+
+fn clean_step() -> &'static str {
+    static STEP: LazyLock<String> =
+        LazyLock::new(|| CLEAN_STEP.replace("@SCRIPT@", DHIS2_CLEAN_SCRIPT));
+    &STEP
+}
+
+/// The step for a deployment that keeps the passwords of the dump.
+const NO_PASSWORD_STEP: &str = "        rm -f @SCRIPT@\n";
+
+fn password_step(password: Option<&str>) -> &'static str {
+    static WITH: LazyLock<String> =
+        LazyLock::new(|| PASSWORD_STEP.replace("@SCRIPT@", DHIS2_PASSWORD_SCRIPT));
+    static WITHOUT: LazyLock<String> =
+        LazyLock::new(|| NO_PASSWORD_STEP.replace("@SCRIPT@", DHIS2_PASSWORD_SCRIPT));
+    match password {
+        Some(_) => &WITH,
+        None => &WITHOUT,
+    }
+}
+
+/// The `DHIS2_SEED_PASSWORD` line of the one-shot, with `.env` able to move
+/// it. A `$` in the password is doubled, so compose does not read it as a
+/// variable.
+fn password_env_line(password: Option<&str>) -> String {
+    match password {
+        Some(password) => format!(
+            "      DHIS2_SEED_PASSWORD: ${{DHIS2_SEED_PASSWORD:-{}}}\n",
+            password.replace('$', "$$")
+        ),
+        None => String::new(),
+    }
+}
+
+/// The init script that marks a restore as complete. It sorts after every
+/// other file of the dump volume, so it runs last.
+pub const DHIS2_SEED_MARK_SCRIPT: &str = "zzz-chaps-seeded.sql";
+
+/// The comment the restore leaves on the database when it is complete.
+pub const DHIS2_SEED_MARK: &str = "chaps: seed restored";
+
+/// The health check of `dhis2-db`: the server answers over TCP, and on a
+/// seeded deployment the database has the mark of a complete restore.
+fn db_health_test(seeded: bool) -> String {
+    let ready = "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}";
+    match seeded {
+        false => format!("      test: [\"CMD-SHELL\", \"{ready}\"]"),
+        true => format!(
+            "      # On a seeded deployment, also the mark of a complete restore: without\n\
+             \x20     # it the restore stopped, and the database is incomplete.\n\
+             \x20     test:\n\
+             \x20       - CMD-SHELL\n\
+             \x20       - >-\n\
+             \x20         {ready} &&\n\
+             \x20         psql -U $${{POSTGRES_USER}} -d $${{POSTGRES_DB}} -tAc\n\
+             \x20         \"SELECT shobj_description(oid, 'pg_database') FROM pg_database\n\
+             \x20         WHERE datname = current_database()\" | grep -qx '{DHIS2_SEED_MARK}'"
+        ),
+    }
+}
 
 /// Container port DHIS2 listens on. Fixed, not a preference: the image's
 /// `server.xml` declares one connector, on 8080, with the context path at the
@@ -196,6 +393,19 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
                         ("DUMP_IMAGE", DHIS2_DUMP_IMAGE),
                         ("SEED_URL", seed_value(seed)),
                         ("SEED_MOUNT", &seed_mount_line(seed)),
+                        ("VERSION_CHECK", match seed {
+                            Dhis2SeedSource::Url(_) => VERSION_CHECK,
+                            Dhis2SeedSource::File(_) => "",
+                        }),
+                        ("SEED_MARK", DHIS2_SEED_MARK),
+                        ("TAG_VAR", DHIS2_TAG_ENV_VAR),
+                        ("IMAGE_TAG", &spec.image_tag),
+                        ("OLDEST", crate::components::DHIS2_OLDEST_MINOR),
+                        ("OLDEST_N", &oldest_number()),
+                        ("MARK_SCRIPT", DHIS2_SEED_MARK_SCRIPT),
+                        ("PASSWORD_ENV", &password_env_line(spec.seed_password.as_deref())),
+                        ("CLEAN_STEP", clean_step()),
+                        ("PASSWORD_STEP", password_step(spec.seed_password.as_deref())),
                         ("DUMP_VOLUME", DHIS2_DUMP_VOLUME),
                     ],
                 )
@@ -217,6 +427,7 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
             ("HOME_VOLUME", DHIS2_HOME_VOLUME),
             ("DB_VOLUME", DHIS2_DB_VOLUME),
             ("DUMP_MOUNT", &dump_mount),
+            ("DB_HEALTH_TEST", &db_health_test(spec.seed.is_some())),
             ("DUMP_DEPENDS", &dump_depends),
             ("DUMP_SERVICE", &dump_service),
             ("DUMP_VOLUME_LINE", &dump_volume_line),

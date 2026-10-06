@@ -114,6 +114,10 @@ pub struct Dhis2Component {
     /// What the database is restored from the first time it is created.
     #[serde(default)]
     pub seed: Dhis2Seed,
+    /// The password every DHIS2 user gets, and every account turned on, when
+    /// the seed is restored. `None` keeps the passwords of the dump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_password: Option<String>,
     /// When `chaps dhis2 connect` last got as far as a verified route and both
     /// apps here, as a UTC timestamp. `None` for a deployment no such run has
     /// been recorded for, which is every deployment until one happens.
@@ -145,6 +149,7 @@ impl Default for Dhis2Component {
             image_tag: DHIS2_DEFAULT_TAG.to_string(),
             image: DHIS2_IMAGE.to_string(),
             seed: Dhis2Seed::Default,
+            seed_password: None,
             connected_at: None,
         }
     }

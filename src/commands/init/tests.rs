@@ -243,6 +243,13 @@ fn the_component_ports_and_the_read_only_switch_need_their_component() {
             },
             "--dhis2-seed needs the dhis2 component; add `--with dhis2`",
         ),
+        (
+            ComponentFlags {
+                dhis2_seed_password: Some("district"),
+                ..ComponentFlags::default()
+            },
+            "--dhis2-seed-password needs the dhis2 component; add `--with dhis2`",
+        ),
     ] {
         let err = parse_components(&flags).expect_err("no component to set it on");
         assert_eq!(err.to_string(), wanted);
@@ -818,4 +825,44 @@ fn the_generated_password_is_url_safe_hex() {
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
     );
     assert_ne!(password, random_password().unwrap());
+}
+
+#[test]
+fn a_seed_password_needs_a_seed_and_a_value() {
+    let with_dhis2 = |flags: ComponentFlags| {
+        parse_components(&ComponentFlags {
+            with: Some("dhis2"),
+            ..flags
+        })
+    };
+    let set = with_dhis2(ComponentFlags {
+        dhis2_seed_password: Some("district"),
+        ..ComponentFlags::default()
+    })
+    .unwrap();
+    assert_eq!(set.dhis2.seed_password.as_deref(), Some("district"));
+    assert_eq!(
+        with_dhis2(ComponentFlags::default())
+            .unwrap()
+            .dhis2
+            .seed_password,
+        None
+    );
+
+    let err = with_dhis2(ComponentFlags {
+        dhis2_seed: Some("none"),
+        dhis2_seed_password: Some("district"),
+        ..ComponentFlags::default()
+    })
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("`--dhis2-seed none` has no users"),
+        "{err}"
+    );
+    let err = with_dhis2(ComponentFlags {
+        dhis2_seed_password: Some(""),
+        ..ComponentFlags::default()
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("needs a password"), "{err}");
 }

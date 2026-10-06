@@ -18,6 +18,7 @@ pub(super) struct ComponentFlags<'a> {
     pub(super) s3_port: Option<ComponentPortArg>,
     pub(super) dhis2_port: Option<ComponentPortArg>,
     pub(super) dhis2_seed: Option<&'a str>,
+    pub(super) dhis2_seed_password: Option<&'a str>,
     pub(super) dhis2_tag: Option<&'a str>,
     pub(super) dhis2_image: Option<&'a str>,
     pub(super) ocs_read_only: bool,
@@ -38,6 +39,7 @@ impl<'a> ComponentFlags<'a> {
             s3_port: args.s3_port,
             dhis2_port: args.dhis2_port,
             dhis2_seed: args.dhis2_seed.as_deref(),
+            dhis2_seed_password: args.dhis2_seed_password.as_deref(),
             dhis2_tag: args.dhis2_tag.as_deref(),
             dhis2_image: args.dhis2_image.as_deref(),
             ocs_read_only: args.ocs_read_only,
@@ -156,6 +158,25 @@ pub(super) fn parse_components(flags: &ComponentFlags) -> Result<Components> {
             ));
         }
         components.dhis2.seed = seed;
+    }
+    if let Some(password) = flags.dhis2_seed_password {
+        if !components.dhis2.enabled {
+            return Err(anyhow::anyhow!(
+                "--dhis2-seed-password needs the dhis2 component; add `--with dhis2`"
+            ));
+        }
+        if components.dhis2.seed == crate::components::Dhis2Seed::None {
+            return Err(anyhow::anyhow!(
+                "--dhis2-seed-password needs a seed, and `--dhis2-seed none` has no users; \
+                 drop one of the two"
+            ));
+        }
+        if password.is_empty() {
+            return Err(anyhow::anyhow!(
+                "--dhis2-seed-password needs a password; drop the value to use `district`"
+            ));
+        }
+        components.dhis2.seed_password = Some(password.to_string());
     }
     if flags.ocs_read_only {
         if !components.ocs.enabled {

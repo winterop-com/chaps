@@ -50,6 +50,7 @@ const ERROR_WORDS: &[&str] = &[
     "operationalerror",
     "password authentication",
     "unhealthy",
+    "invalid command",
 ];
 
 /// One service that is failing, and what its own log says about it.
@@ -277,6 +278,24 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
                 .to_string(),
         );
     }
+    // The postgres entrypoint names the init script that failed. After it,
+    // docker starts the database again and postgres skips the init, so the
+    // database stays incomplete until its volume goes.
+    // DHIS2 migrates an older database on its first start, and a jump of
+    // several versions can fail half way. Flyway then rolls back, and DHIS2
+    // answers 404 on every path.
+    if text.contains("migration of schema") && text.contains("failed") {
+        return Some(
+            "DHIS2 could not migrate the database to its version; a database from an older \
+             DHIS2 must go up one version at a time, so set `image_tag:` under `dhis2:` in \
+             `.chaps/components.yaml` to the next version, run `chaps sync` and `chaps up`, \
+             and repeat"
+                .to_string(),
+        );
+    }
+    if text.contains("/docker-entrypoint-initdb.d/") {
+        return Some(SEED_RESTORE_HINT.to_string());
+    }
     if text.contains("connection refused") || text.contains("could not connect") {
         let names = ["postgres", "5432", "redis", "valkey", "6379", "database"];
         if names.iter().any(|name| text.contains(name)) {
@@ -432,13 +451,48 @@ fn diagnose(project: &Project, services: &[String]) -> Vec<Unhealthy> {
 
 /// Read one service's log and turn it into a verdict, or `None` when docker
 /// would not hand the log over.
+///
+/// A seeded `dhis2-db` whose log says nothing is asked for the mark of a
+/// complete restore: without it, the health check fails and the log is quiet.
 fn diagnose_one(project: &Project, service: &str, unhealthy: bool) -> Option<Unhealthy> {
     let logs = docker::service_logs(project, service, TAIL)?;
-    Some(match unhealthy {
+    let mut entry = match unhealthy {
         true => Unhealthy::of(service, &logs),
         false => Unhealthy::of_down(service, &logs),
-    })
+    };
+    let seeded = project.state.components.dhis2_seed_source().is_some();
+    if service == "dhis2-db" && seeded && entry.hint.is_none() {
+        let mark = docker::dhis2_seed_mark(project);
+        if let Some((why, hint)) = seed_mark_verdict(mark.as_deref()) {
+            entry.why.push(why);
+            entry.hint = Some(hint);
+        }
+    }
+    Some(entry)
 }
+
+/// What to say about the mark of a seed restore, from the comment the
+/// database holds: nothing when the mark is there or the database did not
+/// answer, and a line and a hint when the mark is not there.
+pub fn seed_mark_verdict(comment: Option<&str>) -> Option<(String, String)> {
+    let comment = comment?;
+    if comment == crate::compose::render::DHIS2_SEED_MARK {
+        return None;
+    }
+    Some((
+        format!(
+            "the database has no mark `{}`, so its seed restore did not finish",
+            crate::compose::render::DHIS2_SEED_MARK
+        ),
+        SEED_RESTORE_HINT.to_string(),
+    ))
+}
+
+/// The way out of a seed restore that did not finish. Only the DHIS2
+/// volumes: `chaps down --volumes` would also take the chap-core database.
+const SEED_RESTORE_HINT: &str = "the restore of the DHIS2 seed stopped before the end, so \
+     `dhis2_db` is incomplete; fix the cause above, then run `chaps components disable dhis2 \
+     --purge`, `chaps components enable dhis2` and `chaps up`";
 
 #[cfg(test)]
 mod tests;

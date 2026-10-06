@@ -25,6 +25,7 @@ crossterm = "0.29"
 getrandom = "0.4"
 console = "0.16.6"
 ctrlc = { version = "3", features = ["termination"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -88,6 +88,15 @@ pub struct InitArgs {
     #[arg(long = "dhis2-seed", value_name = "SPEC")]
     pub dhis2_seed: Option<String>,
 
+    /// Give every DHIS2 user this password (default: district)
+    #[arg(
+        long = "dhis2-seed-password",
+        value_name = "PW",
+        num_args = 0..=1,
+        default_missing_value = crate::dhis2::DEFAULT_PASSWORD
+    )]
+    pub dhis2_seed_password: Option<String>,
+
     /// DHIS2 version to run: an image tag such as 2.41, 2.42 or 2.43.1
     #[arg(long = "dhis2-tag", value_name = "TAG")]
     pub dhis2_tag: Option<String>,

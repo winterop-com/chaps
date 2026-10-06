@@ -69,6 +69,7 @@ fn the_settings_round_trip_with_their_defaults() {
             image_tag: "2.41.7".into(),
             image: "dhis2/core-dev".into(),
             seed: Dhis2Seed::From("dumps/laos.sql.gz".into()),
+            seed_password: Some("district".into()),
             connected_at: None,
         },
         dhis2_external: None,
@@ -83,6 +84,7 @@ fn the_settings_round_trip_with_their_defaults() {
     // The seed is one string, whichever of the three it is, so the block
     // reads as something an operator would type.
     assert!(text.contains("  seed: dumps/laos.sql.gz\n"), "{text}");
+    assert!(text.contains("  seed_password: district\n"), "{text}");
     // The one record in the file, and it is written whichever way round it
     // is, so a reader can see that nothing has connected this deployment.
     assert!(text.contains("  connected_at: null\n"), "{text}");
@@ -709,4 +711,49 @@ fn a_chap_core_in_a_container_calls_the_models_back_at_the_gateway() {
     chosen.models_host = "10.0.0.5".into();
     assert!(detect_models_host(&mut chosen, &|_| Some("x".into())).is_none());
     assert_eq!(chosen.models_host, "10.0.0.5");
+}
+
+/// The newest Flyway migration of a dump, compared as numbers, with the
+/// table found by its name and the column by its name.
+#[test]
+fn the_dump_version_is_the_newest_flyway_migration() {
+    let dump = "COPY public.datavalue (dataelementid, value) FROM stdin;\n\
+                1\t2.99.1\n\
+                \\.\n\
+                COPY public.flyway_schema_history (installed_rank, version, description) FROM stdin;\n\
+                1\t2.42.9\tone\n\
+                2\t2.42.54\ttwo\n\
+                3\t2.42.10\tthree\n\
+                4\t\\N\trepeatable\n\
+                \\.\n\
+                COPY public.zzz (a) FROM stdin;\n\
+                2.50.1\n";
+    assert_eq!(
+        dump_migration_of(std::io::Cursor::new(dump)).as_deref(),
+        Some("2.42.54"),
+        "numbers, not text: 54 is newer than 10 and 9"
+    );
+    assert_eq!(migration_minor("2.42.54").as_deref(), Some("2.42"));
+    // Very old DHIS2, and a dump that is not a DHIS2 database.
+    let old = "COPY public.schema_version (version_rank, installed_rank, version) FROM stdin;\n\
+               1\t1\t2.30.1\n\\.\n";
+    assert_eq!(
+        dump_migration_of(std::io::Cursor::new(old)).as_deref(),
+        Some("2.30.1")
+    );
+    assert_eq!(dump_migration_of(std::io::Cursor::new("SELECT 1;\n")), None);
+}
+
+#[test]
+fn the_tag_follows_the_dump_and_never_goes_below_it() {
+    assert_eq!(tag_for_dump("2.42", None).unwrap(), "2.42");
+    assert_eq!(tag_for_dump("2.42", Some("2.43.1")).unwrap(), "2.43.1");
+    assert_eq!(tag_for_dump("2.42", Some("master")).unwrap(), "master");
+    let older = tag_for_dump("2.42", Some("2.41")).unwrap_err().to_string();
+    assert!(older.contains("use `--dhis2-tag 2.42` or newer"), "{older}");
+    let old_dump = tag_for_dump("2.40", None).unwrap_err().to_string();
+    assert!(
+        old_dump.contains("supports DHIS2 2.41 and newer"),
+        "{old_dump}"
+    );
 }

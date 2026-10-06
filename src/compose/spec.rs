@@ -200,6 +200,9 @@ pub struct Dhis2Spec {
     /// no dump volume at all, which is an empty DHIS2 that migrates itself on
     /// first boot.
     pub seed: Option<Dhis2SeedSource>,
+    /// The password the restore gives every DHIS2 user. Only with a seed: an
+    /// empty database has no users to give it to.
+    pub seed_password: Option<String>,
     /// Map `host.docker.internal` to the host gateway, for a DHIS2 whose route
     /// goes to a chap-core outside the deployment.
     pub host_gateway: bool,
@@ -223,6 +226,9 @@ impl Dhis2Spec {
             image_tag: components.dhis2.image_tag.clone(),
             image: components.dhis2.image.clone(),
             seed: components.dhis2_seed_source().map(Dhis2SeedSource::of),
+            seed_password: components
+                .dhis2_seed_source()
+                .and(components.dhis2.seed_password.clone()),
             host_gateway: components.chap_core_external.is_some(),
             group: None,
         }

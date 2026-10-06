@@ -333,6 +333,7 @@ fn dhis2_spec() -> Dhis2Spec {
         image_tag: crate::components::DHIS2_DEFAULT_TAG.to_string(),
         image: crate::components::DHIS2_IMAGE.to_string(),
         seed: Some(Dhis2SeedSource::Url(DHIS2_DEFAULT_SEED_URL.to_string())),
+        seed_password: None,
         host_gateway: false,
         group: None,
     }
@@ -578,6 +579,11 @@ fn the_database_is_postgis_and_answers_over_tcp_once_the_restore_is_done() {
     let test = svc["healthcheck"]["test"][1].as_str().unwrap();
     assert!(test.starts_with("pg_isready -h 127.0.0.1 "), "{test}");
     assert!(test.contains("${POSTGRES_USER}"), "{test}");
+    // A seeded database is healthy only with the mark of a complete restore.
+    assert!(
+        test.ends_with(&format!("| grep -qx '{DHIS2_SEED_MARK}'")),
+        "{test}"
+    );
 
     // The data directory is a named volume, and the dump volume is mounted
     // where the postgres entrypoint looks for init scripts.
@@ -620,6 +626,18 @@ fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
     // A truncated download must never become the cached dump: verify the
     // gzip, verify the transformed gzip, then publish with one atomic move.
     assert!(script.contains("gzip -t raw.part"), "{script}");
+    // A dump from a newer pg_dump loads into the PostgreSQL 16 of the image.
+    for line in [
+        "/^\\\\restrict /d",
+        "/^\\\\unrestrict /d",
+        "/^SET transaction_timeout /d",
+        // The roles of the source server do not exist here.
+        "/^ALTER [^;]* OWNER TO /d",
+        "/^(GRANT|REVOKE) /d",
+        "/^ALTER DEFAULT PRIVILEGES /d",
+    ] {
+        assert!(script.contains(line), "{line} in {script}");
+    }
     assert!(script.contains("gzip -t out.part"), "{script}");
     assert!(script.contains("mv out.part dump.sql.gz"), "{script}");
     assert!(
@@ -898,4 +916,187 @@ fn the_route_allowlist_is_whatever_the_caller_narrowed_it_to() {
     // The reason the value is not just left at DHIS2's default, in the file
     // the operator reads, and the one rule it has to obey.
     assert!(text.contains("may carry a path"), "{text}");
+}
+
+/// A seed password writes the init script that resets every user, and its
+/// absence removes a script an earlier setting left in the volume.
+#[test]
+fn a_seed_password_resets_every_user_after_the_dump() {
+    let text = render_dhis2(&Dhis2Spec {
+        seed_password: Some("dis$trict".to_string()),
+        ..dhis2_spec()
+    });
+    assert_no_tokens(&text);
+    let doc = parse(&text);
+    let svc = service(&doc, "dhis2-dump");
+    assert_eq!(
+        svc["environment"]["DHIS2_SEED_PASSWORD"].as_str(),
+        Some("${DHIS2_SEED_PASSWORD:-dis$$trict}"),
+        "a `$` is doubled for compose: {text}"
+    );
+    let script = svc["command"][0].as_str().unwrap();
+    assert!(
+        script.contains(&format!("cat > {DHIS2_PASSWORD_SCRIPT} <<EOF")),
+        "{script}"
+    );
+    assert!(
+        script.contains("UPDATE userinfo SET password = h.hash, disabled = false"),
+        "{script}"
+    );
+    // A password alone does not log in a user with two-factor login, and an
+    // expired account does not log in at all. Each only where the column is.
+    assert!(
+        script.contains("UPDATE userinfo SET twofactortype = 'NOT_ENABLED', secret = NULL;"),
+        "{script}"
+    );
+    assert!(
+        script.contains("UPDATE userinfo SET accountexpiry = NULL;"),
+        "{script}"
+    );
+    // One hash for all the users, made by PostgreSQL.
+    assert!(
+        script.contains(
+            "(SELECT :chaps_pgcrypto_schema.crypt('$$password', \
+             :chaps_pgcrypto_schema.gen_salt('bf', 10)) AS hash)"
+        ),
+        "{script}"
+    );
+    // pgcrypto goes in a schema of its own: the dumps carry its functions in
+    // `public` without the extension.
+    assert!(
+        script.contains("CREATE EXTENSION pgcrypto SCHEMA chaps_pgcrypto;"),
+        "{script}"
+    );
+    assert!(
+        script.contains("DROP SCHEMA chaps_pgcrypto CASCADE;"),
+        "{script}"
+    );
+    // Before the check for a prepared dump, so a cached dump still gets it.
+    assert!(
+        script.find(DHIS2_PASSWORD_SCRIPT) < script.find("if [ -f dump.sql.gz ]"),
+        "{script}"
+    );
+    // The postgres entrypoint runs the files in name order.
+    assert!(DHIS2_PASSWORD_SCRIPT > "dump.sql.gz");
+
+    let plain = render_dhis2(&dhis2_spec());
+    let doc = parse(&plain);
+    let svc = service(&doc, "dhis2-dump");
+    assert!(
+        svc["environment"]["DHIS2_SEED_PASSWORD"].is_null(),
+        "{plain}"
+    );
+    let script = svc["command"][0].as_str().unwrap();
+    assert!(
+        script.contains(&format!("rm -f {DHIS2_PASSWORD_SCRIPT}")),
+        "{script}"
+    );
+    assert!(!script.contains("UPDATE userinfo"), "{script}");
+}
+
+/// The restore leaves a mark as its last init script, and only a seeded
+/// database is asked for it: an empty one has no restore to finish.
+#[test]
+fn a_seeded_database_is_healthy_only_after_the_whole_restore() {
+    let text = render_dhis2(&dhis2_spec());
+    let doc = parse(&text);
+    let script = service(&doc, "dhis2-dump")["command"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        script.contains(&format!(
+            "IS '{DHIS2_SEED_MARK}';\" > {DHIS2_SEED_MARK_SCRIPT}"
+        )),
+        "{script}"
+    );
+    // It runs last: after the dump and after the password script.
+    assert!(DHIS2_SEED_MARK_SCRIPT > DHIS2_PASSWORD_SCRIPT);
+    assert!(DHIS2_SEED_MARK_SCRIPT > "dump.sql.gz");
+
+    let plain = render_dhis2(&unseeded_dhis2_spec());
+    let doc = parse(&plain);
+    let test = &service(&doc, "dhis2-db")["healthcheck"]["test"];
+    assert_eq!(
+        test[1].as_str(),
+        Some("pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"),
+        "{plain}"
+    );
+}
+
+/// Every seed empties the values that analytics cannot read as a number, and
+/// lists them first, before the passwords and the mark.
+#[test]
+fn every_seed_empties_the_values_analytics_cannot_read() {
+    let text = render_dhis2(&dhis2_spec());
+    let doc = parse(&text);
+    let script = service(&doc, "dhis2-dump")["command"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        script.contains(&format!("cat > {DHIS2_CLEAN_SCRIPT} <<'EOF'")),
+        "{script}"
+    );
+    // `$$` is one `$` for the shell, and the heredoc is quoted, so the regex
+    // reaches psql as it is written.
+    assert!(
+        script.contains(r"WHERE dv.value ~ '^-?[0-9]+(\.[0-9]+)?$$'"),
+        "{script}"
+    );
+    assert!(
+        script.contains("UPDATE datavalue dv SET value = NULL"),
+        "{script}"
+    );
+    assert!(
+        script.contains("chaps: data values that analytics cannot read as a number, emptied:"),
+        "{script}"
+    );
+    // After the dump, before the password script and the mark.
+    assert!(DHIS2_CLEAN_SCRIPT > "dump.sql.gz");
+    assert!(DHIS2_CLEAN_SCRIPT < DHIS2_PASSWORD_SCRIPT);
+    assert!(DHIS2_CLEAN_SCRIPT < DHIS2_SEED_MARK_SCRIPT);
+
+    // No seed, no restore, nothing to clean.
+    assert!(!render_dhis2(&unseeded_dhis2_spec()).contains(DHIS2_CLEAN_SCRIPT));
+}
+
+/// A downloaded dump is checked for its DHIS2 version before the rewrite; a
+/// local one is not, because `chaps init` read it already.
+#[test]
+fn only_a_downloaded_dump_is_checked_for_its_version() {
+    let url = render_dhis2(&dhis2_spec());
+    assert_no_tokens(&url);
+    let doc = parse(&url);
+    let svc = service(&doc, "dhis2-dump");
+    assert_eq!(
+        svc["environment"]["DHIS2_IMAGE_TAG"].as_str(),
+        Some(
+            format!(
+                "${{DHIS2_IMAGE_TAG:-{}}}",
+                crate::components::DHIS2_DEFAULT_TAG
+            )
+            .as_str()
+        )
+    );
+    let script = svc["command"][0].as_str().unwrap();
+    assert!(
+        script.contains("grep -m1 -A5000 '^COPY public\\.flyway_schema_history '"),
+        "{script}"
+    );
+    assert!(
+        script.contains("-lt 2041"),
+        "2.41 as the shell compares it: {script}"
+    );
+    assert!(
+        script.find("dump_minor=") < script.find("gunzip -c raw.part | sed -E"),
+        "before the slow rewrite: {script}"
+    );
+
+    let file = render_dhis2(&Dhis2Spec {
+        seed: Some(Dhis2SeedSource::File("dumps/laos.sql.gz".to_string())),
+        ..dhis2_spec()
+    });
+    assert_no_tokens(&file);
+    assert!(!file.contains("dump_minor="), "{file}");
 }

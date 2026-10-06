@@ -18,8 +18,12 @@ pub use ocs::{
 };
 pub use overlay::render_overlay;
 
+pub use dhis2::DHIS2_SEED_MARK;
 #[cfg(test)]
-pub(crate) use dhis2::{DHIS2_DB_IMAGE, DHIS2_DUMP_IMAGE, DHIS2_SEED_MOUNT};
+pub(crate) use dhis2::{
+    DHIS2_CLEAN_SCRIPT, DHIS2_DB_IMAGE, DHIS2_DUMP_IMAGE, DHIS2_PASSWORD_SCRIPT,
+    DHIS2_SEED_MARK_SCRIPT, DHIS2_SEED_MOUNT,
+};
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
 use crate::compose::spec::{BaseSpec, ChapsOverlaySpec, EnvSpec};

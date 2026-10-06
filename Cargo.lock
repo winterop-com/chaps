@@ -252,6 +252,7 @@ dependencies = [
  "console",
  "crossterm",
  "ctrlc",
+ "flate2",
  "getrandom 0.4.3",
  "predicates",
  "ratatui",

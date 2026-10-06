@@ -119,6 +119,26 @@ pub fn service_logs(project: &Project, service: &str, tail: usize) -> Option<Str
     .or_else(|| compose_capture(project, &["logs", "--tail", &tail, "--no-color", service]))
 }
 
+/// The comment on the database of the DHIS2 component, which is the mark a
+/// complete seed restore leaves. `None` when docker or psql could not answer;
+/// an empty string when the database has no comment.
+pub fn dhis2_seed_mark(project: &Project) -> Option<String> {
+    compose_capture(
+        project,
+        &[
+            "exec",
+            "-T",
+            "dhis2-db",
+            "sh",
+            "-c",
+            "psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -tAc \
+             \"SELECT shobj_description(oid, 'pg_database') FROM pg_database \
+             WHERE datname = current_database()\"",
+        ],
+    )
+    .map(|answer| answer.trim().to_string())
+}
+
 /// Every compose project this docker has seen, running or not, as
 /// `docker compose ls -a --format json` prints it.
 ///
