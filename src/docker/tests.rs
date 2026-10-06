@@ -739,3 +739,14 @@ fn the_command_is_the_entrypoint_then_the_cmd() {
     assert_eq!(parse_command("null\tnull"), Some(Vec::new()));
     assert_eq!(parse_command("not json\tnull"), None);
 }
+
+/// No progress lines into a log; a terminal and `-vv` keep them.
+#[test]
+fn compose_prints_no_progress_without_a_terminal() {
+    assert!(quiet_progress(false, false));
+    assert!(
+        !quiet_progress(true, false),
+        "a terminal keeps the progress"
+    );
+    assert!(!quiet_progress(false, true), "-vv keeps the lines");
+}

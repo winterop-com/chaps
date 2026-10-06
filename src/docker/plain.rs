@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 /// Line by line rather than all at once, so `logs -f` still streams.
 pub fn run_compose_plain(project: &Project, extra: &[String]) -> Result<i32> {
     let mut args = compose_args(project);
+    super::with_quiet_progress(&mut args);
     args.extend(extra.iter().cloned());
     trace_command(&args);
 

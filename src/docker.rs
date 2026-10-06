@@ -93,6 +93,23 @@ pub fn compose_args(project: &Project) -> Vec<String> {
     args
 }
 
+/// Whether compose is told to print no progress: when the output is not a
+/// terminal and `-vv` was not given.
+pub(crate) fn quiet_progress(terminal: bool, verbose: bool) -> bool {
+    !terminal && !verbose
+}
+
+/// Put `--progress quiet` after `compose` for a run whose output goes to the
+/// user. Without a terminal, compose prints a line for each step of each image
+/// pull, hundreds of lines in a log; chaps says what happened itself, and
+/// `-vv` keeps the lines.
+pub(crate) fn with_quiet_progress(args: &mut Vec<String>) {
+    let terminal = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    if quiet_progress(terminal, crate::output::verbose_enabled()) {
+        args.splice(1..1, ["--progress".to_string(), "quiet".to_string()]);
+    }
+}
+
 /// Run `docker compose <args> <extra>` with inherited stdio, returning the
 /// child's exit code.
 ///
@@ -101,6 +118,7 @@ pub fn compose_args(project: &Project) -> Vec<String> {
 /// `docker compose` would.
 pub fn run_compose(project: &Project, extra: &[String]) -> Result<i32> {
     let mut args = compose_args(project);
+    with_quiet_progress(&mut args);
     args.extend(extra.iter().cloned());
     trace_command(&args);
 
