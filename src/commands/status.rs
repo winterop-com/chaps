@@ -74,6 +74,14 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         token.as_deref(),
         args.url.is_none() && containers.is_some(),
     );
+    if let Some(containers) = containers.as_deref() {
+        let unhealthy: BTreeSet<String> = containers
+            .iter()
+            .filter(|c| c.is_unhealthy())
+            .map(|c| c.service.clone())
+            .collect();
+        crate::status::mark_unhealthy(&mut report.components, &unhealthy);
+    }
     if report.api_elsewhere.is_some() {
         let port = report.api_port;
         let holder = crate::ports::other_deployments(&project.dir, &docker::compose_ls_json)
@@ -536,7 +544,7 @@ fn component_cell(out: &Out, state: crate::status::ComponentState) -> String {
     match state {
         ComponentState::Up => out.ok(label),
         ComponentState::Starting => out.warn(label),
-        ComponentState::NotRunning => out.bad(label),
+        ComponentState::Unhealthy | ComponentState::NotRunning => out.bad(label),
     }
 }
 

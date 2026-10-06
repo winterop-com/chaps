@@ -267,3 +267,32 @@ fn the_component_rows_follow_the_render_order() {
         .collect();
     assert_eq!(names, vec!["ocs", "s3", "dhis2"]);
 }
+
+/// A container that docker reports unhealthy is broken, not starting, and
+/// the closing line says where to look.
+#[test]
+fn an_unhealthy_component_is_not_reported_as_starting() {
+    let row = |name: &str, state| components::ComponentStatus {
+        name: name.to_string(),
+        state,
+        reach: String::new(),
+        health_url: None,
+        read_only: false,
+        datasets: None,
+        data_bytes: None,
+    };
+    let mut rows = vec![
+        row("dhis2", ComponentState::Starting),
+        row("ocs", ComponentState::Starting),
+        row("s3", ComponentState::Up),
+    ];
+    let unhealthy: BTreeSet<String> = ["dhis2".to_string(), "s3".to_string()].into();
+    mark_unhealthy(&mut rows, &unhealthy);
+    assert_eq!(rows[0].state, ComponentState::Unhealthy);
+    // Not unhealthy in docker: still starting.
+    assert_eq!(rows[1].state, ComponentState::Starting);
+    // Answering wins over a stale health state.
+    assert_eq!(rows[2].state, ComponentState::Up);
+    assert!(ComponentState::Unhealthy.is_problem());
+    assert_eq!(ComponentState::Unhealthy.label(), "unhealthy");
+}

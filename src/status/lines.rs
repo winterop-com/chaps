@@ -100,6 +100,18 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
             "{down} of {total} {noun} {verb} not running; start {them} with `chaps up`"
         );
     }
+    let broken: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.state == ComponentState::Unhealthy)
+        .map(|row| row.name.as_str())
+        .collect();
+    if let Some(first) = broken.first() {
+        let verb = if broken.len() == 1 { "is" } else { "are" };
+        return format!(
+            "{} of {total} {noun} {verb} unhealthy; `chaps logs {first}` says why",
+            broken.len()
+        );
+    }
     let starting = rows
         .iter()
         .filter(|row| row.state == ComponentState::Starting)

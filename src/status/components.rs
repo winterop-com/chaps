@@ -16,6 +16,9 @@ pub enum ComponentState {
     Up,
     /// Its container is up but it is not answering yet.
     Starting,
+    /// Its container is up, it does not answer, and the health check of its
+    /// container says it failed: not starting any more, but broken.
+    Unhealthy,
     /// No container, so nothing to answer.
     NotRunning,
 }
@@ -26,6 +29,7 @@ impl ComponentState {
         match self {
             ComponentState::Up => "up",
             ComponentState::Starting => "starting",
+            ComponentState::Unhealthy => "unhealthy",
             ComponentState::NotRunning => "not running",
         }
     }
@@ -39,7 +43,10 @@ impl ComponentState {
     /// the STATE cell is coloured from the three states directly, because
     /// `starting` is amber and `not running` is red while both are failures.
     pub fn is_problem(self) -> bool {
-        matches!(self, ComponentState::Starting | ComponentState::NotRunning)
+        matches!(
+            self,
+            ComponentState::Starting | ComponentState::Unhealthy | ComponentState::NotRunning
+        )
     }
 }
 
@@ -227,6 +234,16 @@ pub fn parse_dataset_count(body: &str) -> Option<u32> {
 
 /// The `kind` OCS puts on its dataset list.
 const DATASET_LIST_KIND: &str = "DatasetList";
+
+/// Mark the rows that do not answer and whose container docker reports
+/// unhealthy: those are broken, not starting. `unhealthy` holds the services.
+pub fn mark_unhealthy(rows: &mut [ComponentStatus], unhealthy: &BTreeSet<String>) {
+    for row in rows {
+        if row.state == ComponentState::Starting && unhealthy.contains(&row.name) {
+            row.state = ComponentState::Unhealthy;
+        }
+    }
+}
 
 /// Where one component stands, from whether it answered and whether its
 /// container is up.

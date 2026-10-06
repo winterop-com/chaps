@@ -27,6 +27,7 @@ pub use probe::{
 pub use time::parse_rfc3339;
 
 use components::component_rows;
+pub use components::mark_unhealthy;
 use probe::{Failure, agent, get, version_of};
 use time::now;
 
