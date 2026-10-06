@@ -1,13 +1,13 @@
-# chaps
+# varde
 
-> chaps deploys Chap (climate-informed disease forecasting) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
+> varde deploys Chap (climate-informed disease forecasting) and the services around it with Docker Compose: chap-core, forecasting model services, Open Climate Service and DHIS2, together or on their own.
 
 Chap forecasts cases of climate-sensitive diseases such as dengue and malaria from past case counts, climate data and population, and evaluates each forecasting model on past data before it is used. It is often used together with DHIS2, through the Modeling App.
 
-If you are helping someone use chaps, start with the page for AI assistants. It explains Chap in plain words, asks one question to find the right option, and gives for each option the exact commands and how to tell that it worked.
+If you are helping someone use varde, start with the page for AI assistants. It explains Chap in plain words, asks one question to find the right option, and gives for each option the exact commands and how to tell that it worked.
 
-- [For AI assistants](https://winterop-com.github.io/chaps/ai.html): start here
-- [Your first forecast in the Modeling App](https://winterop-com.github.io/chaps/modeling-app.html): an evaluation and a forecast, step by step with screenshots
-- [Use cases](https://winterop-com.github.io/chaps/use-cases.html): one page per deployment shape
-- [Troubleshooting](https://winterop-com.github.io/chaps/troubleshooting.html): keyed by the exact message chaps prints
-- [Command reference](https://winterop-com.github.io/chaps/reference.html): every command and flag
+- [For AI assistants](https://winterop-com.github.io/varde/ai.html): start here
+- [Your first forecast in the Modeling App](https://winterop-com.github.io/varde/modeling-app.html): an evaluation and a forecast, step by step with screenshots
+- [Use cases](https://winterop-com.github.io/varde/use-cases.html): one page per deployment shape
+- [Troubleshooting](https://winterop-com.github.io/varde/troubleshooting.html): keyed by the exact message varde prints
+- [Command reference](https://winterop-com.github.io/varde/reference.html): every command and flag

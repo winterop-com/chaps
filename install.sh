@@ -1,7 +1,7 @@
 #!/bin/sh
-# Install chaps, which deploys CHAP and its services with Docker Compose.
+# Install varde, which deploys CHAP and its services with Docker Compose.
 #
-#   curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
 #
 # Detects the platform, downloads the release archive for it, checks it
 # against the release's SHA256SUMS, and installs the binary. POSIX sh on
@@ -10,9 +10,9 @@
 #
 # Options (also readable as environment variables):
 #
-#   --version TAG        CHAPS_VERSION         release to install, e.g. v0.2.0
-#   --dir DIR            CHAPS_INSTALL_DIR     where to put the binary
-#   --here               CHAPS_INSTALL_DIR=.   just ./chaps, nothing else
+#   --version TAG        VARDE_VERSION         release to install, e.g. v0.2.0
+#   --dir DIR            VARDE_INSTALL_DIR     where to put the binary
+#   --here               VARDE_INSTALL_DIR=.   just ./varde, nothing else
 #   --dry-run                                  print what would happen
 #   --help
 #
@@ -21,22 +21,22 @@
 # --version vX.Y.Z or no --version at all is the stable one.
 #
 # --here downloads, verifies and unpacks the binary into the current directory
-# as ./chaps and stops there: no PATH advice, no completions, nothing outside
+# as ./varde and stops there: no PATH advice, no completions, nothing outside
 # this directory. It is the shape a CI job or a one-off trial wants.
 #
-# CHAPS_DOWNLOAD_BASE overrides where the archive and SHA256SUMS are fetched
+# VARDE_DOWNLOAD_BASE overrides where the archive and SHA256SUMS are fetched
 # from. It exists to test this script against a locally built release and is
 # not something an install needs.
 
 set -eu
 
-REPO="winterop-com/chaps"
+REPO="winterop-com/varde"
 RELEASES_URL="https://github.com/${REPO}/releases"
 API_LATEST="https://api.github.com/repos/${REPO}/releases/latest"
 
-VERSION="${CHAPS_VERSION:-}"
-INSTALL_DIR="${CHAPS_INSTALL_DIR:-}"
-DOWNLOAD_BASE="${CHAPS_DOWNLOAD_BASE:-}"
+VERSION="${VARDE_VERSION:-}"
+INSTALL_DIR="${VARDE_INSTALL_DIR:-}"
+DOWNLOAD_BASE="${VARDE_DOWNLOAD_BASE:-}"
 DRY_RUN=0
 HERE=0
 
@@ -54,7 +54,7 @@ die() {
 
 usage() {
   cat <<'USAGE'
-install chaps, which deploys CHAP and its services with Docker Compose
+install varde, which deploys CHAP and its services with Docker Compose
 
 Usage: install.sh [OPTIONS]
 
@@ -65,19 +65,19 @@ Options:
                       stable release.
       --dir DIR       Directory to install into (default: /usr/local/bin if
                       writable, otherwise ~/.local/bin)
-      --here          Put the binary in the current directory as ./chaps and
+      --here          Put the binary in the current directory as ./varde and
                       do nothing else: no PATH advice, no completions
       --dry-run       Print what would be done and change nothing
   -h, --help          Print this message
 
 Environment:
-  CHAPS_VERSION       Same as --version
-  CHAPS_INSTALL_DIR   Same as --dir; `.` is the same as --here
+  VARDE_VERSION       Same as --version
+  VARDE_INSTALL_DIR   Same as --dir; `.` is the same as --here
 
 Examples:
   install.sh                      the newest stable release
   install.sh --version dev        the rolling build of main
-  install.sh --here               ./chaps, and nothing else
+  install.sh --here               ./varde, and nothing else
 USAGE
 }
 
@@ -119,7 +119,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# `--dir .` and CHAPS_INSTALL_DIR=. ask for exactly what --here does, so they
+# `--dir .` and VARDE_INSTALL_DIR=. ask for exactly what --here does, so they
 # are the same thing rather than a directory that happens to be this one: the
 # difference people mean by "just put it here" is the completions and the PATH
 # advice that --here leaves out. Any other directory alongside --here is two
@@ -129,7 +129,7 @@ case "$INSTALL_DIR" in
   . | ./) HERE=1 ;;
   ?*)
     [ "$HERE" -eq 0 ] ||
-      die "--here installs into the current directory; pass one of --here and --dir (CHAPS_INSTALL_DIR), not both"
+      die "--here installs into the current directory; pass one of --here and --dir (VARDE_INSTALL_DIR), not both"
     ;;
 esac
 if [ "$HERE" -eq 1 ]; then
@@ -173,7 +173,7 @@ case "$os" in
       x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;
       aarch64 | arm64) target="aarch64-unknown-linux-musl" ;;
       *)
-        die "no chaps build for Linux ${arch}; see ${RELEASES_URL}"
+        die "no varde build for Linux ${arch}; see ${RELEASES_URL}"
         ;;
     esac
     ;;
@@ -185,7 +185,7 @@ case "$os" in
     die "this script does not install on Windows; run it inside WSL 2 (with Docker Desktop's WSL integration on), which installs the Linux binary"
     ;;
   *)
-    die "no chaps build for ${os} ${arch}; see ${RELEASES_URL}"
+    die "no varde build for ${os} ${arch}; see ${RELEASES_URL}"
     ;;
 esac
 
@@ -221,7 +221,7 @@ fi
 
 # The archive is named after the target alone; the release it comes from is
 # the ${VERSION} in the URL. The directory inside it does carry the version.
-archive="chaps-${target}.tar.gz"
+archive="varde-${target}.tar.gz"
 base="${DOWNLOAD_BASE:-${RELEASES_URL}/download/${VERSION}}"
 
 # ---------------------------------------------------------------------------
@@ -240,16 +240,16 @@ if [ -z "$INSTALL_DIR" ]; then
   fi
 fi
 
-say "chaps ${VERSION}"
+say "varde ${VERSION}"
 if [ "$VERSION" = "$DEV_TAG" ]; then
   say "  channel   dev: the rolling build of main, not a stable release"
 fi
 say "  platform  ${os} ${arch} (${target})"
 say "  archive   ${base}/${archive}"
 if [ "$HERE" -eq 1 ]; then
-  say "  install   ${INSTALL_DIR}/chaps (the binary alone)"
+  say "  install   ${INSTALL_DIR}/varde (the binary alone)"
 else
-  say "  install   ${INSTALL_DIR}/chaps"
+  say "  install   ${INSTALL_DIR}/varde, and ${INSTALL_DIR}/vg as its short form"
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -262,7 +262,7 @@ fi
 # Download, verify, install
 # ---------------------------------------------------------------------------
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/chaps-install.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/varde-install.XXXXXX")"
 cleanup() {
   rm -rf "$tmp"
 }
@@ -296,27 +296,34 @@ tar -xzf "${tmp}/${archive}" -C "$tmp" || die "could not unpack ${archive}"
 # build, dev-<short sha> for a rolling one. It is matched rather than spelled
 # out, so `--version dev` unpacks like any other release.
 binary=""
-for candidate in "${tmp}"/chaps-*-"${target}"/chaps; do
+for candidate in "${tmp}"/varde-*-"${target}"/varde; do
   if [ -f "$candidate" ]; then
     binary="$candidate"
     break
   fi
 done
-[ -n "$binary" ] || die "${archive} does not contain chaps"
+[ -n "$binary" ] || die "${archive} does not contain varde"
 
 mkdir -p "$INSTALL_DIR" || die "could not create ${INSTALL_DIR}"
 [ -w "$INSTALL_DIR" ] || die "${INSTALL_DIR} is not writable; re-run with sudo, or pass --dir DIR"
 
-install -m 0755 "$binary" "${INSTALL_DIR}/chaps" ||
+install -m 0755 "$binary" "${INSTALL_DIR}/varde" ||
   die "could not install into ${INSTALL_DIR}"
+
+# vg is the short form of varde: a link, so `varde self update` updates both.
+# Not with --here, which installs the binary alone.
+if [ "$HERE" -eq 0 ]; then
+  ln -sf varde "${INSTALL_DIR}/vg" ||
+    say "  note: could not add the short form ${INSTALL_DIR}/vg; varde works without it"
+fi
 
 # --here is the whole job: the binary, verified, in this directory. Anything
 # further - completion scripts in a shell's directory, advice about PATH -
 # would be a change outside it, which is exactly what was not asked for.
 if [ "$HERE" -eq 1 ]; then
   say ""
-  say "installed ${INSTALL_DIR}/chaps"
-  "${INSTALL_DIR}/chaps" --version || true
+  say "installed ${INSTALL_DIR}/varde"
+  "${INSTALL_DIR}/varde" --version || true
   exit 0
 fi
 
@@ -340,13 +347,13 @@ install_completion() {
   return 0
 }
 
-completions="${binary%/chaps}/completions"
+completions="${binary%/varde}/completions"
 if [ -d "$completions" ]; then
-  install_completion "${completions}/chaps.bash" \
-    "${XDG_DATA_HOME:-${HOME}/.local/share}/bash-completion/completions" "chaps"
-  install_completion "${completions}/_chaps" "${HOME}/.zsh/completions" "_chaps"
-  install_completion "${completions}/chaps.fish" \
-    "${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions" "chaps.fish"
+  install_completion "${completions}/varde.bash" \
+    "${XDG_DATA_HOME:-${HOME}/.local/share}/bash-completion/completions" "varde"
+  install_completion "${completions}/_varde" "${HOME}/.zsh/completions" "_varde"
+  install_completion "${completions}/varde.fish" \
+    "${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions" "varde.fish"
 fi
 
 # ---------------------------------------------------------------------------
@@ -354,8 +361,8 @@ fi
 # ---------------------------------------------------------------------------
 
 say ""
-say "installed ${INSTALL_DIR}/chaps"
-"${INSTALL_DIR}/chaps" --version || true
+say "installed ${INSTALL_DIR}/varde"
+"${INSTALL_DIR}/varde" --version || true
 
 case ":${PATH}:" in
   *":${INSTALL_DIR}:"*) ;;
@@ -368,4 +375,4 @@ case ":${PATH}:" in
 esac
 
 say ""
-say "next: chaps init mychap && cd mychap && chaps up"
+say "next: varde init mychap && cd mychap && varde up"

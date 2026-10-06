@@ -25,7 +25,7 @@ pub fn standalone_closing_lines(
             NOTHING_RUNNING.to_string()
         } else if stopped > 0 {
             let verb = if stopped == 1 { "is" } else { "are" };
-            format!("{stopped} of {total} {noun} {verb} not running; start them with `chaps up`")
+            format!("{stopped} of {total} {noun} {verb} not running; start them with `varde up`")
         } else if let Some(first) = models
             .iter()
             .find(|m| m.state == ModelState::RunningNotAnswering)
@@ -33,17 +33,17 @@ pub fn standalone_closing_lines(
             let verb = if silent == 1 { "is" } else { "are" };
             format!(
                 "{silent} of {total} {noun} {verb} running and not answering on /health; a model \
-                 that just started answers in a minute, so run `chaps status` again, or read \
-                 `chaps logs {}`",
+                 that just started answers in a minute, so run `varde status` again, or read \
+                 `varde logs {}`",
                 first.id
             )
         } else if total == 1 {
-            "1 model up, answering on its own host port; `chaps models test --all` checks it \
+            "1 model up, answering on its own host port; `varde models test --all` checks it \
              can run"
                 .to_string()
         } else {
             format!(
-                "all {total} models up, each answering on its own host port; `chaps models test \
+                "all {total} models up, each answering on its own host port; `varde models test \
                  --all` checks they can run"
             )
         });
@@ -60,21 +60,21 @@ pub fn standalone_closing_lines(
 /// What a deployment with nothing running at all is told, when chap-core is not
 /// one of its components.
 ///
-/// The mirror of `chaps status`'s `Chap is not running`: there is no Chap here
+/// The mirror of `varde status`'s `Chap is not running`: there is no Chap here
 /// to be running or not, only the components the deployment is made of, so the
 /// line names the deployment rather than a product it does not contain.
-pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start it with `chaps up`";
+pub const NOTHING_RUNNING: &str = "nothing in this deployment is running; start it with `varde up`";
 
 /// The one line the component rows add up to, for a deployment chap-core is not
 /// a component of.
 ///
 /// [`closing_line`] cannot answer for one: it counts models, such a deployment
-/// can have none, and the line it gives for none names `chaps models enable`,
+/// can have none, and the line it gives for none names `varde models enable`,
 /// which is refused there. The components are the whole of the deployment, so
 /// they are the whole of its verdict.
 ///
 /// A component that is not running is what the reader has to do something
-/// about, so it is what the line counts and `chaps up` is what it names - the
+/// about, so it is what the line counts and `varde up` is what it names - the
 /// same rows [`ComponentState::is_problem`] makes the exit code out of.
 pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
     let total = rows.len();
@@ -97,7 +97,7 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
         let verb = if down == 1 { "is" } else { "are" };
         let them = if down == 1 { "it" } else { "them" };
         return format!(
-            "{down} of {total} {noun} {verb} not running; start {them} with `chaps up`"
+            "{down} of {total} {noun} {verb} not running; start {them} with `varde up`"
         );
     }
     let broken: Vec<&str> = rows
@@ -108,7 +108,7 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
     if let Some(first) = broken.first() {
         let verb = if broken.len() == 1 { "is" } else { "are" };
         return format!(
-            "{} of {total} {noun} {verb} unhealthy; `chaps logs {first}` says why",
+            "{} of {total} {noun} {verb} unhealthy; `varde logs {first}` says why",
             broken.len()
         );
     }
@@ -120,7 +120,7 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
         let verb = if starting == 1 { "is" } else { "are" };
         return format!(
             "{starting} of {total} {noun} {verb} still starting; \
-             run `chaps status` again in a moment"
+             run `varde status` again in a moment"
         );
     }
     // An instance with a page of its own is what a person opens next; the
@@ -132,11 +132,11 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
         .collect();
     let opens = match openable.as_slice() {
         [] => String::new(),
-        [one] => format!("; `chaps open {one}` opens it"),
+        [one] => format!("; `varde open {one}` opens it"),
         many => format!(
             "; {} open them",
             many.iter()
-                .map(|name| format!("`chaps open {name}`"))
+                .map(|name| format!("`varde open {name}`"))
                 .collect::<Vec<_>>()
                 .join(" and ")
         ),
@@ -148,11 +148,11 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
     }
 }
 
-/// What a deployment with nothing in it at all is told, by `chaps status` and
-/// by `chaps up`: there is nothing to start, and these are the ways to add
+/// What a deployment with nothing in it at all is told, by `varde status` and
+/// by `varde up`: there is nothing to start, and these are the ways to add
 /// something.
 pub const EMPTY: &str = "this deployment has no components and no models; add one with \
-     `chaps models add URL`, `chaps models enable ID` or `chaps components enable NAME`";
+     `varde models add URL`, `varde models enable ID` or `varde components enable NAME`";
 /// The one line the table adds up to.
 ///
 /// Rows the project does not manage are left out of the count: an unmanaged
@@ -168,7 +168,7 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
         // models chap-core has, so "no models" would be the wrong answer.
         let strangers = rows.len();
         return match strangers {
-            0 => "no models enabled; run `chaps models enable ID` to add one".to_string(),
+            0 => "no models enabled; run `varde models enable ID` to add one".to_string(),
             1 => "no models enabled here; the unmanaged one above registered from outside this \
                   deployment"
                 .to_string(),
@@ -213,33 +213,33 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 ///
 /// `--all` because nothing about the service has changed: it is running the
 /// image and the configuration it should be, and the restart is only there to
-/// make it introduce itself again. A plain `chaps restart` would recreate
+/// make it introduce itself again. A plain `varde restart` would recreate
 /// what moved, which here is nothing.
 ///
 /// `auth` adds the other reason a model never appears on a protected
 /// deployment: chap-core rejects a registration that carries no key, and a
-/// chap-core created before `compose.chaps.yml` passed the key through never
+/// chap-core created before `compose.varde.yml` passed the key through never
 /// had one to check against.
 /// The line under a clean status: registration is a heartbeat, and the only
 /// way to know a model can work is to make it work.
-pub const TEST_HINT: &str = "run `chaps models test --all` to check they can run";
+pub const TEST_HINT: &str = "run `varde models test --all` to check they can run";
 
 /// [`TEST_HINT`] for a deployment with one model.
-pub const TEST_HINT_ONE: &str = "run `chaps models test --all` to check it can run";
+pub const TEST_HINT_ONE: &str = "run `varde models test --all` to check it can run";
 
 /// The extra hint for a model that has not registered with a chap-core
 /// elsewhere. Its log says which of the two causes it is: it cannot reach
 /// chap-core, or servicekit found no app on the port it checks before it
-/// registers, which is a port chaps read wrong off the image's command.
+/// registers, which is a port varde read wrong off the image's command.
 pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
     rows.iter()
         .filter(|row| row.state == ModelState::RunningNotRegistered && !row.young)
         .map(|row| {
             format!(
-                "{id}: `chaps logs {id}` says why it does not register: \
+                "{id}: `varde logs {id}` says why it does not register: \
                  `registration.attempt_failed` means it cannot reach chap-core, and \
-                 `App never became ready` means it does not listen on the port chaps read \
-                 off its image; enable it again with a network (`chaps models enable {id}`)",
+                 `App never became ready` means it does not listen on the port varde read \
+                 off its image; enable it again with a network (`varde models enable {id}`)",
                 id = row.id
             )
         })
@@ -252,7 +252,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
     let registration_key = if auth {
         concat!(
             "; if its log shows 401, chap-core is missing the registration key: ",
-            "run `chaps sync`, then `chaps restart`"
+            "run `varde sync`, then `varde restart`"
         )
     } else {
         ""
@@ -269,13 +269,13 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
                 Some(match &row.added_from {
                     Some((model, source)) => format!(
                         "{}: its container registered as `{actual}`, the unmanaged row above; \
-                         run `chaps models remove {model}`, then `chaps models add {source} \
+                         run `varde models remove {model}`, then `varde models add {source} \
                          --service-id {actual}`",
                         row.id
                     ),
                     None => format!(
                         "{}: its container registered as `{actual}`, the unmanaged row above; \
-                         `chaps models remove` the model and add it again with `--service-id \
+                         `varde models remove` the model and add it again with `--service-id \
                          {actual}`",
                         row.id
                     ),
@@ -284,20 +284,20 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
             // Started moments ago: registering is part of starting, and the
             // restart below would only start the wait over.
             ModelState::RunningNotRegistered if row.young => Some(format!(
-                "{}: started under two minutes ago and registers once it is ready; run `chaps \
+                "{}: started under two minutes ago and registers once it is ready; run `varde \
                  status` again in a minute",
                 row.id
             )),
             ModelState::RunningNotRegistered => Some(format!(
-                "{}: restart it with `chaps restart --all {}`{registration_key}",
+                "{}: restart it with `varde restart --all {}`{registration_key}",
                 row.id, row.id
             )),
             ModelState::NotRunning => Some(format!(
-                "{}: start Chap with `chaps up`, then `chaps logs {}`",
+                "{}: start Chap with `varde up`, then `varde logs {}`",
                 row.id, row.id
             )),
             ModelState::RunningNotAnswering => Some(format!(
-                "{}: read `chaps logs {}`; a model still starting answers in a moment",
+                "{}: read `varde logs {}`; a model still starting answers in a moment",
                 row.id, row.id
             )),
             ModelState::Unreachable => Some(unreachable_hint(row, elsewhere)),
@@ -305,7 +305,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
         })
         .collect();
     // Nothing to fix is not nothing to do: every model answered its
-    // heartbeat, which is as far as `chaps status` can see.
+    // heartbeat, which is as far as `varde status` can see.
     if hints.is_empty() && !mine.is_empty() {
         let hint = if mine.len() == 1 {
             TEST_HINT_ONE
@@ -322,7 +322,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
 /// With a chap-core elsewhere the cause is nearly always the address: models
 /// register as `localhost:<port>` by default, which is this machine for a
 /// chap-core running as a process here and the chap-core container itself for
-/// one running in Docker. With chaps' own chap-core both sit on the compose
+/// one running in Docker. With varde' own chap-core both sit on the compose
 /// network, so the model's log is where the answer is.
 fn unreachable_hint(row: &ModelStatus, elsewhere: Option<&str>) -> String {
     let (url, answer) = row
@@ -333,13 +333,13 @@ fn unreachable_hint(row: &ModelStatus, elsewhere: Option<&str>) -> String {
     match elsewhere {
         Some(api) => format!(
             "{id}: chap-core cannot reach it at {url} ({answer}); if your chap-core runs in a \
-             container, run `chaps components enable chap-core --url {api} --models-host \
-             host.docker.internal`, then `chaps up`",
+             container, run `varde components enable chap-core --url {api} --models-host \
+             host.docker.internal`, then `varde up`",
             id = row.id
         ),
         None => format!(
-            "{id}: chap-core cannot reach it at {url} ({answer}); read `chaps logs {id}` and \
-             `chaps logs chap`",
+            "{id}: chap-core cannot reach it at {url} ({answer}); read `varde logs {id}` and \
+             `varde logs chap`",
             id = row.id
         ),
     }

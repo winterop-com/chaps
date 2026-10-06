@@ -40,12 +40,12 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
-/// Write a cached `compose.ghcr.yml` into `.chaps/` and record it as the
+/// Write a cached `compose.ghcr.yml` into `.varde/` and record it as the
 /// project's compose source, the way `init` does after a fetch.
 fn cache(project: &mut Project, tag: &str, body: &str) {
-    let chaps = project.chaps_dir();
-    std::fs::create_dir_all(&chaps).unwrap();
-    std::fs::write(chaps.join(crate::project::cached_compose_file(tag)), body).unwrap();
+    let varde = project.varde_dir();
+    std::fs::create_dir_all(&varde).unwrap();
+    std::fs::write(varde.join(crate::project::cached_compose_file(tag)), body).unwrap();
     project.state.chap_compose_source = ComposeSource::Fetched {
         url: crate::chapcore::compose_url(tag),
         tag: tag.to_string(),
@@ -70,7 +70,7 @@ fn a_second_sync_changes_nothing() {
         names(&report.unchanged),
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.chapkit-ewars-model.yml",
             "compose.marketplace.yml"
         ]
@@ -79,7 +79,7 @@ fn a_second_sync_changes_nothing() {
         project.state.rendered_files,
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.chapkit-ewars-model.yml",
             "compose.marketplace.yml"
         ]
@@ -88,33 +88,33 @@ fn a_second_sync_changes_nothing() {
 }
 
 #[test]
-fn sync_renders_the_chaps_overlay_and_puts_it_in_the_f_list() {
+fn sync_renders_the_varde_overlay_and_puts_it_in_the_f_list() {
     let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
-    let overlay = dir.path().join(CHAPS_COMPOSE);
+    let overlay = dir.path().join(VARDE_COMPOSE);
     assert!(overlay.is_file());
     assert!(read(&overlay).contains("${CHAP_API_PORT:-8700}:8000"));
     assert_eq!(
         project.state.compose_files,
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.marketplace.yml"
         ],
         "the override needs its own -f entry, between the base and the umbrella"
     );
 
-    // The API port lives in .chaps/project.yaml, so moving it is drift.
+    // The API port lives in .varde/project.yaml, so moving it is drift.
     project.state.api_port = 8123;
     let report = sync(&mut project, &registry, true).unwrap();
     assert!(report.drift);
-    assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+    assert_eq!(names(&report.written), vec![VARDE_COMPOSE]);
     assert!(
         read(&overlay).contains("8700}:8000"),
         "--check writes nothing"
     );
 
     let report = sync(&mut project, &registry, false).unwrap();
-    assert_eq!(names(&report.written), vec![CHAPS_COMPOSE]);
+    assert_eq!(names(&report.written), vec![VARDE_COMPOSE]);
     assert!(read(&overlay).contains("${CHAP_API_PORT:-8123}:8000"));
     assert!(!sync(&mut project, &registry, true).unwrap().drift);
 
@@ -153,7 +153,7 @@ fn a_model_removed_from_the_state_loses_its_overlay_but_hand_written_files_stay(
     let custom = dir.path().join("compose.custom.yml");
     std::fs::write(&custom, "services: {}\n").unwrap();
 
-    // Simulate a hand edit of .chaps/models.yaml.
+    // Simulate a hand edit of .varde/models.yaml.
     project.state.models.remove("auto_arima_chapkit");
     let report = sync(&mut project, &registry, false).unwrap();
     assert_eq!(
@@ -213,7 +213,7 @@ fn every_overlay_gets_the_registration_line_when_the_project_has_a_key() {
         );
     }
 
-    // Turning it on in `.chaps/project.yaml` is drift in every overlay.
+    // Turning it on in `.varde/project.yaml` is drift in every overlay.
     project.state.auth.registration_key = true;
     let report = sync(&mut project, &registry, true).unwrap();
     assert!(report.drift);
@@ -297,7 +297,7 @@ fn a_component_is_rendered_listed_and_removed_again() {
         project.state.compose_files,
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.marketplace.yml"
         ],
@@ -343,7 +343,7 @@ fn the_object_store_reaches_the_ocs_file_as_well() {
         project.state.compose_files,
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.s3.yml",
             "compose.marketplace.yml"
@@ -369,9 +369,9 @@ fn chap_core_off_leaves_only_the_component_files() {
     let report = sync(&mut project, &registry, false).unwrap();
     let removed = names(&report.removed);
     assert!(removed.contains(&BASE_COMPOSE.to_string()), "{removed:?}");
-    assert!(removed.contains(&CHAPS_COMPOSE.to_string()), "{removed:?}");
+    assert!(removed.contains(&VARDE_COMPOSE.to_string()), "{removed:?}");
     assert!(!dir.path().join(BASE_COMPOSE).exists());
-    assert!(!dir.path().join(CHAPS_COMPOSE).exists());
+    assert!(!dir.path().join(VARDE_COMPOSE).exists());
     assert_eq!(
         project.state.compose_files,
         vec!["compose.ocs.yml", "compose.marketplace.yml"]
@@ -383,7 +383,7 @@ fn chap_core_off_leaves_only_the_component_files() {
 /// as `ocs` is - and the file it scaffolds is the operator's from then on,
 /// because DHIS2 does not start without it.
 /// The empty-database warning comes with the sync that writes the DHIS2
-/// compose file, not with every `chaps up` after it.
+/// compose file, not with every `varde up` after it.
 #[test]
 fn the_unknown_seed_is_warned_about_once_not_on_every_sync() {
     let (_dir, mut project, registry) = project_with(&[]);
@@ -421,7 +421,7 @@ fn the_dhis2_component_is_rendered_scaffolded_and_removed_again() {
         project.state.compose_files,
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.dhis2.yml",
             "compose.marketplace.yml"
         ],
@@ -485,7 +485,7 @@ fn an_unknown_dhis2_minor_starts_empty_and_says_so() {
     assert_eq!(report.warnings.len(), 1, "{report:?}");
     assert!(report.warnings[0].contains("2.40"), "{report:?}");
     assert!(
-        report.warnings[0].contains(".chaps/components.yaml"),
+        report.warnings[0].contains(".varde/components.yaml"),
         "{report:?}"
     );
     // And the file rendered for it has no one-shot and no dump volume.
@@ -501,7 +501,7 @@ fn an_unknown_dhis2_minor_starts_empty_and_says_so() {
 
 /// A dump that is a file is a bind mount, and compose refuses to start a
 /// service whose bind source is missing - so a path that is not there yet is
-/// reported now instead of at `chaps up`.
+/// reported now instead of at `varde up`.
 #[test]
 fn a_file_seed_that_is_not_there_yet_is_reported() {
     let mut components = Components::default();
@@ -581,7 +581,7 @@ fn the_dhis2_env_block_is_appended_once_with_secrets_long_enough_for_dhis2() {
     assert_eq!(std::fs::read_to_string(&env).unwrap(), body);
 }
 
-/// The login `chaps dhis2` authenticates with is named in `.env`, commented
+/// The login `varde dhis2` authenticates with is named in `.env`, commented
 /// out and holding the value the commands already fall back to - so the two
 /// variables are discoverable and nothing that runs is changed by them.
 #[test]
@@ -620,7 +620,7 @@ fn the_dhis2_login_variables_are_named_in_env_as_commented_placeholders() {
 }
 
 /// The token is named beside the login, and an external DHIS2 is given no
-/// `district`: chaps did not create it, so that is nobody's password there.
+/// `district`: varde did not create it, so that is nobody's password there.
 #[test]
 fn the_dhis2_token_is_named_and_an_external_dhis2_gets_no_default() {
     let (dir, mut project, registry) = project_with(&[]);
@@ -997,7 +997,7 @@ fn the_base_file_is_rendered_from_the_embedded_copy_by_default() {
     let original = read(&base);
     assert!(
         original.starts_with(
-            "# Generated by chaps from .chaps/; edit there and run `chaps sync`.\nservices:\n"
+            "# Generated by varde from .varde/; edit there and run `varde sync`.\nservices:\n"
         ),
         "{original}"
     );
@@ -1023,19 +1023,19 @@ fn a_fetched_source_renders_from_the_cached_copy() {
 
     let report = sync(&mut project, &registry, false).unwrap();
     assert!(report.warnings.is_empty(), "{report:?}");
-    // compose.chaps.yml labels the services the base file defines, and this
+    // compose.varde.yml labels the services the base file defines, and this
     // one defines chap alone.
     assert_eq!(
         names(&report.written),
-        vec!["compose.yml", "compose.chaps.yml"]
+        vec!["compose.yml", "compose.varde.yml"]
     );
-    let chaps = read(&dir.path().join(crate::project::CHAPS_COMPOSE));
-    assert!(!chaps.contains("worker:"), "{chaps}");
+    let varde = read(&dir.path().join(crate::project::VARDE_COMPOSE));
+    assert!(!varde.contains("worker:"), "{varde}");
     let base = read(&dir.path().join(BASE_COMPOSE));
     assert_eq!(
         base,
         format!(
-            "# Generated by chaps from .chaps/; edit there and run `chaps sync`.\n\
+            "# Generated by varde from .varde/; edit there and run `varde sync`.\n\
                  # chap-core compose.ghcr.yml at v2.3.1\n\
                  {body}"
         )
@@ -1115,7 +1115,7 @@ fn set_env_chap_tag_moves_the_active_line_and_nothing_else() {
 }
 
 /// The tag the deployment runs is the one on the last active line, so that
-/// is the one `chaps update` compares against and the one it moves - and
+/// is the one `varde update` compares against and the one it moves - and
 /// the duplicate that made the answer ambiguous does not survive the
 /// write.
 #[test]
@@ -1190,7 +1190,7 @@ fn set_env_chap_tag_keeps_its_hands_off_the_operators_choices() {
     );
 }
 
-/// `chaps update --chap-tag` writes through the same rule: the one active
+/// `varde update --chap-tag` writes through the same rule: the one active
 /// line moves, in either direction, and only when it still says what the
 /// project recorded.
 #[test]
@@ -1230,19 +1230,19 @@ fn overlay_name_shape() {
     assert!(!is_overlay_name("notes.yml"));
 }
 
-/// A service id chaps keeps for itself that reached the state by hand is
-/// refused at render time, before `compose.chaps.yml` is written over.
+/// A service id varde keeps for itself that reached the state by hand is
+/// refused at render time, before `compose.varde.yml` is written over.
 #[test]
 fn sync_refuses_a_model_on_a_reserved_service_id() {
     let (dir, mut project, registry) = project_with(&["chapkit_ewars_model"]);
-    let chaps_before = read(&dir.path().join("compose.chaps.yml"));
+    let varde_before = read(&dir.path().join("compose.varde.yml"));
     let model = project.state.models.get_mut("chapkit_ewars_model").unwrap();
-    model.service_id = "chaps".to_string();
-    model.compose_file = "compose.chaps.yml".to_string();
+    model.service_id = "varde".to_string();
+    model.compose_file = "compose.varde.yml".to_string();
     let err = sync(&mut project, &registry, false).unwrap_err();
     assert!(
-        format!("{err:#}").contains("chaps uses for its own services"),
+        format!("{err:#}").contains("varde uses for its own services"),
         "{err:#}"
     );
-    assert_eq!(read(&dir.path().join("compose.chaps.yml")), chaps_before);
+    assert_eq!(read(&dir.path().join("compose.varde.yml")), varde_before);
 }

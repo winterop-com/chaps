@@ -11,11 +11,11 @@
 #
 # Two scopes, chosen with --scope:
 #
-#   --scope repo   (the default) sets the six secrets on winterop-com/chaps
+#   --scope repo   (the default) sets the six secrets on winterop-com/varde
 #                  alone. Nothing else in the organisation can read them.
 #
 #   --scope org    sets them once for the winterop-com organisation with
-#                  `--visibility selected --repos chaps`, so the same values
+#                  `--visibility selected --repos varde`, so the same values
 #                  can later be shared with another repository by adding it to
 #                  that list instead of uploading the certificate again. The
 #                  same six secrets already exist as repository secrets on
@@ -47,7 +47,7 @@
 set -euo pipefail
 
 ORG="${ORG:-winterop-com}"
-REPO_NAME="${REPO_NAME:-chaps}"
+REPO_NAME="${REPO_NAME:-varde}"
 REPO="${REPO:-${ORG}/${REPO_NAME}}"
 
 # Placeholders: change these to the vault and item that hold the Developer ID

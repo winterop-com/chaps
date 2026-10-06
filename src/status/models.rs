@@ -85,7 +85,7 @@ pub struct ModelStatus {
     /// caller, which has docker.
     #[serde(skip)]
     pub young: bool,
-    /// For a model added with `chaps models add`: its model id and the source
+    /// For a model added with `varde models add`: its model id and the source
     /// it was added from, so a hint can spell out removing and adding it again.
     #[serde(skip)]
     pub added_from: Option<(String, String)>,

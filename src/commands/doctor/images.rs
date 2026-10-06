@@ -21,7 +21,7 @@ pub fn image_verdict(
                 format!("{reference} has no linux/amd64 image"),
                 format!(
                     "the overlay pins platform: linux/amd64, so this tag cannot run; \
-                     re-resolve it with `chaps models enable {marketplace_id}`"
+                     re-resolve it with `varde models enable {marketplace_id}`"
                 ),
             ),
             Some(true) => Check::ok(id, name, format!("{reference} (linux/amd64)")),
@@ -51,7 +51,7 @@ pub fn image_verdict(
             id,
             name,
             format!("{reference} was not found: {}", first_line(stderr)),
-            format!("run `chaps models enable {marketplace_id}` to resolve the pin again"),
+            format!("run `varde models enable {marketplace_id}` to resolve the pin again"),
         ),
     }
 }
@@ -76,7 +76,7 @@ fn unanswered(id: String, name: String, reference: &str, stderr: &str) -> Check 
             "the registry did not say whether {reference} exists: {}",
             first_line(stderr)
         ),
-        "a rate limit or a registry outage reads like this; run `chaps doctor` again later",
+        "a rate limit or a registry outage reads like this; run `varde doctor` again later",
     )
 }
 
@@ -150,7 +150,7 @@ pub fn component_image_verdict(name: &str, reference: &str, outcome: &Outcome) -
 /// PostGIS database and an alpine one-shot beside its web image - but those two
 /// references are exact and compiled into this binary, the same on every
 /// deployment, so a check on them would spend a registry round trip per
-/// `chaps doctor` to report a chaps bug as the operator's problem, and the
+/// `varde doctor` to report a varde bug as the operator's problem, and the
 /// `fix` line would name a variable that does not exist. chap-core's own
 /// postgres and valkey are left out on the same rule.
 ///
@@ -206,7 +206,7 @@ fn env_body(project: &Project) -> String {
 /// One line per enabled model: does the user its overlay runs it as still
 /// match what the image declares.
 ///
-/// The one class of breakage `chaps sync` cannot see: the recorded user is
+/// The one class of breakage `varde sync` cannot see: the recorded user is
 /// what the overlay renders from, and an image that runs as root under a
 /// `user: 1000:1000` starts fine and then fails on its own binaries - the
 /// Rwanda BYM model's `inla.run: Permission denied`, up to its 0.1.1 pin. It
@@ -246,7 +246,7 @@ fn user_checks_with(
 ///
 /// `declared` is `None` when the image the overlay pins is not in this
 /// machine's image store as the `linux/amd64` variant every overlay runs -
-/// the usual state before the first `chaps up`, and no reason to say anything
+/// the usual state before the first `varde up`, and no reason to say anything
 /// is wrong. `reference` is the tag that was asked about, or `None` when
 /// there was no docker CLI to ask through.
 pub fn user_check(
@@ -270,7 +270,7 @@ pub fn user_check(
             check_id,
             name,
             format!("{recorded}; the amd64 variant of {reference} is not in the local image store"),
-            format!("run `chaps docker pull`, or `docker pull --platform linux/amd64 {reference}`"),
+            format!("run `varde docker pull`, or `docker pull --platform linux/amd64 {reference}`"),
         );
     };
     let wanted = crate::compose::resolve::normalize(declared);
@@ -291,7 +291,7 @@ pub fn user_check(
         name,
         format!("{recorded}, but the image runs as {wanted}"),
         format!(
-            "run `chaps models enable {id}` to read the user off the image again, or `chaps update`"
+            "run `varde models enable {id}` to read the user off the image again, or `varde update`"
         ),
     )
 }
@@ -381,7 +381,7 @@ pub(super) fn image_checks(
 /// What a deployment without chap-core adds up to: its components alone.
 fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<String>) {
     // Models without chap-core are judged by their own /health, the same rows
-    // `chaps status` prints, and count beside the components.
+    // `varde status` prints, and count beside the components.
     let models = report
         .models
         .iter()
@@ -412,7 +412,7 @@ fn components_only_verdict(report: &StatusReport) -> (Status, String, Option<Str
     (
         Status::Warn,
         format!("no chap-core here; not up: {}", down.join(", ")),
-        Some("run `chaps status` for what each one is doing".to_string()),
+        Some("run `varde status` for what each one is doing".to_string()),
     )
 }
 
@@ -437,7 +437,7 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                         .unhealthy
                         .iter()
                         .find_map(|entry| entry.hint.clone())
-                        .unwrap_or_else(|| "run `chaps logs chap` to see why".to_string()),
+                        .unwrap_or_else(|| "run `varde logs chap` to see why".to_string()),
                 ),
             )
         }
@@ -459,7 +459,7 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                     .iter()
                     .find_map(|entry| entry.hint.clone())
                     .unwrap_or_else(|| {
-                        "run `chaps logs chap` to see why, and `chaps status` for the detail"
+                        "run `varde logs chap` to see why, and `varde status` for the detail"
                             .to_string()
                     }),
             ),
@@ -471,8 +471,8 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                 report.api_url
             ),
             Some(
-                "`chaps auth show --reveal` prints the token in .env; after `chaps auth \
-                 rotate` or `enable`, `chaps up` hands it to chap-core"
+                "`varde auth show --reveal` prints the token in .env; after `varde auth \
+                 rotate` or `enable`, `varde up` hands it to chap-core"
                     .to_string(),
             ),
         ),
@@ -497,7 +497,7 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
                 report.api_url,
                 report.missing.join(", ")
             ),
-            Some("run `chaps status` for what to do about each one".to_string()),
+            Some("run `varde status` for what to do about each one".to_string()),
         ),
     }
 }
@@ -515,7 +515,7 @@ pub(super) fn stack_check(
             ID,
             NAME,
             "no container of this project is running",
-            "run `chaps up` to start Chap",
+            "run `varde up` to start Chap",
         );
     }
     let url = project.api_url();
@@ -529,7 +529,7 @@ pub(super) fn stack_check(
         token.as_deref(),
         true,
     );
-    // The same diagnosis `chaps status` makes: when the API does not answer,
+    // The same diagnosis `varde status` makes: when the API does not answer,
     // its container has been saying why in its own log.
     if matches!(report.api, ApiHealth::Down { .. })
         && let Some(containers) = containers

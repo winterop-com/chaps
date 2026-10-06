@@ -1,17 +1,17 @@
-//! The two GitHub questions `chaps models add` asks: which branch a
+//! The two GitHub questions `varde models add` asks: which branch a
 //! repository publishes from, and which commits are on it.
 //!
 //! Reads, like [`crate::chapcore`]'s, and through the same door
 //! ([`crate::github`]): 60 requests an hour per address without a token and
 //! 5000 with one, two of them per `models add` and three per `registry pin`
-//! line of `chaps doctor`.
+//! line of `varde doctor`.
 
 use crate::error::Result;
 use crate::manual::source::Repo;
 use serde::Deserialize;
 use std::time::Duration;
 
-/// Public GitHub, unless `CHAPS_GITHUB_API` points somewhere else.
+/// Public GitHub, unless `VARDE_GITHUB_API` points somewhere else.
 pub const DEFAULT_API: &str = crate::github::DEFAULT_API;
 
 /// How many commits are asked for when looking for a published build.

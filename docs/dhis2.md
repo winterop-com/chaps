@@ -4,9 +4,9 @@ The `dhis2` component runs a DHIS2 instance and a PostgreSQL of its own beside
 Chap, for a deployment that wants one.
 
 ```sh
-chaps init mychap --with dhis2
-chaps components enable dhis2      # or afterwards
-chaps dhis2 connect                # once DHIS2 answers, so the Modeling App can
+varde init mychap --with dhis2
+varde components enable dhis2      # or afterwards
+varde dhis2 connect                # once DHIS2 answers, so the Modeling App can
                                    # reach Chap
 ```
 
@@ -15,12 +15,12 @@ chaps dhis2 connect                # once DHIS2 answers, so the Modeling App can
 A demo or a development DHIS2: something to log into while trying Chap out,
 developing against it, or showing it. It is not a way to run DHIS2 in
 production, and that is upstream's own judgement of the images rather than a
-limitation of `chaps` - `docker/DOCKERHUB.md` in `dhis2/dhis2-core` says *"We
+limitation of `varde` - `docker/DOCKERHUB.md` in `dhis2/dhis2-core` says *"We
 cannot recommend the images for use in production"*. A production DHIS2 is
 deployed by other means, and a Chap deployment can be pointed at one without
 this component: see [Connecting the Modeling App to Chap](#connecting-the-modeling-app-to-chap)
 for what the connection is made of, all of which is requests to DHIS2 that you
-can make against an instance `chaps` did not deploy.
+can make against an instance `varde` did not deploy.
 
 Chap is often deployed **with** DHIS2 and not always. A deployment that already
 has a DHIS2, or does not want one, leaves this component off and loses nothing:
@@ -30,7 +30,7 @@ for the deployments that want one alongside.
 
 ## Four services and three volumes
 
-`chaps sync` renders `compose.dhis2.yml`:
+`varde sync` renders `compose.dhis2.yml`:
 
 | Service | What it is |
 | --- | --- |
@@ -86,10 +86,10 @@ ready and DHIS2 would start against half a database.
 
 DHIS2 loads this file at startup and **will not start without it**. There is no
 environment-only mode: a missing file is a startup failure, not a fallback to
-defaults. So `chaps` scaffolds it when the component is first enabled, mounts it
+defaults. So `varde` scaffolds it when the component is first enabled, mounts it
 read-only at `/opt/dhis2/dhis.conf`, and never rewrites it - it is yours from
 that moment on, exactly like
-[`ocs/climate-service.yaml`](./components.md#ocsclimate-serviceyaml). `chaps
+[`ocs/climate-service.yaml`](./components.md#ocsclimate-serviceyaml). `varde
 sync` re-creates it only if it has gone missing, which is worth doing precisely
 because nothing starts without it.
 
@@ -111,12 +111,12 @@ becomes the empty string rather than standing there as a literal `${...}`.
 ### Applying an edit
 
 ```sh
-chaps restart dhis2
+varde restart dhis2
 ```
 
-DHIS2 reads this file once, at startup, and `chaps` mounts it as a **bind
+DHIS2 reads this file once, at startup, and `varde` mounts it as a **bind
 mount**, which compose does not compare: `docker compose up -d` alone finds
-nothing to do after an edit. `chaps restart` checks the file itself - when it
+nothing to do after an edit. `varde restart` checks the file itself - when it
 was written after the `dhis2` container was created, that container is
 recreated, and the line says so:
 
@@ -125,10 +125,10 @@ recreating dhis2 to apply its edited config file
 ```
 
 If the file's modification time does not show the edit (a copy that kept an
-older one), `chaps restart --all dhis2` recreates the container regardless.
+older one), `varde restart --all dhis2` recreates the container regardless.
 
 DHIS2 migrates before it serves a request again, so it is not back the moment
-compose returns; the next `chaps dhis2` command waits for it and says what it
+compose returns; the next `varde dhis2` command waits for it and says what it
 found. This is the same trap, for the same reason, as
 [`ocs/climate-service.yaml`](./components.md#read-only-instances).
 
@@ -142,14 +142,14 @@ judges the length itself:
   password compiled into DHIS2's own source - which every other DHIS2 in the
   world also has.
 
-`chaps` generates 32 hex characters into `.env` as `DHIS2_ENCRYPTION_PASSWORD`,
+`varde` generates 32 hex characters into `.env` as `DHIS2_ENCRYPTION_PASSWORD`,
 comfortably past the floor. Like the database password it is written **once** and
 never rewritten: the volume was created with it, and changing it later leaves the
 credentials already in the database undecryptable.
 
 ### `route.remote_servers_allowed`
 
-This is the one value `chaps` fills in rather than leaving as a placeholder:
+This is the one value `varde` fills in rather than leaving as a placeholder:
 
 ```ini
 route.remote_servers_allowed = http://*,https://*
@@ -164,7 +164,7 @@ chap-core is `http://chap:8000` inside the deployment,
 would refuse the one route this component exists to make possible.
 
 The scaffold allows every http and https target, so any chap-core works without
-touching the file. A DHIS2 chaps deploys is a development or evaluation
+touching the file. A DHIS2 varde deploys is a development or evaluation
 instance; DHIS2 logs a warning about the wildcard on every start, and on a DHIS2
 that is not a test instance the line belongs narrowed to the origins in use. One
 origin per entry, comma separated, and none of them may carry a path - DHIS2
@@ -184,9 +184,9 @@ builds absolute links from. Uncomment **both** behind a proxy that terminates
 TLS, and leave both commented while DHIS2 is reached over plain http - a `Secure`
 cookie on an http origin makes the login loop.
 
-Pair that with `--dhis2-port none` (or `chaps components enable dhis2 --port
-none`), so the proxy is the only way in. `chaps` records no second copy of
-`server.base.url`: that file is yours, so `chaps status` and `chaps components
+Pair that with `--dhis2-port none` (or `varde components enable dhis2 --port
+none`), so the proxy is the only way in. `varde` records no second copy of
+`server.base.url`: that file is yours, so `varde status` and `varde components
 list` say `internal` for such an instance rather than naming a proxy.
 
 ### Restoring an older dump
@@ -201,30 +201,30 @@ DHIS2 than the image runs, which can stop on Flyway's migration order:
 
 ## The seed
 
-`seed:` in `.chaps/components.yaml` decides what the database is restored from
+`seed:` in `.varde/components.yaml` decides what the database is restored from
 the first time it is created. `--dhis2-seed` takes the same four answers at
 `init`:
 
 | Value | What happens |
 | --- | --- |
-| `default` | The demo dump published for the pinned minor line, if `chaps` knows of one. |
+| `default` | The demo dump published for the pinned minor line, if `varde` knows of one. |
 | `none` | Nothing. The database starts empty and DHIS2 migrates a new schema into it. |
 | a URL | That dump, downloaded by the one-shot. An `http://` or `https://` prefix is the whole of the rule. |
 | a path | That file, bind-mounted into the one-shot and copied rather than downloaded. |
 
 ```sh
-chaps init mychap --with dhis2                              # the version-matched demo
-chaps init mychap --with dhis2 --dhis2-seed none            # empty
-chaps init mychap --with dhis2 --dhis2-seed dumps/laos.sql.gz
-chaps init mychap --with dhis2 --dhis2-seed https://example.org/mine.sql.gz
+varde init mychap --with dhis2                              # the version-matched demo
+varde init mychap --with dhis2 --dhis2-seed none            # empty
+varde init mychap --with dhis2 --dhis2-seed dumps/laos.sql.gz
+varde init mychap --with dhis2 --dhis2-seed https://example.org/mine.sql.gz
 ```
 
 There is no flag for it after `init`. Change `seed:` in
-`.chaps/components.yaml` and run `chaps sync`.
+`.varde/components.yaml` and run `varde sync`.
 
 A path has to be inside the deployment directory, because it becomes a bind mount
-and compose refuses to start a service whose bind source does not exist. `chaps
-sync` warns when the file is not there rather than leaving that for `chaps up`.
+and compose refuses to start a service whose bind source does not exist. `varde
+sync` warns when the file is not there rather than leaving that for `varde up`.
 A URL seed under `--offline` is refused outright: the two ask for opposite
 things.
 
@@ -235,10 +235,10 @@ prepared dump into `dhis2_dump`, and `dhis2-db` mounts that volume at
 `/docker-entrypoint-initdb.d/`, which the entrypoint reads **only** while it
 initialises a data directory it has just created. So:
 
-- the first `chaps up` restores the dump;
-- every later `chaps up` does not, whatever `seed:` says;
+- the first `varde up` restores the dump;
+- every later `varde up` does not, whatever `seed:` says;
 - changing the seed on a deployment that has already started means removing
-  `dhis2_db` first - `chaps components disable dhis2 --purge` is the honest way
+  `dhis2_db` first - `varde components disable dhis2 --purge` is the honest way
   to ask for that, and it takes all three volumes.
 
 Docker copies the image's own PostGIS init script into that volume as the
@@ -251,40 +251,40 @@ then starts `dhis2-db` again, and postgres sees a data directory, so it skips
 the init. Without a guard, the result is an empty or incomplete database that
 answers like a good one.
 
-So the restore leaves a mark as its last init script, `zzz-chaps-seeded.sql`:
-the comment `chaps: seed restored` on the database. On a seeded deployment, the
+So the restore leaves a mark as its last init script, `zzz-varde-seeded.sql`:
+the comment `varde: seed restored` on the database. On a seeded deployment, the
 health check of `dhis2-db` asks for that mark. A restore that stopped has no
-mark, so `dhis2-db` stays unhealthy, DHIS2 does not start, and `chaps up`
+mark, so `dhis2-db` stays unhealthy, DHIS2 does not start, and `varde up`
 prints the lines of the log that say why:
 
 ```text
 why dhis2-db is unhealthy:
   psql:<stdin>:5: invalid command \restrict
-  the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `chaps components disable dhis2 --purge`, `chaps components enable dhis2` and `chaps up`
+  the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `varde components disable dhis2 --purge`, `varde components enable dhis2` and `varde up`
 ```
 
-`chaps backup` copies the database with its mark, so a database that
-`chaps backup restore` puts back is healthy too.
+`varde backup` copies the database with its mark, so a database that
+`varde backup restore` puts back is healthy too.
 
 ### The version of the dump
 
-DHIS2 runs a database of its own minor version or older, and chaps supports
+DHIS2 runs a database of its own minor version or older, and varde supports
 DHIS2 2.41 and newer, because the Modeling App needs it. The version of a dump
 is in its Flyway table: each migration that DHIS2 ran is a row of
 `flyway_schema_history`, and the newest one says the version. `2.42.54` is
 migration 54 of DHIS2 2.42. The last number is not the patch release.
 
-- For a dump on disk, `chaps init` reads the version. A dump of 3.9 GB takes
+- For a dump on disk, `varde init` reads the version. A dump of 3.9 GB takes
   about 20 seconds, because the table comes after `datavalue`.
   - Without `--dhis2-tag`, DHIS2 runs the version of the dump.
   - A `--dhis2-tag` older than the dump is refused.
   - A dump older than 2.41 is refused.
 - For a URL, the dump step reads the version after the download, before the
-  rewrite, and stops with the same messages. `chaps logs dhis2-dump` shows
+  rewrite, and stops with the same messages. `varde logs dhis2-dump` shows
   them.
 
 ```text
-$ chaps init laos --only dhis2 --dhis2-seed laos.sql.gz
+$ varde init laos --only dhis2 --dhis2-seed laos.sql.gz
 reading the DHIS2 version of laos.sql.gz from its Flyway table; a large dump takes about a minute
 laos.sql.gz is DHIS2 2.42 (Flyway migration 2.42.54), so DHIS2 runs 2.42
 ```
@@ -298,7 +298,7 @@ in or imported it. Analytics casts every value of a numeric data element, so
 one such value stops every analytics run with `out of range for type double
 precision`.
 
-So every restore of a seed runs `zz-chaps-clean.sql` after the dump. The
+So every restore of a seed runs `zz-varde-clean.sql` after the dump. The
 script does two things:
 
 1. It lists each such value in the log of `dhis2-db`: the data element, the
@@ -307,8 +307,8 @@ script does two things:
    too, because the outlier query of analytics reads them as well.
 
 ```text
-$ chaps logs dhis2-db | grep -A4 "cannot read as a number"
-chaps: data values that analytics cannot read as a number, emptied:
+$ varde logs dhis2-db | grep -A4 "cannot read as a number"
+varde: data values that analytics cannot read as a number, emptied:
  dataelement |    name     |   period   |   orgunit   | value_starts | length
 -------------+-------------+------------+-------------+--------------+--------
  BW7mJYKnkks | SBCC - VF1  | 2023-05-01 | Kh35DvuCtnl | 999999999999 |   2081
@@ -323,11 +323,11 @@ A dump of a real DHIS2 has the passwords of its real users. To log in as any
 of them, give every user one password at the restore:
 
 ```sh
-chaps init laos --only dhis2 --dhis2-tag 2.42 --dhis2-seed laos.sql.gz --dhis2-seed-password
+varde init laos --only dhis2 --dhis2-tag 2.42 --dhis2-seed laos.sql.gz --dhis2-seed-password
 ```
 
 Without a value, the password is `district`. The option writes
-`seed_password:` in `.chaps/components.yaml`:
+`seed_password:` in `.varde/components.yaml`:
 
 ```yaml
 dhis2:
@@ -348,7 +348,7 @@ The last two run only when the column is in the dump, because the columns
 change between DHIS2 versions. Use this for a test or a development copy of a
 database, not for a server that real users log in to.
 
-The `dhis2-dump` one-shot writes the SQL to `zz-chaps-passwords.sql` in the
+The `dhis2-dump` one-shot writes the SQL to `zz-varde-passwords.sql` in the
 `dhis2_dump` volume. The postgres entrypoint runs the files of that volume in
 name order, so the file runs after `dump.sh`, which restores the dump. When the dump did not have
 the `pgcrypto` extension, the file removes it again.
@@ -356,15 +356,15 @@ the `pgcrypto` extension, the file removes it again.
 The rules of the seed apply:
 
 - It applies once, when `dhis2_db` is created. To apply it to a database that
-  exists, run `chaps components disable dhis2 --purge` first.
+  exists, run `varde components disable dhis2 --purge` first.
 - It needs a seed. `--dhis2-seed none` has no users, so the two options
   together are refused.
-- To change or remove it later, edit `seed_password:` and run `chaps sync`.
+- To change or remove it later, edit `seed_password:` and run `varde sync`.
   `DHIS2_SEED_PASSWORD` in `.env` also sets it.
 
-The password is plain text in `.chaps/components.yaml` and in
+The password is plain text in `.varde/components.yaml` and in
 `compose.dhis2.yml`. Use it for a known password such as `district`, not for a
-secret. `chaps dhis2` uses it for every user, so `chaps dhis2 analytics --user
+secret. `varde dhis2` uses it for every user, so `varde dhis2 analytics --user
 em` logs in as `em` with no other setting. A password in `.env` or in the
 environment still comes first.
 
@@ -383,7 +383,7 @@ published for 2.41, 2.42 and 2.43
 without the climate data the Modeling App uses.
 
 Published paths have differed in patch version and basename from one line to
-the next, so `chaps` keeps a table keyed by the minor line (`2.42`, `2.42.1` and `2.42.1.1`
+the next, so `varde` keeps a table keyed by the minor line (`2.42`, `2.42.1` and `2.42.1.1`
 are all `2.42`) rather than building a URL from the tag, because a constructed
 one would download a 404 on the first start and leave an empty DHIS2 with no
 explanation.
@@ -391,7 +391,7 @@ explanation.
 A minor line the table does not list starts empty and says so, on every sync:
 
 ```text
-warning: chaps knows no DHIS2 demo dump for 2.40, so `dhis2_db` starts empty; name one with `seed:` in `.chaps/components.yaml` (a URL or a path) and run `chaps sync`
+warning: varde knows no DHIS2 demo dump for 2.40, so `dhis2_db` starts empty; name one with `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`
 ```
 
 ### What the one-shot does to the dump
@@ -406,7 +406,7 @@ The restore is one pass. The one-shot writes `dump.sh`, and the entrypoint runs
 it in name order, before the `zz-` scripts:
 
 ```text
-gunzip -c seed.dump.gz | sed -E -f chaps-rewrite.sed | psql -v ON_ERROR_STOP=1
+gunzip -c seed.dump.gz | sed -E -f varde-rewrite.sed | psql -v ON_ERROR_STOP=1
 ```
 
 The dump is read once, with the `gzip` and `sed` of the PostgreSQL image. On a
@@ -415,7 +415,7 @@ tools of the one-shot, then a fourth read for the restore. The entrypoint runs
 `dump.sh` with `pipefail`, so a truncated dump stops the restore, and the
 [mark](#a-restore-that-stops) reports it.
 
-`chaps-rewrite.sed` changes the dump so that it loads into a new database:
+`varde-rewrite.sed` changes the dump so that it loads into a new database:
 
 - **It retrofits `--if-exists`.** Published dumps are `pg_dump --clean`
   *without* `--if-exists`, so they open on `DROP` and `ALTER` statements that
@@ -439,11 +439,11 @@ to the place where a download goes, and everything after that is the same.
 **Minutes, not seconds.** DHIS2 migrates its whole schema before it serves a
 request, and a seeded deployment restores the dump before that. Every other
 service in a Chap deployment answers in seconds, so an operator who does not know
-this reads the first `chaps status` as a broken deployment. Both `chaps init
---with dhis2` and `chaps components enable dhis2` say so, and
+this reads the first `varde status` as a broken deployment. Both `varde init
+--with dhis2` and `varde components enable dhis2` say so, and
 
 ```sh
-chaps logs dhis2
+varde logs dhis2
 ```
 
 is where the migration shows.
@@ -491,8 +491,8 @@ setting here worth being careful with:
   its own health check while every API request 404s. Up, and wrong - the worst
   shape a deployment can be in.
 
-So: `chaps backup` first. Then move the tag deliberately, either in
-`.chaps/components.yaml` followed by `chaps sync`:
+So: `varde backup` first. Then move the tag deliberately, either in
+`.varde/components.yaml` followed by `varde sync`:
 
 ```yaml
 dhis2:
@@ -502,11 +502,11 @@ dhis2:
   seed: default
 ```
 
-at creation with `chaps init --with dhis2 --dhis2-tag 2.41`, later with
-`chaps components enable dhis2 --tag 2.41` (and `--image` for another
+at creation with `varde init --with dhis2 --dhis2-tag 2.41`, later with
+`varde components enable dhis2 --tag 2.41` (and `--image` for another
 repository), or in the browser:
-`chaps ui`, `Tab` to the components page, `v` on the `dhis2`
-row. It offers the minor lines chaps has a demo database for (and the version in
+`varde ui`, `Tab` to the components page, `v` on the `dhis2`
+row. It offers the minor lines varde has a demo database for (and the version in
 force, if that is another), says the forward-only rule as soon as you pick one
 that differs, and warns again on save when `dhis2_db` is already there. Or with
 an active `DHIS2_IMAGE_TAG` line in `.env`, which Compose reads last and
@@ -515,25 +515,25 @@ which therefore wins without a sync. The rendered service is
 
 An unreleased DHIS2 comes from another image repository: DHIS2 publishes its
 development builds as `dhis2/core-dev`, with the next version under `master`.
-`chaps init --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master` runs
-it, and `image:` in the `dhis2` block of `.chaps/components.yaml` is the setting
+`varde init --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master` runs
+it, and `image:` in the `dhis2` block of `.varde/components.yaml` is the setting
 afterwards. There is no demo database for a development build, so it starts
 empty.
 
 The tag is two parts rather than a full version on purpose, so a patch release
 arrives with a `docker pull` rather than an edit.
 
-`chaps` warns when a run moves the tag while `dhis2_db` is already there. It
+`varde` warns when a run moves the tag while `dhis2_db` is already there. It
 compares the tag in the **rendered** `compose.dhis2.yml` - what is deployed -
 against the one being asked for, not two records against each other:
 
 ```text
-note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `chaps backup` first - an older image on a migrated database answers healthy while every API request 404s
+note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 Moving the seed does not need this care and moving the tag does, which is why the
 two are the settings the browser's components page deliberately does not edit:
-its `i` overlay names both and sends you to `.chaps/components.yaml`.
+its `i` overlay names both and sends you to `.varde/components.yaml`.
 
 ## Connecting the Modeling App to Chap
 
@@ -553,87 +553,87 @@ Three things follow from that, and they are the three the commands do:
 | the apps themselves | there is no Chap user interface in DHIS2 |
 
 ```sh
-chaps dhis2 show        # what this instance has, changing nothing
-chaps dhis2 connect     # the route, the apps, then analytics
+varde dhis2 show        # what this instance has, changing nothing
+varde dhis2 connect     # the route, the apps, then analytics
 ```
 
 | Command | What it does |
 | --- | --- |
-| `chaps dhis2 show` | Asks and reports: where the `chap` route points and whether chap-core answers through it, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. A route that is right in every field but that nothing answers through counts as missing. Writes nothing. |
-| `chaps dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
-| `chaps dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
-| `chaps dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
-| `chaps dhis2 connect` | All three, in that order. |
-| `chaps dhis2 use` | Points all of the above at a DHIS2 that runs elsewhere. See [A DHIS2 that runs elsewhere](#a-dhis2-that-runs-elsewhere). |
+| `varde dhis2 show` | Asks and reports: where the `chap` route points and whether chap-core answers through it, what DHIS2's analytics timestamp is worth, which of the two apps are installed, and each piece that is missing. A route that is right in every field but that nothing answers through counts as missing. Writes nothing. |
+| `varde dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
+| `varde dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
+| `varde dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
+| `varde dhis2 connect` | All three, in that order. |
+| `varde dhis2 use` | Points all of the above at a DHIS2 that runs elsewhere. See [A DHIS2 that runs elsewhere](#a-dhis2-that-runs-elsewhere). |
 
-Every one of them is idempotent and meant to be re-run: a second `chaps dhis2
+Every one of them is idempotent and meant to be re-run: a second `varde dhis2
 connect` repoints nothing, reinstalls nothing and says so. A step that found
 nothing to do still reports it.
 
-### `chaps up` does none of this, on purpose
+### `varde up` does none of this, on purpose
 
-`chaps up` is a thin wrapper around `docker compose up`, and three things make
+`varde up` is a thin wrapper around `docker compose up`, and three things make
 this the wrong work to hang off it:
 
-- it needs **DHIS2 credentials**, which are not chaps' to invent;
-- it reaches the **network** - the App Hub, twice - and `chaps up` never does;
+- it needs **DHIS2 credentials**, which are not varde' to invent;
+- it reaches the **network** - the App Hub, twice - and `varde up` never does;
 - DHIS2's API is **not ready when `up` returns**. Tomcat serves pages while every
-  `/api/*` request 404s, which is the shape `chaps status`'s `dhis2` row already
+  `/api/*` request 404s, which is the shape `varde status`'s `dhis2` row already
   knows about, and analytics then takes tens of seconds on demo data and much
   longer on real data. An `up` that waited for that would be an `up` that takes
   an hour.
 
-So `chaps init --with dhis2` and `chaps components enable dhis2` each end with the
+So `varde init --with dhis2` and `varde components enable dhis2` each end with the
 line that names the command instead:
 
 ```text
-note: the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `chaps dhis2 connect` adds it, generates analytics and installs the apps
+note: the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
 ```
 
 ### `up` and `status` keep asking until a connect is recorded
 
 That note is printed at the one moment DHIS2 does not exist yet. What follows it
-is `chaps up`, then several minutes of restoring a dump and migrating a schema,
+is `varde up`, then several minutes of restoring a dump and migrating a schema,
 and by the time anything can be connected the note is far up the scrollback. A
-deployment can therefore sit for good with every row `up`, `chaps doctor`
+deployment can therefore sit for good with every row `up`, `varde doctor`
 reporting no problem, and the Modeling App unable to reach Chap at all.
 
 So the two commands that report on a running deployment say it again, and go on
-saying it until a connect has been recorded. `chaps up` closes with it, under
+saying it until a connect has been recorded. `varde up` closes with it, under
 the line it always ends on:
 
 ```text
 unchanged: chap, dhis2
-run `chaps status` to check that everything answers
-chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect` once DHIS2 answers
+run `varde status` to check that everything answers
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
 ```
 
-and `chaps status` puts it under its verdict, with the model hints:
+and `varde status` puts it under its verdict, with the model hints:
 
 ```text
 chap-core   up   http://localhost:8700   2.42.6   auth: off
 dhis2       up   http://localhost:8780
 
-no models enabled; run `chaps models enable ID` to add one
-  chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
+no models enabled; run `varde models enable ID` to add one
+  varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
-Both lines come off `.chaps/components.yaml` and nothing else. Neither asks
-DHIS2 anything, which is why each says what **chaps** has recorded rather than
-what DHIS2 is - and naming the command is safe either way, because every `chaps
+Both lines come off `.varde/components.yaml` and nothing else. Neither asks
+DHIS2 anything, which is why each says what **varde** has recorded rather than
+what DHIS2 is - and naming the command is safe either way, because every `varde
 dhis2` verb is idempotent and a second run changes nothing.
 
-`chaps status` says it only while the `dhis2` row reads `up`, since a DHIS2 that
+`varde status` says it only while the `dhis2` row reads `up`, since a DHIS2 that
 is not answering cannot be connected to anything and the advice could not be
-taken. `chaps up` has asked nothing at all and DHIS2 is minutes from its first
+taken. `varde up` has asked nothing at all and DHIS2 is minutes from its first
 request, so it says *once DHIS2 answers*. Neither says it on a deployment
-[without chap-core](./components.md), where `chaps dhis2 connect` refuses: the
+[without chap-core](./components.md), where `varde dhis2 connect` refuses: the
 route would point at a service that is not there.
 
 ### `connected_at`, and what it is not
 
-The line stops once `chaps dhis2 connect` has got through, and that is recorded
-in the `dhis2` block of `.chaps/components.yaml`:
+The line stops once `varde dhis2 connect` has got through, and that is recorded
+in the `dhis2` block of `.varde/components.yaml`:
 
 ```yaml
 dhis2:
@@ -650,7 +650,7 @@ deleted, repointed at another server or disabled in DHIS2's own Route
 administration a minute later, and this timestamp will not move, because nothing
 reads DHIS2 to check it.
 
-**[`chaps dhis2 show`](#connecting-the-modeling-app-to-chap) is the command that
+**[`varde dhis2 show`](#connecting-the-modeling-app-to-chap) is the command that
 asks DHIS2.** It reads the route out of the instance, proxies a request through
 it to prove chap-core answers, lists which of the two apps are installed and
 says what the analytics timestamp is worth - and it writes nothing, so it is
@@ -660,20 +660,20 @@ that is the command; `connected_at` cannot answer it and does not try.
 `connect` says as much where it writes the record:
 
 ```text
-recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking
-  a note that this ran, not proof the route is still right; `chaps dhis2 show` asks DHIS2
+recorded in `.varde/components.yaml`, so `varde up` and `varde status` stop asking
+  a note that this ran, not proof the route is still right; `varde dhis2 show` asks DHIS2
 ```
 
 #### What sets it
 
-A run of `chaps dhis2 connect` that ended with a **verified route and both apps
+A run of `varde dhis2 connect` that ended with a **verified route and both apps
 in place**. Two of the three steps, and deliberately so: the hint exists because
 a DHIS2 beside a Chap cannot be used at all without them - the app redirects to
 `/get-started` with no route, and there is no Chap user interface in DHIS2 with
 no apps. Analytics is not part of it. The Modeling App reaches chap-core and
 works without the `analytics_*` tables; empty tables are a deployment with no
-data rather than one that cannot talk to itself, `chaps dhis2 analytics
---no-wait` is a supported shape in which no run has finished, and `chaps dhis2
+data rather than one that cannot talk to itself, `varde dhis2 analytics
+--no-wait` is a supported shape in which no run has finished, and `varde dhis2
 show` reports the analytics question separately and with the evidence it is
 worth.
 
@@ -688,31 +688,31 @@ back. `/health` needs no token, so with one on the check also asks for
 it is rewritten, and one DHIS2 lists with no header auth at all is rewritten
 before anything is asked. The Modeling App itself never needs the token.
 
-The single-step verbs record nothing. `chaps dhis2 route` alone leaves a
+The single-step verbs record nothing. `varde dhis2 route` alone leaves a
 deployment with a route and no apps, which is still one nobody can use Chap
 from.
 
-`chaps dhis2 connect --offline` is the third answer, and it is neither of the
+`varde dhis2 connect --offline` is the third answer, and it is neither of the
 other two. It skips the app install and says so, so the run has looked at
 nothing that could tell it whether the apps are in DHIS2 - it **judges nothing,
 and leaves the record exactly as it found it**, in either direction. A
 deployment nothing has connected still records no connect. A deployment that
 was connected keeps the timestamp it has: the apps are still installed, this
 run simply did not ask, and a flag that turned off an unrelated step is not
-evidence that anything broke. Clearing on it would make `chaps up` say chaps
-has not connected a DHIS2 that chaps connected.
+evidence that anything broke. Clearing on it would make `varde up` say varde
+has not connected a DHIS2 that varde connected.
 
 #### What clears it
 
 | When | What happens |
 | --- | --- |
-| `chaps components disable dhis2`, with or without `--purge` | Forgotten with the component, and the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
-| `chaps down --volumes`, when `dhis2_db` was actually removed | Forgotten with the database, and the line says why. |
-| A `chaps dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through, or an app missing or failed: the hint comes back, which is the answer that errs the safe way. |
-| A `chaps dhis2 connect` that could not look | Nothing. `--offline` skips the apps, so the run has nothing to say about them and the timestamp stays where it was. |
+| `varde components disable dhis2`, with or without `--purge` | Forgotten with the component, and the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
+| `varde down --volumes`, when `dhis2_db` was actually removed | Forgotten with the database, and the line says why. |
+| A `varde dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through, or an app missing or failed: the hint comes back, which is the answer that errs the safe way. |
+| A `varde dhis2 connect` that could not look | Nothing. `--offline` skips the apps, so the run has nothing to say about them and the timestamp stays where it was. |
 
-The `chaps down --volumes` row is the one worth understanding. `dhis2_db` going
-means the next `chaps up` restores [the seed dump](#the-seed) into a database
+The `varde down --volumes` row is the one worth understanding. `dhis2_db` going
+means the next `varde up` restores [the seed dump](#the-seed) into a database
 being created **and that dump ships a `chap` route of its own, pointed at an
 external server**. A record that survived would suppress the one line asking the
 operator to repoint it, on a deployment whose Modeling App is quietly talking to
@@ -721,7 +721,7 @@ route, which is why it clears the record whether or not `--purge` was given: a
 `dhis2_db` kept on disk may be re-created from the dump later anyway.
 
 ```text
-note: the record of `chaps dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
+note: the record of `varde dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
 ```
 
 #### What does not clear it
@@ -730,45 +730,45 @@ Nothing that happens inside DHIS2. Deleting the route, repointing it, disabling
 it, dropping the `F_CHAP_MODELING_APP` authority, uninstalling either app, or
 restoring a different database into the same volume by hand all leave the
 timestamp exactly where it is, and the two hint lines stay quiet. So does a
-restored [backup](./backup.md), which brings `.chaps/` and the volumes back
+restored [backup](./backup.md), which brings `.varde/` and the volumes back
 together and is therefore consistent, but says nothing about what has happened
 to that DHIS2 since.
 
 None of that is a gap to be closed by reading more state: a record can only ever
-say what happened at one moment, and the live answer needs a request. `chaps
+say what happened at one moment, and the live answer needs a request. `varde
 dhis2 show` is that request.
 
 ### The credentials, and where they come from
 
-`chaps` holds no DHIS2 credentials, and every request above needs one: a
+`varde` holds no DHIS2 credentials, and every request above needs one: a
 username and password (HTTP Basic), or a DHIS2 **personal access token**. The
 rule is that **a password belongs to the user it was set with**, so the places
-chaps reads are pairs, and the first that has a value wins:
+varde reads are pairs, and the first that has a value wins:
 
 | Order | Source | Notes |
 | --- | --- | --- |
 | 1 | `DHIS2_API_TOKEN` in `.env` | A personal access token. Preferred to the password beside it: it can be scoped and revoked. |
 | 2 | `DHIS2_ADMIN_PASSWORD` in `.env`, for `DHIS2_ADMIN_USERNAME` | The deployment's own answer, and where its other secrets already live. The user is `admin` when the file names none. |
-| 3 | `CHAPS_DHIS2_TOKEN` in the environment | A token kept off disk: `export` it for one shell. |
-| 4 | `CHAPS_DHIS2_PASSWORD` in the environment, for `CHAPS_DHIS2_USERNAME` | A password kept off disk. Without `CHAPS_DHIS2_USERNAME` it is the password of the user `.env` names. |
-| 5 | `seed_password:` in `.chaps/components.yaml` | For any user, on a DHIS2 chaps restored from a seed with that option. The restore gave every user that password. |
-| 6 | `admin` / `district` | The DHIS2 default, and only on a DHIS2 chaps deployed. |
+| 3 | `VARDE_DHIS2_TOKEN` in the environment | A token kept off disk: `export` it for one shell. |
+| 4 | `VARDE_DHIS2_PASSWORD` in the environment, for `VARDE_DHIS2_USERNAME` | A password kept off disk. Without `VARDE_DHIS2_USERNAME` it is the password of the user `.env` names. |
+| 5 | `seed_password:` in `.varde/components.yaml` | For any user, on a DHIS2 varde restored from a seed with that option. The restore gave every user that password. |
+| 6 | `admin` / `district` | The DHIS2 default, and only on a DHIS2 varde deployed. |
 
 The default is not a guess. A seeded demo dump ships that user, and a
 Flyway-bootstrapped empty database gets it from `DefaultAdminUserPopulator`, which
 has both words compiled in. It is never sent to an
-[external DHIS2](#a-dhis2-that-runs-elsewhere): chaps did not create that
+[external DHIS2](#a-dhis2-that-runs-elsewhere): varde did not create that
 instance, so `district` is nobody's password there, and trying it would only be a
 failed login in its audit log. An external DHIS2 with none of the four set is an
 error before any request is made. So is a `.env` that names a user and sets no
 password for them: the default belongs to `admin`, not to whoever the file names.
 
-`.env` carries the variable names as commented placeholders. On a DHIS2 chaps
+`.env` carries the variable names as commented placeholders. On a DHIS2 varde
 deployed they hold exactly the values already used, so uncommenting one changes
 nothing until it is edited:
 
 ```ini
-# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
+# DHIS2 login `varde dhis2` uses. Only varde reads these - no container is given
 # them - and commented out means the DHIS2 default below. A personal access token,
 # when set, is used instead of the username and password.
 # DHIS2_API_TOKEN=
@@ -777,8 +777,8 @@ nothing until it is edited:
 ```
 
 For an external DHIS2 the password line is empty, since there is no default to
-write down. `chaps sync` adds the section when a DHIS2 is first used.
-Only `chaps` reads these variables. None of them reaches a container, so none
+write down. `varde sync` adds the section when a DHIS2 is first used.
+Only `varde` reads these variables. None of them reaches a container, so none
 appears in a generated compose file.
 
 **`--user NAME`** asks for one user by name for one run. That always means a
@@ -786,20 +786,20 @@ password, even when a token is on offer, and only a password that belongs to
 `NAME` is sent:
 
 - `DHIS2_ADMIN_PASSWORD`, when `.env` names `NAME`;
-- `CHAPS_DHIS2_PASSWORD`, unless `CHAPS_DHIS2_USERNAME` gives it to someone else;
-- the default, for `admin` on a DHIS2 chaps deployed.
+- `VARDE_DHIS2_PASSWORD`, unless `VARDE_DHIS2_USERNAME` gives it to someone else;
+- the default, for `admin` on a DHIS2 varde deployed.
 
 Anything else is refused before a request is made, rather than sending one user's
 password in another's name. So a one-off run as someone else is:
 
 ```sh
-CHAPS_DHIS2_PASSWORD=theirs chaps dhis2 show --user alice
+VARDE_DHIS2_PASSWORD=theirs varde dhis2 show --user alice
 ```
 
 There is deliberately **no `--password` or `--token` flag**, because a secret on
 a command line ends up in the shell history and in `ps`. Nothing ever prints the
 secret. A report names the user and says what the credential is and where it was
-found (`password from .env`, `API token from CHAPS_DHIS2_TOKEN`, `the DHIS2
+found (`password from .env`, `API token from VARDE_DHIS2_TOKEN`, `the DHIS2
 default password`). For a token, the user is whoever DHIS2 says owns it
 (`GET /api/me`). `-vv` traces the header as `Authorization: Basic <admin and its
 password>` or `Authorization: ApiToken <the token>`.
@@ -814,28 +814,28 @@ A credential DHIS2 does not accept gets an error that says so, rather than
 "request failed":
 
 ```text
-error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
-error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
+error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `VARDE_DHIS2_PASSWORD`
+error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `VARDE_DHIS2_TOKEN`
 ```
 
 ### A DHIS2 that runs elsewhere
 
 Most real deployments put Chap beside a DHIS2 that already runs on a server of
-its own. `chaps dhis2 use` records one, and from then on every `chaps dhis2`
+its own. `varde dhis2 use` records one, and from then on every `varde dhis2`
 verb talks to it instead of the `dhis2` component:
 
 ```sh
-chaps dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
+varde dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
 ```
 
 It takes two URLs because the two directions are different:
 
 | URL | Whose view | What it is for |
 | --- | --- | --- |
-| the DHIS2 URL | this machine's | every request chaps makes: the origin, plus the context path of a DHIS2 served under one (`https://example.org/dhis`) |
+| the DHIS2 URL | this machine's | every request varde makes: the origin, plus the context path of a DHIS2 served under one (`https://example.org/dhis`) |
 | `--chap-url` | DHIS2's | where the `chap` route points. chap-core as that DHIS2 server reaches it, including any `CHAP_ROOT_PATH` |
 
-The route is the only reason for `--chap-url`, and chaps cannot work it out. The
+The route is the only reason for `--chap-url`, and varde cannot work it out. The
 compose alias `http://chap:8000` resolves only inside this deployment, and
 `localhost` on the DHIS2 server is that server. So the route becomes
 `<chap-url>/**` (`https://chap.example.org/**`), and a `--chap-url` that names
@@ -847,7 +847,7 @@ DHIS2 that redirects - `http://` to `https://` behind a proxy, say - is
 followed, and its credentials go along only on the same host, never to
 another one.
 
-The record lives in `.chaps/components.yaml`, next to the components:
+The record lives in `.varde/components.yaml`, next to the components:
 
 ```yaml
 dhis2-external:
@@ -857,54 +857,54 @@ dhis2-external:
 ```
 
 `use` records the URLs and then asks the DHIS2 two things: whether `/api/ping`
-answers, and whether it accepts the credential `chaps dhis2` would send. It
-reports both, and names the next step: the credential to set, or `chaps dhis2
+answers, and whether it accepts the credential `varde dhis2` would send. It
+reports both, and names the next step: the credential to set, or `varde dhis2
 connect`. A URL that did not answer is still recorded, since the DHIS2 may just
 be down for maintenance. The report says so.
 
 ```text
-recorded the external DHIS2 at https://dhis2.example.org in `.chaps/components.yaml`
+recorded the external DHIS2 at https://dhis2.example.org in `.varde/components.yaml`
 dhis2     https://dhis2.example.org (answers /api/ping)
 chap-url  https://chap.example.org
 route     https://chap.example.org/**
 login     API token from `.env` (accepted)
 connected never recorded
-run `chaps dhis2 connect` to point its route at this Chap
+run `varde dhis2 connect` to point its route at this Chap
 ```
 
 | Form | What it does |
 | --- | --- |
-| `chaps dhis2 use URL --chap-url URL` | Record one, or replace the one recorded. |
-| `chaps dhis2 use URL` / `chaps dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. |
-| `chaps dhis2 use` | Say which DHIS2 `chaps dhis2` talks to, and ask it. Writes nothing. |
-| `chaps dhis2 use --clear` | Forget it; `chaps dhis2` talks to the `dhis2` component again. |
+| `varde dhis2 use URL --chap-url URL` | Record one, or replace the one recorded. |
+| `varde dhis2 use URL` / `varde dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. |
+| `varde dhis2 use` | Say which DHIS2 `varde dhis2` talks to, and ask it. Writes nothing. |
+| `varde dhis2 use --clear` | Forget it; `varde dhis2` talks to the `dhis2` component again. |
 
 What changes against an external DHIS2:
 
 - **`connect` sets the route and nothing else.** Installing apps and generating
-  analytics tables change a server chaps does not run, and an analytics run on a
+  analytics tables change a server varde does not run, and an analytics run on a
   national instance takes hours of its CPU. `connect` says which of the two
   apps are missing and ends with a `skipped:` line for each step it left; its
-  admin runs `chaps dhis2 apps` and `chaps dhis2 analytics` when they agree.
+  admin runs `varde dhis2 apps` and `varde dhis2 analytics` when they agree.
   `connected_at` is recorded once the route is proved.
 - **Credentials have no default.** See
   [the credentials](#the-credentials-and-where-they-come-from). A token is the
   natural choice for a server you do not own the admin password of.
 - **Nothing asks docker.** There is no container. The wait for `/api/ping` is
   the whole check, and a DHIS2 that does not answer points you back at the
-  recorded URL rather than at `chaps logs dhis2`.
-- **The analytics timestamp is trusted.** No seed dump of chaps' was restored
+  recorded URL rather than at `varde logs dhis2`.
+- **The analytics timestamp is trusted.** No seed dump of varde' was restored
   into it, so `lastAnalyticsTableSuccess` is that instance's own.
 - **The allowlist is that server's.** A refused route names
   `route.remote_servers_allowed` in the `dhis.conf` on the DHIS2 server, which is
   its operator's file, not one in this directory.
-- **`chaps open dhis2` opens it**, and `chaps up` names `chaps dhis2 connect`
+- **`varde open dhis2` opens it**, and `varde up` names `varde dhis2 connect`
   until a connect is recorded against it, just as for the component.
   `connected_at` is its own record. Moving either URL forgets it, because a
   connect was a fact about one DHIS2 and one route target.
 
 It is one DHIS2 or the other, never both. `use` refuses while the `dhis2`
-component is on, and `chaps components enable dhis2` refuses while an external
+component is on, and `varde components enable dhis2` refuses while an external
 DHIS2 is recorded. Each names the command that clears the way.
 
 ### The route is repointed, not created
@@ -915,7 +915,7 @@ disabled - aimed at an external server, so it looks fully configured. A
 "create if absent" implementation would skip it and the deployment would quietly
 send its data somewhere else.
 
-`chaps dhis2 route` therefore compares and rewrites. It leaves the route alone
+`varde dhis2 route` therefore compares and rewrites. It leaves the route alone
 only when all three are already true, and names whichever is not:
 
 - the URL is this deployment's chap-core;
@@ -941,11 +941,11 @@ Then the route is **proved rather than assumed**: `GET
 the same address the Modeling App uses. A row in DHIS2's database says nothing
 about whether DHIS2 can resolve the hostname, is allowed to reach it, or gets an
 answer. If nothing answers, the route is still correct and the command still
-succeeds - a chap-core that is down is `chaps up`'s problem - so the line is a
+succeeds - a chap-core that is down is `varde up`'s problem - so the line is a
 warning and `--json` carries `"verified": false`:
 
 ```text
-warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `chaps status` to see whether chap-core is up
+warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `varde status` to see whether chap-core is up
 ```
 
 `route.remote_servers_allowed` in
@@ -954,7 +954,7 @@ https target, so the allowlist is not normally in the way. On an instance whose 
 or replaced it is, and DHIS2's refusal is turned into the line that says so:
 
 ```text
-error: DHIS2 refused the route: version 42 and later only allow the origins `route.remote_servers_allowed` lists, and http://chap:8000 has to be one of them; check that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it to read the file again
+error: DHIS2 refused the route: version 42 and later only allow the origins `route.remote_servers_allowed` lists, and http://chap:8000 has to be one of them; check that line in `dhis2/dhis.conf` and run `varde restart dhis2`, which recreates it to read the file again
 ```
 
 DHIS2's own answer to that write is `409 Conflict` with the message `Route URL
@@ -969,7 +969,7 @@ The Modeling and Climate apps read their figures out of DHIS2's `analytics_*`
 tables, which exist only once analytics has been generated.
 
 ```sh
-chaps dhis2 analytics
+varde dhis2 analytics
 ```
 
 is `POST /api/resourceTables/analytics?skipTrackedEntities=true`, followed by
@@ -986,7 +986,7 @@ limited is a `curl` against DHIS2 rather than a footgun in this command.
 
 DHIS2 runs **one** analytics job at a time, and a second `POST` queues behind the
 first with an empty notifier - so a wait on it would report nothing for as long
-as the first one takes. `chaps dhis2 analytics` therefore adopts a run that is
+as the first one takes. `varde dhis2 analytics` therefore adopts a run that is
 already going instead of asking for another:
 
 ```text
@@ -1012,10 +1012,10 @@ success of `2026-06-16T07:51:00.093` while `analytics_2024` did not exist at all
 the table was absent, not empty. It is a fact about the database the dump was
 taken from.
 
-`chaps` reaches DHIS2 over HTTP and cannot look at the tables, so `show` reports
+`varde` reaches DHIS2 over HTTP and cannot look at the tables, so `show` reports
 what it checked and labels the timestamp with what it is worth:
 
-| Row | What chaps checked |
+| Row | What varde checked |
 | --- | --- |
 | `analytics  never run` | DHIS2 records no successful run at all. |
 | `analytics  2026-09-27T10:10:40.043 (a run finished on this deployment)` | An analytics run has finished on this DHIS2 since it started, which `GET /api/system/tasks/ANALYTICS_TABLE` says. That notifier lives in the running process, so nothing a dump carries can put an entry in it. |
@@ -1025,12 +1025,12 @@ what it checked and labels the timestamp with what it is worth:
 The third of those is a question and not a verdict, and it is put as one:
 
 ```text
-missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `varde dhis2 analytics` to settle it
 ```
 
 Restarting DHIS2 empties the notifier, so a seeded deployment whose run was made
 before the last restart is reported `unconfirmed` again. That is the cautious
-answer rather than a wrong one: running `chaps dhis2 analytics` a second time is
+answer rather than a wrong one: running `varde dhis2 analytics` a second time is
 idempotent and cheap, and reading `show` as "analytics is done" when the tables
 are absent is the failure this whole command exists to catch.
 
@@ -1041,7 +1041,7 @@ distinction the `lastYears` trap above turns on.
 ### The apps come from the App Hub, server-side
 
 ```sh
-chaps dhis2 apps
+varde dhis2 apps
 ```
 
 resolves each app's newest version that this DHIS2 can run from
@@ -1061,18 +1061,18 @@ it.
 
 **A blank bound is no bound.** The App Hub sends a bound it has not set as an
 empty string rather than as an absent field - every one of the Modeling App's
-published versions carries `"maxDhisVersion": ""` - and chaps treats missing,
+published versions carries `"maxDhisVersion": ""` - and varde treats missing,
 empty, whitespace and unreadable the same on both sides. A bound it cannot
 compare against is one it cannot honour, and refusing on it would refuse
 everything.
 
 Three names for the same app, and they all differ: the App Hub publishes the
 Modeling App as `Modeling`, an instance lists it under `Modeling` with the key
-`dhis2-chapmodeling-app`, and `chaps` calls it the **Modeling App** everywhere it
+`dhis2-chapmodeling-app`, and `varde` calls it the **Modeling App** everywhere it
 prints. Matching takes the punctuation and the case out and accepts one name
 containing the other, so all three spellings find each other.
 
-`chaps dhis2 show` reports those two apps and no others. A 2.42.6 ships 29
+`varde dhis2 show` reports those two apps and no others. A 2.42.6 ships 29
 bundled apps of its own, identical on every DHIS2, and they are not what this
 command answers for:
 
@@ -1086,11 +1086,11 @@ survive a recreate and [a backup](#backing-it-up) carries them.
 
 This is the one step that cannot work `--offline`, and it needs the network twice:
 here for the version id, and from DHIS2 for the app. Under `--offline` it is
-refused with what it would have needed, and `chaps dhis2 connect --offline` does
+refused with what it would have needed, and `varde dhis2 connect --offline` does
 the other two steps and reports the skip rather than failing:
 
 ```text
-skipped: installing an app needs the DHIS2 App Hub, twice: chaps resolves the version there and DHIS2 downloads the app itself; run the command without `--offline`, or install both apps from DHIS2's own App Management page
+skipped: installing an app needs the DHIS2 App Hub, twice: varde resolves the version there and DHIS2 downloads the app itself; run the command without `--offline`, or install both apps from DHIS2's own App Management page
 ```
 
 ### The waits are long, and they are refusals first
@@ -1104,13 +1104,13 @@ to a trace line and DHIS2 is asked directly.
 
 Then `/api/ping` is polled until it answers, for twenty minutes by default
 (`--wait SECONDS`), because that is what a first start can take. An external
-DHIS2 recorded with `chaps dhis2 use` is not migrating behind this
+DHIS2 recorded with `varde dhis2 use` is not migrating behind this
 deployment's back, so it gets one minute by default: a mistyped URL or one
 behind single sign-on fails in a minute rather than in twenty. A DHIS2 that is
 already answering says nothing at all; one that is not says so once:
 
 ```text
-DHIS2 at http://localhost:8780 is not answering /api/ping yet; waiting up to 20 minutes, and `chaps logs dhis2` is where the migration shows
+DHIS2 at http://localhost:8780 is not answering /api/ping yet; waiting up to 20 minutes, and `varde logs dhis2` is where the migration shows
 ```
 
 `/api/ping` is the only route DHIS2 answers without credentials, so it is the
@@ -1122,7 +1122,7 @@ version every report opens with.
 
 ```text
 mychap/
-  .chaps/
+  .varde/
     components.yaml      intent: the dhis2 block - enabled, port, image_tag, seed
   compose.dhis2.yml      artifact: the four services and the three volumes
   dhis2/
@@ -1141,7 +1141,7 @@ DHIS2_ENCRYPTION_PASSWORD=217ab7126f92244466434ebc5a4c7c16
 # DHIS2_DB_DUMP_URL=https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz
 # DHIS2_JAVA_TOOL_OPTIONS=-Xms2g -Xmx4g -XX:+UseG1GC
 
-# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given
+# DHIS2 login `varde dhis2` uses. Only varde reads these - no container is given
 # them - and commented out means the DHIS2 default below. A personal access token,
 # when set, is used instead of the username and password.
 # DHIS2_API_TOKEN=
@@ -1152,36 +1152,36 @@ DHIS2_ENCRYPTION_PASSWORD=217ab7126f92244466434ebc5a4c7c16
 The commented lines each carry the value the command that reads them already
 falls back to, so uncommenting one changes nothing until it is edited. The login
 block is [a section of its own](#the-credentials-and-where-they-come-from) so that
-a deployment which enabled DHIS2 before `chaps dhis2` existed gets it appended on
-its next `chaps sync`; the two variables are the whole answer to where the
+a deployment which enabled DHIS2 before `varde dhis2` existed gets it appended on
+its next `varde sync`; the two variables are the whole answer to where the
 credentials come from, and a name nobody can find is a name nobody sets. For a seed
 that is a file rather than a URL, `DHIS2_DB_DUMP_URL` carries the path *inside*
 the container (`/opt/seed.sql.gz`), because the host path would be one nothing in
 there can read.
 
-`chaps components disable dhis2` keeps all three volumes and names each one, and
+`varde components disable dhis2` keeps all three volumes and names each one, and
 leaves `dhis2/` alone:
 
 ```text
 disabled dhis2
 removed compose.dhis2.yml
-note: kept volume mychap-1ab2c3_dhis2_home; remove it with `chaps components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_home`
-note: kept volume mychap-1ab2c3_dhis2_db; remove it with `chaps components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_db`
-note: kept volume mychap-1ab2c3_dhis2_dump; remove it with `chaps components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_dump`
+note: kept volume mychap-1ab2c3_dhis2_home; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_home`
+note: kept volume mychap-1ab2c3_dhis2_db; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_db`
+note: kept volume mychap-1ab2c3_dhis2_dump; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_dump`
 note: the dhis2/ directory is left alone; it is yours
-run `chaps up` to apply
+run `varde up` to apply
 ```
 
 ## Backing it up
 
-`chaps backup create` archives `dhis2_home` and the DHIS2 database, one member
-each, and `chaps backup restore` puts both back.
+`varde backup create` archives `dhis2_home` and the DHIS2 database, one member
+each, and `varde backup restore` puts both back.
 
 The database is a `pg_dump`, not a copy of the `dhis2_db` volume, with the
 exclusions of [dhis2-server-tools](https://github.com/dhis2/dhis2-server-tools):
 
 - It leaves out the tables `analytics_*`, `aggregated_*`, `completeness_*` and
-  `_*`. DHIS2 makes them again with the next `chaps dhis2 analytics`.
+  `_*`. DHIS2 makes them again with the next `varde dhis2 analytics`.
 - It leaves out the rows of `audit`, and keeps the table.
 - It does not pause the database: `pg_dump` reads one consistent snapshot while
   DHIS2 runs.
@@ -1192,10 +1192,10 @@ a volume of 62 GB after analytics:
 
 | | Time | Size |
 | --- | --- | --- |
-| `chaps backup create` | 4 min 32 s | 4.2 GB |
-| `chaps backup restore` | 7 min 36 s | 19 GB database, no analytics tables |
+| `varde backup create` | 4 min 32 s | 4.2 GB |
+| `varde backup restore` | 7 min 36 s | 19 GB database, no analytics tables |
 
-Run `chaps dhis2 analytics` after a restore: until then, DHIS2 has no
+Run `varde dhis2 analytics` after a restore: until then, DHIS2 has no
 analytics tables, so its dashboards and the Modeling App have no data.
 
 `dhis2_dump` is deliberately left out: it
@@ -1205,12 +1205,12 @@ the whole dump to every backup of the deployment for nothing. See
 
 `dhis2/` is in the archive's `files/`, on the same terms
 `ocs/climate-service.yaml` is: it is scaffolded once and never rewritten, so an
-edit made to `dhis.conf` exists nowhere else, and `chaps sync` can only write a
+edit made to `dhis.conf` exists nowhere else, and `varde sync` can only write a
 fresh one. The whole directory goes in rather than the one file, because whatever
 you keep beside it is yours on the same grounds, and anything nested under
 `dhis2/` is archived with it.
 
 The directory is collected whether or not `dhis2` is enabled when the backup is
-taken. `chaps components disable dhis2` leaves `dhis2/` alone and says it is
+taken. `varde components disable dhis2` leaves `dhis2/` alone and says it is
 yours, so an archive written while the component is off still has your
 `dhis.conf` in it, and a restore puts it back where it was.

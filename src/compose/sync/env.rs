@@ -82,7 +82,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     // ERA5-Land key that arrives here would have had to come from somewhere
     // this CLI has no business reading. The section exists so the variable
     // names are in the file an operator already edits rather than in the docs
-    // alone, and so `chaps auth show` has something to report on.
+    // alone, and so `varde auth show` has something to report on.
     //
     // The heading wraps at 80 columns, unlike the notes this same fact is
     // printed in: a note scrolls past in a terminal, and `.env` is opened in an
@@ -157,7 +157,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
             spec.image_tag,
         ));
     }
-    // The credentials `chaps dhis2` authenticates with, as placeholders holding
+    // The credentials `varde dhis2` authenticates with, as placeholders holding
     // the values it already falls back to - so uncommenting one changes nothing
     // until it is edited, the same rule the pins above follow.
     //
@@ -165,7 +165,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
     // come from", and a name nobody can find is a name nobody sets.
     // Nothing here is a secret: every line is commented, `admin` and `district`
     // are what a seeded dump and an empty database both give, and no container
-    // is passed any of them. An external DHIS2 gets no `district`: chaps did not
+    // is passed any of them. An external DHIS2 gets no `district`: varde did not
     // create it, so there is no default to write down.
     let deployed = components.dhis2.enabled && components.dhis2_external.is_none();
     let wanted = components.dhis2.enabled || components.dhis2_external.is_some();
@@ -173,7 +173,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
         || mentions_var(body, crate::dhis2::ADMIN_PASSWORD_ENV_VAR);
     if wanted && !login_named {
         sections.push(format!(
-            "# DHIS2 login `chaps dhis2` uses. Only chaps reads these - no container is given\n\
+            "# DHIS2 login `varde dhis2` uses. Only varde reads these - no container is given\n\
              # them - and {}. A personal access token,\n\
              # when set, is used instead of the username and password.\n\
              # {}=\n\
@@ -181,7 +181,7 @@ fn component_env_sections(components: &Components, body: &str) -> Result<Vec<Str
              # {}={}\n",
             match deployed {
                 true => "commented out means the DHIS2 default below",
-                false => "chaps has no default for a DHIS2 it did not deploy",
+                false => "varde has no default for a DHIS2 it did not deploy",
             },
             crate::dhis2::API_TOKEN_ENV_VAR,
             crate::dhis2::ADMIN_USERNAME_ENV_VAR,
@@ -247,7 +247,7 @@ pub enum EnvTag {
 ///
 /// Exactly one line may change, and only when it still says what this project
 /// recorded: an operator who pinned something else, or who left the generated
-/// placeholder commented out, has made a decision that `chaps update` does not
+/// placeholder commented out, has made a decision that `varde update` does not
 /// get to undo. The outcome says which of those it was so the caller can warn.
 pub fn set_env_chap_tag(dir: &Path, old: &str, new: &str) -> Result<EnvTag> {
     let path = dir.join(ENV_FILE);

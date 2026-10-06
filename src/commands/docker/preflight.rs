@@ -1,4 +1,4 @@
-//! The port check `chaps up` runs before docker is let near the ports.
+//! The port check `varde up` runs before docker is let near the ports.
 
 use super::note;
 use crate::commands::Ctx;
@@ -13,10 +13,10 @@ use std::io::{BufRead, IsTerminal, Write};
 /// Docker would find the same conflict, several seconds in, and name a
 /// container rather than a port; this says which port, who wanted it and how
 /// to move it, before anything has started. Ports held by this project's own
-/// running containers are ours, so they are skipped: `chaps up` on a running
+/// running containers are ours, so they are skipped: `varde up` on a running
 /// stack has to stay a no-op.
 ///
-/// When every taken port is published by another chaps deployment, that is
+/// When every taken port is published by another varde deployment, that is
 /// almost always the one to put away, so `up` offers to: at a terminal it asks,
 /// with `--replace` it does it without asking, and otherwise it refuses and
 /// names both ways.
@@ -47,8 +47,8 @@ pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
         })
         .collect();
     let message = ports::preflight_message(&conflicts);
-    // Only when every conflict is another chaps deployment: a port some other
-    // program holds is not chaps' to take away.
+    // Only when every conflict is another varde deployment: a port some other
+    // program holds is not varde' to take away.
     if conflicts.iter().any(|conflict| conflict.holders.is_empty()) {
         return Err(anyhow::anyhow!(message));
     }
@@ -69,7 +69,7 @@ pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
         let interactive = !ctx.out.json && std::io::stdin().is_terminal();
         if !interactive {
             return Err(anyhow::anyhow!(
-                "{message}\n  or run `chaps up --replace` to stop {names} first"
+                "{message}\n  or run `varde up --replace` to stop {names} first"
             ));
         }
         eprintln!("{message}");
@@ -94,7 +94,7 @@ pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
         note(
             ctx,
             &format!(
-                "stopping {} ({}) to free its ports; `chaps -C {} up` starts it again",
+                "stopping {} ({}) to free its ports; `varde -C {} up` starts it again",
                 held.name(),
                 held.dir.display(),
                 held.dir.display()
@@ -108,7 +108,7 @@ pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
     if !busy.is_empty() {
         let still: Vec<String> = busy.iter().map(|claim| claim.port.to_string()).collect();
         return Err(anyhow::anyhow!(
-            "stopped {names}, and port {} is still in use; run `chaps up` again to see by what",
+            "stopped {names}, and port {} is still in use; run `varde up` again to see by what",
             still.join(", ")
         ));
     }

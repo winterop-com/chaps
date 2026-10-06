@@ -96,7 +96,7 @@ pub(super) fn plan(
             update.manual = true;
             update.follow = manual.follow.clone();
             // A manual entry follows a branch or it is pinned; the channel
-            // `.chaps/models.yaml` records only says which of the two.
+            // `.varde/models.yaml` records only says which of the two.
             update.pinned = manual.follow.is_none();
             if manual.follow.is_some() {
                 match follow(id, manual) {
@@ -164,7 +164,7 @@ pub(super) fn resolve_users(
 }
 
 /// The newest published build of a manually added model's branch, as
-/// `chaps update` asks for it.
+/// `varde update` asks for it.
 ///
 /// Every failure is a warning and a `None`: a repository that will not answer
 /// must not stop the marketplace half of the update, and leaving the pin

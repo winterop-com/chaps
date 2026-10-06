@@ -17,7 +17,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "Create a deployment directory: compose files, .env and .chaps/",
+            "Create a deployment directory: compose files, .env and .varde/",
         ))
         .stdout(predicates::str::contains("--force"));
 
@@ -26,10 +26,10 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "already contains a chaps project; use --force to overwrite",
+            "already contains a varde project; use --force to overwrite",
         ));
 
-    // `chaps init --api-port N --force` rewrites the project, but the
+    // `varde init --api-port N --force` rewrites the project, but the
     // `CHAP_API_PORT` line the first init wrote into `.env` is what compose
     // publishes, and `init` says so rather than claiming the port moved.
     let port = port_base();
@@ -45,7 +45,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
             "so the API stays on 8700 rather than {port}; edit that line to move it"
         )));
     assert!(
-        read(&dir.join(".chaps/project.yaml")).contains(&format!("api_port: {port}")),
+        read(&dir.join(".varde/project.yaml")).contains(&format!("api_port: {port}")),
         "--force rewrote the project"
     );
     // And the listing follows `.env`, like every other command does.
@@ -63,8 +63,8 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
     nested
         .assert()
         .success()
-        .stderr(predicates::str::contains("is inside the chaps project at"));
-    assert!(dir.join("inner/.chaps/project.yaml").is_file());
+        .stderr(predicates::str::contains("is inside the varde project at"));
+    assert!(dir.join("inner/.varde/project.yaml").is_file());
 }
 
 /// A group command with no subcommand is not a question its own help answers
@@ -73,8 +73,8 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
 #[test]
 fn a_bare_group_command_outside_a_project_asks_for_a_project() {
     let sandbox = Sandbox::new();
-    let missing = "is not a chaps project (no .chaps/project.yaml here or in a parent \
-                   directory); run `chaps init` first";
+    let missing = "is not a varde project (no .varde/project.yaml here or in a parent \
+                   directory); run `varde init` first";
 
     for group in ["components", "auth", "backup", "docker"] {
         chap_in(&sandbox, sandbox.home.path(), &[group])
@@ -101,7 +101,7 @@ fn a_bare_group_command_outside_a_project_asks_for_a_project() {
         chap_in(&sandbox, sandbox.home.path(), &[group])
             .assert()
             .code(2)
-            .stderr(predicates::str::contains("Usage: chaps"));
+            .stderr(predicates::str::contains("Usage: varde"));
     }
     chap_in(&sandbox, sandbox.home.path(), &["models", "list"])
         .assert()
@@ -112,7 +112,7 @@ fn a_bare_group_command_outside_a_project_asks_for_a_project() {
     chap_in(&sandbox, &sandbox.project(), &["components"])
         .assert()
         .code(2)
-        .stderr(predicates::str::contains("Usage: chaps components"))
+        .stderr(predicates::str::contains("Usage: varde components"))
         .stderr(predicates::str::contains("enable"));
 }
 
@@ -121,7 +121,7 @@ fn the_help_says_what_chap_is() {
     let sandbox = Sandbox::new();
 
     // The header has to name the platform, not just chap-core: someone typing
-    // `chaps --help` for the first time may not know what chap-core is.
+    // `varde --help` for the first time may not know what chap-core is.
     chap_in(&sandbox, sandbox.home.path(), &["--help"])
         .assert()
         .success()
@@ -150,7 +150,7 @@ fn the_help_says_what_chap_is() {
     assert_eq!(
         String::from_utf8(short).expect("help is text"),
         String::from_utf8(long).expect("help is text"),
-        "`chaps -h` and `chaps --help` print the same thing"
+        "`varde -h` and `varde --help` print the same thing"
     );
 
     // And the whole of it fits on a screen, with the book one line away.
@@ -164,7 +164,7 @@ fn the_help_says_what_chap_is() {
     assert!(help.lines().count() <= 40, "{help}");
     assert!(
         help.trim_end()
-            .ends_with("Docs: https://winterop-com.github.io/chaps/"),
+            .ends_with("Docs: https://winterop-com.github.io/varde/"),
         "{help}"
     );
 }
@@ -176,10 +176,10 @@ fn the_help_says_what_chap_is() {
 #[test]
 fn the_root_help_ends_on_a_blank_line() {
     let sandbox = Sandbox::new();
-    let ends_blank = "Docs: https://winterop-com.github.io/chaps/\n\n";
+    let ends_blank = "Docs: https://winterop-com.github.io/varde/\n\n";
 
     // Every way of asking the root for help, including the `help` subcommand
-    // and a bare `chaps`, which answers with the same help on stderr.
+    // and a bare `varde`, which answers with the same help on stderr.
     for argv in [vec!["--help"], vec!["-h"], vec!["help"]] {
         let help = chap_in(&sandbox, sandbox.home.path(), &argv)
             .assert()
@@ -188,14 +188,14 @@ fn the_root_help_ends_on_a_blank_line() {
             .stdout
             .clone();
         let help = String::from_utf8(help).expect("help is text");
-        assert!(help.ends_with(ends_blank), "`chaps {argv:?}`:\n{help:?}");
+        assert!(help.ends_with(ends_blank), "`varde {argv:?}`:\n{help:?}");
     }
-    // A bare `chaps` - no arguments at all, so not through `chap_in`, which
+    // A bare `varde` - no arguments at all, so not through `chap_in`, which
     // always passes `--offline` - answers with the same help on stderr.
-    let mut bare = Command::cargo_bin("chaps").expect("the chaps binary is built");
+    let mut bare = Command::cargo_bin("varde").expect("the varde binary is built");
     let bare = bare
-        .env("CHAPS_CACHE_DIR", sandbox.cache.path())
-        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
+        .env("VARDE_CACHE_DIR", sandbox.cache.path())
+        .env("VARDE_DATA_DIR", sandbox.cache.path().join("data"))
         .current_dir(sandbox.home.path())
         .assert()
         .code(2)
@@ -203,7 +203,7 @@ fn the_root_help_ends_on_a_blank_line() {
         .stderr
         .clone();
     let bare = String::from_utf8(bare).expect("help is text");
-    assert!(bare.ends_with(ends_blank), "bare `chaps`:\n{bare:?}");
+    assert!(bare.ends_with(ends_blank), "bare `varde`:\n{bare:?}");
 
     // The blank line belongs to the root help alone: a subcommand's help has
     // no docs line to separate from the prompt, and gains no blank line.
@@ -222,7 +222,7 @@ fn the_root_help_ends_on_a_blank_line() {
         let help = String::from_utf8(help).expect("help is text");
         assert!(
             !help.ends_with("\n\n"),
-            "`chaps {argv:?}` gained a blank line:\n{help:?}"
+            "`varde {argv:?}` gained a blank line:\n{help:?}"
         );
     }
 }
@@ -241,8 +241,8 @@ fn init_inside_a_project_warns_about_the_parent() {
     nested
         .assert()
         .success()
-        .stderr(predicates::str::contains("is inside the chaps project at"));
-    assert!(dir.join("inner/.chaps/project.yaml").is_file());
+        .stderr(predicates::str::contains("is inside the varde project at"));
+    assert!(dir.join("inner/.varde/project.yaml").is_file());
 }
 
 /// The member names inside a `tar.gz`, via the same `tar` the CLI uses.
@@ -299,7 +299,7 @@ fn backup_create_packs_the_files_without_touching_docker() {
     let archive = only_archive(&out);
     let name = archive.file_name().unwrap().to_string_lossy().into_owned();
     assert!(
-        name.starts_with("chapx-") || name.starts_with("chaps-backup-chapx-"),
+        name.starts_with("chapx-") || name.starts_with("varde-backup-chapx-"),
         "the archive is named after the project: {name}"
     );
     assert!(text.contains(&archive.display().to_string()));
@@ -309,8 +309,8 @@ fn backup_create_packs_the_files_without_touching_docker() {
     assert!(members.contains(&"manifest.yaml".to_string()));
     for rel in [
         "files/.env",
-        "files/.chaps/project.yaml",
-        "files/.chaps/models.yaml",
+        "files/.varde/project.yaml",
+        "files/.varde/models.yaml",
         "files/compose.yml",
         "files/compose.marketplace.yml",
         "files/compose.chapkit-ewars-model.yml",
@@ -326,7 +326,7 @@ fn backup_create_packs_the_files_without_touching_docker() {
         "--no-models leaves the volumes out"
     );
     // The staging directory is scratch space and is cleaned up after itself.
-    assert!(!dir.join(".chaps/tmp").exists());
+    assert!(!dir.join(".varde/tmp").exists());
 
     // The manifest says what the archive is, without unpacking it.
     let manifest = std::process::Command::new("tar")
@@ -344,7 +344,7 @@ fn backup_create_packs_the_files_without_touching_docker() {
 }
 
 /// A command that is not one is clap's business: it names what was typed,
-/// suggests what was probably meant, and exits 2. `chaps` adds nothing of its
+/// suggests what was probably meant, and exits 2. `varde` adds nothing of its
 /// own, not even for the commands chap-core's developer CLI publishes.
 #[test]
 fn an_unknown_subcommand_is_claps_own_error() {
@@ -423,7 +423,7 @@ fn debug_implies_verbose_and_adds_the_resolved_project() {
     assert!(stderr.contains("compared"), "{stderr}");
     // -d's own half: where the state it read actually lives.
     assert!(stderr.contains("project:"), "{stderr}");
-    let state_file = Path::new(".chaps").join("project.yaml");
+    let state_file = Path::new(".varde").join("project.yaml");
     assert!(
         stderr.contains(&state_file.display().to_string()),
         "{stderr}"
@@ -517,7 +517,7 @@ fn self_works_outside_a_project_and_says_what_it_offers() {
     assert!(help.contains("update"), "{help}");
     assert!(help.contains("version"), "{help}");
 
-    // And `chaps self` on its own is a usage error, not a no-op.
+    // And `varde self` on its own is a usage error, not a no-op.
     let (_cache, mut cmd) = bare();
     cmd.arg("self").assert().failure();
 }
@@ -536,7 +536,7 @@ fn completions_are_printed_for_every_shell() {
         let script = String::from_utf8(out).unwrap_or_else(|e| panic!("{shell}: {e}"));
 
         assert!(!script.trim().is_empty(), "{shell} printed nothing");
-        assert!(script.contains("chaps"), "{shell} does not name chaps");
+        assert!(script.contains("varde"), "{shell} does not name varde");
         // Generated from the live tree, so the newest commands are in there.
         assert!(script.contains("self"), "{shell} misses `self`");
         assert!(script.contains("init"), "{shell} misses `init`");
@@ -614,12 +614,12 @@ fn doctor_outside_a_project_checks_the_machine_and_says_so() {
         "disk space",
         "network ghcr.io",
         "github api",
-        "chaps",
+        "varde",
     ] {
         assert!(text.contains(name), "`{name}` is missing from:\n{text}");
     }
     assert!(
-        text.contains("project: none here (run chaps doctor inside a deployment directory"),
+        text.contains("project: none here (run varde doctor inside a deployment directory"),
         "{text}"
     );
     // Nothing that needs a deployment ran.

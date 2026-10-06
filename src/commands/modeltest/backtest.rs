@@ -33,7 +33,7 @@ pub(super) fn backtest_level(
         return run.end(
             Verdict::Skip,
             "chap-core has no registration for it",
-            Some("run `chaps status` to see why".to_string()),
+            Some("run `varde status` to see why".to_string()),
         );
     };
     let period = period_type(Some(&info));
@@ -51,7 +51,7 @@ pub(super) fn backtest_level(
         return run.end(
             Verdict::Skip,
             format!("chap-core cannot reach it ({answer} from {proxied})"),
-            Some("run `chaps status`, which names the address and the fix".to_string()),
+            Some("run `varde status`, which names the address and the fix".to_string()),
         );
     }
 
@@ -66,7 +66,7 @@ pub(super) fn backtest_level(
                 enabled.service_id
             ),
             Some(format!(
-                "it is registered but nothing runs it, run `chaps restart --all {}` and try \
+                "it is registered but nothing runs it, run `varde restart --all {}` and try \
                  again",
                 enabled.service_id
             )),
@@ -91,8 +91,8 @@ pub(super) fn backtest_level(
                     chapkit_version(Some(&info))
                 ),
                 Some(format!(
-                    "update the model with `chaps update`, or test it on its own \
-                     with `chaps models test {id}`"
+                    "update the model with `varde update`, or test it on its own \
+                     with `varde models test {id}`"
                 )),
             );
         }
@@ -112,7 +112,7 @@ pub(super) fn backtest_level(
             return run.end(
                 Verdict::Skip,
                 "its sample data carries no frame",
-                Some("run `chaps models test --backtest -v` to see the answer".to_string()),
+                Some("run `varde models test --backtest -v` to see the answer".to_string()),
             );
         }
     };
@@ -127,14 +127,14 @@ pub(super) fn backtest_level(
         Err(err) => {
             return run.end(
                 Verdict::Skip,
-                "its sample data is not a frame chaps understands",
+                "its sample data is not a frame varde understands",
                 Some(first_line(&err.to_string())),
             );
         }
     };
     let geojson = modeltest::feature_collection(sample.get("geo"), &locations);
     let name = format!(
-        "chaps-test-{}-{}",
+        "varde-test-{}-{}",
         enabled.service_id,
         crate::backup::stamp(crate::backup::now())
     );
@@ -166,14 +166,14 @@ pub(super) fn backtest_level(
         return run.end(
             Verdict::Fail,
             "chap-core imported no org units from the sample data",
-            Some("run `chaps models test --backtest -v` to see what was sent".to_string()),
+            Some("run `varde models test --backtest -v` to see what was sent".to_string()),
         );
     }
     let Some(dataset_job) = made.get("id").and_then(|id| id.as_str()) else {
         return run.end(
             Verdict::Skip,
             "chap-core answered make-dataset without a job id",
-            Some("run `chaps models test --backtest -v` to see the answer".to_string()),
+            Some("run `varde models test --backtest -v` to see the answer".to_string()),
         );
     };
     let mut run = run;
@@ -192,7 +192,7 @@ pub(super) fn backtest_level(
                     modeltest::took(timeout.as_secs())
                 ),
                 Some(format!(
-                    "run `chaps jobs show {dataset_job}` for where it got to"
+                    "run `varde jobs show {dataset_job}` for where it got to"
                 )),
             );
         }
@@ -208,7 +208,7 @@ pub(super) fn backtest_level(
         return run.end(
             Verdict::Skip,
             "chap-core built the dataset without saying which row it is",
-            Some(format!("run `chaps jobs show {dataset_job}`")),
+            Some(format!("run `varde jobs show {dataset_job}`")),
         );
     };
     ctx.out
@@ -243,7 +243,7 @@ pub(super) fn backtest_level(
         return run.end(
             Verdict::Skip,
             "chap-core answered create-backtest without a job id",
-            Some("run `chaps models test --backtest -v` to see the answer".to_string()),
+            Some("run `varde models test --backtest -v` to see the answer".to_string()),
         );
     };
     run.job_id = Some(backtest_job.clone());
@@ -265,7 +265,7 @@ pub(super) fn backtest_level(
                     modeltest::took(timeout.as_secs())
                 ),
                 Some(format!(
-                    "run `chaps jobs show {backtest_job}` for where it got to; \
+                    "run `varde jobs show {backtest_job}` for where it got to; \
                      dataset {dataset} was left behind"
                 )),
             );
@@ -277,7 +277,7 @@ pub(super) fn backtest_level(
                 Verdict::Skip,
                 "chap-core stopped answering",
                 Some(format!(
-                    "{}; dataset {dataset} was left behind, and `chaps api DELETE \
+                    "{}; dataset {dataset} was left behind, and `varde api DELETE \
                      /v1/crud/datasets/{dataset}` removes it once chap-core answers",
                     first_line(&err.to_string())
                 )),
@@ -479,9 +479,9 @@ fn database_result(api: &Api, job: &str) -> Option<i64> {
 ///
 /// The job description carries a status and nothing else, so the reason is in
 /// the log; the rule for picking the line out of it is the one
-/// `chaps jobs logs` already uses.
+/// `varde jobs logs` already uses.
 fn job_failure(api: &Api, job: &str) -> (String, String) {
-    let next = format!("run `chaps jobs logs {job}`");
+    let next = format!("run `varde jobs logs {job}`");
     let path = format!("{}/{}/logs", jobs::JOBS_PATH, crate::api::encode(job));
     let text = match api.send("GET", &path, None) {
         Ok(answer) if answer.is_success() => match answer.json() {
@@ -516,7 +516,7 @@ fn drop_rows(ctx: &Ctx, api: &Api, backtest: Option<i64>, dataset: Option<i64>, 
                 .collect();
             let commands: Vec<String> = kept
                 .iter()
-                .map(|(collection, row)| format!("`chaps api DELETE /v1/crud/{collection}/{row}`"))
+                .map(|(collection, row)| format!("`varde api DELETE /v1/crud/{collection}/{row}`"))
                 .collect();
             // The backtest first, because chap-core will not forget a dataset
             // something still points at.
@@ -536,11 +536,11 @@ fn drop_rows(ctx: &Ctx, api: &Api, backtest: Option<i64>, dataset: Option<i64>, 
         match api.send("DELETE", &path, None) {
             Ok(answer) if answer.is_success() => ctx.out.verbose(&format!("deleted {path}")),
             Ok(answer) => crate::output::notice(&format!(
-                "could not delete {path} ({}); remove it with `chaps api DELETE {path}`",
+                "could not delete {path} ({}); remove it with `varde api DELETE {path}`",
                 answer.status_line()
             )),
             Err(err) => crate::output::notice(&format!(
-                "could not delete {path} ({}); remove it with `chaps api DELETE {path}`",
+                "could not delete {path} ({}); remove it with `varde api DELETE {path}`",
                 first_line(&err.to_string())
             )),
         }

@@ -28,7 +28,7 @@ impl App<'_> {
     /// Resolved against the *recorded* set, not the session's: what a browser
     /// can reach is what this deployment publishes now, and a row toggled or
     /// re-ported in this session is a plan until `s` has written it and
-    /// `chaps up` has applied it. So a pending change is said rather than
+    /// `varde up` has applied it. So a pending change is said rather than
     /// opened, and a pending port change opens the port that is actually
     /// published - which is the one the footer then names.
     pub(super) fn open_component(&mut self) {
@@ -60,7 +60,7 @@ impl App<'_> {
     ///
     /// The recorded API port, which is exactly what the REACH column prints:
     /// the browser reads no `.env`, so a `CHAP_API_PORT` or `CHAP_ROOT_PATH`
-    /// written there is `chaps open`'s to honour and not this page's.
+    /// written there is `varde open`'s to honour and not this page's.
     fn api_base(&self) -> String {
         format!("http://localhost:{}", self.api_port)
     }

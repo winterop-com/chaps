@@ -69,7 +69,7 @@ pub fn closing_line(
     };
     if !restart_needed.is_empty() {
         return format!(
-            "{head}; restart needed: {} (run `chaps restart`)",
+            "{head}; restart needed: {} (run `varde restart`)",
             restart_needed.join(", ")
         );
     }
@@ -78,11 +78,11 @@ pub fn closing_line(
     }
     match running {
         Some(false) => {
-            format!("{head}; Chap is not running, the new versions start with `chaps up`")
+            format!("{head}; Chap is not running, the new versions start with `varde up`")
         }
         Some(true) => format!("{head}; nothing needs a restart"),
         // Docker would not say what is running, so neither will we.
-        None => format!("{head}; run `chaps restart` to apply it to whatever is running"),
+        None => format!("{head}; run `varde restart` to apply it to whatever is running"),
     }
 }
 
@@ -93,7 +93,7 @@ pub fn closing_line(
 /// container would then be out of step with does not exist yet.
 pub fn dry_run_line(what: Option<&str>) -> String {
     match what {
-        Some(what) => format!("would update {what}; nothing written (run `chaps update` to do it)"),
+        Some(what) => format!("would update {what}; nothing written (run `varde update` to do it)"),
         None => "already up to date; nothing would change".to_string(),
     }
 }

@@ -153,7 +153,7 @@ pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) ->
         chapcore::TagKind::Moving => {}
         chapcore::TagKind::Other => output::warn(&format!(
             "{tag} is neither a chap-core release nor a moving tag, so it is recorded as an exact \
-             pin and `chaps update` will never move it"
+             pin and `varde update` will never move it"
         )),
         chapcore::TagKind::Release => {
             if offline {
@@ -166,7 +166,7 @@ pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) ->
                     Ok(true) => {}
                     Ok(false) => {
                         return Err(anyhow::anyhow!(
-                            "chap-core has no release {tag}; run `chaps update --list-tags` to see \
+                            "chap-core has no release {tag}; run `varde update --list-tags` to see \
                              the tags this deployment can move to"
                         ));
                     }
@@ -189,7 +189,7 @@ pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) ->
 pub fn pull_failed_after_switch(old: &str, new: &str) -> String {
     format!(
         "the pull failed after the pins moved; chap-core is now pinned to {new}, and \
-         `chaps update --chap-tag {old} --yes` puts it back"
+         `varde update --chap-tag {old} --yes` puts it back"
     )
 }
 
@@ -202,7 +202,7 @@ pub fn pull_failed_after_switch(old: &str, new: &str) -> String {
 pub fn backwards_warning(old: &str, new: &str) -> String {
     format!(
         "moving chap-core from {old} to {new} can run an older schema against a database \
-         migrated by the newer one; run `chaps backup create` first"
+         migrated by the newer one; run `varde backup create` first"
     )
 }
 
@@ -210,11 +210,11 @@ pub fn backwards_warning(old: &str, new: &str) -> String {
 ///
 /// `--yes` is how a script says it meant it. A run nobody is watching -
 /// `--json`, or no terminal on stdin - refuses rather than assume, the way
-/// `chaps down --volumes` does with the volumes it is about to destroy.
+/// `varde down --volumes` does with the volumes it is about to destroy.
 pub(super) fn confirm_backwards(ctx: &Ctx, chap_core: &ChapCoreUpdate) -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
 
-    let how = "pass `--yes` to `chaps update --chap-tag` to confirm it";
+    let how = "pass `--yes` to `varde update --chap-tag` to confirm it";
     if ctx.out.json {
         return Err(anyhow::anyhow!(
             "moving chap-core backwards needs an answer and --json has nobody to ask; {how}"
@@ -262,10 +262,10 @@ pub(super) fn apply_chap_core(
         )),
         Some(reference) => match chapcore::fetch_compose(&reference, timeout) {
             Ok(body) => {
-                let chaps = project.chaps_dir();
-                std::fs::create_dir_all(&chaps)
-                    .map_err(|e| anyhow::anyhow!("creating {}: {e}", chaps.display()))?;
-                let path = chaps.join(cached_compose_file(&reference));
+                let varde = project.varde_dir();
+                std::fs::create_dir_all(&varde)
+                    .map_err(|e| anyhow::anyhow!("creating {}: {e}", varde.display()))?;
+                let path = varde.join(cached_compose_file(&reference));
                 std::fs::write(&path, &body)
                     .map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
                 let source = ComposeSource::Fetched {
@@ -328,7 +328,7 @@ pub fn chap_core_line(c: &ChapCoreUpdate) -> String {
     }
     if c.moving {
         return format!(
-            "chap-core  {}  moving tag, re-pulled; pin it with `chaps update --pin-chap-core`",
+            "chap-core  {}  moving tag, re-pulled; pin it with `varde update --pin-chap-core`",
             c.old_tag
         );
     }

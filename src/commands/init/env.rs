@@ -99,7 +99,7 @@ pub(super) fn resolve_secrets(requested: Option<&Option<String>>) -> Result<Opti
 ///
 /// The file is the single source of truth, so reading it back covers all three
 /// cases at once: a file this run rendered with `--api-token`, one that was
-/// kept and already carries secrets from an earlier run or `chaps auth enable`,
+/// kept and already carries secrets from an earlier run or `varde auth enable`,
 /// and `--no-env`, which has no file and therefore no secrets.
 pub(super) fn env_auth(env: EnvAction, path: &Path) -> AuthState {
     if env == EnvAction::Skipped {

@@ -1,4 +1,4 @@
-//! `chaps stop` on `chaps run` groups: stopping one model or a whole group,
+//! `varde stop` on `varde run` groups: stopping one model or a whole group,
 //! and what `--purge` takes with it. Unix only: the stand-in docker is a shell
 //! script.
 
@@ -16,12 +16,12 @@ fn ps_and_stop_before_any_run_say_so() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "nothing has been started with `chaps run` yet",
+            "nothing has been started with `varde run` yet",
         ));
     chap_with_docker(&sandbox, cwd, &bin, &["stop", "chapkit_ewars_model"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("`chaps ps` lists what is"));
+        .stderr(predicates::str::contains("`varde ps` lists what is"));
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn purging_a_group_removes_the_volume_of_a_model_stopped_before() {
 }
 
 /// A volume docker will not remove keeps the group, so nothing is left that
-/// no chaps command can reach, and the error says how to finish.
+/// no varde command can reach, and the error says how to finish.
 #[test]
 fn a_volume_docker_will_not_remove_keeps_the_group() {
     let sandbox = Sandbox::new();
@@ -136,7 +136,7 @@ fn a_volume_docker_will_not_remove_keeps_the_group() {
         doc["hint"]
             .as_str()
             .unwrap()
-            .contains("`chaps stop --group trial --purge`"),
+            .contains("`varde stop --group trial --purge`"),
         "{doc}"
     );
     assert!(data(&sandbox).join("run").join("trial").exists());

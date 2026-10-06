@@ -5,10 +5,10 @@ use std::path::PathBuf;
 /// Directory holding the cached registry snapshot.
 ///
 /// Resolution order:
-/// 1. `$CHAPS_CACHE_DIR`
-/// 2. `$XDG_CACHE_HOME/chaps`
-/// 3. `%LOCALAPPDATA%\chaps\cache` (Windows only)
-/// 4. `$HOME/.cache/chaps`
+/// 1. `$VARDE_CACHE_DIR`
+/// 2. `$XDG_CACHE_HOME/varde`
+/// 3. `%LOCALAPPDATA%\varde\cache` (Windows only)
+/// 4. `$HOME/.cache/varde`
 /// 5. `./.chap-cache` (last resort, so the CLI still works in a bare container)
 ///
 /// Empty environment variables are treated as unset. The directory is not
@@ -17,20 +17,20 @@ pub fn cache_dir() -> PathBuf {
     cache_dir_from(&non_empty_env, cfg!(windows))
 }
 
-/// Directory for what chaps keeps for this user beyond the cache: the
-/// deployment `chaps run` uses when it is not run inside one.
+/// Directory for what varde keeps for this user beyond the cache: the
+/// deployment `varde run` uses when it is not run inside one.
 ///
 /// Resolution order:
-/// 1. `$CHAPS_DATA_DIR`
-/// 2. `$XDG_DATA_HOME/chaps`
-/// 3. `%LOCALAPPDATA%\chaps\data` (Windows only)
-/// 4. `$HOME/.local/share/chaps`
-/// 5. `./.chaps-data` (last resort, as for the cache)
+/// 1. `$VARDE_DATA_DIR`
+/// 2. `$XDG_DATA_HOME/varde`
+/// 3. `%LOCALAPPDATA%\varde\data` (Windows only)
+/// 4. `$HOME/.local/share/varde`
+/// 5. `./.varde-data` (last resort, as for the cache)
 pub fn data_dir() -> PathBuf {
     data_dir_from(&non_empty_env, cfg!(windows))
 }
 
-/// Directory holding the `chaps run` groups, one deployment each.
+/// Directory holding the `varde run` groups, one deployment each.
 pub fn run_groups_dir() -> PathBuf {
     data_dir().join("run")
 }
@@ -38,38 +38,38 @@ pub fn run_groups_dir() -> PathBuf {
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 fn cache_dir_from(env: Env, windows: bool) -> PathBuf {
-    if let Some(dir) = env("CHAPS_CACHE_DIR") {
+    if let Some(dir) = env("VARDE_CACHE_DIR") {
         return PathBuf::from(dir);
     }
     if let Some(dir) = env("XDG_CACHE_HOME") {
-        return PathBuf::from(dir).join("chaps");
+        return PathBuf::from(dir).join("varde");
     }
     if let Some(dir) = windows.then(|| env("LOCALAPPDATA")).flatten() {
-        return PathBuf::from(dir).join("chaps").join("cache");
+        return PathBuf::from(dir).join("varde").join("cache");
     }
     if let Some(home) = env("HOME") {
-        return PathBuf::from(home).join(".cache").join("chaps");
+        return PathBuf::from(home).join(".cache").join("varde");
     }
     PathBuf::from(".chap-cache")
 }
 
 fn data_dir_from(env: Env, windows: bool) -> PathBuf {
-    if let Some(dir) = env("CHAPS_DATA_DIR") {
+    if let Some(dir) = env("VARDE_DATA_DIR") {
         return PathBuf::from(dir);
     }
     if let Some(dir) = env("XDG_DATA_HOME") {
-        return PathBuf::from(dir).join("chaps");
+        return PathBuf::from(dir).join("varde");
     }
     if let Some(dir) = windows.then(|| env("LOCALAPPDATA")).flatten() {
-        return PathBuf::from(dir).join("chaps").join("data");
+        return PathBuf::from(dir).join("varde").join("data");
     }
     if let Some(home) = env("HOME") {
         return PathBuf::from(home)
             .join(".local")
             .join("share")
-            .join("chaps");
+            .join("varde");
     }
-    PathBuf::from(".chaps-data")
+    PathBuf::from(".varde-data")
 }
 
 fn non_empty_env(key: &str) -> Option<String> {

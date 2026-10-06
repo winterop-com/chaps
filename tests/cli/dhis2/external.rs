@@ -1,4 +1,4 @@
-//! chaps dhis2 against a DHIS2 that runs elsewhere, recorded with chaps dhis2 use.
+//! varde dhis2 against a DHIS2 that runs elsewhere, recorded with varde dhis2 use.
 
 use super::*;
 
@@ -37,20 +37,20 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
     .assert()
     .success()
     .stdout(predicates::str::contains(format!(
-        "recorded the external DHIS2 at {url} in `.chaps/components.yaml`"
+        "recorded the external DHIS2 at {url} in `.varde/components.yaml`"
     )))
     .stdout(predicates::str::contains("answers /api/ping"))
     .stdout(predicates::str::contains(
         "API token from `.env` (accepted)",
     ))
     .stdout(predicates::str::contains(EXTERNAL_CHAP_URL_TARGET))
-    .stdout(predicates::str::contains("run `chaps dhis2 connect`"));
+    .stdout(predicates::str::contains("run `varde dhis2 connect`"));
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
     assert!(!stdout.contains("sekret"), "{stdout}");
     assert_eq!(stand_in.authorization(), "ApiToken d2p_sekret");
 
     // Recorded as state, trailing slash and all taken off.
-    let components = read(&dir.join(".chaps").join("components.yaml"));
+    let components = read(&dir.join(".varde").join("components.yaml"));
     assert!(components.contains("dhis2-external:"), "{components}");
     assert!(
         components.contains(&format!("url: {url}\n")),
@@ -87,17 +87,17 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
         EXTERNAL_CHAP_URL_TARGET
     );
 
-    // `connect` on a DHIS2 chaps does not run is the route and nothing more:
+    // `connect` on a DHIS2 varde does not run is the route and nothing more:
     // no app installed on it, no analytics run started on it.
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "skipped: generating analytics tables on a DHIS2 chaps does not run; \
-             `chaps dhis2 analytics` starts a run if its admin agrees",
+            "skipped: generating analytics tables on a DHIS2 varde does not run; \
+             `varde dhis2 analytics` starts a run if its admin agrees",
         ))
         .stdout(predicates::str::contains(
-            "`chaps dhis2 apps` installs them",
+            "`varde dhis2 apps` installs them",
         ))
         .stdout(predicates::str::contains(
             "the Modeling App can reach Chap once it is installed",
@@ -133,17 +133,17 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "run `chaps dhis2 use --clear` first",
+            "run `varde dhis2 use --clear` first",
         ));
 
-    // And forgetting it says what `chaps dhis2` talks to now.
+    // And forgetting it says what `varde dhis2` talks to now.
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["use", "--clear"])
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
             "forgot the external DHIS2 at {url}"
         )));
-    let components = read(&dir.join(".chaps").join("components.yaml"));
+    let components = read(&dir.join(".varde").join("components.yaml"));
     assert!(!components.contains("dhis2-external"), "{components}");
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["use", "--clear"])
         .assert()
@@ -151,7 +151,7 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
         .stdout(predicates::str::contains("nothing to clear"));
 }
 
-/// chaps did not create an external DHIS2, so it knows none of its passwords:
+/// varde did not create an external DHIS2, so it knows none of its passwords:
 /// `admin` / `district` is never tried, and the report names what to set.
 /// An external DHIS2 whose admin installed both apps already: `connect` sets
 /// the route and says the Modeling App reaches Chap now, not once installed.
@@ -187,7 +187,7 @@ fn connect_on_an_external_dhis2_with_both_apps_says_it_is_ready() {
             "skipped: installing apps: both are there already",
         ))
         .stdout(predicates::str::contains(
-            "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`",
+            "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`",
         ));
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
     assert!(!stdout.contains("once it is installed"), "{stdout}");
@@ -211,7 +211,7 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
     assert_eq!(report["probe"]["answered"], true);
     assert_eq!(report["probe"]["credential"], Json::Null);
     // The names that message asks for are in `.env` already, commented out,
-    // and with no password: chaps did not create this DHIS2.
+    // and with no password: varde did not create this DHIS2.
     let env = read(&dir.join(".env"));
     assert!(env.contains("\n# DHIS2_ADMIN_USERNAME=admin\n"), "{env}");
     assert!(env.contains("\n# DHIS2_ADMIN_PASSWORD=\n"), "{env}");
@@ -226,7 +226,7 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
     );
     assert_eq!(
         report["next"],
-        "once one of them is in `.env`, run `chaps dhis2 connect`"
+        "once one of them is in `.env`, run `varde dhis2 connect`"
     );
 
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
@@ -238,12 +238,12 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
 
     // A password exported for the run is used, with the user it names.
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
-        .env("CHAPS_DHIS2_USERNAME", "ops")
-        .env("CHAPS_DHIS2_PASSWORD", "theirs")
+        .env("VARDE_DHIS2_USERNAME", "ops")
+        .env("VARDE_DHIS2_PASSWORD", "theirs")
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "as `ops` (password from CHAPS_DHIS2_PASSWORD)",
+            "as `ops` (password from VARDE_DHIS2_PASSWORD)",
         ));
 }
 
@@ -285,7 +285,7 @@ fn dhis2_use_refuses_what_it_cannot_record() {
         .success()
         .stdout(predicates::str::contains("no external DHIS2 is recorded"))
         .stdout(predicates::str::contains(
-            "chaps dhis2 use URL --chap-url URL",
+            "varde dhis2 use URL --chap-url URL",
         ));
 
     sandbox
@@ -296,19 +296,19 @@ fn dhis2_use_refuses_what_it_cannot_record() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "run `chaps components disable dhis2` first",
+            "run `varde components disable dhis2` first",
         ));
 }
 
 /// An external DHIS2 is recorded as connected only when the route works and
-/// both apps are there, as a local one is: without the apps, `chaps up` and
-/// `chaps status` keep the connect hint.
+/// both apps are there, as a local one is: without the apps, `varde up` and
+/// `varde status` keep the connect hint.
 #[cfg(unix)]
 #[test]
 fn connect_on_an_external_dhis2_without_the_apps_records_nothing() {
     // An external DHIS2 records it under `dhis2_external`.
     let recorded = |dir: &std::path::Path| {
-        read(&dir.join(".chaps").join("components.yaml"))
+        read(&dir.join(".varde").join("components.yaml"))
             .lines()
             .any(|line| line.trim_start().starts_with("connected_at: 20"))
     };

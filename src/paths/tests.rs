@@ -22,11 +22,11 @@ fn windows_uses_local_app_data_before_home() {
     let env = env_of(&[("LOCALAPPDATA", "appdata"), ("HOME", "home")]);
     assert_eq!(
         cache_dir_from(&env, true),
-        PathBuf::from("appdata").join("chaps").join("cache")
+        PathBuf::from("appdata").join("varde").join("cache")
     );
     assert_eq!(
         data_dir_from(&env, true),
-        PathBuf::from("appdata").join("chaps").join("data")
+        PathBuf::from("appdata").join("varde").join("data")
     );
 }
 
@@ -35,24 +35,24 @@ fn local_app_data_is_ignored_off_windows() {
     let env = env_of(&[("LOCALAPPDATA", "appdata"), ("HOME", "home")]);
     assert_eq!(
         cache_dir_from(&env, false),
-        PathBuf::from("home").join(".cache").join("chaps")
+        PathBuf::from("home").join(".cache").join("varde")
     );
     assert_eq!(
         data_dir_from(&env, false),
         PathBuf::from("home")
             .join(".local")
             .join("share")
-            .join("chaps")
+            .join("varde")
     );
 }
 
 #[test]
-fn xdg_and_the_chaps_overrides_win_on_windows_too() {
+fn xdg_and_the_varde_overrides_win_on_windows_too() {
     let env = env_of(&[("XDG_DATA_HOME", "xdg"), ("LOCALAPPDATA", "appdata")]);
     assert_eq!(
         data_dir_from(&env, true),
-        PathBuf::from("xdg").join("chaps")
+        PathBuf::from("xdg").join("varde")
     );
-    let env = env_of(&[("CHAPS_CACHE_DIR", "mine"), ("LOCALAPPDATA", "appdata")]);
+    let env = env_of(&[("VARDE_CACHE_DIR", "mine"), ("LOCALAPPDATA", "appdata")]);
     assert_eq!(cache_dir_from(&env, true), PathBuf::from("mine"));
 }

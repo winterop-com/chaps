@@ -52,8 +52,8 @@ fn a_models_user_is_checked_against_the_image_it_pins() {
     assert_eq!(
         wrong.fix.as_deref(),
         Some(
-            "run `chaps models enable auto_arima_chapkit` to read the \
-                 user off the image again, or `chaps update`"
+            "run `varde models enable auto_arima_chapkit` to read the \
+                 user off the image again, or `varde update`"
         )
     );
 
@@ -70,7 +70,7 @@ fn a_models_user_is_checked_against_the_image_it_pins() {
     assert_eq!(
         absent.fix.as_deref(),
         Some(
-            "run `chaps docker pull`, or `docker pull --platform linux/amd64 \
+            "run `varde docker pull`, or `docker pull --platform linux/amd64 \
                  ghcr.io/chap-models/chapkit_ewars_model:sha-fa880a1`"
         )
     );
@@ -146,7 +146,7 @@ fn the_user_checks_cover_every_enabled_model() {
         unknown[0]
             .fix
             .as_deref()
-            .is_some_and(|fix| fix.contains("chaps docker pull")),
+            .is_some_and(|fix| fix.contains("varde docker pull")),
         "{unknown:?}"
     );
 
@@ -248,7 +248,7 @@ fn the_stack_line_judges_a_deployment_without_chap_core_by_its_components() {
     let (status, detail, fix) = stack_verdict(&report);
     assert_eq!(status, Status::Warn);
     assert_eq!(detail, "no chap-core here; not up: ocs");
-    assert!(fix.unwrap().contains("chaps status"));
+    assert!(fix.unwrap().contains("varde status"));
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn the_stack_line_says_when_the_container_itself_is_unhealthy() {
     let (status, detail, fix) = stack_verdict(&report);
     assert_eq!(status, Status::Fail);
     assert!(detail.contains("is down: connection refused"), "{detail}");
-    assert!(fix.unwrap().contains("chaps logs chap"));
+    assert!(fix.unwrap().contains("varde logs chap"));
 
     // With one, the check says which half is wrong and what its log said.
     report.unhealthy = vec![crate::diagnose::Unhealthy::of(
@@ -282,7 +282,7 @@ fn the_stack_line_says_when_the_container_itself_is_unhealthy() {
         "{detail}"
     );
     assert_eq!(detail.lines().count(), 1, "one line per check: {detail}");
-    assert!(fix.unwrap().contains("chaps down --volumes"));
+    assert!(fix.unwrap().contains("varde down --volumes"));
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn an_image_that_is_not_there_names_the_model_to_re_resolve() {
     );
     assert_eq!(
         check.fix.unwrap(),
-        "run `chaps models enable chapkit_ewars_model` to resolve the pin again"
+        "run `varde models enable chapkit_ewars_model` to resolve the pin again"
     );
 
     let list = r#"{"manifests":[{"platform":{"architecture":"amd64","os":"linux"}}]}"#;
@@ -313,7 +313,7 @@ fn an_image_that_is_not_there_names_the_model_to_re_resolve() {
     let arm = r#"{"manifests":[{"platform":{"architecture":"arm64","os":"linux"}}]}"#;
     let check = image_verdict("m", "svc", "ghcr.io/x:1", &done(true, arm, ""));
     assert_eq!(check.status, Status::Warn);
-    assert!(check.fix.unwrap().contains("chaps models enable m"));
+    assert!(check.fix.unwrap().contains("varde models enable m"));
 
     // An old CLI that hides `docker manifest` cannot answer, which is not
     // the same as the tag being gone.
@@ -396,7 +396,7 @@ fn the_stack_check_follows_what_status_found() {
     let (status, detail, fix) = stack_verdict(&status_report(up(), &["a", "b"], &["b"]));
     assert_eq!(status, Status::Warn, "a missing model is not a dead stack");
     assert!(detail.ends_with("not registered: b"), "{detail}");
-    assert!(fix.unwrap().contains("chaps status"));
+    assert!(fix.unwrap().contains("varde status"));
 
     let down = ApiHealth::Down {
         error: "connection refused".to_string(),
@@ -404,7 +404,7 @@ fn the_stack_check_follows_what_status_found() {
     let (status, detail, fix) = stack_verdict(&status_report(down, &["a"], &["a"]));
     assert_eq!(status, Status::Fail);
     assert!(detail.contains("connection refused"), "{detail}");
-    assert!(fix.unwrap().contains("chaps logs chap"));
+    assert!(fix.unwrap().contains("varde logs chap"));
 }
 
 /// A registry that refuses or fails says nothing about the tag: a warning

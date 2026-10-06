@@ -10,7 +10,7 @@ fn external(url: &str) -> ExternalChapCore {
 
 #[test]
 fn a_group_whose_chap_core_moves_says_how_the_running_models_follow() {
-    let dir = Path::new("/home/me/.local/share/chaps/run/default");
+    let dir = Path::new("/home/me/.local/share/varde/run/default");
     let note = changed_note(
         Some(&external("http://localhost:8000")),
         &external("http://localhost:8100"),

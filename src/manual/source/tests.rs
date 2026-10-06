@@ -135,7 +135,7 @@ fn what_cannot_be_added_says_why() {
             "chapkit_ghr_model",
             "docker build -t chapkit_ghr_model:dev .",
         ),
-        ("docker.io/library/nginx:1", "chaps models add` reads"),
+        ("docker.io/library/nginx:1", "varde models add` reads"),
         ("ghcr.io/chap-models/chapkit_ghr_model", "names no tag"),
         ("ghcr.io/chap-models/chapkit_ghr_model:", "empty tag"),
         ("ghcr.io/x/y@sha256:nope", "not a digest"),
@@ -194,12 +194,12 @@ fn the_reserved_service_ids_cover_every_service_the_templates_define() {
             found += 1;
             assert!(
                 RESERVED_SERVICE_IDS.contains(&name),
-                "`{name}` is a service chaps runs and is not reserved"
+                "`{name}` is a service varde runs and is not reserved"
             );
         }
         assert!(found > 0, "no service found in a template");
     }
-    for stem in ["chaps", "marketplace"] {
+    for stem in ["varde", "marketplace"] {
         assert!(check_service_id(stem).is_err(), "{stem}");
     }
     assert!(check_service_id("chapkit-ewars-model").is_ok());

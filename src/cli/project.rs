@@ -1,11 +1,11 @@
-//! `chaps init` and `chaps components`: what a deployment is made of.
+//! `varde init` and `varde components`: what a deployment is made of.
 
 use super::ComponentPortArg;
 use crate::project::DEFAULT_API_PORT;
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
-/// Create a deployment directory: compose files, .env and .chaps/
+/// Create a deployment directory: compose files, .env and .varde/
 #[derive(Debug, Clone, Args)]
 pub struct InitArgs {
     /// Directory to create
@@ -115,7 +115,7 @@ pub struct InitArgs {
 
 /// The values that go into the scaffolded `ocs/climate-service.yaml`.
 ///
-/// Shared by `init --with ocs` and `chaps components enable ocs`, because both
+/// Shared by `init --with ocs` and `varde components enable ocs`, because both
 /// write that file the first time the component is turned on.
 #[derive(Debug, Clone, Default, Args)]
 pub struct OcsConfigArgs {

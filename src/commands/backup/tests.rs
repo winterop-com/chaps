@@ -42,11 +42,11 @@ fn report_with(
     components: Vec<ManifestComponent>,
 ) -> BackupReport {
     BackupReport {
-        path: PathBuf::from("/backups/chaps-backup-e2e-20260923-071000.tar.gz"),
+        path: PathBuf::from("/backups/varde-backup-e2e-20260923-071000.tar.gz"),
         size_bytes: 5 * 1024 * 1024,
         manifest: Manifest {
             schema_version: crate::backup::SCHEMA_VERSION,
-            created_by: "chaps 0.1.0".into(),
+            created_by: "varde 0.1.0".into(),
             created_at: "2026-09-23T07:10:00Z".into(),
             project: "e2e".into(),
             chap_image_tag: "latest".into(),
@@ -76,7 +76,7 @@ fn the_human_output_lists_every_part_with_its_size() {
         &Out::default(),
     );
     assert!(text.starts_with(
-        "backup  /backups/chaps-backup-e2e-20260923-071000.tar.gz  \
+        "backup  /backups/varde-backup-e2e-20260923-071000.tar.gz  \
              (5.0 MB gzipped, 46.0 KB of data)\n"
     ));
     assert!(text.contains("files     2 file(s): .env, compose.yml"));
@@ -87,7 +87,7 @@ fn the_human_output_lists_every_part_with_its_size() {
     assert!(!text.contains("skipped"));
     // And it ends on the command that reads the archive back.
     assert!(text.ends_with(
-            "\nrestore it with `chaps backup restore /backups/chaps-backup-e2e-20260923-071000.tar.gz`\n"
+            "\nrestore it with `varde backup restore /backups/varde-backup-e2e-20260923-071000.tar.gz`\n"
         ));
 }
 
@@ -202,7 +202,7 @@ fn the_compose_argument_lists_never_ask_for_a_terminal() {
 #[test]
 fn the_project_name_falls_back_to_something_printable() {
     assert_eq!(project_name(Path::new("/srv/e2e")), "e2e");
-    assert_eq!(project_name(Path::new("/")), "chaps");
+    assert_eq!(project_name(Path::new("/")), "varde");
 }
 
 /// A read that failed makes the run fail; data there was no reason to read -
@@ -249,7 +249,7 @@ fn a_long_pause_is_said_before_it_starts() {
     let warning =
         pause_warning_for("dhis2-db", "x_dhis2_db", 40 * LONG_PAUSE_BYTES).expect("a large volume");
     assert!(
-        warning.starts_with("dhis2-db is paused while chaps copies 40.0 GB of `x_dhis2_db`"),
+        warning.starts_with("dhis2-db is paused while varde copies 40.0 GB of `x_dhis2_db`"),
         "{warning}"
     );
     assert!(warning.contains("`--no-components`"), "{warning}");

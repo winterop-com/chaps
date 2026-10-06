@@ -1,15 +1,15 @@
-//! Rendering `.chaps/` into the compose files at the project root.
+//! Rendering `.varde/` into the compose files at the project root.
 //!
-//! `.chaps/` is intent; `compose.yml`, `compose.chaps.yml`,
+//! `.varde/` is intent; `compose.yml`, `compose.varde.yml`,
 //! `compose.<service_id>.yml` and `compose.marketplace.yml` are artifacts.
 //! [`sync`] is the one place that
-//! turns the former into the latter: `apply` ends in it, `chaps sync` calls it
-//! directly and `chaps up` runs it before `docker compose up`.
+//! turns the former into the latter: `apply` ends in it, `varde sync` calls it
+//! directly and `varde up` runs it before `docker compose up`.
 //!
 //! Rendering is deterministic and every file is compared before it is
 //! written, so a second sync reports everything as unchanged. `compose.yml`
 //! is deterministic too because the copy of chap-core's `compose.ghcr.yml` it
-//! is rendered from is kept in `.chaps/`; nothing here touches the network.
+//! is rendered from is kept in `.varde/`; nothing here touches the network.
 
 mod config;
 mod env;
@@ -21,16 +21,16 @@ pub use env::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::components::{DHIS2_COMPOSE, OCS_COMPOSE, S3_COMPOSE};
 use crate::compose::overrides;
 use crate::compose::render::{
-    render_base, render_chaps_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
+    render_base, render_varde_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
     render_umbrella,
 };
 use crate::compose::spec::{
-    BaseSpec, ChapsOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
+    BaseSpec, VardeOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
     compose_services,
 };
 use crate::error::Result;
 use crate::project::{
-    BASE_COMPOSE, CHAPS_COMPOSE, ComposeSource, MARKETPLACE_COMPOSE, Project, compose_files_for,
+    BASE_COMPOSE, VARDE_COMPOSE, ComposeSource, MARKETPLACE_COMPOSE, Project, compose_files_for,
 };
 use crate::registry::Registry;
 use config::{ensure_dhis2_config, ensure_ocs_config, ensure_plugins_key};
@@ -47,7 +47,7 @@ pub struct SyncReport {
     pub unchanged: Vec<PathBuf>,
     /// Overlays of models that are no longer enabled.
     pub removed: Vec<PathBuf>,
-    /// Whether anything differed from what `.chaps/` describes.
+    /// Whether anything differed from what `.varde/` describes.
     pub drift: bool,
     /// Whether this was a dry run.
     pub check: bool,
@@ -77,7 +77,7 @@ impl SyncReport {
 ///
 /// With `check` nothing is written or removed and the state is left alone;
 /// the report says what a real run would do. Otherwise
-/// `state.rendered_files` is updated and `.chaps/` is saved.
+/// `state.rendered_files` is updated and `.varde/` is saved.
 pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<SyncReport> {
     let mut report = SyncReport {
         check,
@@ -88,7 +88,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         std::fs::create_dir_all(&dir)
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
         // A restored or hand-made `.env` can be readable by everyone; every
-        // sync, and so every `chaps up`, closes it to its owner.
+        // sync, and so every `varde up`, closes it to its owner.
         crate::dotenv::protect(&dir.join(crate::project::ENV_FILE));
     }
 
@@ -100,12 +100,12 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     let mut overlays: Vec<String> = Vec::new();
     let components = project.state.components.clone();
     // The compose project name is settled before anything is rendered: it goes
-    // into every chaps-owned file. `chaps init` records it.
+    // into every varde-owned file. `varde init` records it.
     let project_name = project.compose_project_name();
-    // A `chaps run` group, which every container's labels name.
+    // A `varde run` group, which every container's labels name.
     let group = project.state.group.clone();
     // chap-core is a component like the others: with it off, neither the base
-    // stack nor the chaps-owned override belongs to this deployment, and both
+    // stack nor the varde-owned override belongs to this deployment, and both
     // are removed below.
     if components.chap_core.enabled {
         let (base, base_warnings) = base_compose(project);
@@ -113,21 +113,21 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // The services the chap-core labels go on are the ones the base file
         // defines, at whatever tag or checkout it comes from; a base file that
         // could not be rendered is left on disk, so that is where they are.
-        let mut chaps = ChapsOverlaySpec {
+        let mut varde = VardeOverlaySpec {
             project_name: project_name.clone(),
             checkout: match &project.state.chap_compose_source {
                 ComposeSource::Checkout { path } => Some(path.clone()),
                 _ => None,
             },
             group: group.clone(),
-            ..ChapsOverlaySpec::new(project.state.api_port)
+            ..VardeOverlaySpec::new(project.state.api_port)
         };
         if let Some(services) = base
             .clone()
             .or_else(|| std::fs::read_to_string(dir.join(BASE_COMPOSE)).ok())
             .and_then(|text| compose_services(&text))
         {
-            chaps.services = services;
+            varde.services = services;
         }
         if let Some(base) = base {
             desired.push((BASE_COMPOSE.to_string(), base));
@@ -136,7 +136,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         // host port is decided, and it has to be a `-f` entry of its own
         // because a file in `include:` cannot override a service compose.yml
         // defines.
-        desired.push((CHAPS_COMPOSE.to_string(), render_chaps_overlay(&chaps)));
+        desired.push((VARDE_COMPOSE.to_string(), render_varde_overlay(&varde)));
     }
     // The components sit between the base stack and the model overlays, in
     // the same order as the `-f` list.
@@ -165,10 +165,10 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         };
         let rendered = render_dhis2(&spec);
         // The seed was left at `default` and the pinned minor line publishes no
-        // dump chaps knows the path of, so this deployment starts empty. Said
+        // dump varde knows the path of, so this deployment starts empty. Said
         // on the sync that writes the DHIS2 compose file - the first, and any
         // that changes it - because nothing else on the screen would show it;
-        // every `chaps up` after that would only repeat it.
+        // every `varde up` after that would only repeat it.
         let writes_dhis2 = std::fs::read_to_string(dir.join(DHIS2_COMPOSE))
             .map_or(true, |existing| existing != rendered);
         if components.dhis2_seed_is_unknown() && writes_dhis2 {
@@ -178,13 +178,13 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         }
         // A dump that is a file is a bind mount, and compose refuses to start a
         // service whose bind source does not exist - so a path that is not there
-        // is a `chaps up` that fails, reported now instead.
+        // is a `varde up` that fails, reported now instead.
         if let Some(crate::compose::spec::Dhis2SeedSource::File(path)) = &spec.seed
             && !dir.join(path).exists()
         {
             report.warnings.push(format!(
                 "the dhis2 seed names {path}, which is not in {}; copy the dump there before \
-                 `chaps up`, or set `seed: none` in .chaps/components.yaml",
+                 `varde up`, or set `seed: none` in .varde/components.yaml",
                 dir.display()
             ));
         }
@@ -238,7 +238,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         {
             report.warnings.push(format!(
                 "{id} is published on {bind}:{port} only, which the chap-core it registers \
-                 with cannot call back; run `chaps models expose {id} --bind 0.0.0.0`"
+                 with cannot call back; run `varde models expose {id} --bind 0.0.0.0`"
             ));
         }
         // The overlay's init container chowns the data volume from busybox,
@@ -274,7 +274,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         if !seen.insert(name.as_str()) {
             return Err(anyhow::anyhow!(
                 "two parts of this deployment would both be written to `{name}`; give one of \
-                 the models another `service_id:` in `.chaps/models-manual.yaml`, then `chaps sync`"
+                 the models another `service_id:` in `.varde/models-manual.yaml`, then `varde sync`"
             ));
         }
     }
@@ -308,7 +308,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
     let doomed: BTreeSet<&str> = if components.chap_core.enabled {
         BTreeSet::new()
     } else {
-        BTreeSet::from([BASE_COMPOSE, CHAPS_COMPOSE])
+        BTreeSet::from([BASE_COMPOSE, VARDE_COMPOSE])
     };
     for name in &project.state.rendered_files {
         if wanted.contains(name.as_str()) {
@@ -390,7 +390,7 @@ fn base_compose(project: &Project) -> (Option<String>, Vec<String>) {
                 None,
                 vec![format!(
                     "{} is missing, so {BASE_COMPOSE} is left as it is; check the chap-core \
-                     checkout is still at {path}, or re-run `chaps init --force --source PATH`",
+                     checkout is still at {path}, or re-run `varde init --force --source PATH`",
                     file.display()
                 )],
             ),
@@ -411,8 +411,8 @@ fn base_compose(project: &Project) -> (Option<String>, Vec<String>) {
         return (
             None,
             vec![format!(
-                ".chaps/{name} is missing, so {BASE_COMPOSE} is left as it is; \
-                 re-run `chaps init --force --chap-tag {tag}` to fetch it again"
+                ".varde/{name} is missing, so {BASE_COMPOSE} is left as it is; \
+                 re-run `varde init --force --chap-tag {tag}` to fetch it again"
             )],
         );
     };
@@ -420,7 +420,7 @@ fn base_compose(project: &Project) -> (Option<String>, Vec<String>) {
     let mut warnings = Vec::new();
     if crate::chapcore::sha256_hex(body.as_bytes()) != *sha256 {
         warnings.push(format!(
-            ".chaps/{name} no longer matches the checksum recorded in .chaps/project.yaml; \
+            ".varde/{name} no longer matches the checksum recorded in .varde/project.yaml; \
              {BASE_COMPOSE} follows the file as it is now"
         ));
     }
@@ -439,7 +439,7 @@ fn is_overlay_name(name: &str) -> bool {
         && name.ends_with(".yml")
         && name != MARKETPLACE_COMPOSE
         && name != BASE_COMPOSE
-        && name != CHAPS_COMPOSE
+        && name != VARDE_COMPOSE
 }
 
 #[cfg(test)]

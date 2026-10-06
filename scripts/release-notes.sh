@@ -55,7 +55,7 @@ case "$tag" in
     ;;
 esac
 
-repo="${GITHUB_REPOSITORY:-winterop-com/chaps}"
+repo="${GITHUB_REPOSITORY:-winterop-com/varde}"
 script="https://raw.githubusercontent.com/${repo}/main/install.sh"
 base="https://github.com/${repo}/releases/download/${tag}"
 
@@ -203,7 +203,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 On macOS, check the signature of the extracted binary:
 
 \`\`\`sh
-codesign -dv --verbose=4 chaps
+codesign -dv --verbose=4 varde
 \`\`\`
 TEXT
 }
@@ -226,7 +226,7 @@ Full changelog: ${compare}
 curl -fsSL ${script} | sh
 \`\`\`
 
-An installed \`chaps\` updates itself with \`chaps self update\`.
+An installed \`varde\` updates itself with \`varde self update\`.
 
 $(platforms)
 
@@ -248,7 +248,7 @@ notes_for_dev() {
     heading="What's changed"
   fi
 
-  # `chaps self update` reads the commit back out of these notes, from the
+  # `varde self update` reads the commit back out of these notes, from the
   # "Built from commit" line below: the word `commit` followed by the sha. Keep
   # the two together if this text is ever reworded; a unit test in
   # `src/selfupdate/tests.rs` checks that they are.
@@ -274,19 +274,19 @@ Full changelog: ${compare}
 curl -fsSL ${script} | sh -s -- --version dev
 \`\`\`
 
-Or into the current directory alone, as \`./chaps\`, touching nothing else:
+Or into the current directory alone, as \`./varde\`, touching nothing else:
 
 \`\`\`sh
 curl -fsSL ${script} | sh -s -- --version dev --here
 \`\`\`
 
-A dev build follows this release from then on: \`chaps self update\` moves it
+A dev build follows this release from then on: \`varde self update\` moves it
 to the newest build of \`main\`, comparing commits rather than version
-numbers, and \`chaps self version\` says \`channel dev\`. To go back to the
+numbers, and \`varde self version\` says \`channel dev\`. To go back to the
 stable release:
 
 \`\`\`sh
-chaps self update --version v${version}
+varde self update --version v${version}
 \`\`\`
 
 $(platforms)

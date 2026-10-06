@@ -139,7 +139,7 @@ fn phase_of(line: &str) -> &'static str {
 /// chapkit ends such a line with `stderr tail: <last five lines joined by
 /// " | ">`, so the reason is in there and the rest is bookkeeping about
 /// artifact ids. The rule for picking one of those five is [`crate::jobs`]'s,
-/// which is the rule `chaps jobs logs` already uses on a failed job's log.
+/// which is the rule `varde jobs logs` already uses on a failed job's log.
 fn failure_reason(line: &str) -> Option<String> {
     let tail = match line.split_once("stderr tail:") {
         Some((_, tail)) => tail,

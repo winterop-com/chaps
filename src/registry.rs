@@ -151,7 +151,7 @@ impl Registry {
 
     /// Append a deployment's own model definitions to the catalogue.
     ///
-    /// This is what makes `chaps models add` cost so little everywhere else:
+    /// This is what makes `varde models add` cost so little everywhere else:
     /// from here on a manually added model is a [`Model`] like any other, so
     /// `enable`, `sync`, `update`, `list`, `info`, `doctor` and the browser
     /// need no branch for it. The marketplace wins a collision - the
@@ -163,9 +163,9 @@ impl Registry {
         for (id, entry) in manual {
             if let Some(existing) = self.models.iter().find(|m| m.id == *id) {
                 warnings.push(format!(
-                    "{id} is in .chaps/models-manual.yaml and in the marketplace; \
+                    "{id} is in .varde/models-manual.yaml and in the marketplace; \
                      the marketplace entry ({}) is the one being used - \
-                     `chaps models remove {id}` drops the local one",
+                     `varde models remove {id}` drops the local one",
                     existing.display_name
                 ));
                 continue;
@@ -226,7 +226,7 @@ impl Registry {
 /// directory read. When the cache is cold or stale the network is tried,
 /// unless `opts.offline`, and a successful fetch refreshes the cache. If the
 /// fetch fails the ladder continues downwards — a stale cache, then the
-/// snapshot compiled into the binary — so `chaps` still works on a plane.
+/// snapshot compiled into the binary — so `varde` still works on a plane.
 ///
 /// Falling back after a failed fetch warns on stderr, because a silently
 /// out-of-date catalogue is how a user ends up pinning a version the
@@ -277,7 +277,7 @@ fn load_chosen(opts: &RegistryOptions) -> Result<Registry> {
 
 /// Force a network refresh and rewrite the cache.
 ///
-/// Unlike [`load`] this has no fallback: the point of `chaps registry update`
+/// Unlike [`load`] this has no fallback: the point of `varde registry update`
 /// is to know whether the refresh worked, so every failure surfaces as
 /// [`ChapError::RegistryUnavailable`].
 pub fn update(opts: &RegistryOptions) -> Result<Registry> {

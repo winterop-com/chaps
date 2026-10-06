@@ -1,5 +1,5 @@
 //! What a deployment leaves in docker after its directory is gone: whether
-//! anything still uses it, for `chaps cleanup` to ask before it removes.
+//! anything still uses it, for `varde cleanup` to ask before it removes.
 
 use super::docker_capture;
 

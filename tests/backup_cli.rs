@@ -1,4 +1,4 @@
-//! End-to-end tests for `chaps backup create` and `chaps backup restore`.
+//! End-to-end tests for `varde backup create` and `varde backup restore`.
 //!
 //! Every run is `--offline` with its own cache directory, and every one of
 //! them stays away from Docker: the parts of a backup that need a daemon are
@@ -27,14 +27,14 @@ impl Sandbox {
         }
     }
 
-    /// `chaps --offline <args..>`, run from `cwd`.
+    /// `varde --offline <args..>`, run from `cwd`.
     fn chap(&self, cwd: &Path, args: &[&str]) -> Command {
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
             // The data directory too: `init` records the deployment there, and
             // a test must not write the developer's own record.
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
             .current_dir(cwd)
@@ -43,17 +43,17 @@ impl Sandbox {
         cmd
     }
 
-    /// `chaps init <home>/<name> --models none --api-port <free>`, with the
+    /// `varde init <home>/<name> --models none --api-port <free>`, with the
     /// arguments appended. Returns the project directory.
     fn init(&self, name: &str, args: &[&str]) -> PathBuf {
         let dir = self.home.path().join(name);
         let port = free_port().to_string();
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
             // The data directory too: `init` records the deployment there, and
             // a test must not write the developer's own record.
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
             .current_dir(self.home.path())
@@ -151,7 +151,7 @@ fn files_under(dir: &Path, prefix: &str) -> Vec<String> {
 }
 
 /// The directories a deployment keeps its own files in: everything in the
-/// project root that is not the `.chaps/` state.
+/// project root that is not the `.varde/` state.
 ///
 /// Read off the disk rather than listed here, so a component that scaffolds a
 /// directory of its own is covered by the tests that use this the day it is
@@ -162,13 +162,13 @@ fn owned_dirs(dir: &Path) -> Vec<String> {
         .flatten()
         .filter(|e| e.path().is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != ".chaps")
+        .filter(|name| name != ".varde")
         .collect();
     found.sort();
     found
 }
 
-/// The name of every component this build has, from `chaps components list`.
+/// The name of every component this build has, from `varde components list`.
 fn component_names(sandbox: &Sandbox, dir: &Path) -> Vec<String> {
     let out = sandbox
         .chap(dir, &["components", "list", "--json"])
@@ -195,9 +195,9 @@ fn manifest(archive: &Path) -> Json {
     serde_json::to_value(serde_yaml_ng::from_slice::<Yaml>(&out.stdout).unwrap()).unwrap()
 }
 
-/// `.chaps/project.yaml` as JSON.
+/// `.varde/project.yaml` as JSON.
 fn state(dir: &Path) -> Json {
-    let body = read(&dir.join(".chaps/project.yaml"));
+    let body = read(&dir.join(".varde/project.yaml"));
     serde_json::to_value(serde_yaml_ng::from_str::<Yaml>(&body).unwrap()).unwrap()
 }
 
@@ -218,7 +218,7 @@ fn compose_name(dir: &Path, file: &str) -> String {
         .to_string()
 }
 
-/// `chaps backup create`, with Docker left out of it.
+/// `varde backup create`, with Docker left out of it.
 fn backup(sandbox: &Sandbox, dir: &Path, out: &Path, extra: &[&str]) -> PathBuf {
     let mut args = vec![
         "backup",
@@ -262,10 +262,10 @@ fn a_backup_holds_the_ocs_instance_config() {
         .map(|f| f.as_str().unwrap())
         .collect();
     assert!(files.contains(&config), "the manifest lists it: {files:?}");
-    // The file list is ordered: .env, then .chaps/**, then ocs/**, then the
+    // The file list is ordered: .env, then .varde/**, then ocs/**, then the
     // compose files.
     let at = |name: &str| files.iter().position(|f| *f == name);
-    assert!(at(".chaps/project.yaml") < at(config));
+    assert!(at(".varde/project.yaml") < at(config));
     assert!(at(config) < at("compose.yml"));
 
     // The component is recorded even though its volume was not captured, so
@@ -393,7 +393,7 @@ fn a_backup_holds_every_file_a_component_keeps_of_its_own() {
     // them. The edit rather than the whole body, because the re-render that
     // follows a files restore may add a key it manages to a file it wrote -
     // `plugins_dir` lands in `ocs/climate-service.yaml` now that there is an
-    // `ocs/plugins/` - and that is `chaps sync` doing its job, not the restore
+    // `ocs/plugins/` - and that is `varde sync` doing its job, not the restore
     // losing anything.
     for (rel, _) in &expected {
         std::fs::write(dir.join(rel), "# thrown away\n").unwrap();
@@ -506,7 +506,7 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
 
     // And the re-rendered compose files carry the name this deployment keeps,
     // so `docker compose` still finds its own containers.
-    for file in ["compose.chaps.yml", "compose.marketplace.yml"] {
+    for file in ["compose.varde.yml", "compose.marketplace.yml"] {
         assert_eq!(compose_name(&target, file), kept, "{file}");
     }
     // The component the archive brought with it is enabled here now, so its
@@ -518,7 +518,7 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
         state(&target)["compose_files"],
         serde_json::json!([
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.marketplace.yml"
         ])
@@ -563,7 +563,7 @@ fn adopt_identity_takes_the_archives_name_over() {
         "{text}"
     );
     assert_eq!(identity(&target), taken_from);
-    assert_eq!(compose_name(&target, "compose.chaps.yml"), taken_from);
+    assert_eq!(compose_name(&target, "compose.varde.yml"), taken_from);
     // Adopting the name is adopting the archive's volumes, and with them the
     // credentials they open with: the whole `.env` is the archive's.
     assert_eq!(read(&target.join(".env")), read(&source.join(".env")));

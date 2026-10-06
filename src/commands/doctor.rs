@@ -1,4 +1,4 @@
-//! `chaps doctor` - one bounded checklist that says whether this machine, and
+//! `varde doctor` - one bounded checklist that says whether this machine, and
 //! this deployment, can run Chap.
 //!
 //! Every other command answers one question. `doctor` answers the ones an
@@ -9,7 +9,7 @@
 //!
 //! Two rules shape the module. Every check is bounded: external commands are
 //! killed when they overrun and every network probe carries a timeout, so
-//! `chaps doctor` always finishes. And every verdict is a pure function of
+//! `varde doctor` always finishes. And every verdict is a pure function of
 //! data someone else gathered, so the half that decides what to say is
 //! testable without Docker, a network or a project.
 
@@ -30,7 +30,7 @@ use crate::github;
 use crate::output::Out;
 use crate::ports::{self, PortClaim};
 use crate::project::{
-    ApiPortSource, BASE_COMPOSE, CHAP_TAG_ENV_VAR, CHAPS_COMPOSE, CHAPS_DIR, ENV_FILE,
+    ApiPortSource, BASE_COMPOSE, CHAP_TAG_ENV_VAR, VARDE_COMPOSE, VARDE_DIR, ENV_FILE,
     MARKETPLACE_COMPOSE, MODELS_FILE, PROJECT_FILE, Project,
 };
 use crate::registry;
@@ -111,7 +111,7 @@ const GAP: usize = 2;
 pub const GHCR_PROBE_URL: &str = "https://ghcr.io/v2/";
 
 /// `User-Agent` sent with the probes, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// The one `docker info` the checklist runs, asked for every field it needs:
 /// the engine version for the `docker-daemon` line, the data root for `disk`
@@ -122,7 +122,7 @@ const INFO_FORMAT: &str = "{{.ServerVersion}}\t{{.DockerRootDir}}\t{{.MemTotal}}
 /// What `doctor` says instead of the project section when it was not run
 /// inside a deployment directory.
 pub const NO_PROJECT: &str =
-    "project: none here (run chaps doctor inside a deployment directory for more)";
+    "project: none here (run varde doctor inside a deployment directory for more)";
 
 /// What one check concluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -253,7 +253,7 @@ pub struct Summary {
     pub skip: usize,
 }
 
-/// What `chaps doctor` prints, and the whole of its `--json`.
+/// What `varde doctor` prints, and the whole of its `--json`.
 #[derive(Debug, Serialize)]
 pub struct Report {
     pub checks: Vec<Check>,
@@ -282,7 +282,7 @@ pub fn summary(checks: &[Check]) -> Summary {
 /// The process exit code: non-zero only when something failed.
 ///
 /// A warning is a thing to know about, not a thing that stops Chap, so
-/// `chaps doctor` in a CI step only goes red on the checks that would have
+/// `varde doctor` in a CI step only goes red on the checks that would have
 /// stopped the deployment anyway.
 pub fn exit_code(summary: &Summary) -> i32 {
     i32::from(summary.fail > 0)
@@ -421,8 +421,8 @@ fn collect(ctx: &Ctx, project: Option<&Project>) -> Vec<Check> {
         let probed = probes.map(Probes::join);
         checks.extend(network_checks(probed.as_ref()));
         checks.push(github_check(probed.as_ref().map(|p| &p.github)));
-        checks.push(chaps_check(ReleaseList::of(
-            probed.as_ref().map(|p| &p.chaps),
+        checks.push(varde_check(ReleaseList::of(
+            probed.as_ref().map(|p| &p.varde),
         )));
 
         if let Some(project) = project {
@@ -488,7 +488,7 @@ fn project_checks(
 
     let claims = ports::claims(project);
     let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
-    // A port to point the API at, found the way `chaps up` finds one.
+    // A port to point the API at, found the way `varde up` finds one.
     let suggestion = busy
         .iter()
         .find(|claim| claim.service == API_SERVICE)
@@ -547,7 +547,7 @@ fn no_daemon(name: &str) -> Check {
         name,
         name,
         "the docker daemon is not answering",
-        "start Docker (see the `docker daemon` line), then run `chaps doctor` again",
+        "start Docker (see the `docker daemon` line), then run `varde doctor` again",
     )
 }
 

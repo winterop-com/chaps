@@ -19,7 +19,7 @@ use std::time::Duration;
 /// The endpoint the job list comes from.
 pub const JOBS_PATH: &str = "/v1/jobs";
 
-/// The table `chaps jobs` prints.
+/// The table `varde jobs` prints.
 pub const HEADERS: &[&str] = &["ID", "TYPE", "NAME", "STATUS", "STARTED", "DURATION"];
 
 /// Characters of an id shown in the `ID` column when that is enough.
@@ -39,14 +39,14 @@ pub const STDERR_MARKER: &str = "--- stderr ---";
 /// How much of a stderr line the failure hint keeps.
 const MAX_HINT: usize = 160;
 
-/// What `chaps jobs` says when chap-core has never run anything.
+/// What `varde jobs` says when chap-core has never run anything.
 pub const NO_JOBS: &str = "no jobs yet; a backtest or prediction started from the Modeling App \
-                           or `chaps api` shows up here";
+                           or `varde api` shows up here";
 
 /// One entry of `GET /v1/jobs`.
 ///
 /// Every field is optional on the way in, because the list is chap-core's to
-/// grow: a description that gains a field must not stop `chaps jobs` from
+/// grow: a description that gains a field must not stop `varde jobs` from
 /// printing the rows it already understands.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Job {
@@ -124,7 +124,7 @@ impl Job {
         Some(Duration::from_secs(end.saturating_sub(start)))
     }
 
-    /// The one line `chaps jobs logs` opens with, on stderr.
+    /// The one line `varde jobs logs` opens with, on stderr.
     pub fn headline(&self) -> String {
         format!(
             "job {} {} ({} {})",
@@ -287,7 +287,7 @@ pub fn failure_hint(jobs: &[Job]) -> Option<String> {
         [one] => one.id.clone(),
         _ => "<id>".to_string(),
     };
-    Some(format!("run `chaps jobs logs {id}` to see why"))
+    Some(format!("run `varde jobs logs {id}` to see why"))
 }
 
 /// What a given id matched in the list.
@@ -330,9 +330,9 @@ pub fn resolve(jobs: &[Job], given: &str) -> Matched {
 pub fn no_such_job(given: &str, matched: &Matched) -> anyhow::Error {
     match matched {
         Matched::Many(n) => anyhow::anyhow!(
-            "job {given} matches {n} jobs; run `chaps jobs` to list them and pass more of the id"
+            "job {given} matches {n} jobs; run `varde jobs` to list them and pass more of the id"
         ),
-        _ => anyhow::anyhow!("job {given} not found; run `chaps jobs` to list them"),
+        _ => anyhow::anyhow!("job {given} not found; run `varde jobs` to list them"),
     }
 }
 

@@ -1,6 +1,6 @@
-/* @theme chaps */
+/* @theme varde */
 /*
- * The theme of every chaps deck: paper and ink, one quiet accent, and code
+ * The theme of every varde deck: paper and ink, one quiet accent, and code
  * blocks that look like the terminal the commands run in. 16:9, 1280 x 720.
  */
 @import 'default';
@@ -190,7 +190,7 @@ section.title h1 {
 }
 
 section.title h1::before {
-  content: 'chaps';
+  content: 'varde';
   display: block;
   font-size: 22px;
   font-weight: 600;

@@ -2,7 +2,7 @@
 //!
 //! `chap eval` talks to a chapkit model over HTTP and needs nothing else of a
 //! deployment: no database, no API, no worker. So the model is started on its
-//! own, with `--no-deps`, rather than with `chaps up`.
+//! own, with `--no-deps`, rather than with `varde up`.
 
 use super::plan;
 use crate::commands::Ctx;
@@ -38,7 +38,7 @@ pub(super) enum Started {
         model: Model,
         files: Vec<PathBuf>,
     },
-    /// A marketplace model this run enabled in a `chaps run` group.
+    /// A marketplace model this run enabled in a `varde run` group.
     Group { dir: PathBuf, model: Model },
 }
 
@@ -64,8 +64,8 @@ pub(super) fn model_in(project: &Project, id: Option<&str>, host: Option<&str>) 
 ///
 /// In a deployment whose own chap-core is on, the start also takes the
 /// model's environment away, so it does not try to register with a chap-core
-/// that does not run. The container then differs from what `chaps up`
-/// renders, and `chaps up` recreates it later, registered.
+/// that does not run. The container then differs from what `varde up`
+/// renders, and `varde up` recreates it later, registered.
 pub(super) fn start_service(project: &Project, model: &Model) -> Result<Vec<PathBuf>> {
     let components = &project.state.components;
     let local_chap_core = components.chap_core.enabled && components.chap_core_external.is_none();
@@ -73,12 +73,12 @@ pub(super) fn start_service(project: &Project, model: &Model) -> Result<Vec<Path
     if local_chap_core {
         let name = project
             .compose_project_name()
-            .unwrap_or_else(|| "chaps".to_string());
+            .unwrap_or_else(|| "varde".to_string());
         let file = crate::paths::data_dir()
             .join("chap")
             .join(format!("compose.{name}.{}.yml", model.service));
         let body = format!(
-            "# Written by `chaps chap` for one start of {} without chap-core.\n\
+            "# Written by `varde chap` for one start of {} without chap-core.\n\
              services:\n  {}:\n    environment: !reset {{}}\n",
             model.service, model.service
         );
@@ -105,7 +105,7 @@ pub(super) fn start_service(project: &Project, model: &Model) -> Result<Vec<Path
         if piped.code != 0 {
             return Err(
                 anyhow::Error::from(ChapError::DockerFailed(piped.code)).context(format!(
-                    "{image} could not be pulled; its message is above, and `chaps doctor` checks \
+                    "{image} could not be pulled; its message is above, and `varde doctor` checks \
                  the connection to the registry"
                 )),
             );
@@ -138,7 +138,7 @@ pub(super) fn start_service(project: &Project, model: &Model) -> Result<Vec<Path
                 .to_string();
             return Err(
                 anyhow::Error::from(ChapError::DockerFailed(code)).context(format!(
-                    "{} did not start ({said}); `chaps -C {} logs {}` shows its log",
+                    "{} did not start ({said}); `varde -C {} logs {}` shows its log",
                     model.service,
                     project.dir.display(),
                     model.service
@@ -178,7 +178,7 @@ pub(super) fn stop(ctx: &Ctx, started: &Started) {
                     output::notice(&format!("stopped {}, as --stop asked", model.service))
                 }
                 _ => output::warn(&format!(
-                    "{} did not stop; `chaps -C {} down` stops it",
+                    "{} did not stop; `varde -C {} down` stops it",
                     model.service,
                     project.dir.display()
                 )),
@@ -188,7 +188,7 @@ pub(super) fn stop(ctx: &Ctx, started: &Started) {
             match crate::commands::run::stop_in(ctx, dir, &model.id, false) {
                 Ok(_) => output::notice(&format!("stopped {}, as --stop asked", model.id)),
                 Err(err) => output::warn(&format!(
-                    "{} did not stop: {err:#}; `chaps stop {}` stops it",
+                    "{} did not stop: {err:#}; `varde stop {}` stops it",
                     model.id, model.id
                 )),
             }

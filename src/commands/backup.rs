@@ -1,4 +1,4 @@
-//! `chaps backup create` — write a deployment into one `tar.gz`.
+//! `varde backup create` — write a deployment into one `tar.gz`.
 //!
 //! Four parts, each skippable: the project files (a plain copy), the chap-core
 //! database (`pg_dump -Fc` through the running postgres container), one tar
@@ -6,7 +6,7 @@
 //! mounts the same volume the model does) and one tar per component data
 //! volume (read through a busybox container, since no component one-shot
 //! mounts a volume the archive holds). Everything is staged under
-//! `.chaps/tmp/`, packed in one `tar -czf` into a temporary sibling of the
+//! `.varde/tmp/`, packed in one `tar -czf` into a temporary sibling of the
 //! destination and renamed into place, so a failure halfway leaves no
 //! half-written archive and any archive already at that path exactly as it was.
 //!
@@ -33,7 +33,7 @@ use quiesce::Running;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-/// The shape of `chaps backup create --json`.
+/// The shape of `varde backup create --json`.
 #[derive(Debug, Serialize)]
 pub struct BackupReport {
     pub path: PathBuf,
@@ -49,7 +49,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     let project = ctx.project()?;
     let out = destination(&project, args.out.as_deref())?;
 
-    let stage = Stage::new(&project.chaps_dir(), "backup")?;
+    let stage = Stage::new(&project.varde_dir(), "backup")?;
     let mut members = vec![MANIFEST_MEMBER.to_string()];
 
     // Files. Always: without them the archive says nothing about what it is a
@@ -90,7 +90,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
 
     let manifest = Manifest {
         schema_version: backup::SCHEMA_VERSION,
-        created_by: format!("chaps {}", ctx.cli_version),
+        created_by: format!("varde {}", ctx.cli_version),
         created_at: backup::timestamp(backup::now()),
         project: project_name(&project.dir),
         chap_image_tag: project.state.chap_image_tag.clone(),
@@ -133,7 +133,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     if !failed.is_empty() {
         return Err(anyhow::anyhow!(
             "{} was written without the data of {} (see the warnings above); fix what stopped \
-             the read, then `chaps backup create` again",
+             the read, then `varde backup create` again",
             out.display(),
             failed.join(", ")
         ));
@@ -199,7 +199,7 @@ fn destination(project: &Project, out: Option<&Path>) -> Result<PathBuf> {
 fn project_name(dir: &Path) -> String {
     dir.file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "chaps".to_string())
+        .unwrap_or_else(|| "varde".to_string())
 }
 
 /// What went in, with sizes, and where it landed.
@@ -313,7 +313,7 @@ fn human(report: &BackupReport, out: &Out) -> String {
     // overwrite and asks before it does anything.
     text.push_str(&format!(
         "\nrestore it with {}\n",
-        out.cmd(&format!("`chaps backup restore {}`", report.path.display()))
+        out.cmd(&format!("`varde backup restore {}`", report.path.display()))
     ));
     text
 }

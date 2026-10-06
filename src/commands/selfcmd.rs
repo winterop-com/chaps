@@ -1,4 +1,4 @@
-//! `chaps self update|version` and the once-a-day update notice.
+//! `varde self update|version` and the once-a-day update notice.
 //!
 //! The mechanics live in [`crate::selfupdate`]; this module is the command
 //! surface on top of them: what is printed, what `--json` carries, and what a
@@ -15,7 +15,7 @@ use std::time::Duration;
 /// How long `self update` waits on the release feed and the download.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// `chaps self version`, and the shape of its `--json`.
+/// `varde self version`, and the shape of its `--json`.
 #[derive(Debug, serde::Serialize)]
 struct VersionReport {
     version: &'static str,
@@ -36,7 +36,7 @@ struct VersionReport {
     install_method: &'static str,
 }
 
-/// `chaps self update`, and the shape of its `--json`.
+/// `varde self update`, and the shape of its `--json`.
 #[derive(Debug, serde::Serialize)]
 struct UpdateReport {
     /// The version before the run.
@@ -57,7 +57,7 @@ struct UpdateReport {
     path: Option<PathBuf>,
 }
 
-/// `chaps self version`: everything that identifies one build.
+/// `varde self version`: everything that identifies one build.
 pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
     let path = std::env::current_exe().ok();
     let report = VersionReport {
@@ -95,11 +95,11 @@ pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
     })
 }
 
-/// `chaps self update`: look up a release, then install it unless `--check`.
+/// `varde self update`: look up a release, then install it unless `--check`.
 pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     if ctx.registry.offline {
         return Err(anyhow::anyhow!(
-            "--offline and `chaps self update` ask for opposite things; \
+            "--offline and `varde self update` ask for opposite things; \
              an update is a download"
         ));
     }
@@ -132,7 +132,11 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     let same = already_running(channel, &release.tag, VERSION, newer);
 
     let asset = selfupdate::pick_asset(&release, TARGET);
-    let path = std::env::current_exe().ok();
+    // The file itself, not the `vg` link to it: an update through the short
+    // form must replace `varde`, which the link then still points at.
+    let path = std::env::current_exe()
+        .ok()
+        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe));
 
     if (!wanted && !newer) || same {
         let report = UpdateReport {
@@ -148,7 +152,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             format!(
                 "{} {}",
                 ctx.out.ok("already up to date:"),
-                ctx.out.value(&format!("chaps {}", describe_build()))
+                ctx.out.value(&format!("varde {}", describe_build()))
             )
         });
     }
@@ -169,7 +173,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             format!(
                 "{}\n{}",
                 ctx.out.warn(&format!(
-                    "chaps {} is available (you have {})",
+                    "varde {} is available (you have {})",
                     describe_release(&release),
                     describe_build()
                 )),
@@ -177,7 +181,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
                     2,
                     &[
                         ("asset", asset.clone()),
-                        ("run", ctx.out.cmd("chaps self update")),
+                        ("run", ctx.out.cmd("varde self update")),
                     ],
                     &|label| ctx.out.key(label),
                 )
@@ -192,10 +196,10 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
 
     if !selfupdate::is_replaceable(&path) {
         return Err(anyhow::anyhow!(
-            "{} is not writable, so chaps cannot replace itself there; \
+            "{} is not writable, so varde cannot replace itself there; \
              re-run with sudo, or install into a directory you own with \
              `curl -fsSL https://raw.githubusercontent.com/{}/main/install.sh | \
-             CHAPS_INSTALL_DIR=$HOME/.local/bin sh`",
+             VARDE_INSTALL_DIR=$HOME/.local/bin sh`",
             path.display(),
             selfupdate::REPO
         ));
@@ -230,7 +234,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     ctx.out.emit(&report, || {
         format!(
             "{} {} {} {}\n{}",
-            ctx.out.ok("updated chaps:"),
+            ctx.out.ok("updated varde:"),
             ctx.out.value(&describe_build()),
             ctx.out.dim("->"),
             ctx.out.value(&describe_release(&release)),
@@ -248,7 +252,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
 ///
 /// Crossing channels never counts as "already up to date", in either
 /// direction: a dev build and the stable release that carries the same number
-/// are different binaries, built from different commits, so `chaps self update
+/// are different binaries, built from different commits, so `varde self update
 /// --version v1.2.3` from a `v1.2.3` dev build has to install, and so does
 /// `--version dev` from a stable build. Only a build that is already on the
 /// exact thing the release would put there is up to date - which on the
@@ -318,7 +322,7 @@ fn install(ctx: &Ctx, tag: &str, asset: &str, path: &Path) -> Result<()> {
 
     let binary = selfupdate::find_binary(&work, TARGET).ok_or_else(|| {
         anyhow::anyhow!(
-            "{asset} does not contain {}; the release is not one this chaps can install",
+            "{asset} does not contain {}; the release is not one this varde can install",
             selfupdate::binary_name(TARGET)
         )
     })?;
@@ -341,7 +345,7 @@ fn confirm(ctx: &Ctx, args: &SelfUpdateArgs, tag: &str, path: &Path) -> Result<b
         return Ok(true);
     }
     print!(
-        "replace {} with chaps {tag}? [y/N] ",
+        "replace {} with varde {tag}? [y/N] ",
         ctx.out.value(&path.display().to_string())
     );
     std::io::stdout().flush()?;
@@ -350,7 +354,7 @@ fn confirm(ctx: &Ctx, args: &SelfUpdateArgs, tag: &str, path: &Path) -> Result<b
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
 }
 
-/// The once-a-day "a newer chaps exists" line.
+/// The once-a-day "a newer varde exists" line.
 ///
 /// Called after a command succeeded. It is a courtesy, so every failure is
 /// swallowed: a release feed that is down, a rate limit, a read-only cache
@@ -424,7 +428,7 @@ pub fn notify(ctx: &Ctx) {
 ///
 /// Not under `--json` (a second stream a parser did not ask for), not when
 /// stdout is not a terminal (a pipe, a CI log, a test), not under `--offline`
-/// or `CHAPS_NO_UPDATE_CHECK=1`, and not for `chaps self ...`, which is the
+/// or `VARDE_NO_UPDATE_CHECK=1`, and not for `varde self ...`, which is the
 /// command the notice would be telling you to run.
 fn should_notify(ctx: &Ctx, disabled: bool) -> bool {
     ctx.out.tty && !ctx.out.json && !ctx.registry.offline && !disabled

@@ -1,4 +1,4 @@
-//! One container that is not part of any deployment: `chaps chap` runs the
+//! One container that is not part of any deployment: `varde chap` runs the
 //! chap CLI in one, and asks docker a few questions before it does.
 
 use super::{docker_capture, exit_code, image_ids, spawn_error, trace_command};
@@ -15,7 +15,7 @@ pub const DOCKER_SOCKET: &str = "/var/run/docker.sock";
 /// back the exit code.
 ///
 /// The Docker CLI's own hints ("What's next: ...") are turned off: the output
-/// is the program's in the container, and chaps says what comes next itself.
+/// is the program's in the container, and varde says what comes next itself.
 pub fn run_plain(args: &[String]) -> Result<i32> {
     trace_command(args);
     let status = Command::new("docker")

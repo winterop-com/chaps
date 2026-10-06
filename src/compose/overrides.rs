@@ -141,7 +141,7 @@ pub fn is_root(user: &str) -> bool {
 /// bare `chown 0` would leave it there.
 ///
 /// An account name nothing could turn into numbers falls back to the chapkit
-/// ids, which is what `chaps sync` warns about.
+/// ids, which is what `varde sync` warns about.
 pub fn chown_pair(user: &str) -> String {
     if is_root(user) {
         return "0:0".to_string();

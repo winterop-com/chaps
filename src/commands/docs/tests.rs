@@ -4,16 +4,16 @@ use super::*;
 fn every_command_path_gets_a_section() {
     let out = reference();
     for path in [
-        "## chaps",
-        "## chaps init",
-        "## chaps models",
-        "## chaps models enable",
-        "## chaps models unexpose",
-        "## chaps registry show",
-        "## chaps docker run",
-        "## chaps backup restore",
-        "## chaps status",
-        "## chaps update",
+        "## varde",
+        "## varde init",
+        "## varde models",
+        "## varde models enable",
+        "## varde models unexpose",
+        "## varde registry show",
+        "## varde docker run",
+        "## varde backup restore",
+        "## varde status",
+        "## varde update",
     ] {
         assert!(out.contains(path), "{path} is missing from the reference");
     }
@@ -23,10 +23,10 @@ fn every_command_path_gets_a_section() {
 fn the_project_only_commands_are_documented_even_though_help_hides_them() {
     let out = reference();
     for path in [
-        "## chaps up",
-        "## chaps down",
-        "## chaps logs",
-        "## chaps ui",
+        "## varde up",
+        "## varde down",
+        "## varde logs",
+        "## varde ui",
     ] {
         assert!(out.contains(path), "{path} is missing from the reference");
     }
@@ -35,10 +35,10 @@ fn the_project_only_commands_are_documented_even_though_help_hides_them() {
 #[test]
 fn clap_s_own_commands_and_the_generator_itself_stay_out() {
     let out = reference();
-    assert!(!out.contains("## chaps help"));
-    assert!(!out.contains("## chaps docs-markdown"));
+    assert!(!out.contains("## varde help"));
+    assert!(!out.contains("## varde docs-markdown"));
     assert!(!out.contains("| `-h, --help` |"));
-    // `chaps models enable --version` is not clap's `-V` and must stay.
+    // `varde models enable --version` is not clap's `-V` and must stay.
     assert!(out.contains("| `--version <VERSION>` |"), "{out}");
 }
 
@@ -54,7 +54,7 @@ fn the_globals_are_listed_once_under_the_root() {
 fn usage_names_the_full_command_path() {
     let out = reference();
     assert!(
-        out.contains("Usage: chaps models enable [OPTIONS] <ID>"),
+        out.contains("Usage: varde models enable [OPTIONS] <ID>"),
         "{out}"
     );
 }

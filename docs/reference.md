@@ -3,16 +3,16 @@
 Generated from the `--help` texts by `make docs-reference`; edit
 `src/cli.rs` and run that target rather than editing this file.
 
-Every command accepts the global options listed under [chaps](#chaps),
+Every command accepts the global options listed under [varde](#varde),
 `--json` included. Commands that need a deployment directory are hidden from
-`chaps --help` outside one, but they are all listed here.
+`varde --help` outside one, but they are all listed here.
 
-## chaps
+## varde
 
 deploy Chap (climate-informed disease forecasting) and its services.
 
 ```text
-Usage: chaps [OPTIONS] <COMMAND>
+Usage: varde [OPTIONS] <COMMAND>
 ```
 
 | Global option | Description |
@@ -26,14 +26,14 @@ Usage: chaps [OPTIONS] <COMMAND>
 | `--offline` | Never touch the network; use the cache or the snapshot. |
 | `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
 
-Subcommands: [`chaps init`](#chaps-init), [`chaps run`](#chaps-run), [`chaps ps`](#chaps-ps), [`chaps stop`](#chaps-stop), [`chaps top`](#chaps-top), [`chaps models`](#chaps-models), [`chaps components`](#chaps-components), [`chaps ui`](#chaps-ui), [`chaps registry`](#chaps-registry), [`chaps sync`](#chaps-sync), [`chaps update`](#chaps-update), [`chaps up`](#chaps-up), [`chaps down`](#chaps-down), [`chaps logs`](#chaps-logs), [`chaps restart`](#chaps-restart), [`chaps docker`](#chaps-docker), [`chaps backup`](#chaps-backup), [`chaps status`](#chaps-status), [`chaps open`](#chaps-open), [`chaps jobs`](#chaps-jobs), [`chaps api`](#chaps-api), [`chaps chap`](#chaps-chap), [`chaps doctor`](#chaps-doctor), [`chaps cleanup`](#chaps-cleanup), [`chaps auth`](#chaps-auth), [`chaps dhis2`](#chaps-dhis2), [`chaps self`](#chaps-self), [`chaps completions`](#chaps-completions)
+Subcommands: [`varde init`](#varde-init), [`varde run`](#varde-run), [`varde ps`](#varde-ps), [`varde stop`](#varde-stop), [`varde top`](#varde-top), [`varde models`](#varde-models), [`varde components`](#varde-components), [`varde ui`](#varde-ui), [`varde registry`](#varde-registry), [`varde sync`](#varde-sync), [`varde update`](#varde-update), [`varde up`](#varde-up), [`varde down`](#varde-down), [`varde logs`](#varde-logs), [`varde restart`](#varde-restart), [`varde docker`](#varde-docker), [`varde backup`](#varde-backup), [`varde status`](#varde-status), [`varde open`](#varde-open), [`varde jobs`](#varde-jobs), [`varde api`](#varde-api), [`varde chap`](#varde-chap), [`varde doctor`](#varde-doctor), [`varde cleanup`](#varde-cleanup), [`varde auth`](#varde-auth), [`varde dhis2`](#varde-dhis2), [`varde self`](#varde-self), [`varde completions`](#varde-completions)
 
-## chaps init
+## varde init
 
-Create a deployment directory: compose files, .env and .chaps/.
+Create a deployment directory: compose files, .env and .varde/.
 
 ```text
-Usage: chaps init [OPTIONS] [DIR]
+Usage: varde init [OPTIONS] [DIR]
 ```
 
 | Argument | Description |
@@ -66,12 +66,12 @@ Usage: chaps init [OPTIONS] [DIR]
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
 
-## chaps run
+## varde run
 
 Start one model and print where it answers.
 
 ```text
-Usage: chaps run [OPTIONS] <MODEL>
+Usage: varde run [OPTIONS] <MODEL>
 ```
 
 | Argument | Description |
@@ -89,24 +89,24 @@ Usage: chaps run [OPTIONS] <MODEL>
 | `--models-host <HOST>` | Host that chap-core calls the models back at; detected if omitted. |
 | `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
 
-## chaps ps
+## varde ps
 
 List the models that run, and where each one answers.
 
 ```text
-Usage: chaps ps [OPTIONS]
+Usage: varde ps [OPTIONS]
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--group <NAME>` | List this group only; every group when omitted. |
 
-## chaps stop
+## varde stop
 
 Stop a model and take its overlay away; its data stays.
 
 ```text
-Usage: chaps stop [OPTIONS] [ID]
+Usage: varde stop [OPTIONS] [ID]
 ```
 
 | Argument | Description |
@@ -116,34 +116,34 @@ Usage: chaps stop [OPTIONS] [ID]
 | `--all` | Stop every model in the group, or in every group. |
 | `--purge` | Delete the data volumes too, and a group left empty with them. |
 
-## chaps top
+## varde top
 
-Watch every chaps deployment on this machine as a live tree.
+Watch every varde deployment on this machine as a live tree.
 
 ```text
-Usage: chaps top [OPTIONS]
+Usage: varde top [OPTIONS]
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--interval <SECONDS>` | Seconds between two looks at docker. Default: `2`. |
 
-## chaps models
+## varde models
 
 Browse and manage marketplace models.
 
 ```text
-Usage: chaps models [OPTIONS] <COMMAND>
+Usage: varde models [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps models list`](#chaps-models-list), [`chaps models search`](#chaps-models-search), [`chaps models info`](#chaps-models-info), [`chaps models test`](#chaps-models-test), [`chaps models add`](#chaps-models-add), [`chaps models remove`](#chaps-models-remove), [`chaps models enable`](#chaps-models-enable), [`chaps models disable`](#chaps-models-disable), [`chaps models expose`](#chaps-models-expose), [`chaps models unexpose`](#chaps-models-unexpose)
+Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
 
-## chaps models list
+## varde models list
 
 List marketplace models.
 
 ```text
-Usage: chaps models list [OPTIONS]
+Usage: varde models list [OPTIONS]
 ```
 
 | Argument | Description |
@@ -152,36 +152,36 @@ Usage: chaps models list [OPTIONS]
 | `--templates` | List only templates. |
 | `--enabled` | List only the models enabled in this project. |
 
-## chaps models search
+## varde models search
 
 Search the marketplace by id, name or summary.
 
 ```text
-Usage: chaps models search [OPTIONS] <QUERY>
+Usage: varde models search [OPTIONS] <QUERY>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<QUERY>` | Text to look for; matching is case-insensitive. |
 
-## chaps models info
+## varde models info
 
 Show everything known about one model.
 
 ```text
-Usage: chaps models info [OPTIONS] <ID>
+Usage: varde models info [OPTIONS] <ID>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
 
-## chaps models test
+## varde models test
 
 Make a model train and predict, and say whether it could.
 
 ```text
-Usage: chaps models test [OPTIONS] [ID]...
+Usage: varde models test [OPTIONS] [ID]...
 ```
 
 | Argument | Description |
@@ -193,12 +193,12 @@ Usage: chaps models test [OPTIONS] [ID]...
 | `--timeout <SECONDS>` | Give up on one model after this many seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |
 
-## chaps models add
+## varde models add
 
 Add a model the marketplace does not list.
 
 ```text
-Usage: chaps models add [OPTIONS] <SOURCE>
+Usage: varde models add [OPTIONS] <SOURCE>
 ```
 
 | Argument | Description |
@@ -213,12 +213,12 @@ Usage: chaps models add [OPTIONS] <SOURCE>
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--runtime-amd64` | Record the image as published for amd64 only. |
 
-## chaps models remove
+## varde models remove
 
 Remove a model that was added with models add.
 
 ```text
-Usage: chaps models remove [OPTIONS] <ID>
+Usage: varde models remove [OPTIONS] <ID>
 ```
 
 | Argument | Description |
@@ -226,12 +226,12 @@ Usage: chaps models remove [OPTIONS] <ID>
 | `<ID>` | Id of a model added with models add. |
 | `--purge` | Delete the model's data volume as well. |
 
-## chaps models enable
+## varde models enable
 
 Enable a model and write its compose overlay.
 
 ```text
-Usage: chaps models enable [OPTIONS] <ID>
+Usage: varde models enable [OPTIONS] <ID>
 ```
 
 | Argument | Description |
@@ -245,12 +245,12 @@ Usage: chaps models enable [OPTIONS] <ID>
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--allow-template` | Enable a template even though it is not a model. |
 
-## chaps models disable
+## varde models disable
 
 Disable a model and remove its compose overlay.
 
 ```text
-Usage: chaps models disable [OPTIONS] <ID>
+Usage: varde models disable [OPTIONS] <ID>
 ```
 
 | Argument | Description |
@@ -258,12 +258,12 @@ Usage: chaps models disable [OPTIONS] <ID>
 | `<ID>` | Marketplace id or service id. |
 | `--purge` | Delete the model's data volume as well. |
 
-## chaps models expose
+## varde models expose
 
 Publish a host port for an enabled model.
 
 ```text
-Usage: chaps models expose [OPTIONS] <ID>
+Usage: varde models expose [OPTIONS] <ID>
 ```
 
 | Argument | Description |
@@ -272,42 +272,42 @@ Usage: chaps models expose [OPTIONS] <ID>
 | `--port <PORT\|auto>` | Host port to publish on, or auto for the lowest free one. |
 | `--bind <ADDR>` | Host address to publish the port on, e.g. 127.0.0.1 for this machine. |
 
-## chaps models unexpose
+## varde models unexpose
 
 Take an enabled model's host port away again.
 
 ```text
-Usage: chaps models unexpose [OPTIONS] <ID>
+Usage: varde models unexpose [OPTIONS] <ID>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
 
-## chaps components
+## varde components
 
 Show and change what this deployment is made of.
 
 ```text
-Usage: chaps components [OPTIONS] <COMMAND>
+Usage: varde components [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps components list`](#chaps-components-list), [`chaps components enable`](#chaps-components-enable), [`chaps components disable`](#chaps-components-disable)
+Subcommands: [`varde components list`](#varde-components-list), [`varde components enable`](#varde-components-enable), [`varde components disable`](#varde-components-disable)
 
-## chaps components list
+## varde components list
 
 List every component and whether this deployment has it.
 
 ```text
-Usage: chaps components list [OPTIONS]
+Usage: varde components list [OPTIONS]
 ```
 
-## chaps components enable
+## varde components enable
 
 Turn a component on, or change the settings of one that is.
 
 ```text
-Usage: chaps components enable [OPTIONS] <NAME>
+Usage: varde components enable [OPTIONS] <NAME>
 ```
 
 | Argument | Description |
@@ -325,12 +325,12 @@ Usage: chaps components enable [OPTIONS] <NAME>
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
 
-## chaps components disable
+## varde components disable
 
 Turn a component off and remove its compose file.
 
 ```text
-Usage: chaps components disable [OPTIONS] <NAME>
+Usage: varde components disable [OPTIONS] <NAME>
 ```
 
 | Argument | Description |
@@ -338,58 +338,58 @@ Usage: chaps components disable [OPTIONS] <NAME>
 | `<NAME>` | Component name: ocs, s3, dhis2 or chap-core. |
 | `--purge` | Delete the component's data volume as well. |
 
-## chaps ui
+## varde ui
 
 Open the browser: marketplace models and components.
 
 ```text
-Usage: chaps ui [OPTIONS]
+Usage: varde ui [OPTIONS]
 ```
 
-## chaps registry
+## varde registry
 
 Inspect and refresh the marketplace registry.
 
 ```text
-Usage: chaps registry [OPTIONS] <COMMAND>
+Usage: varde registry [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps registry update`](#chaps-registry-update), [`chaps registry show`](#chaps-registry-show)
+Subcommands: [`varde registry update`](#varde-registry-update), [`varde registry show`](#varde-registry-show)
 
-## chaps registry update
+## varde registry update
 
 Fetch the registry from the network and refresh the cache.
 
 ```text
-Usage: chaps registry update [OPTIONS]
+Usage: varde registry update [OPTIONS]
 ```
 
-## chaps registry show
+## varde registry show
 
 Show where the registry was loaded from and what it holds.
 
 ```text
-Usage: chaps registry show [OPTIONS]
+Usage: varde registry show [OPTIONS]
 ```
 
-## chaps sync
+## varde sync
 
-Render the compose files from .chaps/.
+Render the compose files from .varde/.
 
 ```text
-Usage: chaps sync [OPTIONS]
+Usage: varde sync [OPTIONS]
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--check` | Write nothing; exit non-zero if anything would change. |
 
-## chaps update
+## varde update
 
 Move the pins to what upstream publishes now, and pull.
 
 ```text
-Usage: chaps update [OPTIONS]
+Usage: varde update [OPTIONS]
 ```
 
 | Argument | Description |
@@ -400,12 +400,12 @@ Usage: chaps update [OPTIONS]
 | `--list-tags` | List the chap-core tags you can move to, newest first. |
 | `--yes` | Answer yes to the confirmation a backwards move asks for. |
 
-## chaps up
+## varde up
 
 Sync, then start Chap (docker compose up).
 
 ```text
-Usage: chaps up [OPTIONS] [EXTRA]...
+Usage: varde up [OPTIONS] [EXTRA]...
 ```
 
 | Argument | Description |
@@ -413,17 +413,17 @@ Usage: chaps up [OPTIONS] [EXTRA]...
 | `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops Chap). |
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
-| `--replace` | Stop the other chaps deployments holding these ports first. |
+| `--replace` | Stop the other varde deployments holding these ports first. |
 | `--wait` | Return only once chap-core and every model answer. |
 | `--timeout <SECONDS>` | How long --wait waits before it fails, in seconds. Default: `300`. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
 
-## chaps down
+## varde down
 
 Stop Chap (docker compose down).
 
 ```text
-Usage: chaps down [OPTIONS] [EXTRA]...
+Usage: varde down [OPTIONS] [EXTRA]...
 ```
 
 | Argument | Description |
@@ -432,12 +432,12 @@ Usage: chaps down [OPTIONS] [EXTRA]...
 | `-y, --yes` | Skip the confirmation. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose down. |
 
-## chaps logs
+## varde logs
 
 Show container logs (docker compose logs).
 
 ```text
-Usage: chaps logs [OPTIONS] [SERVICE]...
+Usage: varde logs [OPTIONS] [SERVICE]...
 ```
 
 | Argument | Description |
@@ -446,12 +446,12 @@ Usage: chaps logs [OPTIONS] [SERVICE]...
 | `--tail <N>` | Show only the last N lines of each service's log. |
 | `<SERVICE>...` | Services to show logs for; all of them when omitted. |
 
-## chaps restart
+## varde restart
 
 Recreate the services whose image or configuration changed.
 
 ```text
-Usage: chaps restart [OPTIONS] [SERVICE]...
+Usage: varde restart [OPTIONS] [SERVICE]...
 ```
 
 | Argument | Description |
@@ -459,42 +459,42 @@ Usage: chaps restart [OPTIONS] [SERVICE]...
 | `--all` | Recreate the named services even when nothing changed. |
 | `<SERVICE>...` | Services to restart; the whole project when omitted. |
 
-## chaps docker
+## varde docker
 
 Talk to Docker directly: containers, images, compose.
 
 ```text
-Usage: chaps docker [OPTIONS] <COMMAND>
+Usage: varde docker [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps docker ps`](#chaps-docker-ps), [`chaps docker pull`](#chaps-docker-pull), [`chaps docker exec`](#chaps-docker-exec), [`chaps docker run`](#chaps-docker-run), [`chaps docker config`](#chaps-docker-config)
+Subcommands: [`varde docker ps`](#varde-docker-ps), [`varde docker pull`](#varde-docker-pull), [`varde docker exec`](#varde-docker-exec), [`varde docker run`](#varde-docker-run), [`varde docker config`](#varde-docker-config)
 
-## chaps docker ps
+## varde docker ps
 
 List the containers this project is running.
 
 ```text
-Usage: chaps docker ps [OPTIONS] [EXTRA]...
+Usage: varde docker ps [OPTIONS] [EXTRA]...
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<EXTRA>...` | Extra arguments passed through to docker compose ps. |
 
-## chaps docker pull
+## varde docker pull
 
 Download the pinned images into the local Docker daemon.
 
 ```text
-Usage: chaps docker pull [OPTIONS]
+Usage: varde docker pull [OPTIONS]
 ```
 
-## chaps docker exec
+## varde docker exec
 
 Run a command inside one of the running containers.
 
 ```text
-Usage: chaps docker exec [OPTIONS] <SERVICE> [CMD]...
+Usage: varde docker exec [OPTIONS] <SERVICE> [CMD]...
 ```
 
 | Argument | Description |
@@ -502,46 +502,46 @@ Usage: chaps docker exec [OPTIONS] <SERVICE> [CMD]...
 | `<SERVICE>` | Service to run the command in. |
 | `<CMD>...` | Command to run; a shell (sh) when omitted. |
 
-## chaps docker run
+## varde docker run
 
 Run any docker compose command against this project.
 
 ```text
-Usage: chaps docker run [OPTIONS] [ARGS]...
+Usage: varde docker run [OPTIONS] [ARGS]...
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ARGS>...` | Arguments passed to docker compose after the -f list. |
 
-## chaps docker config
+## varde docker config
 
 Print every compose file merged into one document.
 
 ```text
-Usage: chaps docker config [OPTIONS] [EXTRA]...
+Usage: varde docker config [OPTIONS] [EXTRA]...
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<EXTRA>...` | Extra arguments passed through to docker compose config. |
 
-## chaps backup
+## varde backup
 
 Create or restore a backup of this deployment.
 
 ```text
-Usage: chaps backup [OPTIONS] <COMMAND>
+Usage: varde backup [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps backup create`](#chaps-backup-create), [`chaps backup restore`](#chaps-backup-restore)
+Subcommands: [`varde backup create`](#varde-backup-create), [`varde backup restore`](#varde-backup-restore)
 
-## chaps backup create
+## varde backup create
 
 Write a tar.gz of the database, the data and the files.
 
 ```text
-Usage: chaps backup create [OPTIONS]
+Usage: varde backup create [OPTIONS]
 ```
 
 | Argument | Description |
@@ -551,17 +551,17 @@ Usage: chaps backup create [OPTIONS]
 | `--no-models` | Leave the model data volumes out of the archive. |
 | `--no-components` | Leave the component data volumes out of the archive. |
 
-## chaps backup restore
+## varde backup restore
 
 Put a deployment back from a backup archive.
 
 ```text
-Usage: chaps backup restore [OPTIONS] <ARCHIVE>
+Usage: varde backup restore [OPTIONS] <ARCHIVE>
 ```
 
 | Argument | Description |
 | --- | --- |
-| `<ARCHIVE>` | The tar.gz written by chaps backup create. |
+| `<ARCHIVE>` | The tar.gz written by varde backup create. |
 | `--yes` | Skip the confirmation. |
 | `--files-only` | Restore only the project files; no Docker needed. |
 | `--db-only` | Restore only the chap-core database. |
@@ -570,12 +570,12 @@ Usage: chaps backup restore [OPTIONS] <ARCHIVE>
 | `--adopt-identity` | Take over the compose project name from the archive. |
 | `--no-start` | Do not start the deployment at the end. |
 
-## chaps status
+## varde status
 
 Show chap-core health and which models registered.
 
 ```text
-Usage: chaps status [OPTIONS]
+Usage: varde status [OPTIONS]
 ```
 
 | Argument | Description |
@@ -583,12 +583,12 @@ Usage: chaps status [OPTIONS]
 | `--url <URL>` | Base URL of the chap-core API. |
 | `--timeout <SECONDS>` | Request timeout in seconds. Default: `5`. |
 
-## chaps open
+## varde open
 
 Open a component's web interface in a browser.
 
 ```text
-Usage: chaps open [OPTIONS] [NAME]
+Usage: varde open [OPTIONS] [NAME]
 ```
 
 | Argument | Description |
@@ -596,13 +596,13 @@ Usage: chaps open [OPTIONS] [NAME]
 | `<NAME>` | Component to open (chap-core, ocs, dhis2), or an enabled model's id. |
 | `--no-browser` | Print the address instead of opening a browser. |
 
-## chaps jobs
+## varde jobs
 
 List the backtests and predictions chap-core has run.
 
 ```text
-Usage: chaps jobs [OPTIONS]
-       chaps jobs <COMMAND>
+Usage: varde jobs [OPTIONS]
+       varde jobs <COMMAND>
 ```
 
 | Argument | Description |
@@ -611,14 +611,14 @@ Usage: chaps jobs [OPTIONS]
 | `--type <TYPE>` | Only jobs of this type, such as create_backtest. |
 | `--limit <N>` | Show at most this many jobs. |
 
-Subcommands: [`chaps jobs list`](#chaps-jobs-list), [`chaps jobs show`](#chaps-jobs-show), [`chaps jobs logs`](#chaps-jobs-logs), [`chaps jobs cancel`](#chaps-jobs-cancel), [`chaps jobs delete`](#chaps-jobs-delete)
+Subcommands: [`varde jobs list`](#varde-jobs-list), [`varde jobs show`](#varde-jobs-show), [`varde jobs logs`](#varde-jobs-logs), [`varde jobs cancel`](#varde-jobs-cancel), [`varde jobs delete`](#varde-jobs-delete)
 
-## chaps jobs list
+## varde jobs list
 
 List the jobs chap-core knows about, newest first.
 
 ```text
-Usage: chaps jobs list [OPTIONS]
+Usage: varde jobs list [OPTIONS]
 ```
 
 | Argument | Description |
@@ -627,24 +627,24 @@ Usage: chaps jobs list [OPTIONS]
 | `--type <TYPE>` | Only jobs of this type, such as create_backtest. |
 | `--limit <N>` | Show at most this many jobs. |
 
-## chaps jobs show
+## varde jobs show
 
 Show everything chap-core records about one job.
 
 ```text
-Usage: chaps jobs show [OPTIONS] <ID>
+Usage: varde jobs show [OPTIONS] <ID>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Job id, or enough of its start to name one job. |
 
-## chaps jobs logs
+## varde jobs logs
 
 Print one job's log, which is where a failure says why.
 
 ```text
-Usage: chaps jobs logs [OPTIONS] <ID>
+Usage: varde jobs logs [OPTIONS] <ID>
 ```
 
 | Argument | Description |
@@ -652,36 +652,36 @@ Usage: chaps jobs logs [OPTIONS] <ID>
 | `<ID>` | Job id, or enough of its start to name one job. |
 | `--tail <N>` | Print only the last N lines of the log. |
 
-## chaps jobs cancel
+## varde jobs cancel
 
 Ask chap-core to stop a job that is still running.
 
 ```text
-Usage: chaps jobs cancel [OPTIONS] <ID>
+Usage: varde jobs cancel [OPTIONS] <ID>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Job id, or enough of its start to name one job. |
 
-## chaps jobs delete
+## varde jobs delete
 
 Remove a finished job from chap-core's list.
 
 ```text
-Usage: chaps jobs delete [OPTIONS] <ID>
+Usage: varde jobs delete [OPTIONS] <ID>
 ```
 
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Job id, or enough of its start to name one job. |
 
-## chaps api
+## varde api
 
 Send one authenticated request to chap-core's API.
 
 ```text
-Usage: chaps api [OPTIONS] <METHOD> <PATH>
+Usage: varde api [OPTIONS] <METHOD> <PATH>
 ```
 
 | Argument | Description |
@@ -693,38 +693,38 @@ Usage: chaps api [OPTIONS] <METHOD> <PATH>
 | `--raw` | Print the body exactly as it arrived. |
 | `--timeout <SECONDS>` | Request timeout in seconds. Default: `30`. |
 
-## chaps chap
+## varde chap
 
 Run the chap CLI in a container, with no Python or uv installed.
 
 ```text
-Usage: chaps chap [OPTIONS] [CHAP_ARGS]...
+Usage: varde chap [OPTIONS] [CHAP_ARGS]...
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--tag <TAG>` | chap-core image tag; the deployment's tag or the newest release if omitted. |
 | `--image <IMAGE>` | Image to run in; chosen from --model-name when omitted. Values: `core`, `worker`. |
-| `--group <NAME>` | `chaps run` group whose network the container joins. |
+| `--group <NAME>` | `varde run` group whose network the container joins. |
 | `--docker` | Give the container the docker socket, for docker_env models. |
 | `--stop` | Stop the model this run started, once chap is done. |
 | `--timeout <SECONDS>` | How long a model this run starts may take to answer, in seconds. Default: `300`. |
 | `<CHAP_ARGS>...` | Arguments for chap, such as `eval --model-name URL ...`. |
 
-## chaps doctor
+## varde doctor
 
 Run a checklist over this machine and this deployment.
 
 ```text
-Usage: chaps doctor [OPTIONS]
+Usage: varde doctor [OPTIONS]
 ```
 
-## chaps cleanup
+## varde cleanup
 
 Delete what deployments whose directory is gone left in docker.
 
 ```text
-Usage: chaps cleanup [OPTIONS]
+Usage: varde cleanup [OPTIONS]
 ```
 
 | Argument | Description |
@@ -732,80 +732,80 @@ Usage: chaps cleanup [OPTIONS]
 | `-n, --dry-run` | List what would be deleted and change nothing. |
 | `--yes` | Delete without asking first. |
 
-## chaps auth
+## varde auth
 
 Turn API authentication on or off, and show the token.
 
 ```text
-Usage: chaps auth [OPTIONS] <COMMAND>
+Usage: varde auth [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps auth show`](#chaps-auth-show), [`chaps auth token`](#chaps-auth-token), [`chaps auth enable`](#chaps-auth-enable), [`chaps auth disable`](#chaps-auth-disable), [`chaps auth rotate`](#chaps-auth-rotate)
+Subcommands: [`varde auth show`](#varde-auth-show), [`varde auth token`](#varde-auth-token), [`varde auth enable`](#varde-auth-enable), [`varde auth disable`](#varde-auth-disable), [`varde auth rotate`](#varde-auth-rotate)
 
-## chaps auth show
+## varde auth show
 
 Say whether the API is protected, and by which token.
 
 ```text
-Usage: chaps auth show [OPTIONS]
+Usage: varde auth show [OPTIONS]
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--reveal` | Print the API token. |
 
-## chaps auth token
+## varde auth token
 
 Print the API token alone, for a script to capture.
 
 ```text
-Usage: chaps auth token [OPTIONS]
+Usage: varde auth token [OPTIONS]
 ```
 
-## chaps auth enable
+## varde auth enable
 
 Turn authentication on: write both secrets and sync.
 
 ```text
-Usage: chaps auth enable [OPTIONS]
+Usage: varde auth enable [OPTIONS]
 ```
 
 | Argument | Description |
 | --- | --- |
 | `--token <TOKEN>` | Use this API token instead of generating one. |
 
-## chaps auth disable
+## varde auth disable
 
 Turn authentication off, keeping both values as comments.
 
 ```text
-Usage: chaps auth disable [OPTIONS]
+Usage: varde auth disable [OPTIONS]
 ```
 
-## chaps auth rotate
+## varde auth rotate
 
 Replace both secrets with freshly generated ones.
 
 ```text
-Usage: chaps auth rotate [OPTIONS]
+Usage: varde auth rotate [OPTIONS]
 ```
 
-## chaps dhis2
+## varde dhis2
 
 Let the DHIS2 Modeling App reach this deployment's Chap.
 
 ```text
-Usage: chaps dhis2 [OPTIONS] <COMMAND>
+Usage: varde dhis2 [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps dhis2 show`](#chaps-dhis2-show), [`chaps dhis2 route`](#chaps-dhis2-route), [`chaps dhis2 analytics`](#chaps-dhis2-analytics), [`chaps dhis2 apps`](#chaps-dhis2-apps), [`chaps dhis2 connect`](#chaps-dhis2-connect), [`chaps dhis2 use`](#chaps-dhis2-use)
+Subcommands: [`varde dhis2 show`](#varde-dhis2-show), [`varde dhis2 route`](#varde-dhis2-route), [`varde dhis2 analytics`](#varde-dhis2-analytics), [`varde dhis2 apps`](#varde-dhis2-apps), [`varde dhis2 connect`](#varde-dhis2-connect), [`varde dhis2 use`](#varde-dhis2-use)
 
-## chaps dhis2 show
+## varde dhis2 show
 
 Say what DHIS2 has: the chap route, analytics and the apps.
 
 ```text
-Usage: chaps dhis2 show [OPTIONS]
+Usage: varde dhis2 show [OPTIONS]
 ```
 
 | Argument | Description |
@@ -813,12 +813,12 @@ Usage: chaps dhis2 show [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
-## chaps dhis2 route
+## varde dhis2 route
 
 Point DHIS2's chap route at this deployment's chap-core.
 
 ```text
-Usage: chaps dhis2 route [OPTIONS]
+Usage: varde dhis2 route [OPTIONS]
 ```
 
 | Argument | Description |
@@ -826,12 +826,12 @@ Usage: chaps dhis2 route [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
-## chaps dhis2 analytics
+## varde dhis2 analytics
 
 Generate DHIS2's analytics tables and wait for them.
 
 ```text
-Usage: chaps dhis2 analytics [OPTIONS]
+Usage: varde dhis2 analytics [OPTIONS]
 ```
 
 | Argument | Description |
@@ -841,12 +841,12 @@ Usage: chaps dhis2 analytics [OPTIONS]
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
 
-## chaps dhis2 apps
+## varde dhis2 apps
 
 Install the Modeling and Climate apps from the App Hub.
 
 ```text
-Usage: chaps dhis2 apps [OPTIONS]
+Usage: varde dhis2 apps [OPTIONS]
 ```
 
 | Argument | Description |
@@ -854,12 +854,12 @@ Usage: chaps dhis2 apps [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
-## chaps dhis2 connect
+## varde dhis2 connect
 
 The route, the apps, then analytics; the route only on an external DHIS2.
 
 ```text
-Usage: chaps dhis2 connect [OPTIONS]
+Usage: varde dhis2 connect [OPTIONS]
 ```
 
 | Argument | Description |
@@ -869,12 +869,12 @@ Usage: chaps dhis2 connect [OPTIONS]
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
 
-## chaps dhis2 use
+## varde dhis2 use
 
 Use a DHIS2 that runs elsewhere, or show which DHIS2 is used.
 
 ```text
-Usage: chaps dhis2 use [OPTIONS] [URL]
+Usage: varde dhis2 use [OPTIONS] [URL]
 ```
 
 | Argument | Description |
@@ -883,22 +883,22 @@ Usage: chaps dhis2 use [OPTIONS] [URL]
 | `--chap-url <URL>` | chap-core's URL, as that DHIS2 reaches it; the route points here. |
 | `--clear` | Forget the external DHIS2 and use the dhis2 component again. |
 
-## chaps self
+## varde self
 
-Update chaps itself, and report what this build is.
+Update varde itself, and report what this build is.
 
 ```text
-Usage: chaps self [OPTIONS] <COMMAND>
+Usage: varde self [OPTIONS] <COMMAND>
 ```
 
-Subcommands: [`chaps self update`](#chaps-self-update), [`chaps self version`](#chaps-self-version)
+Subcommands: [`varde self update`](#varde-self-update), [`varde self version`](#varde-self-version)
 
-## chaps self update
+## varde self update
 
 Replace this binary with the newest release.
 
 ```text
-Usage: chaps self update [OPTIONS]
+Usage: varde self update [OPTIONS]
 ```
 
 | Argument | Description |
@@ -907,20 +907,20 @@ Usage: chaps self update [OPTIONS]
 | `--version <TAG>` | Install this release tag instead of the newest one. |
 | `-y, --yes` | Do not ask before replacing the binary. |
 
-## chaps self version
+## varde self version
 
 Show what this build is: version, revision, target and path.
 
 ```text
-Usage: chaps self version [OPTIONS]
+Usage: varde self version [OPTIONS]
 ```
 
-## chaps completions
+## varde completions
 
-Print a shell completion script for chaps.
+Print a shell completion script for varde.
 
 ```text
-Usage: chaps completions [OPTIONS] <SHELL>
+Usage: varde completions [OPTIONS] <SHELL>
 ```
 
 | Argument | Description |

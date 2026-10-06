@@ -41,7 +41,7 @@ fn the_table_is_followed_by_the_line_it_adds_up_to() {
     assert!(lines[1].starts_with("aaaaaaaa..."), "{text}");
     assert!(text.contains("2 jobs: 1 done, 1 failed"), "{text}");
     assert!(
-        text.contains("run `chaps jobs logs bbbbbbbb-2222` to see why"),
+        text.contains("run `varde jobs logs bbbbbbbb-2222` to see why"),
         "{text}"
     );
 }
@@ -87,8 +87,8 @@ fn show_prints_every_field_and_ends_on_the_next_step() {
 #[test]
 fn the_next_step_follows_the_status() {
     let job = job("abc", "SUCCESS");
-    assert!(next_step(&job, "FAILURE", None).starts_with("run `chaps jobs logs abc`"));
-    assert!(next_step(&job, "STARTED", None).contains("chaps jobs cancel abc"));
+    assert!(next_step(&job, "FAILURE", None).starts_with("run `varde jobs logs abc`"));
+    assert!(next_step(&job, "STARTED", None).contains("varde jobs cancel abc"));
     assert!(next_step(&job, "REVOKED", None).contains("was cancelled"));
     assert!(next_step(&job, "SUCCESS", Some(9)).contains("/v1/crud/backtests/9"));
     assert!(next_step(&job, "SUCCESS", None).contains("to see what it did"));

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create winterop-com/chaps on GitHub and put it in a publishable state.
+# Create winterop-com/varde on GitHub and put it in a publishable state.
 #
 #   scripts/bootstrap-repo.sh          # print what would run, change nothing
 #   scripts/bootstrap-repo.sh --yes    # actually run it
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ORG="${ORG:-winterop-com}"
-REPO_NAME="${REPO_NAME:-chaps}"
+REPO_NAME="${REPO_NAME:-varde}"
 REPO="${REPO:-${ORG}/${REPO_NAME}}"
 BRANCH="${BRANCH:-main}"
 PAGES_URL="${PAGES_URL:-https://${ORG}.github.io/${REPO_NAME}/}"

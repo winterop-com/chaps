@@ -78,11 +78,11 @@ fn a_chap_core_that_is_not_answering_names_the_way_out() {
     let report = up(Vec::new(), &[], &[]);
     let starting = down_message(&report, "io: Connection reset by peer", true);
     assert!(
-        starting.contains("still starting, so run `chaps status` again in a moment"),
+        starting.contains("still starting, so run `varde status` again in a moment"),
         "{starting}"
     );
     let down = down_message(&report, "io: Connection refused", false);
-    assert!(down.ends_with("; `chaps logs chap` says why"), "{down}");
+    assert!(down.ends_with("; `varde logs chap` says why"), "{down}");
 }
 
 /// The component line carries the two things that are not in the address:
@@ -108,7 +108,7 @@ fn a_component_line_says_read_only_and_names_the_proxy() {
         "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              ocs         up   internal (proxy: https://ocs.example.org)   read-only\n\
              \n\
-             no models enabled; run `chaps models enable ID` to add one\n"
+             no models enabled; run `varde models enable ID` to add one\n"
     );
 
     // A writable instance says nothing, rather than `read-write`: the
@@ -123,7 +123,7 @@ fn a_component_line_says_read_only_and_names_the_proxy() {
     assert!(!text.contains("read-only"), "{text}");
 }
 
-/// The `dhis2` row a `chaps dhis2 connect` has never been recorded for
+/// The `dhis2` row a `varde dhis2 connect` has never been recorded for
 /// carries the hint under the verdict - but only while the row says `up`,
 /// because a DHIS2 that is not answering cannot be connected to anything.
 #[test]
@@ -149,26 +149,26 @@ fn the_verdict_names_the_connect_a_running_dhis2_still_needs() {
         "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              dhis2       up   http://localhost:8080\n\
              \n\
-             no models enabled; run `chaps models enable ID` to add one\n  \
-             chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`\n"
+             no models enabled; run `varde models enable ID` to add one\n  \
+             varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`\n"
     );
 
     // Still starting is still not answering, which is the wait the command
     // would sit in; the line waits for the run where it can be acted on.
     report.components = vec![dhis2(ComponentState::Starting)];
     let starting = human(&report, &Out::default());
-    assert!(!starting.contains("chaps dhis2 connect"), "{starting}");
+    assert!(!starting.contains("varde dhis2 connect"), "{starting}");
 
     report.components = vec![dhis2(ComponentState::NotRunning)];
     let down = human(&report, &Out::default());
-    assert!(!down.contains("chaps dhis2 connect"), "{down}");
+    assert!(!down.contains("varde dhis2 connect"), "{down}");
 
     // And a deployment that has been through a connect is never asked
     // again, however the row reads.
     report.dhis2_needs_connecting = false;
     report.components = vec![dhis2(ComponentState::Up)];
     let recorded = human(&report, &Out::default());
-    assert!(!recorded.contains("chaps dhis2 connect"), "{recorded}");
+    assert!(!recorded.contains("varde dhis2 connect"), "{recorded}");
 }
 
 /// What OCS holds goes on its line when it could be had, and nothing takes
@@ -233,7 +233,7 @@ fn an_external_dhis2_is_named_with_the_command_that_asks_it() {
     let text = human(&report, &Out::default());
     assert!(
         text.contains(
-            "\ndhis2       elsewhere   https://dhis2.example.org   `chaps dhis2 show` asks it\n"
+            "\ndhis2       elsewhere   https://dhis2.example.org   `varde dhis2 show` asks it\n"
         ),
         "{text}"
     );
@@ -255,7 +255,7 @@ fn a_healthy_report_is_a_line_a_table_and_a_verdict() {
              chapkit-ewars-model  registered  port 5001  12s ago\n\
              \n\
              1 model registered\n\
-             \u{20}\u{20}run `chaps models test --all` to check it can run\n"
+             \u{20}\u{20}run `varde models test --all` to check it can run\n"
     );
 }
 
@@ -324,9 +324,9 @@ fn the_layout_names_every_state_once_and_hints_once_per_problem() {
              \n\
              2 of 3 models are not registered.\n\
              \x20 chapkit-rwanda-malaria-bym-model: restart it with \
-             `chaps restart --all chapkit-rwanda-malaria-bym-model`\n\
-             \x20 auto-arima-chapkit: start Chap with `chaps up`, \
-             then `chaps logs auto-arima-chapkit`\n"
+             `varde restart --all chapkit-rwanda-malaria-bym-model`\n\
+             \x20 auto-arima-chapkit: start Chap with `varde up`, \
+             then `varde logs auto-arima-chapkit`\n"
     );
     // The proxy URL appears once, not once per internal row, and the
     // verdict carries no `error:` line of its own.
@@ -358,7 +358,7 @@ fn a_project_with_no_models_still_says_something() {
     let text = human(&report, &Out::default());
     assert!(text.starts_with("chap-core   up   http://localhost:8000"));
     assert!(!text.contains("MODEL"), "no table for no rows:\n{text}");
-    assert!(text.ends_with("no models enabled; run `chaps models enable ID` to add one\n"));
+    assert!(text.ends_with("no models enabled; run `varde models enable ID` to add one\n"));
 }
 
 #[test]
@@ -389,7 +389,7 @@ fn a_down_api_prints_the_state_and_leaves_the_verdict_to_the_error_line() {
 
 #[test]
 fn the_never_started_line_replaces_the_whole_report() {
-    assert_eq!(NOT_RUNNING, "Chap is not running; start it with `chaps up`");
+    assert_eq!(NOT_RUNNING, "Chap is not running; start it with `varde up`");
 }
 
 /// One component row.
@@ -428,7 +428,7 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
     let line = nothing_running_line(&report);
     assert_eq!(line, crate::status::NOTHING_RUNNING);
     assert!(!line.contains("Chap"), "{line}");
-    assert!(line.contains("`chaps up`"), "{line}");
+    assert!(line.contains("`varde up`"), "{line}");
 
     // The rows are recorded state, not something docker had to answer, so
     // they are printed even with nothing up: which components this
@@ -438,7 +438,7 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
         "ocs   not running   http://localhost:9000\n\
              s3    not running   internal\n\
              \n\
-             nothing in this deployment is running; start it with `chaps up`\n"
+             nothing in this deployment is running; start it with `varde up`\n"
     );
 
     // chap-core in the set: the one line is the whole answer again, and it
@@ -479,8 +479,8 @@ fn nothing_running_still_lists_the_components_a_deployment_has() {
 }
 
 /// The verdict of a deployment without chap-core is its components. Without
-/// it this is the one deployment shape `chaps status` ended on nothing, and
-/// `closing_line` would name `chaps models enable`, which it refuses.
+/// it this is the one deployment shape `varde status` ended on nothing, and
+/// `closing_line` would name `varde models enable`, which it refuses.
 #[test]
 fn a_components_only_report_ends_on_a_verdict_about_its_components() {
     use crate::status::ComponentState::{NotRunning, Up};
@@ -495,7 +495,7 @@ fn a_components_only_report_ends_on_a_verdict_about_its_components() {
         "ocs   up   http://localhost:9000\n\
              s3    up   internal\n\
              \n\
-             both components are up; `chaps open ocs` opens it\n"
+             both components are up; `varde open ocs` opens it\n"
     );
     assert!(
         !text.contains("chap-core"),
@@ -506,7 +506,7 @@ fn a_components_only_report_ends_on_a_verdict_about_its_components() {
     report.components[1].state = NotRunning;
     let text = human(&report, &Out::default());
     assert!(
-        text.ends_with("1 of 2 components is not running; start it with `chaps up`\n"),
+        text.ends_with("1 of 2 components is not running; start it with `varde up`\n"),
         "{text}"
     );
 }

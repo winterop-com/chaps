@@ -1,4 +1,4 @@
-//! The state of the `chaps top` screen and how it is drawn.
+//! The state of the `varde top` screen and how it is drawn.
 
 use super::data::{Node, Service};
 use crate::tui::theme::Theme;
@@ -162,7 +162,7 @@ fn header<'a>(app: &App, theme: &Theme) -> Paragraph<'a> {
     let running: usize = app.nodes.iter().map(Node::running).sum();
     let services: usize = app.nodes.iter().map(|n| n.services.len()).sum();
     let mut spans = vec![
-        Span::styled(" chaps top ", theme.accent_style()),
+        Span::styled(" varde top ", theme.accent_style()),
         Span::raw(format!(
             " {deployments} deployment{}  {running}/{services} running",
             if deployments == 1 { "" } else { "s" }
@@ -183,7 +183,7 @@ fn footer<'a>(app: &App, theme: &Theme) -> Paragraph<'a> {
     if let Some(confirm) = &app.confirm {
         return Paragraph::new(Line::from(vec![
             // A stop takes the model out of the deployment, not only its
-            // container: `chaps up` does not bring it back.
+            // container: `varde up` does not bring it back.
             Span::styled(
                 format!(
                     " stop {} and take it out of {} (its data stays)? ",
@@ -346,8 +346,8 @@ fn draw_tree(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         let inner = area.inner(ratatui::layout::Margin::new(2, 2));
         frame.render_widget(
             Paragraph::new(
-                "no chaps deployment has a container on this machine; \
-                 `chaps run <model>` or `chaps up` starts one",
+                "no varde deployment has a container on this machine; \
+                 `varde run <model>` or `varde up` starts one",
             )
             .style(theme.dim_style())
             .wrap(Wrap { trim: true }),

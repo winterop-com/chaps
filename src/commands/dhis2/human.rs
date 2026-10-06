@@ -1,4 +1,4 @@
-//! The human rendering of every `chaps dhis2` report.
+//! The human rendering of every `varde dhis2` report.
 
 use super::*;
 
@@ -32,11 +32,11 @@ pub(super) fn human_use(report: &UseReport, out: &Out) -> String {
             "no external DHIS2 is recorded; nothing to clear".to_string()
         }
         (UseOutcome::Recorded, Some(external), _) => format!(
-            "recorded the external DHIS2 at {} in `.chaps/components.yaml`",
+            "recorded the external DHIS2 at {} in `.varde/components.yaml`",
             out.value(&external.url)
         ),
         (UseOutcome::Changed, Some(external), _) => format!(
-            "changed the external DHIS2 to {} in `.chaps/components.yaml`",
+            "changed the external DHIS2 to {} in `.varde/components.yaml`",
             out.value(&external.url)
         ),
         (UseOutcome::Unchanged, Some(external), _) => format!(
@@ -44,11 +44,11 @@ pub(super) fn human_use(report: &UseReport, out: &Out) -> String {
             out.value(&external.url)
         ),
         (_, Some(external), _) => format!(
-            "`chaps dhis2` talks to the external DHIS2 at {}",
+            "`varde dhis2` talks to the external DHIS2 at {}",
             out.value(&external.url)
         ),
         (_, None, _) => match report.component {
-            true => "no external DHIS2 is recorded; `chaps dhis2` talks to the `dhis2` component"
+            true => "no external DHIS2 is recorded; `varde dhis2` talks to the `dhis2` component"
                 .to_string(),
             false => "no external DHIS2 is recorded, and the `dhis2` component is off".to_string(),
         },
@@ -149,22 +149,22 @@ pub(super) fn human_report(report: &Dhis2Report, out: &Out) -> String {
 ///
 /// The caveat is printed where the record is, rather than left to the chapter,
 /// because this is the one moment a reader could take it for a verdict. It is a
-/// note that this command ran; `chaps dhis2 show` is what asks DHIS2.
+/// note that this command ran; `varde dhis2 show` is what asks DHIS2.
 pub(super) fn record_lines(record: ConnectRecord, out: &Out) -> String {
     match record {
         ConnectRecord::Unchanged => String::new(),
         ConnectRecord::Recorded => format!(
-            "{} in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking\n  {}\n",
+            "{} in `.varde/components.yaml`, so `varde up` and `varde status` stop asking\n  {}\n",
             out.ok("recorded"),
             out.dim(
                 "a note that this ran, not proof the route is still right; \
-                 `chaps dhis2 show` asks DHIS2"
+                 `varde dhis2 show` asks DHIS2"
             )
         ),
         ConnectRecord::Cleared => format!(
-            "{} the earlier `chaps dhis2 connect` from `.chaps/components.yaml`\n  {}\n",
+            "{} the earlier `varde dhis2 connect` from `.varde/components.yaml`\n  {}\n",
             out.warn("cleared"),
-            out.dim("`chaps up` and `chaps status` ask for it again")
+            out.dim("`varde up` and `varde status` ask for it again")
         ),
     }
 }
@@ -330,11 +330,11 @@ fn app_cell(app: &ShownApp, out: &Out) -> String {
     }
 }
 
-/// The `analytics` row: what DHIS2 records, and what chaps knows it is worth.
+/// The `analytics` row: what DHIS2 records, and what varde knows it is worth.
 ///
 /// A timestamp on its own reads as "analytics is done", and on a seeded
 /// deployment it is not that at all - it is the dump's. So the row says which
-/// of the two it is, and never claims more than chaps checked: a run that
+/// of the two it is, and never claims more than varde checked: a run that
 /// finished is a run that finished, which is not the same as tables with rows
 /// in them. Nothing here can see a row count; `lastYears` is the reason that
 /// distinction is worth keeping, and `docs/dhis2.md` carries it.

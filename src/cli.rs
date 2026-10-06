@@ -1,4 +1,4 @@
-//! The `chaps` command tree.
+//! The `varde` command tree.
 //!
 //! Doc comments on the types and fields are the `--help` text, and every one of
 //! them is a single clause: asking for help is not asking for the manual, so the
@@ -79,22 +79,22 @@ impl std::str::FromStr for ComponentPortArg {
     }
 }
 
-/// The one-liner both `chaps -h` and `chaps --help` open with. There is no
+/// The one-liner both `varde -h` and `varde --help` open with. There is no
 /// `long_about`: the two spellings of help say the same thing.
 const ABOUT: &str = "deploy Chap (climate-informed disease forecasting) and its services";
 
-/// The last line of `chaps --help`. Anything longer than a clause belongs in
+/// The last line of `varde --help`. Anything longer than a clause belongs in
 /// the book, so the help points at it instead of repeating it.
 ///
 /// A line, and nothing more: the blank line the help ends on is written where
 /// the help is printed (`print_and_exit` in `main`), because clap `trim_end`s
 /// the rendered help and appends one newline of its own, so a newline added
 /// here or to `after_help` would be thrown away.
-pub const DOCS_LINE: &str = "Docs: https://winterop-com.github.io/chaps/";
+pub const DOCS_LINE: &str = "Docs: https://winterop-com.github.io/varde/";
 
 /// The book itself, for the places that open it rather than print it. A test
 /// keeps it and [`DOCS_LINE`] pointing at the same place.
-pub const DOCS_URL: &str = "https://winterop-com.github.io/chaps/";
+pub const DOCS_URL: &str = "https://winterop-com.github.io/varde/";
 
 /// The heading the global options are listed under, in their own block after
 /// each command's own options.
@@ -103,9 +103,9 @@ const GLOBAL: &str = "Global options";
 /// Deploy Chap (climate-informed disease forecasting) and its services.
 #[derive(Debug, Parser)]
 // `bin_name` as well as `name`: without it clap takes the usage line from
-// argv[0], so the same help reads `chaps.exe` on Windows and `chaps`
+// argv[0], so the same help reads `varde.exe` on Windows and `varde`
 // everywhere else - and `docs/reference.md` is generated from that help.
-#[command(name = "chaps", bin_name = "chaps", version, about = ABOUT, after_help = DOCS_LINE)]
+#[command(name = "varde", bin_name = "varde", version, about = ABOUT, after_help = DOCS_LINE)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of human output
     #[arg(long, global = true, help_heading = GLOBAL)]
@@ -152,7 +152,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Create a deployment directory: compose files, .env and .chaps/
+    /// Create a deployment directory: compose files, .env and .varde/
     Init(Box<InitArgs>),
 
     /// Start one model and print where it answers
@@ -164,7 +164,7 @@ pub enum Command {
     /// Stop a model and take its overlay away; its data stays
     Stop(ModelStopArgs),
 
-    /// Watch every chaps deployment on this machine as a live tree
+    /// Watch every varde deployment on this machine as a live tree
     Top(TopArgs),
 
     /// Browse and manage marketplace models
@@ -179,7 +179,7 @@ pub enum Command {
     /// Inspect and refresh the marketplace registry
     Registry(RegistryArgs),
 
-    /// Render the compose files from .chaps/
+    /// Render the compose files from .varde/
     Sync(SyncArgs),
 
     /// Move the pins to what upstream publishes now, and pull
@@ -230,11 +230,11 @@ pub enum Command {
     /// Let the DHIS2 Modeling App reach this deployment's Chap
     Dhis2(Dhis2Args),
 
-    /// Update chaps itself, and report what this build is
+    /// Update varde itself, and report what this build is
     #[command(name = "self")]
     SelfCmd(SelfArgs),
 
-    /// Print a shell completion script for chaps
+    /// Print a shell completion script for varde
     Completions(CompletionsArgs),
 
     /// Print the whole command tree as Markdown
@@ -242,7 +242,7 @@ pub enum Command {
     DocsMarkdown(DocsMarkdownArgs),
 }
 
-/// Update chaps itself, and report what this build is
+/// Update varde itself, and report what this build is
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct SelfArgs {
@@ -279,7 +279,7 @@ pub struct SelfUpdateArgs {
 #[derive(Debug, Clone, Args)]
 pub struct SelfVersionArgs {}
 
-/// Print a shell completion script for chaps
+/// Print a shell completion script for varde
 #[derive(Debug, Clone, Args)]
 pub struct CompletionsArgs {
     /// Shell to generate for
@@ -289,7 +289,7 @@ pub struct CompletionsArgs {
 
 /// Print the whole command tree as Markdown.
 ///
-/// Hidden: it documents `chaps` rather than doing anything to a deployment,
+/// Hidden: it documents `varde` rather than doing anything to a deployment,
 /// and `make docs-reference` is the only caller. It needs no project and no
 /// Docker.
 #[derive(Debug, Clone, Args)]

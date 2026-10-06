@@ -25,7 +25,7 @@ static OVERLAY_INIT_TEMPLATE: LazyLock<String> =
 /// resolves no account name of its own.
 pub fn render_overlay(spec: &OverlaySpec) -> String {
     // A local image has no registry behind it, so `compose pull` (which
-    // `chaps update` runs) has to skip it rather than fail.
+    // `varde update` runs) has to skip it rather than fail.
     let pull_line = if crate::compose::is_local_image(&spec.image) {
         "    pull_policy: never\n"
     } else {
@@ -44,7 +44,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // the commented pair from chap-core's own compose.ewars.yml. With
     // authentication on, the value is left for compose to substitute: it reads
     // the `.env` next to these files, so the key never has to be copied into
-    // `.chaps/` or into an overlay.
+    // `.varde/` or into an overlay.
     let registration_key_lines = if spec.registration_key {
         "      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n"
     } else {
@@ -106,7 +106,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     let port_lines = port_lines(spec);
     // The init container chowns the data volume from busybox, which knows none
     // of the images' account names; an unresolvable one falls back to the
-    // chapkit ids (`chaps sync` warns about it).
+    // chapkit ids (`varde sync` warns about it).
     let uid_gid = overrides::chown_pair(&spec.user);
     // A `user:` line only exists to override what the image declares, so an
     // image that already runs as root gets none: overriding root with root
@@ -116,7 +116,7 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
         true => String::new(),
         // The numeric form, so this line and the chown below are the same two
         // numbers; a name nothing could resolve is kept as it is, which is
-        // what `chaps sync` warns about.
+        // what `varde sync` warns about.
         false => format!(
             "    user: {}\n",
             overrides::numeric_pair(&spec.user).unwrap_or_else(|| spec.user.clone())
@@ -126,11 +126,11 @@ pub fn render_overlay(spec: &OverlaySpec) -> String {
     // is deliberate rather than tidy. A volume docker creates is root-owned,
     // so a root image needs no chown on a fresh one - but a volume that
     // already exists carries whoever owned it last. A deployment rendered by
-    // a `chaps` whose table said `1000:1000` for this model has a volume
+    // a `varde` whose table said `1000:1000` for this model has a volume
     // chowned to 1000, and the same model re-rendered as root cannot write to
     // it: the overlay drops every capability, and `CAP_DAC_OVERRIDE` is the
     // one that lets root ignore the permission bits. One busybox one-shot
-    // costs a second on `chaps up` and makes that upgrade heal itself.
+    // costs a second on `varde up` and makes that upgrade heal itself.
     //
     // The chown is recursive for the same reason. Handing over the directory
     // alone is enough for a volume docker has just created, because there is

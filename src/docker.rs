@@ -21,7 +21,7 @@ pub use images::{
 };
 pub use labels::{
     COMPOSE_DIR_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, GROUP_LABEL, KIND_LABEL,
-    Labeled, MODEL_LABEL, ROLE_LABEL, chaps_containers,
+    Labeled, MODEL_LABEL, ROLE_LABEL, varde_containers,
 };
 pub use leftovers::{default_network_exists, project_has_containers, volume_in_use};
 pub use oneshot::{
@@ -49,10 +49,10 @@ use crate::project::Project;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-/// Minimum compose version that understands everything `chaps sync` renders.
+/// Minimum compose version that understands everything `varde sync` renders.
 ///
 /// 2.24.4 is the release the `!override` YAML tag arrived in, and every
-/// `compose.chaps.yml` uses it to replace chap's own port mapping rather than
+/// `compose.varde.yml` uses it to replace chap's own port mapping rather than
 /// add to it. `include:`, which the marketplace umbrella needs, is older:
 /// [`INCLUDE_COMPOSE_VERSION`]. So a Compose between the two loads the model
 /// overlays and then publishes the API on two ports, which is the more
@@ -73,7 +73,7 @@ pub const DOCKER_NOT_FOUND: i32 = 127;
 /// Echo a `docker` invocation under `-v`, the way a person would have typed it.
 ///
 /// Every spawn in this module goes through it, so `-v` is a complete record of
-/// what `chaps` asked Docker to do.
+/// what `varde` asked Docker to do.
 fn trace_command(args: &[String]) {
     crate::output::verbose(&format!("$ docker {}", args.join(" ")));
 }
@@ -81,7 +81,7 @@ fn trace_command(args: &[String]) {
 /// The leading `docker` arguments for a project: `compose -f ... -f ...`.
 ///
 /// The paths are absolute so the child process does not depend on its working
-/// directory, and they are in the order recorded in `.chaps/project.yaml`: later files
+/// directory, and they are in the order recorded in `.varde/project.yaml`: later files
 /// override earlier ones.
 pub fn compose_args(project: &Project) -> Vec<String> {
     let mut args = Vec::with_capacity(1 + project.state.compose_files.len() * 2);
@@ -101,7 +101,7 @@ pub(crate) fn quiet_progress(terminal: bool, verbose: bool) -> bool {
 
 /// Put `--progress quiet` after `compose` for a run whose output goes to the
 /// user. Without a terminal, compose prints a line for each step of each image
-/// pull, hundreds of lines in a log; chaps says what happened itself, and
+/// pull, hundreds of lines in a log; varde says what happened itself, and
 /// `-vv` keeps the lines.
 pub(crate) fn with_quiet_progress(args: &mut Vec<String>) {
     let terminal = std::io::IsTerminal::is_terminal(&std::io::stdout());
@@ -376,7 +376,7 @@ impl Captured {
 ///
 /// Unlike [`compose_output`] the streams are drained on threads of their own,
 /// so this is safe for a command that prints more than a pipe buffer holds,
-/// and unlike [`run_compose`] it can be given up on: `chaps models test` has
+/// and unlike [`run_compose`] it can be given up on: `varde models test` has
 /// to be able to stop waiting for a model that has wedged. With `echo` the
 /// bytes also go to this process's stderr as they arrive, which is what `-v`
 /// turns on - stderr rather than stdout, because the caller's own rows are
@@ -605,7 +605,7 @@ fn verbose_exit(args: &[String], code: Option<i32>) {
     ));
 }
 /// Turn a spawn failure into an error that keeps the shell's "not found" exit
-/// code, so `chaps up` behaves like the command it wraps.
+/// code, so `varde up` behaves like the command it wraps.
 fn spawn_error(err: &std::io::Error) -> anyhow::Error {
     if err.kind() == std::io::ErrorKind::NotFound {
         anyhow::Error::new(ChapError::DockerFailed(DOCKER_NOT_FOUND)).context(

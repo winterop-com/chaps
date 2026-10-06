@@ -18,11 +18,11 @@ pub enum CredentialSource {
     /// [`TOKEN_ENV_VAR`] or [`PASSWORD_ENV_VAR`] in the environment this
     /// command ran in.
     Environment,
-    /// `seed_password:` in `.chaps/components.yaml`: the restore of the seed
-    /// gave every user that password, on a DHIS2 chaps deployed.
+    /// `seed_password:` in `.varde/components.yaml`: the restore of the seed
+    /// gave every user that password, on a DHIS2 varde deployed.
     SeedPassword,
     /// None of these, so [`DEFAULT_PASSWORD`] - which is what a seeded dump
-    /// and an empty database both give, on a DHIS2 chaps deployed and nowhere
+    /// and an empty database both give, on a DHIS2 varde deployed and nowhere
     /// else.
     Default,
 }
@@ -46,7 +46,7 @@ pub fn describe_credential(kind: AuthKind, source: CredentialSource) -> String {
             format!("password from {PASSWORD_ENV_VAR}")
         }
         (AuthKind::Basic, CredentialSource::SeedPassword) => {
-            "the seed password from `.chaps/components.yaml`".to_string()
+            "the seed password from `.varde/components.yaml`".to_string()
         }
         (AuthKind::Basic, CredentialSource::Default) => "the DHIS2 default password".to_string(),
         (AuthKind::Token, CredentialSource::EnvFile) => "API token from `.env`".to_string(),
@@ -111,7 +111,7 @@ impl Credentials {
         }
     }
 
-    /// The username, for a password. A token carries none that chaps can
+    /// The username, for a password. A token carries none that varde can
     /// read; DHIS2 says whose it is when asked ([`ME_PATH`]).
     ///
     /// [`ME_PATH`]: super::ME_PATH
@@ -161,10 +161,10 @@ pub struct CredentialInputs<'a> {
     pub env_password: Option<&'a str>,
     /// [`TOKEN_ENV_VAR`].
     pub env_token: Option<&'a str>,
-    /// Whether chaps deployed this DHIS2, which is the only case in which
+    /// Whether varde deployed this DHIS2, which is the only case in which
     /// [`DEFAULT_PASSWORD`] is known to be anybody's password.
     pub deployed: bool,
-    /// `seed_password:` of a DHIS2 chaps deployed from a seed: the password of
+    /// `seed_password:` of a DHIS2 varde deployed from a seed: the password of
     /// every user, so it serves any `--user`.
     pub seed_password: Option<&'a str>,
 }
@@ -205,7 +205,7 @@ pub fn credentials_for(
 ///    user [`ADMIN_USERNAME_ENV_VAR`] names (`admin` when it names none);
 /// 2. the environment: [`TOKEN_ENV_VAR`], then [`PASSWORD_ENV_VAR`] for
 ///    [`USERNAME_ENV_VAR`], or for the `.env` user when that is unset;
-/// 3. `admin` / [`DEFAULT_PASSWORD`], on a DHIS2 chaps deployed only.
+/// 3. `admin` / [`DEFAULT_PASSWORD`], on a DHIS2 varde deployed only.
 ///
 /// `.env` first, because that is the deployment's own answer and the file every
 /// other secret of it lives in - the same order [`crate::api::token_for`] uses
@@ -234,7 +234,7 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
     let env_user = clean(inputs.env_username);
     let env_password = clean(inputs.env_password);
     let env_token = clean(inputs.env_token);
-    // Only on a DHIS2 chaps deployed: a seed password says nothing about any
+    // Only on a DHIS2 varde deployed: a seed password says nothing about any
     // other instance.
     let seed_password = clean(inputs.seed_password).filter(|_| inputs.deployed);
     // Whose each password is.
@@ -275,7 +275,7 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
             ));
         }
         return Err(anyhow::anyhow!(
-            "chaps has no password for DHIS2 user `{name}`: `.env` and `{USERNAME_ENV_VAR}` \
+            "varde has no password for DHIS2 user `{name}`: `.env` and `{USERNAME_ENV_VAR}` \
              give theirs to other users; export `{PASSWORD_ENV_VAR}` for this run"
         ));
     }
@@ -317,18 +317,18 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
     }
     Err(anyhow::anyhow!(match inputs.deployed {
         true => format!(
-            "chaps has no password for DHIS2 user `{file_owner}`: `.env` names the user and sets \
+            "varde has no password for DHIS2 user `{file_owner}`: `.env` names the user and sets \
              no `{ADMIN_PASSWORD_ENV_VAR}`; set it there, or export `{PASSWORD_ENV_VAR}`"
         ),
         false => format!(
-            "chaps has no credentials for this DHIS2, and did not deploy it, so there is no \
+            "varde has no credentials for this DHIS2, and did not deploy it, so there is no \
              default to try; {}",
             CREDENTIALS_WAY_OUT
         ),
     }))
 }
 
-/// The two ways to give chaps a DHIS2's credentials, in `.env` where the rest
+/// The two ways to give varde a DHIS2's credentials, in `.env` where the rest
 /// of the deployment's secrets are.
 pub const CREDENTIALS_WAY_OUT: &str = "set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or \
      `DHIS2_API_TOKEN`, in `.env`";

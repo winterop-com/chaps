@@ -1,11 +1,11 @@
 //! What a browser is pointed at, and how it is pointed there.
 //!
-//! `chaps components list` and the browser's REACH column both print where a
+//! `varde components list` and the browser's REACH column both print where a
 //! component is reached; this is the module that turns that address into the
 //! page a person actually wants and hands it to the platform's opener.
 //!
 //! [`resolve`] is pure and decides nothing about docker: it answers from the
-//! recorded state alone, so `chaps open` and the browser's `o` cannot word the
+//! recorded state alone, so `varde open` and the browser's `o` cannot word the
 //! same component differently. Whether a container is running is a separate
 //! question, asked by [`crate::commands::open`] where docker is in reach, and
 //! it never changes the URL - only what is said about it.
@@ -20,11 +20,11 @@ use crate::components::{Component, Components};
 /// passed into [`resolve`] rather than composed here.
 pub const API_DOCS_PATH: &str = "/docs";
 
-/// What `chaps open chap-core` says it is opening.
+/// What `varde open chap-core` says it is opening.
 pub const CHAP_CORE_PAGE: &str = "chap-core's API documentation";
-/// What `chaps open ocs` says it is opening.
+/// What `varde open ocs` says it is opening.
 pub const OCS_PAGE: &str = "the OCS web interface";
-/// What `chaps open dhis2` says it is opening.
+/// What `varde open dhis2` says it is opening.
 pub const DHIS2_PAGE: &str = "the DHIS2 user interface";
 
 /// Why the object store is never opened, wherever that is said.
@@ -35,8 +35,8 @@ pub const DHIS2_PAGE: &str = "the DHIS2 user interface";
 /// documented as being for - so the line offers the two things that do answer
 /// something about the store instead.
 pub const NO_WEB_INTERFACE: &str = "the object store speaks the S3 API and serves no web interface, so there is nothing a \
-     browser can open; run `chaps components enable s3 --port N` to publish it for an S3 client \
-     of your own, and `chaps status` says whether it is running";
+     browser can open; run `varde components enable s3 --port N` to publish it for an S3 client \
+     of your own, and `varde status` says whether it is running";
 
 /// What one component offers a browser, worked out from the recorded state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +64,7 @@ pub enum Openable {
 /// `api_base` is where chap-core's API is reached from this machine, without a
 /// trailing slash: the origin plus whatever `CHAP_ROOT_PATH` prefixes it with.
 /// It is passed in rather than composed here because the two callers know
-/// different amounts about it - `chaps open` reads `.env` for the port in
+/// different amounts about it - `varde open` reads `.env` for the port in
 /// effect and the root path, the browser has only the recorded API port, which
 /// is exactly what it already prints in its REACH column.
 pub fn resolve(component: Component, components: &Components, api_base: &str) -> Openable {
@@ -74,7 +74,7 @@ pub fn resolve(component: Component, components: &Components, api_base: &str) ->
     if component == Component::S3 {
         return Openable::NoWeb;
     }
-    // A DHIS2 recorded by `chaps dhis2 use` is this deployment's DHIS2 as far
+    // A DHIS2 recorded by `varde dhis2 use` is this deployment's DHIS2 as far
     // as anyone opening it is concerned, component or not.
     if component == Component::Dhis2
         && let Some(external) = &components.dhis2_external
@@ -168,7 +168,7 @@ pub fn internal_url(component: Component) -> String {
 pub fn off_reason(component: Component) -> String {
     format!(
         "{} is not a component of this deployment, so there is nothing to open; \
-         run `chaps components enable {}` to add it",
+         run `varde components enable {}` to add it",
         component.name(),
         component.name()
     )
@@ -179,7 +179,7 @@ pub fn off_reason(component: Component) -> String {
 pub fn internal_reason(component: Component, inside: &str) -> String {
     format!(
         "{} publishes no host port, so there is nothing to open from this machine: it is reached \
-         at {inside} inside the deployment; run `chaps components enable {} --port N` to publish \
+         at {inside} inside the deployment; run `varde components enable {} --port N` to publish \
          one",
         component.name(),
         component.name()
@@ -190,7 +190,7 @@ pub fn internal_reason(component: Component, inside: &str) -> String {
 ///
 /// Best effort on purpose: there is no dependency to do it properly, the caller
 /// must not block on the child, and a machine with no opener at all - a server
-/// over ssh, which is where chaps mostly runs - has to hear the URL instead of
+/// over ssh, which is where varde mostly runs - has to hear the URL instead of
 /// nothing. That is not a failure, which is why this returns a line rather than
 /// an error.
 pub fn launch(url: &str) -> String {
@@ -204,7 +204,7 @@ pub fn launch(url: &str) -> String {
 
 /// Whether the platform's opener took the URL, without saying it in words.
 ///
-/// What [`launch`] is made of, and what `chaps open` uses directly: it reports
+/// What [`launch`] is made of, and what `varde open` uses directly: it reports
 /// the two outcomes in its own sentences rather than in the browser's one-liner,
 /// so it needs the answer as a flag.
 pub fn spawn_opener(url: &str) -> bool {

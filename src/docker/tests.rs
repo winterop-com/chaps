@@ -110,10 +110,10 @@ fn compose_args_lists_every_file_absolutely_and_in_order() {
             "compose".to_string(),
             "-f".to_string(),
             file("compose.yml"),
-            // The chaps-owned overrides sit between the base file and the
+            // The varde-owned overrides sit between the base file and the
             // umbrella: later files win, and this one overrides chap.
             "-f".to_string(),
-            file("compose.chaps.yml"),
+            file("compose.varde.yml"),
             "-f".to_string(),
             file("compose.marketplace.yml"),
         ]
@@ -316,8 +316,8 @@ fn version_parsing_rejects_nonsense() {
 }
 
 /// The supported minimum is the release `!override` arrived in, not the
-/// older one `include:` did: every `compose.chaps.yml` this CLI renders
-/// uses the tag, so 2.24.3 cannot run what `chaps sync` writes.
+/// older one `include:` did: every `compose.varde.yml` this CLI renders
+/// uses the tag, so 2.24.3 cannot run what `varde sync` writes.
 #[test]
 fn min_version_ordering_is_what_the_warning_uses() {
     assert_eq!(MIN_COMPOSE_VERSION, (2, 24, 4));
@@ -687,39 +687,39 @@ not json
 #[test]
 fn a_label_list_keeps_commas_inside_values() {
     let labels = super::labels::parse_label_list(
-        "com.docker.compose.project=demo-ab12cd,com.docker.compose.project.config_files=/d/compose.yml,/d/compose.chaps.yml,com.winterop.chaps.role=chap-core",
+        "com.docker.compose.project=demo-ab12cd,com.docker.compose.project.config_files=/d/compose.yml,/d/compose.varde.yml,com.winterop.varde.role=chap-core",
     );
     assert_eq!(labels["com.docker.compose.project"], "demo-ab12cd");
     assert_eq!(
         labels["com.docker.compose.project.config_files"],
-        "/d/compose.yml,/d/compose.chaps.yml"
+        "/d/compose.yml,/d/compose.varde.yml"
     );
-    assert_eq!(labels["com.winterop.chaps.role"], "chap-core");
+    assert_eq!(labels["com.winterop.varde.role"], "chap-core");
 }
 
 #[test]
 fn docker_desktop_port_labels_are_keys_of_their_own() {
     let labels = super::labels::parse_label_list(
-        "com.docker.compose.project.config_files=/d/compose.yml,/d/compose.chaps.yml,com.winterop.chaps.role=model,desktop.docker.io/ports.scheme=v2,desktop.docker.io/ports/8000/tcp=127.0.0.1:5001",
+        "com.docker.compose.project.config_files=/d/compose.yml,/d/compose.varde.yml,com.winterop.varde.role=model,desktop.docker.io/ports.scheme=v2,desktop.docker.io/ports/8000/tcp=127.0.0.1:5001",
     );
-    assert_eq!(labels["com.winterop.chaps.role"], "model");
+    assert_eq!(labels["com.winterop.varde.role"], "model");
     assert_eq!(labels["desktop.docker.io/ports.scheme"], "v2");
     assert_eq!(labels["desktop.docker.io/ports/8000/tcp"], "127.0.0.1:5001");
     assert_eq!(
         labels["com.docker.compose.project.config_files"],
-        "/d/compose.yml,/d/compose.chaps.yml"
+        "/d/compose.yml,/d/compose.varde.yml"
     );
 }
 
 #[test]
 fn labeled_containers_say_their_health() {
-    let text = r#"{"ID":"abc","Names":"demo-chap-1","State":"running","Status":"Up 5 minutes (healthy)","Labels":"com.winterop.chaps.role=chap-core"}
-{"ID":"def","Names":"demo-m-1","State":"exited","Status":"Exited (1) 2 minutes ago","Labels":"com.winterop.chaps.role=model,com.winterop.chaps.model=m"}"#;
+    let text = r#"{"ID":"abc","Names":"demo-chap-1","State":"running","Status":"Up 5 minutes (healthy)","Labels":"com.winterop.varde.role=chap-core"}
+{"ID":"def","Names":"demo-m-1","State":"exited","Status":"Exited (1) 2 minutes ago","Labels":"com.winterop.varde.role=model,com.winterop.varde.model=m"}"#;
     let rows = super::labels::parse_labeled(text);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].health(), Some("healthy"));
     assert_eq!(rows[1].health(), None);
-    assert_eq!(rows[1].label("com.winterop.chaps.model"), Some("m"));
+    assert_eq!(rows[1].label("com.winterop.varde.model"), Some("m"));
 }
 
 #[test]

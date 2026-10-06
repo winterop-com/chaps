@@ -3,7 +3,7 @@ use super::*;
 /// A `.env` shaped like the generated one: comments, an active line, and
 /// commented placeholders for both secrets.
 const ENV: &str = "\
-# Written once by chaps init; chaps never rewrites it. See the docs for each setting.
+# Written once by varde init; varde never rewrites it. See the docs for each setting.
 POSTGRES_PASSWORD=0123456789abcdef
 CHAP_API_PORT=8000
 

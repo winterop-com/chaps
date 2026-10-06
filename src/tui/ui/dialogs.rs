@@ -147,7 +147,7 @@ pub(super) fn draw_channel_dialog(frame: &mut Frame, area: Rect, app: &App, them
 }
 
 /// The DHIS2 version dialog: the versions on offer, which one is in force,
-/// and whether chaps has a demo database for it.
+/// and whether varde has a demo database for it.
 pub(super) fn draw_dhis2_version_dialog(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let current = &app.components.dhis2.image_tag;
     let mut lines = Vec::new();

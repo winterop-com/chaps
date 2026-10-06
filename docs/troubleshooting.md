@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with `chaps doctor`. It runs the whole checklist in one pass - Docker,
+Start with `varde doctor`. It runs the whole checklist in one pass - Docker,
 Compose, the architecture, free disk, the hosts Chap pulls from, and, inside a
 deployment, the files, the ports, the pins, the images and whether Chap is up -
 and prints what to do about every line that is not `ok`. Most of the sections
@@ -15,12 +15,12 @@ project paths.
 
 ## the restore of the DHIS2 seed stopped before the end
 
-`chaps up` printed this under `why dhis2-db is unhealthy:`. The restore of the
+`varde up` printed this under `why dhis2-db is unhealthy:`. The restore of the
 seed dump into `dhis2_db` stopped with an error, so the database is
 incomplete. The lines above the hint say why. Two causes are common:
 
 - The dump is not a complete gzip file. Download it again.
-- The dump needs a newer PostgreSQL than 16, the version of `dhis2-db`. chaps
+- The dump needs a newer PostgreSQL than 16, the version of `dhis2-db`. varde
   removes the lines of `pg_dump` 17 that PostgreSQL 16 does not know
   (`\restrict`, `\unrestrict`, `SET transaction_timeout`), but a dump can
   use other new features.
@@ -28,42 +28,42 @@ incomplete. The lines above the hint say why. Two causes are common:
 Fix the cause, then start the restore again:
 
 ```sh
-chaps components disable dhis2 --purge
-chaps components enable dhis2
-chaps up
+varde components disable dhis2 --purge
+varde components enable dhis2
+varde up
 ```
 
 `--purge` removes only the three DHIS2 volumes. `seed:` and `seed_password:`
-in `.chaps/components.yaml` stay. Do not use `chaps down --volumes` for this:
+in `.varde/components.yaml` stay. Do not use `varde down --volumes` for this:
 it also removes the chap-core database. See
 [The seed](./dhis2.md#a-restore-that-stops).
 
 ## A host port is already in use
 
-`chaps up` refuses before it calls Docker, with one line per conflict:
+`varde up` refuses before it calls Docker, with one line per conflict:
 
 ```text
 2 host ports this deployment needs are already in use; nothing was started
   port 8700 is already in use on this machine (needed by chap); free it, or set
   CHAP_API_PORT=8701 in `.env`
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
-  free it, or run `chaps models unexpose chapkit-ewars-model` (the model stays
-  reachable through chap-core) / `chaps models expose chapkit-ewars-model --port auto`
+  free it, or run `varde models unexpose chapkit-ewars-model` (the model stays
+  reachable through chap-core) / `varde models expose chapkit-ewars-model --port auto`
 ```
 
 Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
 `.env`, or move (or drop) the model's port. Ports held by this project's own
-running containers are not conflicts, so `chaps up` on a running deployment is still
-a no-op. `chaps up --no-preflight` hands the question back to Docker.
+running containers are not conflicts, so `varde up` on a running deployment is still
+a no-op. `varde up --no-preflight` hands the question back to Docker.
 
-When the port belongs to another chaps deployment, that one is named, with the
+When the port belongs to another varde deployment, that one is named, with the
 command that stops it:
 
 ```text
 1 host port this deployment needs is already in use; nothing was started
-  port 8790 (needed by ocs) is in use, and climate (/srv/climate) publishes it too; if that is what is up, stop it with `chaps -C /srv/climate down`, or move this one: run `chaps components enable ocs --port 8791`
-  or run `chaps up --no-preflight` to hand the conflict to Docker
-  or run `chaps up --replace` to stop climate first
+  port 8790 (needed by ocs) is in use, and climate (/srv/climate) publishes it too; if that is what is up, stop it with `varde -C /srv/climate down`, or move this one: run `varde components enable ocs --port 8791`
+  or run `varde up --no-preflight` to hand the conflict to Docker
+  or run `varde up --replace` to stop climate first
 ```
 
 At a terminal it asks instead of stopping there:
@@ -72,11 +72,11 @@ At a terminal it asks instead of stopping there:
 climate is using these ports. Stop it and start this deployment instead? Its data is kept. [y/N]
 ```
 
-`y` runs `chaps down` on the other deployment (its volumes and data stay; its
-own `chaps up` brings it back) and then starts this one. `chaps up --replace`
+`y` runs `varde down` on the other deployment (its volumes and data stay; its
+own `varde up` brings it back) and then starts this one. `varde up --replace`
 is the same answer given in advance, for a script. The offer is only made
-when every taken port belongs to another chaps deployment: a port some other
-program holds is never chaps' to take away.
+when every taken port belongs to another varde deployment: a port some other
+program holds is never varde' to take away.
 
 ## The port answers, but it is not chap-core
 
@@ -88,26 +88,26 @@ but it is not chap-core (got text/html)
 ```
 
 Something else holds the port: a dev server, a proxy, an older deployment.
-`chaps status` reports it as down on purpose, because `up` has to mean that the
+`varde status` reports it as down on purpose, because `up` has to mean that the
 deployment works and not that the port is taken. Find the listener, or point
 the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 
 ## `this deployment's chap-core is not running`
 
 ```text
-Chap is not running; start it with `chaps up`
-  this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `chaps -C /srv/first down`, or run `chaps up --replace` here
+Chap is not running; start it with `varde up`
+  this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `varde -C /srv/first down`, or run `varde up --replace` here
 ```
 
 Two deployments made with the same ports take turns on them, and the one that
-is up answers on the port for both. `chaps status` asks docker whether this
+is up answers on the port for both. `varde status` asks docker whether this
 deployment's own `chap` container is running before it believes an answer on
 its port: when it is not, the answer is the other deployment's, and none of what
 it says (health, version, registered models) is about this one. A browser on
 `http://localhost:8700` shows the other deployment for the same reason.
 
-Stop the other one with the `chaps -C ... down` it names, or let this one take
-the ports with `chaps up --replace`. `chaps status --url` asks whatever URL it
+Stop the other one with the `varde -C ... down` it names, or let this one take
+the ports with `varde up --replace`. `varde status --url` asks whatever URL it
 is given and skips this check. See
 [Several deployments on one machine](./use-cases/several-deployments.md).
 
@@ -118,7 +118,7 @@ chapkit-rwanda-malaria-bym-model  running, not registered  internal  -
 ```
 
 A model that started under two minutes ago is still starting, and registering
-is the last part of that; `chaps status` says so for that row
+is the last part of that; `varde status` says so for that row
 (`started under two minutes ago and registers once it is ready`) and the fix is
 to run it again in a minute. Past that, it is stuck.
 
@@ -127,13 +127,13 @@ stops. A model that came up before chap-core was healthy therefore stays
 invisible until it is restarted:
 
 ```sh
-chaps restart --all chapkit-rwanda-malaria-bym-model
-chaps status
+varde restart --all chapkit-rwanda-malaria-bym-model
+varde status
 ```
 
 `--all` because nothing about the service has changed: it is running the image
 and the configuration it should be, and the restart is only there to make it
-introduce itself again. A plain `chaps restart` recreates what moved, which
+introduce itself again. A plain `varde restart` recreates what moved, which
 here is nothing.
 
 The overlay's `depends_on: chap: {condition: service_healthy}` is there to stop
@@ -145,7 +145,7 @@ authentication on, see
 [the models stopped registering](#the-models-stopped-registering-after-i-turned-authentication-on)
 below.
 
-## `chaps models test` says a model failed
+## `varde models test` says a model failed
 
 ```text
 chapkit-rwanda-malaria-bym-model    FAIL   14s   predict: Error in file(file, "rb") : cannot open file 'model.rds': Permission denied
@@ -155,20 +155,20 @@ The row is one clause out of the model's own error stream, which is as much as
 a row has room for. Three places have more, in the order worth reading them:
 
 ```sh
-chaps models test chapkit_rwanda_malaria_bym_model -v   # the whole run, as it happens
-chaps logs chapkit-rwanda-malaria-bym-model             # what the service itself said
+varde models test chapkit_rwanda_malaria_bym_model -v   # the whole run, as it happens
+varde logs chapkit-rwanda-malaria-bym-model             # what the service itself said
 ```
 
 `-vv` streams everything `chapkit test` printed, which includes the phase that
 failed, the diagnostic artifact it stored and the last lines of the model's
-stderr. `chaps logs <service>` is the other half: a model that cannot open a
+stderr. `varde logs <service>` is the other half: a model that cannot open a
 file usually said so on startup too.
 
 With `--backtest` the work happened inside chap-core, so the log is a job's:
 
 ```sh
-chaps jobs                          # the backtest that failed, newest first
-chaps jobs logs <id>                # the traceback and the model's own output
+varde jobs                          # the backtest that failed, newest first
+varde jobs logs <id>                # the traceback and the model's own output
 ```
 
 The failure row already names that command with the id filled in. See
@@ -181,7 +181,7 @@ worth it:
   Permission denied on its own files is the common one - see
   [`Permission denied` from a model's own binaries](#permission-denied-from-a-models-own-binaries)
   - followed by a missing runtime library, which is a fault in the image and
-  needs a newer pin (`chaps update`).
+  needs a newer pin (`varde update`).
 - Model level passes, `--backtest` fails: the model works and the round trip
   does not. The usual cause is a covariate the model reads and does not
   declare, which shows up as a `KeyError` from chap-core rather than as
@@ -192,8 +192,8 @@ worth it:
   ```
 
   The sample data is generated from the covariates the service declares
-  (`chaps models info <id>`, or
-  `chaps api GET /v2/services/<service_id>`), so a model whose configured model
+  (`varde models info <id>`, or
+  `varde api GET /v2/services/<service_id>`), so a model whose configured model
   in chap-core asks for more than that gets a frame without it. That is a fault
   in the model's own declaration, not in the deployment.
 - Both fail the same way: the model, again. Fix it at the model level, where
@@ -209,20 +209,20 @@ add when a failure only happens sometimes.
 ```
 
 The token DHIS2's `chap` route is sending is not the one chap-core is
-enforcing, or the route sends none. `chaps dhis2 connect` finds out by asking
+enforcing, or the route sends none. `varde dhis2 connect` finds out by asking
 through the route, and writes the token this deployment holds into it:
 
 ```sh
-chaps dhis2 connect
+varde dhis2 connect
 ```
 
-`chaps dhis2 show` reports the same thing without changing anything:
+`varde dhis2 show` reports the same thing without changing anything:
 ``the `chap` route does not carry chap-core's API token``.
 
-Two ways to get here. Either `chaps auth rotate` was run and the clients were
-never updated, which is the second half of rotating; or `chaps auth enable` was
-run and `chaps up` was not, so chap-core is still running without the token
-while `.env` already has one. `chaps status` tells the two apart:
+Two ways to get here. Either `varde auth rotate` was run and the clients were
+never updated, which is the second half of rotating; or `varde auth enable` was
+run and `varde up` was not, so chap-core is still running without the token
+while `.env` already has one. `varde status` tells the two apart:
 
 ```text
 chap-core   up, token rejected   http://localhost:8700   v2.3.1 (pinned)   auth: on
@@ -239,7 +239,7 @@ chap-core   up   http://localhost:8700   v2.3.1   auth: on
 ```
 
 means `.env` and the running container agree, so the mismatch is in the client.
-Either way `chaps up` is what hands a changed `.env` to the containers. See
+Either way `varde up` is what hands a changed `.env` to the containers. See
 [Authentication](./auth.md).
 
 ## The models stopped registering after I turned authentication on
@@ -250,31 +250,31 @@ chapkit-ewars-model  running, not registered  internal  -
 
 A protected chap-core rejects an unauthenticated registration like any other
 request, so a model that came up without the shared secret never appears in
-`GET /v2/services`. `chaps auth enable` writes `SERVICEKIT_REGISTRATION_KEY`
+`GET /v2/services`. `varde auth enable` writes `SERVICEKIT_REGISTRATION_KEY`
 alongside the API token for exactly this reason, and re-renders every overlay
 to pass it on, but the containers only read `.env` when Compose creates them:
 
 ```sh
-chaps up
-chaps status
+varde up
+varde status
 ```
 
 If it persists, check that both ends carry the line:
 
 ```sh
-grep SERVICEKIT_REGISTRATION_KEY compose.chapkit-ewars-model.yml compose.chaps.yml
+grep SERVICEKIT_REGISTRATION_KEY compose.chapkit-ewars-model.yml compose.varde.yml
 ```
 
 An active `SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}` in
 the overlay is what the model sends; a commented one means
-`.chaps/project.yaml` does not know the project has a key, which
-`chaps auth show` will report as a mismatch and `chaps auth enable` puts right.
+`.varde/project.yaml` does not know the project has a key, which
+`varde auth show` will report as a mismatch and `varde auth enable` puts right.
 
-The same line in `compose.chaps.yml` is what chap-core checks it against.
+The same line in `compose.varde.yml` is what chap-core checks it against.
 Upstream's `compose.ghcr.yml` passes only `CHAP_API_TOKEN` into the `chap`
 service, so without that line the container has no key, and the model's
 `X-Service-Key` is rejected as an invalid API token - a 401 in
-`chaps logs chapkit-ewars-model`. `chaps sync` then `chaps restart` puts the
+`varde logs chapkit-ewars-model`. `varde sync` then `varde restart` puts the
 line back.
 
 ## `unable to open database file`
@@ -292,10 +292,10 @@ the volume to the model's numeric uid:gid before the model starts (`0:0` for a
 root image), so this is fixed by construction. If you see it anyway:
 
 - the overlay was hand-edited, or the init container was removed. Run
-  `chaps sync` to render it again.
-- `--user` names an account `chaps` does not know, so it fell back to
-  `1000:1000`. `chaps sync` warns when it does. Pass the numbers instead:
-  `chaps models enable ID --user 1001:1001`.
+  `varde sync` to render it again.
+- `--user` names an account `varde` does not know, so it fell back to
+  `1000:1000`. `varde sync` warns when it does. Pass the numbers instead:
+  `varde models enable ID --user 1001:1001`.
 - the model writes somewhere other than its data directory, on the read-only
   root filesystem. `--data-dir` points the volume at the right path; see
   [Data directories and users](./models.md#data-directories-and-users).
@@ -319,12 +319,12 @@ mode 744 up to 0.1.1 - so an overlay that hardens such an image down to
 up either way, which is why this surfaces as a failed prediction rather than a
 failed start.
 
-`chaps models enable <id>` reads the account off the image again and rewrites
-the overlay; `chaps up` then restarts the service with it:
+`varde models enable <id>` reads the account off the image again and rewrites
+the overlay; `varde up` then restarts the service with it:
 
 ```console
-$ chaps models enable chapkit_rwanda_malaria_bym_model
-$ chaps up
+$ varde models enable chapkit_rwanda_malaria_bym_model
+$ varde up
 ```
 
 The rendered overlay should then carry no `user:` line for a root image, and
@@ -332,8 +332,8 @@ its `<service_id>-init` container should chown the volume to `0:0`. For an
 image that does drop to an account of its own - which Rwanda BYM 0.1.2 now
 does, as `chapkit` - it carries that account's `uid:gid` instead, and the init
 container chowns to the same two numbers.
-`chaps models info <id>` shows what was recorded and where it came from, and
-`chaps doctor` has one `user <service>` line per enabled model that compares
+`varde models info <id>` shows what was recorded and where it came from, and
+`varde doctor` has one `user <service>` line per enabled model that compares
 the two whenever the image's amd64 variant is pulled here.
 
 `--user <uid>:<gid>` overrides the image, for the rare case where the image is
@@ -342,7 +342,7 @@ wrong about itself. See
 
 ## `dependency failed to start: container ... is unhealthy`
 
-`chaps up` reads that line and then says why, out of the failing container's
+`varde up` reads that line and then says why, out of the failing container's
 own log:
 
 ```text
@@ -354,15 +354,15 @@ why chap is unhealthy:
   user "chap"
   ERROR:    Application startup failed. Exiting.
   the database volume holds a different password than .env (a previous deployment with the
-  same name, or --fresh-env); the `volumes` line of `chaps doctor` says which, and
-  `chaps down --volumes` removes the volume if this deployment's data can go
+  same name, or --fresh-env); the `volumes` line of `varde doctor` says which, and
+  `varde down --volumes` removes the volume if this deployment's data can go
 ```
 
-The same lines close `chaps status` and `chaps doctor`'s `health` check, and
+The same lines close `varde status` and `varde doctor`'s `health` check, and
 the chap-core line reads `down (container unhealthy)` rather than plain `down`:
 the container is there, and it is the container that is wrong.
 
-The two causes worth knowing by name are below. `chaps logs chap` has the rest.
+The two causes worth knowing by name are below. `varde logs chap` has the rest.
 
 ## `password authentication failed for user "chap"`
 
@@ -372,16 +372,16 @@ There are two ways to get there.
 **A volume from another deployment of the same name.** The volume was made
 by an earlier deployment with the same compose project name, and it still has
 that deployment's role password. The new deployment's `.env` has a freshly
-generated password. `chaps doctor` says so:
+generated password. `varde doctor` says so:
 
 ```text
 warn  volumes   the database volume demo-1ab2c3_chap-db predates this deployment; if chap-core
                 cannot log in, it belongs to an earlier deployment with the same name
-      remove it with `chaps down --volumes` if this deployment's data can go, or keep both
+      remove it with `varde down --volumes` if this deployment's data can go, or keep both
       by giving one of them a name of its own
 ```
 
-`chaps init` gives each deployment a name of its own (`demo-1ab2c3`), so this
+`varde init` gives each deployment a name of its own (`demo-1ab2c3`), so this
 happens only when two deployments record the same name; see
 [the compose project name](./concepts.md#the-compose-project-name).
 
@@ -392,15 +392,15 @@ existing volume was created with the old one.
 Either way: drop the volume and start over,
 
 ```sh
-chaps down --volumes
-chaps up
+varde down --volumes
+varde up
 ```
 
 or change the role to match the new password with `ALTER USER` inside the
 running postgres container:
 
 ```sh
-chaps docker exec postgres psql -U chap -d chap_core
+varde docker exec postgres psql -U chap -d chap_core
 ```
 
 This is why `init` never rewrites a `.env` it finds, `--force` included. See
@@ -409,22 +409,22 @@ the [`.env` contract](./concepts.md#the-env-contract).
 ## `no matching manifest for linux/arm64`
 
 The marketplace images and chap-core are published for amd64 only. Every
-overlay `chaps` writes pins `platform: linux/amd64`, so an arm64 host such as
+overlay `varde` writes pins `platform: linux/amd64`, so an arm64 host such as
 Apple silicon pulls that variant and runs it under emulation instead of
 failing.
 
 Seeing this error means the pin is missing: a hand-edited overlay, or a compose
-file not written by `chaps`. Run `chaps sync` to render the overlays again, and
-check `chaps docker config` for the service that has no `platform`.
+file not written by `varde`. Run `varde sync` to render the overlays again, and
+check `varde docker config` for the service that has no `platform`.
 
 ## Compose is older than 2.24.4
 
 ```text
-warning: docker compose 2.18.1 is older than 2.24.4; compose.chaps.yml uses `!override`, which needs 2.24.4 or newer, and compose.marketplace.yml uses `include:`, which needs 2.20.0
+warning: docker compose 2.18.1 is older than 2.24.4; compose.varde.yml uses `!override`, which needs 2.24.4 or newer, and compose.marketplace.yml uses `include:`, which needs 2.20.0
 ```
 
-`compose.chaps.yml` uses `!override`, which arrived in Compose 2.24.4, and
-`compose.marketplace.yml` uses `include:`, which arrived in 2.20. `chaps` warns
+`compose.varde.yml` uses `!override`, which arrived in Compose 2.24.4, and
+`compose.marketplace.yml` uses `include:`, which arrived in 2.20. `varde` warns
 rather than failing, because the base services still run.
 
 What an older Compose loses, in order: below 2.24.4 the API port override is
@@ -435,16 +435,16 @@ Upgrade Docker Compose.
 ## `needs chap-core, and this deployment has no chap-core`
 
 ```text
-error: `chaps jobs` needs chap-core, and this deployment has no chap-core; `chaps components enable chap-core` adds one, or `chaps components enable chap-core --url URL` names one elsewhere
+error: `varde jobs` needs chap-core, and this deployment has no chap-core; `varde components enable chap-core` adds one, or `varde components enable chap-core --url URL` names one elsewhere
 ```
 
 The deployment was created without chap-core (`--without chap-core`), so there
-is no chap-core to ask. `chaps jobs`, `chaps api` (without `--url`),
-`chaps models test --backtest` and `chaps update --chap-tag` all say this
-(`chaps models test` without `--backtest` does not need it). If you meant to
-talk to a chap-core somewhere else, `chaps api --url <base>` sends the request
-there. Otherwise add chap-core with `chaps components enable chap-core`, then
-`chaps up`. See [Standalone OCS](./components.md#standalone-ocs).
+is no chap-core to ask. `varde jobs`, `varde api` (without `--url`),
+`varde models test --backtest` and `varde update --chap-tag` all say this
+(`varde models test` without `--backtest` does not need it). If you meant to
+talk to a chap-core somewhere else, `varde api --url <base>` sends the request
+there. Otherwise add chap-core with `varde components enable chap-core`, then
+`varde up`. See [Standalone OCS](./components.md#standalone-ocs).
 
 ## `registration.missing_orchestrator_url` in a model's log
 
@@ -455,19 +455,19 @@ there. Otherwise add chap-core with `chaps components enable chap-core`, then
 Expected in a deployment without chap-core, and harmless. The overlay leaves
 `SERVICEKIT_ORCHESTRATOR_URL` out on purpose because there is nothing to
 register with. servicekit logs this line at error level, then skips registration
-and serves as usual. `chaps status` asks the model's own `/health`, which is the
+and serves as usual. `varde status` asks the model's own `/health`, which is the
 check that matters there. In a deployment *with* chap-core the line means the
-overlay is out of date: run `chaps sync`, then `chaps restart`.
+overlay is out of date: run `varde sync`, then `varde restart`.
 
 ## `running and not answering on /health`
 
 ```text
-1 of 1 model is running and not answering on /health; a model that just started answers in a minute, so run `chaps status` again, or read `chaps logs chapkit-ewars-model`
+1 of 1 model is running and not answering on /health; a model that just started answers in a minute, so run `varde status` again, or read `varde logs chapkit-ewars-model`
 ```
 
 A deployment without chap-core asks each model's own `/health` on its host
 port. A model image can take a minute to start, so ask again first. If it stays,
-`chaps logs <service_id>` shows why the service did not come up. A model enabled
+`varde logs <service_id>` shows why the service did not come up. A model enabled
 with `--port none` has no host port to ask and is judged by its container alone.
 
 ## `App never became ready, skipping registration`
@@ -477,23 +477,23 @@ with `--port none` has no host port to ask and is judged by its container alone.
 ```
 
 Before servicekit registers a model, it checks that the app answers inside the
-container. With a chap-core elsewhere, chaps reads the image's command when it
+container. With a chap-core elsewhere, varde reads the image's command when it
 enables the model, and decides where the app listens:
 
 - An image that starts with `--port 8000` listens on 8000, and its host port
   maps to 8000.
 - An image whose command names no port gets `PORT` set to its host port.
 
-So this message means that chaps could not read the command, for example
+So this message means that varde could not read the command, for example
 because the model was enabled `--offline`, or that the image does something
-else. Enable the model again with a network (`chaps models enable <id>`), then
-run `chaps up`. `chaps logs <service>` shows the port that servicekit checked.
+else. Enable the model again with a network (`varde models enable <id>`), then
+run `varde up`. `varde logs <service>` shows the port that servicekit checked.
 
-## `not registered with ...` from `chaps run`
+## `not registered with ...` from `varde run`
 
-`chaps run --chap-core URL` started the model, and the chap-core at `URL` did
+`varde run --chap-core URL` started the model, and the chap-core at `URL` did
 not list it within 30 seconds. The model's log says why: run the
-`chaps -C ... logs` command that the message names.
+`varde -C ... logs` command that the message names.
 
 - `registration.attempt_failed` with `Name or service not known` or
   `Connection refused`: the model cannot reach chap-core. Check that chap-core
@@ -505,7 +505,7 @@ not list it within 30 seconds. The model's log says why: run the
 
 ## `registered, unreachable` / `chap-core cannot reach it at`
 
-`chaps status` asks chap-core's proxy for each registered model's `/health`
+`varde status` asks chap-core's proxy for each registered model's `/health`
 (`/v2/services/<id>/run/health`). A model is `registered, unreachable` when
 that fails with a 5xx or no answer: the model registered, and chap-core cannot
 call it back at the URL it registered under. Every backtest and prediction
@@ -515,35 +515,35 @@ next entry.
 
 ## A model registers with an external chap-core, and its jobs fail to connect
 
-The model shows as `registered` in `chaps status`, but a job fails with a
+The model shows as `registered` in `varde status`, but a job fails with a
 connection error to `localhost:<port>` or `host.docker.internal:<port>`. The
 registration worked, and chap-core cannot reach the address the model
-registered under. That address is `models_host` in `.chaps/components.yaml`
+registered under. That address is `models_host` in `.varde/components.yaml`
 plus the model's host port:
 
 - chap-core runs as a process on this machine: `localhost` is right.
 - chap-core runs in a container: run
-  `chaps components enable chap-core --url URL --models-host host.docker.internal`,
-  then `chaps up`.
+  `varde components enable chap-core --url URL --models-host host.docker.internal`,
+  then `varde up`.
 - chap-core runs on another machine: use the name or address it reaches this
   machine by, and make sure the model ports (5001 up) are open to it.
 
 The same applies the other way round, to a model you run from its checkout
-against a chap-core in chaps: `SERVICEKIT_HOST` must be `host.docker.internal`
+against a chap-core in varde: `SERVICEKIT_HOST` must be `host.docker.internal`
 and the model must listen on `0.0.0.0`. See
 [Your model from its checkout, with Chap](./use-cases/model-on-host.md).
 
 ## `publishes no public image at`
 
-`chaps models add https://github.com/OWNER/REPO` runs the image that
+`varde models add https://github.com/OWNER/REPO` runs the image that
 repository publishes on ghcr.io, and ghcr refused to hand out an anonymous pull
 for it. It answers the same for a package that is private and for one that was
-never published, so either way there is nothing chaps can pull from that URL.
+never published, so either way there is nothing varde can pull from that URL.
 Build the image from a checkout and add it by name:
 
 ```sh
 docker build --platform linux/amd64 -t my-model:dev .
-chaps models add my-model:dev
+varde models add my-model:dev
 ```
 
 See [A model image you built yourself](./use-cases/local-model-image.md). If
@@ -556,7 +556,7 @@ settings) is the other way.
 error: my-model:dev is not in the local image store for linux/amd64; build it with `docker build --platform linux/amd64 -t my-model:dev .` in the model's checkout, then add it again
 ```
 
-`chaps models add` read `my-model:dev` as a local image, because it names no
+`varde models add` read `my-model:dev` as a local image, because it names no
 registry, and the local store has no amd64 build under that name. Either it was
 never built, it was built for another platform (a plain `docker build` on an
 Apple Silicon Mac makes an arm64 image), or the tag differs. Run the command in
@@ -569,125 +569,125 @@ the message. If you meant a published image, give its full reference, such as
 error: /Users/me/src/chap is not a chap-core checkout: it has no Dockerfile.worker; pass the directory you cloned github.com/dhis2-chap/chap-core into
 ```
 
-`chaps init --source` builds the chap-core API from `Dockerfile`, the worker
+`varde init --source` builds the chap-core API from `Dockerfile`, the worker
 from `Dockerfile.worker`, and renders `compose.yml` from `compose.ghcr.yml`, all
 at the top of the checkout. Point it at the directory `git clone` created, not
 a subdirectory. A very old chap-core may predate one of the three files; check
 out a newer commit.
 
-## `another chaps command is changing this deployment; waiting for it to finish`
+## `another varde command is changing this deployment; waiting for it to finish`
 
-Another chaps command on the same deployment holds the state lock (see
+Another varde command on the same deployment holds the state lock (see
 [One change at a time](./concepts.md#one-change-at-a-time)), and this one waits
-until it exits. It is usually a `chaps up` rendering its files or an
-`chaps update` checking the marketplace, and it ends on its own. If it does not,
-find the command still running against this directory (`ps aux | grep chaps`)
+until it exits. It is usually a `varde up` rendering its files or an
+`varde update` checking the marketplace, and it ends on its own. If it does not,
+find the command still running against this directory (`ps aux | grep varde`)
 and let it finish or stop it; the lock goes with the process.
 
-## `did not start (...)` from `chaps run`
+## `did not start (...)` from `varde run`
 
-`chaps run` asked compose to start the model and compose refused; the
+`varde run` asked compose to start the model and compose refused; the
 parentheses hold the line compose said it with. `pull access denied` or
 `denied` is an image that does not exist or is private: check the reference
-(`chaps models search` for a marketplace id). `port is already allocated` is a
+(`varde models search` for a marketplace id). `port is already allocated` is a
 host port something else took between the pick and the start; run again. The
-model was taken back out, so the `chaps run` the message names starts afresh.
+model was taken back out, so the `varde run` the message names starts afresh.
 
 ## `leftovers: N volumes of M removed deployments still in docker`
 
-`chaps doctor` found volumes of deployments whose directory is gone. Nothing
-uses them and no chaps command would name them again, so they only take disk
-space. `chaps cleanup --dry-run` lists them, and `chaps cleanup` deletes them
+`varde doctor` found volumes of deployments whose directory is gone. Nothing
+uses them and no varde command would name them again, so they only take disk
+space. `varde cleanup --dry-run` lists them, and `varde cleanup` deletes them
 after asking. A deployment you moved rather than deleted counts as removed
-until a chaps command runs in its new directory; run `chaps sync` there first.
+until a varde command runs in its new directory; run `varde sync` there first.
 See [Cleaning up after removed deployments](./doctor.md#cleaning-up-after-removed-deployments).
 
-## `--json cannot ask before deleting data` from `chaps cleanup`
+## `--json cannot ask before deleting data` from `varde cleanup`
 
-`chaps cleanup` deletes data and asks first, and a `--json` run (or one with
-no terminal) has nobody to ask. `chaps cleanup --dry-run` lists what would go;
-`chaps cleanup --yes` deletes it without asking.
+`varde cleanup` deletes data and asks first, and a `--json` run (or one with
+no terminal) has nobody to ask. `varde cleanup --dry-run` lists what would go;
+`varde cleanup --yes` deletes it without asking.
 
-## `docker would not remove volume ...` from `chaps stop --purge`
+## `docker would not remove volume ...` from `varde stop --purge`
 
 Purging a group removes every volume compose made for it, and docker refused
 one, usually because a container still uses it. The group was kept, so nothing
-is left behind that chaps cannot reach. `docker ps -a --filter volume=<volume>`
+is left behind that varde cannot reach. `docker ps -a --filter volume=<volume>`
 shows what holds it; stop that, run the `docker volume rm` the message names,
-then the same `chaps stop --group <group> --purge` again.
+then the same `varde stop --group <group> --purge` again.
 
-## `resuming ..., left paused` from `chaps up`
+## `resuming ..., left paused` from `varde up`
 
-A service of this deployment was paused, which is what a `chaps backup
-create` interrupted while it held the service still leaves behind. `chaps up`
+A service of this deployment was paused, which is what a `varde backup
+create` interrupted while it held the service still leaves behind. `varde up`
 resumed it before starting anything else; nothing more to do. A model that
-answers nothing and shows no error in `chaps logs` may be in this state: run
-`chaps up` to resume it.
+answers nothing and shows no error in `varde logs` may be in this state: run
+`varde up` to resume it.
 
 ## `there is no marketplace model ...`
 
-`chaps run` was given a word with no tag, which is a marketplace id, and the
-catalogue has no such id. `chaps models search <word>` finds the right one. A
-local image needs its tag: `chaps run my-model:dev`.
+`varde run` was given a word with no tag, which is a marketplace id, and the
+catalogue has no such id. `varde models search <word>` finds the right one. A
+local image needs its tag: `varde run my-model:dev`.
 
 ## `not ready after 300s`
 
-`chaps up --wait` gave up: the names after the colon are what never answered,
-each with its `chaps status` state. `chap-core` means its `/health` never
+`varde up --wait` gave up: the names after the colon are what never answered,
+each with its `varde status` state. `chap-core` means its `/health` never
 answered; see [`this deployment's chap-core is not running`](#this-deployments-chap-core-is-not-running).
 `running, not registered` is a model whose container is up and that never
 registered; see [A model is running but not registered](#a-model-is-running-but-not-registered).
 `running, not answering` is a model without chap-core whose `/health` never
-answered on its host port: `chaps logs <service>` says why. A first start that
+answered on its host port: `varde logs <service>` says why. A first start that
 pulls large images can simply take longer than the default; `--timeout 900`
 waits fifteen minutes.
 
 ## A hand edit disappeared
 
-`chaps sync` re-renders the artifacts from `.chaps/`, so an edit to
-`compose.yml`, `compose.chaps.yml`, `compose.marketplace.yml` or a
+`varde sync` re-renders the artifacts from `.varde/`, so an edit to
+`compose.yml`, `compose.varde.yml`, `compose.marketplace.yml` or a
 `compose.<service_id>.yml` is drift that the next `sync` (and therefore the next
-`chaps up`) undoes.
+`varde up`) undoes.
 
-- To change the base services, edit `.chaps/compose.chap-core.<tag>.yml`. `sync`
+- To change the base services, edit `.varde/compose.chap-core.<tag>.yml`. `sync`
   follows it, and says that the recorded checksum no longer matches.
-- To change a model, edit `.chaps/models.yaml` and run `chaps sync`.
+- To change a model, edit `.varde/models.yaml` and run `varde sync`.
 - To add something of your own, write a `compose.custom.yml`. `sync` only ever
   removes overlays it wrote itself, so yours is left alone; add it to the `-f`
   list or to the umbrella by hand if you want it included.
 
-`chaps sync --check` reports drift without writing, and exits non-zero, which
+`varde sync --check` reports drift without writing, and exits non-zero, which
 makes it a usable pre-commit or CI check.
 
 ## An OCS dataset plugin does not appear after a restart
 
-You put a plugin in `ocs/plugins/datasets/`, ran `chaps restart` - or
-`chaps restart --all ocs` - and OCS still serves the datasets it served before.
+You put a plugin in `ocs/plugins/datasets/`, ran `varde restart` - or
+`varde restart --all ocs` - and OCS still serves the datasets it served before.
 Nothing failed: the plugin directory was never mounted.
 
-The mount is rendered from the directory being there, and `chaps up` is the only
+The mount is rendered from the directory being there, and `varde up` is the only
 wrapper that re-renders the compose files before it calls Docker. On a deployment
 where `ocs` was enabled before `ocs/plugins/` existed, `compose.ocs.yml` carries
-no plugin mount, so `chaps restart` compares the container against a file it
+no plugin mount, so `varde restart` compares the container against a file it
 already matches and does nothing at all.
 
 ```sh
-chaps up                                          # syncs first, then recreates ocs
-chaps docker exec ocs ls /app/plugins/datasets    # the plugin is inside
+varde up                                          # syncs first, then recreates ocs
+varde docker exec ocs ls /app/plugins/datasets    # the plugin is inside
 ```
 
-`chaps doctor` finds this on its own, on the `compose files` line, which is
-`chaps sync --check`:
+`varde doctor` finds this on its own, on the `compose files` line, which is
+`varde sync --check`:
 
 ```text
-warn  compose files   out of date with .chaps/ (2 to write, 5 unchanged, 0 to remove)
-      run `chaps sync`, or `chaps up`, which syncs first
+warn  compose files   out of date with .varde/ (2 to write, 5 unchanged, 0 to remove)
+      run `varde sync`, or `varde up`, which syncs first
 ```
 
 Two files, because the mount in `compose.ocs.yml` and the `plugins_dir` key in
 `ocs/climate-service.yaml` are written by the same sync.
 
-`chaps restart ocs` is the right command for a change to
+`varde restart ocs` is the right command for a change to
 `ocs/climate-service.yaml`, and for the opposite reason: that file is a bind
 mount, so its new text is already inside the container and the compose files have
 not changed - all that is wrong is that OCS read the old text at startup, and
@@ -699,7 +699,7 @@ what the file does not mention. See
 
 ## A DHIS2 that answers but 404s every API request
 
-The login page loads, `chaps status` may even say `dhis2  up`, and every
+The login page loads, `varde status` may even say `dhis2  up`, and every
 `/api/*` request answers **404**. Nothing in the log says "error".
 
 DHIS2 migrates its schema **forward only**, so this is almost always an older
@@ -710,32 +710,32 @@ API route is simply not registered. The other two causes have the same shape: a
 database.
 
 ```sh
-chaps logs dhis2 | grep -iE "flyway|migrat|exception|failed"
+varde logs dhis2 | grep -iE "flyway|migrat|exception|failed"
 docker compose config | grep "image: dhis2/core"    # the tag that is running
-grep -n "image_tag" .chaps/components.yaml          # the tag that was asked for
+grep -n "image_tag" .varde/components.yaml          # the tag that was asked for
 grep -n "DHIS2_IMAGE_TAG" .env                      # and any override, which wins
 ```
 
 Put the tag back where the database is, rather than migrating further:
 
 ```sh
-chaps backup create                     # before anything, if there is data worth keeping
-# set image_tag back in .chaps/components.yaml, or fix DHIS2_IMAGE_TAG in .env
-chaps sync
-chaps up
+varde backup create                     # before anything, if there is data worth keeping
+# set image_tag back in .varde/components.yaml, or fix DHIS2_IMAGE_TAG in .env
+varde sync
+varde up
 ```
 
 There is no way back down a migration. A database migrated by 2.42 does not work
-under 2.41 again, so the choice is the newer image or a restore. `chaps` warns
-before it happens - the note names `chaps backup` first for exactly this reason:
+under 2.41 again, so the choice is the newer image or a restore. `varde` warns
+before it happens - the note names `varde backup` first for exactly this reason:
 
 ```text
-note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `chaps backup` first - an older image on a migrated database answers healthy while every API request 404s
+note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 A deployment with nothing in DHIS2 worth keeping is quicker to start again:
-`chaps components disable dhis2 --purge` takes all three volumes, and the next
-`chaps up` migrates or restores from scratch. See
+`varde components disable dhis2 --purge` takes all three volumes, and the next
+`varde up` migrates or restores from scratch. See
 [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
 
 ## DHIS2 never becomes healthy
@@ -750,7 +750,7 @@ under emulation. The health check allows 240 seconds of `start_period` and 60
 retries for that reason. Watch it rather than restarting it:
 
 ```sh
-chaps logs -f dhis2
+varde logs -f dhis2
 ```
 
 **It ran out of memory.** DHIS2 wants roughly **4 to 5 GB** for the analytics
@@ -761,7 +761,7 @@ healthy a minute ago and is now gone.
 
 ```sh
 docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' \
-  "$(chaps docker ps -- -q dhis2)"
+  "$(varde docker ps -- -q dhis2)"
 docker info --format '{{.MemTotal}}'      # what the daemon has to give
 ```
 
@@ -777,8 +777,8 @@ is `DHIS2_JAVA_TOOL_OPTIONS` in `.env`, commented with the default
 Because nothing has connected the two yet, and one command does all of it:
 
 ```sh
-chaps dhis2 show        # which of the three pieces is missing
-chaps dhis2 connect     # the route, the apps, then analytics
+varde dhis2 show        # which of the three pieces is missing
+varde dhis2 connect     # the route, the apps, then analytics
 ```
 
 The app does not reach chap-core directly. It goes through a DHIS2 Route with
@@ -788,7 +788,7 @@ The app does not reach chap-core directly. It goes through a DHIS2 Route with
 The trap is that it will **look** configured. The climate demo dumps ship a
 `chap` route of their own - right code, right authority, not disabled - aimed at
 an external Chap server, so a seeded instance has a route by that name resolving
-to somebody else's chap-core. `chaps dhis2 route` repoints it rather than skipping
+to somebody else's chap-core. `varde dhis2 route` repoints it rather than skipping
 it, and says where it pointed:
 
 ```text
@@ -797,41 +797,41 @@ repointed the `chap` route at http://chap:8000/**
   verified chap-core answered through it: healthy
 ```
 
-`chaps dhis2 show` is the one to run first: it names each piece that is missing
+`varde dhis2 show` is the one to run first: it names each piece that is missing
 and changes nothing. If the route is right and the app still shows no figures,
-analytics has not been generated - `chaps dhis2 analytics`. If there is no Chap
+analytics has not been generated - `varde dhis2 analytics`. If there is no Chap
 entry in DHIS2's apps menu at all, the app is not installed -
-`chaps dhis2 apps`. See
+`varde dhis2 apps`. See
 [Connecting the Modeling App to Chap](./dhis2.md#connecting-the-modeling-app-to-chap).
 
-Do not read a **silent** `chaps up` or `chaps status` as an answer here. Those
-two name `chaps dhis2 connect` only until one has been recorded, and the record
+Do not read a **silent** `varde up` or `varde status` as an answer here. Those
+two name `varde dhis2 connect` only until one has been recorded, and the record
 is a note that the command ran rather than a check of the route - see
 [`connected_at`, and what it is not](./dhis2.md#connected_at-and-what-it-is-not).
-`chaps dhis2 show` is the command that asks DHIS2.
+`varde dhis2 show` is the command that asks DHIS2.
 
 ## `Oops! Sorry, an unexpected error` or `Unnamed evaluation` in the Modeling App
 
 The browser still holds a login to a DHIS2 that is gone. After
-`chaps down --volumes` (or `chaps components disable dhis2 --purge`) and a
+`varde down --volumes` (or `varde components disable dhis2 --purge`) and a
 fresh DHIS2 on the same port, the old session cookie means nothing to the new
 instance: every request the Modeling App makes is redirected to the login
 page, and the app shows either this error or a dashboard of
 `Unnamed evaluation` rows with `0 locations`, sometimes after first showing
 the evaluations of the deployment that was removed.
 
-Nothing is wrong with the deployment, and `chaps jobs` shows what Chap really
-holds. Open `http://localhost:8780/` (or the address `chaps open dhis2
+Nothing is wrong with the deployment, and `varde jobs` shows what Chap really
+holds. Open `http://localhost:8780/` (or the address `varde open dhis2
 --no-browser` prints), log in again with `admin` / `district`, and open the
 Modeling App from the app menu.
 
-## `chaps has not connected this DHIS2 to Chap`
+## `varde has not connected this DHIS2 to Chap`
 
-`chaps up` and `chaps status` close with this while `.chaps/components.yaml`
-records no `chaps dhis2 connect` for this deployment:
+`varde up` and `varde status` close with this while `.varde/components.yaml`
+records no `varde dhis2 connect` for this deployment:
 
 ```text
-chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
 Do what it says, once DHIS2 answers. The command is idempotent, so running it on
@@ -845,38 +845,38 @@ It keeps coming back in three cases, all of them deliberate:
   instance, so it is forgotten with the component. A re-enabled `dhis2_db` can be
   restored from the seed dump, and [that dump ships a `chap` route of its
   own](#the-modeling-app-does-not-see-chap) pointing at an external server.
-- **`chaps down --volumes` removed `dhis2_db`.** Same hazard, said on the spot:
-  the record of `chaps dhis2 connect` went with `dhis2_db`.
+- **`varde down --volumes` removed `dhis2_db`.** Same hazard, said on the spot:
+  the record of `varde dhis2 connect` went with `dhis2_db`.
 - **the last `connect` found something wrong.** A route nothing answered on, or
   an app that would not install, clears the record and the report says
-  `cleared` - `chaps dhis2 show` names which of the two it was. A run that could
-  not look is not one of these: `chaps dhis2 connect --offline` skips the apps,
+  `cleared` - `varde dhis2 show` names which of the two it was. A run that could
+  not look is not one of these: `varde dhis2 connect --offline` skips the apps,
   judges nothing and leaves the record exactly as it found it.
 
 Connecting the instance by hand, in DHIS2's own Route administration and App
-Management, does not record anything either, and the line then stays. `chaps
+Management, does not record anything either, and the line then stays. `varde
 dhis2 connect` against that instance is the way to settle it: it will find
 nothing to change and record that it ran.
 
 ## The route is there but nothing answers through it
 
-`chaps dhis2 route` wrote the row and then could not prove the path:
+`varde dhis2 route` wrote the row and then could not prove the path:
 
 ```text
-warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `chaps status` to see whether chap-core is up
+warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `varde status` to see whether chap-core is up
 ```
 
 The route is correct, so this is not a route problem. Three things it is, in the
 order worth checking:
 
-1. **chap-core is not running.** `chaps status` settles it, `chaps up` fixes it,
-   and `chaps dhis2 route` then verifies on the next run.
+1. **chap-core is not running.** `varde status` settles it, `varde up` fixes it,
+   and `varde dhis2 route` then verifies on the next run.
 2. **`route.remote_servers_allowed` does not list the target.** DHIS2 42 and later
    default that setting to `https://*` and refuse an `http://` target. The
    scaffolded `dhis2/dhis.conf` already permits every http and https target, so
    this is an instance whose file was narrowed or replaced; DHIS2 refuses the write outright
    in that case and the error names the line. After editing it,
-   `chaps restart dhis2` applies it.
+   `varde restart dhis2` applies it.
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
 
@@ -890,27 +890,27 @@ Caused by: java.lang.IllegalStateException: Allowed route URL must not have a pa
 ```
 
 Each entry on that line is an origin: scheme, host and port, nothing after
-them. The route target `chaps dhis2 route` writes ends in `/**`, and that is
+them. The route target `varde dhis2 route` writes ends in `/**`, and that is
 not what goes on the line. Write the origin alone and restart DHIS2:
 
 ```text
 route.remote_servers_allowed = https://*,http://localhost:8700
 ```
 
-`chaps dhis2 connect` then writes the route. When DHIS2 refuses a route, the
+`varde dhis2 connect` then writes the route. When DHIS2 refuses a route, the
 error line names the origin to add.
 
 ## An edit to `dhis2/dhis.conf` changes nothing after a restart
 
 You corrected a value in `dhis2/dhis.conf` - `route.remote_servers_allowed`,
 a `connection.*` line, one of the commented `server.https` proxy lines - ran
-`chaps restart dhis2`, and it said:
+`varde restart dhis2`, and it said:
 
 ```text
-nothing needed a restart: every container matches its files; `chaps restart --all dhis2` recreates it anyway
+nothing needed a restart: every container matches its files; `varde restart --all dhis2` recreates it anyway
 ```
 
-`dhis.conf` is a **bind mount**, which compose does not compare, so `chaps
+`dhis.conf` is a **bind mount**, which compose does not compare, so `varde
 restart` looks at the file itself and recreates `dhis2` when the file was
 written after its container was created (`recreating dhis2 to apply its edited
 config file`). This line means the file's modification time is older than the
@@ -918,15 +918,15 @@ container: a copy or a restore that kept the original time. Recreate it
 regardless:
 
 ```sh
-chaps restart --all dhis2
+varde restart --all dhis2
 ```
 
 DHIS2 migrates before it serves a request again, so it is not back when compose
-returns; the next `chaps dhis2` command waits for it. Then re-run whatever
+returns; the next `varde dhis2` command waits for it. Then re-run whatever
 reported the problem:
 
 ```sh
-chaps dhis2 route
+varde dhis2 route
 ```
 
 `ocs/climate-service.yaml` is handled the same way - see
@@ -934,7 +934,7 @@ chaps dhis2 route
 [`dhis2/dhis.conf`](./dhis2.md#applying-an-edit). It is not the same as
 [An OCS dataset plugin does not appear after a restart](#an-ocs-dataset-plugin-does-not-appear-after-a-restart),
 where the compose file itself is out of date: a restart cannot fix that one and
-`chaps up` can.
+`varde up` can.
 
 ## `the App Hub publishes no version of ... that DHIS2 ... can run`
 
@@ -942,31 +942,31 @@ where the compose file itself is out of date: a restart cannot fix that one and
 failed Modeling App was not installed: the App Hub publishes no version of Modeling that DHIS2 2.42.6 can run; install it from DHIS2's own App Management page
 ```
 
-**Upgrade `chaps`.** Up to and including 0.4.0 this sentence was wrong for every
+**Upgrade `varde`.** Up to and including 0.4.0 this sentence was wrong for every
 instance there is. The App Hub sends a version bound it has not set as an empty
 string rather than as an absent field, and `""` was read as a maximum: every
 published version looked capped below the instance, so every one was filtered
-out. `chaps` now treats a missing, empty, whitespace or unreadable bound as no
+out. `varde` now treats a missing, empty, whitespace or unreadable bound as no
 bound, on both sides.
 
-If it appears on a current `chaps`, it is what it says: check the app's own page
+If it appears on a current `varde`, it is what it says: check the app's own page
 on [apps.dhis2.org](https://apps.dhis2.org) for a version that lists this
-instance's release under `minDhisVersion`. `chaps dhis2 apps -v` prints the
+instance's release under `minDhisVersion`. `varde dhis2 apps -v` prints the
 version it resolved and the id it installed.
 
 `POST /api/appHub/{versionId}` is idempotent, so installing from DHIS2's own App
-Management page in the meantime costs nothing: `chaps dhis2 apps` afterwards
+Management page in the meantime costs nothing: `varde dhis2 apps` afterwards
 reports the app as already installed rather than fighting it.
 
 ## `analytics may never have run on this deployment`
 
 ```text
 analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)
-missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `chaps dhis2 analytics` to settle it
+missing: analytics may never have run on this deployment: a seeded database can carry the dump's timestamp, and no run has finished since DHIS2 started; run `varde dhis2 analytics` to settle it
 ```
 
-This is not an error, and it is not `chaps` saying the tables are missing. It is
-`chaps` declining to say they are there.
+This is not an error, and it is not `varde` saying the tables are missing. It is
+`varde` declining to say they are there.
 
 `lastAnalyticsTableSuccess` is a row of DHIS2's own settings, so a
 [seeded](./dhis2.md#the-seed) deployment restores it with the rest of the dump.
@@ -976,11 +976,11 @@ not exist at all - the table was absent, not empty, and the Modeling App saw
 nothing. The timestamp was a fact about the database the dump was taken from.
 
 ```sh
-chaps dhis2 analytics
+varde dhis2 analytics
 ```
 
 settles it, and the row afterwards reads `(a run finished on this deployment)`.
-Restarting DHIS2 empties the notifier `chaps` reads that from, so the line can
+Restarting DHIS2 empties the notifier `varde` reads that from, so the line can
 come back on a deployment where analytics really has been generated; running it
 again is idempotent and takes tens of seconds on demo data. See
 [What `show` can say about analytics](./dhis2.md#what-show-can-say-about-analytics-and-what-it-cannot).
@@ -992,10 +992,10 @@ Almost certainly `lastYears`. Measured on the climate demo,
 and wrote **zero rows into every analytics table**; the same request without it
 wrote 146,129 rows into `analytics_2024` in 15.7 seconds.
 
-`chaps dhis2 analytics` never sends it, so a run made with
+`varde dhis2 analytics` never sends it, so a run made with
 
 ```sh
-chaps dhis2 analytics
+varde dhis2 analytics
 ```
 
 populates what the database holds. A reference deployment's own
@@ -1006,13 +1006,13 @@ the apps are asking about: the [Climate App](./dhis2.md#the-apps-come-from-the-a
 is what imports climate data into DHIS2, and analytics has to run again after an
 import.
 
-## `chaps dhis2` says DHIS2 did not accept the password
+## `varde dhis2` says DHIS2 did not accept the password
 
 ```text
-error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `CHAPS_DHIS2_PASSWORD`
+error: DHIS2 at http://localhost:8780 did not accept the password for `admin` (the DHIS2 default password); set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in `.env`, or export `VARDE_DHIS2_PASSWORD`
 ```
 
-`chaps` holds no DHIS2 credentials of its own. On a DHIS2 it deployed it falls
+`varde` holds no DHIS2 credentials of its own. On a DHIS2 it deployed it falls
 back to `admin` / `district`, which is what a seeded demo dump and a
 Flyway-bootstrapped empty database both give. So this is an instance whose
 password has been changed, or one restored from a dump of your own. Either
@@ -1026,98 +1026,98 @@ DHIS2_ADMIN_PASSWORD=the-one-that-works
 or keep it out of the file entirely:
 
 ```sh
-export CHAPS_DHIS2_PASSWORD=the-one-that-works
+export VARDE_DHIS2_PASSWORD=the-one-that-works
 ```
 
 or use a personal access token instead (`DHIS2_API_TOKEN` in `.env`, or
-`CHAPS_DHIS2_TOKEN`). There is no `--password` flag, because a password on a
+`VARDE_DHIS2_TOKEN`). There is no `--password` flag, because a password on a
 command line is in the shell history and in `ps`. A **403** rather than a 401
 means the opposite problem: the credential is right, but that user is not
 allowed to write a route or run analytics, which a DHIS2 superuser is. See
 [The credentials](./dhis2.md#the-credentials-and-where-they-come-from).
 
-## `chaps dhis2` says DHIS2 did not accept the API token
+## `varde dhis2` says DHIS2 did not accept the API token
 
 ```text
-error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `CHAPS_DHIS2_TOKEN`
+error: DHIS2 at https://dhis2.example.org did not accept the API token (API token from `.env`): it is expired, revoked, or not allowed from this address; set a current one as `DHIS2_API_TOKEN` in `.env`, or export `VARDE_DHIS2_TOKEN`
 ```
 
 DHIS2 answers 401 for a token that has expired or been revoked, and for one
-whose allowed IP addresses or referrers leave out the machine chaps runs on.
+whose allowed IP addresses or referrers leave out the machine varde runs on.
 Create a new one under **Profile > Personal access tokens** in DHIS2. The 401
 also covers a value that was never a token, such as one pasted with the
 `ApiToken ` prefix: `DHIS2_API_TOKEN` holds the token alone.
 
-## `chaps has no password for DHIS2 user`
+## `varde has no password for DHIS2 user`
 
 ```text
-error: chaps has no password for DHIS2 user `alice`: `.env` and `CHAPS_DHIS2_USERNAME` give theirs to other users; export `CHAPS_DHIS2_PASSWORD` for this run
-error: chaps has no password for DHIS2 user `ops`: `.env` names the user and sets no `DHIS2_ADMIN_PASSWORD`; set it there, or export `CHAPS_DHIS2_PASSWORD`
+error: varde has no password for DHIS2 user `alice`: `.env` and `VARDE_DHIS2_USERNAME` give theirs to other users; export `VARDE_DHIS2_PASSWORD` for this run
+error: varde has no password for DHIS2 user `ops`: `.env` names the user and sets no `DHIS2_ADMIN_PASSWORD`; set it there, or export `VARDE_DHIS2_PASSWORD`
 ```
 
-A password belongs to the user it was set with, and chaps will not send one
+A password belongs to the user it was set with, and varde will not send one
 user's password in another's name. `--user alice` finds only a password that is
 alice's, and the default `district` is `admin`'s alone. For a one-off run as
 someone else, export theirs for the command:
 
 ```sh
-CHAPS_DHIS2_PASSWORD=theirs chaps dhis2 show --user alice
+VARDE_DHIS2_PASSWORD=theirs varde dhis2 show --user alice
 ```
 
-## `chaps has no credentials for this DHIS2, and did not deploy it`
+## `varde has no credentials for this DHIS2, and did not deploy it`
 
 ```text
-error: chaps has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or `DHIS2_API_TOKEN`, in `.env`
+error: varde has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or `DHIS2_API_TOKEN`, in `.env`
 ```
 
-The DHIS2 was recorded with `chaps dhis2 use`, so `admin` / `district` is not
-known to be anybody's password there, and chaps does not try it. Set a personal
+The DHIS2 was recorded with `varde dhis2 use`, so `admin` / `district` is not
+known to be anybody's password there, and varde does not try it. Set a personal
 access token (or a username and password) as in
 [The credentials](./dhis2.md#the-credentials-and-where-they-come-from), then run
-`chaps dhis2 use` again to check that DHIS2 accepts it.
+`varde dhis2 use` again to check that DHIS2 accepts it.
 
 ## `this deployment already uses the external DHIS2`
 
 ```text
-error: this deployment already uses the external DHIS2 at https://dhis2.example.org; run `chaps dhis2 use --clear` first to deploy one of its own
+error: this deployment already uses the external DHIS2 at https://dhis2.example.org; run `varde dhis2 use --clear` first to deploy one of its own
 ```
 
 A deployment has one DHIS2, either the `dhis2` component or an external one, so
-`chaps dhis2` never has to guess which. The opposite direction is refused the
+`varde dhis2` never has to guess which. The opposite direction is refused the
 same way (`the dhis2 component is on, and it is this deployment's DHIS2`). Clear
 the one you no longer want, then add the other. See
 [A DHIS2 that runs elsewhere](./dhis2.md#a-dhis2-that-runs-elsewhere).
 
-## `chaps dhis2` waited twenty minutes and gave up
+## `varde dhis2` waited twenty minutes and gave up
 
 ```text
-error: DHIS2 at http://localhost:8780 did not answer /api/ping within 20 minutes; `chaps logs dhis2` is where the migration shows, and `--wait SECONDS` waits longer
+error: DHIS2 at http://localhost:8780 did not answer /api/ping within 20 minutes; `varde logs dhis2` is where the migration shows, and `--wait SECONDS` waits longer
 ```
 
 Either DHIS2 is still migrating - under emulation a first start is a quarter of an
-hour, and a seeded one is that plus the restore - or it has stopped. `chaps logs
+hour, and a seeded one is that plus the restore - or it has stopped. `varde logs
 dhis2` tells the two apart, and
 [DHIS2 never becomes healthy](#dhis2-never-becomes-healthy) is the rest of the
 list. `--wait 3600` waits an hour.
 
-## `chaps update` said a restart is needed
+## `varde update` said a restart is needed
 
-That is the whole design, not a failure. `chaps update` moves the pins and
+That is the whole design, not a failure. `varde update` moves the pins and
 pulls the images and stops there: it never decides for you when a deployment
 goes down. The closing line names the running services that are now behind
 what the files say, and
 
 ```sh
-chaps restart
+varde restart
 ```
 
 recreates exactly those, leaving the rest running. If the line says Chap is not
-running instead, `chaps up` starts it with the new versions. See
+running instead, `varde up` starts it with the new versions. See
 [Updating](./updating.md).
 
-## `chaps update` fails offline
+## `varde update` fails offline
 
-By design. `chaps update` fetches the registry from the network with no cache
+By design. `varde update` fetches the registry from the network with no cache
 and no fallback, `--dry-run` included, because a plan made from a stale
 catalogue is not a plan. Every other command falls back to the cache and then
 to the snapshot compiled into the binary.
@@ -1131,32 +1131,32 @@ skip  registry pin chapkit_ewars_model  could not ask https://github.com/chap-mo
 ```
 
 GitHub allows 60 REST requests an hour to an address that sends no
-credential, and `chaps` spends them on questions it has to ask somebody:
+credential, and `varde` spends them on questions it has to ask somebody:
 chap-core's release list, the default branch and commits of every model
 repository behind a `registry pin <id>` line, and both lookups of a
-`chaps models add`. One `chaps doctor` on a deployment with five models is a
+`varde models add`. One `varde doctor` on a deployment with five models is a
 dozen of them. On a shared egress address - an office, a VPN, a CI runner -
-the hour is gone before `chaps` asks for anything at all.
+the hour is gone before `varde` asks for anything at all.
 
 Nothing is broken and nothing failed: every check that needs GitHub skips with
 this reason and the rest of the report is exactly as it was. Either wait until
-the clock time on the line, which is when the window resets, or hand `chaps` a
+the clock time on the line, which is when the window resets, or hand `varde` a
 token:
 
 ```sh
 export GITHUB_TOKEN=$(gh auth token)   # or GH_TOKEN, whichever is already set
-chaps doctor
+varde doctor
 ```
 
 That is 5000 requests an hour instead of 60. A token with no scopes is enough,
-because every question `chaps` asks GitHub is a public read. `chaps doctor`'s
+because every question `varde` asks GitHub is a public read. `varde doctor`'s
 `github api` line says which limit is in force and how much of it is left:
 
 ```text
 ok    github api  reachable, 4990 of 5000 requests left this hour (token)
 ```
 
-The token is read from the environment only. `chaps` never stores it and never
+The token is read from the environment only. `varde` never stores it and never
 prints it - a `-vv` trace shows `Authorization: Bearer <token>` with nothing
 behind it - and no command-line flag sets one, because a token on a command
 line is a token in the shell history.
@@ -1172,7 +1172,7 @@ That is an expired, revoked or misspelled token, one whose fine-grained
 permissions do not include reading public repositories, or a token whose own
 5000 are gone. `gh auth status` says which.
 
-## `Can't locate revision identified by` in `chaps logs chap`
+## `Can't locate revision identified by` in `varde logs chap`
 
 ```text
 ERROR [chap_core.database.database] Error during Alembic migrations:
@@ -1181,23 +1181,23 @@ Can't locate revision identified by 'b4c5d6e7f8a3'
 
 The database was migrated by a newer chap-core than the one now running: the
 Alembic revision it was stamped with does not exist in this build. It is what
-`chaps update --chap-tag` warns about before a move backwards, and the reason
+`varde update --chap-tag` warns about before a move backwards, and the reason
 it asks for an answer:
 
 ```text
 warning: moving chap-core from dev to v2.3.1 can run an older schema against a
-database migrated by the newer one; run `chaps backup create` first
+database migrated by the newer one; run `varde backup create` first
 ```
 
-chap-core logs the error and starts anyway, so `chaps status` says `up` while
+chap-core logs the error and starts anyway, so `varde status` says `up` while
 the schema is not the one this build expects. Either go back to the newer tag
 
 ```sh
-chaps update --chap-tag master   # or whichever it was
-chaps restart
+varde update --chap-tag master   # or whichever it was
+varde restart
 ```
 
-or restore the backup taken before the move (`chaps backup restore`) and start
+or restore the backup taken before the move (`varde backup restore`) and start
 again from there. See
 [Switching chap-core's tag](./updating.md#switching-chap-cores-tag).
 
@@ -1207,7 +1207,7 @@ again from there. See
 Error response from daemon: failed to resolve reference
 "ghcr.io/dhis2-chap/chap-worker:dev": ghcr.io/dhis2-chap/chap-worker:dev: not found
 error: the pull failed after the pins moved; chap-core is now pinned to dev, and
-`chaps update --chap-tag v2.3.1 --yes` puts it back
+`varde update --chap-tag v2.3.1 --yes` puts it back
 ```
 
 chap-core is two images, `chap-core` and `chap-worker`, and a tag that exists
@@ -1215,67 +1215,67 @@ for one of them does not have to exist for the other: at the time of writing
 ghcr serves `chap-core:dev` and has no `chap-worker:dev` at all. The pin has
 already moved when the pull runs, so the deployment is left describing images
 Docker cannot fetch - the containers keep running what they had. The line names
-the way back; `chaps update --list-tags` shows what else there is to move to.
+the way back; `varde update --list-tags` shows what else there is to move to.
 
 ## `gives ... the compose file ..., which is not a file in this deployment's directory`
 
-Every command reads `.chaps/` first, and this one stopped there:
+Every command reads `.varde/` first, and this one stopped there:
 
 ```text
-error: `.chaps/models.yaml` gives chapkit_ewars_model the compose file `/tmp/compose.x.yml`, which is not a file in this deployment's directory; ...
+error: `.varde/models.yaml` gives chapkit_ewars_model the compose file `/tmp/compose.x.yml`, which is not a file in this deployment's directory; ...
 ```
 
-chaps writes every compose file into the deployment directory itself, as
+varde writes every compose file into the deployment directory itself, as
 `compose.yml` or `compose.<service>.yml`, and writes and removes them by that
 name. A name with a `/`, a `..` or a drive in it would have it write or delete
 a file somewhere else, so it is refused before anything uses it. The state was
 edited by hand or came from an archive changed after it was made. Put the
 plain name back (`compose.chapkit-ewars-model.yml` for that model), or rebuild
-the state with `chaps init --force`. The same message names
-`.chaps/project.yaml` when the name is in its `compose_files` or
+the state with `varde init --force`. The same message names
+`.varde/project.yaml` when the name is in its `compose_files` or
 `rendered_files` list.
 
 ## `lists the project file ..., which is not inside a deployment directory`
 
-`chaps backup restore` refused the archive before restoring anything: its
+`varde backup restore` refused the archive before restoring anything: its
 manifest names a file outside the project directory, such as `../.bashrc`.
-`chaps backup create` never writes such a path, so the archive was changed
+`varde backup create` never writes such a path, so the archive was changed
 after it was made. Restore from another one.
 
 ## ``runs in docker (`docker_env` in its MLproject), and the container has no docker socket``
 
-`chaps chap` read the model's `MLproject`, and the model starts a container of
-its own. In the container that `chaps chap` runs, there is no docker socket
+`varde chap` read the model's `MLproject`, and the model starts a container of
+its own. In the container that `varde chap` runs, there is no docker socket
 unless you give it. Run the same command again with `--docker` after `chap`:
-`chaps chap --docker eval ...`. The flag gives the container full control of
+`varde chap --docker eval ...`. The flag gives the container full control of
 docker on this machine. See [Models that run in docker](./chap-cli.md#models-that-run-in-docker).
 
 ## `Cannot reach the Docker daemon. The model ... requires Docker to run`
 
 chap-core says this when a `docker_env` model runs without a docker socket. In
-`chaps chap`, the cause is not a stopped Docker: the container did not get
-the socket. chaps did not find `docker_env` before the run, because it could
+`varde chap`, the cause is not a stopped Docker: the container did not get
+the socket. varde did not find `docker_env` before the run, because it could
 not read the model's `MLproject` (for example, under `--offline`). Add
 `--docker`.
 
-## `Rscript: not found` from `chaps chap`
+## `Rscript: not found` from `varde chap`
 
-The model needs R, and it ran in the `chap-core` image, which has no R. chaps
+The model needs R, and it ran in the `chap-core` image, which has no R. varde
 selects the worker image for a GitHub repository or a model directory, so
 this happens with `--image core`, or with a chapkit URL whose service calls R
 itself. Run it again with `--image worker`.
 
-## `FileNotFoundError: [Errno 2] No such file or directory` from `chaps chap`
+## `FileNotFoundError: [Errno 2] No such file or directory` from `varde chap`
 
 chap writes an output file into a directory that does not exist. chap does
-not make directories, with or without chaps. Make the directory first
+not make directories, with or without varde. Make the directory first
 (`mkdir -p out`), then run the command again. A path outside the current
 directory is mounted from its nearest existing parent, so it has the same
 rule.
 
 ## `--offline needs a ghcr.io/dhis2-chap/chap-core image on this machine`
 
-Outside a deployment, `chaps chap` asks GitHub for the newest chap-core
+Outside a deployment, `varde chap` asks GitHub for the newest chap-core
 release. Under `--offline` it uses the newest image of that kind on this
 machine instead, and there is none. Run the command once without `--offline`,
 or give a tag that is on this machine with `--tag`.
@@ -1283,50 +1283,50 @@ or give a tag that is on this machine with `--tag`.
 ## `chap exited with status N; its own message is above`
 
 chap stopped with an error. The cause is chap's own output above this line.
-chaps exits with the same status, so a script can read it. If the run wrote
-files before it stopped, chaps names them.
+varde exits with the same status, so a script can read it. If the run wrote
+files before it stopped, varde names them.
 
 ## `the model server at ... is not running (no answer on /api/v1/info), so chap was not started`
 
-`chaps chap` asked the `--model-name` URL for `/api/v1/info` before the run,
+`varde chap` asked the `--model-name` URL for `/api/v1/info` before the run,
 and nothing answered. chap was not started, so there is no traceback.
 
-- A service name such as `http://chapkit-ewars-model:8000` that chaps does
+- A service name such as `http://chapkit-ewars-model:8000` that varde does
   not know: give the model id instead (`--model-name chapkit_ewars_model`).
-  chaps then starts the model. In a deployment, the model must be enabled
+  varde then starts the model. In a deployment, the model must be enabled
   first.
 - A server elsewhere: check that it runs, and that this machine can reach
   it.
 
-## `` `ID` is not a model of the deployment at ...; `chaps models enable ID` adds it ``
+## `` `ID` is not a model of the deployment at ...; `varde models enable ID` adds it ``
 
-In a deployment, `chaps chap` starts only the models that the deployment has.
+In a deployment, `varde chap` starts only the models that the deployment has.
 It does not add a model for an evaluation, because that changes the
-deployment. Run `chaps models enable ID`, then the same command again. Or run
-`chaps chap` outside the deployment, where it starts the model in a
-`chaps run` group.
+deployment. Run `varde models enable ID`, then the same command again. Or run
+`varde chap` outside the deployment, where it starts the model in a
+`varde run` group.
 
 ## `... did not answer on http://...:8000 within 300s`
 
-chaps started the model for the run, and the model did not answer in time. A
+varde started the model for the run, and the model did not answer in time. A
 first start pulls the model's image, and an R model can take some minutes.
 Run the command again with a longer `--timeout`. The message names the
-`chaps logs` command that shows why the model does not start.
+`varde logs` command that shows why the model does not start.
 
 ## `` `http://localhost:...` is this machine, and in the container `localhost` is the container itself ``
 
-`chaps chap` got a model URL on `localhost` (or `127.0.0.1`). That is the URL
-`chaps ps` shows, and it works from your machine. chap runs in a container,
+`varde chap` got a model URL on `localhost` (or `127.0.0.1`). That is the URL
+`varde ps` shows, and it works from your machine. chap runs in a container,
 where `localhost` is the container, so the URL reaches nothing. Use the
-service URL from the `models:` line that `chaps chap` writes before each run,
-for example `http://auto-arima-chapkit:8000`. When chaps knows which model
+service URL from the `models:` line that `varde chap` writes before each run,
+for example `http://auto-arima-chapkit:8000`. When varde knows which model
 has that port, the message gives that URL.
 
 ## `stopped by Ctrl-C; ... is taken back out of ...`
 
-You pressed Ctrl-C while `chaps run` started the model or waited for it to
-answer. chaps took back out what the start put in: the model that this run
+You pressed Ctrl-C while `varde run` started the model or waited for it to
+answer. varde took back out what the start put in: the model that this run
 enabled is out of its group again, as after a failed start, and its data stays.
-The command exits with 130. Run the same `chaps run` again to start it. A model
+The command exits with 130. Run the same `varde run` again to start it. A model
 that ran before the command is left running, and the message says so.
 

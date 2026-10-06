@@ -1,8 +1,8 @@
-//! `chaps status`: chap-core health plus the services it has registered.
+//! `varde status`: chap-core health plus the services it has registered.
 //!
 //! Lenient about the fields chap-core sends - it may add fields, rename
 //! optional ones or leave one empty, and none of that should turn
-//! `chaps status` into a crash - and strict about who is answering. A 200
+//! `varde status` into a crash - and strict about who is answering. A 200
 //! from something that is not chap-core is reported as down: `up` has to mean
 //! that the deployment works, not that the port is taken.
 
@@ -64,7 +64,7 @@ pub const DHIS2_PING_PATH: &str = "/api/ping";
 /// silently.
 pub const OCS_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// What `chaps status` reports.
+/// What `varde status` reports.
 #[derive(Debug, Serialize)]
 pub struct StatusReport {
     /// The compose project name: the prefix every container and every named
@@ -78,7 +78,7 @@ pub struct StatusReport {
     pub api_port: u16,
     /// Which file [`StatusReport::api_port`] came from. `.env` wins, as it
     /// does for compose, so a deployment whose `.env` moved the port reports
-    /// `env` and the port `.chaps/project.yaml` records is not the one in use.
+    /// `env` and the port `.varde/project.yaml` records is not the one in use.
     pub api_port_source: ApiPortSource,
     pub api: ApiHealth,
     /// Which chap-core this is, and whether the API said so itself.
@@ -116,27 +116,27 @@ pub struct StatusReport {
     /// One row per enabled component other than chap-core, which has the
     /// chap-core line of its own. Empty on a deployment that has none.
     pub components: Vec<ComponentStatus>,
-    /// Whether this deployment has a DHIS2 that no `chaps dhis2 connect` has
+    /// Whether this deployment has a DHIS2 that no `varde dhis2 connect` has
     /// been recorded for, from [`Components::dhis2_needs_connecting`].
     ///
-    /// Read off `.chaps/components.yaml` and nothing else. It says what chaps
+    /// Read off `.varde/components.yaml` and nothing else. It says what varde
     /// has recorded, never what DHIS2 has: the route can have been deleted,
     /// repointed or disabled since, and `false` here is not evidence that the
-    /// Modeling App can reach Chap. `chaps dhis2 show` is the command that
+    /// Modeling App can reach Chap. `varde dhis2 show` is the command that
     /// asks DHIS2.
     ///
     /// [`Components::dhis2_needs_connecting`]: crate::components::Components::dhis2_needs_connecting
     pub dhis2_needs_connecting: bool,
     /// Whether chap-core is one this deployment does not run, recorded with
-    /// `--chap-core-url` or `chaps components enable chap-core --url`.
+    /// `--chap-core-url` or `varde components enable chap-core --url`.
     pub chap_core_elsewhere: bool,
     /// Whether chap-core's container started moments ago or reports its
     /// healthcheck as still starting, which makes an API that does not answer
     /// `starting` rather than `down`. Filled in by the caller, which has docker.
     pub api_starting: bool,
-    /// The URL of the DHIS2 recorded with `chaps dhis2 use`, which has no row
-    /// of its own: chaps does not run it, and asking it would need its
-    /// credentials. `chaps dhis2 show` is the command that does.
+    /// The URL of the DHIS2 recorded with `varde dhis2 use`, which has no row
+    /// of its own: varde does not run it, and asking it would need its
+    /// credentials. `varde dhis2 show` is the command that does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dhis2_external: Option<String>,
     /// Containers of this deployment that are failing, with the lines of their
@@ -201,14 +201,14 @@ pub enum ApiHealth {
         error: String,
     },
     /// chap-core is not a component of this deployment, so there is no API to
-    /// ask about. Not a failure: `chaps components disable chap-core` is how a
+    /// ask about. Not a failure: `varde components disable chap-core` is how a
     /// deployment becomes, say, OCS on its own.
     Off,
 }
-/// The version `chaps status` puts next to the API URL.
+/// The version `varde status` puts next to the API URL.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ApiVersion {
-    /// What the API reported, or the tag `.chaps/project.yaml` pins when it
+    /// What the API reported, or the tag `.varde/project.yaml` pins when it
     /// reported nothing.
     pub value: String,
     /// True when `value` is that pin rather than the API's own answer.
@@ -482,24 +482,24 @@ pub fn answered_elsewhere(
     match holder {
         Some(other) => format!(
             "this deployment's chap-core is not running; {base} is {name} ({dir}) answering on \
-             the same port; stop it with `chaps -C {dir} down`, or run `chaps up --replace` here",
+             the same port; stop it with `varde -C {dir} down`, or run `varde up --replace` here",
             name = other.name(),
             dir = other.dir.display(),
         ),
         None => format!(
             "this deployment's chap-core is not running; something else answers on port {port}, \
-             and `chaps up` names it"
+             and `varde up` names it"
         ),
     }
 }
 /// Whether anything this deployment declares is not where it should be, which
-/// is what a non-zero exit from `chaps status` means.
+/// is what a non-zero exit from `varde status` means.
 ///
 /// One rule for every deployment shape, because the command is a health gate
 /// for a script and a script cannot know which shape it is polling. Before
 /// this, a component was only ever consulted on a deployment without chap-core,
 /// and even there only while it was `starting` - so an `ocs` container that
-/// died left `chaps status` exiting 0, which is the one answer a monitor must
+/// died left `varde status` exiting 0, which is the one answer a monitor must
 /// never get wrong.
 ///
 /// The exit stays silent. The rows have already named what is wrong - the model

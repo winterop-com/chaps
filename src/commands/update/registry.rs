@@ -1,4 +1,4 @@
-//! `chaps update` where there is no deployment: no pin to move, but the
+//! `varde update` where there is no deployment: no pin to move, but the
 //! marketplace registry is this machine's, and it can be refreshed.
 
 use crate::cli::UpdateArgs;
@@ -8,7 +8,7 @@ use crate::output;
 use crate::registry as marketplace;
 use serde::Serialize;
 
-/// What `chaps update` did without a deployment, for `--json`.
+/// What `varde update` did without a deployment, for `--json`.
 #[derive(Debug, Serialize)]
 struct RegistryRefresh {
     /// Whether the registry was fetched now; `false` under `--dry-run`.
@@ -24,13 +24,13 @@ pub(super) fn refresh(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if let Some(flag) = deployment_flag(args) {
         return Err(ChapError::Usage(format!(
             "{flag} moves the pins of a deployment, and this directory is not one; run it in \
-             a deployment's directory or with `-C DIR`, or create one with `chaps init`"
+             a deployment's directory or with `-C DIR`, or create one with `varde init`"
         ))
         .into());
     }
     if ctx.registry.offline && !args.dry_run {
         return Err(ChapError::Usage(
-            "outside a deployment, `chaps update` refreshes the marketplace registry, which \
+            "outside a deployment, `varde update` refreshes the marketplace registry, which \
              needs the network; drop --offline, or use --dry-run to see the cached one"
                 .to_string(),
         )
@@ -75,5 +75,5 @@ fn say(report: &RegistryRefresh, lines: &mut output::Report) {
     };
     lines
         .hint("this directory is not a deployment, so no version pin changed")
-        .hint("`chaps self update` updates chaps itself");
+        .hint("`varde self update` updates varde itself");
 }

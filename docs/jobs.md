@@ -3,16 +3,16 @@
 chap-core does everything slow on a worker: building a dataset, backtesting a
 model, making a prediction. Each one of those is a *job*, and `/v1/jobs` is
 where a deployment records what it has been asked to do. The Modeling App
-starts jobs and watches them; `chaps jobs` is the same view from a terminal,
-and `chaps api` is how a job is started from one.
+starts jobs and watches them; `varde jobs` is the same view from a terminal,
+and `varde api` is how a job is started from one.
 
 ```sh
-chaps jobs                    # what this deployment has been doing
-chaps jobs logs <id>          # why one of them failed
-chaps api GET /v1/jobs        # the same list, unrendered
+varde jobs                    # what this deployment has been doing
+varde jobs logs <id>          # why one of them failed
+varde api GET /v1/jobs        # the same list, unrendered
 ```
 
-## What `chaps jobs` reports
+## What `varde jobs` reports
 
 One row per job, newest first, with a running job ahead of a finished one that
 started in the same second:
@@ -26,7 +26,7 @@ e3e9f243...  create_backtest    eval-chapkit-rwanda-malaria-bym-model  FAILURE  
 0fa57ec9...  create_dataset     eval-chapkit-5ou-202101-202312         SUCCESS  47m ago  2s
 
 8 jobs: 7 done, 1 failed
-  run `chaps jobs logs e3e9f243-2492-47cf-9d02-7de886154f70` to see why
+  run `varde jobs logs e3e9f243-2492-47cf-9d02-7de886154f70` to see why
 ```
 
 | Column | What it holds |
@@ -39,9 +39,9 @@ e3e9f243...  create_backtest    eval-chapkit-rwanda-malaria-bym-model  FAILURE  
 | `DURATION` | How long it took, for a job that has finished. `-` while it runs. |
 
 `--status` filters (repeat it for more than one), `--type` filters by job type
-and `--limit` keeps the newest N after the ordering, so `chaps jobs --limit 5`
+and `--limit` keeps the newest N after the ordering, so `varde jobs --limit 5`
 is the five most recent. The filters work with or without the `list` verb:
-`chaps jobs --status FAILURE` and `chaps jobs list --status FAILURE` are the
+`varde jobs --status FAILURE` and `varde jobs list --status FAILURE` are the
 same command.
 
 `--json` hands back the list chap-core sent, in the order the table was in,
@@ -50,7 +50,7 @@ with the fields this CLI does not render still in it.
 ## The status values
 
 chap-core passes its worker's states through untouched, so the set is Celery's.
-`chaps jobs` groups them into the four things the closing line counts:
+`varde jobs` groups them into the four things the closing line counts:
 
 | Status | Counted as | Meaning |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ chap-core passes its worker's states through untouched, so the set is Celery's.
 | `RETRY` | running | It failed and the worker is trying again. |
 | `SUCCESS` | done | Finished, and its result is in chap-core's database. |
 | `FAILURE` | failed | It raised. The reason is in the log, not here. |
-| `REVOKED` | cancelled | Stopped by `chaps jobs cancel` or by the Modeling App. |
+| `REVOKED` | cancelled | Stopped by `varde jobs cancel` or by the Modeling App. |
 
 A status this CLI has never seen is counted as running: a new state is far more
 likely to be a new way of being in flight than a new way of being finished.
@@ -71,11 +71,11 @@ that something went wrong. The message is in `GET /v1/jobs/{id}/logs`, which
 holds chap-core's own log lines, then the model container's stdout, then its
 stderr behind a `--- stderr ---` line, and finally the Python traceback. That
 is the only place the real error text exists - it is not in the job list, and
-it is not in `chaps logs`, because the model wrote it inside a chapkit job that
+it is not in `varde logs`, because the model wrote it inside a chapkit job that
 chap-core polled.
 
 ```sh
-chaps jobs logs e3e9f243 --tail 20
+varde jobs logs e3e9f243 --tail 20
 ```
 
 ```text
@@ -102,21 +102,21 @@ from the whole log, so shortening the output never hides the reason.
 ## Stopping and forgetting a job
 
 ```sh
-chaps jobs cancel <id>   # ask the worker to stop
-chaps jobs delete <id>   # drop a finished job from the list
+varde jobs cancel <id>   # ask the worker to stop
+varde jobs delete <id>   # drop a finished job from the list
 ```
 
 Both print the sentence chap-core answers with. `delete` on a job that is still
-running is refused by chap-core with a 400, which `chaps` reports as
+running is refused by chap-core with a 400, which `varde` reports as
 `job <id> is still running; cancel it first`.
 
-## `chaps api`: one request, authenticated
+## `varde api`: one request, authenticated
 
 ```text
-chaps api METHOD PATH [--data JSON|@FILE|-] [--url URL] [--raw] [--timeout SECONDS]
+varde api METHOD PATH [--data JSON|@FILE|-] [--url URL] [--raw] [--timeout SECONDS]
 ```
 
-`chaps api` is `curl` with the three things that are tedious to get right
+`varde api` is `curl` with the three things that are tedious to get right
 filled in: the base URL of *this* deployment, the `Authorization: Bearer`
 header from its `.env`, and an exit code that distinguishes Chap being down
 from Chap saying no.
@@ -133,8 +133,8 @@ The answer goes to stdout, rendered the way it reads best:
 
 - A JSON object or list is pretty-printed, two spaces per level.
 - A JSON *string* is printed as its text, so
-  `chaps api GET /v1/jobs/<id>/logs` reads like a log and
-  `chaps api GET /v1/jobs/<id>` prints `SUCCESS` rather than `"SUCCESS"`.
+  `varde api GET /v1/jobs/<id>/logs` reads like a log and
+  `varde api GET /v1/jobs/<id>` prints `SUCCESS` rather than `"SUCCESS"`.
   `--json` turns that off, because a caller piping into a parser wants the
   document.
 - Anything that is not JSON is written as it arrived.
@@ -146,7 +146,7 @@ function:
 | --- | --- |
 | 0 | A 2xx. The body is on stdout; an empty body gets its status line on stderr so the run is never silent. |
 | 1 | A 4xx or 5xx. The status line (`HTTP 404 Not Found`) is on stderr and the body is *still* on stdout, because a 422 from chap-core names the field it did not like. |
-| 2 | chap-core could not be reached at all, with the sentence [`chaps status`](./status.md) uses, or the command line was wrong (an unknown method, a path with no leading slash, a `--data` that is not JSON). |
+| 2 | chap-core could not be reached at all, with the sentence [`varde status`](./status.md) uses, or the command line was wrong (an unknown method, a path with no leading slash, a `--data` that is not JSON). |
 
 `-vv` narrates the request line and the headers that were sent. The token's
 value never appears - the line reads `Authorization: Bearer <token>` - so a
@@ -159,27 +159,27 @@ job, and the job id is what carries you from one step to the next.
 
 ```sh
 # 1. a dataset: observations plus the geojson they belong to
-chaps api POST /v1/analytics/make-dataset --data @dataset.json
+varde api POST /v1/analytics/make-dataset --data @dataset.json
 # -> {"id": "0fa57ec9-11b6-47a8-96ec-6c22580bbdf5"}   (a job id)
 
 # 2. the row that job wrote, once it says SUCCESS
-chaps jobs show 0fa57ec9            # Database result  1  -> /v1/crud/datasets/1
+varde jobs show 0fa57ec9            # Database result  1  -> /v1/crud/datasets/1
 
 # 3. a backtest of one configured model against that dataset
-chaps api POST /v1/analytics/create-backtest \
+varde api POST /v1/analytics/create-backtest \
   --data '{"name":"eval-ewars","modelId":14,"datasetId":1,"nPeriods":3,"nSplits":3,"stride":1}'
 # -> {"id": "59159ad4-893b-4bbf-a855-70a38c3fb787"}
 
 # 4. poll it, then read what it produced
-chaps api GET /v1/jobs/59159ad4-893b-4bbf-a855-70a38c3fb787     # SUCCESS
-chaps jobs show 59159ad4                                        # Database result  3
-chaps api GET /v1/crud/backtests/3 | head -30
-chaps api GET /v1/visualization/metrics/3
-chaps api GET '/v1/analytics/evaluation-entry?backtestId=3&quantiles=0.1&quantiles=0.5&quantiles=0.9'
+varde api GET /v1/jobs/59159ad4-893b-4bbf-a855-70a38c3fb787     # SUCCESS
+varde jobs show 59159ad4                                        # Database result  3
+varde api GET /v1/crud/backtests/3 | head -30
+varde api GET /v1/visualization/metrics/3
+varde api GET '/v1/analytics/evaluation-entry?backtestId=3&quantiles=0.1&quantiles=0.5&quantiles=0.9'
 ```
 
-Which model ids exist is `chaps api GET /v1/crud/models` (or the Modeling App's
-model list); `chaps status` is what says whether the model service behind an id
+Which model ids exist is `varde api GET /v1/crud/models` (or the Modeling App's
+model list); `varde status` is what says whether the model service behind an id
 has registered at all, which is the first thing to check when a backtest fails
 immediately.
 
@@ -188,59 +188,59 @@ A prediction is the same shape one step further on: `POST
 from a backtest and run on a schedule.
 
 ```sh
-chaps api POST /v1/crud/prediction-setups --data '{"backtestId":3,"name":"ewars-monthly"}'
-chaps api POST /v1/crud/prediction-setups/1/run --data @run.json
-chaps api GET  /v1/crud/prediction-setups/1
-chaps api PATCH /v1/crud/prediction-setups/1 --data '{"scheduleCronExpression":"17 3 * * 1"}'
+varde api POST /v1/crud/prediction-setups --data '{"backtestId":3,"name":"ewars-monthly"}'
+varde api POST /v1/crud/prediction-setups/1/run --data @run.json
+varde api GET  /v1/crud/prediction-setups/1
+varde api PATCH /v1/crud/prediction-setups/1 --data '{"scheduleCronExpression":"17 3 * * 1"}'
 ```
 
-`chaps api GET /openapi.json` is the whole contract, straight from the running
+`varde api GET /openapi.json` is the whole contract, straight from the running
 deployment, which is the version that matters rather than the one in any
 document.
 
 ## The token in a script
 
 ```sh
-TOKEN=$(chaps auth token)
+TOKEN=$(varde auth token)
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8700/v2/services
 ```
 
-`chaps auth token` prints the token and nothing else: no label, no
+`varde auth token` prints the token and nothing else: no label, no
 abbreviation, one trailing newline. On a deployment with authentication off it
 prints nothing at all on stdout, says so on stderr and exits 1, so a script
 that captured an empty string stops instead of carrying on with an empty
 header. `--json` gives `{"token": "..."}`, or `{"token": null}` when there is
 none.
 
-For reading rather than capturing, `chaps auth show --reveal` prints the same
+For reading rather than capturing, `varde auth show --reveal` prints the same
 value inside the report that says what it protects. See
 [Authentication](./auth.md).
 
 Every command that asks chap-core - `jobs`, `models test`, `status`, `doctor`
 and `api` - takes the token from `.env` first and, when `.env` sets none, from
 `CHAP_API_TOKEN` in the environment. Outside a deployment, and inside one
-when `--url` names another server, `chaps api --url` reads only the
+when `--url` names another server, `varde api --url` reads only the
 environment, which is the same variable `.env` sets. A redirect is followed,
 and the token goes along only when it stays on the same host, on the same or
 a more secure scheme (`http://` to `https://`):
 
 ```sh
-CHAP_API_TOKEN=$(chaps -C ~/mychap auth token) \
-  chaps api GET /v1/jobs --url https://chap.example.org
+CHAP_API_TOKEN=$(varde -C ~/mychap auth token) \
+  varde api GET /v1/jobs --url https://chap.example.org
 ```
 
 ## What talks to what
 
 | Command | Requests it makes |
 | --- | --- |
-| `chaps jobs list` | `GET /v1/jobs`, with `status` and `type` as query parameters. |
-| `chaps jobs show` | `GET /v1/jobs`, then `GET /v1/jobs/{id}` for the current status and `GET /v1/jobs/{id}/database_result` for a finished one. |
-| `chaps jobs logs` | `GET /v1/jobs` to resolve the id, then `GET /v1/jobs/{id}/logs`. |
-| `chaps jobs cancel` | `POST /v1/jobs/{id}/cancel`. |
-| `chaps jobs delete` | `DELETE /v1/jobs/{id}`. |
-| `chaps api` | Exactly the one request you asked for, and nothing else. |
+| `varde jobs list` | `GET /v1/jobs`, with `status` and `type` as query parameters. |
+| `varde jobs show` | `GET /v1/jobs`, then `GET /v1/jobs/{id}` for the current status and `GET /v1/jobs/{id}/database_result` for a finished one. |
+| `varde jobs logs` | `GET /v1/jobs` to resolve the id, then `GET /v1/jobs/{id}/logs`. |
+| `varde jobs cancel` | `POST /v1/jobs/{id}/cancel`. |
+| `varde jobs delete` | `DELETE /v1/jobs/{id}`. |
+| `varde api` | Exactly the one request you asked for, and nothing else. |
 
 Every one of them sends the API token when `.env` sets one, and every one of
-them reports an unreachable chap-core with the sentence `chaps status` uses and
+them reports an unreachable chap-core with the sentence `varde status` uses and
 exit code 2. An id prefix is resolved against the job list, and `-vv` says which
 full id it landed on.

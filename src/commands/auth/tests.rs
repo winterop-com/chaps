@@ -20,7 +20,7 @@ fn show_says_off_and_what_to_do_about_it() {
     assert!(text.contains("API authentication  off"), "{text}");
     assert!(text.contains("Registration key    off"), "{text}");
     assert!(text.contains("nothing protects this API"), "{text}");
-    assert!(text.contains("chaps auth enable"), "{text}");
+    assert!(text.contains("varde auth enable"), "{text}");
     assert!(!text.contains("API token"), "there is none: {text}");
 }
 
@@ -50,7 +50,7 @@ fn show_hides_the_token_until_reveal_asks_for_it() {
 
 #[test]
 fn show_flags_a_state_file_that_disagrees_with_the_env() {
-    // `.env` has both, `.chaps/` remembers neither: a hand edit.
+    // `.env` has both, `.varde/` remembers neither: a hand edit.
     let text = show_human(
         &Out::default(),
         &on(),
@@ -60,7 +60,7 @@ fn show_flags_a_state_file_that_disagrees_with_the_env() {
         &[],
     );
     assert!(
-        text.contains("warning: .chaps/project.yaml records"),
+        text.contains("warning: .varde/project.yaml records"),
         "{text}"
     );
     assert!(text.contains("api_token: false"), "{text}");
@@ -160,5 +160,5 @@ fn the_written_block_is_empty_when_nothing_changed() {
 
 #[test]
 fn the_restart_hint_names_the_command_that_applies_it() {
-    assert!(RESTART_HINT.contains("chaps up"));
+    assert!(RESTART_HINT.contains("varde up"));
 }

@@ -17,13 +17,13 @@
 //! - a line whose first non-blank character is `#` assigns nothing.
 //!
 //! Measured against Compose v5 with `docker compose config`, not recalled.
-//! Two of its rules are not reproduced, because chaps has no environment to
+//! Two of its rules are not reproduced, because varde has no environment to
 //! expand them from: `$VAR` in an unquoted or double-quoted value is read as
-//! the text it is, and so is `$$`. Nothing chaps writes contains either.
+//! the text it is, and so is `$$`. Nothing varde writes contains either.
 //!
 //! Every reader and every writer in this CLI goes through here, because a
 //! reader and a writer that disagree about which line is live is exactly how
-//! `chaps auth rotate` came to report a rotation it had not made: it rewrote
+//! `varde auth rotate` came to report a rotation it had not made: it rewrote
 //! the first `CHAP_API_TOKEN=` line while compose went on reading the second.
 //! [`set`] therefore rewrites the first active assignment *and deletes every
 //! later duplicate*, so after any write there is exactly one active line and
@@ -54,7 +54,7 @@ pub fn non_empty(body: &str, key: &str) -> Option<String> {
 /// The value of the last commented `# key=` line that still carries one.
 ///
 /// [`comment_out`] keeps the value behind the `#`, so this is how
-/// `chaps auth enable` hands a deployment back the very token its clients are
+/// `varde auth enable` hands a deployment back the very token its clients are
 /// already configured with, rather than a new one nobody has yet. An empty
 /// placeholder carries no value and is skipped.
 pub fn commented_value(body: &str, key: &str) -> Option<String> {
@@ -132,7 +132,7 @@ pub fn set(lines: &mut Vec<String>, key: &str, value: &str) -> Wrote {
 /// behind the `#`.
 ///
 /// Every one of them, because any single line left active still sets the
-/// variable. The value is kept so `chaps auth enable` can recover it, and so
+/// variable. The value is kept so `varde auth enable` can recover it, and so
 /// an operator who turned authentication off by mistake still has the token
 /// their clients were configured with.
 pub fn comment_out(body: &str, key: &str) -> String {
@@ -187,7 +187,7 @@ fn is_plain(c: char) -> bool {
 /// `value`.
 ///
 /// Plain as it is when every character is one that means nothing to compose
-/// or a shell, which is every secret chaps generates. Otherwise in single
+/// or a shell, which is every secret varde generates. Otherwise in single
 /// quotes, which compose reads literally: a token of `$HOME` written bare is
 /// expanded - to an empty string for a variable that is not set, which is a
 /// deployment whose API token is empty and therefore off. [`literal_problem`]

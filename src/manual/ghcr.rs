@@ -3,7 +3,7 @@
 //!
 //! Anonymous pulls are allowed, so the whole exchange is three requests: a
 //! token scoped to the repository, the manifest, and the config blob the
-//! manifest points at. `chaps models add` needs this before the image is on
+//! manifest points at. `varde models add` needs this before the image is on
 //! the machine, which is what makes it worth doing over HTTP rather than with
 //! `docker image inspect`.
 
@@ -11,7 +11,7 @@ use crate::error::Result;
 use serde::Deserialize;
 use std::time::Duration;
 
-/// Public ghcr, unless `CHAPS_GHCR_URL` points somewhere else.
+/// Public ghcr, unless `VARDE_GHCR_URL` points somewhere else.
 pub const DEFAULT_URL: &str = "https://ghcr.io";
 
 /// The manifest media types a registry may answer with. An OCI index is what

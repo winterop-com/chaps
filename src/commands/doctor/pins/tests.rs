@@ -40,7 +40,7 @@ fn a_manual_model_is_checked_against_the_branch_it_follows() {
     );
     assert_eq!(
         behind.fix.as_deref(),
-        Some("run `chaps update` to move the pin")
+        Some("run `varde update` to move the pin")
     );
 
     // A repository that would not answer is a check that was not made.

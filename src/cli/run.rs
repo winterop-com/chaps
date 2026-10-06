@@ -1,4 +1,4 @@
-//! `chaps run`, `ps` and `stop`: one model at a time, with or without a
+//! `varde run`, `ps` and `stop`: one model at a time, with or without a
 //! deployment directory of your own.
 
 use super::PortArg;
@@ -69,7 +69,7 @@ pub struct ModelPsArgs {
     pub group: Option<String>,
 }
 
-/// Watch every chaps deployment on this machine as a live tree
+/// Watch every varde deployment on this machine as a live tree
 #[derive(Debug, Clone, Args)]
 pub struct TopArgs {
     /// Seconds between two looks at docker

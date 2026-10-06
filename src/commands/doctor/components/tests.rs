@@ -21,7 +21,7 @@ fn the_components_line_reports_the_dhis2_config_and_the_seed() {
     assert_eq!(status, Status::Fail);
     assert_eq!(detail, "chap-core, dhis2; dhis2/dhis.conf is missing");
     let fix = fix.unwrap();
-    assert!(fix.contains("chaps sync"), "{fix}");
+    assert!(fix.contains("varde sync"), "{fix}");
     assert!(fix.contains("dhis2/dhis.conf"), "{fix}");
 
     // There, and the seed is the default the pinned minor line publishes.
@@ -33,7 +33,7 @@ fn the_components_line_reports_the_dhis2_config_and_the_seed() {
         detail,
         format!(
             "chap-core, dhis2; dhis2/dhis.conf present; seed: default ({}); \
-                 no `chaps dhis2 connect` recorded",
+                 no `varde dhis2 connect` recorded",
             crate::compose::render::DHIS2_DEFAULT_SEED_URL
         )
     );
@@ -41,7 +41,7 @@ fn the_components_line_reports_the_dhis2_config_and_the_seed() {
 
 /// The connect record is reported and never judged, and never as a state:
 /// the clause names the command and the time it ran, because that is the
-/// whole of what `.chaps/components.yaml` knows. `chaps dhis2 show` is the
+/// whole of what `.varde/components.yaml` knows. `varde dhis2 show` is the
 /// one thing that asks DHIS2.
 #[test]
 fn the_components_line_reports_the_recorded_connect_without_judging_it() {
@@ -55,7 +55,7 @@ fn the_components_line_reports_the_recorded_connect_without_judging_it() {
         "doctor cannot check the route, so it advises none"
     );
     assert!(
-        detail.ends_with("; no `chaps dhis2 connect` recorded"),
+        detail.ends_with("; no `varde dhis2 connect` recorded"),
         "{detail}"
     );
 
@@ -64,17 +64,17 @@ fn the_components_line_reports_the_recorded_connect_without_judging_it() {
     assert_eq!(status, Status::Ok);
     assert_eq!(fix, None);
     assert!(
-        detail.ends_with("; last `chaps dhis2 connect`: 2026-09-27T09:12:33Z"),
+        detail.ends_with("; last `varde dhis2 connect`: 2026-09-27T09:12:33Z"),
         "{detail}"
     );
     // Never "connected": nothing here asked DHIS2 anything.
     assert!(!detail.contains("connected:"), "{detail}");
 
     // A deployment with no chap-core has nothing to connect to, and
-    // `chaps dhis2 connect` refuses there, so the clause is left off.
+    // `varde dhis2 connect` refuses there, so the clause is left off.
     components.set_enabled(Component::ChapCore, false);
     let (_, detail, _) = components_verdict(&components, &facts(None), &present);
-    assert!(!detail.contains("chaps dhis2 connect"), "{detail}");
+    assert!(!detail.contains("varde dhis2 connect"), "{detail}");
 }
 
 /// The three other answers the seed can have, each reported and none of
@@ -85,7 +85,7 @@ fn the_seed_note_says_which_of_the_answers_this_deployment_holds() {
     // The clause that follows the seed on every `dhis2` line, tested on its
     // own above; naming it here keeps these assertions about the tail of
     // the seed note rather than about the end of the string.
-    const NO_CONNECT: &str = "; no `chaps dhis2 connect` recorded";
+    const NO_CONNECT: &str = "; no `varde dhis2 connect` recorded";
 
     let mut components = dhis2_components();
     components.dhis2.seed = Dhis2Seed::None;
@@ -107,7 +107,7 @@ fn the_seed_note_says_which_of_the_answers_this_deployment_holds() {
         "{detail}"
     );
 
-    // A minor line chaps publishes no dump for: the setting still says
+    // A minor line varde publishes no dump for: the setting still says
     // `default`, and the database still starts empty, which is the half
     // that does not follow from the setting.
     components.dhis2.seed = Dhis2Seed::Default;
@@ -117,7 +117,7 @@ fn the_seed_note_says_which_of_the_answers_this_deployment_holds() {
     assert_eq!(fix, None);
     assert!(
         detail.ends_with(&format!(
-            "seed: default, and chaps knows no dump for 2.43 \
+            "seed: default, and varde knows no dump for 2.43 \
                  (the database starts empty){NO_CONNECT}"
         )),
         "{detail}"
@@ -165,7 +165,7 @@ fn a_failing_ocs_does_not_swallow_what_the_dhis2_beside_it_says() {
         detail.contains("dhis2/dhis.conf present; seed:"),
         "{detail}"
     );
-    assert!(fix.unwrap().contains("chaps sync"));
+    assert!(fix.unwrap().contains("varde sync"));
 }
 
 /// Two things the line reports and never judges: missing credentials, which
@@ -272,7 +272,7 @@ fn the_example_config_warning_carries_the_same_tail_as_the_ok_line() {
     assert!(edited.ends_with(TAIL), "{edited}");
 
     // A missing config keeps none of it: nothing holds datasets or reads a
-    // credential until the file is back, and `chaps sync` is the one step.
+    // credential until the file is back, and `varde sync` is the one step.
     let (status, detail, fix) = ocs_verdict(
         &components,
         &OcsFacts {
@@ -284,10 +284,10 @@ fn the_example_config_warning_carries_the_same_tail_as_the_ok_line() {
     );
     assert_eq!(status, Status::Fail);
     assert!(detail.ends_with("is missing"), "{detail}");
-    assert!(fix.unwrap().contains("chaps sync"));
+    assert!(fix.unwrap().contains("varde sync"));
 }
 
-/// The same two facts `chaps status` puts on the OCS line: what the
+/// The same two facts `varde status` puts on the OCS line: what the
 /// instance holds, reported and never judged.
 #[test]
 fn the_components_line_reports_what_a_running_ocs_holds() {

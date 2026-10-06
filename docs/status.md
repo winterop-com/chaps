@@ -1,6 +1,6 @@
 # Status and output
 
-## What `chaps status` reports
+## What `varde status` reports
 
 One line for chap-core, one line per enabled component, one row per model, and
 one line saying what it adds up to:
@@ -19,25 +19,25 @@ some-other-service                unmanaged                http://c0ffee:8000  3
 models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
 
 2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `chaps restart --all chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start Chap with `chaps up`, then `chaps logs auto-arima-chapkit`
+  chapkit-rwanda-malaria-bym-model: restart it with `varde restart --all chapkit-rwanda-malaria-bym-model`
+  auto-arima-chapkit: start Chap with `varde up`, then `varde logs auto-arima-chapkit`
 ```
 
 In a deployment without chap-core nothing registers, so the STATE column says
 what the model answered itself: `up` when `GET /health` on its host port
 answered, `running, not answering` when its container is up and `/health` did
-not answer (still starting, or failed: read `chaps logs <id>`), and
+not answer (still starting, or failed: read `varde logs <id>`), and
 `not running`. The closing line counts those instead of registrations, and the
 exit code is non-zero while any model is not `up`.
 
 There is one hint per row that needs doing something about, and - when no row
 does - a single hint pointing at the one check `status` cannot make itself. A
 model whose container started under two minutes ago is not stuck yet, so its
-hint is to run `chaps status` again in a minute rather than to restart it. See
+hint is to run `varde status` again in a minute rather than to restart it. See
 [When everything registered](#when-everything-registered) below.
 
 The version is chap-core's own when it publishes one, and otherwise the tag
-`.chaps/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
+`.varde/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
 build.
 
 A deployment pinned to a moving tag (`latest`, `master`, `dev`) gets one more
@@ -83,30 +83,30 @@ by its container alone, like the object store.
 
 The line carries no version, and deliberately: no component line does. DHIS2
 tells only a logged-in session which version it is running - `/api/system/info`
-answers nothing else, and `chaps` holds credentials for no instance - and the
-`image_tag` in `.chaps/components.yaml` is not that version either. It is intent:
-the tag the next `chaps up` would start, while the container standing there was
+answers nothing else, and `varde` holds credentials for no instance - and the
+`image_tag` in `.varde/components.yaml` is not that version either. It is intent:
+the tag the next `varde up` would start, while the container standing there was
 created, and migrated `dhis2_db`, at whatever tag was in force when it was
 created. Printing the recorded one beside a live container would name a version
-that container is not. The recorded tag is `chaps doctor`'s `image dhis2` line,
-and moving it is an edit to `.chaps/components.yaml` and a `chaps sync`; see
+that container is not. The recorded tag is `varde doctor`'s `image dhis2` line,
+and moving it is an edit to `.varde/components.yaml` and a `varde sync`; see
 [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
 
 A `dhis2` line that reads `up` gets one more line under the verdict while
-nothing has recorded a `chaps dhis2 connect` for this deployment:
+nothing has recorded a `varde dhis2 connect` for this deployment:
 
 ```text
-no models enabled; run `chaps models enable ID` to add one
-  chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect`
+no models enabled; run `varde models enable ID` to add one
+  varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
 Being `up` is not being connected: the Modeling App reaches chap-core through a
 DHIS2 route that nothing creates on its own, and a deployment can otherwise sit
 with both rows `up` and the app unable to see Chap at all. The line is read off
-`.chaps/components.yaml` and asks DHIS2 nothing, which is why it says what
-*chaps* has recorded; it waits for the row to read `up`, because a DHIS2 that is
+`.varde/components.yaml` and asks DHIS2 nothing, which is why it says what
+*varde* has recorded; it waits for the row to read `up`, because a DHIS2 that is
 not answering cannot be connected to anything. It is not printed on a deployment
-without chap-core, where `chaps dhis2 connect` refuses. Once a connect is
+without chap-core, where `varde dhis2 connect` refuses. Once a connect is
 recorded the line stops - which is a suppressed hint and not a verdict on the
 route, and [`connected_at`, and what it is
 not](./dhis2.md#connected_at-and-what-it-is-not) says what that record is worth
@@ -120,8 +120,8 @@ for what that failure looks like from the outside.
 | --- | --- |
 | `up` | Answering its health endpoint, or - for a component with no endpoint to ask - running. |
 | `starting` | Its container is up but it is not answering yet. |
-| `unhealthy` | Its container is up, it does not answer, and the health check of the container failed. It is broken, not starting: `chaps logs <service>` says why. |
-| `not running` | No container, so nothing to answer. `chaps up` starts it. |
+| `unhealthy` | Its container is up, it does not answer, and the health check of the container failed. It is broken, not starting: `varde logs <service>` says why. |
+| `not running` | No container, so nothing to answer. `varde up` starts it. |
 
 An OCS line carries two more facts when they can be had, which are the two an
 operator would otherwise open its landing page for:
@@ -135,17 +135,17 @@ Both are silent when they could not be had - an instance that is down, an older
 OCS without the JSON dataset list, a docker that could not be asked - so the
 line is the one it has always been rather than one with holes in it. A size is
 only read from a container that is running; what the data volume holds while
-the container is down is [`chaps doctor`](./doctor.md)'s to report, where the
-question is how much data a `chaps down --volumes` would destroy. Under
+the container is down is [`varde doctor`](./doctor.md)'s to report, where the
+question is how much data a `varde down --volumes` would destroy. Under
 `--json` the two are `components[].datasets` and `components[].data_bytes`,
 both `null` where the line says nothing.
 
 A deployment with `chap-core` disabled has no chap-core line at all, and
 `status` does not exit non-zero over an API that is not meant to be there. Its
 closing line counts components rather than models - `both components are up;
-`chaps open ocs` opens it`,
-or `1 of 2 components is not running; start it with `chaps up`` - because it
-has no models to count and the models line would name `chaps models enable`,
+`varde open ocs` opens it`,
+or `1 of 2 components is not running; start it with `varde up`` - because it
+has no models to count and the models line would name `varde models enable`,
 the one command such a deployment refuses. See
 [Standalone OCS](./components.md#standalone-ocs).
 
@@ -168,8 +168,8 @@ carries `internal` and the full `http://localhost:5001` as it always has. See
 A model whose container is up but which never registered is the interesting
 case. chapkit stops trying five attempts into its startup, so one that came up
 before chap-core was healthy stays invisible until it is restarted, which is
-what its hint says. The hint asks for `chaps restart --all <id>` rather than a
-plain `chaps restart`: nothing about the service has changed, so there is
+what its hint says. The hint asks for `varde restart --all <id>` rather than a
+plain `varde restart`: nothing about the service has changed, so there is
 nothing a restart would recreate on its own, and `--all` is what recreates it
 anyway.
 
@@ -180,14 +180,14 @@ do, on its own indented line under the closing line:
 
 ```text
 all 5 models registered
-  run `chaps models test --all` to check they can run
+  run `varde models test --all` to check they can run
 ```
 
 Registration is a heartbeat. It says the service is alive and talking to
 chap-core, not that it can train or predict - a model whose runtime is broken,
 or whose account cannot write, registers exactly like a working one and fails
-on the first real job. `chaps status` cannot settle that without running the
-models, which takes minutes; `chaps models test` does, at two levels. See
+on the first real job. `varde status` cannot settle that without running the
+models, which takes minutes; `varde models test` does, at two levels. See
 [Testing a model](./models.md#testing-a-model).
 
 ## What `up` means
@@ -206,7 +206,7 @@ but it is not chap-core (got text/html)
 
 The check is lenient about the fields chap-core sends, since it may add fields,
 rename optional ones or leave one empty and none of that should turn
-`chaps status` into a crash, and strict about who is answering.
+`varde status` into a crash, and strict about who is answering.
 
 A chap-core whose own container is up and failing its healthcheck is a
 different answer from a port nobody is listening on, and it says so:
@@ -219,8 +219,8 @@ why chap is unhealthy:
   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) ... password authentication
   failed for user "chap"
   the database volume holds a different password than .env (a previous deployment with the
-  same name, or --fresh-env); the `volumes` line of `chaps doctor` says which, and
-  `chaps down --volumes` removes the volume if this deployment's data can go
+  same name, or --fresh-env); the `volumes` line of `varde doctor` says which, and
+  `varde down --volumes` removes the volume if this deployment's data can go
 ```
 
 The lines are the tail of the container's own log, filtered to the ones that
@@ -229,7 +229,7 @@ look like the failure. See
 
 ## Exit codes and short-circuits
 
-`chaps status` exits non-zero when anything this deployment declares is not
+`varde status` exits non-zero when anything this deployment declares is not
 where it should be: the API down, a model not registered, or a component not
 `up`. One rule for every deployment shape, because a script polling it as a
 health gate cannot know which shape it is polling, and a component that died
@@ -247,12 +247,12 @@ can have registered with a chap-core that has never started. A deployment that
 is chap-core and nothing else is then the one line
 
 ```text
-Chap is not running; start it with `chaps up`
+Chap is not running; start it with `varde up`
 ```
 
 A deployment that has components prints their rows first and puts that line
 under them, in the shape a running deployment has. The rows are read from
-`.chaps/components.yaml` rather than from docker, so they are known whether
+`.varde/components.yaml` rather than from docker, so they are known whether
 anything is up or not, and they say the one thing the single line cannot: which
 components this deployment is made of, and where each of them will answer.
 
@@ -260,7 +260,7 @@ components this deployment is made of, and where each of them will answer.
 ocs   not running   http://localhost:8790
 s3    not running   internal
 
-nothing in this deployment is running; start it with `chaps up`
+nothing in this deployment is running; start it with `varde up`
 ```
 
 That wording is the other half of it: a deployment chap-core is not a component
@@ -277,20 +277,20 @@ each request.
 Every command ends with a line saying what it did or found, plus the next step
 when there is one; empty output is a bug.
 
-- `chaps logs` on a deployment that was never started says so instead of
+- `varde logs` on a deployment that was never started says so instead of
   printing nothing, and fails, where bare `docker compose logs` prints nothing
   and exits 0.
-- `chaps logs SERVICE` lists the services when `SERVICE` is not one of them.
-- `chaps down` reports how many containers it stopped, and that the volumes are
+- `varde logs SERVICE` lists the services when `SERVICE` is not one of them.
+- `varde down` reports how many containers it stopped, and that the volumes are
   still there, under the compose project name they are prefixed with;
-  `chaps down --volumes` reports the volumes it removed, by name.
-- `chaps up` ends with which services it started or recreated and which it left
+  `varde down --volumes` reports the volumes it removed, by name.
+- `varde up` ends with which services it started or recreated and which it left
   alone.
-- `chaps docker pull` says how many images it pulled.
-- `chaps docker ps` on a project with no containers says
+- `varde docker pull` says how many images it pulled.
+- `varde docker ps` on a project with no containers says
   `nothing is running for this project` rather than printing a bare header.
 
-- `chaps models test` prints a header saying which level is being run, one row
+- `varde models test` prints a header saying which level is being run, one row
   per model with the verdict, the time and what happened, and a closing line
   that counts the three buckets; a model that could not be tested says why and
   what to do about it rather than being left out.
@@ -312,28 +312,28 @@ Each line that a command prints when it is done has a level:
 
 | Level | What it says | Where it goes | Shown |
 | --- | --- | --- | --- |
-| `info` | What the command did or found, and a step you must do next (`run \`chaps up\` to apply`). | stdout | always |
+| `info` | What the command did or found, and a step you must do next (`run \`varde up\` to apply`). | stdout | always |
 | `warning` | Something that needs attention. The command still worked. | stderr, after `warning:` | always |
 | `hint` | Background and optional next commands: the files that were written, where a value came from, a command that shows more. | stdout, after `hint:` | with `-v` |
 
 Errors are not a level. A command that fails prints the error on stderr and
 exits with a code that is not 0.
 
-A short example. Without `-v`, `chaps models expose` prints two lines:
+A short example. Without `-v`, `varde models expose` prints two lines:
 
 ```text
-$ chaps models expose chapkit-ewars-model
+$ varde models expose chapkit-ewars-model
 exposed chapkit-ewars-model on http://localhost:5001
-run `chaps up` to apply
+run `varde up` to apply
 ```
 
 With `-v`, the hints are there too:
 
 ```text
-$ chaps -v models expose chapkit-ewars-model
+$ varde -v models expose chapkit-ewars-model
 exposed chapkit-ewars-model on http://localhost:5001
 hint: wrote compose.chapkit-ewars-model.yml
-run `chaps up` to apply
+run `varde up` to apply
 ```
 
 ### Verbosity
@@ -345,13 +345,13 @@ run `chaps up` to apply
 | `-vv` | Also the trace on stderr: each external command, each HTTP request with its status and time, the registry source, and the files that `sync` compared. |
 | `-d`, `--debug` | Everything `-vv` shows, and also the response bodies (cut to 2 KB), the raw `docker compose ps` JSON, and the path of the project state that the command read. |
 
-`-V` is not a verbosity flag: `chaps -V` (`--version`) prints the version of
-chaps. The trace never goes to stdout, so `-vv` and `-d` never change what a
+`-V` is not a verbosity flag: `varde -V` (`--version`) prints the version of
+varde. The trace never goes to stdout, so `-vv` and `-d` never change what a
 script reads:
 
 ```text
-$ chaps -vv status
-project: /srv/chapx (state in /srv/chapx/.chaps/project.yaml)
+$ varde -vv status
+project: /srv/chapx (state in /srv/chapx/.varde/project.yaml)
 registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (7 models)
 asking chap-core at http://localhost:8700
 GET http://localhost:8700/health -> 200 in 12ms
@@ -376,7 +376,7 @@ command that uses levels has a `messages` list with every line and its level:
   "messages": [
     {"level": "info", "text": "exposed chapkit-ewars-model on http://localhost:5001"},
     {"level": "hint", "text": "wrote compose.chapkit-ewars-model.yml"},
-    {"level": "info", "text": "run `chaps up` to apply"}
+    {"level": "info", "text": "run `varde up` to apply"}
   ]
 }
 ```
@@ -387,7 +387,7 @@ that a person sees, so a script can show them or keep them in a log.
 ### Global options
 
 Some options work on every command, and some only on the commands that use
-them. `chaps <command> --help` lists them under "Global options":
+them. `varde <command> --help` lists them under "Global options":
 
 | Option | What it does |
 | --- | --- |
@@ -404,14 +404,14 @@ that one document. Warnings always go to stderr for the same reason, and an
 error under `--json` is a JSON object with `error` and `causes`.
 
 ```sh
-chaps --json status | jq '.models[] | select(.state != "registered")'
-chaps --json status | jq '.components'   # one entry per enabled component
-chaps --json docker ps
-chaps --json docker config        # the merged configuration as JSON
+varde --json status | jq '.models[] | select(.state != "registered")'
+varde --json status | jq '.components'   # one entry per enabled component
+varde --json docker ps
+varde --json docker config        # the merged configuration as JSON
 ```
 
-`chaps ui` is the one command that rejects `--json`: it owns the terminal, so
+`varde ui` is the one command that rejects `--json`: it owns the terminal, so
 there is nothing to serialise.
 
-The Docker wrappers exit with Compose's own exit code, so `chaps up` is a
+The Docker wrappers exit with Compose's own exit code, so `varde up` is a
 drop-in for `docker compose up` in a script.

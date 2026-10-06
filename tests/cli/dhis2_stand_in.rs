@@ -24,7 +24,7 @@ pub(crate) fn dhis2_without_an_api() -> u16 {
     routed(None, "Not Found")
 }
 
-/// A stand-in for the two endpoints `chaps status` decides `up` by, on a port
+/// A stand-in for the two endpoints `varde status` decides `up` by, on a port
 /// of its own.
 ///
 /// `up` means chap-core answered *as* chap-core: `/health` has to be JSON with
@@ -73,7 +73,7 @@ pub(crate) fn chap_core_lookalike() -> u16 {
 /// A `docker` on PATH that reports one service of this deployment as running,
 /// and knows nothing else.
 ///
-/// `chaps status` asks docker which containers are up, and that answer is what
+/// `varde status` asks docker which containers are up, and that answer is what
 /// decides whether a component is asked anything at all. No test may start a
 /// real DHIS2 - it wants several gigabytes and many minutes - so the container
 /// half of the answer comes from here and the HTTP half from a stand-in on the
@@ -135,7 +135,7 @@ pub(crate) fn dhis2_sandbox(port: u16) -> (Sandbox, PathBuf) {
 ///
 /// A real DHIS2 cannot be started in a test - it wants several gigabytes and
 /// many minutes - so the instance is this: one thread, the handful of endpoints
-/// `chaps dhis2` talks to, and a record of every request, which is what lets a
+/// `varde dhis2` talks to, and a record of every request, which is what lets a
 /// test assert that the route was *repointed* rather than created and that
 /// nothing ever sent `lastYears`.
 #[cfg(unix)]
@@ -287,7 +287,7 @@ impl Dhis2StandIn {
 
 /// The version ids the App Hub stand-in publishes, and what each one installs.
 ///
-/// The names are the App Hub's own, which are not the names chaps prints: it
+/// The names are the App Hub's own, which are not the names varde prints: it
 /// publishes the Modeling App as `Modeling`, and a real instance lists it under
 /// that name again.
 #[cfg(unix)]
@@ -341,7 +341,7 @@ pub(crate) fn stand_in_version(id: &str, version: &str, min: &str) -> Json {
 pub(crate) const ROUTE_NOT_PERMITTED_BODY: &str = r#"{"httpStatus":"Conflict","httpStatusCode":409,"status":"ERROR","message":"Route URL is not permitted","errorCode":"E1004"}"#;
 
 /// The one route DHIS2 answers unauthenticated, and the shape of everything
-/// else `chaps dhis2` asks for.
+/// else `varde dhis2` asks for.
 #[cfg(unix)]
 pub(crate) fn dhis2_answer(
     state: &mut Dhis2State,
@@ -557,7 +557,7 @@ pub(crate) fn external_chap_route() -> Json {
     })
 }
 
-/// `chaps -C <project> dhis2 ...` against a stand-in, with the fake docker on
+/// `varde -C <project> dhis2 ...` against a stand-in, with the fake docker on
 /// PATH so the container check finds `dhis2` running.
 ///
 /// With no `hub` the run is `--offline`, which is exactly what `route`,
@@ -571,16 +571,16 @@ pub(crate) fn dhis2_chap(
     hub: Option<u16>,
     args: &[&str],
 ) -> Command {
-    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-    cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
-        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
-        .env("CHAPS_NO_UPDATE_CHECK", "1")
-        .env("CHAPS_NO_DOCKER_PROBE", "1")
+    let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+    cmd.env("VARDE_CACHE_DIR", sandbox.cache.path())
+        .env("VARDE_DATA_DIR", sandbox.cache.path().join("data"))
+        .env("VARDE_NO_UPDATE_CHECK", "1")
+        .env("VARDE_NO_DOCKER_PROBE", "1")
         // A password or a token in the developer's own shell would otherwise
         // decide which source these tests report.
-        .env_remove("CHAPS_DHIS2_PASSWORD")
-        .env_remove("CHAPS_DHIS2_USERNAME")
-        .env_remove("CHAPS_DHIS2_TOKEN")
+        .env_remove("VARDE_DHIS2_PASSWORD")
+        .env_remove("VARDE_DHIS2_USERNAME")
+        .env_remove("VARDE_DHIS2_TOKEN")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
         .env(
@@ -594,7 +594,7 @@ pub(crate) fn dhis2_chap(
         .current_dir(dir);
     match hub {
         Some(port) => {
-            cmd.env("CHAPS_APP_HUB", format!("http://127.0.0.1:{port}/apphub"));
+            cmd.env("VARDE_APP_HUB", format!("http://127.0.0.1:{port}/apphub"));
         }
         None => {
             cmd.arg("--offline");

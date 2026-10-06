@@ -1,4 +1,4 @@
-//! Analytics: starting a run, following its job, and what chaps knows about
+//! Analytics: starting a run, following its job, and what varde knows about
 //! the tables it made.
 
 use super::client::text_at;
@@ -115,7 +115,7 @@ fn latest_time(notifications: &serde_json::Value) -> String {
 /// with it empty however much analytics the instance the dump was taken from
 /// ever ran, so a completed run in it is a run that happened *here*.
 ///
-/// It is evidence one way only. A restart empties it, so a `false` means chaps
+/// It is evidence one way only. A restart empties it, so a `false` means varde
 /// has not seen a run rather than that there was none, and every sentence built
 /// on it has to say so.
 pub fn finished_here(tasks: &serde_json::Value) -> bool {
@@ -126,7 +126,7 @@ pub fn finished_here(tasks: &serde_json::Value) -> bool {
         .any(|(_, notifications)| matches!(progress_of(notifications), Some(Progress::Done(_))))
 }
 
-/// What chaps actually knows about a deployment's analytics tables.
+/// What varde actually knows about a deployment's analytics tables.
 ///
 /// **`lastAnalyticsTableSuccess` is not a fact about this deployment.** It is a
 /// row of DHIS2's own settings, so a seeded deployment inherits it from the
@@ -135,7 +135,7 @@ pub fn finished_here(tasks: &serde_json::Value) -> bool {
 /// exist at all - the table was absent, not empty. That is the failure this
 /// command exists to catch, and the timestamp on its own hides it.
 ///
-/// chaps talks HTTP and cannot look at the tables, so it reports what it
+/// varde talks HTTP and cannot look at the tables, so it reports what it
 /// checked and no more. Two questions settle which of these four it is: what
 /// DHIS2 records, and whether a run has finished here, which [`finished_here`]
 /// answers.
@@ -144,7 +144,7 @@ pub fn finished_here(tasks: &serde_json::Value) -> bool {
 pub enum AnalyticsEvidence {
     /// DHIS2 records no successful run at all, neither here nor in a dump.
     Never,
-    /// A run finished on this DHIS2 since it started. chaps saw it happen.
+    /// A run finished on this DHIS2 since it started. varde saw it happen.
     RanHere,
     /// DHIS2 records a success and no dump could have brought it: this
     /// deployment's database was migrated from empty, so the record was made
@@ -159,7 +159,7 @@ pub enum AnalyticsEvidence {
 /// Which of the four this deployment is in.
 ///
 /// `ran_here` outranks everything, because it is the only first-hand answer.
-/// `seeded` is read from `.chaps/components.yaml` rather than from DHIS2: chaps
+/// `seeded` is read from `.varde/components.yaml` rather than from DHIS2: varde
 /// knows whether it restored a dump into this database, and DHIS2 does not know
 /// where its rows came from.
 pub fn analytics_evidence(last_success: &str, ran_here: bool, seeded: bool) -> AnalyticsEvidence {
@@ -254,7 +254,7 @@ impl Dhis2 {
             if Instant::now() + interval >= until {
                 return Err(anyhow::anyhow!(
                     "analytics job {job} was still running after {}; DHIS2 is still generating the \
-                     tables, so `chaps dhis2 analytics` watches the same job again, and \
+                     tables, so `varde dhis2 analytics` watches the same job again, and \
                      `--timeout SECONDS` waits longer",
                     crate::output::human_age(timeout)
                 ));

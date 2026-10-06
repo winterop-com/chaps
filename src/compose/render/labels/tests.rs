@@ -1,10 +1,10 @@
 use super::*;
 use crate::components::Components;
 use crate::compose::render::{
-    render_chaps_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
+    render_varde_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
 };
 use crate::compose::spec::{
-    ChapsOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, compose_services,
+    VardeOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, compose_services,
 };
 use crate::registry::{Channel, VersionSelector, load_embedded};
 use serde_yaml_ng::Value;
@@ -58,12 +58,12 @@ fn components() -> Components {
 fn the_block_names_the_kind_from_the_group() {
     assert_eq!(
         labels_block(ROLE_OCS, None, None),
-        "    labels:\n      com.winterop.chaps.role: ocs\n      com.winterop.chaps.kind: init\n"
+        "    labels:\n      com.winterop.varde.role: ocs\n      com.winterop.varde.kind: init\n"
     );
     assert_eq!(
         labels_block(ROLE_MODEL, Some("m"), Some("123")),
-        "    labels:\n      com.winterop.chaps.role: model\n      com.winterop.chaps.model: \"m\"\n      \
-         com.winterop.chaps.kind: run\n      com.winterop.chaps.group: \"123\"\n"
+        "    labels:\n      com.winterop.varde.role: model\n      com.winterop.varde.model: \"m\"\n      \
+         com.winterop.varde.kind: run\n      com.winterop.varde.group: \"123\"\n"
     );
 }
 
@@ -96,8 +96,8 @@ fn a_model_and_its_init_container_carry_the_model_labels() {
 }
 
 #[test]
-fn every_chap_core_service_is_labelled_through_the_chaps_overlay() {
-    let text = render_chaps_overlay(&ChapsOverlaySpec::new(8000));
+fn every_chap_core_service_is_labelled_through_the_varde_overlay() {
+    let text = render_varde_overlay(&VardeOverlaySpec::new(8000));
     let names: Vec<String> = labels_of(&text).into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["chap", "worker", "redis", "postgres"]);
     assert_labels(
@@ -106,10 +106,10 @@ fn every_chap_core_service_is_labelled_through_the_chaps_overlay() {
     );
 
     // A checkout builds chap and the worker, and they keep their labels.
-    let text = render_chaps_overlay(&ChapsOverlaySpec {
+    let text = render_varde_overlay(&VardeOverlaySpec {
         checkout: Some("/src/chap-core".into()),
         group: Some("g".into()),
-        ..ChapsOverlaySpec::new(8000)
+        ..VardeOverlaySpec::new(8000)
     });
     assert_labels(
         &text,
@@ -122,9 +122,9 @@ fn every_chap_core_service_is_labelled_through_the_chaps_overlay() {
 
     // Only the services the base file defines are named: one compose does
     // not know would be a service with no image.
-    let text = render_chaps_overlay(&ChapsOverlaySpec {
+    let text = render_varde_overlay(&VardeOverlaySpec {
         services: vec!["chap".into(), "valkey".into()],
-        ..ChapsOverlaySpec::new(8000)
+        ..VardeOverlaySpec::new(8000)
     });
     let names: Vec<String> = labels_of(&text).into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["chap", "valkey"]);

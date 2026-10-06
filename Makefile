@@ -1,13 +1,13 @@
-# chaps - build & dev tasks for the chaps crate.
+# varde - build & dev tasks for the varde crate.
 CARGO  ?= cargo
 ARCHS  := aarch64-apple-darwin x86_64-apple-darwin
-BIN    := bin/chaps
+BIN    := bin/varde
 PREFIX ?= $(HOME)/.local
 ARGS   ?=
 .DEFAULT_GOAL := help
 .PHONY: help check lint test build e2e release run install vendor docs docs-reference docs-serve slides release-tag clean
 help: ## Show this help
-	@echo "chaps - make targets:"
+	@echo "varde - make targets:"
 	@echo ""
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / { printf "  \033[1m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 check: ## Report formatting and clippy issues, fixing nothing
@@ -20,25 +20,25 @@ test: ## Run the test suite
 	$(CARGO) test
 build: ## Fast host-arch compile check
 	$(CARGO) build
-release: ## Build bin/chaps: universal (arm64+x86_64) on macOS, host binary on Linux
+release: ## Build bin/varde: universal (arm64+x86_64) on macOS, host binary on Linux
 	@mkdir -p $(dir $(BIN))
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 		if command -v rustup >/dev/null 2>&1; then missing=""; for arch in $(ARCHS); do rustup target list --installed | grep -qx "$$arch" || missing="$$missing $$arch"; done; if [ -n "$$missing" ]; then echo "error: missing Rust target(s):$$missing"; echo "       rustup target add$$missing"; exit 1; fi; fi; \
 		for arch in $(ARCHS); do echo "==> building $$arch"; $(CARGO) build --release --target $$arch || exit 1; done; \
-		lipo -create -output $(BIN) $(foreach arch,$(ARCHS),target/$(arch)/release/chaps); \
+		lipo -create -output $(BIN) $(foreach arch,$(ARCHS),target/$(arch)/release/varde); \
 		lipo -info $(BIN); \
 	else \
 		echo "==> building host binary"; \
 		$(CARGO) build --release || exit 1; \
-		cp target/release/chaps $(BIN); \
+		cp target/release/varde $(BIN); \
 		echo "built $(BIN)"; \
 	fi
 run: release ## Build the release binary, then run it (ARGS="...")
 	$(BIN) $(ARGS)
-install: release ## Install bin/chaps into PREFIX/bin (PREFIX defaults to ~/.local)
+install: release ## Install bin/varde into PREFIX/bin (PREFIX defaults to ~/.local)
 	@mkdir -p $(PREFIX)/bin
-	install -m 0755 $(BIN) $(PREFIX)/bin/chaps
-	@echo "installed $(PREFIX)/bin/chaps"
+	install -m 0755 $(BIN) $(PREFIX)/bin/varde
+	@echo "installed $(PREFIX)/bin/varde"
 vendor: ## Refresh the embedded marketplace snapshot in vendor/marketplace/
 	scripts/vendor-marketplace.sh
 e2e: build ## Run OCS, chap-core, DHIS2 and the models for real (TAGS="latest master")
@@ -49,9 +49,9 @@ docs: docs-reference ## Build the mdbook documentation into site/
 	mdbook build
 MARP   ?= bunx @marp-team/marp-cli@4.5.1
 slides: ## Build the slide decks into site/slides/: HTML, 16:9 PDF and the index page
-	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --html
-	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --pdf
-	$(MARP) --theme-set slides/theme/chaps.css --input-dir slides/decks --output site/slides --image png
+	$(MARP) --theme-set slides/theme/varde.css --input-dir slides/decks --output site/slides --html
+	$(MARP) --theme-set slides/theme/varde.css --input-dir slides/decks --output site/slides --pdf
+	$(MARP) --theme-set slides/theme/varde.css --input-dir slides/decks --output site/slides --image png
 	perl -0pi -e 's{<head>(?!<link rel="icon")}{<head><link rel="icon" href="favicon.svg"><link rel="shortcut icon" href="favicon.png">}' site/slides/*.html
 	cp slides/index.html site/slides/index.html
 	@# The book's favicon, under a name without mdbook's hash, on every page.

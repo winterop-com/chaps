@@ -1,4 +1,4 @@
-//! `chaps top` off a terminal: one snapshot of every chaps deployment, found
+//! `varde top` off a terminal: one snapshot of every varde deployment, found
 //! by the labels on its containers. Unix only: the stand-in docker is a shell
 //! script.
 
@@ -17,7 +17,7 @@ fn labelled_docker(dir: &std::path::Path) -> (TempDir, PathBuf) {
     let labels = |service: &str, role: &str| {
         format!(
             "com.docker.compose.project=demo-ab12cd,com.docker.compose.service={service},\
-             com.docker.compose.project.working_dir={},com.winterop.chaps.role={role}",
+             com.docker.compose.project.working_dir={},com.winterop.varde.role={role}",
             dir.display()
         )
     };
@@ -34,7 +34,7 @@ fn labelled_docker(dir: &std::path::Path) -> (TempDir, PathBuf) {
     let script = format!(
         "#!/bin/sh\n\
          case \"$*\" in\n\
-         *'ps -a --filter label=com.winterop.chaps.role'*) printf '{ps}'; exit 0;;\n\
+         *'ps -a --filter label=com.winterop.varde.role'*) printf '{ps}'; exit 0;;\n\
          *'stats --no-stream'*) printf '{stats}'; exit 0;;\n\
          esac\n\
          exit 0\n"

@@ -6,22 +6,22 @@ of it waiting for the model. It starts where
 [Chap with a local DHIS2](./use-cases/chap-with-local-dhis2.md) ends:
 
 ```sh
-chaps init mychap --models default --with dhis2
+varde init mychap --models default --with dhis2
 cd mychap
-chaps up
-chaps status          # until the dhis2 line says up
-chaps dhis2 connect
-chaps open dhis2
+varde up
+varde status          # until the dhis2 line says up
+varde dhis2 connect
+varde open dhis2
 ```
 
 Tested with Modeling App 7.1.0, DHIS2 2.42.6 with the Laos demo database,
 chap-core v2.3.1 and CHAP-EWARS (chapkit) 1.0.3. Other versions of the Modeling
-App may name a button differently; the steps stay the same. `chaps dhis2 show`
+App may name a button differently; the steps stay the same. `varde dhis2 show`
 says which Modeling App version a deployment has.
 
 ## What the demo data holds
 
-The DHIS2 that `chaps` starts is seeded with a demo database from Laos:
+The DHIS2 that `varde` starts is seeded with a demo database from Laos:
 
 | Data | Where it is in DHIS2 | Range |
 | --- | --- | --- |
@@ -63,9 +63,9 @@ In **Evaluate**, **Overview**, choose **New evaluation** and fill in:
 
 The list also holds models chap-core ships configured on its own and runs
 inside its worker; some say *Deprecated* in their description. **CHAP-EWARS
-Model (chapkit)** is the one `chaps` started with `--models default`, and each
-model enabled with `chaps models enable` adds its own entry. `chaps status`
-lists those, and `chaps models test` checks them.
+Model (chapkit)** is the one `varde` started with `--models default`, and each
+model enabled with `varde models enable` adds its own entry. `varde status`
+lists those, and `varde models test` checks them.
 
 ![Organisation units: Lao PDR at the Province level](images/modeling-app/03-org-units.png)
 
@@ -90,7 +90,7 @@ anything, and should say all 18 locations can be imported.
 
 Close it and choose **Start import**. The app moves to **Jobs**, where the
 evaluation runs. With CHAP-EWARS it took about four minutes on an Apple Silicon
-Mac, where the model runs under emulation. `chaps jobs` in the terminal shows
+Mac, where the model runs under emulation. `varde jobs` in the terminal shows
 the same job.
 
 ## 4. Read the result
@@ -117,8 +117,8 @@ ticked) and **Create** copies the name, provinces, periods and data mapping;
 Then **Evaluate**, **Compare**: pick the first evaluation in the left box and
 the copy in the one beside it, and the two are shown side by side, province by
 province.
-More marketplace models come with `chaps models enable ID` and `chaps up`
-(`chaps models list` shows the ids).
+More marketplace models come with `varde models enable ID` and `varde up`
+(`varde models list` shows the ids).
 
 ![Two evaluations side by side](images/modeling-app/08-compare.png)
 
@@ -152,10 +152,10 @@ none to go into until someone creates them in DHIS2's Maintenance app.
 
 | What you see | What to do |
 | --- | --- |
-| Typing `Modeling` in the app menu finds nothing | `chaps dhis2 connect` has not run, or failed; run it and read its last line. |
-| The model list does not have the model `chaps` enabled | `chaps status`: the model must be `registered`. If it is not, the line under the table says why. |
+| Typing `Modeling` in the app menu finds nothing | `varde dhis2 connect` has not run, or failed; run it and read its last line. |
+| The model list does not have the model `varde` enabled | `varde status`: the model must be `registered`. If it is not, the line under the table says why. |
 | `Oops! Sorry, an unexpected error`, or `Unnamed evaluation` rows, after the deployment was recreated | The browser holds a login to the DHIS2 that was removed: open DHIS2 again and log in. See [Troubleshooting](./troubleshooting.md#oops-sorry-an-unexpected-error-or-unnamed-evaluation-in-the-modeling-app). |
-| A job in **Jobs** says it failed | `chaps jobs`, then `chaps jobs logs ID` with the id it prints: the model's own error is at the end. |
+| A job in **Jobs** says it failed | `varde jobs`, then `varde jobs logs ID` with the id it prints: the model's own error is at the end. |
 
 More on connecting DHIS2 and Chap: [DHIS2](./dhis2.md). The Modeling App's own
 guide is at

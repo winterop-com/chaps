@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 impl ManualModel {
-    /// What `chaps models add` was given, or its equivalent: the repository
+    /// What `varde models add` was given, or its equivalent: the repository
     /// when it came from one, else the pinned image reference.
     pub fn source(&self) -> String {
         match &self.repository {
@@ -18,7 +18,7 @@ impl ManualModel {
 /// The manual model definitions of a deployment, keyed by id.
 pub type ManualModels = BTreeMap<String, ManualModel>;
 
-/// One model added with `chaps models add`, as recorded in
+/// One model added with `varde models add`, as recorded in
 /// `models-manual.yaml`.
 ///
 /// Everything a marketplace file would have said about it, and nothing about
@@ -27,7 +27,7 @@ pub type ManualModels = BTreeMap<String, ManualModel>;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManualModel {
     /// Compose service name and DNS name. It has to match the id the service
-    /// registers with chap-core under, or `chaps status` sees an unmanaged
+    /// registers with chap-core under, or `varde status` sees an unmanaged
     /// service next to a model that never arrived.
     pub service_id: String,
     pub display_name: String,
@@ -41,7 +41,7 @@ pub struct ManualModel {
     /// The commit the tag was built from, where it is known.
     #[serde(default)]
     pub commit: Option<String>,
-    /// The branch `chaps update` follows, or `None` for a pinned entry.
+    /// The branch `varde update` follows, or `None` for a pinned entry.
     #[serde(default)]
     pub follow: Option<String>,
     /// The data directory the image writes to, as `models add` resolved it.

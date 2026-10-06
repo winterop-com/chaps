@@ -3,7 +3,7 @@
 use crate::cli::DockerCmd;
 use std::io::IsTerminal;
 
-/// The command run inside the container when `chaps docker exec` is given none.
+/// The command run inside the container when `varde docker exec` is given none.
 const DEFAULT_EXEC_CMD: &str = "sh";
 
 /// What the caller's terminal adds to the argument list.
@@ -31,14 +31,14 @@ impl Shell {
 
 /// `--remove-orphans`, unless the caller already passed it.
 ///
-/// `chaps` owns the whole `-f` list, so a container of this project whose
+/// `varde` owns the whole `-f` list, so a container of this project whose
 /// service no longer appears anywhere in it is genuinely an orphan: a model or
 /// a component that was disabled, whose definition `sync` then removed.
 /// Without this, following the closing line of `models disable` and running
-/// `chaps up` would leave that container running and its host port published,
+/// `varde up` would leave that container running and its host port published,
 /// which is the opposite of what disabling something means.
 ///
-/// The list is rendered from `.chaps/`, so a service of the operator's own is
+/// The list is rendered from `.varde/`, so a service of the operator's own is
 /// only at risk when they started it under this deployment's compose project
 /// name; run from a project of its own it is another project's container and
 /// none of ours. `docs/concepts.md` says so where people will look for it.

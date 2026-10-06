@@ -1,7 +1,7 @@
-//! `chaps api` — one authenticated request to chap-core, and its answer.
+//! `varde api` — one authenticated request to chap-core, and its answer.
 //!
-//! The escape hatch under every other command that talks to Chap: `chaps
-//! status` asks two fixed questions and `chaps jobs` reads one endpoint, and
+//! The escape hatch under every other command that talks to Chap: `varde
+//! status` asks two fixed questions and `varde jobs` reads one endpoint, and
 //! everything else chap-core can do is reached from here. It is deliberately
 //! thin - a base URL, a token and a body - so that the things it is used for
 //! (building a dataset, starting a backtest, reading the metrics back) can be
@@ -26,7 +26,7 @@ use std::time::Duration;
 /// like, and that is the answer even though the request failed.
 const EXIT_HTTP_ERROR: i32 = 1;
 
-/// `chaps api METHOD PATH`.
+/// `varde api METHOD PATH`.
 pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<()> {
     let method = crate::api::method_of(&args.method)?;
     let path = crate::api::path_of(&args.path)?;
@@ -36,7 +36,7 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<()> {
     let base = match (&args.url, &project) {
         (Some(url), _) => url.trim().to_string(),
         (None, Some(project)) => {
-            crate::components::require_chap_core(&project.state.components, "`chaps api`")?;
+            crate::components::require_chap_core(&project.state.components, "`varde api`")?;
             project.api_url()
         }
         // Unreachable: `resolve_project` fails when there is neither.
@@ -91,7 +91,7 @@ fn no_target() -> anyhow::Error {
 /// - `--raw` writes the bytes through untouched, for a body that is not text
 ///   or that has to be compared byte for byte.
 /// - A JSON *string* is printed as its text, without the quotes and with its
-///   escapes resolved. This is what makes `chaps api GET /v1/jobs/ID/logs`
+///   escapes resolved. This is what makes `varde api GET /v1/jobs/ID/logs`
 ///   read like a log rather than like one enormous quoted line; `--json` turns
 ///   it off, because a caller piping into a parser wants the document.
 /// - Anything else that is JSON is pretty-printed with two spaces, and
@@ -154,12 +154,12 @@ fn report(ctx: &Ctx, api: &Api, answer: &Answer) {
 fn hint(api: &Api, answer: &Answer) -> Option<String> {
     match answer.status {
         401 if api.has_token() => Some(
-            "chap-core did not accept the API token; `chaps auth show --reveal` prints the one \
+            "chap-core did not accept the API token; `varde auth show --reveal` prints the one \
              this deployment holds"
                 .to_string(),
         ),
         401 => Some(
-            "chap-core wants an API token and none was sent; `chaps auth show` says whether this \
+            "chap-core wants an API token and none was sent; `varde auth show` says whether this \
              deployment has one"
                 .to_string(),
         ),

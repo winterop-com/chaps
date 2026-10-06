@@ -1,14 +1,14 @@
-//! The deployments chaps has written on this machine, by compose project.
+//! The deployments varde has written on this machine, by compose project.
 //!
 //! A compose project name ends in random characters
 //! ([`crate::project::new_compose_project_name`]), so a volume docker holds
-//! cannot be traced back to the directory that made it. `chaps cleanup` needs
+//! cannot be traced back to the directory that made it. `varde cleanup` needs
 //! exactly that to tell the data of a deployment that was deleted from the
 //! data of one that is only down, so every save of a project records its
 //! name and directory here, in `<data dir>/deployments.yaml`.
 //!
 //! Best-effort throughout: a record that could not be written only means
-//! `chaps cleanup` leaves that deployment's volumes alone, which is the safe
+//! `varde cleanup` leaves that deployment's volumes alone, which is the safe
 //! way to be wrong.
 
 use crate::project::Project;
@@ -54,7 +54,7 @@ pub fn record(project: &Project) {
     let _ = write(&path, &known);
 }
 
-/// Drop these projects from the record: what `chaps cleanup` took away.
+/// Drop these projects from the record: what `varde cleanup` took away.
 pub fn forget(names: &[String]) -> crate::error::Result<()> {
     let path = file();
     let mut known = load_from(&path);
@@ -72,7 +72,7 @@ pub enum Presence {
     /// The directory holds it.
     Present,
     /// Provably gone: the directory was deleted from a parent that is still
-    /// there, or it now holds a deployment of another name (`chaps init
+    /// there, or it now holds a deployment of another name (`varde init
     /// --force` wrote over it).
     Gone,
     /// Neither can be proven, and why. Kept, because deleting a live
@@ -89,7 +89,7 @@ pub fn presence(name: &str, dir: &Path) -> Presence {
             Ok(Some(recorded)) if recorded == name => Presence::Present,
             Ok(Some(_)) => Presence::Gone,
             Ok(None) => Presence::Unsure(format!(
-                "{} records no compose project name; `chaps -C {} sync` writes it",
+                "{} records no compose project name; `varde -C {} sync` writes it",
                 dir.display(),
                 dir.display()
             )),
@@ -107,7 +107,7 @@ pub fn presence(name: &str, dir: &Path) -> Presence {
 }
 
 /// Write the record through a temporary file of this process's own, so two
-/// chaps saving at once cannot rename each other's half-written file.
+/// varde saving at once cannot rename each other's half-written file.
 fn write(path: &Path, known: &BTreeMap<String, PathBuf>) -> crate::error::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)

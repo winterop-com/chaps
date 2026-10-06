@@ -54,7 +54,7 @@ fn tab_walks_the_pages_and_the_model_page_is_untouched() {
     assert_eq!(app.page, Page::Models);
 }
 
-/// The rows the components page draws, in the columns `chaps components
+/// The rows the components page draws, in the columns `varde components
 /// list` prints them in.
 #[test]
 fn the_component_rows_say_what_each_one_is_and_where_it_is_reached() {
@@ -477,7 +477,7 @@ fn the_palette_follows_the_page_it_was_opened_from() {
 
     // And the page's own docs chapter is what the palette opens.
     app.reduce(Action::Palette);
-    for c in "chaps documentation".chars() {
+    for c in "varde documentation".chars() {
         app.reduce(Action::PaletteChar(c));
     }
     app.reduce(Action::PaletteRun);
@@ -583,7 +583,7 @@ fn o_opens_the_port_this_deployment_publishes_not_the_pending_one() {
     assert_eq!(
         app.take_effect(),
         Some(Effect::Open("http://localhost:9000".to_string())),
-        "the wanted port is a plan until `s` and `chaps up`"
+        "the wanted port is a plan until `s` and `varde up`"
     );
 }
 
@@ -678,7 +678,7 @@ fn the_dhis2_version_is_picked_from_the_components_page() {
     assert!(app.message.is_none());
     assert!(!app.has_changes());
 
-    // A tag chaps has no seed for is still offered while it is in force.
+    // A tag varde has no seed for is still offered while it is in force.
     assert_eq!(
         dhis2_versions("2.40.3"),
         vec!["2.40.3", "2.43", "2.42", "2.41"]

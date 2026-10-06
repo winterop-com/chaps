@@ -1,4 +1,4 @@
-//! Checks of the hosts Chap needs: ghcr.io, the marketplace, GitHub and chaps' own releases.
+//! Checks of the hosts Chap needs: ghcr.io, the marketplace, GitHub and varde' own releases.
 
 use super::*;
 
@@ -7,20 +7,20 @@ pub(super) struct Probes<'s> {
     ghcr: std::thread::ScopedJoinHandle<'s, std::result::Result<u16, String>>,
     marketplace: std::thread::ScopedJoinHandle<'s, std::result::Result<u16, String>>,
     chap_core: std::thread::ScopedJoinHandle<'s, std::result::Result<String, String>>,
-    chaps: std::thread::ScopedJoinHandle<'s, std::result::Result<String, String>>,
+    varde: std::thread::ScopedJoinHandle<'s, std::result::Result<String, String>>,
     github: std::thread::ScopedJoinHandle<'s, std::result::Result<github::Quota, String>>,
 }
 
 /// The same five, answered.
 ///
 /// Two of them do double duty: the release lookups are what tells the
-/// `net-releases` and `chaps` lines that the host answered, and the tags they
+/// `net-releases` and `varde` lines that the host answered, and the tags they
 /// came back with are what the pin checks compare against.
 pub struct Probed {
     pub ghcr: std::result::Result<u16, String>,
     pub marketplace: std::result::Result<u16, String>,
     pub chap_core: std::result::Result<String, String>,
-    pub chaps: std::result::Result<String, String>,
+    pub varde: std::result::Result<String, String>,
     /// What is left of this address's hour on the GitHub API, which is what
     /// the release, pin and `models add` lookups are all spending.
     pub github: std::result::Result<github::Quota, String>,
@@ -36,7 +36,7 @@ impl<'s> Probes<'s> {
             marketplace: scope.spawn(move || probe(&registry_url, NET_TIMEOUT)),
             chap_core: scope
                 .spawn(|| chapcore::latest_release(NET_TIMEOUT).map_err(|e| format!("{e:#}"))),
-            chaps: scope.spawn(|| {
+            varde: scope.spawn(|| {
                 selfupdate::latest_release(NET_TIMEOUT)
                     .map(|release| release.tag)
                     .map_err(|e| format!("{e:#}"))
@@ -61,7 +61,7 @@ impl<'s> Probes<'s> {
             ghcr: joined(self.ghcr),
             marketplace: joined(self.marketplace),
             chap_core: joined(self.chap_core),
-            chaps: joined(self.chaps),
+            varde: joined(self.varde),
             github: joined(self.github),
         }
     }
@@ -136,7 +136,7 @@ pub fn network_checks(probed: Option<&Probed>) -> Vec<Check> {
             "net-ghcr",
             "network ghcr.io",
             "the image registry",
-            "without ghcr.io no image can be pulled; `--offline` keeps chaps itself working \
+            "without ghcr.io no image can be pulled; `--offline` keeps varde itself working \
              from the embedded catalogue",
         ),
         (
@@ -144,13 +144,13 @@ pub fn network_checks(probed: Option<&Probed>) -> Vec<Check> {
             "network marketplace",
             "the model catalogue",
             "the catalogue falls back to the cache and then to the snapshot built into this \
-             binary; `chaps registry show` says which one is in use",
+             binary; `varde registry show` says which one is in use",
         ),
         (
             "net-releases",
             "network releases",
             "the chap-core release list",
-            "`chaps update` needs it; everything else works without it",
+            "`varde update` needs it; everything else works without it",
         ),
     ];
     let Some(probed) = probed else {
@@ -182,7 +182,7 @@ pub const GITHUB_OFFLINE: &str = "--offline: the GitHub API rate limit was not a
 
 /// What every unreachable GitHub line offers, and what a quota that has run
 /// out offers when there is no token to blame.
-const GITHUB_FIX: &str = "`chaps update`, the pin checks and `chaps models add` need it; \
+const GITHUB_FIX: &str = "`varde update`, the pin checks and `varde models add` need it; \
      everything else works without it";
 
 /// The `github api` line: does the REST API answer, and how much of this

@@ -11,7 +11,7 @@ use std::path::Path;
 
 /// A group's deployment, created on first use.
 ///
-/// `chaps init <dir> --only none --models none`, quietly, and then the one
+/// `varde init <dir> --only none --models none`, quietly, and then the one
 /// things init has no flag for: model ports on loopback by default, and the
 /// group name, which every container's labels carry.
 ///
@@ -24,7 +24,7 @@ pub(super) fn ensure_default(ctx: &Ctx, dir: &Path, group: &str) -> Result<()> {
     }
     std::fs::create_dir_all(dir).map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
     let argv = [
-        "chaps",
+        "varde",
         "init",
         &dir.to_string_lossy(),
         "--only",
@@ -42,7 +42,7 @@ pub(super) fn ensure_default(ctx: &Ctx, dir: &Path, group: &str) -> Result<()> {
     project.state.group = Some(group.to_string());
     project.save()?;
     ctx.out.verbose(&format!(
-        "created the chaps run deployment in {}",
+        "created the varde run deployment in {}",
         dir.display()
     ));
     Ok(())
@@ -75,7 +75,7 @@ pub(super) fn lock_file(path: &Path) -> Result<std::fs::File> {
 /// by the compose project label, not by the compose files, because a model
 /// stopped earlier left no file that names its volume. The directory goes
 /// last, so a volume docker would not remove keeps the group, and another
-/// `chaps stop --group <group> --purge` can try again.
+/// `varde stop --group <group> --purge` can try again.
 ///
 /// `None` when the group still holds a model; otherwise the volumes removed.
 pub(super) fn remove_if_empty(group: &str, dir: &Path) -> Result<Option<Vec<String>>> {
@@ -103,7 +103,7 @@ pub(super) fn remove_if_empty(group: &str, dir: &Path) -> Result<Option<Vec<Stri
                 docker::Removal::Refused(why) => {
                     return Err(anyhow::anyhow!(
                         "removing group {group}: docker would not remove volume {volume} ({why}); \
-                         run `docker volume rm {volume}`, then `chaps stop --group {group} --purge`"
+                         run `docker volume rm {volume}`, then `varde stop --group {group} --purge`"
                     ));
                 }
             }

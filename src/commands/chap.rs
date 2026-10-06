@@ -1,9 +1,9 @@
-//! `chaps chap`: chap-core's own command line, run in a container.
+//! `varde chap`: chap-core's own command line, run in a container.
 //!
 //! The current directory is mounted at the same path inside the container,
 //! so the file arguments mean what they mean on the host and every file chap
 //! writes is on the host after the run. The caches and the model runs live
-//! under chaps' data directory, mounted the same way. See `docs/chap-cli.md`.
+//! under varde' data directory, mounted the same way. See `docs/chap-cli.md`.
 
 mod files;
 mod plan;
@@ -34,7 +34,7 @@ const WRITTEN_LIMIT: usize = 8;
 pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
     if ctx.out.json {
         return Err(ChapError::Usage(
-            "`chaps chap` prints chap's own output, so --json does not apply; drop it".to_string(),
+            "`varde chap` prints chap's own output, so --json does not apply; drop it".to_string(),
         )
         .into());
     }
@@ -66,7 +66,7 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         .into());
     }
 
-    // A model id, or the URL of a model chaps knows: start the model when it
+    // A model id, or the URL of a model varde knows: start the model when it
     // does not run, and give chap its URL on the network.
     let (model, started) = resolve_model(ctx, args, &cwd, &kind, &mut place)?;
     if let Some(model) = &model {
@@ -92,13 +92,13 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
     {
         output::warn(
             "the core image has no R, so an R model fails in it with `Rscript: not found`; \
-             without --image, chaps runs this model in the worker image",
+             without --image, varde runs this model in the worker image",
         );
     }
     if !args.docker && runs_in_docker(ctx, &kind, &cwd) {
         return Err(ChapError::Usage(format!(
             "`{}` runs in docker (`docker_env` in its MLproject), and the container has no \
-             docker socket; run it again with `chaps chap --docker ...`",
+             docker socket; run it again with `varde chap --docker ...`",
             plan::model_name(&chap_args).unwrap_or_default()
         ))
         .into());
@@ -110,7 +110,7 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", data.join(dir).display()))?;
     }
     // chap does not make the directory of an output file, and fails with a
-    // traceback when it is not there; chaps makes it.
+    // traceback when it is not there; varde makes it.
     let outputs: Vec<PathBuf> = plan::output_files(&chap_args)
         .iter()
         .map(|file| plan::normalize(&cwd.join(file)))
@@ -156,7 +156,7 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         if !start::wait_for(&reference, network, url, wait) {
             let message = match &model {
                 Some(model) => format!(
-                    "{} did not answer on {url} within {}s; `chaps -C {} logs {}` says why",
+                    "{} did not answer on {url} within {}s; `varde -C {} logs {}` says why",
                     model.service,
                     args.timeout,
                     place
@@ -237,7 +237,7 @@ fn finish(code: i32, help: bool, written: &[PathBuf], cwd: &Path, reference: &st
             code,
             next: format!(
                 "docker could not start {reference}, and its message is above; \
-                 `chaps chap --tag TAG` picks another chap-core tag"
+                 `varde chap --tag TAG` picks another chap-core tag"
             ),
         }
         .into()),
@@ -256,13 +256,13 @@ fn finish(code: i32, help: bool, written: &[PathBuf], cwd: &Path, reference: &st
 }
 
 /// The model the run needs, when `--model-name` is a model id or the URL of
-/// a model chaps knows, and what the run started for it.
+/// a model varde knows, and what the run started for it.
 ///
 /// - A model of the deployment or group: started on its own when it does
 ///   not run, with no chap-core.
-/// - A marketplace id outside a deployment: started in a `chaps run` group.
+/// - A marketplace id outside a deployment: started in a `varde run` group.
 /// - A marketplace id in a deployment: refused, because enabling a model
-///   changes the deployment, and that is `chaps models enable`.
+///   changes the deployment, and that is `varde models enable`.
 fn resolve_model(
     ctx: &Ctx,
     args: &ChapArgs,
@@ -304,14 +304,14 @@ fn resolve_model(
     }
 
     let Some(id) = id else {
-        // A URL of something chaps does not run: the probe before the run
+        // A URL of something varde does not run: the probe before the run
         // says whether it answers.
         return Ok((None, None));
     };
     if let Some(project) = &place.deployment {
         return Err(ChapError::Usage(format!(
-            "`{id}` is not a model of the deployment at {}; `chaps models enable {id}` adds \
-             it, and `chaps models list` lists the ids",
+            "`{id}` is not a model of the deployment at {}; `varde models enable {id}` adds \
+             it, and `varde models list` lists the ids",
             project.dir.display()
         ))
         .into());
@@ -369,13 +369,13 @@ fn keeps_running(model: &Option<Model>, place: &Place) -> String {
     };
     match &place.deployment {
         Some(project) => format!(
-            "{} keeps running for the next run; `chaps -C {} down` stops it, and `--stop` \
+            "{} keeps running for the next run; `varde -C {} down` stops it, and `--stop` \
              stops it after a run",
             model.service,
             project.dir.display()
         ),
         None => format!(
-            "{} keeps running for the next run; `chaps stop {}` stops it, and `--stop` stops \
+            "{} keeps running for the next run; `varde stop {}` stops it, and `--stop` stops \
              it after a run",
             model.id, model.id
         ),
@@ -396,12 +396,12 @@ struct Place {
 impl Place {
     fn find(ctx: &Ctx, group: Option<&str>) -> Result<Place> {
         let target = target(ctx, group)?;
-        let loaded = if target.dir.join(crate::project::CHAPS_DIR).is_dir() {
+        let loaded = if target.dir.join(crate::project::VARDE_DIR).is_dir() {
             Some(Project::load(&target.dir)?)
         } else if let Some(name) = group {
             return Err(ChapError::Usage(format!(
-                "there is no `chaps run` group called `{name}`; `chaps ps` lists the groups, \
-                 and `chaps run MODEL --group {name}` starts one"
+                "there is no `varde run` group called `{name}`; `varde ps` lists the groups, \
+                 and `varde run MODEL --group {name}` starts one"
             ))
             .into());
         } else {
@@ -435,7 +435,7 @@ impl Place {
 }
 
 /// Why a model URL on `localhost` cannot work, and the URL that does: the
-/// service name of the model published on that port, when chaps knows it.
+/// service name of the model published on that port, when varde knows it.
 fn loopback_refusal(url: &str, port: u16, place: &Place) -> String {
     let service = place.project.as_ref().and_then(|project| {
         project
@@ -454,7 +454,7 @@ fn loopback_refusal(url: &str, port: u16, place: &Place) -> String {
         _ => format!(
             "`{url}` is this machine, and in the container `localhost` is the container \
              itself; give the model id instead (`--model-name chapkit_ewars_model`), and \
-             chaps starts the model and gives chap its URL on the network"
+             varde starts the model and gives chap its URL on the network"
         ),
     }
 }
@@ -549,7 +549,7 @@ struct Announce<'a> {
     mounts: &'a [PathBuf],
     place: &'a Place,
     socket: bool,
-    /// Whether to list the models on the network: for a URL chaps did not
+    /// Whether to list the models on the network: for a URL varde did not
     /// resolve to one of them.
     list_models: bool,
 }
@@ -590,7 +590,7 @@ fn announce(what: &Announce) {
         );
     }
     let urls = place.model_urls();
-    // A model chaps resolved gets its own line once it answers; the list is
+    // A model varde resolved gets its own line once it answers; the list is
     // for a URL that may be one of them.
     if list_models && place.network.is_some() && !urls.is_empty() {
         output::notice(&format!("models: {}", urls.join(", ")));
@@ -620,7 +620,7 @@ fn report(written: &[PathBuf], cwd: &Path) {
         let name = nc.strip_prefix(cwd).unwrap_or(nc).to_string_lossy();
         let html = Path::new(name.as_ref()).with_extension("html");
         output::notice(&format!(
-            "`chaps chap plot-backtest {name} --output-file {}` plots it",
+            "`varde chap plot-backtest {name} --output-file {}` plots it",
             html.display()
         ));
     }

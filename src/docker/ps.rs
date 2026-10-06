@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 /// Compose services of this project that have a running container.
 ///
-/// Best-effort by design: this only sharpens a hint in `chaps status`, so no
+/// Best-effort by design: this only sharpens a hint in `varde status`, so no
 /// docker, no daemon, or an output shape we do not recognise all yield an
 /// empty set rather than an error. Nothing is printed either - `status` has
 /// already said what it knows about the API.
@@ -84,7 +84,7 @@ impl Container {
     /// Read from docker's `Status`, which humanises the uptime: `Less than a
     /// second`, `N seconds`, `About a minute` for the second minute, and
     /// minutes from there on. Two minutes is how long a model is given to
-    /// register before `chaps status` calls it stuck: chapkit retries while it
+    /// register before `varde status` calls it stuck: chapkit retries while it
     /// starts, and a model on an emulated amd64 image can take most of that.
     pub fn is_young(&self) -> bool {
         let Some(uptime) = self.status.strip_prefix("Up ") else {
@@ -100,7 +100,7 @@ impl Container {
 
     /// Whether its healthcheck is failing.
     ///
-    /// This is the state `chaps up` ends on when compose says
+    /// This is the state `varde up` ends on when compose says
     /// `dependency failed to start`: the container is up, so `ps` lists it,
     /// and nothing that depends on it will start.
     pub fn is_unhealthy(&self) -> bool {

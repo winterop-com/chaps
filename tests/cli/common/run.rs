@@ -1,4 +1,4 @@
-//! Fakes and helpers for the `chaps run`, `ps` and `stop` tests: stand-in
+//! Fakes and helpers for the `varde run`, `ps` and `stop` tests: stand-in
 //! `docker` scripts, so Unix only.
 
 use super::*;

@@ -146,7 +146,7 @@ fn status_reports_the_version_chap_core_runs() {
 
     let out = chap_in(&sandbox, &dir, &["--json", "status", "--url", &url])
         .output()
-        .expect("chaps runs")
+        .expect("varde runs")
         .stdout;
     let report: Json = serde_json::from_slice(&out).expect("status --json is one document");
     assert_eq!(report["api"]["state"], "up", "{report}");
@@ -163,7 +163,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
     let sandbox = Sandbox::new();
     // A directory of its own: compose names the project after it, and these
     // wrappers ask docker about that name.
-    let dir = sandbox.home.path().join("chaps-never-started");
+    let dir = sandbox.home.path().join("varde-never-started");
     // An API port of this test's own: `status` below has to find nothing
     // answering for "Chap is not running" to be the truth about it, and the
     // default 8000 is a port a developer may well be serving something on.
@@ -181,7 +181,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "nothing is running for this project; start Chap with `chaps up`",
+            "nothing is running for this project; start Chap with `varde up`",
         ));
 
     // The same line for `docker ps`, which is a question, not a failure.
@@ -214,7 +214,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "Chap is not running; start it with `chaps up`",
+            "Chap is not running; start it with `varde up`",
         ));
 }
 
@@ -238,8 +238,8 @@ fn up_offers_both_names_for_running_in_the_foreground() {
 fn the_command_reference_chapter_matches_the_help_texts() {
     // `docs-markdown` needs neither a project nor the network, so it runs
     // straight out of the repository.
-    let out = Command::cargo_bin("chaps")
-        .expect("the chaps binary is built")
+    let out = Command::cargo_bin("varde")
+        .expect("the varde binary is built")
         .arg("docs-markdown")
         .assert()
         .success()

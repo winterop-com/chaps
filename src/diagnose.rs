@@ -56,7 +56,7 @@ const ERROR_WORDS: &[&str] = &[
 /// One service that is failing, and what its own log says about it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Unhealthy {
-    /// The compose service name, which is what `chaps logs SERVICE` takes.
+    /// The compose service name, which is what `varde logs SERVICE` takes.
     pub service: String,
     /// Whether its healthcheck is what said so.
     ///
@@ -273,8 +273,8 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
     if text.contains("password authentication failed for user") {
         return Some(
             "the database volume holds a different password than .env (a previous deployment \
-             with the same name, or --fresh-env); the `volumes` line of `chaps doctor` says \
-             which, and `chaps down --volumes` removes the volume if this deployment's data can go"
+             with the same name, or --fresh-env); the `volumes` line of `varde doctor` says \
+             which, and `varde down --volumes` removes the volume if this deployment's data can go"
                 .to_string(),
         );
     }
@@ -288,7 +288,7 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
         return Some(
             "DHIS2 could not migrate the database to its version; a database from an older \
              DHIS2 must go up one version at a time, so set `image_tag:` under `dhis2:` in \
-             `.chaps/components.yaml` to the next version, run `chaps sync` and `chaps up`, \
+             `.varde/components.yaml` to the next version, run `varde sync` and `varde up`, \
              and repeat"
                 .to_string(),
         );
@@ -300,7 +300,7 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
         let names = ["postgres", "5432", "redis", "valkey", "6379", "database"];
         if names.iter().any(|name| text.contains(name)) {
             return Some(
-                "the database or valkey did not come up; run `chaps logs postgres`".to_string(),
+                "the database or valkey did not come up; run `varde logs postgres`".to_string(),
             );
         }
     }
@@ -387,7 +387,7 @@ fn names_a_cause(line: &str) -> bool {
 ///
 /// That second half is what catches a container in a crash loop: it exits, it
 /// is restarted, and its health reads `starting` again every time, so the
-/// moment `chaps status` looks is as likely as not to be one where nothing is
+/// moment `varde status` looks is as likely as not to be one where nothing is
 /// marked unhealthy at all. The log says the same thing either way.
 ///
 /// Best-effort throughout: a service whose log cannot be read yields nothing,
@@ -489,10 +489,10 @@ pub fn seed_mark_verdict(comment: Option<&str>) -> Option<(String, String)> {
 }
 
 /// The way out of a seed restore that did not finish. Only the DHIS2
-/// volumes: `chaps down --volumes` would also take the chap-core database.
+/// volumes: `varde down --volumes` would also take the chap-core database.
 const SEED_RESTORE_HINT: &str = "the restore of the DHIS2 seed stopped before the end, so \
-     `dhis2_db` is incomplete; fix the cause above, then run `chaps components disable dhis2 \
-     --purge`, `chaps components enable dhis2` and `chaps up`";
+     `dhis2_db` is incomplete; fix the cause above, then run `varde components disable dhis2 \
+     --purge`, `varde components enable dhis2` and `varde up`";
 
 #[cfg(test)]
 mod tests;

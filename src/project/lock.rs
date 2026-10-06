@@ -1,18 +1,18 @@
-//! The lock that keeps two chaps commands from changing one deployment at once.
+//! The lock that keeps two varde commands from changing one deployment at once.
 //!
-//! A command that changes `.chaps/` reads the state, changes it and writes it
+//! A command that changes `.varde/` reads the state, changes it and writes it
 //! back; two of them at the same time would each write over the other, and two
 //! `--port auto` picks would land on the same port. The lock is an exclusive
-//! advisory lock on `.chaps/lock`, held from before the state is read until
+//! advisory lock on `.varde/lock`, held from before the state is read until
 //! the command no longer writes. The operating system releases it when the
 //! process ends, however it ends, so there is no stale lock to clear.
 
-use super::{CHAPS_DIR, Project};
+use super::{VARDE_DIR, Project};
 use crate::error::Result;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;
 
-/// The lock file's name inside `.chaps/`.
+/// The lock file's name inside `.varde/`.
 pub const LOCK_FILE: &str = "lock";
 
 /// An exclusive hold on one deployment's state. Released when dropped.
@@ -22,10 +22,10 @@ pub struct StateLock {
 }
 
 impl StateLock {
-    /// Take the lock for the deployment in `dir`, waiting for another chaps
+    /// Take the lock for the deployment in `dir`, waiting for another varde
     /// command that holds it, and saying so once when it has to wait.
     pub fn acquire(dir: &Path) -> Result<StateLock> {
-        let path = dir.join(CHAPS_DIR).join(LOCK_FILE);
+        let path = dir.join(VARDE_DIR).join(LOCK_FILE);
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -36,7 +36,7 @@ impl StateLock {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
                 crate::output::notice(
-                    "another chaps command is changing this deployment; waiting for it to finish",
+                    "another varde command is changing this deployment; waiting for it to finish",
                 );
                 file.lock()
                     .map_err(|e| anyhow::anyhow!("locking `{}`: {e}", path.display()))?;
@@ -68,7 +68,7 @@ impl Project {
     /// For a command that read the project long before it writes - a
     /// `dhis2 connect` waiting on DHIS2, a `down` waiting on compose - and
     /// changes one thing: saving its own copy would write back whatever it
-    /// read, over anything another chaps saved meanwhile. `self` gets the
+    /// read, over anything another varde saved meanwhile. `self` gets the
     /// same change, so the caller goes on with what it set. Never called by
     /// a command that already holds this deployment's lock: the lock waits
     /// for its holder, which would be the caller itself.

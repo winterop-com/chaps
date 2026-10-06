@@ -239,7 +239,7 @@ pub enum Channel {
 }
 
 impl Channel {
-    /// Lowercase name, as used on the command line and in `.chaps/models.yaml`.
+    /// Lowercase name, as used on the command line and in `.varde/models.yaml`.
     pub fn as_str(&self) -> &'static str {
         match self {
             Channel::Stable => "stable",

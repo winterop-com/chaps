@@ -86,7 +86,7 @@ fn the_notice_is_only_for_a_plain_terminal_run() {
     assert!(!should_notify(&ctx(tmp.path(), json, false), false));
     // --offline means no network, and that includes this.
     assert!(!should_notify(&ctx(tmp.path(), tty(), true), false));
-    // CHAPS_NO_UPDATE_CHECK=1. Passed in rather than read from the
+    // VARDE_NO_UPDATE_CHECK=1. Passed in rather than read from the
     // environment, which is process-wide and shared with every other test
     // in this binary.
     assert!(!should_notify(&ctx(tmp.path(), tty(), false), true));

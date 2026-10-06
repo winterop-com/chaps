@@ -1,4 +1,4 @@
-//! `chaps down`, and `--volumes` above all: the one wrapper that destroys
+//! `varde down`, and `--volumes` above all: the one wrapper that destroys
 //! data, so it names what will go, asks first and reports what went.
 
 use super::note;
@@ -15,7 +15,7 @@ use std::io::{BufRead, IsTerminal, Write};
 ///
 /// A prompt nobody can answer is a hang, and going ahead unasked would
 /// destroy the data of whatever deployment the script happened to be in, so
-/// the flag that cannot be undone is the one place `chaps` refuses instead.
+/// the flag that cannot be undone is the one place `varde` refuses instead.
 const NO_TERMINAL: &str = "this destroys this deployment's data and there is no terminal to \
      confirm at; pass --yes";
 
@@ -29,17 +29,17 @@ const REMOVE_THEM: &str = "remove this deployment's volumes? [y/N] ";
 /// The `-v`-shaped token an operator meant for compose's `--volumes`, if
 /// `down` was given one.
 ///
-/// Two ways in, and neither can be passed on. `chaps down -v` is taken by
+/// Two ways in, and neither can be passed on. `varde down -v` is taken by
 /// clap as the global `--verbose` flag, so compose never sees it: the volumes
 /// stay while the person who typed it believes they went, which is the whole
 /// reason `--volumes` exists. Nothing in the parsed command line can tell
 /// that apart from a deliberately verbose stop, so the raw arguments answer
-/// it, and only the ones after `down` count - `chaps -v down` is a verbose
+/// it, and only the ones after `down` count - `varde -v down` is a verbose
 /// stop and stays one. Past a `--` the token reaches `EXTRA` instead, where
 /// passing it through would destroy the data of an operator who only asked
 /// for a louder `down`.
 ///
-/// `chaps docker run -- down -v` is not this: it is the passthrough asking
+/// `varde docker run -- down -v` is not this: it is the passthrough asking
 /// for compose's own command line, where `-v` means what compose says it
 /// means.
 pub fn misused_volumes_flag<'a>(argv: &'a [String], extra: &'a [String]) -> Option<&'a str> {
@@ -63,9 +63,9 @@ pub fn misused_volumes_flag<'a>(argv: &'a [String], extra: &'a [String]) -> Opti
 /// how to ask for the verbose `down` the other reading would have given.
 pub fn volumes_flag_message(token: &str) -> String {
     format!(
-        "`{token}` after `down` is not passed on to compose (`-v` there is chaps's own \
-         --verbose flag); `chaps down --volumes` removes this deployment's volumes and the \
-         data in them, and `chaps -v down` is the verbose stop"
+        "`{token}` after `down` is not passed on to compose (`-v` there is varde's own \
+         --verbose flag); `varde down --volumes` removes this deployment's volumes and the \
+         data in them, and `varde -v down` is the verbose stop"
     )
 }
 
@@ -203,21 +203,21 @@ fn volume_count(count: usize) -> String {
 /// `--volumes` that there is nothing left in the folder worth keeping.
 pub fn down_next(volumes_removed: bool) -> &'static str {
     match volumes_removed {
-        false => "run `chaps up` to start it again, with its data",
+        false => "run `varde up` to start it again, with its data",
         true => {
-            "run `chaps up` to start it again with empty data, or delete this folder: its containers \
+            "run `varde up` to start it again with empty data, or delete this folder: its containers \
              and volumes are gone"
         }
     }
 }
 
-/// Forget a recorded `chaps dhis2 connect` when this run has just removed the
+/// Forget a recorded `varde dhis2 connect` when this run has just removed the
 /// database it was true of, and give back the line that says so.
 ///
-/// `chaps down --volumes` is the one wrapper that destroys data, and `dhis2_db`
+/// `varde down --volumes` is the one wrapper that destroys data, and `dhis2_db`
 /// is one of the volumes it takes. The record left behind would then be a
 /// record of a route in a database that no longer exists, suppressing the hint
-/// on the next `chaps up` - which restores the seed dump, and that dump ships a
+/// on the next `varde up` - which restores the seed dump, and that dump ships a
 /// `chap` route pointing at a Chap this deployment has nothing to do with.
 ///
 /// Measured against what docker no longer holds rather than against the flag on
@@ -234,12 +234,12 @@ pub(super) fn forget_dhis2_connect(project: &mut Project, removed: &[String]) ->
     }
     project.state.components.dhis2.connected_at = None;
     // A state file that could not be written is worth a line of its own: the
-    // record is still there, and the next `chaps up` will still be quiet about
+    // record is still there, and the next `varde up` will still be quiet about
     // connecting. The `down` itself succeeded and is not failed for it.
     if let Err(why) = project.save() {
         crate::output::warn(&format!(
-            "the record of `chaps dhis2 connect` could not be cleared from \
-             `.chaps/components.yaml`: {why}; run `chaps dhis2 connect` after the next `chaps up`"
+            "the record of `varde dhis2 connect` could not be cleared from \
+             `.varde/components.yaml`: {why}; run `varde dhis2 connect` after the next `varde up`"
         ));
         return None;
     }
@@ -314,9 +314,9 @@ pub fn down_summary(
         DownVolumes::Kept => {
             let kept = match project_name {
                 Some(name) => {
-                    format!("volumes kept: {name}_* (`chaps down --volumes` removes them)")
+                    format!("volumes kept: {name}_* (`varde down --volumes` removes them)")
                 }
-                None => "volumes kept (`chaps down --volumes` removes them)".to_string(),
+                None => "volumes kept (`varde down --volumes` removes them)".to_string(),
             };
             format!("{head}; {}", out.backticks(&kept))
         }

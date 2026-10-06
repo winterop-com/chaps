@@ -1,5 +1,5 @@
-//! `chaps top`: every chaps deployment on this machine as a tree that keeps
-//! itself up to date - `chaps init` deployments and `chaps run` groups alike,
+//! `varde top`: every varde deployment on this machine as a tree that keeps
+//! itself up to date - `varde init` deployments and `varde run` groups alike,
 //! each with chap-core, its components and its models under it, and what each
 //! container uses.
 //!
@@ -28,8 +28,8 @@ pub fn run(ctx: &Ctx, known: Vec<PathBuf>, interval: u64) -> Result<()> {
     let theme = Theme::detect();
     let mut terminal = ratatui::try_init().map_err(|e| {
         anyhow::anyhow!(
-            "could not take over the terminal: {e}; `chaps top` needs an interactive \
-             terminal, and `chaps ps` lists the same models in a script"
+            "could not take over the terminal: {e}; `varde top` needs an interactive \
+             terminal, and `varde ps` lists the same models in a script"
         )
     })?;
     let result = event_loop(ctx, &mut terminal, &theme, known, interval);
@@ -140,7 +140,7 @@ fn event_loop(
                     }
                     _ => {
                         app.message = Some(format!(
-                            "only a model stops here; `chaps -C {} down` stops {}",
+                            "only a model stops here; `varde -C {} down` stops {}",
                             node.dir
                                 .as_ref()
                                 .map(|d| d.display().to_string())

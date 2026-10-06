@@ -1,8 +1,8 @@
-//! `chaps run --chap-core URL`: the models of a group register with a
+//! `varde run --chap-core URL`: the models of a group register with a
 //! chap-core that runs elsewhere, such as one from its own checkout.
 //!
 //! A group is a deployment, so this is the same record that
-//! `chaps components enable chap-core --url` writes there, and `chaps sync`
+//! `varde components enable chap-core --url` writes there, and `varde sync`
 //! renders the overlays from it as for any deployment.
 
 use crate::api::Api;
@@ -12,7 +12,7 @@ use crate::project::Project;
 use std::time::{Duration, Instant};
 
 /// How long to ask chap-core whether the model registered. servicekit
-/// registers once its app answers, which is before `chaps run` returns.
+/// registers once its app answers, which is before `varde run` returns.
 const REGISTRATION_WAIT: Duration = Duration::from_secs(30);
 
 /// The pause between two asks.
@@ -54,7 +54,7 @@ pub(super) fn changed_note(
     (previous.url != next.url).then(|| {
         format!(
             "this group's models registered with {}; the ones that run now move to {} on \
-             their next start (`chaps -C {} restart --all`)",
+             their next start (`varde -C {} restart --all`)",
             previous.url,
             next.url,
             dir.display()

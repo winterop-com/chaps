@@ -1,7 +1,7 @@
 # Components
 
 A **component** is a piece a deployment is made of: a service, or a small group
-of services, that `chaps sync` renders one compose file for. chap-core is a
+of services, that `varde sync` renders one compose file for. chap-core is a
 component like the others and is on unless you turn it off; the rest are opt-in.
 
 | Component | What it is | On by default |
@@ -12,7 +12,7 @@ component like the others and is on unless you turn it off; the rest are opt-in.
 | `dhis2` | A demo or development [DHIS2](https://dhis2.org) and its own PostgreSQL, for a deployment that wants one beside Chap. See [DHIS2](./dhis2.md). | no |
 
 ```sh
-chaps components list
+varde components list
 ```
 
 ```text
@@ -28,13 +28,13 @@ dhis2      enabled  http://localhost:8780  DHIS2 and its own database, for a dep
 At creation time:
 
 ```sh
-chaps init mychap --with ocs          # chap-core and OCS
-chaps init mychap --with ocs,s3       # both, plus the object store
-chaps init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
-chaps init mychap --with ocs --ocs-port none --ocs-read-only
-chaps init mychap --with dhis2 --dhis2-port 18080 --dhis2-seed none
-chaps init mychap --with dhis2 --dhis2-tag 2.41   # another DHIS2 version
-chaps init mychap --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master   # the next, unreleased
+varde init mychap --with ocs          # chap-core and OCS
+varde init mychap --with ocs,s3       # both, plus the object store
+varde init mychap --with ocs,s3 --ocs-port 9010 --s3-port 9002
+varde init mychap --with ocs --ocs-port none --ocs-read-only
+varde init mychap --with dhis2 --dhis2-port 18080 --dhis2-seed none
+varde init mychap --with dhis2 --dhis2-tag 2.41   # another DHIS2 version
+varde init mychap --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master   # the next, unreleased
 ```
 
 `--ocs-port`, `--s3-port` and `--dhis2-port` take a port number or `none`,
@@ -44,25 +44,25 @@ created. Each one needs its component: a setting for something `--with` did not
 ask for is refused rather than quietly dropped. There is no `--ocs-read-write` to
 match,
 so a `--force` over a directory whose `ocs/climate-service.yaml` already says
-`read_only: true` has no init-side way back - `chaps components enable ocs
+`read_only: true` has no init-side way back - `varde components enable ocs
 --read-write` is the route, and the file is the operator's either way. See
 [Read-only instances](#read-only-instances).
 
 Afterwards, in the deployment directory:
 
 ```sh
-chaps components enable ocs           # publishes it on 8790
-chaps components enable ocs --port 9010
-chaps components enable ocs --port none  # no host port; see below
-chaps components enable s3            # internal only
-chaps components enable dhis2         # publishes it on 8780
-chaps components enable dhis2 --tag 2.43   # and picks its version
-chaps components disable ocs
-chaps components disable ocs --purge  # and its data
+varde components enable ocs           # publishes it on 8790
+varde components enable ocs --port 9010
+varde components enable ocs --port none  # no host port; see below
+varde components enable s3            # internal only
+varde components enable dhis2         # publishes it on 8780
+varde components enable dhis2 --tag 2.43   # and picks its version
+varde components disable ocs
+varde components disable ocs --purge  # and its data
 ```
 
-Both commands edit `.chaps/components.yaml` and then run `chaps sync`, so the
-compose files on disk always match. `chaps up` applies them. `disable` also
+Both commands edit `.varde/components.yaml` and then run `varde sync`, so the
+compose files on disk always match. `varde up` applies them. `disable` also
 stops and removes the containers of the component it is taking away, while
 compose still has the definition to name them by, and says so in a `note:`
 line - so the host port it published is free straight away.
@@ -72,7 +72,7 @@ moves the host port it publishes, `--port none` takes it away, and nothing else
 is touched. `--port none` reads the same on every component that takes a port, so
 there is one flag to remember rather than a verb per component. `dhis2` has two
 settings `--port` is not among - the seed and the image tag - and those are an
-edit to `.chaps/components.yaml` followed by `chaps sync`, because neither is a
+edit to `.varde/components.yaml` followed by `varde sync`, because neither is a
 thing to change by accident: see [DHIS2](./dhis2.md#the-seed).
 
 ### What `enable` tells you
@@ -85,16 +85,16 @@ time is the noisiest of them:
 enabled ocs on http://localhost:8790
 written  compose.ocs.yml
 written  .env
-note: port 8790 is already in use on this machine (needed by ocs); free it, or run `chaps components enable ocs --port 8791`
-note: wrote ocs/climate-service.yaml; it is yours to edit, and chaps never rewrites it
-note: OCS will soon need an S3-compatible object store; `chaps components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
-note: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `chaps auth show` reports which are set
-run `chaps up` to apply
+note: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
+note: wrote ocs/climate-service.yaml; it is yours to edit, and varde never rewrites it
+note: OCS will soon need an S3-compatible object store; `varde components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
+note: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `varde auth show` reports which are set
+run `varde up` to apply
 ```
 
-The port line is the same probe `chaps init` makes, and a warning for the same
+The port line is the same probe `varde init` makes, and a warning for the same
 reason: nothing is being started here, the listener is often something you are
-about to stop, and `chaps up` is where a taken port becomes a refusal. A port
+about to stop, and `varde up` is where a taken port becomes a refusal. A port
 one of this deployment's own running services already publishes is not a
 conflict. See [Component ports](./ports.md#component-ports).
 
@@ -105,17 +105,17 @@ dataset needs which key is the one thing the variable names do not say. See
 
 The other two are the soft dependency between OCS and the store, in both
 directions. Enabling `s3` on a deployment with no OCS says so, because nothing
-else in a chaps deployment writes to it:
+else in a varde deployment writes to it:
 
 ```text
-note: the object store is for OCS to keep its objects in, and this deployment has no OCS; `chaps components enable ocs` adds one, and nothing else here writes to the store
+note: the object store is for OCS to keep its objects in, and this deployment has no OCS; `varde components enable ocs` adds one, and nothing else here writes to the store
 ```
 
 and disabling `s3` while OCS is on says what the next sync takes off the OCS
 service, which is a change to a service you did not name:
 
 ```text
-note: the OCS service loses its S3_* variables on this sync; OCS does not read them yet, and `chaps components enable s3` puts them back
+note: the OCS service loses its S3_* variables on this sync; OCS does not read them yet, and `varde components enable s3` puts them back
 ```
 
 Neither is a refusal. A store with nothing to put in it and an OCS with no
@@ -128,16 +128,16 @@ compose file and both decide what the first start does:
 enabled dhis2 on http://localhost:8780
 written  compose.dhis2.yml
 written  .env
-note: wrote dhis2/dhis.conf; it is yours to edit, and chaps never rewrites it
-note: the first `chaps up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `chaps components disable dhis2 --purge` makes it happen again
-note: the first `chaps up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `chaps logs dhis2` is where that shows
-run `chaps up` to apply
+note: wrote dhis2/dhis.conf; it is yours to edit, and varde never rewrites it
+note: the first `varde up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `varde components disable dhis2 --purge` makes it happen again
+note: the first `varde up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `varde logs dhis2` is where that shows
+run `varde up` to apply
 ```
 
 The first is the restore happening **once**, on a data directory PostgreSQL has
 just created, which is the half that decides whether changing the seed later does
 anything. The second is the first start taking minutes rather than seconds, which
-is the half that decides whether the first `chaps status` reads as a broken
+is the half that decides whether the first `varde status` reads as a broken
 deployment. See [DHIS2](./dhis2.md).
 
 ### The data volume
@@ -148,9 +148,9 @@ and names the volume it kept:
 ```text
 disabled ocs
 removed compose.ocs.yml
-note: kept volume mychap-1ab2c3_ocs_data; remove it with `chaps components disable ocs --purge` or `docker volume rm mychap-1ab2c3_ocs_data`
+note: kept volume mychap-1ab2c3_ocs_data; remove it with `varde components disable ocs --purge` or `docker volume rm mychap-1ab2c3_ocs_data`
 note: the ocs/ directory is left alone; it is yours
-run `chaps up` to apply
+run `varde up` to apply
 ```
 
 `ocs` keeps `ocs_data`, `s3` keeps `s3_data`, and `dhis2` keeps `dhis2_home`,
@@ -159,7 +159,7 @@ component is not limited to one volume, so every one it declares is named on a
 line of its own - `dhis2_dump` included, which is a download cache rather than
 data but is still a name someone would otherwise have to find by hand. Naming
 them is the whole point: the compose file that declared the volume has just been
-removed, so `chaps down --volumes` no longer reaches it. A volume docker does
+removed, so `varde down --volumes` no longer reaches it. A volume docker does
 not have - the component was never started - is not named, since nothing was
 kept. `--purge` removes them
 with the component, after the containers, and
@@ -167,18 +167,18 @@ reports `removed volume <name>` or `volume <name> not found` per volume; `--json
 `purged` and `kept_volumes`. `--purge` works on a component that is already
 off, so a volume that was forgotten can still be removed by name.
 
-`chaps components disable chap-core --purge` is refused: chap-core's volumes -
+`varde components disable chap-core --purge` is refused: chap-core's volumes -
 the database and its own data - are declared by upstream's compose file, which
 this CLI renders but does not author, so there is no one volume `--purge` could
-mean. `chaps down --volumes` removes every volume of the deployment, and is the
+mean. `varde down --volumes` removes every volume of the deployment, and is the
 honest way to ask for that.
 
-`chaps doctor` reports a component volume whose component is off as a leftover;
+`varde doctor` reports a component volume whose component is off as a leftover;
 see [Doctor](./doctor.md).
 
 ### Re-initialising with `--force`
 
-`chaps init --force` over an existing deployment sets the component set from
+`varde init --force` over an existing deployment sets the component set from
 the flags it is given, exactly as `--models` sets the model set: `--with` and
 `--without` (or `--only`) are the whole answer, and a component the directory had but the new
 run does not ask for is going. It is reset-from-flags, not a merge, so the way
@@ -191,8 +191,8 @@ warning: this directory had the ocs component and this run does not ask for it, 
 warning: this directory had the s3 component and this run does not ask for it, so compose.s3.yml is removed and its data volume is left behind; re-run with `--with s3` to keep it
 ```
 
-So `chaps init . --force --with ocs` keeps OCS and drops the store, and
-`chaps init . --force --with ocs,s3` keeps both. A component named in
+So `varde init . --force --with ocs` keeps OCS and drops the store, and
+`varde init . --force --with ocs,s3` keeps both. A component named in
 `--without` is not warned about: you said so.
 
 What a dropped component loses is its compose file and its containers, which
@@ -201,8 +201,8 @@ are stopped and removed while the compose file that names them is still on disk
 afterwards, and one left running would hold its host port against a deployment
 that no longer asks for it. What it keeps is its data volume, on the same terms
 [`disable` keeps one](#the-data-volume): nothing declares it any more, so
-`chaps down --volumes` no longer reaches it and `docker volume rm <name>` or
-`chaps components disable <name> --purge` is what removes it. The `ocs/`
+`varde down --volumes` no longer reaches it and `docker volume rm <name>` or
+`varde components disable <name> --purge` is what removes it. The `ocs/`
 directory is yours and is never touched.
 
 `.env` is kept as it always is, so the database password, the API token and any
@@ -212,7 +212,7 @@ OCS credentials survive a `--force` whatever happens to the components.
 
 ```text
 mychap/
-  .chaps/
+  .varde/
     components.yaml      intent: which components are on, and their settings
   compose.ocs.yml        artifact: the ocs service and its data volume
   compose.s3.yml         artifact: the object store, its health check and the
@@ -227,7 +227,7 @@ mychap/
                          and DHIS2 does not start without it
 ```
 
-`.chaps/components.yaml` is intent, like `project.yaml` and `models.yaml`:
+`.varde/components.yaml` is intent, like `project.yaml` and `models.yaml`:
 
 ```yaml
 chap-core:
@@ -251,40 +251,40 @@ dhis2:
 
 Every field has a default, so a deployment created before components existed
 loads as "chap-core on, nothing else" - which is exactly what it was. There is
-nothing to migrate; the file simply appears the next time `chaps sync` runs.
+nothing to migrate; the file simply appears the next time `varde sync` runs.
 
 Two keys in there are records rather than intent, and each is marked as such
 where it appears. `ocs.read_only` mirrors what `ocs/climate-service.yaml` says,
 because OCS reads that file and not this one; `dhis2.connected_at` notes when
-`chaps dhis2 connect` last finished, and its only job is to stop `chaps up` and
-`chaps status` asking for a connect that has already happened. Neither is ever
+`varde dhis2 connect` last finished, and its only job is to stop `varde up` and
+`varde status` asking for a connect that has already happened. Neither is ever
 read as evidence - see [`connected_at`, and what it is
 not](./dhis2.md#connected_at-and-what-it-is-not), which names the command that
 does ask DHIS2.
 
-The component compose files sit in the `-f` list between `compose.chaps.yml`
+The component compose files sit in the `-f` list between `compose.varde.yml`
 and `compose.marketplace.yml`:
 
 ```sh
-docker compose -f compose.yml -f compose.chaps.yml -f compose.ocs.yml \
+docker compose -f compose.yml -f compose.varde.yml -f compose.ocs.yml \
   -f compose.s3.yml -f compose.dhis2.yml -f compose.marketplace.yml up -d
 ```
 
 ## Reaching a component from a browser
 
-`chaps components list` says where each component answers. `chaps open NAME`
+`varde components list` says where each component answers. `varde open NAME`
 takes you there:
 
 ```sh
-chaps open dhis2
-chaps open ocs
-chaps open chap-core
-chaps open              # what is there to open, and at which address
+varde open dhis2
+varde open ocs
+varde open chap-core
+varde open              # what is there to open, and at which address
 ```
 
 ```text
 opening the DHIS2 user interface at http://localhost:18080
-dhis2 answered at that address; `chaps status` reports the rest of this deployment
+dhis2 answered at that address; `varde status` reports the rest of this deployment
 ```
 
 The second line is one request to that address, with a three-second limit:
@@ -294,7 +294,7 @@ container that is up and not serving yet says `did not answer yet` instead.
 The address is not always the component's origin, because the origin is not
 always the useful page:
 
-| Component | What `chaps open` opens | Why |
+| Component | What `varde open` opens | Why |
 | --- | --- | --- |
 | `chap-core` | `/docs` on the API port | The API answers JSON everywhere else; `/docs` is its interactive documentation, and the one page on that port a person reads. |
 | `ocs` | the root of its host port | OCS serves a web interface there as well as its API. |
@@ -307,7 +307,7 @@ the prefix moves every route chap-core serves. See
 [How the API port is set](./ports.md#how-the-api-port-is-set) and
 [What `.env` holds](./concepts.md#what-env-holds). A deployment with an API token
 also gets a line saying that `/docs` is behind it, and that
-`chaps auth show --reveal` prints the token to paste into the page's Authorize
+`varde auth show --reveal` prints the token to paste into the page's Authorize
 button; see [Authentication](./auth.md).
 
 With no name it lists every component and what each one opens, which is both the
@@ -320,7 +320,7 @@ ocs        -                            not a component of this deployment
 s3         -                            an S3 API; no web interface to open
 dhis2      http://localhost:18080       the DHIS2 user interface
 
-2 of them can be opened: run `chaps open NAME`, or `chaps status` to see what is running first
+2 of them can be opened: run `varde open NAME`, or `varde status` to see what is running first
 ```
 
 ### What it refuses, and what it only warns about
@@ -328,16 +328,16 @@ dhis2      http://localhost:18080       the DHIS2 user interface
 Three answers open nothing, and each names what is true instead:
 
 ```text
-error: ocs is not a component of this deployment, so there is nothing to open; run `chaps components enable ocs` to add it
-error: ocs publishes no host port, so there is nothing to open from this machine: it is reached at http://ocs:9000 inside the deployment; run `chaps components enable ocs --port N` to publish one
-error: the object store speaks the S3 API and serves no web interface, so there is nothing a browser can open; run `chaps components enable s3 --port N` to publish it for an S3 client of your own, and `chaps status` says whether it is running
+error: ocs is not a component of this deployment, so there is nothing to open; run `varde components enable ocs` to add it
+error: ocs publishes no host port, so there is nothing to open from this machine: it is reached at http://ocs:9000 inside the deployment; run `varde components enable ocs --port N` to publish one
+error: the object store speaks the S3 API and serves no web interface, so there is nothing a browser can open; run `varde components enable s3 --port N` to publish it for an S3 client of your own, and `varde status` says whether it is running
 ```
 
 A component with no host port is reached somewhere else rather than nowhere: see
 [Component ports](./ports.md#component-ports). The one exception is an OCS
 instance with no host port and a recorded `--base-url` - the public origin it
 builds its links from - which *is* an address a browser can be pointed at, so
-that is what `chaps open ocs` opens, with a line saying it is the proxy and not a
+that is what `varde open ocs` opens, with a line saying it is the proxy and not a
 port on this machine. See
 [Behind a reverse proxy](#behind-a-reverse-proxy).
 
@@ -346,18 +346,18 @@ and the page is opened anyway:
 
 ```text
 opening chap-core's API documentation at http://localhost:8700/docs
-note: no chap container is running, so the page will not load yet; run `chaps up` to start this deployment
+note: no chap container is running, so the page will not load yet; run `varde up` to start this deployment
 ```
 
-The container is what decides that, exactly as it does for `chaps status` and
-`chaps doctor`. Three things follow from asking docker rather than the port:
+The container is what decides that, exactly as it does for `varde status` and
+`varde doctor`. Three things follow from asking docker rather than the port:
 
 - A component whose container is up gets the closing line above. It says
-  `running`, not `up`: whether it is *answering* is what `chaps status` asks, one
+  `running`, not `up`: whether it is *answering* is what `varde status` asks, one
   request per component, and this command does not spend those.
 - A component with no container gets the note above. It is a note and not a
   refusal because the browser reloads: the tab is already at the right address
-  when `chaps up` has finished, and DHIS2 in particular takes minutes to answer
+  when `varde up` has finished, and DHIS2 in particular takes minutes to answer
   after its container starts.
 - A machine where docker cannot be asked at all - no CLI, no daemon - gets
   `docker could not be asked whether dhis2 is running, so this is the address and
@@ -369,7 +369,7 @@ The container is what decides that, exactly as it does for `chaps status` and
 
 The URL is handed to `open` on macOS, `start` on Windows and `xdg-open`
 elsewhere, spawned and not waited for. A machine with none of them - a server
-over ssh, which is where `chaps` mostly runs - is told the address rather than
+over ssh, which is where `varde` mostly runs - is told the address rather than
 that something failed, and the exit code stays 0:
 
 ```text
@@ -383,14 +383,14 @@ for someone at another screen wants this, because a window appearing on the
 machine the command runs on helps nobody:
 
 ```text
-$ chaps open ocs --no-browser
+$ varde open ocs --no-browser
 the OCS web interface is at http://localhost:8790
-ocs answered at that address; `chaps status` reports the rest of this deployment
+ocs answered at that address; `varde status` reports the rest of this deployment
 ```
 
-`chaps open NAME --json` carries `url`, `page`, `opened`, `no_browser`, `running`
+`varde open NAME --json` carries `url`, `page`, `opened`, `no_browser`, `running`
 and the notes, which is the shape to read from a script, and never opens a
-browser: `no_browser` is always `true` under `--json`. `chaps open --json` carries
+browser: `no_browser` is always `true` under `--json`. `varde open --json` carries
 the listing under `components`.
 
 ### From the browser
@@ -399,15 +399,15 @@ the listing under `components`.
 cursor, and `Open web interface` in the palette does it by name. It opens what
 this deployment publishes **now**, so a component enabled in this session, or one
 whose port was changed and not yet saved, is said in the footer rather than
-opened: nothing is running behind an address `chaps sync` has not written yet.
-The browser reads no `.env`, so `CHAP_ROOT_PATH` is `chaps open`'s to honour and
+opened: nothing is running behind an address `varde sync` has not written yet.
+The browser reads no `.env`, so `CHAP_ROOT_PATH` is `varde open`'s to honour and
 not the page's. See [The components page](./models.md#the-components-page).
 
 ## OCS
 
 The `ocs` component runs `ghcr.io/dhis2/open-climate-service`. OCS publishes no
 release tags yet, so the pin follows the moving `main` tag; `OCS_IMAGE_TAG` in
-`.env` pins a build of your own, and `chaps update` reports which of the two is
+`.env` pins a build of your own, and `varde update` reports which of the two is
 in force. The image is multi-arch, so no `platform:` pin is needed and an arm64
 host runs it natively - unlike chap-core and the model images, which are amd64
 only. It ships its own `HEALTHCHECK`, so the compose file declares none.
@@ -424,20 +424,20 @@ services and either one is useful without the other.
 
 ### `ocs/climate-service.yaml`
 
-Each OCS instance is configured for one country or region. `chaps` scaffolds
+Each OCS instance is configured for one country or region. `varde` scaffolds
 that file when the component is first enabled and **never rewrites it**: it is
 yours from that moment on. It is mounted read-only at
 `/app/climate-service.yaml`, which is where `CLIMATE_SERVICE_CONFIG` points.
 
 Without any flags it holds example values for Laos, the country of the DHIS2
-demo database, and a note saying so. `chaps doctor` warns while that note is there, so an instance is
+demo database, and a note saying so. `varde doctor` warns while that note is there, so an instance is
 never deployed as the wrong country by accident; edit the file and delete the
 note.
 
 The three flags fill it in directly, on `init` and on `components enable` alike:
 
 ```sh
-chaps init mychap --with ocs \
+varde init mychap --with ocs \
   --ocs-name Malawi --ocs-country MWI --ocs-bbox 32.6,-17.2,35.9,-9.3
 ```
 
@@ -457,7 +457,7 @@ A western or southern extent starts with a minus sign, and `--ocs-bbox` takes
 it without the `=`:
 
 ```sh
-chaps components enable ocs --ocs-bbox -13.5,6.9,-10.1,10.0
+varde components enable ocs --ocs-bbox -13.5,6.9,-10.1,10.0
 ```
 
 OCS's own documentation describes every other field, including the scheduler
@@ -484,7 +484,7 @@ the hub has not published yet. So a daily ingestion that reaches into the presen
 needs both accounts, while one that stops short of the hub's coverage needs only
 the hub.
 
-`chaps` writes the five as commented placeholders into `.env` when the `ocs`
+`varde` writes the five as commented placeholders into `.env` when the `ocs`
 component is enabled, and appends the section to a `.env` that does not have it
 yet - it never rewrites the file, exactly as with the image pins:
 
@@ -498,7 +498,7 @@ yet - it never rewrites the file, exactly as with the image pins:
 # CDSE_S3_SECRET_KEY=
 ```
 
-Uncomment the ones you have, fill them in, and run `chaps up`: a container
+Uncomment the ones you have, fill them in, and run `varde up`: a container
 reads `.env` when compose creates it, so a running OCS does not pick up a
 credential that was added after it started.
 
@@ -516,7 +516,7 @@ does the reading, and which file it falls back to, differs per source:
 
 Nothing in OCS reads the `CDSE_S3_*` pair - the plugin that does is one you
 bring. That plugin reads two more variables of its own, `CDSE_S3_PROFILE` and
-`CDSE_S3_ENDPOINT`; `chaps` writes neither into `.env`, and `compose.ocs.yml`
+`CDSE_S3_ENDPOINT`; `varde` writes neither into `.env`, and `compose.ocs.yml`
 names only the five above, so neither reaches the container. A plugin that needs
 a profile or an endpoint other than its own default has to carry it itself.
 
@@ -526,7 +526,7 @@ Climate Data Store fails with
 container looking for the file form of the same credential, in the home directory
 of the image's `ocs` user.
 
-`chaps auth show` reports which of them `.env` sets, never their values:
+`varde auth show` reports which of them `.env` sets, never their values:
 
 ```text
 OCS data sources
@@ -540,7 +540,7 @@ OCS data sources
 No value is shown, whatever `--reveal` asks for: these are accounts with Copernicus and
 Earth Data Hub rather than this deployment's own secret, so there is nothing to
 paste into a client here - only the question of whether a dataset will ingest.
-`chaps doctor` says `ERA5-Land: credentials unset (WorldPop and CHIRPS3 work
+`varde doctor` says `ERA5-Land: credentials unset (WorldPop and CHIRPS3 work
 without them)` on its `components` line, as information. It is not a warning: a
 deployment with no credentials is a working deployment.
 
@@ -553,8 +553,8 @@ STAC and openEO links from the request it received, which names the internal
 address:
 
 ```sh
-chaps components enable ocs --port none --base-url https://ocs.example.org
-chaps init mychap --with ocs --ocs-base-url https://ocs.example.org   # at creation
+varde components enable ocs --port none --base-url https://ocs.example.org
+varde init mychap --with ocs --ocs-base-url https://ocs.example.org   # at creation
 ```
 
 The overlay then `expose`s the container port and publishes nothing:
@@ -574,7 +574,7 @@ without a sync. The URL has to be absolute, with a scheme: OCS refuses a
 schemeless value, logs a warning and goes back to composing links from the
 request, which is the setting quietly not working.
 
-`chaps status` then shows where the instance actually is:
+`varde status` then shows where the instance actually is:
 
 ```text
 ocs  up  internal (proxy: https://ocs.example.org)
@@ -603,15 +603,15 @@ synchronous `POST /result` stay open, and so do the pages themselves, which
 simply leave their forms out. This is how a public instance runs.
 
 ```sh
-chaps components enable ocs --read-only
-chaps restart ocs
-chaps components enable ocs --read-write   # and back again
+varde components enable ocs --read-only
+varde restart ocs
+varde components enable ocs --read-write   # and back again
 ```
 
 Both flags edit the one `read_only` key in `ocs/climate-service.yaml` and leave
 every other byte of it alone - your comments, your dataset list, your scheduler
 - adding the key at the end when the file does not have it. The value is also
-recorded in `components.yaml`, and `chaps status` prints `read-only` next to the
+recorded in `components.yaml`, and `varde status` prints `read-only` next to the
 OCS line:
 
 ```text
@@ -620,9 +620,9 @@ ocs  up  http://localhost:8790   read-only
 
 OCS reads the file and not the record, and it reads it once at startup, so the
 instance has to be recreated. The instance config is a bind mount, which compose
-does not compare, so `chaps restart` checks the file itself: written after the
+does not compare, so `varde restart` checks the file itself: written after the
 `ocs` container was created, it recreates that one service and leaves chap-core
-and the models alone. The note `chaps components enable` prints says as much.
+and the models alone. The note `varde components enable` prints says as much.
 
 Check it after every deploy. `read_only` is an ordinary config key, so a build
 of open-climate-service that predates read-only mode ignores it silently and
@@ -639,7 +639,7 @@ gives them to the running service:
 
 ```sh
 set -a; . ./.env; set +a
-chaps docker run -- run --rm --no-deps \
+varde docker run -- run --rm --no-deps \
   -e ECMWF_DATASTORES_URL -e ECMWF_DATASTORES_KEY \
   ocs python -c "
 from open_climate_service.ingestions.processes import execute_ingestion
@@ -670,7 +670,7 @@ mychap/
         clms_gpp.yaml
 ```
 
-The directory existing is the whole declaration. `chaps sync` then renders the
+The directory existing is the whole declaration. `varde sync` then renders the
 mount
 
 ```yaml
@@ -681,36 +681,36 @@ mount
 
 and adds `plugins_dir: /app/plugins` to `ocs/climate-service.yaml` if the file
 does not already name one - a mount OCS is not pointed at is a mount it never
-looks in. A `plugins_dir` you set yourself is never moved. `chaps doctor`
+looks in. A `plugins_dir` you set yourself is never moved. `varde doctor`
 reports the file count on its `components` line, as information.
 
 The mount is conditional because compose refuses to start a service whose bind
 source does not exist, so a project without plugins must not carry the line.
-Nothing creates the directory for you, and `chaps` never writes into it: the
+Nothing creates the directory for you, and `varde` never writes into it: the
 plugins are yours, and a plugin with dependencies the image does not have needs
 an image of its own.
 
 ### Adding a plugin to a running deployment
 
-Run `chaps up`, not `chaps restart`. `chaps up` is the only wrapper that
-re-renders the compose files before it calls Docker; `chaps restart`,
-`chaps logs`, `chaps docker ps` and the rest run against the files exactly as
+Run `varde up`, not `varde restart`. `varde up` is the only wrapper that
+re-renders the compose files before it calls Docker; `varde restart`,
+`varde logs`, `varde docker ps` and the rest run against the files exactly as
 they are on disk. So on a deployment where `ocs` was enabled before
 `ocs/plugins/` existed, `compose.ocs.yml` carries no plugin mount, and a
-`chaps restart` finds a container that already matches that file: nothing
+`varde restart` finds a container that already matches that file: nothing
 happens at all - no error, no mount, no plugin.
 
 ```sh
 mkdir -p ocs/plugins/datasets
 cp clms_gpp.py clms_gpp.yaml ocs/plugins/datasets/
-chaps up      # syncs first, so the mount is rendered and then ocs is recreated
+varde up      # syncs first, so the mount is rendered and then ocs is recreated
 ```
 
-`chaps sync` followed by `chaps restart` is the same thing in two steps: once
+`varde sync` followed by `varde restart` is the same thing in two steps: once
 the mount is in the file, the running container no longer matches it and compose
 recreates it.
 
-**This is the one place where `chaps restart ocs` is the wrong reach.** That
+**This is the one place where `varde restart ocs` is the wrong reach.** That
 belongs to [`ocs/climate-service.yaml`](#read-only-instances), and for the
 opposite reason: that file is a bind mount, so an edit to it is already visible
 inside the container and there is nothing to re-render - the only problem is
@@ -718,12 +718,12 @@ that OCS read the old text at startup, which recreating that one service fixes. 
 other case entirely: the compose file itself is out of date, and no amount of
 recreating mounts a directory it does not mention.
 
-`chaps doctor` is the safety net, because its `compose files` line is
-`chaps sync --check`:
+`varde doctor` is the safety net, because its `compose files` line is
+`varde sync --check`:
 
 ```text
-warn  compose files   out of date with .chaps/ (2 to write, 5 unchanged, 0 to remove)
-      run `chaps sync`, or `chaps up`, which syncs first
+warn  compose files   out of date with .varde/ (2 to write, 5 unchanged, 0 to remove)
+      run `varde sync`, or `varde up`, which syncs first
 ```
 
 Two files to write, because the mount in `compose.ocs.yml` and the `plugins_dir`
@@ -732,16 +732,16 @@ key in `ocs/climate-service.yaml` are rendered by the same sync.
 ## The object store
 
 OCS will soon require an S3-compatible object store. It does not read any `S3_*`
-variable yet, so `chaps` does not force one on a deployment: enabling `ocs`
+variable yet, so `varde` does not force one on a deployment: enabling `ocs`
 prints a one-line note that the store is coming and that
-`chaps components enable s3` adds it.
+`varde components enable s3` adds it.
 
 When `s3` is on, the OCS service gets four forward-looking variables -
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` - with a comment
 in the file saying that OCS does not read them yet. The exact contract is not
 published, so those names may still change.
 
-The store itself is RustFS. `chaps` generates `S3_ACCESS_KEY` and
+The store itself is RustFS. `varde` generates `S3_ACCESS_KEY` and
 `S3_SECRET_KEY` (32 hex characters each) into `.env` once, and never rewrites
 them: the data volume is created with them, and changing them later locks the
 store's own contents away. The compose file substitutes them into the image's
@@ -752,13 +752,13 @@ A one-shot `s3-init` service creates the `ocs` bucket once the store is healthy.
 It runs the same RustFS image and signs the request with `curl --aws-sigv4`, so
 nothing extra is pulled: the image is Alpine-based and ships both curl and wget,
 which is what the `s3` health check uses on `GET /health` as well. Creating a
-bucket that already exists answers 200, so every later `chaps up` runs the
+bucket that already exists answers 200, so every later `varde up` runs the
 one-shot again and changes nothing.
 
 The store publishes no host port: OCS reaches it at `http://s3:9000` on the
-compose default network. `chaps components enable s3 --port 9002` publishes one
+compose default network. `varde components enable s3 --port 9002` publishes one
 for an S3 client of your own. A published port is for a client and not for a
-browser: RustFS serves no web interface, so `chaps open s3` says that rather than
+browser: RustFS serves no web interface, so `varde open s3` says that rather than
 opening an XML error document. See
 [Reaching a component from a browser](#reaching-a-component-from-a-browser).
 
@@ -777,14 +777,14 @@ and the `--port` flag do not cover. It has a chapter of its own:
   `dhis2/dhis.conf` and what DHIS2 will not start without, the seed dump and the
   one chance a deployment gets to apply it, the first start taking minutes, the
   4 to 5 GB the analytics populate phase wants, and why moving the image tag
-  starts with `chaps backup`.
+  starts with `varde backup`.
 
 One thing to read before deploying it:
 [connecting the Modeling App to Chap](./dhis2.md#connecting-the-modeling-app-to-chap)
 is a step of its own. The app reaches chap-core through a DHIS2 Route with
-`code: "chap"`, `chaps up` does not create it, and a seeded instance carries a
+`code: "chap"`, `varde up` does not create it, and a seeded instance carries a
 `chap` route from the demo dump that points at somebody else's server - so it
-looks configured and is not. `chaps dhis2 connect` is the command that settles
+looks configured and is not. `varde dhis2 connect` is the command that settles
 all of it.
 
 ## Standalone OCS
@@ -793,8 +793,8 @@ all of it.
 name it:
 
 ```sh
-chaps init climate --only ocs,s3      # OCS and its object store, no Chap
-chaps init dhis --only dhis2          # a DHIS2 on its own
+varde init climate --only ocs,s3      # OCS and its object store, no Chap
+varde init dhis --only dhis2          # a DHIS2 on its own
 ```
 
 `--only ocs,s3` is `--with ocs,s3 --without chap-core` in one flag, and it
@@ -803,25 +803,25 @@ a directory to add components to later, or, with `--models`, model services on
 their own. The same set spelled out:
 
 ```sh
-chaps init climate --with ocs,s3 --without chap-core
+varde init climate --with ocs,s3 --without chap-core
 ```
 
-Neither `compose.yml` nor `compose.chaps.yml` is rendered, and the `-f` list is
-just the component files and the (empty) marketplace umbrella. `chaps status`
+Neither `compose.yml` nor `compose.varde.yml` is rendered, and the `-f` list is
+just the component files and the (empty) marketplace umbrella. `varde status`
 leaves out the chap-core line and counts components rather than models in its
 closing line; a deployment with nothing running is told that nothing in it is
 running, never that Chap is not, because there is no Chap here to be running.
-`chaps doctor` judges the deployment by its components alone.
+`varde doctor` judges the deployment by its components alone.
 
 `init` asks GitHub nothing about chap-core for such a deployment: no release is
 looked up and no `compose.ghcr.yml` is downloaded. The commands that only
-chap-core can answer (`chaps jobs`, `chaps api` without `--url`,
-`chaps models test`, and `chaps update --chap-tag` or `--pin-chap-core`) refuse
-with one line naming `chaps components enable chap-core`. `chaps update` on its
-own still pulls the components' images. `chaps backup create` has no database to
+chap-core can answer (`varde jobs`, `varde api` without `--url`,
+`varde models test`, and `varde update --chap-tag` or `--pin-chap-core`) refuse
+with one line naming `varde components enable chap-core`. `varde update` on its
+own still pulls the components' images. `varde backup create` has no database to
 dump and says so on its `database` line. Turning chap-core on later renders
-`compose.yml` from the copy built into chaps and says so;
-`chaps update --pin-chap-core` then moves it to the newest release.
+`compose.yml` from the copy built into varde and says so;
+`varde update --pin-chap-core` then moves it to the newest release.
 
 ## Model services without chap-core
 
@@ -830,8 +830,8 @@ deployment it registers there and is reached through it; without chap-core it
 runs on its own and is reached on a host port of its own:
 
 ```sh
-chaps init ewars --only none --models chapkit_ewars_model
-chaps up
+varde init ewars --only none --models chapkit_ewars_model
+varde up
 curl http://localhost:5001/health
 open http://localhost:5001/docs
 ```
@@ -846,18 +846,18 @@ What changes for a model when the deployment has no chap-core:
   nothing else in the deployment can reach it. `--port N` picks one,
   `--port none` asks for none (the service is then only reachable from other
   containers on the compose network).
-- **`chaps status` asks the model itself.** Each row is judged by its container
+- **`varde status` asks the model itself.** Each row is judged by its container
   and then by `GET /health` on its host port: `up`, `running, not answering` or
-  `not running`. `chaps doctor` counts the same rows.
-- **The chap-core commands refuse**: `chaps models test` and `chaps jobs` run
-  models through chap-core, so they name `chaps components enable chap-core`.
+  `not running`. `varde doctor` counts the same rows.
+- **The chap-core commands refuse**: `varde models test` and `varde jobs` run
+  models through chap-core, so they name `varde components enable chap-core`.
 
-It works in both directions on an existing deployment. `chaps components disable
+It works in both directions on an existing deployment. `varde components disable
 chap-core` under enabled models keeps them, publishes a host port for each one
-that had none, and says where each one now answers. `chaps components enable
+that had none, and says where each one now answers. `varde components enable
 chap-core` puts the orchestrator URL back, and the models register on the next
-`chaps up`; the host ports they were given stay until you
-`chaps models unexpose` them.
+`varde up`; the host ports they were given stay until you
+`varde models unexpose` them.
 
 The default model set is a default for a Chap deployment, not something you
 asked for, so `--without chap-core` or `--only` with no `--models` starts with
@@ -870,12 +870,12 @@ checkout on this machine, another compose project, or a server. Its model
 services then register there, and the chap-core commands talk to it.
 
 ```sh
-chaps init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
-chaps components enable chap-core --url http://localhost:8000     # on an existing one
-chaps components enable chap-core --url http://localhost:8000 --models-host host.docker.internal
+varde init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
+varde components enable chap-core --url http://localhost:8000     # on an existing one
+varde components enable chap-core --url http://localhost:8000 --models-host host.docker.internal
 ```
 
-`.chaps/components.yaml` records it as its own block, and `chaps components
+`.varde/components.yaml` records it as its own block, and `varde components
 list` shows chap-core as `external`, at that URL:
 
 ```yaml
@@ -893,13 +893,13 @@ chap-core-external:
   Desktop does anyway and Linux needs.
 - **chap-core calls the models back at `models_host` and their host port**,
   through `SERVICEKIT_HOST` and `SERVICEKIT_PORT`. Where the app listens in
-  its container depends on the image, and chaps reads that off the image's
+  its container depends on the image, and varde reads that off the image's
   command when it enables the model:
   - An image that starts uvicorn with `--port 8000` (every marketplace model
     but one) listens on 8000, so the host port maps to 8000. servicekit 3,
     which these images have, checks 8000 before it registers.
   - An image whose command names no port reads `PORT` (the Simple Multistep
-    model). Its servicekit 2 checks only `SERVICEKIT_PORT`, so chaps sets
+    model). Its servicekit 2 checks only `SERVICEKIT_PORT`, so varde sets
     `PORT` to the host port and maps that port on both sides.
 
   Every model gets a host port,
@@ -908,33 +908,33 @@ chap-core-external:
   `--models-host host.docker.internal`, and one on another machine the name it
   reaches this one by. `init` and `components enable` pick
   `host.docker.internal` themselves when a running container publishes the
-  URL's port, and say so. `chaps status` checks the way back through chap-core's
+  URL's port, and say so. `varde status` checks the way back through chap-core's
   proxy and shows a model it cannot reach as `registered, unreachable`.
-- **`chaps status`, `jobs`, `api` and `models test` use that URL** in place of
+- **`varde status`, `jobs`, `api` and `models test` use that URL** in place of
   `http://localhost:<API port>`.
 
 It is one or the other: `components enable chap-core --url` is refused while
 this deployment runs its own chap-core (disable that first, which stops it),
 `components enable chap-core` without `--url` forgets the external one and runs
-chaps' own again, and `components disable chap-core` forgets it too.
+varde' own again, and `components disable chap-core` forgets it too.
 
 ## What the other commands say
 
-- **`chaps up`** checks the components' host ports in its preflight, alongside
+- **`varde up`** checks the components' host ports in its preflight, alongside
   the API port, and names the command that moves each one.
-- **`chaps status`** prints one line per enabled component under the chap-core
-  line, each judged by its container first, exactly as `chaps doctor` does: a
+- **`varde status`** prints one line per enabled component under the chap-core
+  line, each judged by its container first, exactly as `varde doctor` does: a
   component with no container reads `not running`, and one that has a container
   is then asked whatever it answers - OCS its `/health` endpoint, and only while
   that container is up. That gate is what keeps a stopped OCS from being reported `up` because
   another process answered on its host port: OCS defaults to 8790, so two
   deployments on one machine collide there, which is the clash the `up`
-  preflight and `chaps doctor` already warn about. An OCS instance with no host
+  preflight and `varde doctor` already warn about. An OCS instance with no host
   port cannot be asked from out here at all, so its container is the whole
   answer, and the line says `internal (proxy: <base_url>)` and `read-only`
   where those apply. An OCS
   instance that answered also reports what it holds, `3 datasets` and
-  `212.0 MB data`. The rows come from `.chaps/components.yaml` rather than from
+  `212.0 MB data`. The rows come from `.varde/components.yaml` rather than from
   docker, so they are printed with nothing running too, each reading
   `not running` beside the address it will answer on. `--json` carries the rows
   under `components`, with `read_only`, `health_url`, `datasets` and
@@ -943,8 +943,8 @@ chaps' own again, and `components disable chap-core` forgets it too.
   Tomcat serving pages while every `/api/*` request answers 404, so a row whose
   ping goes unanswered reads `starting` rather than `up`. It carries no version,
   because no component row does and DHIS2 gives its own only to a logged-in
-  session. See [`chaps status`](./status.md).
-- **`chaps doctor`** adds a `components` line - which components are on, whether
+  session. See [`varde status`](./status.md).
+- **`varde doctor`** adds a `components` line - which components are on, whether
   the OCS config is present and still the example, whether any data source
   credential is set, how many plugin files there are and, while the instance is
   up, what it holds - plus a port line per published component and an image line
@@ -954,39 +954,39 @@ chaps' own again, and `components disable chap-core` forgets it too.
   key is most worth reading. For `dhis2` the same line reports whether
   `dhis2/dhis.conf` is there - a `fail` when it is not, because DHIS2 throws on
   startup without it - and which seed this deployment is set to, including the
-  case where the setting is `default` and chaps knows no dump for the pinned
-  minor line, which is the one to read before a first `chaps up` brings up an
+  case where the setting is `default` and varde knows no dump for the pinned
+  minor line, which is the one to read before a first `varde up` brings up an
   empty DHIS2. A deployment with `dhis2` enabled also gets a `memory` line among
   the machine checks, measured as what docker says it can give a container
   rather than as the host's memory. The `project files` line names the component
   directories it does not count, since these facts are what covers them.
-- **`chaps auth show`** adds an `OCS data sources` block, set or unset, never the values. The two DHIS2
+- **`varde auth show`** adds an `OCS data sources` block, set or unset, never the values. The two DHIS2
   secrets are not in it: they are this deployment's own, in `.env`, and
   `DHIS2_ENCRYPTION_PASSWORD` is one the database was created with rather than
   something to paste anywhere.
-- **`chaps update`** reports each component's image. `ocs` and `s3` follow moving
+- **`varde update`** reports each component's image. `ocs` and `s3` follow moving
   tags, so there is no pin to move, only a pull: `docker compose pull` takes
   whatever the tag points at today. An active `OCS_IMAGE_TAG` or `S3_IMAGE_TAG`
   line in `.env` is your own pin, and is reported as such. `dhis2` is pinned to a
   minor line, which means the same tag is a newer patch release tomorrow: a pull
   moves it without anything on the screen changing, and a newer DHIS2 migrates
-  `dhis2_db` irreversibly on the next `chaps up`. A run that would re-pull it
-  while that volume is already on the machine warns and names `chaps backup
+  `dhis2_db` irreversibly on the next `varde up`. A run that would re-pull it
+  while that volume is already on the machine warns and names `varde backup
   create` first; see
   [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version). When the
   pull brings an image the machine did not have, the closing line names the
-  component and `chaps restart` is what puts it in service.
-- **`chaps backup`** archives each component volume that holds state: `ocs_data`,
+  component and `varde restart` is what puts it in service.
+- **`varde backup`** archives each component volume that holds state: `ocs_data`,
   `s3_data`, and `dhis2_home` and `dhis2_db` as two members. `dhis2_dump` is left
   out on purpose - it is a download cache the one-shot refills - so no archive
   carries the seed dump. See [Backup and restore](./backup.md).
-- **`chaps ui`** has a components page beside the models one: `Tab` moves
-  between them, the rows are the ones `chaps components list` prints, and
+- **`varde ui`** has a components page beside the models one: `Tab` moves
+  between them, the rows are the ones `varde components list` prints, and
   `space`, `p` and `P` do there what they do for a model. `o` opens the row's web
-  interface, the same page `chaps open` opens, and says in the footer when there
+  interface, the same page `varde open` opens, and says in the footer when there
   is none. One `s` saves both pages. The settings it deliberately does not edit are named in each
   component's `i` overlay rather than hidden: OCS's `--base-url` and
   `--read-only`, because they write to `ocs/climate-service.yaml`, which is
   yours; and DHIS2's `seed:` and `image_tag:`, because no flag moves either after
-  `init` and both are an edit to `.chaps/components.yaml` and a `chaps sync`. See
+  `init` and both are an edit to `.varde/components.yaml` and a `varde sync`. See
   [The components page](./models.md#the-components-page).

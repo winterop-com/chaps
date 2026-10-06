@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 /// Scaffold `ocs/climate-service.yaml` when the `ocs` component is on and the
 /// file is not there yet.
 ///
-/// Never overwrites: `chaps components enable ocs --ocs-country ...` writes it
+/// Never overwrites: `varde components enable ocs --ocs-country ...` writes it
 /// with the values it was given, and this only covers the case where the
 /// component is on and the file has gone missing - a fresh checkout of a
 /// deployment whose `ocs/` was never committed, most of all.
@@ -53,7 +53,7 @@ pub fn write_ocs_config(dir: &Path, spec: &OcsConfigSpec) -> Result<Option<PathB
 /// Scaffold `dhis2/dhis.conf` when the `dhis2` component is on and the file is
 /// not there yet.
 ///
-/// Never overwrites: `chaps components enable dhis2` writes it the first time,
+/// Never overwrites: `varde components enable dhis2` writes it the first time,
 /// and this covers the case where the component is on and the file has gone -
 /// a fresh checkout of a deployment whose `dhis2/` was never committed, most of
 /// all. Without the file DHIS2 does not start at all, so a missing one is worth

@@ -107,7 +107,7 @@ fn a_component_with_no_host_port_is_reached_inside_the_deployment() {
     let reason = internal_reason(Component::Ocs, "http://ocs:9000");
     assert!(reason.contains("http://ocs:9000"), "{reason}");
     assert!(
-        reason.contains("`chaps components enable ocs --port N`"),
+        reason.contains("`varde components enable ocs --port N`"),
         "{reason}"
     );
 }
@@ -150,7 +150,7 @@ fn a_component_that_is_off_is_refused() {
 
     let reason = off_reason(Component::Dhis2);
     assert!(
-        reason.contains("`chaps components enable dhis2`"),
+        reason.contains("`varde components enable dhis2`"),
         "{reason}"
     );
 }

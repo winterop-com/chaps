@@ -107,7 +107,7 @@ fn inside_a_project_the_help_hides_only_what_belongs_outside() {
     }
     assert!(help.trim_end().ends_with(cli::DOCS_LINE));
 
-    // Hidden is not gone: `chaps init --force` over a deployment is the
+    // Hidden is not gone: `varde init --force` over a deployment is the
     // documented way to change what it was created with.
     assert!(matches!(
         Cli::try_parse_from(["chap", "init", "--force"])
@@ -139,7 +139,7 @@ fn outside_a_project_a_bare_group_command_asks_for_a_project() {
     for name in PROJECT_ONLY_GROUPS {
         assert!(
             bare_project_group(&argv(&["chap", name])).is_some(),
-            "`chaps {name}` should ask for a project"
+            "`varde {name}` should ask for a project"
         );
     }
 

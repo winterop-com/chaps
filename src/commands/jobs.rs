@@ -1,4 +1,4 @@
-//! `chaps jobs` — what chap-core has been asked to compute, and how it went.
+//! `varde jobs` — what chap-core has been asked to compute, and how it went.
 //!
 //! chap-core runs everything slow on a Celery worker: building a dataset,
 //! backtesting a model, making a prediction. The Modeling App starts them and
@@ -9,7 +9,7 @@
 //! a job description carries a status and nothing else, so a `FAILURE` says
 //! only that something went wrong. The message is in
 //! `GET /v1/jobs/{id}/logs`, mixed into the model's own output, which is why
-//! `chaps jobs logs` is the command the failure line points at and why it
+//! `varde jobs logs` is the command the failure line points at and why it
 //! digs the last error line out of the `--- stderr ---` section for a job that
 //! failed.
 //!
@@ -25,7 +25,7 @@ use crate::output::Out;
 use crate::project::Project;
 use std::time::Duration;
 
-/// `chaps jobs list`, and the bare `chaps jobs`.
+/// `varde jobs list`, and the bare `varde jobs`.
 pub fn list(ctx: &Ctx, args: &JobsListArgs) -> Result<()> {
     let (_project, api) = connect(ctx)?;
     let mut query: Vec<String> = args
@@ -63,7 +63,7 @@ fn human_list(jobs: &[Job], now: u64, out: &Out) -> String {
     text
 }
 
-/// `chaps jobs show ID`.
+/// `varde jobs show ID`.
 pub fn show(ctx: &Ctx, args: &JobsShowArgs) -> Result<()> {
     let (_project, api) = connect(ctx)?;
     let (id, jobs) = find(ctx, &api, &args.id)?;
@@ -150,14 +150,14 @@ fn human_show(
 /// What to do with this job now, which is never nothing.
 fn next_step(job: &Job, status: &str, database_result: Option<i64>) -> String {
     match jobs::Outcome::of(status) {
-        jobs::Outcome::Failed => format!("run `chaps jobs logs {}` to see why", job.id),
+        jobs::Outcome::Failed => format!("run `varde jobs logs {}` to see why", job.id),
         jobs::Outcome::Running => format!(
-            "still running; `chaps jobs` says when it finishes and \
-             `chaps jobs cancel {}` stops it",
+            "still running; `varde jobs` says when it finishes and \
+             `varde jobs cancel {}` stops it",
             job.id
         ),
         jobs::Outcome::Cancelled => format!(
-            "this job was cancelled; `chaps jobs logs {}` shows how far it got",
+            "this job was cancelled; `varde jobs logs {}` shows how far it got",
             job.id
         ),
         jobs::Outcome::Done => match database_result {
@@ -166,11 +166,11 @@ fn next_step(job: &Job, status: &str, database_result: Option<i64>) -> String {
             Some(id) => match collection_of(&job.kind) {
                 Some(collection) => format!(
                     "the result is row {id} in chap-core's database; \
-                     `chaps api GET /v1/crud/{collection}/{id}` reads it"
+                     `varde api GET /v1/crud/{collection}/{id}` reads it"
                 ),
                 None => format!("the result is row {id} in chap-core's database"),
             },
-            None => format!("run `chaps jobs logs {}` to see what it did", job.id),
+            None => format!("run `varde jobs logs {}` to see what it did", job.id),
         },
     }
 }
@@ -198,7 +198,7 @@ fn status_cell(out: &Out, status: &str) -> String {
     }
 }
 
-/// `chaps jobs logs ID`.
+/// `varde jobs logs ID`.
 ///
 /// stdout is the log and nothing else, so it can be piped into `grep` or
 /// `less`; which job it is, and the one line that says why it failed, go to
@@ -257,7 +257,7 @@ pub fn logs(ctx: &Ctx, args: &JobsLogsArgs) -> Result<()> {
     Ok(())
 }
 
-/// `chaps jobs cancel ID`.
+/// `varde jobs cancel ID`.
 pub fn cancel(ctx: &Ctx, args: &JobsCancelArgs) -> Result<()> {
     let (_project, api) = connect(ctx)?;
     let (id, _) = find(ctx, &api, &args.id)?;
@@ -272,12 +272,12 @@ pub fn cancel(ctx: &Ctx, args: &JobsCancelArgs) -> Result<()> {
         format!(
             "{message}\n{}\n",
             ctx.out
-                .backticks("run `chaps jobs` to see whether it has stopped")
+                .backticks("run `varde jobs` to see whether it has stopped")
         )
     })
 }
 
-/// `chaps jobs delete ID`.
+/// `varde jobs delete ID`.
 pub fn delete(ctx: &Ctx, args: &JobsDeleteArgs) -> Result<()> {
     let (_project, api) = connect(ctx)?;
     let (id, _) = find(ctx, &api, &args.id)?;
@@ -287,7 +287,7 @@ pub fn delete(ctx: &Ctx, args: &JobsDeleteArgs) -> Result<()> {
     // with a 400. The verb that does apply is `cancel`, so name it.
     if answer.status == 400 {
         return Err(anyhow::anyhow!(
-            "job {id} is still running; cancel it first (`chaps jobs cancel {id}`)"
+            "job {id} is still running; cancel it first (`varde jobs cancel {id}`)"
         ));
     }
     if !answer.is_success() {
@@ -298,7 +298,7 @@ pub fn delete(ctx: &Ctx, args: &JobsDeleteArgs) -> Result<()> {
     ctx.out.emit(&value, || {
         format!(
             "{message}\n{}\n",
-            ctx.out.backticks("run `chaps jobs` for what is left")
+            ctx.out.backticks("run `varde jobs` for what is left")
         )
     })
 }
@@ -320,7 +320,7 @@ fn message_of(answer: &crate::api::Answer, verb: &str) -> String {
 /// This deployment and a client for its API.
 fn connect(ctx: &Ctx) -> Result<(Project, Api)> {
     let project = ctx.project()?;
-    crate::components::require_chap_core(&project.state.components, "`chaps jobs`")?;
+    crate::components::require_chap_core(&project.state.components, "`varde jobs`")?;
     let token = crate::api::token_for(Some(&project.dir));
     let api = Api::new(&project.api_url(), token, crate::api::DEFAULT_TIMEOUT);
     ctx.out
@@ -408,7 +408,7 @@ fn current_status(api: &Api, id: &str) -> Result<Option<String>> {
 /// The row a finished job wrote, from `GET /v1/jobs/{id}/database_result`.
 ///
 /// Best effort: the endpoint answers 400 while the job runs and 400 again for
-/// one that failed, and neither is something to stop `chaps jobs show` over.
+/// one that failed, and neither is something to stop `varde jobs show` over.
 fn database_result(api: &Api, id: &str, status: &str) -> Option<i64> {
     if jobs::Outcome::of(status) != jobs::Outcome::Done {
         return None;

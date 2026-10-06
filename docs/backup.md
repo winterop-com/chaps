@@ -3,8 +3,8 @@
 A deployment is four things: the files in the project directory, the chap-core
 database in PostgreSQL, one data volume per model service, and one data volume
 per volume an enabled component keeps state in (`ocs`, `s3`, and `dhis2` twice).
-`chaps backup create` puts all four into one `tar.gz`, and
-`chaps backup restore` puts them back.
+`varde backup create` puts all four into one `tar.gz`, and
+`varde backup restore` puts them back.
 
 ## The archive
 
@@ -12,15 +12,15 @@ A plain gzipped tar with a flat layout, so `tar -tzf` reads it and an admin can
 restore it by hand:
 
 ```text
-chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
-  manifest.yaml              what this archive is: the chaps version that wrote
+varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
+  manifest.yaml              what this archive is: the varde version that wrote
                              it, the UTC timestamp, the project directory name,
                              the chap-core image tag, the PostgreSQL server
                              version, every enabled model with its service id,
                              version, image tag, host port (null when it
                              publishes none), data dir and volume, and what was
                              included (or why it was not)
-  files/                     .env, .chaps/**, ocs/**, dhis2/** and every
+  files/                     .env, .varde/**, ocs/**, dhis2/** and every
                              compose*.yml at the project root
   db/chap_core.dump          pg_dump in the custom format (-Fc)
   models/<service_id>.tar    one model's data directory, as tar saw it
@@ -33,22 +33,22 @@ are there: what was included, what was skipped and why, and how long each
 service was held still while its volume was read.
 
 `ocs/climate-service.yaml` is in `files/` because it is the operator's own
-file rather than a rendered artifact: `chaps sync` only ever creates a missing
+file rather than a rendered artifact: `varde sync` only ever creates a missing
 one, so nothing can rebuild the edits made to it. `dhis2/dhis.conf` is the same
 kind of file and is in `files/` on the same grounds - DHIS2 does not start
-without it, and all `chaps sync` can do is scaffold a fresh one.
+without it, and all `varde sync` can do is scaffold a fresh one.
 
 What is collected is the whole of each such directory rather than those two
 files, because what an operator puts beside them - `ocs/plugins/` is the case in
 point - is theirs for the same reason; anything nested under `dhis2/` is in the
 archive too. A directory is collected whether or not its component is enabled at
-the time, because `chaps components disable` leaves it alone and says it is
+the time, because `varde components disable` leaves it alone and says it is
 yours, so a backup taken while a component is off still protects its files. See
 [DHIS2](./dhis2.md#dhis2dhisconf).
 
 The archive is built and read with the system `tar` binary rather than a Rust
 tar crate, so what an operator sees with `tar -tzf` is exactly what
-`chaps backup restore` sees.
+`varde backup restore` sees.
 
 The `logs`, `runs`, `renv`, `uv` and `pytensor` volumes are deliberately left
 out: they are caches that rebuild themselves, and they are far larger than
@@ -57,10 +57,10 @@ everything above put together.
 ## Taking a backup
 
 ```sh
-chaps backup create [--out PATH] [--no-db] [--no-models] [--no-components]
+varde backup create [--out PATH] [--no-db] [--no-models] [--no-components]
 ```
 
-The archive is named `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` (UTC)
+The archive is named `varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` (UTC)
 and written to the current directory, unless `--out` names a file or an
 existing directory to put it in.
 
@@ -88,7 +88,7 @@ because it keeps `/opt/dhis2` - the installed apps and the file store - apart
 from its database. Its third volume, `dhis2_dump`, is deliberately left out: it
 is a download cache the `dhis2-dump` one-shot refills on its own, so archiving it
 would add the whole seed dump to every backup of the deployment for nothing.
-`chaps components disable dhis2 --purge` still takes it, and `chaps doctor` does
+`varde components disable dhis2 --purge` still takes it, and `varde doctor` does
 not call it a leftover; the archive is the one place it costs something.
 
 A service that is running is paused for the seconds its volume takes to read:
@@ -103,30 +103,30 @@ live SQLite database in its data directory, and a tar of a file that is being
 written to is a tar of a torn database. The service is always let go again,
 including when the read fails - except when the backup itself is interrupted
 (Ctrl-C) while it holds one: then the service stays paused, and the next
-`chaps up` resumes it and says so (`resuming chapkit-ewars-model, left
+`varde up` resumes it and says so (`resuming chapkit-ewars-model, left
 paused`). Where `pause` is unsupported the service is
 stopped and started instead (`stopped for 6.0 s`), and where neither works the
 read goes ahead with a warning. The database needs none of this: `pg_dump`
 reads one transactional snapshot, however busy chap-core is while it runs.
 
 **A large volume means a long pause.** A paused service does not answer.
-Before chaps pauses a running service for a volume of 1 GB or more, it warns.
+Before varde pauses a running service for a volume of 1 GB or more, it warns.
 The DHIS2 database is not paused at all: it is a `pg_dump` without the
 analytics tables, see [DHIS2](./dhis2.md#backing-it-up).
 
 ```text
-warning: ocs is paused while chaps copies 3.1 GB of `mychap_ocs_data`, and it does not answer until the copy is done; this can take minutes, so run the backup when nobody uses it, or use `--no-components` to leave out the volumes of every component
+warning: ocs is paused while varde copies 3.1 GB of `mychap_ocs_data`, and it does not answer until the copy is done; this can take minutes, so run the backup when nobody uses it, or use `--no-components` to leave out the volumes of every component
 ```
 
 Two things to know about the pause. Docker cannot run a health check on a
 frozen container, so a paused service is reported unhealthy until its next
 probe succeeds - up to one health check interval (30 seconds for the services
-here) after the backup, `chaps status` and `docker compose ps` may still say
-so about a service that is fine. And a `chaps backup create` that is killed
-outright cannot unpause what it paused; `chaps docker run -- unpause SERVICE`
+here) after the backup, `varde status` and `docker compose ps` may still say
+so about a service that is fine. And a `varde backup create` that is killed
+outright cannot unpause what it paused; `varde docker run -- unpause SERVICE`
 lets it go.
 
-Everything is staged under `.chaps/tmp/` (the same filesystem as the project,
+Everything is staged under `.varde/tmp/` (the same filesystem as the project,
 so a multi-gigabyte model volume never lands in a small `/tmp`) and packed in
 one `tar -czf` to `.<name>.tmp` beside the destination, which is renamed into
 place only once tar has finished. The staging directory is removed afterwards,
@@ -136,7 +136,7 @@ archive already at that path - last night's, say - exactly as it was.
 ## Restoring
 
 ```sh
-chaps backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models]
+varde backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models]
                              [--no-components] [--adopt-identity] [--no-start]
 ```
 
@@ -149,13 +149,13 @@ Then, in order:
 
 1. `docker compose stop chap worker <models> <components>`, only the services
    that are actually running, so nothing is woken up just to be stopped,
-2. the files go back over the project directory, and `chaps sync` re-renders
-   the compose files from the `.chaps/` that just arrived. A
-   `.chaps/models.yaml`, `.chaps/models-manual.yaml` or `.chaps/components.yaml`
+2. the files go back over the project directory, and `varde sync` re-renders
+   the compose files from the `.varde/` that just arrived. A
+   `.varde/models.yaml`, `.varde/models-manual.yaml` or `.varde/components.yaml`
    the archive does not carry is removed here rather than kept: the deployment
    the backup came from had none, and keeping this one's would mix the two. A
    path in the archive's manifest that leads outside the project directory,
-   or a compose file name in the restored `.chaps/` that does, stops the
+   or a compose file name in the restored `.varde/` that does, stops the
    restore before anything is written. A `.env` that differs
    from the one in the archive is kept as `.env.before-restore`. The database
    credentials in it stay this deployment's (`POSTGRES_USER`,
@@ -225,7 +225,7 @@ identity  chapy-ab12cd is kept; the archive's own (chapx-9f01bc) is not
           adopted, so this deployment keeps its containers and volumes
 ```
 
-Everything else in `.chaps/project.yaml` does come from the archive, the API
+Everything else in `.varde/project.yaml` does come from the archive, the API
 port included - the `.env` beside it sets that too, and the two have to agree.
 
 `--adopt-identity` is the takeover, for the one case that wants it: this
@@ -246,13 +246,13 @@ Scopes:
 `--no-components` or `--no-start`, and `--db-only` cannot be combined with
 `--no-models` or `--no-components`.
 
-## The same thing without chaps
+## The same thing without varde
 
 Every step is an ordinary Docker command. They all need the project's `-f` list,
-which `chaps docker run -- ...` supplies (or write out
+which `varde docker run -- ...` supplies (or write out
 
 ```sh
-docker compose -f compose.yml -f compose.chaps.yml -f compose.marketplace.yml ...
+docker compose -f compose.yml -f compose.varde.yml -f compose.marketplace.yml ...
 ```
 
 yourself). `$PGU` and `$PGDB` are `POSTGRES_USER` and `POSTGRES_DB` from `.env`,
@@ -278,5 +278,5 @@ Stop `chap`, `worker`, the model services and the component services - `ocs`,
 start them again afterwards. A DHIS2 whose `dhis2_db` volume is replaced under it
 is the one case where it matters most: it read the schema version at startup. `<data_dir>` and
 the uid:gid are in the manifest, one entry per model; `<project>` is the
-`compose_project` in `.chaps/project.yaml`, which is also the prefix
+`compose_project` in `.varde/project.yaml`, which is also the prefix
 `docker volume ls` shows.

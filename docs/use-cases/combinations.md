@@ -10,24 +10,24 @@ OCS with its object store beside a DHIS2, for work on climate data in DHIS2
 without Chap in the picture:
 
 ```sh
-chaps init lab --only ocs,s3,dhis2
+varde init lab --only ocs,s3,dhis2
 cd lab
-chaps up                     # DHIS2's first start takes several minutes
-chaps status                 # run it again until every line says up
-chaps open ocs
-chaps open dhis2
+varde up                     # DHIS2's first start takes several minutes
+varde status                 # run it again until every line says up
+varde open ocs
+varde open dhis2
 ```
 
-It worked when `chaps status` shows `ocs`, `s3` and `dhis2` as `up`. OCS is on
+It worked when `varde status` shows `ocs`, `s3` and `dhis2` as `up`. OCS is on
 `http://localhost:8790` and DHIS2 on `http://localhost:8780`; inside the
-deployment DHIS2 can reach OCS at `http://ocs:9000`. `chaps dhis2 connect`
-refuses, since there is no chap-core; `chaps components enable chap-core` adds
+deployment DHIS2 can reach OCS at `http://ocs:9000`. `varde dhis2 connect`
+refuses, since there is no chap-core; `varde components enable chap-core` adds
 it.
 
 ## A model beside OCS, no Chap
 
 ```sh
-chaps init lab --only ocs --models chapkit_ewars_model
+varde init lab --only ocs --models chapkit_ewars_model
 ```
 
 The model answers on its own host port (5001), as in
@@ -36,7 +36,7 @@ The model answers on its own host port (5001), as in
 ## Everything
 
 ```sh
-chaps init full --models default --with ocs,s3,dhis2
+varde init full --models default --with ocs,s3,dhis2
 ```
 
 chap-core, its models, OCS with the object store and a DHIS2, all in one

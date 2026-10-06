@@ -65,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
     }
 }
 
-/// `chaps · models` on the left, where the catalogue came from and how big it
+/// `varde · models` on the left, where the catalogue came from and how big it
 /// is on the right. Both halves shrink out of the way before they collide.
 fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if area.height == 0 {
@@ -73,7 +73,7 @@ fn draw_title(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     }
     let counts = app.counts();
     let mut left = vec![
-        Span::styled("chaps", theme.accent_style()),
+        Span::styled("varde", theme.accent_style()),
         Span::styled(" · ", theme.dim_style()),
         Span::styled(app.page.title(), theme.label_style()),
     ];

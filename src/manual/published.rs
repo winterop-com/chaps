@@ -59,7 +59,7 @@ fn no_public_image(err: anyhow::Error, url: &str, image: &str) -> anyhow::Error 
             anyhow::anyhow!(
                 "{url} publishes no public image at {image} (ghcr refused an anonymous pull, \
                  HTTP {status}); build one in the checkout with `docker build --platform \
-                 linux/amd64 -t NAME:dev .` and run `chaps models add NAME:dev`"
+                 linux/amd64 -t NAME:dev .` and run `varde models add NAME:dev`"
             )
         }
         _ => err,
@@ -85,7 +85,7 @@ pub fn pick_published(
     Ok(None)
 }
 
-/// The newest published build of `branch` in a repository, for `chaps
+/// The newest published build of `branch` in a repository, for `varde
 /// update`: `(commit, tag)`, or `None` when the branch has none.
 pub fn newest_published(
     repository: &str,

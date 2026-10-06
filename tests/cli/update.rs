@@ -10,7 +10,7 @@ fn update_needs_the_network_even_for_a_dry_run() {
         .init(&["--models", "chapkit_ewars_model"])
         .assert()
         .success();
-    let before = read(&dir.join(".chaps/models.yaml"));
+    let before = read(&dir.join(".varde/models.yaml"));
 
     let mut update = sandbox.chap();
     update.arg("-C").arg(&dir).args(["update", "--dry-run"]);
@@ -19,11 +19,11 @@ fn update_needs_the_network_even_for_a_dry_run() {
         .failure()
         .stderr(predicates::str::contains("--offline"))
         .stderr(predicates::str::contains("registry"));
-    assert_eq!(read(&dir.join(".chaps/models.yaml")), before);
+    assert_eq!(read(&dir.join(".varde/models.yaml")), before);
 }
 
 /// A deployment created with `--registry-url` keeps that registry: the flag is
-/// recorded in `.chaps/project.yaml`, and a later command without it used to
+/// recorded in `.varde/project.yaml`, and a later command without it used to
 /// fall back to the default marketplace - here, the snapshot built into the
 /// binary - so the custom registry's models were unknown.
 #[test]
@@ -84,14 +84,14 @@ fn update_switches_chap_core_to_a_moving_tag_and_back() {
             .unwrap()
             .ends_with("/dhis2-chap/chap-core/dev/compose.ghcr.yml")
     );
-    assert!(dir.join(".chaps/compose.chap-core.dev.yml").is_file());
+    assert!(dir.join(".varde/compose.chap-core.dev.yml").is_file());
     assert!(
-        read(&dir.join(".chaps/compose.chap-core.dev.yml")).contains("CHAPS_TEST_REF: dev"),
+        read(&dir.join(".varde/compose.chap-core.dev.yml")).contains("VARDE_TEST_REF: dev"),
         "the fetched copy is the dev one"
     );
     // The rendered base follows it, and so does the line compose reads.
     let base = read(&dir.join("compose.yml"));
-    assert!(base.contains("CHAPS_TEST_REF: dev"), "{base}");
+    assert!(base.contains("VARDE_TEST_REF: dev"), "{base}");
     assert!(
         base.contains("# chap-core compose.ghcr.yml at dev\n"),
         "{base}"
@@ -114,14 +114,14 @@ fn update_switches_chap_core_to_a_moving_tag_and_back() {
         .success()
         .stderr(predicates::str::contains(
             "moving chap-core from dev to v2.3.1 can run an older schema against a database \
-             migrated by the newer one; run `chaps backup create` first",
+             migrated by the newer one; run `varde backup create` first",
         ))
         .stdout(predicates::str::contains("chap-core  dev -> v2.3.1"))
         .stdout(predicates::str::contains("updated chap-core dev -> v2.3.1"));
 
     assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
     assert_eq!(state(&dir)["chap_compose_source"]["tag"], "v2.3.1");
-    assert!(read(&dir.join("compose.yml")).contains("CHAPS_TEST_REF: v2.3.1"));
+    assert!(read(&dir.join("compose.yml")).contains("VARDE_TEST_REF: v2.3.1"));
     assert_eq!(env_value(&sandbox.env(), "CHAP_IMAGE_TAG"), Some("v2.3.1"));
 }
 
@@ -151,7 +151,7 @@ fn update_refuses_a_chap_tag_that_was_never_released() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("chap-core has no release v9.9.9"))
-        .stderr(predicates::str::contains("chaps update --list-tags"));
+        .stderr(predicates::str::contains("varde update --list-tags"));
     assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
     assert_eq!(read(&dir.join("compose.yml")), before);
 
@@ -173,7 +173,7 @@ fn a_dry_run_switch_writes_nothing() {
     let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
     let before = (
         read(&dir.join("compose.yml")),
-        read(&dir.join(".chaps/project.yaml")),
+        read(&dir.join(".varde/project.yaml")),
         sandbox.env(),
     );
 
@@ -186,9 +186,9 @@ fn a_dry_run_switch_writes_nothing() {
         ));
 
     assert_eq!(read(&dir.join("compose.yml")), before.0);
-    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+    assert_eq!(read(&dir.join(".varde/project.yaml")), before.1);
     assert_eq!(sandbox.env(), before.2);
-    assert!(!dir.join(".chaps/compose.chap-core.dev.yml").exists());
+    assert!(!dir.join(".varde/compose.chap-core.dev.yml").exists());
 
     // A dry run backwards says what it would cost and still writes nothing,
     // without an answer: there is nothing yet to confirm.
@@ -198,7 +198,7 @@ fn a_dry_run_switch_writes_nothing() {
         .stderr(predicates::str::contains(
             "moving chap-core from v2.3.1 to v2.3.0",
         ));
-    assert_eq!(read(&dir.join(".chaps/project.yaml")), before.1);
+    assert_eq!(read(&dir.join(".varde/project.yaml")), before.1);
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn list_tags_names_the_moving_tags_the_releases_and_the_pin() {
     }
     assert!(
         text.contains(
-            "chap-core is pinned to v2.3.0; move it with `chaps update --chap-tag <TAG>`"
+            "chap-core is pinned to v2.3.0; move it with `varde update --chap-tag <TAG>`"
         ),
         "{text}"
     );
@@ -288,7 +288,7 @@ fn list_tags_works_offline_with_what_it_has() {
     ));
 }
 
-/// Without a deployment there is no pin to move, but `chaps update` still
+/// Without a deployment there is no pin to move, but `varde update` still
 /// refreshes this machine's marketplace registry and says so.
 #[test]
 fn update_without_a_deployment_refreshes_the_registry() {
@@ -296,12 +296,12 @@ fn update_without_a_deployment_refreshes_the_registry() {
     let port = Hub::new().start();
     let base = format!("http://127.0.0.1:{port}");
 
-    let mut update = assert_cmd::Command::cargo_bin("chaps").unwrap();
+    let mut update = assert_cmd::Command::cargo_bin("varde").unwrap();
     update
-        .env("CHAPS_CACHE_DIR", sandbox.cache.path())
-        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
-        .env("CHAPS_NO_UPDATE_CHECK", "1")
-        .env("CHAPS_NO_DOCKER_PROBE", "1")
+        .env("VARDE_CACHE_DIR", sandbox.cache.path())
+        .env("VARDE_DATA_DIR", sandbox.cache.path().join("data"))
+        .env("VARDE_NO_UPDATE_CHECK", "1")
+        .env("VARDE_NO_DOCKER_PROBE", "1")
         .current_dir(sandbox.home.path())
         .arg("--registry-url")
         .arg(format!("{base}/registry.yaml"))

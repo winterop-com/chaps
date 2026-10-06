@@ -1,4 +1,4 @@
-//! `chaps models enable|disable` — the two single-model write commands.
+//! `varde models enable|disable` — the two single-model write commands.
 //!
 //! Both go through [`crate::compose::apply()`], the same path `init` and the
 //! TUI use.
@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 /// Enable one model: resolve its version, write the overlay, sync the compose
-/// files and update .chaps/models.yaml.
+/// files and update .varde/models.yaml.
 ///
 /// No host port unless `--port` asks for one: chap-core reaches the service
 /// over the compose network, which is the URL the service registers.
@@ -121,11 +121,11 @@ impl ModelRef {
 }
 
 /// Disable one model: stop its container, remove its overlay, regenerate the
-/// umbrella file and update .chaps/models.yaml.
+/// umbrella file and update .varde/models.yaml.
 ///
 /// The model's data volume is kept, which is what makes disabling a model a
 /// reversible thing to do. It is named either way, because once the overlay
-/// is gone nothing else knows it: `chaps down --volumes` removes the volumes
+/// is gone nothing else knows it: `varde down --volumes` removes the volumes
 /// the compose files still declare, so a volume nobody names again
 /// lingers for as long as the machine does. `--purge` is how the data goes
 /// with the model.
@@ -150,14 +150,14 @@ pub fn disable(ctx: &Ctx, args: &ModelsDisableArgs) -> Result<()> {
 }
 
 /// Disable a model this project has enabled: stop its container, remove its
-/// overlay and take it out of `.chaps/models.yaml`, then deal with its data
+/// overlay and take it out of `.varde/models.yaml`, then deal with its data
 /// volume.
 ///
-/// The half of [`disable`] that `chaps models remove` needs too: removing a
+/// The half of [`disable`] that `varde models remove` needs too: removing a
 /// manually added model has to disable it first, and doing that by any other
 /// path would leave the container running and the volume unnamed. Returns
 /// what was done plus the notes that belong in the closing lines. `removing`
-/// is set by `chaps models remove`, after which the id no longer names
+/// is set by `varde models remove`, after which the id no longer names
 /// anything a later command could purge.
 pub(crate) fn disable_enabled(
     project: &mut Project,
@@ -203,7 +203,7 @@ pub(crate) fn disable_enabled(
         (Some(name), false) if crate::docker::volume_exists(name) => {
             // After `models remove` the id is gone, so a `models disable
             // --purge` would only answer "unknown model".
-            let again = (!removing).then(|| format!("chaps models disable {id}"));
+            let again = (!removing).then(|| format!("varde models disable {id}"));
             notes.push(super::docker::kept_volume_line(name, again.as_deref()));
             kept_volumes.push(name.clone());
         }
@@ -227,7 +227,7 @@ pub(crate) fn disable_enabled(
 /// The volume is all that is left of such a model, so removing it is the whole
 /// command. Refusing instead would put the one thing `--purge` exists for out
 /// of reach: the line a plain `disable` closes with names this very command,
-/// and by then the model is already gone from `.chaps/models.yaml`.
+/// and by then the model is already gone from `.varde/models.yaml`.
 ///
 /// A name the marketplace does not list and that no volume answers to either
 /// is still the typo it would be without the flag.
@@ -409,7 +409,7 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lin
     for warning in warnings {
         lines.warning(warning.as_str());
     }
-    lines.info("run `chaps up` to apply");
+    lines.info("run `varde up` to apply");
 }
 
 /// A path in the deployment, relative to its directory when it is inside it.
@@ -486,8 +486,8 @@ pub(crate) fn summary(
     // Taking a model away has already stopped its container: there is
     // nothing left for `up` to apply, only a deployment to look at.
     match report.touched().next().is_none() {
-        true => lines.hint("`chaps status` shows what runs now"),
-        false => lines.info("run `chaps up` to apply"),
+        true => lines.hint("`varde status` shows what runs now"),
+        false => lines.info("run `varde up` to apply"),
     };
 }
 

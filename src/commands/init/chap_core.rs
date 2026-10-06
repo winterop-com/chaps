@@ -5,10 +5,10 @@ use super::MOVING_DEFAULT_TAG;
 use crate::chapcore;
 use crate::commands::Ctx;
 use crate::error::Result;
-use crate::project::{CHAPS_DIR, ComposeSource, cached_compose_file};
+use crate::project::{VARDE_DIR, ComposeSource, cached_compose_file};
 use std::path::Path;
 
-/// What `.chaps/project.yaml` records as the chap-core tag of a deployment
+/// What `.varde/project.yaml` records as the chap-core tag of a deployment
 /// built from a checkout: there is no release behind it.
 pub(super) const CHECKOUT_TAG: &str = "checkout";
 
@@ -40,18 +40,18 @@ pub(super) fn checkout_source(path: &Path) -> Result<String> {
 /// The chap-core tag `init` settled on, and where `compose.yml` comes from.
 #[derive(Debug, Clone)]
 pub(super) struct ChapCore {
-    /// The tag written to `.env` and `.chaps/project.yaml`.
+    /// The tag written to `.env` and `.varde/project.yaml`.
     pub(super) tag: String,
     pub(super) source: ComposeSource,
     /// The downloaded `compose.ghcr.yml`, when one has to be written into
-    /// `.chaps/`; `None` when the copy is already there or is the embedded one.
+    /// `.varde/`; `None` when the copy is already there or is the embedded one.
     pub(super) cached: Option<String>,
 }
 
 /// Decide the chap-core tag and the compose file that goes with it.
 ///
 /// `latest` is a moving tag: two `init` runs a month apart would deploy
-/// different code from the same state file, and `chaps update` would have
+/// different code from the same state file, and `varde update` would have
 /// nothing to compare. So the default is resolved to the release it points at
 /// right now, and the compose file that release publishes is downloaded with
 /// it. Every step degrades to a warning: `--offline`, an unreachable GitHub, a
@@ -86,10 +86,10 @@ pub(super) fn resolve_chap_core(ctx: &Ctx, dir: &Path, requested: &str) -> ChapC
         return embedded(tag);
     }
 
-    // A copy of this exact tag already in `.chaps/` (an earlier `init`, or an
+    // A copy of this exact tag already in `.varde/` (an earlier `init`, or an
     // `init --force` over a working deployment) is reused rather than
     // re-downloaded, which is also what makes `--offline` reproducible here.
-    let path = dir.join(CHAPS_DIR).join(cached_compose_file(&tag));
+    let path = dir.join(VARDE_DIR).join(cached_compose_file(&tag));
     if let Ok(body) = std::fs::read_to_string(&path)
         && chapcore::validate_compose(&body).is_ok()
     {
@@ -136,7 +136,7 @@ pub(super) fn resolve_latest(
 }
 
 /// A [`ComposeSource::Fetched`] for a body that is about to be (or already is)
-/// cached under `.chaps/`.
+/// cached under `.varde/`.
 pub(super) fn fetched(tag: &str, body: &str) -> ComposeSource {
     ComposeSource::Fetched {
         url: chapcore::compose_url(tag),

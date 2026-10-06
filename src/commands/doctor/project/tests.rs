@@ -6,12 +6,12 @@ fn the_file_list_is_what_init_writes() {
     let files = project_files(&Components::default());
     assert_eq!(files.len(), 7);
     for name in [
-        ".chaps/project.yaml",
-        ".chaps/models.yaml",
-        ".chaps/components.yaml",
+        ".varde/project.yaml",
+        ".varde/models.yaml",
+        ".varde/components.yaml",
         ".env",
         "compose.yml",
-        "compose.chaps.yml",
+        "compose.varde.yml",
         "compose.marketplace.yml",
     ] {
         assert!(files.contains(&name.to_string()), "{name} is missing");
@@ -24,12 +24,12 @@ fn the_file_list_is_what_init_writes() {
     assert_eq!(
         project_files(&components),
         vec![
-            ".chaps/project.yaml",
-            ".chaps/models.yaml",
-            ".chaps/components.yaml",
+            ".varde/project.yaml",
+            ".varde/models.yaml",
+            ".varde/components.yaml",
             ".env",
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.marketplace.yml",
         ]
@@ -38,9 +38,9 @@ fn the_file_list_is_what_init_writes() {
     assert_eq!(
         project_files(&components),
         vec![
-            ".chaps/project.yaml",
-            ".chaps/models.yaml",
-            ".chaps/components.yaml",
+            ".varde/project.yaml",
+            ".varde/models.yaml",
+            ".varde/components.yaml",
             ".env",
             "compose.ocs.yml",
             "compose.marketplace.yml",
@@ -57,7 +57,7 @@ fn the_file_list_is_what_init_writes() {
     assert_eq!(status, Status::Fail);
     assert_eq!(detail, "missing .env, compose.yml");
     let fix = fix.unwrap();
-    assert!(fix.contains("chaps sync") && fix.contains("chaps init --force"));
+    assert!(fix.contains("varde sync") && fix.contains("varde init --force"));
 }
 
 /// The count is of the files this check looks for, and the line says so
@@ -165,14 +165,14 @@ fn the_env_check_reads_the_two_things_that_bite_later() {
     let (status, detail, fix) = env_verdict(Some("POSTGRES_PASSWORD=0123456789abcdef\n"));
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("no CHAP_IMAGE_TAG line"), "{detail}");
-    assert!(fix.unwrap().contains("chaps sync"));
+    assert!(fix.unwrap().contains("varde sync"));
 }
 
 #[test]
 fn the_project_line_warns_when_the_name_is_empty() {
     let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"));
     assert_eq!(status, Status::Ok);
-    assert_eq!(detail, "demo-1ab2c3 (recorded in .chaps/project.yaml)");
+    assert_eq!(detail, "demo-1ab2c3 (recorded in .varde/project.yaml)");
     assert_eq!(fix, None);
 
     // An empty name is a hand edit: compose falls back to the directory.
@@ -180,10 +180,10 @@ fn the_project_line_warns_when_the_name_is_empty() {
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("`compose_project` is empty"), "{detail}");
     let fix = fix.unwrap();
-    assert!(fix.contains("chaps sync"), "{fix}");
+    assert!(fix.contains("varde sync"), "{fix}");
 }
 
-/// When `.chaps/project.yaml` was created, in these tests.
+/// When `.varde/project.yaml` was created, in these tests.
 const CREATED: u64 = 1_790_147_400;
 
 #[test]
@@ -232,7 +232,7 @@ fn a_database_volume_older_than_the_deployment_is_a_warning() {
         ),
         "{detail}"
     );
-    assert!(fix.unwrap().contains("chaps down --volumes"));
+    assert!(fix.unwrap().contains("varde down --volumes"));
 
     // Neither time is guaranteed: a filesystem that records no creation
     // time, and a docker that did not say, each cost the comparison only.
@@ -289,9 +289,9 @@ fn a_volume_of_something_no_longer_enabled_is_a_warning_naming_it() {
     );
     assert!(!detail.contains("holds"), "{detail}");
     let fix = fix.expect("a leftover volume has something to do about it");
-    assert!(fix.contains("chaps models disable <id> --purge"), "{fix}");
+    assert!(fix.contains("varde models disable <id> --purge"), "{fix}");
     assert!(
-        fix.contains("chaps components disable <name> --purge"),
+        fix.contains("varde components disable <name> --purge"),
         "{fix}"
     );
     assert!(fix.contains("docker volume rm <name>"), "{fix}");
@@ -395,7 +395,7 @@ fn a_port_is_only_a_conflict_when_someone_else_holds_it() {
     assert_eq!(
         check.fix.unwrap(),
         ports::busy_line(&api, Some(8001)),
-        "the fix is the sentence `chaps up` would have failed with"
+        "the fix is the sentence `varde up` would have failed with"
     );
 
     // A port this project's own container publishes is ours, exactly as
@@ -409,7 +409,7 @@ fn a_port_is_only_a_conflict_when_someone_else_holds_it() {
     let check = port_check(&model, &nothing, &taken, None, None);
     assert_eq!(check.id, "port-chapkit-ewars-model");
     assert_eq!(check.name, "port chapkit-ewars-model");
-    assert!(check.fix.unwrap().contains("chaps models unexpose"));
+    assert!(check.fix.unwrap().contains("varde models unexpose"));
 }
 
 /// `.env` moving the API port is the operator's doing, so the line names
@@ -434,13 +434,13 @@ fn the_api_port_line_names_the_file_that_moved_the_port() {
     let note = api_port_note(&project).expect("an override is worth a word");
     assert_eq!(
         note,
-        "from .env, over the 8000 recorded in .chaps/project.yaml"
+        "from .env, over the 8000 recorded in .varde/project.yaml"
     );
 
     let claim = claim(API_SERVICE, project.effective_api_port());
     let check = port_check(&claim, &BTreeSet::new(), &|_| false, None, Some(&note));
     assert_eq!(
         check.detail,
-        "18000 is free (from .env, over the 8000 recorded in .chaps/project.yaml)"
+        "18000 is free (from .env, over the 8000 recorded in .varde/project.yaml)"
     );
 }

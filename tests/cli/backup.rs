@@ -118,7 +118,7 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
         archived.replace(password_line(&archived), "")
     );
     assert_eq!(read(&target.join(".env.before-restore")), before);
-    let models = read(&target.join(".chaps/models.yaml"));
+    let models = read(&target.join(".varde/models.yaml"));
     assert!(models.contains("chapkit_ewars_model"));
     assert_eq!(
         state(&target)["models"]["chapkit_ewars_model"]["service_id"],
@@ -130,10 +130,10 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
         includes(&target),
         vec!["compose.chapkit-ewars-model.yml".to_string()]
     );
-    assert!(!target.join(".chaps/tmp").exists());
+    assert!(!target.join(".varde/tmp").exists());
 }
 
-/// A `.chaps/` state file the archive does not carry was not part of the
+/// A `.varde/` state file the archive does not carry was not part of the
 /// deployment it came from, so the restore takes this deployment's away
 /// rather than mixing the two.
 #[test]
@@ -141,7 +141,7 @@ fn restore_removes_optional_state_the_archive_does_not_have() {
     let sandbox = Sandbox::new();
     let source = sandbox.project();
     sandbox.init(&["--models", "none"]).assert().success();
-    assert!(!source.join(".chaps/models-manual.yaml").exists());
+    assert!(!source.join(".varde/models-manual.yaml").exists());
     let out = sandbox.home.path().join("archives");
     std::fs::create_dir_all(&out).unwrap();
     chap_in(
@@ -164,7 +164,7 @@ fn restore_removes_optional_state_the_archive_does_not_have() {
     let mut init = sandbox.chap();
     init.arg("init").arg(&target).args(["--models", "none"]);
     init.assert().success();
-    let manual = target.join(".chaps/models-manual.yaml");
+    let manual = target.join(".varde/models-manual.yaml");
     std::fs::write(&manual, "{}\n").unwrap();
 
     let report = json_of(&mut chap_in(
@@ -182,7 +182,7 @@ fn restore_removes_optional_state_the_archive_does_not_have() {
     assert!(!manual.exists(), "the destination's definitions went");
     assert_eq!(
         report["removed_state"],
-        serde_json::json!([".chaps/models-manual.yaml"])
+        serde_json::json!([".varde/models-manual.yaml"])
     );
 }
 
@@ -241,7 +241,7 @@ fn restore_rejects_something_that_is_not_a_backup() {
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains("is it a chaps backup?"));
+    .stderr(predicates::str::contains("is it a varde backup?"));
 
     chap_in(
         &sandbox,
@@ -263,7 +263,7 @@ fn backup_outside_a_project_says_so() {
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains("not a chaps project"));
+    .stderr(predicates::str::contains("not a varde project"));
 
     chap_in(
         &sandbox,
@@ -272,10 +272,10 @@ fn backup_outside_a_project_says_so() {
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains("not a chaps project"));
+    .stderr(predicates::str::contains("not a varde project"));
 }
 
-/// `chaps down --volumes --yes` for a deployment, when the guard goes out of
+/// `varde down --volumes --yes` for a deployment, when the guard goes out of
 /// scope: a test that fails half-way still leaves no container or volume
 /// behind.
 struct TakenDown(Option<assert_cmd::Command>);
@@ -303,11 +303,11 @@ fn probe_rows(sandbox: &Sandbox, dir: &std::path::Path) -> Vec<String> {
             "-d",
             "chap_core",
             "-tAc",
-            "select note from chaps_probe order by note",
+            "select note from varde_probe order by note",
         ],
     )
     .output()
-    .expect("chaps runs");
+    .expect("varde runs");
     assert!(
         out.status.success(),
         "psql failed: {}",
@@ -354,7 +354,7 @@ fn backup_and_restore_bring_the_database_back() {
         return;
     }
     let sandbox = Sandbox::new();
-    let dir = sandbox.project().with_file_name("chaps-backup-db");
+    let dir = sandbox.project().with_file_name("varde-backup-db");
     let mut init = sandbox.chap();
     init.arg("init")
         .arg(&dir)
@@ -377,7 +377,7 @@ fn backup_and_restore_bring_the_database_back() {
     psql(
         &sandbox,
         &dir,
-        "create table chaps_probe (note text); insert into chaps_probe values ('before');",
+        "create table varde_probe (note text); insert into varde_probe values ('before');",
     );
 
     let archives = sandbox.home.path().join("archives");
@@ -394,7 +394,7 @@ fn backup_and_restore_bring_the_database_back() {
     psql(
         &sandbox,
         &dir,
-        "insert into chaps_probe values ('after the backup');",
+        "insert into varde_probe values ('after the backup');",
     );
     assert_eq!(probe_rows(&sandbox, &dir), ["after the backup", "before"]);
 

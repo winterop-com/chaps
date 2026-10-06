@@ -2,13 +2,13 @@
 //! line it writes.
 //!
 //! `.env` is the one file in a deployment that an operator edits by hand and
-//! that docker compose acts on, so `chaps` and compose have to agree about it
+//! that docker compose acts on, so `varde` and compose have to agree about it
 //! completely. Two disagreements have cost a deployment already:
 //!
-//! - `chaps auth rotate` rewrote the *first* `CHAP_API_TOKEN=` line while
+//! - `varde auth rotate` rewrote the *first* `CHAP_API_TOKEN=` line while
 //!   compose went on reading a later duplicate, so a rotation that reported
 //!   success left the old token in force;
-//! - `chaps status` derived the API URL from `.chaps/project.yaml` alone, so a
+//! - `varde status` derived the API URL from `.varde/project.yaml` alone, so a
 //!   deployment moved with `CHAP_API_PORT=` in `.env` was probed on the port
 //!   it had left behind.
 //!
@@ -38,34 +38,34 @@ impl Sandbox {
         }
     }
 
-    /// The directory `chaps init DIR` is pointed at.
+    /// The directory `varde init DIR` is pointed at.
     fn project(&self) -> PathBuf {
         self.home.path().join("chapx")
     }
 
     fn chap(&self) -> Command {
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
             // The data directory too: `init` records the deployment there, and
             // a test must not write the developer's own record.
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
-            .env("CHAPS_NO_UPDATE_CHECK", "1")
+            .env("VARDE_NO_UPDATE_CHECK", "1")
             .current_dir(self.home.path())
             .arg("--offline");
         cmd
     }
 
-    /// `chaps init <project> ...`, with the arguments appended.
+    /// `varde init <project> ...`, with the arguments appended.
     fn init(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("init").arg(self.project()).args(args);
         cmd
     }
 
-    /// `chaps -C <project> <args>...`.
+    /// `varde -C <project> <args>...`.
     fn run(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("-C").arg(self.project()).args(args);
@@ -137,7 +137,7 @@ fn is_generated_secret(value: &str) -> bool {
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
 }
 
-/// `chaps status --json`, whose exit code is non-zero whenever the API is not
+/// `varde status --json`, whose exit code is non-zero whenever the API is not
 /// answering - which it never is here, since nothing was started.
 fn status_json(sandbox: &Sandbox) -> Json {
     let out = sandbox
@@ -286,7 +286,7 @@ fn status_follows_the_api_port_env_override() {
     );
 
     // Move the port the way an operator does: one line of `.env`, nothing in
-    // `.chaps/`.
+    // `.varde/`.
     let env = sandbox.env().replace(
         &format!("CHAP_API_PORT={recorded}"),
         &format!("CHAP_API_PORT={moved}"),
@@ -298,13 +298,13 @@ fn status_follows_the_api_port_env_override() {
     assert_eq!(
         report["api_url"],
         format!("http://localhost:{moved}"),
-        "status queried the port .chaps/project.yaml records, not the one .env sets"
+        "status queried the port .varde/project.yaml records, not the one .env sets"
     );
     assert_eq!(report["api_port"], moved);
     assert_eq!(report["api_port_source"], "env");
-    // `.chaps/project.yaml` is untouched: the override is the operator's, not
+    // `.varde/project.yaml` is untouched: the override is the operator's, not
     // a state change.
-    let state = read(&dir.join(".chaps").join("project.yaml"));
+    let state = read(&dir.join(".varde").join("project.yaml"));
     assert!(state.contains(&format!("api_port: {recorded}")), "{state}");
 
     // A commented-out line is not an override, and the recorded port comes
@@ -354,7 +354,7 @@ fn doctor_says_which_file_the_api_port_came_from() {
     assert!(detail.contains("from .env"), "{detail}");
     assert!(
         detail.contains(&format!(
-            "over the {recorded} recorded in .chaps/project.yaml"
+            "over the {recorded} recorded in .varde/project.yaml"
         )),
         "{detail}"
     );

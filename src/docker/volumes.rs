@@ -113,7 +113,7 @@ pub fn parse_volume_times(text: &str) -> BTreeMap<String, String> {
 ///
 /// `du` walks the whole tree, and an OCS data volume with a few thousand
 /// icechunk chunks in it takes a moment; ten seconds is long enough for that
-/// and short enough that a wedged daemon cannot hold `chaps status` open.
+/// and short enough that a wedged daemon cannot hold `varde status` open.
 pub const SIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How much a named volume holds, in bytes.
@@ -121,7 +121,7 @@ pub const SIZE_TIMEOUT: Duration = Duration::from_secs(10);
 /// `docker volume inspect` reports no size at all and `docker system df -v`
 /// does not report one reliably, so the volume is mounted read-only into a
 /// throwaway busybox and measured with `du -sk`. The image is the one the init
-/// containers and `chaps backup` already use, so nothing new is pulled.
+/// containers and `varde backup` already use, so nothing new is pulled.
 ///
 /// Best-effort and bounded, like every other query here: `None` when docker
 /// could not be run, refused, or overran [`SIZE_TIMEOUT`].

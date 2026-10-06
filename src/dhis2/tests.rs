@@ -138,7 +138,7 @@ fn a_password_is_only_ever_sent_as_the_user_it_belongs_to() {
     .unwrap_err()
     .to_string();
     assert!(err.contains("no password for DHIS2 user `alice`"), "{err}");
-    assert!(err.contains("CHAPS_DHIS2_PASSWORD"), "{err}");
+    assert!(err.contains("VARDE_DHIS2_PASSWORD"), "{err}");
     assert!(!err.contains("from-the-file"), "{err}");
 
     // An exported password with no owner named is the one for this run's
@@ -151,7 +151,7 @@ fn a_password_is_only_ever_sent_as_the_user_it_belongs_to() {
     assert_eq!(alice.user(), Some("alice"));
     assert_eq!(alice.source, CredentialSource::Environment);
 
-    // Unless CHAPS_DHIS2_USERNAME gives it to somebody else.
+    // Unless VARDE_DHIS2_USERNAME gives it to somebody else.
     assert!(
         credentials_of(&CredentialInputs {
             user: Some("alice"),
@@ -162,7 +162,7 @@ fn a_password_is_only_ever_sent_as_the_user_it_belongs_to() {
         .is_err()
     );
 
-    // The default is admin's, on a DHIS2 chaps deployed.
+    // The default is admin's, on a DHIS2 varde deployed.
     let admin = resolved(CredentialInputs {
         user: Some("admin"),
         ..inputs(body)
@@ -188,7 +188,7 @@ fn the_environment_pair_names_its_own_user() {
     assert_eq!(pair.source, CredentialSource::Environment);
 
     // `.env` naming a user with no password, and nothing else: that user
-    // has no password chaps knows, and the default is admin's, not theirs.
+    // has no password varde knows, and the default is admin's, not theirs.
     let err = credentials_of(&inputs("DHIS2_ADMIN_USERNAME=ops\n"))
         .unwrap_err()
         .to_string();
@@ -218,7 +218,7 @@ fn a_token_wins_within_its_source_and_loses_to_an_earlier_one() {
         ..inputs("")
     });
     assert_eq!(env_token.header(), "ApiToken d2p_env");
-    assert_eq!(env_token.describe(), "API token from CHAPS_DHIS2_TOKEN");
+    assert_eq!(env_token.describe(), "API token from VARDE_DHIS2_TOKEN");
 
     // `--user` asks for a user by name, so it is a password even with a
     // token on offer.
@@ -229,7 +229,7 @@ fn a_token_wins_within_its_source_and_loses_to_an_earlier_one() {
     assert_eq!(flagged.kind(), AuthKind::Basic);
 }
 
-/// chaps did not create an external DHIS2, so `admin` / `district` is
+/// varde did not create an external DHIS2, so `admin` / `district` is
 /// nobody's password there, and is never sent.
 #[test]
 fn an_external_dhis2_gets_no_default() {
@@ -451,7 +451,7 @@ fn the_allowlist_refusal_names_the_file_and_the_way_out() {
     assert!(text.contains("route.remote_servers_allowed"), "{text}");
     // A plain restart applies it: `restart` recreates a service whose
     // mounted config changed, which compose alone would not.
-    assert!(text.contains("run `chaps restart dhis2`"), "{text}");
+    assert!(text.contains("run `varde restart dhis2`"), "{text}");
     assert!(!text.contains("--all"), "{text}");
 }
 
@@ -536,7 +536,7 @@ fn a_dhis2_refusal_names_the_user_and_never_the_password() {
         "{text}"
     );
     assert!(text.contains("DHIS2_ADMIN_PASSWORD"), "{text}");
-    assert!(text.contains("CHAPS_DHIS2_PASSWORD"), "{text}");
+    assert!(text.contains("VARDE_DHIS2_PASSWORD"), "{text}");
     assert!(text.contains("the DHIS2 default"), "{text}");
     assert!(!text.contains("district"), "{text}");
 
@@ -563,7 +563,7 @@ fn a_dhis2_refusal_names_the_user_and_never_the_password() {
     let text = dhis2.refusal(&answer(401, "{}")).expect("a 401 sentence");
     assert!(text.contains("did not accept the API token"), "{text}");
     assert!(text.contains("DHIS2_API_TOKEN"), "{text}");
-    assert!(text.contains("CHAPS_DHIS2_TOKEN"), "{text}");
+    assert!(text.contains("VARDE_DHIS2_TOKEN"), "{text}");
     assert!(!text.contains("sekret"), "{text}");
     let text = dhis2.refusal(&answer(403, "{}")).expect("a 403 sentence");
     assert!(text.contains("as the token's user"), "{text}");
@@ -793,7 +793,7 @@ fn a_blank_bound_is_no_bound_on_either_side() {
         pick_version(&blank("2.40", ""), "2.42.6").unwrap().id,
         "only"
     );
-    // Both blank, whitespace-only, and text with no digits in it: chaps
+    // Both blank, whitespace-only, and text with no digits in it: varde
     // cannot compare against any of them, so none of them is a bound.
     assert_eq!(pick_version(&blank("", ""), "2.42.6").unwrap().id, "only");
     assert_eq!(
@@ -859,7 +859,7 @@ const REAL_MODELING_APP: &str = r#"{
     }"#;
 
 /// The headline capability, against the payload that broke it: DHIS2
-/// 2.42.6 can run the Modeling App, and chaps has to say which version.
+/// 2.42.6 can run the Modeling App, and varde has to say which version.
 #[test]
 fn the_app_hubs_own_answer_yields_a_version_for_a_real_instance() {
     let app: HubApp =
@@ -952,7 +952,7 @@ fn an_inherited_analytics_timestamp_is_not_evidence_of_analytics() {
         AnalyticsEvidence::Never
     );
     // A run seen here outranks a missing record rather than contradicting
-    // it: chaps watched it happen.
+    // it: varde watched it happen.
     assert_eq!(
         analytics_evidence("", true, true),
         AnalyticsEvidence::RanHere
@@ -1081,7 +1081,7 @@ fn an_unreachable_dhis2_says_so_in_its_own_words() {
     );
     let text = err.to_string();
     assert!(text.contains(&format!("DHIS2 at {base}")), "{text}");
-    assert!(text.contains("`chaps status`"), "{text}");
+    assert!(text.contains("`varde status`"), "{text}");
     assert!(!text.contains("chap-core"), "{text}");
 }
 
@@ -1103,7 +1103,7 @@ fn a_wait_that_runs_out_names_the_logs_and_the_flag() {
         )
         .expect_err("nothing is listening there");
     let text = err.to_string();
-    assert!(text.contains("`chaps logs dhis2`"), "{text}");
+    assert!(text.contains("`varde logs dhis2`"), "{text}");
     assert!(text.contains("--wait SECONDS"), "{text}");
     assert_eq!(said, 1, "the wait announces itself once");
 }
@@ -1115,7 +1115,7 @@ fn the_offline_refusal_names_both_halves_of_the_network_it_needs() {
     assert!(OFFLINE_APPS.contains("App Management"));
 }
 
-/// The seed password serves every user of a DHIS2 chaps deployed from a
+/// The seed password serves every user of a DHIS2 varde deployed from a
 /// seed, after `.env` and the environment, and never another instance.
 #[test]
 fn the_seed_password_serves_every_user_of_a_seeded_dhis2() {
@@ -1129,7 +1129,7 @@ fn the_seed_password_serves_every_user_of_a_seeded_dhis2() {
     assert_eq!(em.source, CredentialSource::SeedPassword);
     assert_eq!(
         em.describe(),
-        "the seed password from `.chaps/components.yaml`"
+        "the seed password from `.varde/components.yaml`"
     );
     // Without --user: the user `.env` names, or admin.
     let admin = resolved(seeded(None));
@@ -1141,7 +1141,7 @@ fn the_seed_password_serves_every_user_of_a_seeded_dhis2() {
         ..seeded(Some("em"))
     });
     assert_eq!(exported.source, CredentialSource::Environment);
-    // Not on a DHIS2 chaps did not deploy.
+    // Not on a DHIS2 varde did not deploy.
     let external = credentials_of(&CredentialInputs {
         deployed: false,
         ..seeded(Some("em"))

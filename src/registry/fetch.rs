@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// `User-Agent` sent with every registry request, so the marketplace can tell
 /// CLI traffic apart from browsers.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// Fetch `registry.yaml` and every model file it lists over HTTP.
 ///
@@ -73,7 +73,7 @@ fn get(agent: &ureq::Agent, url: &str) -> Result<String> {
     Ok(body)
 }
 
-/// Turn a ureq failure into a `chaps` error.
+/// Turn a ureq failure into a `varde` error.
 ///
 /// ureq 3 reports a non-2xx response as [`ureq::Error::StatusCode`] rather
 /// than as a successful response, so that is where [`ChapError::Http`] comes

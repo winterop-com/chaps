@@ -1,8 +1,8 @@
-//! `chaps dhis2 connect`: the route, the apps, then analytics, and the record of it.
+//! `varde dhis2 connect`: the route, the apps, then analytics, and the record of it.
 
 use super::*;
 
-/// `chaps dhis2 connect` — the route, the apps, then analytics.
+/// `varde dhis2 connect` — the route, the apps, then analytics.
 ///
 /// That order, and not the order the chapter lists them in. The two cheap steps
 /// come first so a failure in either is reported in seconds rather than after
@@ -16,9 +16,9 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     let route = write_route(ctx, &session)?;
 
     // A DHIS2 someone else runs gets the route and nothing more. Installing
-    // apps and generating analytics tables change a server chaps does not own,
+    // apps and generating analytics tables change a server varde does not own,
     // and on a national instance an analytics run takes hours of its CPU; its
-    // admin decides, with `chaps dhis2 apps` and `chaps dhis2 analytics`.
+    // admin decides, with `varde dhis2 apps` and `varde dhis2 analytics`.
     if session.external().is_some() {
         let mut left = Vec::new();
         // Only a listing that names both apps lets the report say the Modeling
@@ -48,13 +48,13 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
             instance: session.instance(),
             next: match (route.verified, installed) {
                 (true, true) => {
-                    "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`"
+                    "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`"
                         .to_string()
                 }
                 (true, false) => "the Modeling App can reach Chap once it is installed; open \
-                                  DHIS2 with `chaps open dhis2`"
+                                  DHIS2 with `varde open dhis2`"
                     .to_string(),
-                (false, _) => "run `chaps dhis2 show` to see what is still missing".to_string(),
+                (false, _) => "run `varde dhis2 show` to see what is still missing".to_string(),
             },
             route: Some(route),
             apps: None,
@@ -81,15 +81,15 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
 
     let done = route.verified && failed.is_none() && analytics.finished && skipped.is_empty();
     // Written before the report is printed, so what the screen says and what
-    // `.chaps/components.yaml` holds cannot disagree.
+    // `.varde/components.yaml` holds cannot disagree.
     let record = record_connect(ctx, &mut session.project, judge(&route, apps.as_ref()))?;
     let report = Dhis2Report {
         instance: session.instance(),
         next: match done {
             true => {
-                "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string()
+                "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string()
             }
-            false => "run `chaps dhis2 show` to see what is still missing".to_string(),
+            false => "run `varde dhis2 show` to see what is still missing".to_string(),
         },
         route: Some(route),
         apps,
@@ -110,14 +110,14 @@ fn external_left_alone(missing: &[String]) -> Vec<String> {
     let apps = match missing.is_empty() {
         true => "installing apps: both are there already".to_string(),
         false => format!(
-            "installing apps on a DHIS2 chaps does not run ({}); `chaps dhis2 apps` installs \
+            "installing apps on a DHIS2 varde does not run ({}); `varde dhis2 apps` installs \
              them if its admin agrees",
             missing.join(", ")
         ),
     };
     vec![
         apps,
-        "generating analytics tables on a DHIS2 chaps does not run; `chaps dhis2 analytics` \
+        "generating analytics tables on a DHIS2 varde does not run; `varde dhis2 analytics` \
          starts a run if its admin agrees"
             .to_string(),
     ]
@@ -129,7 +129,7 @@ fn external_left_alone(missing: &[String]) -> Vec<String> {
 /// Three states rather than two, because a run can also fail to look. Clearing
 /// a record is an assertion that something is broken, and an assertion needs
 /// evidence: a step this run skipped is not evidence of anything, and a skip is
-/// a reported skip everywhere else in chaps rather than a failure.
+/// a reported skip everywhere else in varde rather than a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Judgement {
     /// The route was proved and both apps are in place. Stamp the time.
@@ -152,9 +152,9 @@ pub(super) enum Judgement {
 /// `/get-started` without the route, and there is no Chap user interface in
 /// DHIS2 without the apps. Neither is true of analytics: the app is installed,
 /// reaches chap-core and works, and empty `analytics_*` tables are a deployment
-/// with no data rather than one that cannot talk to itself. `chaps dhis2 show`
+/// with no data rather than one that cannot talk to itself. `varde dhis2 show`
 /// reports the analytics question separately and with the evidence it is worth,
-/// which is where it belongs, and `chaps dhis2 analytics --no-wait` is a
+/// which is where it belongs, and `varde dhis2 analytics --no-wait` is a
 /// supported shape in which nothing here could ever wait for a finished run.
 ///
 /// The route is judged by `verified` rather than by `outcome`: a row written
@@ -186,7 +186,7 @@ pub(super) fn judge(route: &RouteReport, apps: Option<&AppsReport>) -> Judgement
     }
 }
 
-/// Write what this run is worth into `.chaps/components.yaml`, and say which of
+/// Write what this run is worth into `.varde/components.yaml`, and say which of
 /// the three things happened to the file.
 ///
 /// A run that got there stamps the time; a run that found it broken forgets
@@ -197,8 +197,8 @@ pub(super) fn judge(route: &RouteReport, apps: Option<&AppsReport>) -> Judgement
 /// the Modeling App cannot reach Chap. That trade only holds when the run
 /// actually found something wrong, which is why [`Judgement::Unknown`] writes
 /// nothing in either direction: absence of evidence would otherwise make
-/// `chaps up` say "chaps has not connected this DHIS2 to Chap" about a
-/// deployment chaps did connect, because of a flag on an unrelated step.
+/// `varde up` say "varde has not connected this DHIS2 to Chap" about a
+/// deployment varde did connect, because of a flag on an unrelated step.
 ///
 /// The file is only written when the value moves, so re-running `connect` on a
 /// deployment that was never connected touches nothing.
@@ -216,8 +216,8 @@ pub(super) fn record_connect(
         (Judgement::Connected, _) => Some(crate::backup::timestamp(crate::backup::now())),
     };
     ctx.out.verbose(&match &at {
-        Some(at) => format!("recording `connected_at: {at}` in `.chaps/components.yaml`"),
-        None => "clearing `connected_at` in `.chaps/components.yaml`".to_string(),
+        Some(at) => format!("recording `connected_at: {at}` in `.varde/components.yaml`"),
+        None => "clearing `connected_at` in `.varde/components.yaml`".to_string(),
     });
     let record = match at.is_some() {
         true => ConnectRecord::Recorded,

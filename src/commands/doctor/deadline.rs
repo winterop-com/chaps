@@ -48,7 +48,7 @@ impl Outcome {
 ///
 /// `std::process` has no deadline of its own, so the child is polled and
 /// killed rather than waited on: a wedged daemon must not be able to hold
-/// `chaps doctor` open. Every output here is small enough to sit in the pipe
+/// `varde doctor` open. Every output here is small enough to sit in the pipe
 /// buffer while the child is polled, so nothing can deadlock on an unread
 /// pipe.
 pub fn run_bounded(program: &str, args: &[&str], timeout: Duration) -> Outcome {

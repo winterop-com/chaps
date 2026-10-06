@@ -109,8 +109,8 @@ pub fn image_ids(refs: &[String]) -> BTreeMap<String, String> {
 /// A moving tag such as `dev` says nothing about what it is: two machines on
 /// the same tag can be on different images, and so can the same machine after
 /// a pull. The digest the image was pulled at is the one thing that does say,
-/// so it is what `chaps status`, `chaps doctor` and
-/// `chaps update --list-tags` print next to a moving tag.
+/// so it is what `varde status`, `varde doctor` and
+/// `varde update --list-tags` print next to a moving tag.
 ///
 /// `None` all the way down when docker cannot be asked or the service is not
 /// up: not knowing which build is running is reported as not knowing.
@@ -190,7 +190,7 @@ const IMAGE_CONFIG_FORMAT: &str = "{{.Config.User}}\t{{.Config.WorkingDir}}\t\
 /// it as `linux/amd64`.
 ///
 /// The same two fields the registry's config blob carries, which is what
-/// makes this the fallback for `chaps models add` when ghcr cannot be
+/// makes this the fallback for `varde models add` when ghcr cannot be
 /// reached: a tab-separated `docker image inspect`, so an empty field stays
 /// an empty field.
 ///
@@ -330,7 +330,7 @@ pub fn parse_command(text: &str) -> Option<Vec<String>> {
 /// The numeric `uid:gid` of an account name inside an image, by asking the
 /// image itself.
 ///
-/// The last resort of `chaps models add`: an image that runs as a name this
+/// The last resort of `varde models add`: an image that runs as a name this
 /// CLI has never heard of still has to be chowned to something, and only the
 /// image knows what that name resolves to. `sh` and `id` are in every
 /// chapkit base; an image with neither yields `None` and the caller falls

@@ -88,7 +88,7 @@ impl Dhis2 {
 }
 
 /// Where the route has to point for an external DHIS2: chap-core's own URL as
-/// that DHIS2 reaches it, recorded by `chaps dhis2 use --chap-url`.
+/// that DHIS2 reaches it, recorded by `varde dhis2 use --chap-url`.
 pub fn external_route_target(chap_url: &str) -> String {
     format!("{}{ROUTE_SUFFIX}", chap_url.trim_end_matches('/'))
 }
@@ -219,7 +219,7 @@ pub fn route_run_path(path: &str) -> String {
 /// whose file was narrowed or replaced - which is exactly the failure that
 /// otherwise looks like nothing at all.
 ///
-/// A plain `chaps restart dhis2` applies the edit: `dhis.conf` is a bind mount
+/// A plain `varde restart dhis2` applies the edit: `dhis.conf` is a bind mount
 /// compose does not compare, so `restart` recreates a service whose mounted
 /// config is newer than its container itself (see
 /// [`crate::commands::docker::edited_configs`]).
@@ -232,7 +232,7 @@ pub fn allowlist_hint(target: &str, deployed: bool) -> String {
         true => format!(
             "DHIS2 refused the route: version 42 and later only allow the origins \
              `route.remote_servers_allowed` lists, and {origin} has to be one of them; check \
-             that line in `dhis2/dhis.conf` and run `chaps restart dhis2`, which recreates it \
+             that line in `dhis2/dhis.conf` and run `varde restart dhis2`, which recreates it \
              to read the file again"
         ),
         false => format!(

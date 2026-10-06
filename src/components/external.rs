@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// A DHIS2 this deployment did not start, which `chaps dhis2` talks to in
-/// place of the `dhis2` component. Recorded by `chaps dhis2 use`.
+/// A DHIS2 this deployment did not start, which `varde dhis2` talks to in
+/// place of the `dhis2` component. Recorded by `varde dhis2 use`.
 ///
 /// The shape of most real deployments: Chap beside a DHIS2 that already runs
 /// somewhere else. Nothing is rendered from it - there is no container - and
@@ -18,7 +18,7 @@ pub struct ExternalDhis2 {
     /// route points at. Not the compose network's `http://chap:8000`, which
     /// only a container of this deployment can resolve.
     pub chap_url: String,
-    /// When `chaps dhis2 connect` last got as far as a verified route and both
+    /// When `varde dhis2 connect` last got as far as a verified route and both
     /// apps there. The same record, with the same caveats, as
     /// [`Dhis2Component::connected_at`].
     #[serde(default)]
@@ -27,10 +27,10 @@ pub struct ExternalDhis2 {
 
 /// A chap-core this deployment did not start, which its model services
 /// register with and the chap-core commands talk to. Recorded by
-/// `chaps init --chap-core-url` or `chaps components enable chap-core --url`.
+/// `varde init --chap-core-url` or `varde components enable chap-core --url`.
 ///
 /// The shape of chap-core development: chap-core runs from its own checkout
-/// on this machine, and chaps runs the model services around it. It cannot be
+/// on this machine, and varde runs the model services around it. It cannot be
 /// recorded while the `chap-core` component is on, because the two would each
 /// be "this deployment's chap-core".
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,7 +92,7 @@ impl ExternalChapCore {
 /// a container (`make restart` in chap-core's checkout starts it that way) it
 /// is the container itself, and every call back fails. `publisher` names the
 /// container publishing a host port, `None` when there is none or no docker
-/// to ask - which leaves `localhost`, and `chaps status` to catch it later.
+/// to ask - which leaves `localhost`, and `varde status` to catch it later.
 pub fn detect_models_host(
     external: &mut ExternalChapCore,
     publisher: &dyn Fn(u16) -> Option<String>,
@@ -105,7 +105,7 @@ pub fn detect_models_host(
     external.models_host = HOST_GATEWAY.to_string();
     Some(format!(
         "chap-core at {} is the container `{container}`, so it calls the models back at \
-         {HOST_GATEWAY}; if it is a process on this machine instead, run `chaps components \
+         {HOST_GATEWAY}; if it is a process on this machine instead, run `varde components \
          enable chap-core --url {} --models-host localhost`",
         external.url, external.url
     ))

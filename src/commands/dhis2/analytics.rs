@@ -1,19 +1,19 @@
-//! `chaps dhis2 analytics`: the analytics tables, generated and waited for.
+//! `varde dhis2 analytics`: the analytics tables, generated and waited for.
 
 use super::*;
 
-/// `chaps dhis2 analytics` — generate the analytics tables.
+/// `varde dhis2 analytics` — generate the analytics tables.
 pub fn analytics(ctx: &Ctx, args: &Dhis2AnalyticsArgs) -> Result<()> {
     let session = open_session(ctx, &args.common)?;
     let analytics = run_analytics(ctx, &session, args.timeout, args.no_wait)?;
     let report = Dhis2Report {
         instance: session.instance(),
         next: match (analytics.finished, analytics.job.is_empty()) {
-            (true, _) => "run `chaps dhis2 show` to see what is still missing".to_string(),
+            (true, _) => "run `varde dhis2 show` to see what is still missing".to_string(),
             // Watching again finds the job while it runs; without its id a
             // second run could just as well start another generation.
-            (false, false) => "run `chaps dhis2 analytics` again to watch the same run".to_string(),
-            (false, true) => "DHIS2 did not say which job it started; `chaps dhis2 show` says \
+            (false, false) => "run `varde dhis2 analytics` again to watch the same run".to_string(),
+            (false, true) => "DHIS2 did not say which job it started; `varde dhis2 show` says \
                               when the analytics tables are ready"
                 .to_string(),
         },
@@ -147,7 +147,7 @@ pub(super) fn failure_message(reason: &str, after: &str) -> String {
     {
         "DHIS2 wants about 4 to 5 GB for the populate phase; see `DHIS2_JAVA_TOOL_OPTIONS` in `.env`"
     } else {
-        "`chaps logs dhis2` has the rest"
+        "`varde logs dhis2` has the rest"
     };
     format!("the analytics run failed after {after}: {cause}; {next}")
 }

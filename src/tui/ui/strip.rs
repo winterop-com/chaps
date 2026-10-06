@@ -143,7 +143,7 @@ fn component_summary_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Li
     ))]
 }
 
-/// The compose file `chaps sync` renders for a component.
+/// The compose file `varde sync` renders for a component.
 ///
 /// chap-core's are upstream's own, which this CLI renders but does not author,
 /// so they are named as the pair they are.
@@ -152,7 +152,7 @@ pub(super) fn compose_of(component: Component) -> String {
         Component::ChapCore => format!(
             "{} + {}",
             crate::project::BASE_COMPOSE,
-            crate::project::CHAPS_COMPOSE
+            crate::project::VARDE_COMPOSE
         ),
         Component::Ocs => crate::components::OCS_COMPOSE.to_string(),
         Component::S3 => crate::components::S3_COMPOSE.to_string(),

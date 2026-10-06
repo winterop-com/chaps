@@ -10,7 +10,7 @@ fn buffer(width: u16, height: u16) -> Buffer {
 #[test]
 fn a_buffer_becomes_a_picture_of_itself() {
     let mut buffer = buffer(20, 2);
-    buffer.set_string(0, 0, "chaps · models", Style::default());
+    buffer.set_string(0, 0, "varde · models", Style::default());
     buffer.set_string(0, 1, "7 models", Style::default().fg(Color::Cyan));
     let svg = svg(&buffer, &Theme::default());
 
@@ -29,7 +29,7 @@ fn a_buffer_becomes_a_picture_of_itself() {
         )),
         "{svg}"
     );
-    assert!(svg.contains(">chaps · models</tspan>"), "{svg}");
+    assert!(svg.contains(">varde · models</tspan>"), "{svg}");
     assert!(
         svg.contains("fill=\"#06989a\">7 models</tspan>"),
         "cyan: {svg}"
@@ -51,7 +51,7 @@ fn the_three_characters_that_would_break_the_file_are_escaped() {
 fn weight_colour_and_reverse_video_survive_the_trip() {
     let mut styled = buffer(24, 1);
     styled.set_string(0, 0, "MODEL", Theme::default().label_style());
-    styled.set_string(6, 0, "chaps", Theme::default().accent_style());
+    styled.set_string(6, 0, "varde", Theme::default().accent_style());
     styled.set_string(12, 0, "dim", Theme::default().dim_style());
     let styled = svg(&styled, &Theme::default());
     assert!(
@@ -59,7 +59,7 @@ fn weight_colour_and_reverse_video_survive_the_trip() {
         "a heading is bold in the terminal's own ink: {styled}"
     );
     assert!(
-        styled.contains("fill=\"#06989a\">chaps</tspan>"),
+        styled.contains("fill=\"#06989a\">varde</tspan>"),
         "the accent is cyan: {styled}"
     );
     assert!(
@@ -95,7 +95,7 @@ fn blank_rows_draw_nothing() {
 fn the_file_is_named_after_the_second_it_was_taken_in() {
     // 2026-09-25T14:30:12Z.
     let now = UNIX_EPOCH + Duration::from_secs(1_790_346_612);
-    assert_eq!(file_name(now), "chaps-ui-20260925-143012.svg");
+    assert_eq!(file_name(now), "varde-ui-20260925-143012.svg");
     assert_eq!(stamp(0), "19700101-000000");
     // A leap day, which is where a home-made calendar goes wrong.
     assert_eq!(stamp(1_709_164_800), "20240229-000000");
@@ -105,20 +105,20 @@ fn the_file_is_named_after_the_second_it_was_taken_in() {
 fn saving_writes_the_file_and_says_where() {
     let dir = tempfile::tempdir().unwrap();
     let mut buffer = buffer(16, 1);
-    buffer.set_string(0, 0, "chaps", Style::default());
+    buffer.set_string(0, 0, "varde", Style::default());
     let now = UNIX_EPOCH + Duration::from_secs(1_790_346_612);
 
     let message = save_in(dir.path(), &buffer, &Theme::default(), now);
-    assert_eq!(message, "saved chaps-ui-20260925-143012.svg");
-    let written = std::fs::read_to_string(dir.path().join("chaps-ui-20260925-143012.svg")).unwrap();
-    assert!(written.contains(">chaps</tspan>"), "{written}");
+    assert_eq!(message, "saved varde-ui-20260925-143012.svg");
+    let written = std::fs::read_to_string(dir.path().join("varde-ui-20260925-143012.svg")).unwrap();
+    assert!(written.contains(">varde</tspan>"), "{written}");
 
     // A directory that is not there is a message, not a panic, and
     // nothing is created to make room for the file.
     let missing = dir.path().join("nope");
     let message = save_in(&missing, &buffer, &Theme::default(), now);
     assert!(
-        message.starts_with("could not save `chaps-ui-"),
+        message.starts_with("could not save `varde-ui-"),
         "{message}"
     );
     assert!(!missing.exists(), "no directory was made");

@@ -1,4 +1,4 @@
-//! `chaps models`, `chaps ui` and `chaps registry`: the marketplace and what
+//! `varde models`, `varde ui` and `varde registry`: the marketplace and what
 //! this deployment runs from it.
 
 use super::PortArg;

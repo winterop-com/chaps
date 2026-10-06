@@ -156,7 +156,7 @@ fn the_closing_line_counts_only_the_buckets_that_hold_something() {
     assert_eq!(summary(&jobs), "4 jobs: 1 running, 2 done, 1 failed");
     assert_eq!(
         failure_hint(&jobs).unwrap(),
-        "run `chaps jobs logs d` to see why"
+        "run `varde jobs logs d` to see why"
     );
 
     let clean = vec![job("a", "SUCCESS", -10, Some(1))];
@@ -173,7 +173,7 @@ fn the_closing_line_counts_only_the_buckets_that_hold_something() {
     assert_eq!(summary(&two_bad), "3 jobs: 2 failed, 1 cancelled");
     assert_eq!(
         failure_hint(&two_bad).unwrap(),
-        "run `chaps jobs logs <id>` to see why"
+        "run `varde jobs logs <id>` to see why"
     );
 }
 
@@ -203,7 +203,7 @@ fn an_id_matches_exactly_or_by_a_unique_prefix() {
     assert_eq!(resolve(&[], "f293"), Matched::None);
 
     let err = no_such_job("zzz", &Matched::None).to_string();
-    assert_eq!(err, "job zzz not found; run `chaps jobs` to list them");
+    assert_eq!(err, "job zzz not found; run `varde jobs` to list them");
     let err = no_such_job("f29", &Matched::Many(2)).to_string();
     assert!(err.starts_with("job f29 matches 2 jobs;"), "{err}");
 }

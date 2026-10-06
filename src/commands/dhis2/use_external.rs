@@ -1,14 +1,14 @@
-//! `chaps dhis2 use`: a DHIS2 that runs elsewhere, recorded and asked.
+//! `varde dhis2 use`: a DHIS2 that runs elsewhere, recorded and asked.
 
 use super::*;
 
 /// How long `use` gives DHIS2 to answer: it asks once, and a DHIS2 that is
-/// still migrating is `chaps dhis2 show`'s to wait for.
+/// still migrating is `varde dhis2 show`'s to wait for.
 const USE_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Why an external DHIS2 cannot be recorded beside the component.
 const COMPONENT_IS_ON: &str = "the `dhis2` component is on, and it is this deployment's DHIS2; \
-     run `chaps components disable dhis2` first, then `chaps dhis2 use` again";
+     run `varde components disable dhis2` first, then `varde dhis2 use` again";
 
 /// What `use` did to the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -33,7 +33,7 @@ pub struct UseProbe {
     pub answered: bool,
     /// What it said, or why nothing did.
     pub answer: String,
-    /// The credential `chaps dhis2` would send, by what it is and where it was
+    /// The credential `varde dhis2` would send, by what it is and where it was
     /// found; `null` when there is none.
     pub credential: Option<String>,
     /// Whether DHIS2 accepted it. `null` when it was not tried: no
@@ -43,7 +43,7 @@ pub struct UseProbe {
     pub problem: Option<String>,
 }
 
-/// What `chaps dhis2 use` did.
+/// What `varde dhis2 use` did.
 #[derive(Debug, Clone, Serialize)]
 pub struct UseReport {
     pub outcome: UseOutcome,
@@ -53,7 +53,7 @@ pub struct UseReport {
     pub previous: Option<crate::components::ExternalDhis2>,
     /// Where the `chap` route has to point for it.
     pub target: Option<String>,
-    /// Whether the `dhis2` component is on, which is what `chaps dhis2` talks
+    /// Whether the `dhis2` component is on, which is what `varde dhis2` talks
     /// to when nothing is recorded.
     pub component: bool,
     /// What asking it just now found; `null` when there is nothing to ask.
@@ -62,8 +62,8 @@ pub struct UseReport {
     pub next: String,
 }
 
-/// `chaps dhis2 use` — record a DHIS2 that runs elsewhere, change it, forget
-/// it, or say which DHIS2 `chaps dhis2` talks to.
+/// `varde dhis2 use` — record a DHIS2 that runs elsewhere, change it, forget
+/// it, or say which DHIS2 `varde dhis2` talks to.
 ///
 /// Every shape that records something also asks: [`dhis2::PING_PATH`] to
 /// prove the URL, and one authenticated request to prove the credential. A
@@ -93,9 +93,9 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             probe: None,
             notes: Vec::new(),
             next: match component {
-                true => "`chaps dhis2` talks to the `dhis2` component; run `chaps dhis2 show`",
+                true => "`varde dhis2` talks to the `dhis2` component; run `varde dhis2 show`",
                 false => {
-                    "run `chaps dhis2 use URL --chap-url URL` to record a DHIS2, or `chaps \
+                    "run `varde dhis2 use URL --chap-url URL` to record a DHIS2, or `varde \
                      components enable dhis2` to deploy one"
                 }
             }
@@ -116,7 +116,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
                 (None, None) => {
                     return Err(anyhow::anyhow!(
                         "no external DHIS2 is recorded yet, so there is no URL to keep; run \
-                         `chaps dhis2 use URL --chap-url URL`"
+                         `varde dhis2 use URL --chap-url URL`"
                     ));
                 }
             };
@@ -126,7 +126,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
                 (None, None) => {
                     return Err(anyhow::anyhow!(
                         "`--chap-url URL` is needed the first time: the route points at \
-                         chap-core as DHIS2 reaches it, which chaps cannot know; run `chaps \
+                         chap-core as DHIS2 reaches it, which varde cannot know; run `varde \
                          dhis2 use {url} --chap-url https://chap.example.org`"
                     ));
                 }
@@ -151,7 +151,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             };
             if outcome != UseOutcome::Unchanged {
                 ctx.out
-                    .verbose("recording `dhis2-external` in `.chaps/components.yaml`");
+                    .verbose("recording `dhis2-external` in `.varde/components.yaml`");
                 project.state.components.dhis2_external = Some(external.clone());
                 project.save()?;
                 // The login variables, commented out, so the names the
@@ -172,9 +172,9 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             probe: None,
             notes: Vec::new(),
             next: match component {
-                true => "`chaps dhis2` talks to the `dhis2` component; run `chaps dhis2 show`",
+                true => "`varde dhis2` talks to the `dhis2` component; run `varde dhis2 show`",
                 false => {
-                    "run `chaps dhis2 use URL --chap-url URL` to record a DHIS2, or `chaps \
+                    "run `varde dhis2 use URL --chap-url URL` to record a DHIS2, or `varde \
                      components enable dhis2` to deploy one"
                 }
             }
@@ -198,18 +198,18 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
     }
     let next = match (&probe, &recorded.connected_at) {
         (probe, _) if !probe.answered => {
-            "check the URL, then run `chaps dhis2 use` again to ask it".to_string()
+            "check the URL, then run `varde dhis2 use` again to ask it".to_string()
         }
         // The problem line above has just named the ways to give it
         // credentials; this one only says what follows.
         (probe, _) if probe.credential.is_none() => {
-            "once one of them is in `.env`, run `chaps dhis2 connect`".to_string()
+            "once one of them is in `.env`, run `varde dhis2 connect`".to_string()
         }
         (probe, _) if probe.accepted == Some(false) => {
-            "fix the credential named above, then run `chaps dhis2 use` again to ask it".to_string()
+            "fix the credential named above, then run `varde dhis2 use` again to ask it".to_string()
         }
-        (_, None) => "run `chaps dhis2 connect` to point its route at this Chap".to_string(),
-        (_, Some(_)) => "run `chaps dhis2 show` to see what it has".to_string(),
+        (_, None) => "run `varde dhis2 connect` to point its route at this Chap".to_string(),
+        (_, Some(_)) => "run `varde dhis2 show` to see what it has".to_string(),
     };
     let report = UseReport {
         outcome,
@@ -245,7 +245,7 @@ pub(super) fn cleartext_note(url: &str) -> Option<String> {
         format!(
             "{url} is plain http on another machine, so the DHIS2 password or token crosses \
              the network unencrypted with every request; record its `https://` address with \
-             `chaps dhis2 use` if it has one"
+             `varde dhis2 use` if it has one"
         )
     })
 }
@@ -261,7 +261,7 @@ fn external_url(raw: &str) -> Result<String> {
         .unwrap_or_default();
     if host.is_empty() {
         return Err(anyhow::anyhow!(
-            "`{raw}` is not a URL chaps can record; give it with http:// or https://, like \
+            "`{raw}` is not a URL varde can record; give it with http:// or https://, like \
              `https://dhis2.example.org`"
         ));
     }
@@ -274,7 +274,7 @@ fn external_url(raw: &str) -> Result<String> {
 /// A DHIS2 on another machine resolves `localhost` to itself, so the address
 /// is wrong there. A DHIS2 on this machine is either a process on it, for
 /// which `localhost` is exactly right, or a container, which needs
-/// `host.docker.internal`; chaps cannot tell which, so the note says both.
+/// `host.docker.internal`; varde cannot tell which, so the note says both.
 pub(super) fn loopback_note(dhis2_url: &str, chap_url: &str) -> Option<String> {
     if !is_loopback(chap_url) {
         return None;
@@ -307,7 +307,7 @@ fn is_loopback(url: &str) -> bool {
 }
 
 /// Ask the recorded DHIS2 whether it answers, and whether it takes the
-/// credential `chaps dhis2` would send it.
+/// credential `varde dhis2` would send it.
 fn probe_external(project: &Project, external: &crate::components::ExternalDhis2) -> UseProbe {
     let credentials = dhis2::credentials_for(&project.dir, None, false, None);
     // `send_open` carries no credential, so a placeholder serves for the ping

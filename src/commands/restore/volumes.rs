@@ -91,7 +91,7 @@ pub(super) fn restore_components(
     // which after a files restore is the one it kept.
     let Some(prefix) = project.compose_project_name() else {
         return Err(anyhow::anyhow!(
-            "`compose_project` is empty in `.chaps/project.yaml`, so the component volumes \
+            "`compose_project` is empty in `.varde/project.yaml`, so the component volumes \
              cannot be named; set it to the name the deployment runs under, then run the \
              restore again"
         ));

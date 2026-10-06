@@ -46,7 +46,7 @@ pub fn check_compose_version() -> Result<Option<String>> {
     let (ia, ib, ic) = INCLUDE_COMPOSE_VERSION;
     Ok(Some(format!(
         "docker compose {fa}.{fb}.{fc} is older than {wa}.{wb}.{wc}; \
-         compose.chaps.yml uses `!override`, which needs {wa}.{wb}.{wc} or newer, and \
+         compose.varde.yml uses `!override`, which needs {wa}.{wb}.{wc} or newer, and \
          compose.marketplace.yml uses `include:`, which needs {ia}.{ib}.{ic}"
     )))
 }

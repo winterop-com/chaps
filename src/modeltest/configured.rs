@@ -58,7 +58,7 @@ pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
 ///
 /// The order is the order of how much the row is the service itself: its bare
 /// name, then a config of it, and a `test_config_` last of all, because that
-/// is what a previous `chaps models test` or `chapkit test` left behind and
+/// is what a previous `varde models test` or `chapkit test` left behind and
 /// not a configuration anybody made. Ties go to the lowest id, so two runs of
 /// the same command backtest the same model.
 pub fn configured_model_for<'a>(

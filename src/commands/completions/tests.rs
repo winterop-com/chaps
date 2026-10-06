@@ -1,6 +1,6 @@
 use super::*;
 
-/// The five shells `chaps completions` accepts, which is every shell
+/// The five shells `varde completions` accepts, which is every shell
 /// `clap_complete::Shell` knows.
 const SHELLS: &[Shell] = &[
     Shell::Bash,
@@ -11,11 +11,11 @@ const SHELLS: &[Shell] = &[
 ];
 
 #[test]
-fn every_shell_gets_a_script_that_completes_chaps() {
+fn every_shell_gets_a_script_that_completes_varde() {
     for shell in SHELLS {
         let script = script(*shell);
         assert!(!script.trim().is_empty(), "{shell} produced nothing");
-        assert!(script.contains("chaps"), "{shell} does not name chaps");
+        assert!(script.contains("varde"), "{shell} does not name varde");
     }
 }
 
@@ -39,9 +39,9 @@ fn the_scripts_know_the_commands_this_build_has() {
 /// shell refuses to load it.
 #[test]
 fn each_script_is_written_for_its_own_shell() {
-    assert!(script(Shell::Bash).contains("complete -F _chaps"));
-    assert!(script(Shell::Zsh).starts_with("#compdef chaps"));
-    assert!(script(Shell::Fish).contains("complete -c chaps"));
+    assert!(script(Shell::Bash).contains("complete -F _varde"));
+    assert!(script(Shell::Zsh).starts_with("#compdef varde"));
+    assert!(script(Shell::Fish).contains("complete -c varde"));
     assert!(script(Shell::PowerShell).contains("Register-ArgumentCompleter"));
     assert!(script(Shell::Elvish).contains("edit:completion:arg-completer"));
 }

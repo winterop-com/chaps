@@ -108,7 +108,7 @@ fn apply_writes_the_overlay_the_umbrella_and_the_state() {
     );
     assert_eq!(project.state.compose_files, default_compose_files());
 
-    // .chaps/ is written, not just held in memory.
+    // .varde/ is written, not just held in memory.
     let reloaded = Project::load(dir.path()).unwrap();
     assert_eq!(reloaded.state.models["chapkit_ewars_model"], *entry);
 }
@@ -306,7 +306,7 @@ fn an_unknown_model_is_rejected_before_anything_is_written() {
         err.downcast_ref::<ChapError>(),
         Some(ChapError::UnknownModel(id)) if id == "nope"
     ));
-    assert!(!dir.path().join(".chaps").exists());
+    assert!(!dir.path().join(".varde").exists());
     assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
 }
 
@@ -426,7 +426,7 @@ fn validate_answers_for_the_whole_selection_and_touches_nothing() {
     // A selection that would apply says nothing, and none of these
     // questions wrote anything.
     validate(&project, &registry, &enable(&["chapkit_ewars_model"])).unwrap();
-    assert!(!dir.path().join(".chaps").exists());
+    assert!(!dir.path().join(".varde").exists());
     assert!(!dir.path().join(MARKETPLACE_COMPOSE).exists());
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 
@@ -500,7 +500,7 @@ fn without_an_env_file_nothing_is_created() {
 }
 
 /// A selection that says nothing about models still applies: the component
-/// set goes into `.chaps/components.yaml` and the same sync renders the
+/// set goes into `.varde/components.yaml` and the same sync renders the
 /// file for it.
 #[test]
 fn a_selection_that_only_changes_a_component_renders_its_compose_file() {
@@ -554,7 +554,7 @@ fn two_models_cannot_share_a_compose_service() {
     let err = apply(&mut project, &registry, &enable(&["chapkit_ewars_model"]))
         .expect_err("ewars_dev holds the service");
     assert!(
-        err.to_string().contains("`chaps models disable ewars_dev`"),
+        err.to_string().contains("`varde models disable ewars_dev`"),
         "{err}"
     );
 
@@ -667,7 +667,7 @@ fn a_port_range_from_a_narrower_port_base_is_honoured() {
 }
 
 /// A plan decides and writes nothing; one that fails - a fixed port something
-/// holds - fails before any file exists, which is what lets `chaps ui` stop a
+/// holds - fails before any file exists, which is what lets `varde ui` stop a
 /// component only once its save is certain to apply.
 #[test]
 fn a_plan_writes_nothing_and_fails_before_any_file() {

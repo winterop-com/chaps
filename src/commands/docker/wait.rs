@@ -1,4 +1,4 @@
-//! `chaps up --wait`: hold the command until chap-core and every model answer.
+//! `varde up --wait`: hold the command until chap-core and every model answer.
 
 use crate::commands::Ctx;
 use crate::docker;
@@ -33,7 +33,7 @@ pub struct ModelReadiness {
     /// Marketplace id.
     pub id: String,
     pub service_id: String,
-    /// The `chaps status` STATE word.
+    /// The `varde status` STATE word.
     pub state: &'static str,
     pub ready: bool,
     /// Where the model answers from this machine.

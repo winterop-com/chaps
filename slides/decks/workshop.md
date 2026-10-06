@@ -1,8 +1,8 @@
 ---
 marp: true
-theme: chaps
+theme: varde
 paginate: true
-footer: chaps workshop - forecasting disease with climate data
+footer: varde workshop - forecasting disease with climate data
 title: Workshop - evaluating forecasting models
 description: A hands-on session for students, from install to a comparison of three models
 ---
@@ -13,7 +13,7 @@ description: A hands-on session for students, from install to a comparison of th
 
 # Evaluating forecasting models
 
-## A hands-on workshop with Chap and chaps
+## A hands-on workshop with Chap and varde
 
 From an empty laptop to a comparison of three models, in about one hour
 
@@ -21,7 +21,7 @@ From an empty laptop to a comparison of three models, in about one hour
 
 ## What we do today
 
-1. Install chaps, and check the machine.
+1. Install varde, and check the machine.
 2. Get a dataset: dengue cases and climate, for districts of Laos.
 3. Learn what a **backtest** is.
 4. Evaluate a model with a backtest, and plot it.
@@ -47,7 +47,7 @@ and about **25 GB** of free disk space.
 ```sh
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-core:v2.3.1
-chaps run auto_arima_chapkit && chaps stop auto_arima_chapkit
+varde run auto_arima_chapkit && varde stop auto_arima_chapkit
 ```
 
 ---
@@ -56,7 +56,7 @@ chaps run auto_arima_chapkit && chaps stop auto_arima_chapkit
 
 | Minutes | Step | While it runs |
 | --- | --- | --- |
-| 0 to 5 | Install, `chaps doctor` | Explain what Chap and chaps are |
+| 0 to 5 | Install, `varde doctor` | Explain what Chap and varde are |
 | 5 to 10 | Get the data, exercise 1 | Read the CSV together |
 | 10 to 20 | What a backtest is | No command runs |
 | 20 to 30 | The first backtest (step 3) | Explain splits and periods |
@@ -79,19 +79,19 @@ Start each long command first, and explain while it runs.
 | **split** | One point in the past from which the model trains and forecasts |
 | **period** | One time step of the data, here one month |
 | **horizon** | How many periods ahead a forecast goes |
-| **chaps** | The tool that runs Chap and its models for us, with Docker |
+| **varde** | The tool that runs Chap and its models for us, with Docker |
 
 ---
 
 ## Step 1: Install and check
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
-chaps --version
-chaps doctor
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
+varde --version
+varde doctor
 ```
 
-**It worked when** `chaps doctor` starts the `docker cli`, `docker daemon` and
+**It worked when** `varde doctor` starts the `docker cli`, `docker daemon` and
 `docker compose` lines with `ok`.
 
 On an Apple silicon Mac, a `warn` on `os and arch` is correct: the images run
@@ -137,7 +137,7 @@ time_period,rainfall,mean_temperature,disease_cases,population,location
 ## Exercise 1: Look at the data
 
 ```sh
-chaps chap validate laos_subset.csv
+varde chap validate laos_subset.csv
 ```
 
 **It worked when** chap says `Validation passed: no issues found.`
@@ -200,7 +200,7 @@ The model never sees the months it forecasts.
 ## Step 3: The first backtest
 
 ```sh
-chaps chap eval \
+varde chap eval \
   --model-name https://github.com/dhis2-chap/minimalist_example_r \
   --dataset-csv laos_subset.csv \
   --output-file out/minimalist_r.nc \
@@ -209,9 +209,9 @@ chaps chap eval \
 ```
 
 - `minimalist_example_r` is a small R model from chap-core's examples.
-- chaps makes `out/` for you.
+- varde makes `out/` for you.
 
-**It worked when** chaps writes `chap finished; it wrote out/minimalist_r.nc`.
+**It worked when** varde writes `chap finished; it wrote out/minimalist_r.nc`.
 
 ---
 
@@ -222,7 +222,7 @@ running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.3.1
 files: chap reads and writes in /home/me/chap-workshop
 ...
 chap finished; it wrote out/minimalist_r.nc
-`chaps chap plot-backtest out/minimalist_r.nc --output-file out/minimalist_r.html` plots it
+`varde chap plot-backtest out/minimalist_r.nc --output-file out/minimalist_r.html` plots it
 ```
 
 - chap ran in a container, with R and the model's packages in it.
@@ -235,7 +235,7 @@ chap finished; it wrote out/minimalist_r.nc
 ## Step 4: Plot it
 
 ```sh
-chaps chap plot-backtest out/minimalist_r.nc --output-file out/minimalist_r.html
+varde chap plot-backtest out/minimalist_r.nc --output-file out/minimalist_r.html
 open out/minimalist_r.html          # macOS
 xdg-open out/minimalist_r.html      # Linux
 ```
@@ -257,16 +257,16 @@ a range, not one number: the model says how sure it is.
 ## Step 5: Two more models, from the marketplace
 
 ```sh
-chaps chap eval --model-name auto_arima_chapkit \
+varde chap eval --model-name auto_arima_chapkit \
   --dataset-csv laos_subset.csv --output-file out/auto_arima.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 3
-chaps chap --stop eval --model-name chapkit_simple_multistep_model \
+varde chap --stop eval --model-name chapkit_simple_multistep_model \
   --dataset-csv laos_subset.csv --output-file out/multistep.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 3
 ```
 
 - These models are **services**: containers with an API.
-- chaps starts each one for us, and tells chap where it answers.
+- varde starts each one for us, and tells chap where it answers.
 - `--stop` stops the third model after its run.
 
 ---
@@ -282,14 +282,14 @@ chaps chap --stop eval --model-name chapkit_simple_multistep_model \
 ARIMA reads no climate at all, so it is a good **baseline**: a model that
 uses climate must do better than it.
 
-`chaps models list` lists every model in the marketplace.
+`varde models list` lists every model in the marketplace.
 
 ---
 
 ## Step 6: Compare the three
 
 ```sh
-chaps chap export-metrics out/minimalist_r.nc out/auto_arima.nc out/multistep.nc \
+varde chap export-metrics out/minimalist_r.nc out/auto_arima.nc out/multistep.nc \
   --output-file out/comparison.csv
 ```
 
@@ -327,13 +327,13 @@ about how sure it is.
 ## Exercise 4: Change the backtest
 
 ```sh
-chaps chap eval --model-name auto_arima_chapkit \
+varde chap eval --model-name auto_arima_chapkit \
   --dataset-csv laos_subset.csv --output-file out/arima_6.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 6
-chaps chap eval --model-name auto_arima_chapkit \
+varde chap eval --model-name auto_arima_chapkit \
   --dataset-csv laos_subset.csv --output-file out/arima_6splits.nc \
   --backtest-params.n-splits 6 --backtest-params.n-periods 3
-chaps chap export-metrics out/auto_arima.nc out/arima_6.nc out/arima_6splits.nc \
+varde chap export-metrics out/auto_arima.nc out/arima_6.nc out/arima_6splits.nc \
   --output-file out/backtests.csv
 ```
 
@@ -353,8 +353,8 @@ mydata.geojson   one feature for each location
 ```
 
 ```sh
-chaps chap validate mydata.csv
-chaps chap eval --model-name auto_arima_chapkit \
+varde chap validate mydata.csv
+varde chap eval --model-name auto_arima_chapkit \
   --dataset-csv mydata.csv --output-file out/mine.nc
 ```
 
@@ -366,7 +366,7 @@ Each `location` in the CSV must be a feature in the GeoJSON.
 
 | You see | What to do |
 | --- | --- |
-| `docker daemon` is not `ok` in `chaps doctor` | Start Docker Desktop, or `sudo systemctl start docker` |
+| `docker daemon` is not `ok` in `varde doctor` | Start Docker Desktop, or `sudo systemctl start docker` |
 | The first run waits a long time | It downloads an image. Wait, or use a laptop that has it |
 | `the model server at ... is not running` | Give the model id, not a URL |
 | `did not answer ... within 300s` | Run again with `--timeout 900` |
@@ -389,8 +389,8 @@ Each `location` in the CSV must be a feature in the GeoJSON.
 ## Clean up
 
 ```sh
-chaps stop auto_arima_chapkit --purge   # the model service
-rm -rf ~/.local/share/chaps/chap        # the caches
+varde stop auto_arima_chapkit --purge   # the model service
+rm -rf ~/.local/share/varde/chap        # the caches
 docker image ls 'ghcr.io/dhis2-chap/*'  # the images, to remove with docker image rm
 ```
 
@@ -401,11 +401,11 @@ Your `.nc`, `.html` and `.csv` files stay in `~/chap-workshop/out`.
 ## Where to go next
 
 - **Your own data:** the same columns, a GeoJSON of the same name.
-- **Your own model:** see the model template, and `chaps run` for a model
+- **Your own model:** see the model template, and `varde run` for a model
   service of your own.
-- **DHIS2 and the Modeling App:** `chaps init mychap --with dhis2`, then
-  `chaps dhis2 connect`.
-- **More about the chap CLI in chaps:** the deck "The chap CLI, without
+- **DHIS2 and the Modeling App:** `varde init mychap --with dhis2`, then
+  `varde dhis2 connect`.
+- **More about the chap CLI in varde:** the deck "The chap CLI, without
   Python".
 
-The book: **https://winterop-com.github.io/chaps/**
+The book: **https://winterop-com.github.io/varde/**

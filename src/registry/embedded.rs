@@ -1,7 +1,7 @@
 //! The vendored marketplace snapshot, compiled into the binary.
 //!
 //! Used as the last-resort fallback when the registry can be neither fetched
-//! nor read from cache, so `chaps` works on a machine that has never had
+//! nor read from cache, so `varde` works on a machine that has never had
 //! network access.
 //!
 //! Refresh the files under `vendor/marketplace/` with

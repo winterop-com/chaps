@@ -63,7 +63,7 @@ fn probe_agent() -> ureq::Agent {
 
 /// The row of a deployment that has not been started costs no request at
 /// all. Nothing is there to answer, so the only thing a probe could buy is
-/// a timeout on every `chaps status` - or an answer from whatever else
+/// a timeout on every `varde status` - or an answer from whatever else
 /// holds that host port, which is how a stopped OCS came to read as `up`
 /// beside another deployment's OCS on the same default 9000.
 #[test]

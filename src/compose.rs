@@ -88,7 +88,7 @@ pub fn volume_name(id: &str) -> String {
 /// name that is not one.
 ///
 /// The inverse of [`volume_name`], and the only way back: a volume left
-/// behind by a disabled model is a name and nothing else, so `chaps doctor`
+/// behind by a disabled model is a name and nothing else, so `varde doctor`
 /// reads the id out of it to ask whether that model is still enabled. The
 /// name is the bare one, with the compose project prefix already stripped.
 pub fn volume_model_id(volume: &str) -> Option<&str> {

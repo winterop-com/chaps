@@ -25,7 +25,7 @@ pub const DHIS2_EXCLUDED_DATA: &[&str] = &["audit"];
 
 /// Where the restore puts the dump inside `dhis2-db`, so that `pg_restore`
 /// can read it with several jobs: a dump on stdin allows one job only.
-pub const DHIS2_RESTORE_PATH: &str = "/tmp/chaps-dhis2-db.dump";
+pub const DHIS2_RESTORE_PATH: &str = "/tmp/varde-dhis2-db.dump";
 
 /// How many jobs `pg_restore` runs at once.
 pub const DHIS2_RESTORE_JOBS: u32 = 4;

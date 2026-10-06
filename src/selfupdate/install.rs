@@ -69,15 +69,15 @@ fn sibling(current: &Path, extension: &str) -> PathBuf {
     let stem = current
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "chaps".to_string());
+        .unwrap_or_else(|| "varde".to_string());
     current.with_file_name(format!("{stem}.{extension}"))
 }
 
-/// Delete a leftover `chaps.old` from a previous Windows update.
+/// Delete a leftover `varde.old` from a previous Windows update.
 ///
 /// Best effort and silent: the file is only still there when the previous
 /// process had not exited yet, and the next run will get it. Compiled for
-/// Windows alone, because nothing else ever writes a `chaps.old` and a file
+/// Windows alone, because nothing else ever writes a `varde.old` and a file
 /// of that name beside a Unix install belongs to whoever put it there.
 #[cfg(any(windows, test))]
 pub fn clean_backup(current: &Path) {
@@ -95,7 +95,7 @@ pub fn is_replaceable(path: &Path) -> bool {
     let Some(dir) = path.parent() else {
         return false;
     };
-    let probe = dir.join(format!(".chaps-write-probe-{}", std::process::id()));
+    let probe = dir.join(format!(".varde-write-probe-{}", std::process::id()));
     match std::fs::File::create(&probe) {
         Ok(file) => {
             // Windows will not delete a file whose handle is still open, so
@@ -180,9 +180,9 @@ pub fn extract(archive: &Path, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Find the `chaps` executable somewhere under `dir`.
+/// Find the `varde` executable somewhere under `dir`.
 ///
-/// The archives put it in a `chaps-<tag>-<target>/` directory, but the search
+/// The archives put it in a `varde-<tag>-<target>/` directory, but the search
 /// does not depend on that: it walks what was unpacked and takes the first
 /// file with the right name.
 pub fn find_binary(dir: &Path, target: &str) -> Option<PathBuf> {

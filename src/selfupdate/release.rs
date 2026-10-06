@@ -148,7 +148,7 @@ pub fn dev_update_available(release: &Release, revision: &str) -> bool {
 /// The asset `target` should download from `release`.
 ///
 /// The asset name holds no version. A payload that lists no assets is taken
-/// at its word rather than refused, because chaps can derive the name
+/// at its word rather than refused, because varde can derive the name
 /// without the list.
 pub fn pick_asset(release: &Release, target: &str) -> Result<String> {
     let name = asset_name(target);

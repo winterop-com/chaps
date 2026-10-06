@@ -1,8 +1,8 @@
-//! `chaps update [--dry-run]` — move the pins forward and pull.
+//! `varde update [--dry-run]` — move the pins forward and pull.
 //!
 //! Two kinds of pin move here. A model that follows a channel is re-resolved
 //! against the marketplace, and the only other thing that moves those is
-//! `chaps models enable`; exact pins (`--version`) never move. chap-core's own
+//! `varde models enable`; exact pins (`--version`) never move. chap-core's own
 //! pin moves too when it is a release tag and a newer release exists, which
 //! also re-fetches the `compose.ghcr.yml` that release publishes. A moving
 //! chap-core tag (`latest`, `master`, `dev`) is only refreshed by the pull,
@@ -18,8 +18,8 @@
 //!
 //! What it does not do is touch a container. The run reads: the plan, then
 //! the pull, then one line saying what moved and which running services are
-//! now out of date. Applying that is `chaps restart`, and starting a
-//! deployment that is down is `chaps up`; an update that did either would be
+//! now out of date. Applying that is `varde restart`, and starting a
+//! deployment that is down is `varde up`; an update that did either would be
 //! a deployment nobody asked for.
 //!
 //! "Out of date" is two questions asked of every running container. Is the
@@ -74,7 +74,7 @@ pub struct UpdateReport {
     /// still points at the image this machine already had is not one of them.
     pub pulled_new: Vec<String>,
     /// Running services whose image or configuration no longer matches what
-    /// this project describes: what `chaps restart` would recreate.
+    /// this project describes: what `varde restart` would recreate.
     pub restart_needed: Vec<String>,
     /// Whether any of this project's containers was up, `null` when docker
     /// could not be asked.
@@ -109,13 +109,13 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         return list_tags(ctx, &project);
     }
     // A chap-core built from a checkout has no pin either: the checkout is
-    // the version, and `chaps up` builds it as it is.
+    // the version, and `varde up` builds it as it is.
     if let ComposeSource::Checkout { path } = &project.state.chap_compose_source
         && (args.chap_tag.is_some() || args.pin_chap_core)
     {
         return Err(anyhow::anyhow!(
             "this deployment builds chap-core from the checkout at {path}; check out the \
-             version you want there and run `chaps up`"
+             version you want there and run `varde up`"
         ));
     }
     let own_chap_core = project
@@ -130,7 +130,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if !own_chap_core && (args.chap_tag.is_some() || args.pin_chap_core) {
         return Err(anyhow::anyhow!(
             "{} moves chap-core's pin, and this deployment has no chap-core; \
-             `chaps components enable chap-core` adds it",
+             `varde components enable chap-core` adds it",
             if args.chap_tag.is_some() {
                 "--chap-tag"
             } else {
@@ -206,7 +206,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         output::warn(&backwards_warning(&core.old_tag, &core.new_tag));
     }
     // And the same for DHIS2, which needs no move to be at risk: the pull alone
-    // can bring an image that migrates `dhis2_db` on the next `chaps up`, and
+    // can bring an image that migrates `dhis2_db` on the next `varde up`, and
     // nothing in the plan above would show it. In the dry run too, where it is
     // the only thing this run has to say about that.
     if let Some(warning) = dhis2_pull_note(&project, &report.components) {

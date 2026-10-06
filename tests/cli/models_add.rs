@@ -3,10 +3,10 @@ use predicates::prelude::PredicateBooleanExt;
 use serde_json::Value as Json;
 use std::path::Path;
 
-/// `.chaps/models-manual.yaml` as JSON, or `Json::Null` when the deployment
+/// `.varde/models-manual.yaml` as JSON, or `Json::Null` when the deployment
 /// has added no model of its own.
 fn manual_models(dir: &Path) -> Json {
-    let path = dir.join(".chaps").join("models-manual.yaml");
+    let path = dir.join(".varde").join("models-manual.yaml");
     if !path.is_file() {
         return Json::Null;
     }
@@ -112,7 +112,7 @@ fn an_offline_enable_falls_back_to_the_table_and_says_so() {
             stable_pin("auto_arima_chapkit").1
         )))
         .stderr(predicates::str::contains("the built-in table"))
-        .stderr(predicates::str::contains("chaps models enable"));
+        .stderr(predicates::str::contains("varde models enable"));
 
     // The table's own answer for that image: root, which is the whole point.
     let model = &state(&dir)["models"]["auto_arima_chapkit"];
@@ -147,7 +147,7 @@ fn models_add_from_a_repository_without_a_public_image_says_to_build_one() {
             "{REPO_URL} publishes no public image at"
         )))
         .stderr(predicates::str::contains("HTTP 403"))
-        .stderr(predicates::str::contains("`chaps models add NAME:dev`"))
+        .stderr(predicates::str::contains("`varde models add NAME:dev`"))
         .stderr(predicates::str::contains("/token?").not());
 }
 
@@ -173,7 +173,7 @@ fn models_add_from_a_repository_pins_the_newest_published_build() {
             "hint: user: 10001:10001 (from the image config)",
         ))
         .stdout(predicates::str::contains("must register with chap-core as"))
-        .stdout(predicates::str::contains("run `chaps up` to apply"));
+        .stdout(predicates::str::contains("run `varde up` to apply"));
 
     // The definition, in a file of its own.
     let manual = manual_models(&dir);
@@ -276,7 +276,7 @@ fn a_manually_added_model_is_marked_in_the_list_and_on_its_page() {
         .success()
         .stdout(predicates::str::contains("kind        manual"))
         .stdout(predicates::str::contains(format!(
-            "source      manual (`chaps models add`, {date})"
+            "source      manual (`varde models add`, {date})"
         )))
         .stdout(predicates::str::contains("follows     main"))
         .stdout(predicates::str::contains(format!(
@@ -322,7 +322,7 @@ fn update_moves_a_following_manual_model_when_a_newer_build_appears() {
     sandbox
         .online(port)
         .env(
-            "CHAPS_GITHUB_API",
+            "VARDE_GITHUB_API",
             format!("http://127.0.0.1:{}", free_port()),
         )
         .args(["update", "--dry-run"])
@@ -469,7 +469,7 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
         .stderr(predicates::str::contains(
             "the marketplace already lists chapkit_ewars_model",
         ))
-        .stderr(predicates::str::contains("chaps models enable"));
+        .stderr(predicates::str::contains("varde models enable"));
     // And a compose service it already uses would be two overlays fighting.
     sandbox
         .online(port)
@@ -485,15 +485,15 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
         .stderr(predicates::str::contains("--service-id"));
     assert_eq!(manual_models(&dir), Json::Null, "nothing was written");
 
-    // Nor one chaps uses for itself: `chaps` would be written over
-    // `compose.chaps.yml`, `chap` merged into chap-core's own service.
-    for reserved in ["chaps", "chap", "marketplace", "dhis2"] {
+    // Nor one varde uses for itself: `varde` would be written over
+    // `compose.varde.yml`, `chap` merged into chap-core's own service.
+    for reserved in ["varde", "chap", "marketplace", "dhis2"] {
         sandbox
             .online(port)
             .args(["models", "add", REPO_URL, "--service-id", reserved])
             .assert()
             .failure()
-            .stderr(predicates::str::contains("chaps uses for its own services"));
+            .stderr(predicates::str::contains("varde uses for its own services"));
     }
     assert_eq!(manual_models(&dir), Json::Null, "nothing was written");
 
@@ -509,7 +509,7 @@ fn models_add_refuses_a_name_the_marketplace_or_this_project_holds() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("was already added"))
-        .stderr(predicates::str::contains("chaps models remove"));
+        .stderr(predicates::str::contains("varde models remove"));
 
     // A bare image name is a local image, and one with no tag pins nothing.
     sandbox
@@ -557,7 +557,7 @@ fn models_remove_takes_the_definition_and_the_overlay_with_it() {
             .exists()
     );
     assert!(includes(&dir).is_empty());
-    let manual = read(&dir.join(".chaps").join("models-manual.yaml"));
+    let manual = read(&dir.join(".varde").join("models-manual.yaml"));
     assert!(!manual.contains("chapkit_example_manual_model"), "{manual}");
     assert_eq!(state(&dir)["models"], serde_json::json!({}));
 
@@ -568,7 +568,7 @@ fn models_remove_takes_the_definition_and_the_overlay_with_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("is a marketplace model"))
-        .stderr(predicates::str::contains("chaps models disable"));
+        .stderr(predicates::str::contains("varde models disable"));
     // And a name nothing answers to is the typo it looks like.
     sandbox
         .models(&["remove", "nope"])
@@ -636,7 +636,7 @@ fn models_add_outside_a_project_says_so() {
         .args(["models", "add", REPO_URL])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a chaps project"));
+        .stderr(predicates::str::contains("not a varde project"));
 }
 
 #[test]

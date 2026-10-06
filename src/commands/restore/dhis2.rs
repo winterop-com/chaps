@@ -55,7 +55,7 @@ pub(super) fn restore_dhis2_db(
             }
             return Err(anyhow::anyhow!(
                 "pg_restore of the DHIS2 database failed (exit {}); the lines above say why, \
-                 and `chaps logs dhis2-db` has the rest",
+                 and `varde logs dhis2-db` has the rest",
                 piped.code
             ));
         }
@@ -107,7 +107,7 @@ fn wait_until_ready(project: &Project) -> Result<()> {
         if started.elapsed() >= READY_TIMEOUT {
             return Err(anyhow::anyhow!(
                 "dhis2-db did not accept connections within {} seconds; look at \
-                 `chaps logs dhis2-db`",
+                 `varde logs dhis2-db`",
                 READY_TIMEOUT.as_secs()
             ));
         }

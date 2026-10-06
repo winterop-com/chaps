@@ -1,4 +1,4 @@
-//! `chaps logs`: what it hands compose, and what reaches a reader that is not
+//! `varde logs`: what it hands compose, and what reaches a reader that is not
 //! a terminal. Unix only: the stand-in docker is a shell script.
 
 #![cfg(unix)]

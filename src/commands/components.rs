@@ -1,6 +1,6 @@
-//! `chaps components list|enable|disable` — what a deployment is made of.
+//! `varde components list|enable|disable` — what a deployment is made of.
 //!
-//! The three commands do the same small thing: edit `.chaps/components.yaml`
+//! The three commands do the same small thing: edit `.varde/components.yaml`
 //! and hand over to [`crate::compose::sync()`], which renders one compose file
 //! per enabled component and removes the ones that are no longer wanted. That
 //! is the same path `init --with` takes, so a component enabled at init and one
@@ -21,7 +21,7 @@ use crate::project::Project;
 use serde::Serialize;
 use std::path::PathBuf;
 
-/// One row of `chaps components list`, and of its `--json`.
+/// One row of `varde components list`, and of its `--json`.
 #[derive(Debug, Serialize)]
 pub struct ComponentRow {
     pub name: String,
@@ -38,7 +38,7 @@ pub struct ComponentRow {
     pub external_url: Option<String>,
 }
 
-/// What `chaps components list` prints.
+/// What `varde components list` prints.
 #[derive(Debug, Serialize)]
 pub struct ComponentsReport {
     pub components: Vec<ComponentRow>,
@@ -131,8 +131,8 @@ fn human_list(report: &ComponentsReport, out: &Out) -> String {
     let mut text = out.table(&["COMPONENT", "STATE", "REACH", "WHAT IT IS"], &rows);
     text.push('\n');
     text.push_str(&out.backticks(
-        "`chaps components enable NAME` adds one, `disable NAME` takes it away; \
-         the set lives in .chaps/components.yaml",
+        "`varde components enable NAME` adds one, `disable NAME` takes it away; \
+         the set lives in .varde/components.yaml",
     ));
     text.push('\n');
     text
@@ -210,7 +210,7 @@ fn human_change(report: &ChangeReport, project: &Project, out: &Out) -> String {
     for note in &report.notes {
         text.push_str(&format!("{} {note}\n", out.dim("note:")));
     }
-    text.push_str(&out.backticks("run `chaps up` to apply"));
+    text.push_str(&out.backticks("run `varde up` to apply"));
     text
 }
 

@@ -1,4 +1,4 @@
-//! `chaps backup`, `status`, `open`, `jobs`, `api`, `doctor` and `auth`:
+//! `varde backup`, `status`, `open`, `jobs`, `api`, `doctor` and `auth`:
 //! looking after a running deployment.
 
 use clap::{Args, Subcommand};
@@ -44,7 +44,7 @@ pub struct BackupCreateArgs {
 /// Put a deployment back from a backup archive
 #[derive(Debug, Clone, Args)]
 pub struct RestoreArgs {
-    /// The tar.gz written by chaps backup create
+    /// The tar.gz written by varde backup create
     #[arg(value_name = "ARCHIVE")]
     pub archive: PathBuf,
 
@@ -95,7 +95,7 @@ pub struct OpenArgs {
     // Optional, and `arg_required_else_help` is not what this wants: that is
     // the convention for a group with no default subcommand, and `open` is a
     // verb. With nothing named it lists what this deployment has and what each
-    // one opens, which answers the question a bare `chaps open` is asking.
+    // one opens, which answers the question a bare `varde open` is asking.
     /// Component to open (chap-core, ocs, dhis2), or an enabled model's id
     pub name: Option<String>,
 
@@ -107,8 +107,8 @@ pub struct OpenArgs {
 /// List the backtests and predictions chap-core has run
 ///
 /// `args_conflicts_with_subcommands`: the filters below are `list`'s, repeated
-/// here so `chaps jobs --status FAILURE` works without the verb. Only one side
-/// may carry them, so `chaps jobs --limit 5 show ID` is a usage error rather
+/// here so `varde jobs --status FAILURE` works without the verb. Only one side
+/// may carry them, so `varde jobs --limit 5 show ID` is a usage error rather
 /// than a flag that silently does nothing.
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]

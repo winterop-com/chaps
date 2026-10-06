@@ -22,11 +22,11 @@ fn container(project: &str, service: &str, role: &str, state: &str, status: &str
             "com.docker.compose.project.working_dir".to_string(),
             format!("/deploy/{project}"),
         ),
-        ("com.winterop.chaps.role".to_string(), role.to_string()),
+        ("com.winterop.varde.role".to_string(), role.to_string()),
     ]);
     if role == "model" {
         labels.insert(
-            "com.winterop.chaps.model".to_string(),
+            "com.winterop.varde.model".to_string(),
             service.replace('-', "_"),
         );
     }

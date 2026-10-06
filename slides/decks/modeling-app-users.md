@@ -1,10 +1,10 @@
 ---
 marp: true
-theme: chaps
+theme: varde
 paginate: true
-footer: chaps - DHIS2, the Modeling App and Chap
+footer: varde - DHIS2, the Modeling App and Chap
 title: Chap behind the Modeling App
-description: For people who use DHIS2 and the Modeling App: what runs behind it, and how chaps sets it up
+description: For people who use DHIS2 and the Modeling App: what runs behind it, and how varde sets it up
 ---
 
 <!-- _class: title -->
@@ -55,7 +55,7 @@ never calls DHIS2, and DHIS2 never calls chap-core.
 | the analytics tables | has no data to send, and says nothing about why |
 | the apps | there is no Chap screen in DHIS2 |
 
-Before chaps, you did each of these by hand: a route JSON, the App Hub, an
+Before varde, you did each of these by hand: a route JSON, the App Hub, an
 analytics run.
 
 ---
@@ -63,19 +63,19 @@ analytics run.
 ## A DHIS2 with Chap, from nothing
 
 ```sh
-chaps init mychap --with dhis2 --models default
+varde init mychap --with dhis2 --models default
 cd mychap
-chaps up
-chaps dhis2 connect
+varde up
+varde dhis2 connect
 ```
 
 - `--with dhis2` adds a DHIS2, with the Laos climate demo (DHIS2 2.42).
-- `chaps dhis2 connect` makes the route, installs the apps and generates
+- `varde dhis2 connect` makes the route, installs the apps and generates
   analytics.
 
 Open **http://localhost:8780** and log in as `admin` / `district`.
 
-> **The first `chaps up` downloads about 25 GB** of images: chap-core, the
+> **The first `varde up` downloads about 25 GB** of images: chap-core, the
 > model and DHIS2. Do it on a fast network.
 
 ---
@@ -106,8 +106,8 @@ before that.
 | Under emulation (an amd64 image on arm64) | 8 to 15 minutes |
 | With the demo database | the above, plus the restore |
 
-- `chaps status` shows each service. `chaps logs dhis2` shows the migration.
-- `chaps dhis2` commands wait for DHIS2's API, up to 20 minutes by default.
+- `varde status` shows each service. `varde logs dhis2` shows the migration.
+- `varde dhis2` commands wait for DHIS2's API, up to 20 minutes by default.
 
 ---
 
@@ -116,7 +116,7 @@ before that.
 - DHIS2 needs about **4 to 5 GB** for the analytics populate phase.
 - Below that, the JVM is killed part-way through analytics. The run never
   finishes, and the log shows no Java error.
-- `chaps doctor` warns below 6 GB for docker, and fails below 4 GB.
+- `varde doctor` warns below 6 GB for docker, and fails below 4 GB.
 - On Docker Desktop, raise the VM's memory: Settings, Resources.
 
 ```ini
@@ -127,24 +127,24 @@ That line in `.env` sets the heap. Uncomment it and edit the whole set.
 
 ---
 
-## Why `chaps up` does not connect
+## Why `varde up` does not connect
 
-`chaps up` is a thin wrapper around `docker compose up`. Connecting is the
+`varde up` is a thin wrapper around `docker compose up`. Connecting is the
 wrong work for it:
 
-- it needs **DHIS2 credentials**, which are not chaps' to invent;
-- it uses the **network**, the App Hub, and `chaps up` never does;
+- it needs **DHIS2 credentials**, which are not varde' to invent;
+- it uses the **network**, the App Hub, and `varde up` never does;
 - DHIS2's API is **not ready when `up` returns**.
 
-So `chaps up` and `chaps status` say it until a connect is recorded:
+So `varde up` and `varde status` say it until a connect is recorded:
 
 ```text
-chaps has not connected this DHIS2 to Chap; run `chaps dhis2 connect` once DHIS2 answers
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
 ```
 
 ---
 
-## `chaps dhis2 connect`, step by step
+## `varde dhis2 connect`, step by step
 
 1. **The route.** It creates the `chap` route, or repoints one that points
    elsewhere. Then it sends a request through it, to prove that chap-core
@@ -173,7 +173,7 @@ run repoints nothing and reinstalls nothing, and says so.
 ## The route is repointed, not created
 
 A seeded demo database **already has a `chap` route**, and it points at
-someone else's Chap. So chaps compares, and rewrites:
+someone else's Chap. So varde compares, and rewrites:
 
 ```text
 repointed the `chap` route at http://chap:8000/**
@@ -193,11 +193,11 @@ the app uses:
 
 ```text
 warning: the `chap` route is in place but nothing answered through it:
-HTTP 502 Bad Gateway; run `chaps status` to see whether chap-core is up
+HTTP 502 Bad Gateway; run `varde status` to see whether chap-core is up
 ```
 
 DHIS2 42 and later allow only the targets in
-`route.remote_servers_allowed`. chaps writes `http://*,https://*` into
+`route.remote_servers_allowed`. varde writes `http://*,https://*` into
 `dhis2/dhis.conf`, so the route to `http://chap:8000` is allowed.
 
 ---
@@ -208,29 +208,29 @@ The Modeling App and the Climate App read DHIS2's `analytics_*` tables. The
 tables exist only after an analytics run.
 
 ```sh
-chaps dhis2 analytics            # start the run, and wait for it
-chaps dhis2 analytics --no-wait  # start it, and return
+varde dhis2 analytics            # start the run, and wait for it
+varde dhis2 analytics --no-wait  # start it, and return
 ```
 
 - A run that goes already is watched, not queued behind: DHIS2 runs one at a
   time.
 - **No `lastYears`.** On the Laos demo, `lastYears=8` wrote zero rows and
-  reported success. chaps never sends it.
+  reported success. varde never sends it.
 
 ---
 
 ## Is analytics done? What `show` can say
 
 On a seeded database, DHIS2's "last analytics" time comes from the dump, not
-from this deployment. So `chaps dhis2 show` labels it:
+from this deployment. So `varde dhis2 show` labels it:
 
-| Row | What chaps checked |
+| Row | What varde checked |
 | --- | --- |
 | `never run` | DHIS2 records no run at all |
 | `(a run finished on this deployment)` | a run finished since DHIS2 started |
 | `(unconfirmed on a seeded database)` | the time can be the dump's |
 
-When it is unconfirmed, `chaps dhis2 analytics` settles it. A second run is
+When it is unconfirmed, `varde dhis2 analytics` settles it. A second run is
 safe.
 
 ---
@@ -242,8 +242,8 @@ safe.
 | Modeling App | the Chap user interface in DHIS2 |
 | DHIS2 Climate App | imports climate data through Google Earth Engine: the Modeling App's covariates |
 
-- DHIS2 downloads the app itself, from the App Hub. chaps only asks.
-- chaps selects the newest version that this DHIS2 can run.
+- DHIS2 downloads the app itself, from the App Hub. varde only asks.
+- varde selects the newest version that this DHIS2 can run.
 - An app at that version is left alone. An app at another version is moved.
 
 ---
@@ -257,7 +257,7 @@ safe.
 | a URL | that dump, downloaded |
 | a path | that file, in the deployment directory |
 
-The seed applies **once**, when the database is created. A later `chaps up`
+The seed applies **once**, when the database is created. A later `varde up`
 does not restore it again.
 
 ---
@@ -265,10 +265,10 @@ does not restore it again.
 ## Which DHIS2 version
 
 ```sh
-chaps init mychap --with dhis2 --dhis2-tag 2.41
-chaps init mychap --with dhis2 --dhis2-tag 2.43 --dhis2-seed none
-chaps init mychap --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master
-chaps components enable dhis2 --tag 2.41       # later
+varde init mychap --with dhis2 --dhis2-tag 2.41
+varde init mychap --with dhis2 --dhis2-tag 2.43 --dhis2-seed none
+varde init mychap --with dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master
+varde components enable dhis2 --tag 2.41       # later
 ```
 
 - The tag is a minor line (`2.42`), so a patch release comes with a pull.
@@ -287,18 +287,18 @@ DHIS2 migrates its schema **forward only**:
   every API request gives 404.
 
 ```sh
-chaps backup create
-chaps components enable dhis2 --tag 2.43
-chaps up
+varde backup create
+varde components enable dhis2 --tag 2.43
+varde up
 ```
 
-chaps warns when a change moves the tag while `dhis2_db` exists.
+varde warns when a change moves the tag while `dhis2_db` exists.
 
 ---
 
 ## `dhis2/dhis.conf`
 
-- DHIS2 does **not start without it**. chaps writes it once, and never
+- DHIS2 does **not start without it**. varde writes it once, and never
   rewrites it. It is yours.
 - Its values come from the environment: the database host, name, user and
   password, and `DHIS2_ENCRYPTION_PASSWORD`.
@@ -308,15 +308,15 @@ chaps warns when a change moves the tag while `dhis2_db` exists.
 After an edit:
 
 ```sh
-chaps restart dhis2
+varde restart dhis2
 ```
 
-`chaps restart` sees that the file is newer than the container, and recreates
+`varde restart` sees that the file is newer than the container, and recreates
 it.
 
 ---
 
-## The DHIS2 login that chaps uses
+## The DHIS2 login that varde uses
 
 The first source with a value wins:
 
@@ -324,9 +324,9 @@ The first source with a value wins:
 | --- | --- |
 | 1 | `DHIS2_API_TOKEN` in `.env`: a personal access token |
 | 2 | `DHIS2_ADMIN_PASSWORD` in `.env`, for `DHIS2_ADMIN_USERNAME` |
-| 3 | `CHAPS_DHIS2_TOKEN` in the environment |
-| 4 | `CHAPS_DHIS2_PASSWORD` in the environment |
-| 5 | `admin` / `district`, only on a DHIS2 that chaps deployed |
+| 3 | `VARDE_DHIS2_TOKEN` in the environment |
+| 4 | `VARDE_DHIS2_PASSWORD` in the environment |
+| 5 | `admin` / `district`, only on a DHIS2 that varde deployed |
 
 There is **no `--password` flag**: a password on a command line goes into the
 shell history.
@@ -336,13 +336,13 @@ shell history.
 ## A DHIS2 that runs elsewhere
 
 ```sh
-chaps init chap-server --models default --api-token
-cd chap-server && chaps up
-chaps dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
-chaps dhis2 connect
+varde init chap-server --models default --api-token
+cd chap-server && varde up
+varde dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
+varde dhis2 connect
 ```
 
-- `use` records both URLs in `.chaps/components.yaml`.
+- `use` records both URLs in `.varde/components.yaml`.
 - Then it asks DHIS2 two things: does `/api/ping` answer, and does it accept
   the login.
 - An external DHIS2 has **no default login**. A personal access token is the
@@ -353,7 +353,7 @@ chaps dhis2 connect
 ## What changes with an external DHIS2
 
 - **`connect` sets the route, and nothing else.** Apps and analytics change a
-  server that chaps does not run, so they stay with its admin. `connect` ends
+  server that varde does not run, so they stay with its admin. `connect` ends
   with a `skipped:` line for each.
 - **Nothing asks docker**: there is no container.
 - **The allowlist is that server's**: `route.remote_servers_allowed` in its
@@ -363,15 +363,15 @@ chaps dhis2 connect
 
 ---
 
-## `chaps dhis2 show` and `connected_at`
+## `varde dhis2 show` and `connected_at`
 
-- `chaps dhis2 show` asks and reports: where the route points and whether
+- `varde dhis2 show` asks and reports: where the route points and whether
   chap-core answers through it, analytics, the two apps, and each missing
   piece. It changes nothing.
-- After a connect that proved the route, chaps records `connected_at` in
-  `.chaps/components.yaml`.
+- After a connect that proved the route, varde records `connected_at` in
+  `.varde/components.yaml`.
 - `connected_at` only stops the hint in `up` and `status`. It is **not**
-  proof that the route is correct today. `chaps dhis2 show` is what asks
+  proof that the route is correct today. `varde dhis2 show` is what asks
   DHIS2.
 
 ---
@@ -379,9 +379,9 @@ chaps dhis2 connect
 ## Climate data from OCS
 
 ```sh
-chaps components enable ocs
-chaps up
-chaps open ocs
+varde components enable ocs
+varde up
+varde open ocs
 ```
 
 - Open Climate Service serves climate data over STAC and openEO, on port 8790.
@@ -395,14 +395,14 @@ chaps open ocs
 ## More models
 
 ```sh
-chaps models list                       # the marketplace
-chaps models enable auto_arima_chapkit  # one more model
-chaps up
+varde models list                       # the marketplace
+varde models enable auto_arima_chapkit  # one more model
+varde up
 ```
 
 - A new model registers with chap-core, and the Modeling App lists it.
-- `chaps status` shows the registration of each model.
-- `chaps models test --all --backtest` runs a backtest of each model through
+- `varde status` shows the registration of each model.
+- `varde models test --all --backtest` runs a backtest of each model through
   chap-core, the way the Modeling App does.
 
 ---
@@ -416,13 +416,13 @@ chaps up
 The route sends a token that chap-core does not accept, or sends none.
 
 ```sh
-chaps dhis2 connect     # writes this deployment's token into the route
+varde dhis2 connect     # writes this deployment's token into the route
 ```
 
 Two causes:
 
-- `chaps auth rotate` ran, and the route still has the old token;
-- `chaps auth enable` ran, and `chaps up` did not.
+- `varde auth rotate` ran, and the route still has the old token;
+- `varde auth enable` ran, and `varde up` did not.
 
 ---
 
@@ -436,11 +436,11 @@ A protected chap-core refuses a registration without the key. The containers
 read `.env` only when compose creates them:
 
 ```sh
-chaps up
-chaps status
+varde up
+varde status
 ```
 
-`chaps auth enable` writes `SERVICEKIT_REGISTRATION_KEY` beside the token,
+`varde auth enable` writes `SERVICEKIT_REGISTRATION_KEY` beside the token,
 and gives it to every model.
 
 ---
@@ -448,9 +448,9 @@ and gives it to every model.
 ## When something does not work
 
 ```sh
-chaps doctor        # docker, ports, memory, pins, and whether Chap is up
-chaps status        # chap-core, the models, DHIS2
-chaps dhis2 show    # the route, the apps, analytics
+varde doctor        # docker, ports, memory, pins, and whether Chap is up
+varde status        # chap-core, the models, DHIS2
+varde dhis2 show    # the route, the apps, analytics
 ```
 
 Each line that is wrong names the fix. For example:
@@ -466,9 +466,9 @@ warn  memory   5.0 GB available to docker
 ## Start now
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
-chaps init mychap --with dhis2 --models default
-cd mychap && chaps up && chaps dhis2 connect
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
+varde init mychap --with dhis2 --models default
+cd mychap && varde up && varde dhis2 connect
 ```
 
-The DHIS2 chapter: **https://winterop-com.github.io/chaps/dhis2.html**
+The DHIS2 chapter: **https://winterop-com.github.io/varde/dhis2.html**

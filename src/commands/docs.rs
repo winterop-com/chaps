@@ -1,4 +1,4 @@
-//! `chaps docs-markdown` — the command tree as Markdown.
+//! `varde docs-markdown` — the command tree as Markdown.
 //!
 //! The help texts in [`crate::cli`] are the only description of the flags that
 //! is guaranteed to be current, so the reference chapter of the book is
@@ -24,12 +24,12 @@ const HEADER: &str = "\
 Generated from the `--help` texts by `make docs-reference`; edit
 `src/cli.rs` and run that target rather than editing this file.
 
-Every command accepts the global options listed under [chaps](#chaps),
+Every command accepts the global options listed under [varde](#varde),
 `--json` included. Commands that need a deployment directory are hidden from
-`chaps --help` outside one, but they are all listed here.
+`varde --help` outside one, but they are all listed here.
 ";
 
-/// `chaps docs-markdown`: print the command tree as Markdown.
+/// `varde docs-markdown`: print the command tree as Markdown.
 pub fn run(ctx: &Ctx, _args: &DocsMarkdownArgs) -> Result<()> {
     let markdown = reference();
     ctx.out
@@ -50,7 +50,7 @@ fn reference() -> String {
 
     // Each block below ends in a blank line, so the header needs one too.
     let mut out = format!("{HEADER}\n");
-    render(&root, "chaps", true, &mut out);
+    render(&root, "varde", true, &mut out);
     format!("{}\n", out.trim_end())
 }
 
@@ -94,7 +94,7 @@ fn render(command: &ClapCommand, path: &str, is_root: bool, out: &mut String) {
     }
 }
 
-/// `Usage: chaps models enable [OPTIONS] <ID>`, as clap renders it.
+/// `Usage: varde models enable [OPTIONS] <ID>`, as clap renders it.
 ///
 /// Clap renders the usage from `&mut self`, so this works on a copy: the tree
 /// is walked by reference and must not be mutated under the walk.
@@ -123,15 +123,15 @@ fn ends_closed(text: &str) -> bool {
     text.ends_with(['.', '!', '?', ':'])
 }
 
-/// The GitHub-style anchor mdbook gives `## chaps models enable`.
+/// The GitHub-style anchor mdbook gives `## varde models enable`.
 fn anchor(path: &str, sub: &ClapCommand) -> String {
     format!("{path} {}", sub.get_name()).replace(' ', "-")
 }
 
 /// Is this argument worth a row?
 ///
-/// `-h` and `-V` are clap's own and say nothing about `chaps`; they are
-/// recognised by their action, not their name, because `chaps models enable`
+/// `-h` and `-V` are clap's own and say nothing about `varde`; they are
+/// recognised by their action, not their name, because `varde models enable`
 /// has a `--version` of its own that must stay. The global options are
 /// documented once, under the root command, even though clap copies them into
 /// every subcommand.

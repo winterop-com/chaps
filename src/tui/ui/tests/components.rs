@@ -28,17 +28,17 @@ fn on_components(app: &mut App, component: Component) {
 }
 
 /// The second page: the title says which list it is, the box is named
-/// after it, and the columns are the four `chaps components list` prints.
+/// after it, and the columns are the four `varde components list` prints.
 #[test]
 fn the_components_page_draws_the_columns_components_list_prints() {
     let registry = registry();
     let mut app = App::new(&registry, &state_with_ocs(Some(9000)));
     let before = render(&app, 120, 40);
-    assert!(before.contains("chaps · models"), "{before}");
+    assert!(before.contains("varde · models"), "{before}");
 
     app.reduce(Action::NextPage);
     let screen = render(&app, 120, 40);
-    assert!(screen.contains("chaps · components"), "{screen}");
+    assert!(screen.contains("varde · components"), "{screen}");
     assert!(
         screen.contains("4 components · 2 enabled · 0 pending"),
         "{screen}"
@@ -126,7 +126,7 @@ fn a_pending_component_change_is_marked_and_listed() {
     // writes both.
     app.reduce(Action::PrevPage);
     let screen = render(&app, 120, 40);
-    assert!(screen.contains("chaps · models"), "{screen}");
+    assert!(screen.contains("varde · models"), "{screen}");
     assert!(screen.contains("2 pending changes"), "{screen}");
 }
 
@@ -183,12 +183,12 @@ fn the_component_overlay_names_the_files_and_the_settings_it_does_not_edit() {
         "enabled here",
         "Open Climate Service",
         "http://localhost:9000",
-        "compose.ocs.yml · rendered from .chaps/components.yaml by `chaps sync`",
+        "compose.ocs.yml · rendered from .varde/components.yaml by `varde sync`",
         "ocs_data · kept when the component is disabled",
         "ocs/climate-service.yaml · yours to edit",
         "not on this page:",
-        "`chaps components enable ocs --base-url URL`",
-        "`chaps components enable ocs --read-only`",
+        "`varde components enable ocs --base-url URL`",
+        "`varde components enable ocs --read-only`",
     ] {
         assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
     }
@@ -204,11 +204,11 @@ fn the_component_overlay_names_the_files_and_the_settings_it_does_not_edit() {
     app.reduce(Action::Info);
     let screen = render(&app, 120, 40);
     assert!(
-        screen.contains("compose.yml + compose.chaps.yml"),
+        screen.contains("compose.yml + compose.varde.yml"),
         "{screen}"
     );
     assert!(screen.contains("none of its own"), "{screen}");
-    assert!(screen.contains("`chaps down --volumes`"), "{screen}");
+    assert!(screen.contains("`varde down --volumes`"), "{screen}");
     assert!(screen.contains("host port is the API port"), "{screen}");
     assert!(
         !screen.contains("--base-url"),
@@ -219,7 +219,7 @@ fn the_component_overlay_names_the_files_and_the_settings_it_does_not_edit() {
 /// The DHIS2 overlay, which carries what only it can say: that the config
 /// file is not optional, that one of the three volumes is a cache, what the
 /// seed is and when it applies, how long the first start takes, and that the
-/// two settings no flag moves are a key in `.chaps/components.yaml`.
+/// two settings no flag moves are a key in `.varde/components.yaml`.
 #[test]
 fn the_dhis2_overlay_names_its_config_its_cache_and_the_keys_no_flag_moves() {
     let registry = registry();
@@ -232,17 +232,17 @@ fn the_dhis2_overlay_names_its_config_its_cache_and_the_keys_no_flag_moves() {
         "dhis2",
         "enabled here",
         "http://localhost:8780",
-        "compose.dhis2.yml · rendered from .chaps/components.yaml by `chaps",
+        "compose.dhis2.yml · rendered from .varde/components.yaml by `varde",
         "dhis2_home, dhis2_db, dhis2_dump · kept when the component is disabled",
         "dhis2/dhis.conf · yours to edit, and DHIS2 will not start without it",
         "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz · restored",
-        "once, into the database the first `chaps up` creates",
+        "once, into the database the first `varde up` creates",
         "dhis2_dump holds the downloaded dump rather than data",
         "minutes, not seconds: DHIS2 migrates its schema on the way up",
-        "`chaps logs dhis2` is where that shows",
+        "`varde logs dhis2` is where that shows",
         "not on this page:",
-        "`seed:` in .chaps/components.yaml, then `chaps sync`",
-        "`image_tag:` in .chaps/components.yaml, then `chaps sync`",
+        "`seed:` in .varde/components.yaml, then `varde sync`",
+        "`image_tag:` in .varde/components.yaml, then `varde sync`",
         "the DHIS2 version, 2.42 here; it migrates a schema forward only",
         "backup` first",
     ] {
@@ -264,7 +264,7 @@ fn the_dhis2_overlay_names_its_config_its_cache_and_the_keys_no_flag_moves() {
 }
 
 /// The `seed` field's four answers: a dump, `none`, and a `default` on a
-/// minor line chaps publishes no dump for - which starts empty like `none`
+/// minor line varde publishes no dump for - which starts empty like `none`
 /// and has to say why.
 #[test]
 fn the_seed_field_says_which_of_the_four_answers_this_deployment_gave() {
@@ -274,7 +274,7 @@ fn the_seed_field_says_which_of_the_four_answers_this_deployment_gave() {
     assert_eq!(
         dhis2_seed_field(&components),
         "https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz · restored once, \
-             into the database the first `chaps up` creates"
+             into the database the first `varde up` creates"
     );
 
     components.dhis2.seed = crate::components::Dhis2Seed::None;
@@ -295,7 +295,7 @@ fn the_seed_field_says_which_of_the_four_answers_this_deployment_gave() {
     components.dhis2.image_tag = "2.40.1".to_string();
     assert_eq!(
         dhis2_seed_field(&components),
-        "default · chaps knows no dump for 2.40, so dhis2_db starts empty"
+        "default · varde knows no dump for 2.40, so dhis2_db starts empty"
     );
 }
 
@@ -348,7 +348,7 @@ fn the_volume_field_lists_every_volume_a_component_keeps() {
     );
     assert_eq!(
         volume_field(&[]),
-        "none of its own · `chaps down --volumes` removes this deployment's"
+        "none of its own · `varde down --volumes` removes this deployment's"
     );
 }
 

@@ -2,7 +2,7 @@
 #
 # The compose templates are compiled into the binary with `include_str!`, the
 # golden fixture and `docs/reference.md` are compared to generated text byte
-# for byte, and every file `chaps` writes is compared to what the next `chaps
+# for byte, and every file `varde` writes is compared to what the next `varde
 # sync` renders. A checkout with git's default `core.autocrlf` on Windows
 # would hand all of those back with CRLF, so text is normalised to LF in the
 # index and checked out as LF on every platform.

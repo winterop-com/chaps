@@ -1,4 +1,4 @@
-//! What `chaps models add` accepts, and what it derives from it.
+//! What `varde models add` accepts, and what it derives from it.
 //!
 //! Two forms, and only two: a GitHub repository URL, which follows the
 //! default branch, and an image reference on ghcr, which pins exactly. A bare
@@ -192,7 +192,7 @@ fn parse_image(text: &str) -> Result<Image> {
     let host = text.split('/').next().unwrap_or_default();
     if !host.eq_ignore_ascii_case(GHCR_HOST) {
         return Err(anyhow::anyhow!(
-            "`{text}` is on {host}; `chaps models add` reads {GHCR_HOST} images, \
+            "`{text}` is on {host}; `varde models add` reads {GHCR_HOST} images, \
              so enable it from there or add the model to the marketplace"
         ));
     }
@@ -285,7 +285,7 @@ pub fn default_service_id(id: &str) -> String {
     id.replace('_', "-")
 }
 
-/// Whether `id` is usable as a key in `.chaps/models-manual.yaml`.
+/// Whether `id` is usable as a key in `.varde/models-manual.yaml`.
 ///
 /// The same alphabet the marketplace uses, because the id names a volume
 /// (`ck_<id>_data`) and an environment variable (`<ID>_IMAGE_TAG`).
@@ -306,8 +306,8 @@ pub fn check_id(id: &str) -> Result<()> {
 
 /// Names a model's service id must not take: the services chap-core and the
 /// components run as, which a model of that name would be merged into, and
-/// the stems of the compose files chaps writes besides the overlays
-/// (`compose.chaps.yml`, `compose.marketplace.yml`), which an overlay of that
+/// the stems of the compose files varde writes besides the overlays
+/// (`compose.varde.yml`, `compose.marketplace.yml`), which an overlay of that
 /// name would be written over. A test holds this to the templates.
 pub const RESERVED_SERVICE_IDS: &[&str] = &[
     "chap",
@@ -320,16 +320,16 @@ pub const RESERVED_SERVICE_IDS: &[&str] = &[
     "dhis2",
     "dhis2-db",
     "dhis2-prep",
-    "chaps",
+    "varde",
     "marketplace",
 ];
 
-/// The error for a service id chaps keeps for itself, or `Ok`.
+/// The error for a service id varde keeps for itself, or `Ok`.
 pub fn check_not_reserved(service_id: &str) -> Result<()> {
     if RESERVED_SERVICE_IDS.contains(&service_id) {
         return Err(anyhow::anyhow!(
-            "`{service_id}` is a name chaps uses for its own services and files; pass \
-             `--service-id <another>`, or edit `service_id:` in `.chaps/models-manual.yaml`"
+            "`{service_id}` is a name varde uses for its own services and files; pass \
+             `--service-id <another>`, or edit `service_id:` in `.varde/models-manual.yaml`"
         ));
     }
     Ok(())

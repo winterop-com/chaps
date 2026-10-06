@@ -77,7 +77,7 @@ pub fn checks_disabled() -> bool {
 /// [`checks_disabled`] for an explicit value.
 ///
 /// Exactly `1` turns the notice off. Unset, empty and anything else leave it
-/// on, so `CHAPS_NO_UPDATE_CHECK=0` reads the way it looks.
+/// on, so `VARDE_NO_UPDATE_CHECK=0` reads the way it looks.
 pub(super) fn disabled_by(value: Option<&str>) -> bool {
     value == Some("1")
 }
@@ -85,7 +85,7 @@ pub(super) fn disabled_by(value: Option<&str>) -> bool {
 /// The one line the notice prints, or `None` when there is nothing to say.
 pub fn notice_line(latest: &str, current: &str) -> Option<String> {
     crate::chapcore::is_newer(latest, current).then(|| {
-        format!("chaps {latest} is available (you have v{current}): run `chaps self update`")
+        format!("varde {latest} is available (you have v{current}): run `varde self update`")
     })
 }
 
@@ -103,7 +103,7 @@ pub fn dev_notice_line(commit: &str, revision: &str) -> Option<String> {
     }
     let short = &commit[..revision.len().min(commit.len()).max(7)];
     Some(format!(
-        "a newer chaps dev build is available (commit {short}, you have {revision}): \
-         run `chaps self update`"
+        "a newer varde dev build is available (commit {short}, you have {revision}): \
+         run `varde self update`"
     ))
 }

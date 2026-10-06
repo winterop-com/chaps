@@ -1,4 +1,4 @@
-//! `chaps components enable`: turn a component on, change the settings of
+//! `varde components enable`: turn a component on, change the settings of
 //! one that already is, or point the deployment at a chap-core elsewhere.
 
 use super::{ChangeReport, human_change, label};
@@ -32,7 +32,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
 
     // The port preflight runs on the state as recorded, before anything moves:
     // a component already listening on one port must not be mistaken for the
-    // holder of the port it is being moved to. `chaps init` warns in exactly
+    // holder of the port it is being moved to. `varde init` warns in exactly
     // this situation and this is the other place the decision is made, so it
     // warns here too - and warns rather than refuses, because the deployment is
     // not up yet and the port is still easy to change.
@@ -83,7 +83,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         let asked_for = !wanted.is_empty();
         match write_ocs_config(&project.dir, &wanted.into_spec())? {
             Some(path) => notes.push(format!(
-                "wrote {}; it is yours to edit, and chaps never rewrites it",
+                "wrote {}; it is yours to edit, and varde never rewrites it",
                 label(&project, &path)
             )),
             // Values were given for a file that is already there. Silently
@@ -109,7 +109,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         && let Some(path) = write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?
     {
         notes.push(format!(
-            "wrote {}; it is yours to edit, and chaps never rewrites it",
+            "wrote {}; it is yours to edit, and varde never rewrites it",
             label(&project, &path)
         ));
     }
@@ -119,7 +119,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     }
     if component == Component::Dhis2 {
         // The pin first: it is the one line that asks the reader to stop and run
-        // something else before `chaps up`.
+        // something else before `varde up`.
         notes.extend(dhis2_tag_moved(&project, &after));
         // The sync below says it with the reason when the pinned minor has no
         // dump, so this line would be the same sentence twice.
@@ -143,8 +143,8 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         && project.state.chap_compose_source == crate::project::ComposeSource::Embedded
     {
         notes.push(format!(
-            "compose.yml is rendered from the chap-core compose file built into chaps, at tag \
-             `{}`; `chaps update --pin-chap-core` moves it to the newest release",
+            "compose.yml is rendered from the chap-core compose file built into varde, at tag \
+             `{}`; `varde update --pin-chap-core` moves it to the newest release",
             project.state.chap_image_tag
         ));
     }
@@ -179,7 +179,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         .emit(&report, || human_change(&report, &project, &ctx.out))
 }
 
-/// `chaps components enable chap-core --url URL`: record a chap-core that runs
+/// `varde components enable chap-core --url URL`: record a chap-core that runs
 /// elsewhere, and re-render the model overlays so they register with it.
 ///
 /// Refused while this deployment runs its own chap-core: switching would leave
@@ -195,13 +195,13 @@ fn use_external_chap_core(
     if component != Component::ChapCore {
         return Err(anyhow::anyhow!(
             "--url is a chap-core setting: it names a chap-core elsewhere for the models \
-             to register with; run `chaps components enable chap-core --url URL`"
+             to register with; run `varde components enable chap-core --url URL`"
         ));
     }
     if project.state.components.chap_core.enabled {
         return Err(anyhow::anyhow!(
             "this deployment runs its own chap-core; turn it off first with \
-             `chaps components disable chap-core`, then run this again"
+             `varde components disable chap-core`, then run this again"
         ));
     }
     let before = project.state.components.clone();
@@ -224,8 +224,8 @@ fn use_external_chap_core(
     let mut notes = synced.warnings;
     notes.extend(detected);
     notes.push(format!(
-        "model services register with the chap-core at {} on the next `chaps up`, calling \
-         back to them at {}; `chaps status` asks it",
+        "model services register with the chap-core at {} on the next `varde up`, calling \
+         back to them at {}; `varde status` asks it",
         external.url, external.models_host
     ));
     let report = ChangeReport {
@@ -407,7 +407,7 @@ fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<O
     );
     let Some(edit) = crate::compose::sync::set_read_only(&project.dir, wanted)? else {
         return Err(anyhow::anyhow!(
-            "there is no {config} to set {} in; run `chaps sync` to scaffold it first",
+            "there is no {config} to set {} in; run `varde sync` to scaffold it first",
             crate::components::OCS_READ_ONLY_KEY
         ));
     };
@@ -429,8 +429,8 @@ fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<O
 /// How a change to `ocs/climate-service.yaml` reaches the running instance.
 ///
 /// The instance config is a bind mount, which compose does not compare, so
-/// `chaps restart` recreates a service whose mounted config is newer than its
+/// `varde restart` recreates a service whose mounted config is newer than its
 /// container (see [`crate::commands::docker::edited_configs`]). Naming `ocs`
 /// leaves chap-core and the models alone.
 const READ_ONLY_APPLY: &str =
-    "`chaps restart ocs` applies it, recreating the instance so it reads the file again";
+    "`varde restart ocs` applies it, recreating the instance so it reads the file again";

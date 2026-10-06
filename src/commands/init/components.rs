@@ -144,14 +144,14 @@ pub(super) fn parse_components(flags: &ComponentFlags) -> Result<Components> {
             ));
         }
         let seed = crate::components::Dhis2Seed::parse(given);
-        // The dump is downloaded by the one-shot on the first `chaps up`, not
+        // The dump is downloaded by the one-shot on the first `varde up`, not
         // here, so this refusal is about the deployment being written rather than
         // about this run's network: `--offline` is a deployment that does not
         // reach out, and recording a URL would make its first start do exactly
         // that.
         if flags.offline && seed.is_url() {
             return Err(anyhow::anyhow!(
-                "--offline and `--dhis2-seed {}` ask for opposite things: the first `chaps up` \
+                "--offline and `--dhis2-seed {}` ask for opposite things: the first `varde up` \
                  would download that dump; pass a path to a dump you already have, or \
                  `--dhis2-seed none`",
                 seed.as_str()

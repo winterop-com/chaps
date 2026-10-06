@@ -14,7 +14,7 @@ use std::time::Duration;
 /// GitHub repository the chap-core images and the compose file come from.
 pub const REPO: &str = "dhis2-chap/chap-core";
 
-/// Public raw.githubusercontent.com, unless `CHAPS_GITHUB_RAW` points
+/// Public raw.githubusercontent.com, unless `VARDE_GITHUB_RAW` points
 /// somewhere else. Both are test hooks and nothing on the command line moves
 /// them; see `docs/development.md`.
 pub const DEFAULT_RAW: &str = "https://raw.githubusercontent.com";
@@ -22,18 +22,18 @@ pub const DEFAULT_RAW: &str = "https://raw.githubusercontent.com";
 /// The standalone compose file published with every chap-core tag.
 pub const COMPOSE_FILE: &str = "compose.ghcr.yml";
 
-/// The moving image tag `chaps init` resolves to the release it points at.
+/// The moving image tag `varde init` resolves to the release it points at.
 pub const LATEST_TAG: &str = "latest";
 
 /// The moving tags chap-core publishes, newest build first. `latest` follows
 /// the newest release; the other two follow their branches.
 pub const MOVING_TAGS: &[&str] = &["dev", "master", LATEST_TAG];
 
-/// How many releases `chaps update --list-tags` lists.
+/// How many releases `varde update --list-tags` lists.
 pub const LIST_LIMIT: usize = 10;
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// Base of the GitHub REST API this run talks to.
 pub fn api_base() -> String {
@@ -42,7 +42,7 @@ pub fn api_base() -> String {
 
 /// Base of the raw file host this run talks to.
 pub fn raw_base() -> String {
-    crate::github::base("CHAPS_GITHUB_RAW", DEFAULT_RAW)
+    crate::github::base("VARDE_GITHUB_RAW", DEFAULT_RAW)
 }
 
 /// Release endpoint for the newest final release; prereleases and drafts are
@@ -96,7 +96,7 @@ pub struct Release {
 ///
 /// Only the tags that are versions ([`release_version`]) come back: the
 /// repository also tags other things, and a tag that is not a version is not
-/// somewhere `chaps update --chap-tag` can move a deployment to as a release.
+/// somewhere `varde update --chap-tag` can move a deployment to as a release.
 pub fn releases(limit: usize, timeout: Duration) -> Result<Vec<Release>> {
     // Asked for wider than the list that is printed: the drafts, the
     // prereleases and the tags that are not versions are dropped here, not by
@@ -128,7 +128,7 @@ pub fn release_exists(tag: &str, timeout: Duration) -> Result<bool> {
 /// The day `branch` was last committed to, `YYYY-MM-DD`.
 ///
 /// Best effort and never fatal: it decorates one column of
-/// `chaps update --list-tags`, and a branch GitHub will not talk about simply
+/// `varde update --list-tags`, and a branch GitHub will not talk about simply
 /// has no date to print.
 pub fn branch_updated(branch: &str, timeout: Duration) -> Option<String> {
     let body = crate::github::get_ok(&branch_url(branch), timeout).ok()?;
@@ -279,7 +279,7 @@ pub fn is_backwards(from: &str, to: &str) -> bool {
 ///
 /// Three things matter: it has to parse as YAML, it has to define the `chap`
 /// service, and that service's image has to keep reading `CHAP_IMAGE_TAG`, or
-/// the tag this CLI records in `.chaps/project.yaml` and `.env` would pin
+/// the tag this CLI records in `.varde/project.yaml` and `.env` would pin
 /// nothing at all.
 pub fn validate_compose(text: &str) -> Result<()> {
     let doc: serde_yaml_ng::Value =

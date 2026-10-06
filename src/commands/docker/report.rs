@@ -13,15 +13,15 @@ use crate::project::Project;
 /// What `logs` and `docker ps` say for a project that has no containers at
 /// all. Both would otherwise print nothing whatsoever.
 pub(super) const NOTHING_RUNNING: &str =
-    "nothing is running for this project; start Chap with `chaps up`";
+    "nothing is running for this project; start Chap with `varde up`";
 
 /// What `restart` says when there is nothing to recreate. Recreating is not
-/// starting: a deployment that is down is `chaps up`'s to bring up, the same
-/// answer `chaps status` gives.
-const NOT_RUNNING: &str = "Chap is not running; start it with `chaps up`";
+/// starting: a deployment that is down is `varde up`'s to bring up, the same
+/// answer `varde status` gives.
+const NOT_RUNNING: &str = "Chap is not running; start it with `varde up`";
 
 /// The hint that closes a detached `up`.
-const AFTER_UP: &str = "run `chaps status` to check that everything answers";
+const AFTER_UP: &str = "run `varde status` to check that everything answers";
 
 /// Say what the wrapper did, now that docker has finished.
 ///
@@ -90,9 +90,9 @@ pub(super) fn report_what_changed(
 ///
 /// A deployment with a DHIS2 nothing has connected gets one more line under
 /// that, because this is the run the reader is about to wait minutes for and
-/// the line that named `chaps dhis2 connect` scrolled past when the component
-/// was added. It comes off `.chaps/components.yaml` alone - `up` asks DHIS2
-/// nothing, and there would be nothing to ask yet - so it says what chaps has
+/// the line that named `varde dhis2 connect` scrolled past when the component
+/// was added. It comes off `.varde/components.yaml` alone - `up` asks DHIS2
+/// nothing, and there would be nothing to ask yet - so it says what varde has
 /// recorded rather than what DHIS2 is. See [`dhis2_connect_hint`].
 ///
 /// Not on the run that started nothing at all: there is no deployment up to
@@ -114,7 +114,7 @@ pub fn up_summary(
     let unchanged_cell = |names: &[String]| out.dim(&format!("unchanged: {}", names.join(", ")));
     let summary = match (started.is_empty(), unchanged.is_empty()) {
         (true, true) => {
-            return out.backticks("nothing is running after `up`; run `chaps logs` to see why");
+            return out.backticks("nothing is running after `up`; run `varde logs` to see why");
         }
         (false, true) => started_cell(&started),
         (true, false) => unchanged_cell(&unchanged),
@@ -146,10 +146,10 @@ pub fn restart_summary(
     let (recreated, unchanged) = docker::diff_containers(before, after);
     if recreated.is_empty() {
         let force = match named {
-            [] => "`chaps restart --all` recreates every one anyway".to_string(),
-            [one] => format!("`chaps restart --all {one}` recreates it anyway"),
+            [] => "`varde restart --all` recreates every one anyway".to_string(),
+            [one] => format!("`varde restart --all {one}` recreates it anyway"),
             many => format!(
-                "`chaps restart --all {}` recreates them anyway",
+                "`varde restart --all {}` recreates them anyway",
                 many.join(" ")
             ),
         };

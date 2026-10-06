@@ -1,18 +1,18 @@
-//! The labels chaps puts on every container it starts, and the one query that
+//! The labels varde puts on every container it starts, and the one query that
 //! finds all of them on a machine.
 
 use super::docker_capture;
 use std::collections::BTreeMap;
 
 /// What the container is: `chap-core`, `model`, `ocs`, `s3` or `dhis2`.
-pub const ROLE_LABEL: &str = "com.winterop.chaps.role";
+pub const ROLE_LABEL: &str = "com.winterop.varde.role";
 /// The marketplace id of a model service, and of its init container.
-pub const MODEL_LABEL: &str = "com.winterop.chaps.model";
-/// `run` for a `chaps run` group, `init` for a deployment of its own, and
-/// `cli` for the one-shot container `chaps chap` runs.
-pub const KIND_LABEL: &str = "com.winterop.chaps.kind";
-/// The group of a `chaps run` deployment.
-pub const GROUP_LABEL: &str = "com.winterop.chaps.group";
+pub const MODEL_LABEL: &str = "com.winterop.varde.model";
+/// `run` for a `varde run` group, `init` for a deployment of its own, and
+/// `cli` for the one-shot container `varde chap` runs.
+pub const KIND_LABEL: &str = "com.winterop.varde.kind";
+/// The group of a `varde run` deployment.
+pub const GROUP_LABEL: &str = "com.winterop.varde.group";
 
 /// Compose's own labels, which say which deployment and service it is.
 pub const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
@@ -47,7 +47,7 @@ impl Labeled {
 
 /// Every container on this machine that carries [`ROLE_LABEL`], running or
 /// not. Empty when docker cannot be asked.
-pub fn chaps_containers() -> Vec<Labeled> {
+pub fn varde_containers() -> Vec<Labeled> {
     let args = [
         "ps",
         "-a",

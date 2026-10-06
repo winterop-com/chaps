@@ -28,7 +28,7 @@ fn get_matches_id_and_service_id() {
     assert!(r.get("nope").is_none());
 }
 
-/// A manual definition as `.chaps/models-manual.yaml` holds one.
+/// A manual definition as `.varde/models-manual.yaml` holds one.
 fn manual(id: &str, service_id: &str) -> crate::project::ManualModel {
     crate::project::ManualModel {
         reads_port: false,

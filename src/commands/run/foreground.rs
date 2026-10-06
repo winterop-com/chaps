@@ -1,4 +1,4 @@
-//! `chaps run -a`, in the foreground: follow the model's log until Ctrl-C, then
+//! `varde run -a`, in the foreground: follow the model's log until Ctrl-C, then
 //! stop what this command started. And Ctrl-C part-way through a start, in
 //! either mode: take back out what the start put in.
 
@@ -30,7 +30,7 @@ pub(super) fn follow(ctx: &Ctx, report: &RunReport, purge: bool) -> Result<()> {
 
     if report.was_running {
         output::notice(&format!(
-            "{id} ran before this command, so it keeps running; `chaps stop {id}` stops it"
+            "{id} ran before this command, so it keeps running; `varde stop {id}` stops it"
         ));
         return Ok(());
     }
@@ -40,10 +40,10 @@ pub(super) fn follow(ctx: &Ctx, report: &RunReport, purge: bool) -> Result<()> {
     match stop_in(ctx, &report.project_dir, id, purge) {
         Ok(_) if purge => output::notice(&format!("stopped {id}, and removed its data")),
         Ok(_) => output::notice(&format!(
-            "stopped {id}; its data stays, and `chaps run {id}` starts it again with it"
+            "stopped {id}; its data stays, and `varde run {id}` starts it again with it"
         )),
         Err(err) => output::warn(&format!(
-            "{id} did not stop: {err:#}; `chaps stop {id}` stops it"
+            "{id} did not stop: {err:#}; `varde stop {id}` stops it"
         )),
     }
     Ok(())
@@ -66,13 +66,13 @@ pub(super) fn take_back(
     } else if enabled {
         match stop_in(ctx, &project.dir, id, false) {
             Ok(_) => format!("{id} is taken back out of {}", project.dir.display()),
-            Err(err) => format!("{id} stays enabled ({err:#}); `chaps stop {id}` takes it out"),
+            Err(err) => format!("{id} stays enabled ({err:#}); `varde stop {id}` takes it out"),
         }
     } else {
         let args = ["stop", service].map(str::to_string);
         match docker::compose_output(project, &args) {
             Ok((0, _, _)) => format!("{service} is stopped again"),
-            _ => format!("{service} may still run; `chaps stop {id}` stops it"),
+            _ => format!("{service} may still run; `varde stop {id}` stops it"),
         }
     };
     ChapError::Interrupted(what).into()

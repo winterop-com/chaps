@@ -232,7 +232,7 @@ impl App<'_> {
     }
 
     /// Open the version dialog on the `dhis2` component: the minor lines
-    /// chaps has a seed for, plus whatever the deployment runs now, with the
+    /// varde has a seed for, plus whatever the deployment runs now, with the
     /// cursor on the one in force.
     pub(super) fn open_dhis2_version_prompt(&mut self) {
         if !self.components.dhis2.enabled {
@@ -271,7 +271,7 @@ impl App<'_> {
 /// What `v` on a `dhis2` component that is off says.
 const DHIS2_VERSION_NEEDS_ENABLED: &str = "turn dhis2 on first (space), then pick its version";
 
-/// The DHIS2 versions the dialog offers: the ones chaps knows, newest first,
+/// The DHIS2 versions the dialog offers: the ones varde knows, newest first,
 /// and `current` too when it is none of them.
 pub fn dhis2_versions(current: &str) -> Vec<String> {
     let mut versions: Vec<String> = crate::components::DHIS2_VERSIONS
@@ -287,7 +287,7 @@ pub fn dhis2_versions(current: &str) -> Vec<String> {
 /// What the port prompt accepts: a number in the project's range, `auto`, or
 /// nothing at all.
 ///
-/// The reasons are the ones `chaps models expose` gives, minus the two only a
+/// The reasons are the ones `varde models expose` gives, minus the two only a
 /// save can answer - a port another compose file claims, and a port something
 /// on this machine is listening on - which [`crate::compose::apply()`] checks
 /// when the selection is applied.

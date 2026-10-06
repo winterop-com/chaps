@@ -1,4 +1,4 @@
-//! Models that are not in the marketplace: resolving what `chaps models add`
+//! Models that are not in the marketplace: resolving what `varde models add`
 //! was given into an entry a deployment can run.
 //!
 //! The marketplace answers three questions about a model: which image, which
@@ -6,7 +6,7 @@
 //! the catalogue, those answers have to come from the repository and the
 //! image themselves - GitHub for the commits, ghcr for the published tags and
 //! the image config, and docker only where neither can say. What comes out is
-//! recorded in `.chaps/models-manual.yaml` and synthesised back into a
+//! recorded in `.varde/models-manual.yaml` and synthesised back into a
 //! marketplace-shaped entry ([`crate::project::ManualModel::to_model`]), so
 //! every command downstream treats it like any other model.
 
@@ -32,7 +32,7 @@ use std::time::Duration;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// Where the lookups go, and whether they may go anywhere at all.
 ///
@@ -72,13 +72,13 @@ impl Endpoints {
     pub fn from_env(offline: bool) -> Endpoints {
         Endpoints {
             github_api: crate::github::api_base(),
-            ghcr_url: std::env::var("CHAPS_GHCR_URL")
+            ghcr_url: std::env::var("VARDE_GHCR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty())
                 .unwrap_or_else(|| ghcr::DEFAULT_URL.to_string()),
             offline,
             docker_probe: !matches!(
-                std::env::var("CHAPS_NO_DOCKER_PROBE").as_deref(),
+                std::env::var("VARDE_NO_DOCKER_PROBE").as_deref(),
                 Ok("1") | Ok("true")
             ),
             timeout: DEFAULT_TIMEOUT,
@@ -86,7 +86,7 @@ impl Endpoints {
     }
 }
 
-/// What `chaps models add` was asked for, before anything was looked up.
+/// What `varde models add` was asked for, before anything was looked up.
 #[derive(Debug, Clone, Default)]
 pub struct AddRequest {
     /// The repository URL or image reference, as typed.
@@ -166,8 +166,8 @@ impl Resolved {
     /// an entry that follows a branch, an exact pin for one that does not.
     ///
     /// Both resolve to the same single version of the synthesised model; the
-    /// difference is what `.chaps/models.yaml` records, and therefore what
-    /// `chaps update` sees.
+    /// difference is what `.varde/models.yaml` records, and therefore what
+    /// `varde update` sees.
     pub fn selector(&self) -> VersionSelector {
         match self.follow {
             Some(_) => VersionSelector::Channel(crate::registry::Channel::Latest),

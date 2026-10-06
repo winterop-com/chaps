@@ -116,7 +116,7 @@ pub(super) fn clean(
     let Some(before) = before else {
         crate::output::notice(&format!(
             "{service_id}: could not list its configs, so nothing was cleaned up; \
-             `chaps api GET /v2/services/{service_id}/run/api/v1/configs` shows what it holds"
+             `varde api GET /v2/services/{service_id}/run/api/v1/configs` shows what it holds"
         ));
         return;
     };

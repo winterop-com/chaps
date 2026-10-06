@@ -185,7 +185,7 @@ impl App<'_> {
         // The component set rides on the same selection, so one `s` writes
         // both pages. It is only set when the session moved something: apply
         // would treat an identical set as a no-op, but a selection that says
-        // nothing is what makes `chaps ui` able to say "no changes".
+        // nothing is what makes `varde ui` able to say "no changes".
         if self.components != self.initial_components {
             selection.components = Some(self.components.clone());
         }

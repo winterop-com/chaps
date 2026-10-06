@@ -9,7 +9,7 @@ use serde::Serialize;
 ///
 /// Neither OCS nor the object store publishes a release feed this CLI can
 /// consult, so both follow a moving tag: `docker compose pull` takes whatever
-/// it points at today, and there is nothing in `.chaps/` to move. An active
+/// it points at today, and there is nothing in `.varde/` to move. An active
 /// `*_IMAGE_TAG` line in `.env` is the operator's own pin, and is reported as
 /// such rather than silently overridden.
 #[derive(Debug, Clone, Serialize)]
@@ -22,7 +22,7 @@ pub struct ComponentUpdate {
     pub pinned: bool,
 }
 
-/// One row per enabled component, read from `.chaps/components.yaml` and the
+/// One row per enabled component, read from `.varde/components.yaml` and the
 /// `.env` beside it.
 pub fn plan_components(project: &Project) -> Vec<ComponentUpdate> {
     let env =
@@ -62,17 +62,17 @@ pub fn plan_components(project: &Project) -> Vec<ComponentUpdate> {
 /// What a run that is about to re-pull the DHIS2 image is told while `dhis2_db`
 /// is already there.
 ///
-/// Not the line `chaps components enable dhis2` prints. That one is about a tag
+/// Not the line `varde components enable dhis2` prints. That one is about a tag
 /// an operator asked to change, and names the two tags. Here nothing on the
 /// screen moves at all: `dhis2/core:2.42` is a minor line, so the same tag is a
 /// newer patch release tomorrow, and a pin an operator set by hand is re-pulled
 /// too. That is the whole reason the line exists - the pull is silent, the next
-/// `chaps up` migrates the schema, and DHIS2 migrates forward only, so the only
+/// `varde up` migrates the schema, and DHIS2 migrates forward only, so the only
 /// way back from a migration that was not wanted is the archive taken before it.
 pub fn dhis2_pull_warning(image: &str, tag: &str) -> String {
     format!(
         "this pull can bring a newer `{image}:{tag}`, and a newer DHIS2 migrates `dhis2_db` \
-         irreversibly on the next `chaps up`: run `chaps backup create` first - an older image \
+         irreversibly on the next `varde up`: run `varde backup create` first - an older image \
          on a migrated database answers healthy while every API request 404s"
     )
 }

@@ -50,8 +50,8 @@ fn a_password_failure_maps_to_the_volume_it_came_from() {
         hint.contains("the database volume holds a different password"),
         "{hint}"
     );
-    assert!(hint.contains("chaps down --volumes"), "{hint}");
-    assert!(hint.contains("chaps doctor"), "{hint}");
+    assert!(hint.contains("varde down --volumes"), "{hint}");
+    assert!(hint.contains("varde doctor"), "{hint}");
 
     // The bare line chap-core prints, without the traceback around it.
     let bare = Unhealthy::of(
@@ -73,7 +73,7 @@ fn a_refused_database_maps_to_the_database() {
     let entry = Unhealthy::of("chap", logs);
     assert_eq!(
         entry.hint.as_deref(),
-        Some("the database or valkey did not come up; run `chaps logs postgres`")
+        Some("the database or valkey did not come up; run `varde logs postgres`")
     );
 }
 
@@ -278,7 +278,7 @@ fn a_seed_restore_that_stopped_says_the_volume_has_to_go() {
     );
     let hint = entry.hint.expect("a hint");
     assert!(
-        hint.contains("`chaps components disable dhis2 --purge`"),
+        hint.contains("`varde components disable dhis2 --purge`"),
         "{hint}"
     );
     // Never every volume: that would take the chap-core database as well.
@@ -295,7 +295,7 @@ fn a_database_without_the_seed_mark_says_so() {
     let (why, hint) = seed_mark_verdict(Some("")).expect("no mark");
     assert!(why.contains("did not finish"), "{why}");
     assert!(
-        hint.contains("`chaps components disable dhis2 --purge`"),
+        hint.contains("`varde components disable dhis2 --purge`"),
         "{hint}"
     );
 }

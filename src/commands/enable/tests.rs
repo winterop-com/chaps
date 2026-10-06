@@ -33,7 +33,7 @@ fn project_with_ewars(host_port: Option<u16>) -> Project {
     }
 }
 
-/// What `--purge` calls a model that `.chaps/models.yaml` no longer holds,
+/// What `--purge` calls a model that `.varde/models.yaml` no longer holds,
 /// and therefore which volume it removes.
 #[test]
 fn a_purge_names_the_volume_by_the_marketplace_id() {
@@ -84,7 +84,7 @@ fn the_summary_ends_with_the_next_step() {
     let project = project_with_ewars(Some(5001));
     let text = render(|lines| summary(&enabled_report(&project), &[], &project, lines));
     assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001"));
-    assert!(text.ends_with("run `chaps up` to apply\n"));
+    assert!(text.ends_with("run `varde up` to apply\n"));
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn a_disable_summary_names_the_removed_file() {
     assert!(text.contains("disabled chapkit_ewars_model"));
     assert!(text.contains("hint: removed compose.chapkit-ewars-model.yml"));
     // Nothing is left for `up` to apply once a model is taken away.
-    assert!(text.ends_with("hint: `chaps status` shows what runs now\n"));
+    assert!(text.ends_with("hint: `varde status` shows what runs now\n"));
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
     let text = render(|lines| port_summary(&exposed, &project, &[], lines));
     assert!(text.starts_with("exposed chapkit-ewars-model on http://localhost:5001\n"));
     assert!(text.contains("hint: wrote compose.chapkit-ewars-model.yml\n"));
-    assert!(text.ends_with("run `chaps up` to apply\n"));
+    assert!(text.ends_with("run `varde up` to apply\n"));
     assert!(!text.contains("no change"));
 
     let internal = PortChange {

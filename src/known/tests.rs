@@ -52,7 +52,7 @@ fn a_typo_in_another_state_file_keeps_the_deployment() {
     project.state.compose_project = "demo-1a2b3c".to_string();
     project.save().unwrap();
     std::fs::write(
-        dir.join(".chaps").join("components.yaml"),
+        dir.join(".varde").join("components.yaml"),
         "chap_core: [oops",
     )
     .unwrap();
@@ -64,9 +64,9 @@ fn a_typo_in_another_state_file_keeps_the_deployment() {
 fn an_unreadable_name_or_a_missing_parent_is_not_proof() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path().join("demo");
-    std::fs::create_dir_all(dir.join(".chaps")).unwrap();
+    std::fs::create_dir_all(dir.join(".varde")).unwrap();
     std::fs::write(
-        dir.join(".chaps").join("project.yaml"),
+        dir.join(".varde").join("project.yaml"),
         "compose_project: [oops",
     )
     .unwrap();

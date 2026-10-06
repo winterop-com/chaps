@@ -1,10 +1,10 @@
-//! `chaps cleanup`: remove what deployments that no longer exist left in
+//! `varde cleanup`: remove what deployments that no longer exist left in
 //! docker - their volumes and their network.
 //!
-//! Only what chaps can prove is left over goes. A deployment counts as gone
-//! when chaps recorded it ([`crate::known`]) and its directory no longer holds
+//! Only what varde can prove is left over goes. A deployment counts as gone
+//! when varde recorded it ([`crate::known`]) and its directory no longer holds
 //! it; a deployment that is only down still has its directory, and its data
-//! stays. Volumes chaps never recorded a deployment for are not touched, and
+//! stays. Volumes varde never recorded a deployment for are not touched, and
 //! neither is anything a container still uses.
 
 use crate::cli::CleanupArgs;
@@ -54,7 +54,7 @@ impl Findings {
     }
 }
 
-/// What `chaps cleanup` did, for `--json`.
+/// What `varde cleanup` did, for `--json`.
 #[derive(Debug, Serialize)]
 struct CleanupReport {
     dry_run: bool,
@@ -125,7 +125,7 @@ pub fn find() -> Option<Findings> {
 pub fn run(ctx: &Ctx, args: &CleanupArgs) -> Result<()> {
     let Some(findings) = find() else {
         return Err(anyhow::anyhow!(
-            "docker is not answering, so nothing was checked; start Docker, then `chaps cleanup` \
+            "docker is not answering, so nothing was checked; start Docker, then `varde cleanup` \
              again"
         ));
     };
@@ -196,18 +196,18 @@ fn remove(report: &mut CleanupReport) {
 }
 
 /// Name what will go, and get a yes. Nobody to ask - `--json`, or no
-/// terminal - is a refusal, as for `chaps down --volumes`: there is no
+/// terminal - is a refusal, as for `varde down --volumes`: there is no
 /// undoing this.
 fn confirm(ctx: &Ctx, findings: &Findings) -> Result<()> {
     if ctx.out.json {
         return Err(anyhow::anyhow!(
-            "--json cannot ask before deleting data; `chaps cleanup --dry-run` lists it, and \
-             `chaps cleanup --yes` deletes it"
+            "--json cannot ask before deleting data; `varde cleanup --dry-run` lists it, and \
+             `varde cleanup --yes` deletes it"
         ));
     }
     if !std::io::stdin().is_terminal() {
         return Err(anyhow::anyhow!(
-            "this deletes data and there is no terminal to confirm at; `chaps cleanup --yes` \
+            "this deletes data and there is no terminal to confirm at; `varde cleanup --yes` \
              deletes it without asking"
         ));
     }
@@ -283,7 +283,7 @@ fn summary(ctx: &Ctx, report: &CleanupReport) -> String {
     if report.dry_run {
         text.push_str(&listing(ctx, findings));
         text.push_str(&ctx.out.backticks(&format!(
-            "{} volume{} of {} removed deployment{} to delete; `chaps cleanup` deletes them",
+            "{} volume{} of {} removed deployment{} to delete; `varde cleanup` deletes them",
             findings.volume_count(),
             plural(findings.volume_count()),
             findings.leftovers.len(),

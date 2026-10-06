@@ -203,7 +203,7 @@ impl App<'_> {
             ),
             entry(
                 CommandId::Docs,
-                "Open the chaps documentation".to_string(),
+                "Open the varde documentation".to_string(),
                 "",
                 "Open docs",
             ),

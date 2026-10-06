@@ -1,7 +1,7 @@
 name: release
 run-name: release ${{ github.ref_type == 'tag' && github.ref_name || 'dev (main)' }}
 
-# Builds `chaps` for six targets natively, plus a universal macOS binary, and
+# Builds `varde` for six targets natively, plus a universal macOS binary, and
 # attaches the archives to a GitHub release.
 #
 # Two kinds of run publish. A `v*` tag publishes the stable release for that
@@ -59,14 +59,14 @@ env:
   # The packaging steps run the binary they just built, to generate the
   # completion scripts. Nothing in a release build should reach out to the
   # release feed while doing it.
-  CHAPS_NO_UPDATE_CHECK: "1"
+  VARDE_NO_UPDATE_CHECK: "1"
   # Which release series the binary being built follows. `build.rs` compiles
-  # it in, `chaps self version` prints it as `channel`, and `chaps self
+  # it in, `varde self version` prints it as `channel`, and `varde self
   # update` uses it to decide whether it follows `releases/latest` or the
   # rolling `dev` pre-release. A tag is stable; everything else, a branch push
   # and a dispatch alike, is a dev build, so a binary from a dispatch run is
   # never mistaken for a release build.
-  CHAPS_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
+  VARDE_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
 
 jobs:
   build:
@@ -135,7 +135,7 @@ jobs:
         if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
         uses: ./.github/actions/sign-macos
         with:
-          binary: target/${{ matrix.target }}/release/chaps
+          binary: target/${{ matrix.target }}/release/varde
           label: ${{ matrix.target }}
           certificate: ${{ secrets.APPLE_CERTIFICATE }}
           certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -160,17 +160,17 @@ jobs:
           # releases/latest/download/<name> needs. The directory inside the
           # archive keeps the version, because that is what someone sees
           # after unpacking it.
-          dir="chaps-${version}-${{ matrix.target }}"
-          asset="chaps-${{ matrix.target }}.tar.gz"
-          binary="target/${{ matrix.target }}/release/chaps"
+          dir="varde-${version}-${{ matrix.target }}"
+          asset="varde-${{ matrix.target }}.tar.gz"
+          binary="target/${{ matrix.target }}/release/varde"
           mkdir -p "dist/$dir/completions"
           cp "$binary" "dist/$dir/"
           cp README.md "dist/$dir/"
           if [ -f LICENSE ]; then cp LICENSE "dist/$dir/"; fi
-          "$binary" completions bash       > "dist/$dir/completions/chaps.bash"
-          "$binary" completions zsh        > "dist/$dir/completions/_chaps"
-          "$binary" completions fish       > "dist/$dir/completions/chaps.fish"
-          "$binary" completions powershell > "dist/$dir/completions/_chaps.ps1"
+          "$binary" completions bash       > "dist/$dir/completions/varde.bash"
+          "$binary" completions zsh        > "dist/$dir/completions/_varde"
+          "$binary" completions fish       > "dist/$dir/completions/varde.fish"
+          "$binary" completions powershell > "dist/$dir/completions/_varde.ps1"
           tar -czf "dist/$asset" -C dist "$dir"
           rm -rf "dist/$dir"
 
@@ -186,11 +186,11 @@ jobs:
           }
           # The zip is named after the target alone; the directory inside
           # it keeps the version. See the tar.gz step.
-          $dir = "chaps-$version-${{ matrix.target }}"
-          $asset = "chaps-${{ matrix.target }}.zip"
+          $dir = "varde-$version-${{ matrix.target }}"
+          $asset = "varde-${{ matrix.target }}.zip"
           # Absolute, so the call operator below cannot mistake it for a
           # command name.
-          $binary = Join-Path $PWD "target/${{ matrix.target }}/release/chaps.exe"
+          $binary = Join-Path $PWD "target/${{ matrix.target }}/release/varde.exe"
           New-Item -ItemType Directory -Force -Path "dist/$dir/completions" | Out-Null
           Copy-Item $binary "dist/$dir/"
           Copy-Item "README.md" "dist/$dir/"
@@ -199,15 +199,15 @@ jobs:
           # and a bash or fish completion script with CRLF does not load.
           $utf8 = New-Object System.Text.UTF8Encoding $false
           foreach ($pair in @(
-            @("bash", "chaps.bash"), @("zsh", "_chaps"),
-            @("fish", "chaps.fish"), @("powershell", "_chaps.ps1")
+            @("bash", "varde.bash"), @("zsh", "_varde"),
+            @("fish", "varde.fish"), @("powershell", "_varde.ps1")
           )) {
             $text = ((& $binary completions $pair[0]) -join "`n") + "`n"
             $out = Join-Path $PWD "dist/$dir/completions/$($pair[1])"
             [System.IO.File]::WriteAllText($out, $text, $utf8)
           }
           # The directory, not its contents, so the zip has the same
-          # chaps-<version>-<target>/ top level the tar.gz archives have.
+          # varde-<version>-<target>/ top level the tar.gz archives have.
           Compress-Archive -Path "dist/$dir" -DestinationPath "dist/$asset"
           Remove-Item -Recurse -Force "dist/$dir"
 
@@ -264,14 +264,14 @@ jobs:
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           for target in x86_64-apple-darwin aarch64-apple-darwin; do
-            tar -xzf "macos/chaps-${target}.tar.gz" -C macos
+            tar -xzf "macos/varde-${target}.tar.gz" -C macos
           done
           mkdir -p universal
-          lipo -create -output universal/chaps \
-            "macos/chaps-${version}-x86_64-apple-darwin/chaps" \
-            "macos/chaps-${version}-aarch64-apple-darwin/chaps"
-          lipo -info universal/chaps
-          chmod 0755 universal/chaps
+          lipo -create -output universal/varde \
+            "macos/varde-${version}-x86_64-apple-darwin/varde" \
+            "macos/varde-${version}-aarch64-apple-darwin/varde"
+          lipo -info universal/varde
+          chmod 0755 universal/varde
 
       # lipo rewrites the Mach-O container, which invalidates the per-slice
       # signatures, so the universal binary is signed and notarized again from
@@ -280,7 +280,7 @@ jobs:
         if: env.HAS_APPLE == 'true'
         uses: ./.github/actions/sign-macos
         with:
-          binary: universal/chaps
+          binary: universal/varde
           label: universal-apple-darwin
           certificate: ${{ secrets.APPLE_CERTIFICATE }}
           certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -294,16 +294,16 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.lipo.outputs.version }}"
-          dir="chaps-${version}-universal-apple-darwin"
-          asset="chaps-universal-apple-darwin.tar.gz"
+          dir="varde-${version}-universal-apple-darwin"
+          asset="varde-universal-apple-darwin.tar.gz"
           mkdir -p "dist/$dir/completions"
-          cp universal/chaps "dist/$dir/"
+          cp universal/varde "dist/$dir/"
           cp README.md "dist/$dir/"
           if [ -f LICENSE ]; then cp LICENSE "dist/$dir/"; fi
-          universal/chaps completions bash       > "dist/$dir/completions/chaps.bash"
-          universal/chaps completions zsh        > "dist/$dir/completions/_chaps"
-          universal/chaps completions fish       > "dist/$dir/completions/chaps.fish"
-          universal/chaps completions powershell > "dist/$dir/completions/_chaps.ps1"
+          universal/varde completions bash       > "dist/$dir/completions/varde.bash"
+          universal/varde completions zsh        > "dist/$dir/completions/_varde"
+          universal/varde completions fish       > "dist/$dir/completions/varde.fish"
+          universal/varde completions powershell > "dist/$dir/completions/_varde.ps1"
           tar -czf "dist/$asset" -C dist "$dir"
           rm -rf "dist/$dir"
 
@@ -338,7 +338,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The binary reports the version in Cargo.toml and `chaps self update`
+      # The binary reports the version in Cargo.toml and `varde self update`
       # compares it with the newest tag, so a tag pushed by hand that does
       # not match would ship a release that offers itself as an update for
       # ever. `scripts/release.sh` keeps the two in step; this holds every
@@ -364,7 +364,7 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum chaps-*.tar.gz chaps-*.zip > ../SHA256SUMS
+          sha256sum varde-*.tar.gz varde-*.zip > ../SHA256SUMS
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
 
@@ -426,7 +426,7 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum chaps-*.tar.gz chaps-*.zip > ../SHA256SUMS
+          sha256sum varde-*.tar.gz varde-*.zip > ../SHA256SUMS
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
 
@@ -446,7 +446,7 @@ jobs:
 
       # The same script the tag path uses, in its `dev` shape:
       # `scripts/release-notes.sh dev` on a checkout prints what this release
-      # will say. `chaps self update` reads the commit back out of the notes,
+      # will say. `varde self update` reads the commit back out of the notes,
       # from the "Built from commit" line the script writes.
       - name: Write the release notes
         run: |

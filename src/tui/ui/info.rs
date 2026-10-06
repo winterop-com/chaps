@@ -125,7 +125,7 @@ fn component_info_title<'a>(app: &App, width: usize, theme: &Theme) -> Line<'a> 
 /// Everything the browser knows about a component: what it is, what `sync`
 /// renders for it, where its data lives, and - for a component with a config
 /// file of its own - that file plus the settings this page deliberately leaves
-/// to `.chaps/`.
+/// to `.varde/`.
 fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<'a>> {
     let component = app.selected_component();
     let enabled = app.components.is_enabled(component);
@@ -156,7 +156,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
         theme,
         "compose",
         &format!(
-            "{} · rendered from .chaps/{} by `chaps sync`",
+            "{} · rendered from .varde/{} by `varde sync`",
             compose_of(component),
             crate::components::COMPONENTS_FILE
         ),
@@ -173,7 +173,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             theme,
             "config",
             &format!(
-                "{}/{} · yours to edit, and chaps never rewrites it",
+                "{}/{} · yours to edit, and varde never rewrites it",
                 crate::components::OCS_DIR,
                 crate::components::OCS_CONFIG_FILE
             ),
@@ -187,11 +187,11 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             width,
             &[
                 (
-                    "`chaps components enable ocs --base-url URL`",
+                    "`varde components enable ocs --base-url URL`",
                     "the public origin OCS builds its STAC and openEO links from",
                 ),
                 (
-                    "`chaps components enable ocs --read-only`",
+                    "`varde components enable ocs --read-only`",
                     "refuse ingestion over HTTP (--read-write allows it again)",
                 ),
             ],
@@ -230,27 +230,27 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             theme,
             "first start",
             "minutes, not seconds: DHIS2 migrates its schema on the way up, and \
-             `chaps logs dhis2` is where that shows",
+             `varde logs dhis2` is where that shows",
             width,
         ));
         lines.push(Line::raw(""));
         // The seed and the image tag, which no flag moves after `init`: they are
-        // an edit to `.chaps/components.yaml` and a sync, and this overlay is
+        // an edit to `.varde/components.yaml` and a sync, and this overlay is
         // where someone finds that out rather than in the YAML.
         lines.extend(not_on_this_page(
             theme,
             width,
             &[
                 (
-                    "`seed:` in .chaps/components.yaml, then `chaps sync`",
+                    "`seed:` in .varde/components.yaml, then `varde sync`",
                     "the dump a database being created is restored from: default, none, \
                      a URL, or a path in the deployment directory",
                 ),
                 (
-                    "`image_tag:` in .chaps/components.yaml, then `chaps sync`",
+                    "`image_tag:` in .varde/components.yaml, then `varde sync`",
                     &format!(
                         "the DHIS2 version, {} here; it migrates a schema forward only, \
-                         so run `chaps backup` first",
+                         so run `varde backup` first",
                         app.components.dhis2.image_tag
                     ),
                 ),
@@ -260,7 +260,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
     if component == Component::ChapCore {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            "its host port is the API port, which lives in .chaps/project.yaml",
+            "its host port is the API port, which lives in .varde/project.yaml",
             theme.dim_style(),
         )));
     }
@@ -272,7 +272,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
 ///
 /// Named rather than left out, so this overlay is where someone learns they
 /// exist. Each `how` carries its own backticks, because one component's are
-/// whole commands and another's are a key in `.chaps/components.yaml` followed
+/// whole commands and another's are a key in `.varde/components.yaml` followed
 /// by a sync, and the reader has to see which of the two they are looking at.
 fn not_on_this_page<'a>(theme: &Theme, width: usize, settings: &[(&str, &str)]) -> Vec<Line<'a>> {
     let mut lines = vec![Line::from(Span::styled(
@@ -297,21 +297,21 @@ fn not_on_this_page<'a>(theme: &Theme, width: usize, settings: &[(&str, &str)]) 
 /// The `seed` field of the DHIS2 overlay: what the first start restores, and
 /// that a restore only ever happens to a database being created.
 ///
-/// Four answers rather than the three `.chaps/components.yaml` records, because
-/// a `default` on a minor line chaps publishes no dump for starts empty as well,
+/// Four answers rather than the three `.varde/components.yaml` records, because
+/// a `default` on a minor line varde publishes no dump for starts empty as well,
 /// and for a reason worth saying: it otherwise looks exactly like `none`, and
 /// nothing else on this page would explain it.
 pub(super) fn dhis2_seed_field(components: &crate::components::Components) -> String {
     let volume = crate::compose::render::DHIS2_DB_VOLUME;
     if components.dhis2_seed_is_unknown() {
         return format!(
-            "default · chaps knows no dump for {}, so {volume} starts empty",
+            "default · varde knows no dump for {}, so {volume} starts empty",
             crate::components::dhis2_minor(&components.dhis2.image_tag)
         );
     }
     match components.dhis2_seed_source() {
         Some(source) => {
-            format!("{source} · restored once, into the database the first `chaps up` creates")
+            format!("{source} · restored once, into the database the first `varde up` creates")
         }
         None => format!("none · {volume} starts empty and DHIS2 migrates a new database into it"),
     }
@@ -325,7 +325,7 @@ pub(super) fn dhis2_seed_field(components: &crate::components::Components) -> St
 /// with two volumes has it in two places.
 pub(super) fn volume_field(volumes: &[&str]) -> String {
     match volumes {
-        [] => "none of its own · `chaps down --volumes` removes this deployment's".to_string(),
+        [] => "none of its own · `varde down --volumes` removes this deployment's".to_string(),
         volumes => format!(
             "{} · kept when the component is disabled",
             volumes.join(", ")
@@ -456,7 +456,7 @@ pub(super) fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) 
     } else if model.manual {
         lines.push(Line::from(vec![
             Span::styled(fit("kind", LABEL_WIDTH), theme.label_style()),
-            Span::styled("manual (added with `chaps models add`)", theme.dim_style()),
+            Span::styled("manual (added with `varde models add`)", theme.dim_style()),
         ]));
     }
 

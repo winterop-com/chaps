@@ -150,7 +150,7 @@ fn wait_for_postgres(project: &Project) -> Result<()> {
         if started.elapsed() >= POSTGRES_TIMEOUT {
             return Err(anyhow::anyhow!(
                 "postgres did not become healthy within {} seconds; \
-                 look at `chaps logs postgres`",
+                 look at `varde logs postgres`",
                 POSTGRES_TIMEOUT.as_secs()
             ));
         }

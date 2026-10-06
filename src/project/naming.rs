@@ -1,4 +1,4 @@
-//! The compose project name: the `<slug>-<suffix>` one `chaps init`
+//! The compose project name: the `<slug>-<suffix>` one `varde init`
 //! generates.
 
 use crate::error::Result;
@@ -18,7 +18,7 @@ pub(super) const MAX_SLUG: usize = 32;
 
 /// What a generated name falls back to when the directory name yields no
 /// usable slug at all (`~/深度`, say).
-pub(super) const FALLBACK_SLUG: &str = "chaps";
+pub(super) const FALLBACK_SLUG: &str = "varde";
 
 /// The readable half of a generated compose project name.
 ///

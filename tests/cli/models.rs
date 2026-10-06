@@ -164,7 +164,7 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
         ])
         .assert()
         .success();
-    let pinned = read(&dir.join(".chaps/models.yaml"));
+    let pinned = read(&dir.join(".varde/models.yaml"));
 
     sandbox
         .models(&["expose", "chapkit_ewars_model", "--port", "auto", "-v"])
@@ -186,7 +186,7 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
     assert_eq!(svc["ports"][0].as_str(), Some(published.as_str()));
 
     // Only the port moved: the version and the image pin are untouched.
-    let after = read(&dir.join(".chaps/models.yaml"));
+    let after = read(&dir.join(".varde/models.yaml"));
     assert_eq!(
         after.replace(&format!("host_port: {base}"), "host_port: null"),
         pinned,
@@ -209,7 +209,7 @@ fn expose_and_unexpose_move_a_models_host_port_without_moving_its_pin() {
     let svc =
         &yaml(&dir.join("compose.chapkit-ewars-model.yml"))["services"]["chapkit-ewars-model"];
     assert!(svc.get("ports").is_none());
-    assert_eq!(read(&dir.join(".chaps/models.yaml")), pinned);
+    assert_eq!(read(&dir.join(".varde/models.yaml")), pinned);
 
     // A model this project never enabled cannot be exposed.
     sandbox
@@ -307,8 +307,8 @@ fn json_output_parses_for_init_and_enable() {
         ".env",
         "compose.chapkit-ewars-model.yml",
         "compose.marketplace.yml",
-        ".chaps/project.yaml",
-        ".chaps/models.yaml",
+        ".varde/project.yaml",
+        ".varde/models.yaml",
     ] {
         // Compared as paths: the separator the CLI prints is the platform's.
         assert!(
@@ -404,7 +404,7 @@ fn enable_outside_a_project_says_so() {
         .models(&["enable", "chapkit_ewars_model"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a chaps project"));
+        .stderr(predicates::str::contains("not a varde project"));
 }
 
 #[test]

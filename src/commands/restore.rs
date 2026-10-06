@@ -1,4 +1,4 @@
-//! `chaps backup restore` — put a deployment back from an archive.
+//! `varde backup restore` — put a deployment back from an archive.
 //!
 //! The order matters and is the whole design:
 //!
@@ -6,7 +6,7 @@
 //!    volume is about to be swapped, so nothing writes while their storage
 //!    changes under them (skipped when nothing is running),
 //! 2. write the project files back and re-render the compose files from the
-//!    `.chaps/` that just arrived. Everything after this step works from the
+//!    `.varde/` that just arrived. Everything after this step works from the
 //!    project as it now is - its compose file list, its components, its
 //!    credentials - and not from the one this process started with,
 //! 3. `pg_restore --clean --if-exists` into a postgres started just for this,
@@ -35,7 +35,7 @@ use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
 use crate::output::Out;
-use crate::project::{CHAPS_DIR, PROJECT_FILE, Project};
+use crate::project::{VARDE_DIR, PROJECT_FILE, Project};
 use database::restore_database;
 use files::restore_files;
 use serde::Serialize;
@@ -44,13 +44,13 @@ use std::io::{BufRead, IsTerminal, Write};
 use std::path::Path;
 use volumes::{restore_components, restore_models};
 
-/// The shape of `chaps backup restore --json`.
+/// The shape of `varde backup restore --json`.
 #[derive(Debug, Serialize)]
 pub struct RestoreReport {
     pub plan: RestorePlan,
     /// Project files written, relative to the project directory.
     pub files: Vec<String>,
-    /// Optional `.chaps/` state files removed because the archive carries
+    /// Optional `.varde/` state files removed because the archive carries
     /// none: the deployment it came from had none, so keeping this one's
     /// would mix two deployments' state. See [`files::OPTIONAL_STATE`].
     pub removed_state: Vec<String>,
@@ -133,7 +133,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         report.stopped = report.plan.stop.clone();
     }
 
-    let stage = Stage::new(&project.chaps_dir(), "restore")?;
+    let stage = Stage::new(&project.varde_dir(), "restore")?;
     if !report.plan.files.is_empty() {
         // Everything below works from the deployment the archive just made of
         // this directory: the `-f` list it renders may now hold
@@ -159,12 +159,12 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
 }
 
 /// The compose project name the archive was taken under, when its
-/// `.chaps/project.yaml` recorded one.
+/// `.varde/project.yaml` recorded one.
 ///
 /// Read out of the archive without unpacking it, because the plan says what
 /// will happen to this deployment's identity before anything is touched.
 fn archived_identity(archive: &Path, members: &BTreeSet<String>) -> Option<String> {
-    let member = format!("{FILES_MEMBER}/{CHAPS_DIR}/{PROJECT_FILE}");
+    let member = format!("{FILES_MEMBER}/{VARDE_DIR}/{PROJECT_FILE}");
     if !members.contains(&member) {
         return None;
     }
@@ -176,7 +176,7 @@ fn archived_identity(archive: &Path, members: &BTreeSet<String>) -> Option<Strin
 fn read_manifest(archive: &Path) -> Result<Manifest> {
     let body = backup::tar_read_member(archive, MANIFEST_MEMBER).map_err(|e| {
         e.context(format!(
-            "{} has no {MANIFEST_MEMBER}; is it a chaps backup?",
+            "{} has no {MANIFEST_MEMBER}; is it a varde backup?",
             archive.display()
         ))
     })?;
@@ -258,12 +258,12 @@ fn plan(
         }
     }
 
-    // The identity only comes into it when `.chaps/project.yaml` is one of the
+    // The identity only comes into it when `.varde/project.yaml` is one of the
     // files being written; without that nothing can change it.
     let archived_identity = archived_identity.filter(|_| {
         files
             .iter()
-            .any(|rel| rel == &format!("{CHAPS_DIR}/{PROJECT_FILE}"))
+            .any(|rel| rel == &format!("{VARDE_DIR}/{PROJECT_FILE}"))
     });
     let destination = project.compose_project_name().unwrap_or_default();
     let compose_project = backup::restored_compose_project(
@@ -440,10 +440,10 @@ fn human(report: &RestoreReport, out: &Out) -> String {
     text.push('\n');
     if report.started {
         text.push_str(
-            &out.backticks("the deployment is starting; `chaps status` says when it answers"),
+            &out.backticks("the deployment is starting; `varde status` says when it answers"),
         );
     } else {
-        text.push_str(&out.backticks("the deployment was left as it is; start it with `chaps up`"));
+        text.push_str(&out.backticks("the deployment was left as it is; start it with `varde up`"));
     }
     text.push('\n');
     text

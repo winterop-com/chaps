@@ -2,13 +2,13 @@
 //!
 //! [`crate::status`] asks chap-core two fixed questions and turns the answers
 //! into a report. This is the other half: any method, any path, the body handed
-//! back as it arrived. `chaps api` is the command that exposes it, and
-//! `chaps jobs` is the first caller that uses it for something shaped.
+//! back as it arrived. `varde api` is the command that exposes it, and
+//! `varde jobs` is the first caller that uses it for something shaped.
 //!
 //! Three rules it keeps, so every caller reports the same things the same way:
 //!
 //! - A transport failure is [`ChapError::Unreachable`], which is the sentence
-//!   `chaps status` uses plus the command that explains it. An HTTP status is
+//!   `varde status` uses plus the command that explains it. An HTTP status is
 //!   not a failure here - the body of a 404 is often the only place chap-core
 //!   says what it did not find - so a non-2xx answer comes back as an
 //!   [`Answer`] and the caller decides.
@@ -27,7 +27,7 @@ use std::time::Duration;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `User-Agent` sent with every request, matching [`crate::chapcore`].
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// The content type a JSON body is sent and read as.
 pub const JSON: &str = "application/json";
@@ -35,10 +35,10 @@ pub const JSON: &str = "application/json";
 /// The environment variable a token is read from outside a deployment.
 ///
 /// The same name chap-core itself reads, and the same one `.env` sets, so a
-/// shell that already exports it for `curl` needs nothing new for `chaps api`.
+/// shell that already exports it for `curl` needs nothing new for `varde api`.
 pub const TOKEN_ENV_VAR: &str = crate::auth::API_TOKEN_ENV_VAR;
 
-/// The methods `chaps api` accepts, in the order the help lists them.
+/// The methods `varde api` accepts, in the order the help lists them.
 pub const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /// One chap-core API, ready to be asked.
@@ -288,13 +288,13 @@ impl Api {
 }
 
 /// The largest answer read: a backtest's full results or a dataset export
-/// run past ureq's 10 MB default, and `chaps api` is the way to fetch them.
+/// run past ureq's 10 MB default, and `varde api` is the way to fetch them.
 pub const MAX_BODY: u64 = 1 << 30;
 
 /// The token to send: this deployment's, else the environment's.
 ///
 /// `.env` is the deployment's own answer and wins. Outside a deployment - a
-/// `chaps api --url` aimed at a server elsewhere - there is no `.env` to read,
+/// `varde api --url` aimed at a server elsewhere - there is no `.env` to read,
 /// and `CHAP_API_TOKEN` in the environment is the only place a token can come
 /// from. Reading it as a fallback rather than an override means a project
 /// directory always talks with its own credentials.
@@ -308,7 +308,7 @@ pub fn token_for(project_dir: Option<&std::path::Path>) -> Option<String> {
 /// `project`: this deployment's own token only when `url` is this
 /// deployment's API, else only the environment's.
 ///
-/// `chaps api --url` aimed at another server from inside a deployment would
+/// `varde api --url` aimed at another server from inside a deployment would
 /// otherwise hand that server this deployment's token.
 pub fn token_for_url(url: &str, project: Option<&crate::project::Project>) -> Option<String> {
     match project {
@@ -368,7 +368,7 @@ pub fn method_of(text: &str) -> Result<String> {
         return Ok(upper);
     }
     Err(ChapError::Usage(format!(
-        "`{text}` is not an HTTP method chaps sends; the methods are {}",
+        "`{text}` is not an HTTP method varde sends; the methods are {}",
         METHODS.join(", ")
     ))
     .into())
@@ -376,7 +376,7 @@ pub fn method_of(text: &str) -> Result<String> {
 
 /// A request path, checked before anything is sent.
 ///
-/// A path has to start with `/`: `chaps api GET v1/jobs` would otherwise be
+/// A path has to start with `/`: `varde api GET v1/jobs` would otherwise be
 /// joined to the base URL as if it had, and a typo that silently works is a
 /// typo that stays.
 pub fn path_of(text: &str) -> Result<String> {

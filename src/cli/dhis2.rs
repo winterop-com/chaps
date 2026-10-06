@@ -1,4 +1,4 @@
-//! `chaps dhis2`: connecting DHIS2 and this deployment's Chap.
+//! `varde dhis2`: connecting DHIS2 and this deployment's Chap.
 
 use clap::{Args, Subcommand};
 
@@ -35,7 +35,7 @@ pub enum Dhis2Sub {
 ///
 /// Flattened rather than repeated, so the user and the wait are spelled and
 /// documented once. There is deliberately no `--password` or `--token`: either
-/// would sit in the shell history and in `ps`, and `.env` or the `CHAPS_DHIS2_*`
+/// would sit in the shell history and in `ps`, and `.env` or the `VARDE_DHIS2_*`
 /// variables are where they belong.
 #[derive(Debug, Clone, Args)]
 pub struct Dhis2CommonArgs {

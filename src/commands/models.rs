@@ -1,4 +1,4 @@
-//! `chaps models list|search|info` — read-only views of the catalogue.
+//! `varde models list|search|info` — read-only views of the catalogue.
 //!
 //! `enable` and `disable` live in [`crate::commands::enable`] because they
 //! share the write path with `init`.
@@ -107,7 +107,7 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
             // filter that matched nothing, and has an obvious next step.
             return if args.enabled {
                 ctx.out
-                    .backticks("no models enabled; run `chaps models enable ID` to add one")
+                    .backticks("no models enabled; run `varde models enable ID` to add one")
             } else {
                 "no models match".to_string()
             };
@@ -172,7 +172,7 @@ fn enabled_clause(rows: &[ModelRow], in_project: bool) -> String {
         return String::new();
     }
     match rows.iter().filter(|r| r.enabled).count() {
-        0 => ", none enabled in this project; enable one with `chaps models enable ID`".to_string(),
+        0 => ", none enabled in this project; enable one with `varde models enable ID`".to_string(),
         count => format!(", {count} enabled in this project"),
     }
 }
@@ -331,7 +331,7 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
     // What it does have is where it came from and what it follows.
     let (source, follows) = match detail.manual {
         Some(manual) => (
-            format!("{MANUAL_KIND} (`chaps models add`, {})", manual.added),
+            format!("{MANUAL_KIND} (`varde models add`, {})", manual.added),
             match &manual.follow {
                 Some(branch) => branch.clone(),
                 None => "nothing (pinned)".to_string(),
@@ -504,7 +504,7 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         text.push_str(&format!(
             "\n{}\n",
             out.backticks(&format!(
-                "not enabled in this project; enable it with `chaps models enable {}`",
+                "not enabled in this project; enable it with `varde models enable {}`",
                 m.id
             ))
         ));
@@ -512,8 +512,8 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
         text.push_str(&format!(
             "\n{}\n",
             out.backticks(&format!(
-                "not in a deployment directory; `chaps init` creates one, \
-                 then `chaps models enable {}`",
+                "not in a deployment directory; `varde init` creates one, \
+                 then `varde models enable {}`",
                 m.id
             ))
         ));

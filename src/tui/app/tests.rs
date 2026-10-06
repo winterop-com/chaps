@@ -221,7 +221,7 @@ fn p_prompts_for_a_port_and_auto_is_what_enter_takes() {
     assert!(selection.disable.is_empty());
 }
 
-/// The prompt takes a number, the way `chaps models expose --port` does.
+/// The prompt takes a number, the way `varde models expose --port` does.
 #[test]
 fn the_port_prompt_takes_a_number_auto_or_none() {
     let registry = registry();
@@ -524,7 +524,7 @@ fn an_untouched_browser_saves_nothing() {
 #[test]
 fn an_exact_pin_survives_a_save_that_does_not_touch_it() {
     let registry = registry();
-    // channel: None means .chaps/models.yaml holds an exact version pin.
+    // channel: None means .varde/models.yaml holds an exact version pin.
     let state = state_with(&registry, EWARS, None);
     let app = App::new(&registry, &state);
     assert!(
@@ -886,7 +886,7 @@ fn the_palette_asks_the_caller_for_the_things_it_cannot_do() {
 
     assert_eq!(run("refresh the registry").0, Some(Effect::Refresh));
     assert_eq!(
-        run("chaps documentation").0,
+        run("varde documentation").0,
         Some(Effect::Open(format!(
             "{}{DOCS_CHAPTER}",
             crate::cli::DOCS_URL

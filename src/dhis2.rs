@@ -14,7 +14,7 @@
 //!
 //! This is a second HTTP client rather than a second caller of
 //! [`crate::api`]. That one is chap-core's: it sends `Authorization: Bearer`,
-//! and its transport failure is the sentence `chaps status` prints about
+//! and its transport failure is the sentence `varde status` prints about
 //! chap-core. DHIS2 takes HTTP Basic, answers a `WebMessage` rather than
 //! FastAPI's `{"detail": ...}`, and a DHIS2 that is not answering is a
 //! different sentence with a different command at the end of it. The response
@@ -100,7 +100,7 @@ pub const ROUTE_AUTH_TYPE: &str = "api-headers";
 /// analytics table while reporting success in 16.9 seconds, where the same run
 /// without it wrote 146,129 rows into `analytics_2024` in 15.7. A silent
 /// success that populates nothing leaves the Modeling App with no data and
-/// nothing on screen explaining why, so chaps never sends it.
+/// nothing on screen explaining why, so varde never sends it.
 pub const ANALYTICS_PATH: &str = "/api/resourceTables/analytics?skipTrackedEntities=true";
 
 /// The job type analytics runs under, which is also its notifier's key.
@@ -120,13 +120,13 @@ pub const APPS_PATH: &str = "/api/apps";
 pub const APP_HUB_INSTALL_PATH: &str = "/api/appHub";
 
 /// The variable the App Hub base URL is moved with, for the tests.
-pub const APP_HUB_VAR: &str = "CHAPS_APP_HUB";
+pub const APP_HUB_VAR: &str = "VARDE_APP_HUB";
 
 /// The public App Hub, unless [`APP_HUB_VAR`] points somewhere else.
 pub const DEFAULT_APP_HUB: &str = "https://apps.dhis2.org/api/v1/apps";
 
 /// `User-Agent` sent with every request, matching the rest of the CLI.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// How long one request may take, all of connect, send and receive.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -161,16 +161,16 @@ pub const DEFAULT_ANALYTICS_TIMEOUT: u64 = 3600;
 /// How often the waits ask again.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-/// The `.env` variable naming the DHIS2 user chaps authenticates as.
+/// The `.env` variable naming the DHIS2 user varde authenticates as.
 ///
-/// Only chaps reads it: it is not passed to any container, so it never reaches
+/// Only varde reads it: it is not passed to any container, so it never reaches
 /// a compose file or the DHIS2 process.
 pub const ADMIN_USERNAME_ENV_VAR: &str = "DHIS2_ADMIN_USERNAME";
 
-/// The `.env` variable holding that user's password. Also chaps' alone.
+/// The `.env` variable holding that user's password. Also varde' alone.
 pub const ADMIN_PASSWORD_ENV_VAR: &str = "DHIS2_ADMIN_PASSWORD";
 
-/// The `.env` variable holding a DHIS2 personal access token. Also chaps'
+/// The `.env` variable holding a DHIS2 personal access token. Also varde'
 /// alone, and preferred to the password pair when both are set.
 pub const API_TOKEN_ENV_VAR: &str = "DHIS2_API_TOKEN";
 
@@ -179,19 +179,19 @@ pub const API_TOKEN_ENV_VAR: &str = "DHIS2_API_TOKEN";
 ///
 /// For an operator who will not have the password on disk: exporting it for
 /// one shell is the way to run these commands without writing it down.
-pub const PASSWORD_ENV_VAR: &str = "CHAPS_DHIS2_PASSWORD";
+pub const PASSWORD_ENV_VAR: &str = "VARDE_DHIS2_PASSWORD";
 
 /// The user [`PASSWORD_ENV_VAR`] belongs to, when it is not the one `.env`
 /// names.
-pub const USERNAME_ENV_VAR: &str = "CHAPS_DHIS2_USERNAME";
+pub const USERNAME_ENV_VAR: &str = "VARDE_DHIS2_USERNAME";
 
 /// The environment variable a personal access token is read from.
-pub const TOKEN_ENV_VAR: &str = "CHAPS_DHIS2_TOKEN";
+pub const TOKEN_ENV_VAR: &str = "VARDE_DHIS2_TOKEN";
 
 /// The user a DHIS2 with no `.env` line is asked as.
 pub const DEFAULT_USERNAME: &str = "admin";
 
-/// That user's password on a DHIS2 chaps deployed.
+/// That user's password on a DHIS2 varde deployed.
 ///
 /// The same two words whichever way the database was created: the published
 /// demo dumps ship this user, and a Flyway-bootstrapped empty database gets it
@@ -199,7 +199,7 @@ pub const DEFAULT_USERNAME: &str = "admin";
 /// not a secret - every DHIS2 tutorial in the world prints it - and an instance
 /// whose password has been changed says so with [`ADMIN_PASSWORD_ENV_VAR`].
 ///
-/// Never tried against an external DHIS2: chaps did not create that instance,
+/// Never tried against an external DHIS2: varde did not create that instance,
 /// so it knows nothing about its passwords, and sending the tutorial one to a
 /// production server is a failed login in its audit log and nothing else.
 pub const DEFAULT_PASSWORD: &str = "district";
@@ -220,7 +220,7 @@ pub const HUB_APPS: &[HubAppRef] = &[
     },
 ];
 
-/// One app chaps installs, as the App Hub identifies it.
+/// One app varde installs, as the App Hub identifies it.
 ///
 /// The id is the App Hub's own, and the version to install is resolved from it
 /// rather than pinned: the App Hub says which versions exist and what each one
@@ -229,7 +229,7 @@ pub const HUB_APPS: &[HubAppRef] = &[
 pub struct HubAppRef {
     pub id: &'static str,
     /// The App Hub's own name, which is what an installed app is matched on
-    /// when there is no App Hub to ask - `chaps dhis2 show` reaches only DHIS2.
+    /// when there is no App Hub to ask - `varde dhis2 show` reaches only DHIS2.
     pub name: &'static str,
     /// What a report calls it, in the words a sentence needs.
     pub label: &'static str,

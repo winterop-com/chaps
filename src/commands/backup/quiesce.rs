@@ -120,7 +120,7 @@ impl<'a> Quiesce<'a> {
         if let Err(why) = compose_step(self.project, &[held.release(), &self.service]) {
             output::warn(&format!(
                 "{} was {} for the backup and could not be started again: {why}; \
-                 run `chaps docker run -- {} {}`",
+                 run `varde docker run -- {} {}`",
                 self.service,
                 held.verb(),
                 held.release(),

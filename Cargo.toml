@@ -1,14 +1,14 @@
 [package]
-name = "chaps"
+name = "varde"
 version = "0.99.13"
 edition = "2024"
 rust-version = "1.91"
 description = "Deploy Chap (climate-informed disease forecasting) and its services with Docker Compose"
 license = "AGPL-3.0-only"
-repository = "https://github.com/winterop-com/chaps"
+repository = "https://github.com/winterop-com/varde"
 
 [[bin]]
-name = "chaps"
+name = "varde"
 path = "src/main.rs"
 
 [dependencies]

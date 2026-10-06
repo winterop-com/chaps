@@ -1,4 +1,4 @@
-//! `chaps dhis2` — the three things that let the DHIS2 Modeling App reach Chap.
+//! `varde dhis2` — the three things that let the DHIS2 Modeling App reach Chap.
 //!
 //! Phase 1 of the `dhis2` component put a DHIS2 and a Chap side by side and
 //! left them unable to talk. This is the other half, and it is entirely
@@ -19,7 +19,7 @@
 //!   in place of the `dhis2` component.
 //!
 //! Every one of them is idempotent: run twice and the second run says there was
-//! nothing to do. Nothing here is done by `chaps up`, and
+//! nothing to do. Nothing here is done by `varde up`, and
 //! [the chapter](../../docs/dhis2.md) says why.
 
 use crate::cli::{
@@ -61,11 +61,11 @@ pub use use_external::*;
 /// DHIS2 and an OCS - and on one of those the route would resolve to a
 /// container that does not exist, which is worse than no route at all.
 const NO_CHAP_CORE: &str = "chap-core is not a component of this deployment, so the route would \
-     point at a service that is not there; run `chaps components enable chap-core` first";
+     point at a service that is not there; run `varde components enable chap-core` first";
 
 /// What to say when docker knows DHIS2 is not running.
 const NOT_RUNNING: &str = "no dhis2 container is running, so its API cannot be asked; run \
-     `chaps up` to start this deployment";
+     `varde up` to start this deployment";
 
 /// Why there is no DHIS2 here to ask.
 ///
@@ -73,13 +73,13 @@ const NOT_RUNNING: &str = "no dhis2 container is running, so its API cannot be a
 /// ends in "nothing to open", which is the browser's verb; these commands make
 /// requests, so they say what they cannot do.
 const NO_DHIS2: &str = "dhis2 is not a component of this deployment, so there is no DHIS2 to ask; \
-     run `chaps components enable dhis2` to add it";
+     run `varde components enable dhis2` to add it";
 
 /// Why a DHIS2 that publishes no host port cannot be asked from this machine.
 fn no_host_port(inside: &str) -> String {
     format!(
         "dhis2 publishes no host port, so its API cannot be reached from this machine: it answers \
-         at {inside} inside the deployment; run `chaps components enable dhis2 --port N` to \
+         at {inside} inside the deployment; run `varde components enable dhis2 --port N` to \
          publish one"
     )
 }
@@ -100,7 +100,7 @@ pub struct Instance {
     pub version: String,
     /// Who the requests went as. For a token, whoever DHIS2 said owns it.
     pub user: String,
-    /// Whether this is an external DHIS2 recorded by `chaps dhis2 use`,
+    /// Whether this is an external DHIS2 recorded by `varde dhis2 use`,
     /// rather than the deployment's own `dhis2` component.
     pub external: bool,
     /// A password or a personal access token.
@@ -187,12 +187,12 @@ pub struct AppsReport {
     pub apps: Vec<AppReport>,
 }
 
-/// What one `connect` left in `.chaps/components.yaml` about itself.
+/// What one `connect` left in `.varde/components.yaml` about itself.
 ///
 /// The record is [`crate::components::Dhis2Component::connected_at`], and its
-/// only job is to stop `chaps up` and `chaps status` asking for a connect that
+/// only job is to stop `varde up` and `varde status` asking for a connect that
 /// has already happened. It is never read as evidence that the route is right:
-/// `chaps dhis2 show` is the one command that asks DHIS2.
+/// `varde dhis2 show` is the one command that asks DHIS2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConnectRecord {
@@ -242,14 +242,14 @@ pub struct ShownRoute {
     pub token_refused: bool,
 }
 
-/// One of the two apps chaps installs, as `show` found it.
+/// One of the two apps varde installs, as `show` found it.
 ///
-/// One row per app chaps is about, present or not - never a row per app the
+/// One row per app varde is about, present or not - never a row per app the
 /// instance happens to have. A real DHIS2 ships 29 bundled apps of its own, and
 /// listing them buried the two this command answers for.
 #[derive(Debug, Clone, Serialize)]
 pub struct ShownApp {
-    /// The name chaps knows it by, which is also what the docs call it.
+    /// The name varde knows it by, which is also what the docs call it.
     pub name: String,
     /// Whether this instance has it at all.
     pub installed: bool,
@@ -271,7 +271,7 @@ pub struct ShowReport {
     /// What that timestamp is worth. A seeded deployment inherits it from the
     /// dump, so on its own it says nothing about this deployment's tables.
     pub analytics: dhis2::AnalyticsEvidence,
-    /// The two apps chaps installs, in order, present or not.
+    /// The two apps varde installs, in order, present or not.
     pub apps: Vec<ShownApp>,
     /// Whichever of the three is missing, one clause each.
     pub missing: Vec<String>,
@@ -397,7 +397,7 @@ fn open_session(ctx: &Ctx, common: &Dhis2CommonArgs) -> Result<Session> {
                 crate::output::human_age(wait),
                 match external {
                     true => "",
-                    false => ", and `chaps logs dhis2` is where the migration shows",
+                    false => ", and `varde logs dhis2` is where the migration shows",
                 }
             ));
         },

@@ -1,8 +1,8 @@
 //! Host port allocation for model overlays.
 //!
 //! Model services publish no host port by default, so the allocator is only
-//! asked for one when someone said `--port`: `chaps models enable X --port N`,
-//! `chaps models expose X`, or `--port auto`. A port has to be free twice
+//! asked for one when someone said `--port`: `varde models enable X --port N`,
+//! `varde models expose X`, or `--port auto`. A port has to be free twice
 //! over - unclaimed by any compose file in the directory, and with nothing
 //! listening on it - which is why every hand-out takes a probe.
 
@@ -82,7 +82,7 @@ impl PortAllocator {
         }
         Err(anyhow::anyhow!(
             "no free host port left in {}-{} (checked the compose files and this machine); \
-             free one or widen port_range in .chaps/project.yaml",
+             free one or widen port_range in .varde/project.yaml",
             self.lo,
             self.hi
         ))
@@ -165,7 +165,7 @@ pub fn allocator_for(project: &Project, freed: &BTreeSet<u16>) -> Result<PortAll
     {
         used.insert(project.effective_api_port());
     }
-    // The `chaps run` groups share one machine and one port range, and a
+    // The `varde run` groups share one machine and one port range, and a
     // stopped model in one group still owns its port for when it starts
     // again: the other groups' compose files count as taken too.
     let groups = crate::paths::run_groups_dir();
@@ -190,7 +190,7 @@ pub fn allocator_for(project: &Project, freed: &BTreeSet<u16>) -> Result<PortAll
 ///
 /// Unlike [`PortAllocator::scan_compose_dir`] this reads only the files it is
 /// given - the ones this project actually hands to `docker compose -f` - and
-/// keeps the service names, which is what the `chaps up` preflight needs to
+/// keeps the service names, which is what the `varde up` preflight needs to
 /// say who wanted a port. A file that is missing or does not parse contributes
 /// nothing; `sync` and the allocator already report on those.
 pub fn published_ports(dir: &Path, files: &[String]) -> Vec<(String, u16)> {

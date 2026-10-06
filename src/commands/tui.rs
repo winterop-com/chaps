@@ -1,4 +1,4 @@
-//! `chaps ui` — the browser: marketplace models on one page, the components
+//! `varde ui` — the browser: marketplace models on one page, the components
 //! this deployment is made of on the other.
 //!
 //! The browser returns a [`Selection`](crate::compose::Selection); applying
@@ -19,20 +19,20 @@ use crate::tui::run_tui;
 /// `--json` is rejected before this is reached.
 pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     // The browser edits a deployment, so there has to be one; the error already
-    // tells the user to run `chaps init`.
+    // tells the user to run `varde init`.
     let project = ctx.project()?;
     let registry = super::registry_for(ctx, Some(&project))?;
 
     let Some(selection) = run_tui(ctx, &project, &registry)? else {
-        println!("left the browser; nothing was written, and `chaps ui` opens it again");
+        println!("left the browser; nothing was written, and `varde ui` opens it again");
         return Ok(());
     };
     if selection.is_empty() {
-        println!("no changes to save; `chaps ui` opens the browser again");
+        println!("no changes to save; `varde ui` opens the browser again");
         return Ok(());
     }
 
-    // The browser may have been open for minutes, and another chaps may have
+    // The browser may have been open for minutes, and another varde may have
     // changed the deployment meanwhile: the selection is applied to the state
     // as it is now, read under the lock that keeps it so until the save.
     let (project, _lock) = ctx.project_mut()?;
@@ -142,7 +142,7 @@ fn human(report: &ApplyReport, notes: &[String]) -> String {
     if report.is_empty() {
         text.push_str("no changes\n");
     } else {
-        text.push_str("run `chaps up` to apply the new compose files\n");
+        text.push_str("run `varde up` to apply the new compose files\n");
     }
     text
 }

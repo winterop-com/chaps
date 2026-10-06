@@ -10,12 +10,12 @@ use crate::registry::Registry;
 use std::path::{Path, PathBuf};
 
 /// What the summary says for a deployment that enables no models.
-pub(super) const NO_MODELS: &str = "No models enabled; run `chaps models enable ID` to add one.";
+pub(super) const NO_MODELS: &str = "No models enabled; run `varde models enable ID` to add one.";
 
 /// The same for a deployment chap-core is not a component of, where a model
 /// enabled later runs on its own: it registers nowhere and is published on a
 /// host port, which is the one thing worth knowing before enabling one.
-pub(super) const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `chaps models enable ID` to add one. \
+pub(super) const NO_MODELS_WITHOUT_CHAP_CORE: &str = "No models enabled; run `varde models enable ID` to add one. \
      Without chap-core each runs on its own, on a published host port.";
 
 /// Which of the two the summary prints, as a pure function of the component
@@ -56,7 +56,7 @@ pub(super) fn summary(
 ) -> String {
     let mut text = format!(
         "{}\n\n{}\n",
-        out.heading(&format!("Initialized a chaps project in {}", dir.display())),
+        out.heading(&format!("Initialized a varde project in {}", dir.display())),
         out.heading("Wrote:")
     );
     for path in written {
@@ -148,20 +148,20 @@ pub(super) fn summary(
         text.push_str(&addresses);
     }
     // No part of the token is printed: it stays in `.env`, and
-    // `chaps auth show --reveal` is the way back to it.
+    // `varde auth show --reveal` is the way back to it.
     if secrets.is_some() {
         text.push_str(&format!(
             "{} {} {}\n",
             out.key("API token:"),
             out.value("generated into .env"),
-            out.dim("(chaps auth show --reveal prints it)")
+            out.dim("(varde auth show --reveal prints it)")
         ));
     } else if project.state.auth.api_token {
         text.push_str(&format!(
             "{} {} {}\n",
             out.key("API token:"),
             out.value("set in .env"),
-            out.dim("(chaps auth show --reveal prints it)")
+            out.dim("(varde auth show --reveal prints it)")
         ));
     }
 
@@ -198,7 +198,7 @@ pub(super) fn summary(
             text.push_str(&out.dim(&format!(
                 "\nModel services publish no host port: chap-core reaches them over the\n\
                  compose network, and you reach them through it at\n\
-                 {}/v2/services/<service_id>/run/. `chaps models expose ID` publishes one.",
+                 {}/v2/services/<service_id>/run/. `varde models expose ID` publishes one.",
                 project.api_url()
             )));
             text.push('\n');
@@ -214,7 +214,7 @@ pub(super) fn summary(
     }
     // What the first start does with the database, and how long it takes. Both
     // are things nothing else on the screen says and the reader has to know
-    // before they run `chaps up`.
+    // before they run `varde up`.
     if components.dhis2.enabled {
         let mut dhis2 = Vec::new();
         // The warning block below says it with the reason when the pinned minor
@@ -255,10 +255,10 @@ pub(super) fn summary(
         && report.enabled.is_empty();
     let (first, second) = match empty {
         true => (
-            format!("cd {} && chaps models add URL", dir.display()),
-            "chaps up",
+            format!("cd {} && varde models add URL", dir.display()),
+            "varde up",
         ),
-        false => (format!("cd {} && chaps up", dir.display()), "chaps status"),
+        false => (format!("cd {} && varde up", dir.display()), "varde status"),
     };
     text.push('\n');
     text.push_str(&format!(

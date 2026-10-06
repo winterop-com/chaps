@@ -1,12 +1,12 @@
 //! The backup archive: its layout, its manifest, and the pure helpers
-//! `chaps backup create` and `chaps backup restore` share.
+//! `varde backup create` and `varde backup restore` share.
 //!
 //! An archive is a plain `tar.gz` with five kinds of member, all optional
 //! but the first:
 //!
 //! ```text
 //! manifest.yaml            what this archive is and what it holds
-//! files/                   .env, .chaps/**, the directory of every component
+//! files/                   .env, .varde/**, the directory of every component
 //!                          that has one, and every compose*.yml
 //! db/chap_core.dump        pg_dump -Fc of the chap-core database
 //! models/<service_id>.tar  one model data volume, as tar saw it
@@ -14,11 +14,11 @@
 //!                          with several volumes has a member for each
 //! ```
 //!
-//! Nothing in here is chaps-specific magic: `tar`, `pg_restore` and a busybox
+//! Nothing in here is varde-specific magic: `tar`, `pg_restore` and a busybox
 //! container can put a deployment back together without this CLI, which is the
 //! point of keeping the layout this flat. The archive is built and read with
 //! the system `tar` binary rather than a Rust tar crate, so what an operator
-//! sees with `tar -tzf` is exactly what `chaps backup restore` sees.
+//! sees with `tar -tzf` is exactly what `varde backup restore` sees.
 
 mod dhis2;
 mod files;
@@ -57,7 +57,7 @@ pub const DB_MEMBER: &str = "db/chap_core.dump";
 pub const MODELS_MEMBER: &str = "models";
 /// Archive member holding the component data tars.
 pub const COMPONENTS_MEMBER: &str = "components";
-/// Scratch directory inside `.chaps/`, never part of a backup.
+/// Scratch directory inside `.varde/`, never part of a backup.
 pub const TMP_DIR: &str = "tmp";
 /// Where `backup restore` parks the `.env` it is about to replace.
 pub const ENV_BACKUP_FILE: &str = ".env.before-restore";
@@ -86,7 +86,7 @@ pub fn component_member(member: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
     pub schema_version: u32,
-    /// e.g. `chaps 0.1.0`.
+    /// e.g. `varde 0.1.0`.
     pub created_by: String,
     /// UTC, `YYYY-MM-DDTHH:MM:SSZ`.
     pub created_at: String,
@@ -155,7 +155,7 @@ pub struct ManifestModel {
     #[serde(default)]
     pub host_port: Option<u16>,
     pub data_dir: String,
-    /// `user:group` the service runs as, as recorded in `.chaps/models.yaml`.
+    /// `user:group` the service runs as, as recorded in `.varde/models.yaml`.
     pub user: String,
     /// Named volume the data directory lives in.
     pub volume: String,
@@ -221,14 +221,14 @@ pub struct ManifestComponent {
 pub fn parse_manifest(body: &str, archive: &Path) -> Result<Manifest> {
     let manifest: Manifest = serde_yaml_ng::from_str(body).map_err(|e| {
         anyhow::anyhow!(
-            "{}: its {MANIFEST_MEMBER} is not a chaps backup manifest: {e}",
+            "{}: its {MANIFEST_MEMBER} is not a varde backup manifest: {e}",
             archive.display()
         )
     })?;
     if manifest.schema_version > SCHEMA_VERSION {
         return Err(anyhow::anyhow!(
-            "{}: manifest schema version {} is newer than this chaps understands ({SCHEMA_VERSION}); \
-             upgrade chaps",
+            "{}: manifest schema version {} is newer than this varde understands ({SCHEMA_VERSION}); \
+             upgrade varde",
             archive.display(),
             manifest.schema_version
         ));
@@ -239,7 +239,7 @@ pub fn parse_manifest(body: &str, archive: &Path) -> Result<Manifest> {
 /// Serialise a manifest the way it is written into an archive.
 pub fn render_manifest(manifest: &Manifest) -> Result<String> {
     Ok(format!(
-        "# chaps backup manifest. `chaps backup restore` reads this; \
+        "# varde backup manifest. `varde backup restore` reads this; \
          `tar -xzf <archive> -O {MANIFEST_MEMBER}` prints it.\n{}",
         serde_yaml_ng::to_string(manifest)?
     ))
@@ -247,7 +247,7 @@ pub fn render_manifest(manifest: &Manifest) -> Result<String> {
 
 // ---------------------------------------------------------------- naming ---
 
-/// Default archive name: `chaps-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz`.
+/// Default archive name: `varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz`.
 ///
 /// The project name is folded to the characters a file name should hold, so a
 /// directory called `Chap prod (eu)` still yields something scriptable.
@@ -264,9 +264,9 @@ pub fn archive_name(project: &str, stamp: &str) -> String {
     }
     let safe = safe.trim_matches('-').to_string();
     if safe.is_empty() {
-        format!("chaps-backup-{stamp}.tar.gz")
+        format!("varde-backup-{stamp}.tar.gz")
     } else {
-        format!("chaps-backup-{safe}-{stamp}.tar.gz")
+        format!("varde-backup-{safe}-{stamp}.tar.gz")
     }
 }
 

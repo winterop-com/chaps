@@ -36,15 +36,15 @@ impl Sandbox {
         }
     }
 
-    /// The directory `chaps init DIR` is pointed at.
+    /// The directory `varde init DIR` is pointed at.
     pub(crate) fn project(&self) -> PathBuf {
         self.home.path().join("chapx")
     }
 
     pub(crate) fn chap(&self) -> Command {
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
             // A token in the developer's own shell would otherwise be sent
             // to whatever these tests point the API at, and would change what
             // the `github api` line says from one machine to the next.
@@ -53,27 +53,27 @@ impl Sandbox {
             // An `--offline` enable reads the user off a locally pulled image
             // before it falls back to the table, and what this machine has
             // pulled is not something a test may depend on.
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .current_dir(self.home.path())
             .arg("--offline");
         cmd
     }
 
-    /// `chaps init <project> ...`, with the arguments appended.
+    /// `varde init <project> ...`, with the arguments appended.
     pub(crate) fn init(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("init").arg(self.project()).args(args);
         cmd
     }
 
-    /// `chaps -C <project> models ...`.
+    /// `varde -C <project> models ...`.
     pub(crate) fn models(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("-C").arg(self.project()).arg("models").args(args);
         cmd
     }
 
-    /// `chaps -C <project> components ...`.
+    /// `varde -C <project> components ...`.
     pub(crate) fn components(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("-C")
@@ -83,7 +83,7 @@ impl Sandbox {
         cmd
     }
 
-    /// `chaps -C <project> open ...`.
+    /// `varde -C <project> open ...`.
     ///
     /// Only ever called with arguments that open nothing, or with `--no-browser`
     /// or `--json` and an empty PATH: a test that reached the opener would put a
@@ -94,7 +94,7 @@ impl Sandbox {
         cmd
     }
 
-    /// `chaps -C <project> auth ...`.
+    /// `varde -C <project> auth ...`.
     pub(crate) fn auth(&self, args: &[&str]) -> Command {
         let mut cmd = self.chap();
         cmd.arg("-C").arg(self.project()).arg("auth").args(args);
@@ -106,26 +106,26 @@ impl Sandbox {
         read(&self.project().join(".env"))
     }
 
-    /// `chaps -C <project> ...` with the network pointed at a local
+    /// `varde -C <project> ...` with the network pointed at a local
     /// stand-in rather than switched off.
     ///
-    /// `chaps models add` resolves a repository over HTTP, so it is the one
+    /// `varde models add` resolves a repository over HTTP, so it is the one
     /// command these tests cannot run with `--offline`. Everything it would
     /// reach - GitHub, ghcr and the marketplace index - is answered by
     /// [`Hub`] on `port`, and the docker probe is turned off because a `pull`
     /// aimed at the real registry is exactly what must not happen here.
     pub(crate) fn online(&self, port: u16) -> Command {
         let base = format!("http://127.0.0.1:{port}");
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
-            .env("CHAPS_NO_UPDATE_CHECK", "1")
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
+            .env("VARDE_NO_UPDATE_CHECK", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
-            .env("CHAPS_GITHUB_API", &base)
-            .env("CHAPS_GITHUB_RAW", &base)
-            .env("CHAPS_GHCR_URL", &base)
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_GITHUB_API", &base)
+            .env("VARDE_GITHUB_RAW", &base)
+            .env("VARDE_GHCR_URL", &base)
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .current_dir(self.home.path())
             .arg("--registry-url")
             .arg(format!("{base}/registry.yaml"))
@@ -134,21 +134,21 @@ impl Sandbox {
         cmd
     }
 
-    /// `chaps init <project> ...` with the same network, which is how a
+    /// `varde init <project> ...` with the same network, which is how a
     /// deployment gets a chap-core pin and the compose file that goes with it
     /// without touching the real GitHub.
     pub(crate) fn online_init(&self, port: u16, args: &[&str]) -> Command {
         let base = format!("http://127.0.0.1:{port}");
-        let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-        cmd.env("CHAPS_CACHE_DIR", self.cache.path())
-            .env("CHAPS_DATA_DIR", self.cache.path().join("data"))
-            .env("CHAPS_NO_UPDATE_CHECK", "1")
+        let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+        cmd.env("VARDE_CACHE_DIR", self.cache.path())
+            .env("VARDE_DATA_DIR", self.cache.path().join("data"))
+            .env("VARDE_NO_UPDATE_CHECK", "1")
             .env_remove("GITHUB_TOKEN")
             .env_remove("GH_TOKEN")
-            .env("CHAPS_GITHUB_API", &base)
-            .env("CHAPS_GITHUB_RAW", &base)
-            .env("CHAPS_GHCR_URL", &base)
-            .env("CHAPS_NO_DOCKER_PROBE", "1")
+            .env("VARDE_GITHUB_API", &base)
+            .env("VARDE_GITHUB_RAW", &base)
+            .env("VARDE_GHCR_URL", &base)
+            .env("VARDE_NO_DOCKER_PROBE", "1")
             .current_dir(self.home.path())
             .arg("--registry-url")
             .arg(format!("{base}/registry.yaml"))
@@ -182,14 +182,14 @@ pub(crate) fn yaml(path: &Path) -> Yaml {
     serde_yaml_ng::from_str(&read(path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-/// `.chaps/project.yaml` with `.chaps/models.yaml` folded in under `models`,
+/// `.varde/project.yaml` with `.varde/models.yaml` folded in under `models`,
 /// as one JSON value so assertions can index into it.
 pub(crate) fn state(dir: &Path) -> Json {
-    let chaps = dir.join(".chaps");
+    let varde = dir.join(".varde");
     let mut project: Json =
-        serde_json::to_value(yaml(&chaps.join("project.yaml"))).expect("project.yaml maps to JSON");
+        serde_json::to_value(yaml(&varde.join("project.yaml"))).expect("project.yaml maps to JSON");
     let models: Json =
-        serde_json::to_value(yaml(&chaps.join("models.yaml"))).expect("models.yaml maps to JSON");
+        serde_json::to_value(yaml(&varde.join("models.yaml"))).expect("models.yaml maps to JSON");
     project["models"] = models;
     project
 }
@@ -202,11 +202,11 @@ pub(crate) fn json_of(cmd: &mut Command) -> Json {
     serde_json::from_slice(&out.stdout).expect("the --json output is one document")
 }
 
-/// `chaps <args>` run from `cwd`, without `-C`.
+/// `varde <args>` run from `cwd`, without `-C`.
 pub(crate) fn chap_in(sandbox: &Sandbox, cwd: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-    cmd.env("CHAPS_CACHE_DIR", sandbox.cache.path())
-        .env("CHAPS_DATA_DIR", sandbox.cache.path().join("data"))
+    let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+    cmd.env("VARDE_CACHE_DIR", sandbox.cache.path())
+        .env("VARDE_DATA_DIR", sandbox.cache.path().join("data"))
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
         .current_dir(cwd)
@@ -343,7 +343,7 @@ pub(crate) fn docker_ready() -> bool {
 /// Ask docker the question the tests depend on, in a directory of its own.
 pub(crate) fn probe_docker() -> Result<(), String> {
     let temp = tempfile::tempdir().map_err(|e| format!("no directory to probe docker in: {e}"))?;
-    let dir = temp.path().join("chaps-docker-probe");
+    let dir = temp.path().join("varde-docker-probe");
     let write = std::fs::create_dir_all(&dir)
         .and_then(|()| std::fs::write(dir.join("compose.yml"), PROBE_STACK));
     write.map_err(|e| format!("the docker probe stack could not be written: {e}"))?;
@@ -377,7 +377,7 @@ pub(crate) fn probe_docker() -> Result<(), String> {
     ))
 }
 
-/// The way `chaps` spells a deployment directory in a warning: resolved, and
+/// The way `varde` spells a deployment directory in a warning: resolved, and
 /// without the `\\?\` prefix Windows' `canonicalize` puts on one.
 /// `src/ports.rs` takes it off the same way, and a binary crate has nothing an
 /// integration test can import, so this mirrors it. String work, so it hands
@@ -473,14 +473,14 @@ pub(crate) fn overlay_sends_the_key(dir: &Path) -> bool {
         .contains("\n      SERVICEKIT_REGISTRATION_KEY: ${SERVICEKIT_REGISTRATION_KEY:-}\n")
 }
 
-/// A `chaps` run that needs no project: outside one, with its own cache and no
+/// A `varde` run that needs no project: outside one, with its own cache and no
 /// update check, so nothing here can reach the network.
 pub(crate) fn bare() -> (TempDir, Command) {
     let cache = tempfile::tempdir().unwrap();
-    let mut cmd = Command::cargo_bin("chaps").expect("the chaps binary is built");
-    cmd.env("CHAPS_CACHE_DIR", cache.path())
-        .env("CHAPS_DATA_DIR", cache.path().join("data"))
-        .env("CHAPS_NO_UPDATE_CHECK", "1")
+    let mut cmd = Command::cargo_bin("varde").expect("the varde binary is built");
+    cmd.env("VARDE_CACHE_DIR", cache.path())
+        .env("VARDE_DATA_DIR", cache.path().join("data"))
+        .env("VARDE_NO_UPDATE_CHECK", "1")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
         .current_dir(cache.path());

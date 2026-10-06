@@ -5,17 +5,17 @@
 On macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
 ```
 
-Or, to get the binary and nothing else - into this directory as `./chaps`, no
+Or, to get the binary and nothing else - into this directory as `./varde`, no
 `PATH` advice, no completion scripts, nothing written anywhere outside it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh -s -- --here
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh -s -- --here
 ```
 
-Then run `chaps doctor`: it checks in one pass that this machine has everything
+Then run `varde doctor`: it checks in one pass that this machine has everything
 a deployment needs - Docker, Compose 2.24.4 or newer, disk, and a route to the
 hosts Chap pulls from - and says what to do about anything it did not find. See
 [Doctor](./doctor.md).
@@ -24,6 +24,11 @@ The script works out the platform from `uname`, downloads the release archive
 for it, checks the download against the release's `SHA256SUMS` and installs the
 binary. It refuses to install anything it could not verify.
 
+Next to `varde`, it puts the link `vg`, the short form of the command: `vg up`
+is the same as `varde up`. `varde self update` replaces the binary, and the
+link then points at the new one. `--here` installs the binary alone, with no
+link.
+
 It goes into `/usr/local/bin` when that directory is writable and
 `~/.local/bin` otherwise, creating the directory and saying so if the result is
 not on your `PATH`. Pipe it through `sudo sh` to take the first branch on a
@@ -31,15 +36,15 @@ machine where `/usr/local/bin` needs root.
 
 | Option | Environment variable | What it does |
 | --- | --- | --- |
-| `--version TAG` | `CHAPS_VERSION` | Install that release instead of the newest. `dev` is the rolling build of `main` |
-| `--dir DIR` | `CHAPS_INSTALL_DIR` | Install into that directory |
-| `--here` | `CHAPS_INSTALL_DIR=.` | Put `./chaps` in the current directory and do nothing else |
+| `--version TAG` | `VARDE_VERSION` | Install that release instead of the newest. `dev` is the rolling build of `main` |
+| `--dir DIR` | `VARDE_INSTALL_DIR` | Install into that directory |
+| `--here` | `VARDE_INSTALL_DIR=.` | Put `./varde` in the current directory and do nothing else |
 | `--dry-run` | | Print what would happen and change nothing |
 | `--help` | | Print the options |
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh |
-  CHAPS_INSTALL_DIR="$HOME/bin" CHAPS_VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh |
+  VARDE_INSTALL_DIR="$HOME/bin" VARDE_VERSION=v0.1.0 sh
 ```
 
 Without `--version` the newest release is looked up through the GitHub API, and
@@ -49,13 +54,13 @@ which a CI runner can exhaust.
 
 ## Windows
 
-On Windows, chaps runs inside WSL. Install WSL 2 and Docker Desktop, turn on
+On Windows, varde runs inside WSL. Install WSL 2 and Docker Desktop, turn on
 Docker Desktop's WSL integration for your distribution (Settings, Resources,
 WSL integration), then open the WSL shell and follow the Linux steps above:
-the one-liner installs the Linux binary, and `chaps doctor` checks that docker
+the one-liner installs the Linux binary, and `varde doctor` checks that docker
 answers from inside WSL.
 
-The release also carries native Windows builds (`chaps-*-pc-windows-msvc.zip`
+The release also carries native Windows builds (`varde-*-pc-windows-msvc.zip`
 in the table below). They are published untested: CI runs on Linux and macOS
 only. WSL with the Linux binary is the supported way on Windows.
 
@@ -65,14 +70,14 @@ There are two series, and a binary knows which one it belongs to.
 
 **Stable** is a `vX.Y.Z` tag: a release that was cut on purpose, with notes,
 and it never changes once published. It is what the one-liner installs, what
-`chaps self update` follows, and what the download links point at.
+`varde self update` follows, and what the download links point at.
 
 **dev** is the rolling build of `main`, republished under the single moving
 tag `dev` on every push. It is the same seven archives, built and signed the
 same way, from a commit that has passed CI and nothing more: no release notes
 worth the name, no promise that anything in it stays. It reports the version
-of the last tag, so `chaps --version` says `v0.2.1` on a dev build as well;
-`chaps self version` is what tells the two apart:
+of the last tag, so `varde --version` says `v0.2.1` on a dev build as well;
+`varde self version` is what tells the two apart:
 
 ```text
   version       v0.2.1
@@ -91,15 +96,15 @@ curl -fsSL .../install.sh | sh -s -- --version dev    # the rolling build of mai
 curl -fsSL .../install.sh | sh -s -- --version v0.2.0 # one named release
 ```
 
-and with an installed `chaps`:
+and with an installed `varde`:
 
 ```sh
-chaps self update                      # the newest build of the channel this one is on
-chaps self update --version dev        # cross over to the rolling build
-chaps self update --version v0.2.1     # go back to a stable release
+varde self update                      # the newest build of the channel this one is on
+varde self update --version dev        # cross over to the rolling build
+varde self update --version v0.2.1     # go back to a stable release
 ```
 
-`chaps self update` on a stable build follows `releases/latest`, which
+`varde self update` on a stable build follows `releases/latest`, which
 excludes pre-releases, so a stable install is never moved onto a dev build by
 itself. On a dev build the same command follows the `dev` release, and
 compares the commit it was built from rather than the version number, since
@@ -113,19 +118,19 @@ newest release:
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
-| macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned, untested |
+| Linux x86_64 | [`varde-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS | [`varde-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+| Windows x86_64 | [`varde-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-pc-windows-msvc.zip) | unsigned, untested |
 
 <details>
 <summary>Other platforms</summary>
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
-| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
-| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
-| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned, untested |
+| Linux arm64 | [`varde-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS, Apple silicon | [`varde-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-apple-darwin.tar.gz) | signed and notarized |
+| macOS, Intel | [`varde-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-apple-darwin.tar.gz) | signed and notarized |
+| Windows arm64 | [`varde-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-pc-windows-msvc.zip) | unsigned, untested |
 
 </details>
 
@@ -134,8 +139,8 @@ release it belongs to is the one in the URL, so a link written down today
 still resolves after the next release. A release attaches these seven archives
 and one `SHA256SUMS` covering all of them, and nothing else.
 
-An archive holds one directory, `chaps-<version>-<target>/`, containing the
-`chaps` binary, `README.md`, `LICENSE` and a `completions/` directory. In a
+An archive holds one directory, `varde-<version>-<target>/`, containing the
+`varde` binary, `README.md`, `LICENSE` and a `completions/` directory. In a
 dev archive that version is `dev-<short commit>`, which is the one place the
 commit shows up without running the binary.
 
@@ -150,17 +155,17 @@ runs on any Mac.
 On macOS:
 
 ```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz
-tar -xzf chaps-universal-apple-darwin.tar.gz
-sudo install -m 0755 chaps-*-universal-apple-darwin/chaps /usr/local/bin/chaps
+curl -fsSLO https://github.com/winterop-com/varde/releases/latest/download/varde-universal-apple-darwin.tar.gz
+tar -xzf varde-universal-apple-darwin.tar.gz
+sudo install -m 0755 varde-*-universal-apple-darwin/varde /usr/local/bin/varde
 ```
 
 On a Linux server:
 
 ```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz
-tar -xzf chaps-x86_64-unknown-linux-musl.tar.gz
-sudo install -m 0755 chaps-*-x86_64-unknown-linux-musl/chaps /usr/local/bin/chaps
+curl -fsSLO https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-unknown-linux-musl.tar.gz
+tar -xzf varde-x86_64-unknown-linux-musl.tar.gz
+sudo install -m 0755 varde-*-x86_64-unknown-linux-musl/varde /usr/local/bin/varde
 ```
 
 ## Verifying a download
@@ -168,7 +173,7 @@ sudo install -m 0755 chaps-*-x86_64-unknown-linux-musl/chaps /usr/local/bin/chap
 Every release carries a `SHA256SUMS` file covering every archive:
 
 ```sh
-curl -fsSLO https://github.com/winterop-com/chaps/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/winterop-com/varde/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
@@ -177,7 +182,7 @@ notarized by Apple, so Gatekeeper lets them run: no right-click to open, no
 `xattr -d com.apple.quarantine`. To see who signed one:
 
 ```sh
-codesign -dv --verbose=4 /usr/local/bin/chaps
+codesign -dv --verbose=4 /usr/local/bin/varde
 ```
 
 Apple serves the notarization ticket online rather than it being stapled to
@@ -186,19 +191,19 @@ run on a machine therefore wants to reach Apple once; after that the verdict
 is cached.
 
 The native Windows binaries are untested and not signed, which would need an
-Authenticode certificate. SmartScreen may warn the first time `chaps.exe` runs;
+Authenticode certificate. SmartScreen may warn the first time `varde.exe` runs;
 "More info" then "Run anyway" gets past it. There `SHA256SUMS` is the check
 that matters. Under WSL none of this applies: it is the Linux binary.
 
 ## Keeping it up to date
 
 ```sh
-chaps self update           # replace this binary with the newest release
-chaps self update --check   # say whether there is one, change nothing
-chaps self version          # version, revision, channel, target, path, install method
+varde self update           # replace this binary with the newest release
+varde self update --check   # say whether there is one, change nothing
+varde self version          # version, revision, channel, target, path, install method
 ```
 
-`chaps self update` looks up the release, downloads the archive built for this
+`varde self update` looks up the release, downloads the archive built for this
 target (on macOS the universal one, whichever slice you installed), checks it
 against `SHA256SUMS` and renames the new binary over the running one. The
 installed file is never written through, so a download that fails or does not
@@ -207,26 +212,26 @@ verify leaves what you have exactly as it was.
 `--version TAG` installs a named release, going backwards included, and `dev`
 is a tag like any other. `--yes` skips the confirmation, and `--json` reports
 the result as a document, with `channel` alongside `current` and `latest`. If
-the binary lives somewhere you cannot write, `chaps` says so and suggests
+the binary lives somewhere you cannot write, `varde` says so and suggests
 `sudo` or an install directory of your own rather than half-replacing itself.
 
 Without `--version`, an update follows the channel this build is on: the
 newest tag for a stable build, the newest build of `main` for a dev one. See
 [Which version](#which-version).
 
-Once a day, after a command that succeeded, `chaps` asks the release feed
+Once a day, after a command that succeeded, `varde` asks the release feed
 whether there is a newer version and prints one dimmed line on stderr if there
 is:
 
 ```text
-chaps v0.2.0 is available (you have v0.1.0): run `chaps self update`
+varde v0.2.0 is available (you have v0.1.0): run `varde self update`
 ```
 
 On a dev build the same notice compares commits, because the version number
 does not move between two rolling builds:
 
 ```text
-a newer chaps dev build is available (commit 9f3a2c1, you have bff294c): run `chaps self update`
+a newer varde dev build is available (commit 9f3a2c1, you have bff294c): run `varde self update`
 ```
 
 It stays quiet unless it can see that the commit moved, so a build with no
@@ -235,49 +240,49 @@ recorded revision is never nagged about nothing.
 The check has a two-second timeout, its answer is cached in
 `<cache dir>/self-update-check.json`, and any failure is ignored: it can never
 change what a command did or what it exited with. It is skipped under `--json`,
-under `--offline`, when stdout is not a terminal, and for `chaps self` itself.
-`CHAPS_NO_UPDATE_CHECK=1` turns it off entirely.
+under `--offline`, when stdout is not a terminal, and for `varde self` itself.
+`VARDE_NO_UPDATE_CHECK=1` turns it off entirely.
 
-A `chaps` installed with `cargo install` is replaced the same way, but
+A `varde` installed with `cargo install` is replaced the same way, but
 `cargo install --path .` from an updated checkout is the more honest way to
-move that one on. `chaps self version` says which of the two you have.
+move that one on. `varde self version` says which of the two you have.
 
 ## Shell completions
 
 Every release archive ships the scripts under `completions/`, and the install
 script copies them into place when the directory a shell reads already exists.
-`chaps completions <shell>` prints one to stdout for the cases it does not
+`varde completions <shell>` prints one to stdout for the cases it does not
 cover: a checkout, a different directory, or a shell that reads its completions
 from somewhere else.
 
 bash:
 
 ```sh
-chaps completions bash > ~/.local/share/bash-completion/completions/chaps
+varde completions bash > ~/.local/share/bash-completion/completions/varde
 ```
 
 zsh, into a directory that is on your `fpath`:
 
 ```sh
-chaps completions zsh > ~/.zsh/completions/_chaps
+varde completions zsh > ~/.zsh/completions/_varde
 ```
 
 fish:
 
 ```sh
-chaps completions fish > ~/.config/fish/completions/chaps.fish
+varde completions fish > ~/.config/fish/completions/varde.fish
 ```
 
 PowerShell, appended to your profile:
 
 ```powershell
-chaps completions powershell | Out-String | Invoke-Expression
+varde completions powershell | Out-String | Invoke-Expression
 ```
 
 elvish:
 
 ```sh
-chaps completions elvish > ~/.config/elvish/lib/chaps.elv
+varde completions elvish > ~/.config/elvish/lib/varde.elv
 ```
 
 The scripts are generated from the same command tree `--help` is rendered
@@ -298,23 +303,23 @@ make install
 ```
 
 On macOS `make release` builds a universal (arm64 plus x86_64) binary at
-`bin/chaps` first, and `make install` copies that; on Linux it builds the host
+`bin/varde` first, and `make install` copies that; on Linux it builds the host
 binary. See [Development](./development.md) for the rest of the targets.
 
 ## Requirements
 
 On the machine that runs Chap: Docker, with Compose v2.24.4 or newer. That
-version is where the `!override` YAML tag arrived, and every `compose.chaps.yml`
-`chaps sync` writes uses it to replace chap-core's own port mapping rather than
+version is where the `!override` YAML tag arrived, and every `compose.varde.yml`
+`varde sync` writes uses it to replace chap-core's own port mapping rather than
 add to it; see [Ports](./ports.md). The other requirement is older: `include:`,
-which `chaps` uses for the umbrella file that names one overlay per enabled
+which `varde` uses for the umbrella file that names one overlay per enabled
 model, arrived in 2.20.
 
 Nothing else is required. No Python, no `uv`, no checkout of chap-core. This
-is also true for chap-core's own `chap` CLI: `chaps chap` runs it in a
+is also true for chap-core's own `chap` CLI: `varde chap` runs it in a
 container. See [The chap CLI](./chap-cli.md).
 
-`chaps` checks the installed Compose version and warns on stderr when it is
+`varde` checks the installed Compose version and warns on stderr when it is
 older than 2.24.4 rather than failing, because an older Compose still runs most
 of Chap. Between 2.20 and 2.24.4 the model overlays load and the API ends up
 published on two ports, its own and the override's; below 2.20 the model
@@ -322,6 +327,6 @@ overlays are the part that will not load at all.
 
 ## A note on the name
 
-The binary is `chaps`, not `chap`, because chap-core's own Python package
+The binary is `varde`, not `chap`, because chap-core's own Python package
 already installs a console script called `chap`. The two never collide, so a
 machine can have both.

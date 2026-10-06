@@ -59,7 +59,7 @@ fn a_model_registered_under_its_own_id_is_told_to_take_that_id() {
     );
     assert!(!said[0].contains("restart"), "{said:?}");
     // The one that is simply not registered keeps the restart hint.
-    assert!(said[1].contains("chaps restart --all other"), "{said:?}");
+    assert!(said[1].contains("varde restart --all other"), "{said:?}");
 }
 
 use super::components::parse_dataset_count;
@@ -353,7 +353,7 @@ fn a_401_is_about_the_token_and_not_about_who_answered() {
         error.contains("the API token in .env is not accepted"),
         "{error}"
     );
-    assert!(error.contains("chaps auth show --reveal"), "{error}");
+    assert!(error.contains("varde auth show --reveal"), "{error}");
     // Never the other verdict: the port is chap-core's, the token is wrong.
     assert!(!error.contains("not chap-core"), "{error}");
 
@@ -370,7 +370,7 @@ fn a_401_is_about_the_token_and_not_about_who_answered() {
         error.contains("it requires an API token and .env sets none"),
         "{error}"
     );
-    assert!(error.contains("chaps auth enable"), "{error}");
+    assert!(error.contains("varde auth enable"), "{error}");
     assert!(!error.contains("not chap-core"), "{error}");
     assert!(
         error.contains("/health is open even when CHAP_API_TOKEN is set"),
@@ -637,7 +637,7 @@ fn the_closing_line_counts_what_the_project_enables() {
     assert_eq!(closing_line(&one), "1 model registered");
     assert_eq!(
         closing_line(&[]),
-        "no models enabled; run `chaps models enable ID` to add one"
+        "no models enabled; run `varde models enable ID` to add one"
     );
 
     // A model run from its checkout is registered and not ours: it is
@@ -693,7 +693,7 @@ fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) ->
     }
 }
 
-/// `chaps status` is a health gate, so one rule covers every deployment
+/// `varde status` is a health gate, so one rule covers every deployment
 /// shape: anything this deployment declares and does not have is non-zero.
 /// A component that died used to be the exception - the one answer a
 /// monitor must never get wrong.
@@ -756,7 +756,7 @@ fn the_exit_code_is_non_zero_for_anything_the_deployment_is_missing() {
 
 /// A deployment without chap-core has no models to count, so its verdict is
 /// its components - and it must never be the models line, which names
-/// `chaps models enable`, the one command such a deployment refuses.
+/// `varde models enable`, the one command such a deployment refuses.
 /// Without chap-core a model is asked itself: not running, running and
 /// silent, or up - and only a running one with a host port is asked.
 #[test]
@@ -793,20 +793,20 @@ fn standalone_models_are_judged_by_their_own_health() {
     let lines = standalone_closing_lines(&rows, &[]);
     assert_eq!(
         lines,
-        vec!["1 of 4 models is not running; start them with `chaps up`"]
+        vec!["1 of 4 models is not running; start them with `varde up`"]
     );
     let up = standalone_closing_lines(&rows[..1], &[]);
     assert_eq!(
         up,
         vec![
-            "1 model up, answering on its own host port; `chaps models test --all` checks it can \
+            "1 model up, answering on its own host port; `varde models test --all` checks it can \
              run"
         ]
     );
     let silent = standalone_closing_lines(&rows[..2], &[]);
     assert!(silent[0].contains("not answering on /health"), "{silent:?}");
     assert!(
-        silent[0].contains(&format!("`chaps logs {}`", rows[1].id)),
+        silent[0].contains(&format!("`varde logs {}`", rows[1].id)),
         "{silent:?}"
     );
     assert!(!silent[0].contains("SERVICE"), "{silent:?}");
@@ -820,7 +820,7 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
 
     assert_eq!(
         components_closing_line(&[component(Up), component(Up), component(Up)]),
-        "all 3 components are up; `chaps open ocs` and `chaps open ocs` and `chaps open ocs` \
+        "all 3 components are up; `varde open ocs` and `varde open ocs` and `varde open ocs` \
          open them"
     );
     // Two are both, and one is named rather than counted, with the command
@@ -831,7 +831,7 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
     );
     assert_eq!(
         components_closing_line(&[component(Up)]),
-        "ocs is up; `chaps open ocs` opens it"
+        "ocs is up; `varde open ocs` opens it"
     );
 
     // Nothing running at all is the same sentence the "never started"
@@ -843,26 +843,26 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
 
     assert_eq!(
         components_closing_line(&[component(Up), component(NotRunning)]),
-        "1 of 2 components is not running; start it with `chaps up`"
+        "1 of 2 components is not running; start it with `varde up`"
     );
     assert_eq!(
         components_closing_line(&[component(Up), component(NotRunning), component(NotRunning)]),
-        "2 of 3 components are not running; start them with `chaps up`"
+        "2 of 3 components are not running; start them with `varde up`"
     );
 
     // A container that is up but not answering yet is a wait, not a
-    // `chaps up`: saying `up` again would recreate nothing.
+    // `varde up`: saying `up` again would recreate nothing.
     let line = components_closing_line(&[component(Up), component(Starting)]);
     assert_eq!(
         line,
-        "1 of 2 components is still starting; run `chaps status` again in a moment"
+        "1 of 2 components is still starting; run `varde status` again in a moment"
     );
 
     // The empty deployment names both ways to put something in it.
     assert_eq!(
         components_closing_line(&[]),
-        "this deployment has no components and no models; add one with `chaps models add URL`, \
-         `chaps models enable ID` or `chaps components enable NAME`"
+        "this deployment has no components and no models; add one with `varde models add URL`, \
+         `varde models enable ID` or `varde components enable NAME`"
     );
 
     for rows in [
@@ -895,7 +895,7 @@ fn a_model_that_never_registers_elsewhere_is_told_how_to_find_why() {
         hints[0].contains("registration.attempt_failed"),
         "{hints:?}"
     );
-    assert!(hints[0].contains("`chaps models enable m`"), "{hints:?}");
+    assert!(hints[0].contains("`varde models enable m`"), "{hints:?}");
 }
 
 #[test]
@@ -910,10 +910,10 @@ fn every_problem_row_gets_its_own_hint() {
         hints(&rows, false, None),
         vec![
             "chapkit-rwanda-malaria-bym-model: restart it with \
-                 `chaps restart --all chapkit-rwanda-malaria-bym-model`"
+                 `varde restart --all chapkit-rwanda-malaria-bym-model`"
                 .to_string(),
-            "auto-arima-chapkit: start Chap with `chaps up`, \
-                 then `chaps logs auto-arima-chapkit`"
+            "auto-arima-chapkit: start Chap with `varde up`, \
+                 then `varde logs auto-arima-chapkit`"
                 .to_string(),
         ]
     );
@@ -928,7 +928,7 @@ fn every_problem_row_gets_its_own_hint() {
     );
     assert_eq!(hints(&rows, false, None), vec![TEST_HINT_ONE.to_string()]);
     assert_eq!(hints(&rows, true, None), vec![TEST_HINT_ONE.to_string()]);
-    assert!(TEST_HINT.contains("chaps models test --all"));
+    assert!(TEST_HINT.contains("varde models test --all"));
     assert!(TEST_HINT_ONE.contains("check it can run"));
 
     // Nothing enabled at all has nothing to test either, and a
@@ -959,7 +959,7 @@ fn a_misnamed_manual_model_is_told_the_exact_commands() {
         hints(&rows, false, None),
         vec![
             "my-model: its container registered as `chapkit-minimalist-example-py`, the \
-                 unmanaged row above; run `chaps models remove my_model`, then `chaps models \
+                 unmanaged row above; run `varde models remove my_model`, then `varde models \
                  add my-model:dev --service-id chapkit-minimalist-example-py`"
                 .to_string()
         ]
@@ -980,7 +980,7 @@ fn a_model_that_just_started_is_told_to_wait_not_to_restart() {
     let hint = &hints(&rows, true, None)[0];
     assert!(hint.contains("started under two minutes ago"), "{hint}");
     assert!(
-        hint.contains("run `chaps status` again in a minute"),
+        hint.contains("run `varde status` again in a minute"),
         "{hint}"
     );
     assert!(!hint.contains("restart"), "{hint}");
@@ -1006,7 +1006,7 @@ fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
     assert!(
         hint.ends_with(
             "; if its log shows 401, chap-core is missing the registration key: \
-                 run `chaps sync`, then `chaps restart`"
+                 run `varde sync`, then `varde restart`"
         ),
         "{hint}"
     );
@@ -1211,14 +1211,14 @@ fn a_registered_model_chap_core_cannot_reach_is_a_problem_with_the_way_out() {
     );
     assert!(
         elsewhere[0].contains(
-            "`chaps components enable chap-core --url http://localhost:8000 --models-host \
+            "`varde components enable chap-core --url http://localhost:8000 --models-host \
              host.docker.internal`"
         ),
         "{elsewhere:?}"
     );
     let own = hints(&rows, false, None);
     assert!(
-        own[0].contains("`chaps logs chapkit-ewars-model`"),
+        own[0].contains("`varde logs chapkit-ewars-model`"),
         "{own:?}"
     );
     assert!(!own[0].contains("--models-host"), "{own:?}");
@@ -1302,8 +1302,8 @@ fn an_api_answering_while_this_chap_core_is_stopped_is_another_deployments() {
     name_elsewhere(&mut named, Some(&other));
     let line = named.api_elsewhere.expect("still set");
     assert!(line.contains("is first (/srv/first) answering"), "{line}");
-    assert!(line.contains("`chaps -C /srv/first down`"), "{line}");
-    assert!(line.contains("`chaps up --replace`"), "{line}");
+    assert!(line.contains("`varde -C /srv/first down`"), "{line}");
+    assert!(line.contains("`varde up --replace`"), "{line}");
 }
 
 /// The same answer with this deployment's `chap` running is its own, and

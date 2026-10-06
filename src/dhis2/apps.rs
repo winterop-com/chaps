@@ -130,12 +130,12 @@ fn fits(version: &HubVersion, instance: &[u64]) -> bool {
 /// `"maxDhisVersion": ""`, and `#[serde(default)]` turns that into `Some("")`
 /// and not into `None`. Read as a version, `""` has no parts at all, which
 /// compares below every instance - so `2.42.6` sat *above* a maximum of
-/// nothing, every version was filtered out, and `chaps dhis2 apps` reported
+/// nothing, every version was filtered out, and `varde dhis2 apps` reported
 /// that the App Hub publishes no version this DHIS2 can run while a plain
 /// `POST /api/appHub/{versionId}` installed it fine.
 ///
 /// Missing, empty, whitespace and unreadable are therefore one answer. A bound
-/// chaps cannot compare against is a bound it cannot honour, and refusing on it
+/// varde cannot compare against is a bound it cannot honour, and refusing on it
 /// would refuse everything - the same reason [`pick_version`] takes the newest
 /// version when the instance itself did not say what it is.
 fn bound(value: Option<&str>) -> Option<Vec<u64>> {
@@ -195,6 +195,6 @@ pub fn install_path(version_id: &str) -> String {
 }
 
 /// Why installing an app cannot work with `--offline`.
-pub const OFFLINE_APPS: &str = "installing an app needs the DHIS2 App Hub, twice: chaps resolves \
+pub const OFFLINE_APPS: &str = "installing an app needs the DHIS2 App Hub, twice: varde resolves \
      the version there and DHIS2 downloads the app itself; run the command without `--offline`, \
      or install both apps from DHIS2's own App Management page";

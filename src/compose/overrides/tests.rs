@@ -108,7 +108,7 @@ fn numeric_user_gives_up_on_a_name_it_does_not_know() {
 /// deliberate exception: its `app` is nobody's convention, so it stays out
 /// of `KNOWN_IDS` and is asked of the image instead. Enabling it reaches
 /// the registry or the local daemon and records `10001:10001`; only a run
-/// that can reach neither lands on this row, and `chaps sync` warns there.
+/// that can reach neither lands on this row, and `varde sync` warns there.
 #[test]
 fn every_user_in_the_table_is_resolvable() {
     const PROBED: &[&str] = &["chapkit_ghr_model"];

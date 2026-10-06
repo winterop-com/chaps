@@ -144,7 +144,7 @@ pub fn dhis2_seed_mark(project: &Project) -> Option<String> {
 ///
 /// Best-effort like every other query here, and quiet about it: `None` when
 /// docker is not installed, the daemon is not up or it answered non-zero. The
-/// one caller only wants a hint, and `chaps init` has to work on a machine
+/// one caller only wants a hint, and `varde init` has to work on a machine
 /// that has never run docker at all.
 pub fn compose_ls_json() -> Option<String> {
     docker_capture(&[
@@ -173,10 +173,10 @@ pub fn container_publishing(port: u16) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The chaps deployment directories named by [`compose_ls_json`].
+/// The varde deployment directories named by [`compose_ls_json`].
 ///
 /// A compose project is one of ours when its `ConfigFiles` - a comma-separated
-/// list of absolute paths - names a [`crate::project::CHAPS_COMPOSE`]; that
+/// list of absolute paths - names a [`crate::project::VARDE_COMPOSE`]; that
 /// file's directory is the deployment. A project whose directory has since
 /// been deleted is left out, since there is nothing left to warn about, and so
 /// is anything that is not JSON at all.
@@ -188,7 +188,7 @@ pub fn compose_ls_dirs(text: &str) -> Vec<PathBuf> {
         };
         for file in files.split(',') {
             let path = Path::new(file.trim());
-            if path.file_name() != Some(OsStr::new(crate::project::CHAPS_COMPOSE)) {
+            if path.file_name() != Some(OsStr::new(crate::project::VARDE_COMPOSE)) {
                 continue;
             }
             let Some(dir) = path.parent().filter(|dir| dir.is_dir()) else {

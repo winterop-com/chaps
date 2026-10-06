@@ -1,4 +1,4 @@
-//! Typed errors for the parts of `chaps` where the caller needs to react to the
+//! Typed errors for the parts of `varde` where the caller needs to react to the
 //! kind of failure, plus the crate-wide [`Result`] alias.
 //!
 //! Everything that is merely context is an [`anyhow::Error`]; only the cases
@@ -10,15 +10,15 @@ use std::path::PathBuf;
 #[derive(thiserror::Error, Debug)]
 pub enum ChapError {
     #[error(
-        "{0} is not a chaps project (no .chaps/project.yaml here or in a parent directory); \
-         run `chaps init` first"
+        "{0} is not a varde project (no .varde/project.yaml here or in a parent directory); \
+         run `varde init` first"
     )]
     NotAProject(PathBuf),
 
-    #[error("compose files are out of date with .chaps/; run `chaps sync`")]
+    #[error("compose files are out of date with .varde/; run `varde sync`")]
     OutOfSync,
 
-    #[error("{0} already contains a chaps project; use --force to overwrite")]
+    #[error("{0} already contains a varde project; use --force to overwrite")]
     AlreadyInitialized(PathBuf),
 
     #[error("unknown model `{0}`")]
@@ -45,7 +45,7 @@ pub enum ChapError {
 
     #[error(
         "host port {port} is outside this deployment's model port range {lo}-{hi}; \
-         pick one inside it or `--port auto`, or widen `port_range` in `.chaps/project.yaml`"
+         pick one inside it or `--port auto`, or widen `port_range` in `.varde/project.yaml`"
     )]
     PortOutOfRange { port: u16, lo: u16, hi: u16 },
 
@@ -59,7 +59,7 @@ pub enum ChapError {
     #[error("stopped by Ctrl-C; {0}")]
     Interrupted(String),
 
-    /// A program chaps ran in a one-shot container exited non-zero. Its own
+    /// A program varde ran in a one-shot container exited non-zero. Its own
     /// message is already on the screen, so this names the program, the
     /// status and the way out, and keeps the status as the exit code.
     #[error("{command} exited with status {code}; {next}")]
@@ -69,8 +69,8 @@ pub enum ChapError {
         next: String,
     },
 
-    /// A mistake about `chaps`'s own command line that clap cannot catch,
-    /// such as a `-v` meant for compose reaching `chaps down`'s passthrough.
+    /// A mistake about `varde`'s own command line that clap cannot catch,
+    /// such as a `-v` meant for compose reaching `varde down`'s passthrough.
     #[error("{0}")]
     Usage(String),
 
@@ -80,7 +80,7 @@ pub enum ChapError {
     /// chap-core could not be reached at all, as opposed to answering with
     /// something the caller did not want. Its own exit code, so a script can
     /// tell "Chap is not up" from "Chap said no".
-    #[error("chap-core at {url} is not responding: {reason}; run `chaps status`")]
+    #[error("chap-core at {url} is not responding: {reason}; run `varde status`")]
     Unreachable { url: String, reason: String },
 
     /// The same for DHIS2, in its own words: a DHIS2 that is not answering is
@@ -89,7 +89,7 @@ pub enum ChapError {
     /// same reason [`ChapError::Unreachable`] has one.
     ///
     /// `next` is the way out: for the deployment's own DHIS2 that is its
-    /// container, and for an external one the URL `chaps dhis2 use` recorded.
+    /// container, and for an external one the URL `varde dhis2 use` recorded.
     #[error("DHIS2 at {url} is not responding: {reason}; {next}")]
     Dhis2Unreachable {
         url: String,

@@ -34,7 +34,7 @@ fn a_report_lists_what_changed_and_what_to_do_next() {
     assert!(text.contains("enabled:\n  chapkit_ewars_model  1.0.0  port 5001\n"));
     assert!(text.contains("updated:\n  auto_arima_chapkit  1.0.0  port 5002\n"));
     assert!(text.contains("disabled:\n  chapkit_simple_multistep_model\n"));
-    assert!(text.ends_with("run `chaps up` to apply the new compose files\n"));
+    assert!(text.ends_with("run `varde up` to apply the new compose files\n"));
 }
 
 #[test]
@@ -91,9 +91,9 @@ fn what_the_browser_selects_applies_to_a_real_project() {
     let (id, model) = &report.enabled[0];
     assert_eq!(id, &selection.enable[0].id);
     assert!(dir.path().join(&model.compose_file).is_file());
-    assert!(dir.path().join(".chaps/models.yaml").is_file());
+    assert!(dir.path().join(".varde/models.yaml").is_file());
     assert!(dir.path().join("compose.marketplace.yml").is_file());
-    assert!(human(&report, &[]).contains("run `chaps up`"));
+    assert!(human(&report, &[]).contains("run `varde up`"));
 }
 
 /// The same seam for the second page: Tab, space, save - and a component
@@ -144,7 +144,7 @@ fn what_the_browser_selects_on_the_components_page_applies_too() {
         vec![("ocs".to_string(), Some(8790))]
     );
     assert!(dir.path().join(OCS_COMPOSE).is_file());
-    assert!(dir.path().join(".chaps/components.yaml").is_file());
+    assert!(dir.path().join(".varde/components.yaml").is_file());
     let text = human(&report, &["stopped nothing".to_string()]);
     assert!(
         text.contains("components on:\n  ocs  http://localhost:8790\n"),
@@ -152,7 +152,7 @@ fn what_the_browser_selects_on_the_components_page_applies_too() {
     );
     assert!(text.contains("note: stopped nothing\n"), "{text}");
     assert!(
-        text.ends_with("run `chaps up` to apply the new compose files\n"),
+        text.ends_with("run `varde up` to apply the new compose files\n"),
         "{text}"
     );
 }
@@ -177,7 +177,7 @@ fn the_report_names_the_components_that_were_switched_off() {
     assert!(text.contains("note: stopped ocs\n"), "{text}");
     assert!(text.contains("note: kept the volume ocs_data\n"), "{text}");
     assert!(
-        text.ends_with("run `chaps up` to apply the new compose files\n"),
+        text.ends_with("run `varde up` to apply the new compose files\n"),
         "{text}"
     );
 }

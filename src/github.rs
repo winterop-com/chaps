@@ -2,7 +2,7 @@
 //!
 //! Three parts of this CLI ask GitHub questions - [`crate::chapcore`] for
 //! chap-core's releases, [`crate::manual::github`] for a model repository's
-//! branch and its commits, and [`crate::selfupdate`] for `chaps`' own
+//! branch and its commits, and [`crate::selfupdate`] for `varde`' own
 //! releases - and each of them used to build its own request. They all come
 //! through here now, so that every `api.github.com` call carries the same
 //! headers, the same token where this run has one, and the same reading of a
@@ -14,7 +14,7 @@
 //!
 //! Unauthenticated GitHub allows 60 requests an hour per address, which one
 //! busy operator - or one CI runner shared with everybody else on its egress
-//! address - uses up in a morning. A token raises that to 5000. `chaps` never
+//! address - uses up in a morning. A token raises that to 5000. `varde` never
 //! stores one and never prints one: a `-v` trace says the header went out and
 //! nothing more, exactly as [`crate::api`] does with chap-core's token.
 
@@ -22,7 +22,7 @@ use crate::error::{ChapError, Result};
 use std::time::Duration;
 
 /// The variable the REST base URL is moved with, for the tests.
-pub const API_VAR: &str = "CHAPS_GITHUB_API";
+pub const API_VAR: &str = "VARDE_GITHUB_API";
 
 /// Public GitHub, unless [`API_VAR`] points somewhere else.
 pub const DEFAULT_API: &str = "https://api.github.com";
@@ -43,7 +43,7 @@ pub const API_VERSION: &str = "2022-11-28";
 pub const API_VERSION_HEADER: &str = "X-GitHub-Api-Version";
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// Requests an hour GitHub gives one unauthenticated address.
 pub const ANON_LIMIT: u64 = 60;

@@ -196,7 +196,7 @@ fn a_kept_volume_is_named_with_the_command_that_would_remove_it() {
     let line = &notes[0];
     assert!(line.starts_with("kept volume hello1-abc123_"), "{line}");
     assert!(
-        line.contains("`chaps components disable ocs --purge`"),
+        line.contains("`varde components disable ocs --purge`"),
         "{line}"
     );
     assert!(line.contains("docker volume rm"), "{line}");
@@ -221,14 +221,14 @@ fn a_kept_volume_is_named_with_the_command_that_would_remove_it() {
     );
     for note in &notes {
         assert!(
-            note.contains("`chaps components disable dhis2 --purge`"),
+            note.contains("`varde components disable dhis2 --purge`"),
             "{note}"
         );
         assert!(note.contains("docker volume rm"), "{note}");
     }
 
     // chap-core's volumes are upstream's own, so there is nothing here to
-    // name; `chaps down --volumes` is what removes them.
+    // name; `varde down --volumes` is what removes them.
     assert!(kept_volume_notes(&project, Component::ChapCore, &all).is_empty());
 
     // A volume docker does not have was never created, so it was not kept
@@ -363,7 +363,7 @@ fn the_deployed_dhis2_tag_is_read_out_of_the_rendered_compose_file() {
     off.dhis2.image_tag = "2.41".to_string();
     assert_eq!(dhis2_tag_moved(&project, &off), None);
 
-    // A file from some other chaps, or a hand-edited one, still reads.
+    // A file from some other varde, or a hand-edited one, still reads.
     std::fs::write(
         dir.path().join(DHIS2_COMPOSE),
         "services:\n  dhis2:\n    image: dhis2/core:${DHIS2_IMAGE_TAG:-2.41.7}\n",

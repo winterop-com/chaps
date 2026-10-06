@@ -17,7 +17,7 @@ fn a_probe_that_did_not_answer_is_a_warning_and_offline_is_a_skip() {
         ghcr: Ok(401),
         marketplace: Err("dns error".to_string()),
         chap_core: Ok("v2.3.1".to_string()),
-        chaps: Ok("v0.2.0".to_string()),
+        varde: Ok("v0.2.0".to_string()),
         github: Err("not asked here".to_string()),
     };
     let checks = network_checks(Some(&probed));
@@ -134,7 +134,7 @@ fn the_pin_check_only_speaks_up_for_a_release_that_moved() {
     let (status, detail, fix) = pin_verdict("v2.3.0", ReleaseList::Newest("v2.3.1"), None);
     assert_eq!(status, Status::Warn);
     assert_eq!(detail, "v2.3.0 pinned, v2.3.1 released");
-    assert!(fix.unwrap().contains("chaps update --dry-run"));
+    assert!(fix.unwrap().contains("varde update --dry-run"));
 
     assert_eq!(
         pin_verdict("v2.3.1", ReleaseList::Newest("v2.3.1"), None).0,
@@ -173,8 +173,8 @@ fn a_moving_pin_says_which_build_it_is_on_and_how_to_leave_it() {
     assert_eq!(status, Status::Ok);
     assert_eq!(
         detail,
-        "dev (moving tag, running 7f3a1c2e9b4d); `chaps update` re-pulls it, \
-             `chaps update --pin-chap-core` pins a release"
+        "dev (moving tag, running 7f3a1c2e9b4d); `varde update` re-pulls it, \
+             `varde update --pin-chap-core` pins a release"
     );
     assert_eq!(fix, None);
 
@@ -194,7 +194,7 @@ fn offline_is_why_the_image_lines_were_skipped_even_without_docker() {
         ghcr: Ok(401),
         marketplace: Ok(200),
         chap_core: Ok("v2.3.1".to_string()),
-        chaps: Ok("v0.2.0".to_string()),
+        varde: Ok("v0.2.0".to_string()),
         github: Err("not asked here".to_string()),
     };
 

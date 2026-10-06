@@ -176,7 +176,7 @@ fn info_names_the_source_and_the_branch_of_a_manual_model() {
     let text = detail_with(&manual, None, Some(&entry));
     assert!(text.contains("kind        manual"), "{text}");
     assert!(
-        text.contains("source      manual (`chaps models add`, 2026-09-24)"),
+        text.contains("source      manual (`varde models add`, 2026-09-24)"),
         "{text}"
     );
     assert!(text.contains("follows     main"), "{text}");
@@ -315,7 +315,7 @@ fn info_covers_every_documented_section() {
     // Not enabled here, and the page says so on its last line rather than
     // leaving the missing block to be noticed.
     assert!(text.ends_with(
-        "not enabled in this project; enable it with `chaps models enable chapkit_ewars_model`\n"
+        "not enabled in this project; enable it with `varde models enable chapkit_ewars_model`\n"
     ));
     assert!(text.lines().all(|l| !l.ends_with(' ')), "{text}");
 }

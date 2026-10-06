@@ -57,13 +57,13 @@ pub fn token_rejected(api_url: &str, path: &str, sent: bool) -> String {
     let mut text = if sent {
         format!(
             "{endpoint} answers {path} with HTTP 401: the API token in .env is not accepted; \
-             `chaps auth show --reveal` prints it, and `chaps up` hands a rotated one to \
+             `varde auth show --reveal` prints it, and `varde up` hands a rotated one to \
              chap-core"
         )
     } else {
         format!(
             "{endpoint} answers {path} with HTTP 401: it requires an API token and .env sets \
-             none; `chaps auth enable` writes one, or add CHAP_API_TOKEN to .env to match the \
+             none; `varde auth enable` writes one, or add CHAP_API_TOKEN to .env to match the \
              chap-core that is running"
         )
     };
@@ -315,7 +315,7 @@ pub(super) fn agent(timeout: Duration) -> ureq::Agent {
         .timeout_global(Some(timeout))
         // Status codes are reported by the caller, not raised as errors.
         .http_status_as_error(false)
-        .user_agent(concat!("chaps/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("varde/", env!("CARGO_PKG_VERSION")))
         .build()
         .new_agent()
 }

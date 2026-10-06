@@ -118,23 +118,23 @@ pub struct Dhis2Component {
     /// the seed is restored. `None` keeps the passwords of the dump.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_password: Option<String>,
-    /// When `chaps dhis2 connect` last got as far as a verified route and both
+    /// When `varde dhis2 connect` last got as far as a verified route and both
     /// apps here, as a UTC timestamp. `None` for a deployment no such run has
     /// been recorded for, which is every deployment until one happens.
     ///
     /// **A record of a command that ran, not a fact about DHIS2, and never
-    /// evidence.** It exists for one purpose: to stop `chaps up` and
-    /// `chaps status` naming [`dhis2_connect_hint`] on a deployment that has
+    /// evidence.** It exists for one purpose: to stop `varde up` and
+    /// `varde status` naming [`dhis2_connect_hint`] on a deployment that has
     /// already been through it. Nothing decides anything else by it. The route
     /// can be deleted, repointed or disabled in DHIS2's own interface a minute
     /// later and this timestamp will not move, because nothing here asks - only
-    /// `chaps dhis2 show` does, and it asks DHIS2 rather than this file.
+    /// `varde dhis2 show` does, and it asks DHIS2 rather than this file.
     ///
     /// So it is cleared wherever the thing it was true of can have gone:
     /// [`Components::set_enabled`] forgets it when the component is switched
     /// off - the seed dump a re-enabled DHIS2 restores ships a `chap` route
     /// pointing at somebody else's Chap, and a stale record would hide exactly
-    /// that - and `chaps down --volumes` forgets it with `dhis2_db` itself.
+    /// that - and `varde down --volumes` forgets it with `dhis2_db` itself.
     ///
     /// `None` when nothing has recorded a connect.
     #[serde(default)]

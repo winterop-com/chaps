@@ -7,7 +7,7 @@ use serde_yaml_ng::Value as Yaml;
 /// port of its own.
 ///
 /// Every 200 counts as an answer to `/health`, and the body is the dataset list
-/// `chaps status` counts - so a state or a count taken from this server is proof
+/// `varde status` counts - so a state or a count taken from this server is proof
 /// that it was asked something. Nothing here needs docker, so the verdict is the
 /// same on every machine.
 fn ocs_lookalike() -> u16 {
@@ -30,12 +30,12 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
             "OCS:       http://localhost:8790",
         ))
         // The heads-up about the object store OCS will need, once.
-        .stdout(predicates::str::contains("chaps components enable s3"));
+        .stdout(predicates::str::contains("varde components enable s3"));
 
     for name in [
         "compose.ocs.yml",
         "ocs/climate-service.yaml",
-        ".chaps/components.yaml",
+        ".varde/components.yaml",
     ] {
         assert!(dir.join(name).is_file(), "{name} was not written");
     }
@@ -44,13 +44,13 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
         "the object store was not asked for"
     );
 
-    // The component file sits between the chaps override and the umbrella.
+    // The component file sits between the varde override and the umbrella.
     let state = state(&dir);
     assert_eq!(
         state["compose_files"],
         serde_json::json!([
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.marketplace.yml"
         ])
@@ -62,7 +62,7 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
             .contains(&serde_json::json!("compose.ocs.yml"))
     );
 
-    let components = yaml(&dir.join(".chaps/components.yaml"));
+    let components = yaml(&dir.join(".varde/components.yaml"));
     assert_eq!(components["chap-core"]["enabled"], Yaml::Bool(true));
     assert_eq!(components["ocs"]["enabled"], Yaml::Bool(true));
     assert_eq!(components["ocs"]["port"].as_u64(), Some(8790));
@@ -223,7 +223,7 @@ fn enabling_the_object_store_adds_its_file_its_secrets_and_the_ocs_variables() {
         state(&dir)["compose_files"],
         serde_json::json!([
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.s3.yml",
             "compose.marketplace.yml"
@@ -265,7 +265,7 @@ fn a_component_port_is_recorded_and_published() {
     assert!(text.contains("http://localhost:9002"), "{text}");
 }
 
-/// A bare `chaps open` answers the question it is asking - what is there to
+/// A bare `varde open` answers the question it is asking - what is there to
 /// open - rather than printing a usage error, and it says something about every
 /// component, including the ones it cannot open.
 #[test]
@@ -290,7 +290,7 @@ fn a_bare_open_lists_what_there_is_to_open() {
         text.contains("not a component of this deployment"),
         "{text}"
     );
-    assert!(text.contains("run `chaps open NAME`"), "{text}");
+    assert!(text.contains("run `varde open NAME`"), "{text}");
 }
 
 /// The three answers that open nothing are refusals with the way out on the
@@ -313,7 +313,7 @@ fn open_refuses_a_component_that_is_off_and_the_object_store() {
             "dhis2 is not a component of this deployment, so there is nothing to open",
         ))
         .stderr(predicates::str::contains(
-            "run `chaps components enable dhis2`",
+            "run `varde components enable dhis2`",
         ));
 
     // On, publishing nothing, and still never opened: the object store speaks
@@ -324,7 +324,7 @@ fn open_refuses_a_component_that_is_off_and_the_object_store() {
         .failure()
         .stderr(predicates::str::contains("serves no web interface"))
         .stderr(predicates::str::contains(
-            "`chaps components enable s3 --port N`",
+            "`varde components enable s3 --port N`",
         ));
 
     // And a name that is not a component at all is the same refusal every
@@ -353,7 +353,7 @@ fn open_names_the_internal_address_of_a_component_with_no_host_port() {
         .stderr(predicates::str::contains("ocs publishes no host port"))
         .stderr(predicates::str::contains("http://ocs:9000"))
         .stderr(predicates::str::contains(
-            "run `chaps components enable ocs --port N`",
+            "run `varde components enable ocs --port N`",
         ));
 
     // The listing says the same thing in its own column, so the two cannot
@@ -405,7 +405,7 @@ fn open_outside_a_deployment_says_there_is_none() {
         .arg("ocs")
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a chaps project"));
+        .stderr(predicates::str::contains("not a varde project"));
 }
 
 /// A western extent starts with a minus sign, and the spelling without `=` is
@@ -479,9 +479,9 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
             "reached through the proxy at https://climate.example.org",
         ))
         .stdout(predicates::str::contains("read_only: true"))
-        // Not a plain `chaps restart`: the config is a bind mount, so compose
+        // Not a plain `varde restart`: the config is a bind mount, so compose
         // compares nothing that changed and recreates nothing.
-        .stdout(predicates::str::contains("`chaps restart ocs` applies it"));
+        .stdout(predicates::str::contains("`varde restart ocs` applies it"));
 
     // The overlay: exposed on the compose network, published nowhere.
     let svc = yaml(&dir.join("compose.ocs.yml"))["services"]["ocs"].clone();
@@ -499,7 +499,7 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
     assert!(config.contains("laos-climate-service"), "{config}");
 
     // And both facts in the record and in `status --json`.
-    let components = yaml(&dir.join(".chaps/components.yaml"));
+    let components = yaml(&dir.join(".varde/components.yaml"));
     assert_eq!(components["ocs"]["port"], Yaml::Null);
     assert_eq!(
         components["ocs"]["base_url"].as_str(),
@@ -534,7 +534,7 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
         config.replace("read_only: true", "read_only: false")
     );
     assert_eq!(
-        yaml(&dir.join(".chaps/components.yaml"))["ocs"]["read_only"],
+        yaml(&dir.join(".varde/components.yaml"))["ocs"]["read_only"],
         Yaml::Bool(false)
     );
 
@@ -657,13 +657,13 @@ fn disabling_a_component_removes_its_file_and_its_place_in_the_f_list() {
         state(&dir)["compose_files"],
         serde_json::json!([
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.s3.yml",
             "compose.marketplace.yml"
         ])
     );
     assert_eq!(
-        yaml(&dir.join(".chaps/components.yaml"))["ocs"]["enabled"],
+        yaml(&dir.join(".varde/components.yaml"))["ocs"]["enabled"],
         Yaml::Bool(false)
     );
 
@@ -688,7 +688,7 @@ fn chap_core_can_be_disabled_under_an_enabled_model() {
         .assert()
         .success();
     assert!(!sandbox.project().join("compose.yml").exists());
-    assert!(!sandbox.project().join("compose.chaps.yml").exists());
+    assert!(!sandbox.project().join("compose.varde.yml").exists());
     assert!(
         sandbox
             .project()
@@ -713,7 +713,7 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
         .stderr(predicates::str::contains("chap-core release").not());
 
     assert!(!dir.join("compose.yml").exists());
-    assert!(!dir.join("compose.chaps.yml").exists());
+    assert!(!dir.join("compose.varde.yml").exists());
     assert!(dir.join("compose.ocs.yml").is_file());
     assert_eq!(
         state(&dir)["compose_files"],
@@ -739,7 +739,7 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
                 "this deployment has no chap-core",
             ))
             .stderr(predicates::str::contains(
-                "`chaps components enable chap-core`",
+                "`varde components enable chap-core`",
             ));
     }
     // A backup has no database to dump, and says why rather than blaming a flag.
@@ -814,20 +814,20 @@ fn a_local_image_that_was_never_built_is_refused_with_the_build_command() {
     let sandbox = Sandbox::new();
     sandbox.init(&["--models", "none"]).assert().success();
     sandbox
-        .models(&["add", "chaps-test-never-built:dev"])
+        .models(&["add", "varde-test-never-built:dev"])
         .env("PATH", "")
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "docker build --platform linux/amd64 -t chaps-test-never-built:dev .",
+            "docker build --platform linux/amd64 -t varde-test-never-built:dev .",
         ));
-    let manual = std::fs::read_to_string(sandbox.project().join(".chaps/models-manual.yaml"))
+    let manual = std::fs::read_to_string(sandbox.project().join(".varde/models-manual.yaml"))
         .unwrap_or_default();
     assert!(!manual.contains("never_built"), "nothing recorded");
 }
 
 /// `--source` builds chap-core from a checkout: compose.yml comes from the
-/// checkout's own compose.ghcr.yml, compose.chaps.yml builds chap and worker,
+/// checkout's own compose.ghcr.yml, compose.varde.yml builds chap and worker,
 /// and `update` has no pin to move.
 #[test]
 fn init_source_builds_chap_core_from_a_checkout() {
@@ -859,9 +859,9 @@ fn init_source_builds_chap_core_from_a_checkout() {
         .stdout(predicates::str::contains("the chap-core checkout at"));
     let dir = sandbox.project();
     assert!(read(&dir.join("compose.yml")).contains("ghcr.io/dhis2-chap/chap-worker:latest"));
-    let chaps = read(&dir.join("compose.chaps.yml"));
-    assert!(chaps.contains("dockerfile: Dockerfile.worker"), "{chaps}");
-    assert!(chaps.contains("pull_policy: build"), "{chaps}");
+    let varde = read(&dir.join("compose.varde.yml"));
+    assert!(varde.contains("dockerfile: Dockerfile.worker"), "{varde}");
+    assert!(varde.contains("pull_policy: build"), "{varde}");
 
     let mut update = sandbox.chap();
     update
@@ -938,7 +938,7 @@ fn status_reports_every_enabled_component() {
 /// The other half of the same report: the container this deployment owns is
 /// what decides, not whoever holds its host port. Something else answering
 /// there - most realistically another deployment's OCS on the same port - used
-/// to be reported as this one being `up`, and cost every `chaps status` the
+/// to be reported as this one being `up`, and cost every `varde status` the
 /// requests to find out.
 #[test]
 fn status_does_not_call_a_component_up_because_something_else_answers_its_port() {
@@ -1044,7 +1044,7 @@ fn docker_accepts_a_deployment_with_both_components() {
         .success();
 
     let out = std::process::Command::new("docker")
-        .args(["compose", "-f", "compose.yml", "-f", "compose.chaps.yml"])
+        .args(["compose", "-f", "compose.yml", "-f", "compose.varde.yml"])
         .args(["-f", "compose.ocs.yml", "-f", "compose.s3.yml"])
         .args(["-f", "compose.marketplace.yml", "config"])
         .current_dir(&dir)

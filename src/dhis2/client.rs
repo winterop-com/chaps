@@ -15,7 +15,7 @@ pub struct Dhis2 {
     pub(super) credentials: Credentials,
     timeout: Duration,
     /// Whether this is the deployment's own `dhis2` container, whose logs
-    /// `chaps logs dhis2` shows, rather than an external instance.
+    /// `varde logs dhis2` shows, rather than an external instance.
     deployed: bool,
 }
 
@@ -148,9 +148,9 @@ impl Dhis2 {
                 url: self.base.clone(),
                 reason: e.to_string(),
                 next: match self.deployed {
-                    true => "run `chaps status` to see whether its container is up",
+                    true => "run `varde status` to see whether its container is up",
                     false => {
-                        "check the URL with `chaps dhis2 use`, and that this machine can reach it"
+                        "check the URL with `varde dhis2 use`, and that this machine can reach it"
                     }
                 },
             }
@@ -274,8 +274,8 @@ impl Dhis2 {
                     self.base,
                     crate::output::human_age(wait),
                     match self.deployed {
-                        true => "`chaps logs dhis2` is where the migration shows",
-                        false => "check that the URL recorded by `chaps dhis2 use` is right",
+                        true => "`varde logs dhis2` is where the migration shows",
+                        false => "check that the URL recorded by `varde dhis2 use` is right",
                     }
                 ));
             }

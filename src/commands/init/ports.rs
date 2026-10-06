@@ -50,7 +50,7 @@ pub(super) fn wanted_claims(
 /// Two ways a port can be spoken for, and one line either way: something is
 /// listening on it now, or one of `others` - a deployment that is down, so
 /// holding no socket at all - publishes it too. The second is the one nothing
-/// else catches until the `chaps up` that finds the other deployment there
+/// else catches until the `varde up` that finds the other deployment there
 /// first.
 ///
 /// Neither is an error. The listener may be a stack this deployment is meant

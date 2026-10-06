@@ -32,7 +32,7 @@ const S3_REGION: &str = "us-east-1";
 /// The marker line the scaffolded `ocs/climate-service.yaml` carries while it
 /// still holds OCS's example values.
 ///
-/// `chaps doctor` looks for exactly this, and the note tells the reader to
+/// `varde doctor` looks for exactly this, and the note tells the reader to
 /// delete it once the file is theirs, so the check goes quiet by itself.
 pub const OCS_EXAMPLE_MARKER: &str =
     "# These are the Laos example values, the country of the DHIS2 demo.";
@@ -53,7 +53,7 @@ pub const OCS_EXAMPLE_MARKER: &str =
 /// `${VAR:-}`. OCS reads each one as `os.getenv(...) or <the file>`, so an empty
 /// value is one it does not have: passing them always costs a deployment that
 /// sets none of them nothing, and means the operator only ever has to put a
-/// credential in `.env` rather than in `.env` and then in `.chaps/` as well.
+/// credential in `.env` rather than in `.env` and then in `.varde/` as well.
 pub fn render_ocs(spec: &OcsSpec) -> String {
     let s3_lines = if spec.s3 {
         format!(

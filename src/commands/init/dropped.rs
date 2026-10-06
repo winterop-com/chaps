@@ -90,8 +90,8 @@ pub(super) fn kept_by(selection: &Selection, id: &str, model: &EnabledModel) -> 
 /// Delete the component compose files the previous deployment had and the new
 /// component set does not bring back, and report them.
 ///
-/// Nothing else would: once `.chaps/project.yaml` has been rewritten without
-/// them they are in neither `compose_files` nor `rendered_files`, so `chaps
+/// Nothing else would: once `.varde/project.yaml` has been rewritten without
+/// them they are in neither `compose_files` nor `rendered_files`, so `varde
 /// sync` does not see them as its own any more and would leave them in the
 /// directory for good.
 pub(super) fn remove_dropped_component_files(
@@ -118,7 +118,7 @@ pub(super) fn remove_dropped_component_files(
 /// All of them go: `init` starts the state over, so a model the new selection
 /// keeps is rewritten by [`apply()`](crate::compose::apply()) a moment later,
 /// and one it drops would otherwise linger unreferenced while still holding its
-/// host port against the allocator. Only files the old `.chaps/models.yaml`
+/// host port against the allocator. Only files the old `.varde/models.yaml`
 /// lists are touched; a hand-written overlay is none of `init`'s business, and
 /// a directory without a readable state file has nothing to clean up.
 ///

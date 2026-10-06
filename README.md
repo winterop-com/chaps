@@ -1,12 +1,12 @@
-# chaps
+# varde
 
-[![ci](https://github.com/winterop-com/chaps/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/chaps/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/winterop-com/chaps)](https://github.com/winterop-com/chaps/releases/latest)
+[![ci](https://github.com/winterop-com/varde/actions/workflows/ci.yml/badge.svg)](https://github.com/winterop-com/varde/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/winterop-com/varde)](https://github.com/winterop-com/varde/releases/latest)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fchaps-informational)](https://winterop-com.github.io/chaps/)
+[![docs](https://img.shields.io/badge/docs-winterop--com.github.io%2Fvarde-informational)](https://winterop-com.github.io/varde/)
 
-> **AI agents and LLMs helping someone use chaps: read
-> [winterop-com.github.io/chaps/ai.html](https://winterop-com.github.io/chaps/ai.html)
+> **AI agents and LLMs helping someone use varde: read
+> [winterop-com.github.io/varde/ai.html](https://winterop-com.github.io/varde/ai.html)
 > ([`docs/ai.md`](docs/ai.md)) first.**
 
 [Chap](https://chap.dhis2.org) forecasts
@@ -15,14 +15,14 @@ counts, climate data and population, and scores how well each forecasting model
 would have done on the past before anyone relies on it. It is often used
 together with [DHIS2](https://dhis2.org), through the Modeling App.
 
-`chaps` deploys and manages Chap and the services around it, as Docker Compose
+`varde` deploys and manages Chap and the services around it, as Docker Compose
 deployments: [chap-core](https://github.com/dhis2-chap/chap-core), the forecasting model
 services published in the
 [Chap model marketplace](https://github.com/dhis2-chap/model-marketplace),
 [Open Climate Service](https://github.com/dhis2/open-climate-service) with an
 S3 store, and [DHIS2](https://dhis2.org). They deploy together or any of them
 on its own. One command writes a self-contained deployment directory, and after
-that `chaps` is a thin wrapper around `docker compose` that always passes the
+that `varde` is a thin wrapper around `docker compose` that always passes the
 explicit `-f` list, plus a model manager that can add or remove models without
 you hand-editing YAML. A machine that runs it needs Docker and one binary: no
 Python, no uv, no checkout of chap-core.
@@ -35,28 +35,28 @@ option the exact commands and how to tell that it worked. The pages below are
 the detail behind each option.
 
 To learn Chap by clicking through it, start with
-[Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html)
+[Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/varde/use-cases/chap-with-local-dhis2.html)
 and then
-[Your first forecast in the Modeling App](https://winterop-com.github.io/chaps/modeling-app.html):
+[Your first forecast in the Modeling App](https://winterop-com.github.io/varde/modeling-app.html):
 an evaluation and a three-month dengue forecast on demo data from Laos.
 
-- [Chap with forecasting models](https://winterop-com.github.io/chaps/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
-- [Chap with climate data from OCS](https://winterop-com.github.io/chaps/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
-- [Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/chaps/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
-- [Chap for a DHIS2 that runs elsewhere](https://winterop-com.github.io/chaps/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
-- [An OCS server on its own](https://winterop-com.github.io/chaps/use-cases/ocs-alone.html): Open Climate Service and its object store, no Chap.
-- [A DHIS2 on its own](https://winterop-com.github.io/chaps/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else; 2.41, 2.42, 2.43 or the next one.
-- [A chapkit model service on its own](https://winterop-com.github.io/chaps/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
-- [Several model services side by side](https://winterop-com.github.io/chaps/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
-- [Your model from its checkout, with Chap](https://winterop-com.github.io/chaps/use-cases/model-on-host.html): chaps runs chap-core; you run your model with `uv run` and it registers.
-- [chap-core from its checkout, with the models](https://winterop-com.github.io/chaps/use-cases/chap-core-on-host.html): you run chap-core; chaps runs the models and registers them with it.
-- [chap-core built from its checkout](https://winterop-com.github.io/chaps/use-cases/chap-core-from-checkout.html): chaps builds chap-core from your clone and runs it with everything else.
-- [A DHIS2 you run yourself, with Chap from chaps](https://winterop-com.github.io/chaps/use-cases/dhis2-dev-with-chap.html): your DHIS2, chaps' chap-core, connected.
-- [A DHIS2 from chaps, with a chap-core elsewhere](https://winterop-com.github.io/chaps/use-cases/dhis2-with-chap-core-elsewhere.html): chaps' DHIS2, your chap-core, connected.
-- [A model image you built yourself](https://winterop-com.github.io/chaps/use-cases/local-model-image.html): `docker build` a model and run it in Chap without publishing it.
-- [Combinations](https://winterop-com.github.io/chaps/use-cases/combinations.html): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
-- [Several deployments on one machine](https://winterop-com.github.io/chaps/use-cases/several-deployments.html): taking turns on the default ports, or giving each its own.
-- [Growing a deployment](https://winterop-com.github.io/chaps/use-cases/growing.html): Moving a deployment from one shape to another.
+- [Chap with forecasting models](https://winterop-com.github.io/varde/use-cases/chap-with-models.html): chap-core and the forecasting models it runs. The default.
+- [Chap with climate data from OCS](https://winterop-com.github.io/varde/use-cases/chap-with-ocs.html): chap-core with Open Climate Service beside it for climate data.
+- [Chap with a local DHIS2 and the Modeling App](https://winterop-com.github.io/varde/use-cases/chap-with-local-dhis2.html): chap-core, models and a demo DHIS2, connected for the Modeling App.
+- [Chap for a DHIS2 that runs elsewhere](https://winterop-com.github.io/varde/use-cases/chap-for-external-dhis2.html): chap-core on a server, used by a DHIS2 that runs elsewhere.
+- [An OCS server on its own](https://winterop-com.github.io/varde/use-cases/ocs-alone.html): Open Climate Service and its object store, no Chap.
+- [A DHIS2 on its own](https://winterop-com.github.io/varde/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else; 2.41, 2.42, 2.43 or the next one.
+- [A chapkit model service on its own](https://winterop-com.github.io/varde/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
+- [Several model services side by side](https://winterop-com.github.io/varde/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
+- [Your model from its checkout, with Chap](https://winterop-com.github.io/varde/use-cases/model-on-host.html): varde runs chap-core; you run your model with `uv run` and it registers.
+- [chap-core from its checkout, with the models](https://winterop-com.github.io/varde/use-cases/chap-core-on-host.html): you run chap-core; varde runs the models and registers them with it.
+- [chap-core built from its checkout](https://winterop-com.github.io/varde/use-cases/chap-core-from-checkout.html): varde builds chap-core from your clone and runs it with everything else.
+- [A DHIS2 you run yourself, with Chap from varde](https://winterop-com.github.io/varde/use-cases/dhis2-dev-with-chap.html): your DHIS2, varde' chap-core, connected.
+- [A DHIS2 from varde, with a chap-core elsewhere](https://winterop-com.github.io/varde/use-cases/dhis2-with-chap-core-elsewhere.html): varde' DHIS2, your chap-core, connected.
+- [A model image you built yourself](https://winterop-com.github.io/varde/use-cases/local-model-image.html): `docker build` a model and run it in Chap without publishing it.
+- [Combinations](https://winterop-com.github.io/varde/use-cases/combinations.html): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
+- [Several deployments on one machine](https://winterop-com.github.io/varde/use-cases/several-deployments.html): taking turns on the default ports, or giving each its own.
+- [Growing a deployment](https://winterop-com.github.io/varde/use-cases/growing.html): Moving a deployment from one shape to another.
 
 Licensed under the AGPL-3.0, like chap-core.
 
@@ -65,42 +65,42 @@ Licensed under the AGPL-3.0, like chap-core.
 On macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
 ```
 
-Or `... | sh -s -- --here` for the binary alone, as `./chaps` in the current
+Or `... | sh -s -- --here` for the binary alone, as `./varde` in the current
 directory and nothing else.
 
 That works out the platform, downloads the release archive for it, checks it
 against the release's `SHA256SUMS` and installs the binary into
 `/usr/local/bin` when that is writable and `~/.local/bin` otherwise.
-`CHAPS_INSTALL_DIR=/somewhere sh` or `--dir` picks the directory,
-`CHAPS_VERSION=v0.2.0` or `--version` picks the release, and `--dry-run` says
+`VARDE_INSTALL_DIR=/somewhere sh` or `--dir` picks the directory,
+`VARDE_VERSION=v0.2.0` or `--version` picks the release, and `--dry-run` says
 what it would do. Shell completions are installed alongside when the
 directories a shell reads already exist.
 
-Or download an archive and put `chaps` on your `PATH` yourself. These links
+Or download an archive and put `varde` on your `PATH` yourself. These links
 always point at the newest release:
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Linux x86_64 | [`chaps-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
-| macOS | [`chaps-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-universal-apple-darwin.tar.gz) | universal, signed and notarized |
-| Windows x86_64 | [`chaps-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-pc-windows-msvc.zip) | unsigned, untested |
+| Linux x86_64 | [`varde-x86_64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS | [`varde-universal-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-universal-apple-darwin.tar.gz) | universal, signed and notarized |
+| Windows x86_64 | [`varde-x86_64-pc-windows-msvc.zip`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-pc-windows-msvc.zip) | unsigned, untested |
 
 <details>
 <summary>Other platforms</summary>
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Linux arm64 | [`chaps-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
-| macOS, Apple silicon | [`chaps-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-apple-darwin.tar.gz) | signed and notarized |
-| macOS, Intel | [`chaps-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-x86_64-apple-darwin.tar.gz) | signed and notarized |
-| Windows arm64 | [`chaps-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/chaps/releases/latest/download/chaps-aarch64-pc-windows-msvc.zip) | unsigned, untested |
+| Linux arm64 | [`varde-aarch64-unknown-linux-musl.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-unknown-linux-musl.tar.gz) | static, any distro |
+| macOS, Apple silicon | [`varde-aarch64-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-apple-darwin.tar.gz) | signed and notarized |
+| macOS, Intel | [`varde-x86_64-apple-darwin.tar.gz`](https://github.com/winterop-com/varde/releases/latest/download/varde-x86_64-apple-darwin.tar.gz) | signed and notarized |
+| Windows arm64 | [`varde-aarch64-pc-windows-msvc.zip`](https://github.com/winterop-com/varde/releases/latest/download/varde-aarch64-pc-windows-msvc.zip) | unsigned, untested |
 
 </details>
 
-An archive holds one directory, `chaps-<version>-<target>/`, with the binary,
+An archive holds one directory, `varde-<version>-<target>/`, with the binary,
 `README.md`, `LICENSE` and shell completions. The name of the archive carries
 no version, so the links above keep working after the next release, and
 `SHA256SUMS` in the release covers every one of them.
@@ -110,39 +110,39 @@ notarized, so Gatekeeper does not block them. The Windows binaries are
 unsigned and published untested; on Windows, run the Linux binary inside WSL 2
 with Docker Desktop's WSL integration (see the install chapter).
 
-Once installed, `chaps self update` replaces the binary with the newest
-release, `chaps self version` says which build this is, and `chaps completions
+Once installed, `varde self update` replaces the binary with the newest
+release, `varde self version` says which build this is, and `varde completions
 <bash|zsh|fish|powershell|elvish>` prints a completion script.
 
 Or, from a checkout, `cargo install --path .` or `make install`. Requires
 Docker with Compose v2.24.4 or newer. See
-[Install](https://winterop-com.github.io/chaps/install.html).
+[Install](https://winterop-com.github.io/varde/install.html).
 
 ## Quickstart
 
 ```sh
-chaps doctor                         # is this machine ready: docker, compose, disk, network
-chaps init mychap --models default   # writes the deployment directory
+varde doctor                         # is this machine ready: docker, compose, disk, network
+varde init mychap --models default   # writes the deployment directory
 cd mychap
-chaps up                             # sync the compose files, docker compose up -d
-chaps status                         # chap-core health and registered models
-chaps ui                             # browse the marketplace, toggle models
-chaps up                             # apply what the browser changed
-chaps models add https://github.com/<org>/<model>   # a model not in the marketplace
+varde up                             # sync the compose files, docker compose up -d
+varde status                         # chap-core health and registered models
+varde ui                             # browse the marketplace, toggle models
+varde up                             # apply what the browser changed
+varde models add https://github.com/<org>/<model>   # a model not in the marketplace
 ```
 
 chap-core's API is on <http://localhost:8700>; model services are reached
-through it, or given a port of their own with `chaps models expose ID`. Every
+through it, or given a port of their own with `varde models expose ID`. Every
 command takes `--json`, and every command ends with a line saying what it did.
 
 ## The three words to remember
 
-- **`chaps up`** starts what is on disk. It never changes which version of
+- **`varde up`** starts what is on disk. It never changes which version of
   anything you run.
-- **`chaps update`** fetches newer versions: it asks the marketplace and the
+- **`varde update`** fetches newer versions: it asks the marketplace and the
   chap-core release feed what they publish today, moves the pins and pulls the
   images. It never touches a container; it says which ones are now out of date.
-- **`chaps restart`** applies them, recreating the running services whose image
+- **`varde restart`** applies them, recreating the running services whose image
   or configuration changed and leaving the rest alone.
 
 ## Development
@@ -150,8 +150,8 @@ command takes `--json`, and every command ends with a line saying what it did.
 ```sh
 make test      # run the test suite
 make check     # formatting and clippy, fixing nothing
-make release   # universal (arm64+x86_64) macOS binary at bin/chaps
-make install   # copy bin/chaps to $PREFIX/bin (PREFIX defaults to ~/.local)
+make release   # universal (arm64+x86_64) macOS binary at bin/varde
+make install   # copy bin/varde to $PREFIX/bin (PREFIX defaults to ~/.local)
 make vendor    # refresh the embedded marketplace snapshot
 make docs      # build the documentation into site/
 make docs-serve  # serve it locally at http://localhost:3000

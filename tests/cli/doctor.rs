@@ -55,7 +55,7 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
     // `init` generates a password, writes the pin comments and leaves
     // authentication off, which is a complete `.env` and not a warning.
     assert_eq!(doctor_status(&report, "env"), "ok", "{report}");
-    // Nothing has ever been started here: the way out is `chaps up`, or, on a
+    // Nothing has ever been started here: the way out is `varde up`, or, on a
     // machine whose docker is not answering, starting Docker first.
     assert_eq!(doctor_status(&report, "health"), "skip", "{report}");
     let fix = doctor_check(&report, "health")["fix"]
@@ -63,7 +63,7 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
         .unwrap()
         .to_string();
     assert!(
-        fix.contains("chaps up") || fix.contains("start Docker"),
+        fix.contains("varde up") || fix.contains("start Docker"),
         "{report}"
     );
 
@@ -92,7 +92,7 @@ fn doctor_in_a_fresh_project_finds_the_files_in_order_and_skips_the_network() {
 /// The hub's catalogue pins `sha-fa880a1`, committed on 1 September, while
 /// `main` has published `sha-1eb8cf1` on the 8th. That lag is what the check
 /// exists for: it is the marketplace that is behind, not the deployment, so
-/// the line warns and points at the marketplace rather than at `chaps`.
+/// the line warns and points at the marketplace rather than at `varde`.
 #[test]
 fn doctor_warns_when_the_marketplace_pin_lags_the_model_repository() {
     let (sandbox, _dir, port) = added_sandbox(Hub::new().publishing(MARKETPLACE_TAG));

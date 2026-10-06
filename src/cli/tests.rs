@@ -13,7 +13,7 @@ fn the_help_line_points_at_the_documentation_url() {
     assert!(DOCS_URL.ends_with('/'), "a chapter is appended to it");
 }
 
-/// Why the blank line at the end of `chaps --help` is not in `after_help`:
+/// Why the blank line at the end of `varde --help` is not in `after_help`:
 /// clap trims the rendered help and appends exactly one newline, so the
 /// docs line is the last thing it will print whatever `after_help` ends
 /// with. `main` adds the blank line where the help is printed instead, and
@@ -111,7 +111,7 @@ fn no_help_is_longer_than_a_screen_and_no_option_longer_than_a_clause() {
     // The globals only reach the subcommands, and the usage lines only
     // exist, once clap has built the tree.
     root.build();
-    check(&mut root, "chaps");
+    check(&mut root, "varde");
 }
 
 /// Both spellings of help say the same thing, rather than a short one and
@@ -665,7 +665,7 @@ fn down_takes_volumes_and_yes_while_v_stays_verbose() {
     let (_, args) = down_args(&["-y", "--volumes"]);
     assert!(args.volumes && args.yes);
 
-    // The bug this exists for: `-v` is chaps's own flag, so compose never
+    // The bug this exists for: `-v` is varde's own flag, so compose never
     // sees it and the volumes stay.
     let (verbose, args) = down_args(&["-v"]);
     assert!(verbose);

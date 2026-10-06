@@ -1,5 +1,5 @@
 [book]
-title = "chaps"
+title = "varde"
 description = "Deploy Chap (climate-informed disease forecasting) and its services with Docker Compose"
 authors = ["Morten Hansen"]
 language = "en"
@@ -9,5 +9,5 @@ src = "docs"
 build-dir = "site"
 
 [output.html]
-git-repository-url = "https://github.com/winterop-com/chaps"
-edit-url-template = "https://github.com/winterop-com/chaps/edit/main/{path}"
+git-repository-url = "https://github.com/winterop-com/varde"
+edit-url-template = "https://github.com/winterop-com/varde/edit/main/{path}"

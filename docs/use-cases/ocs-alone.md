@@ -4,22 +4,22 @@ Open Climate Service and no Chap at all: a climate data server for anything
 that speaks STAC or openEO.
 
 ```sh
-chaps init climate --only ocs,s3
+varde init climate --only ocs,s3
 cd climate
-chaps up
-chaps status                 # ocs up, with its dataset count and data size
-chaps open ocs
+varde up
+varde status                 # ocs up, with its dataset count and data size
+varde open ocs
 ```
 
 You get OCS on `http://localhost:8790`, keeping its objects in the S3-compatible
 store beside it. Nothing Chap-specific is created: no `compose.yml`, and no
-chap-core release is looked up. It worked when `chaps status` shows `ocs` as
-`up` and `chaps open ocs` opens its web interface.
+chap-core release is looked up. It worked when `varde status` shows `ocs` as
+`up` and `varde open ocs` opens its web interface.
 
 Without the object store, OCS keeps its data on its own volume:
 
 ```sh
-chaps init climate --only ocs
+varde init climate --only ocs
 ```
 
 ## Ingesting a first dataset
@@ -35,10 +35,10 @@ curl http://localhost:8790/stac/collections/chirps3_precipitation_daily
 ```
 
 It worked when the first command answers with `"status":"completed"` and the
-second returns the collection; `chaps status` then counts one dataset.
+second returns the collection; `varde status` then counts one dataset.
 
 The extent is Laos until you change it, the country of the DHIS2 demo database
-chaps seeds, so data ingested here covers the provinces that DHIS2 holds case
+varde seeds, so data ingested here covers the provinces that DHIS2 holds case
 data for. Change it in `ocs/climate-service.yaml`, or at `init` with
 `--ocs-name`, `--ocs-country` and `--ocs-bbox`; `curl
 http://localhost:8790/extent` shows the one in use.
@@ -133,8 +133,8 @@ instance, which refuses ingestion but not reading.
 Two settings matter once other people use it:
 
 ```sh
-chaps components enable ocs --read-only                          # refuse writes over HTTP
-chaps components enable ocs --base-url https://ocs.example.org   # behind a proxy
+varde components enable ocs --read-only                          # refuse writes over HTTP
+varde components enable ocs --base-url https://ocs.example.org   # behind a proxy
 ```
 
 Both have `init` spellings too, `--ocs-read-only` and `--ocs-base-url`. A

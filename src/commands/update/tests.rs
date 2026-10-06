@@ -288,7 +288,7 @@ fn the_plan_lists_each_model_before_anything_is_pulled() {
     assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
     assert!(text.contains(
         "  chap-core  latest  moving tag, would be re-pulled; pin it with \
-             `chaps update --pin-chap-core`\n"
+             `varde update --pin-chap-core`\n"
     ));
     // The plan is the plan: nothing in it claims anything has happened.
     assert!(!text.contains("restart"), "{text}");
@@ -740,7 +740,7 @@ fn a_switch_reports_the_way_the_rest_of_the_update_does() {
             Some(true)
         ),
         "updated chap-core v2.3.1 -> dev and pulled new images for chap, worker; \
-             restart needed: chap, worker (run `chaps restart`)"
+             restart needed: chap, worker (run `varde restart`)"
     );
     // A dry run says the same thing in the conditional, and nothing about
     // restarting: nothing was written for anything to be behind.
@@ -748,7 +748,7 @@ fn a_switch_reports_the_way_the_rest_of_the_update_does() {
     assert_eq!(
         line,
         "would update chap-core v2.3.1 -> dev; nothing written \
-             (run `chaps update` to do it)"
+             (run `varde update` to do it)"
     );
     assert!(!line.contains("restart"));
 }
@@ -758,7 +758,7 @@ fn a_pull_that_fails_after_a_switch_says_where_the_pin_is() {
     assert_eq!(
         pull_failed_after_switch("v2.3.1", "dev"),
         "the pull failed after the pins moved; chap-core is now pinned to dev, and \
-             `chaps update --chap-tag v2.3.1 --yes` puts it back"
+             `varde update --chap-tag v2.3.1 --yes` puts it back"
     );
 }
 
@@ -767,7 +767,7 @@ fn the_backwards_warning_names_the_move_and_the_way_out() {
     assert_eq!(
         backwards_warning("dev", "v2.3.1"),
         "moving chap-core from dev to v2.3.1 can run an older schema against a database \
-             migrated by the newer one; run `chaps backup create` first"
+             migrated by the newer one; run `varde backup create` first"
     );
 }
 
@@ -779,7 +779,7 @@ fn the_dhis2_pull_warning_names_the_archive_and_no_move() {
     assert_eq!(
         warning,
         "this pull can bring a newer `dhis2/core:2.42`, and a newer DHIS2 migrates \
-             `dhis2_db` irreversibly on the next `chaps up`: run `chaps backup create` first - \
+             `dhis2_db` irreversibly on the next `varde up`: run `varde backup create` first - \
              an older image on a migrated database answers healthy while every API request 404s"
     );
     // Not the `components enable dhis2` wording, which names two tags.
@@ -958,7 +958,7 @@ fn a_pin_the_listing_does_not_hold_gets_a_row_of_its_own() {
     };
     assert_eq!(
         tag_closing_line(&list),
-        "chap-core is pinned to dev; move it with `chaps update --chap-tag <TAG>`"
+        "chap-core is pinned to dev; move it with `varde update --chap-tag <TAG>`"
     );
 }
 
@@ -1034,20 +1034,20 @@ fn the_closing_line_is_one_of_four_things() {
     // Something moved and running services are behind it.
     assert_eq!(
         closing_line(Some("1 model pin"), &stale, Some(true)),
-        "updated 1 model pin; restart needed: chap, worker (run `chaps restart`)"
+        "updated 1 model pin; restart needed: chap, worker (run `varde restart`)"
     );
     // Stale without this run having moved anything: someone edited `.env`
     // and never applied it. Still worth saying, and still one line.
     assert_eq!(
         closing_line(None, &stale, Some(true)),
-        "already up to date; restart needed: chap, worker (run `chaps restart`)"
+        "already up to date; restart needed: chap, worker (run `varde restart`)"
     );
 
     // Something moved and there is nothing running to be behind it.
     assert_eq!(
         closing_line(Some("chap-core v2.3.0 -> v2.3.1"), &[], Some(false)),
         "updated chap-core v2.3.0 -> v2.3.1; Chap is not running, the new versions start \
-             with `chaps up`"
+             with `varde up`"
     );
     // Something moved, the stack is up, and none of it was affected.
     assert_eq!(
@@ -1062,12 +1062,12 @@ fn the_closing_line_is_one_of_four_things() {
             &["ocs".to_string()],
             Some(true)
         ),
-        "pulled a new image for ocs; restart needed: ocs (run `chaps restart`)"
+        "pulled a new image for ocs; restart needed: ocs (run `varde restart`)"
     );
     // Docker would not say what is running, so neither do we.
     assert_eq!(
         closing_line(Some("1 model pin"), &[], None),
-        "updated 1 model pin; run `chaps restart` to apply it to whatever is running"
+        "updated 1 model pin; run `varde restart` to apply it to whatever is running"
     );
 }
 
@@ -1089,7 +1089,7 @@ fn a_dry_run_says_what_would_happen_and_claims_nothing_else() {
     );
     assert_eq!(
         dry_run_line(Some("1 model pin")),
-        "would update 1 model pin; nothing written (run `chaps update` to do it)"
+        "would update 1 model pin; nothing written (run `varde update` to do it)"
     );
     // A dry run pulls nothing, so it never claims a restart is needed.
     assert!(!dry_run_line(Some("1 model pin")).contains("restart"));

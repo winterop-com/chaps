@@ -38,7 +38,7 @@ impl ComponentState {
     ///
     /// A component that is not running is as much a problem as a model that is
     /// not registered, and it is read the same way - by a script polling
-    /// `chaps status` for a deployment that has stopped being what it should
+    /// `varde status` for a deployment that has stopped being what it should
     /// be. This is the predicate that exit code is made of, and nothing else:
     /// the STATE cell is coloured from the three states directly, because
     /// `starting` is amber and `not running` is red while both are failures.
@@ -91,7 +91,7 @@ pub struct ComponentStatus {
 /// at all is `not running` rather than down: there is nothing wrong with a
 /// deployment that has not been started.
 ///
-/// Nothing is asked of a component whose container is not running. `chaps
+/// Nothing is asked of a component whose container is not running. `varde
 /// status` is the command run most often, and an instance that is not there
 /// would cost it a timeout to say what the container already said.
 pub(super) fn component_rows(

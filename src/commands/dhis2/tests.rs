@@ -49,7 +49,7 @@ fn report(route: Option<RouteReport>) -> Dhis2Report {
         analytics: None,
         skipped: Vec::new(),
         record: None,
-        next: "run `chaps dhis2 show` to see what is still missing".to_string(),
+        next: "run `varde dhis2 show` to see what is still missing".to_string(),
     }
 }
 
@@ -124,7 +124,7 @@ fn only_a_proved_route_with_both_apps_counts_as_connected() {
 /// evidence leaves it alone.
 ///
 /// The transition that matters is the middle one: a deployment that has
-/// been connected, then `chaps dhis2 connect --offline`, which proves the
+/// been connected, then `varde dhis2 connect --offline`, which proves the
 /// route and skips the apps. The record is still there afterwards, because
 /// nothing that run saw says it stopped being true. The same deployment
 /// with a route nothing answered through loses it, and the hint comes back.
@@ -148,7 +148,7 @@ fn a_run_that_could_not_look_leaves_the_record_as_it_found_it() {
             .connected_at
     };
 
-    // The `--offline` shape, on a deployment chaps did connect.
+    // The `--offline` shape, on a deployment varde did connect.
     assert_eq!(
         record_connect(&ctx, &mut project, Judgement::Unknown).unwrap(),
         ConnectRecord::Unchanged
@@ -201,14 +201,14 @@ fn the_record_line_never_claims_the_route_is_right() {
     let recorded = record_lines(ConnectRecord::Recorded, &out());
     assert_eq!(
         recorded,
-        "recorded in `.chaps/components.yaml`, so `chaps up` and `chaps status` stop asking\n  \
+        "recorded in `.varde/components.yaml`, so `varde up` and `varde status` stop asking\n  \
              a note that this ran, not proof the route is still right; \
-             `chaps dhis2 show` asks DHIS2\n"
+             `varde dhis2 show` asks DHIS2\n"
     );
 
     let cleared = record_lines(ConnectRecord::Cleared, &out());
     assert!(
-        cleared.starts_with("cleared the earlier `chaps dhis2 connect`"),
+        cleared.starts_with("cleared the earlier `varde dhis2 connect`"),
         "{cleared}"
     );
     assert!(cleared.contains("ask for it again"), "{cleared}");
@@ -247,7 +247,7 @@ fn the_instance_line_never_carries_the_password() {
     assert_eq!(
         instance_line(&token, &out()),
         "external DHIS2 2.42.6 at http://localhost:18080, as `ops` (API token from \
-             CHAPS_DHIS2_TOKEN)\n"
+             VARDE_DHIS2_TOKEN)\n"
     );
 
     // An instance that did not say its version still gets a line.
@@ -292,7 +292,7 @@ fn a_route_that_is_already_right_says_there_was_nothing_to_change() {
         text.contains("already points at http://chap:8000/**; nothing to change"),
         "{text}"
     );
-    assert!(text.contains("run `chaps dhis2 show`"), "{text}");
+    assert!(text.contains("run `varde dhis2 show`"), "{text}");
 }
 
 /// A route that was written but proved nothing says so rather than
@@ -418,7 +418,7 @@ fn a_skipped_step_is_reported_with_the_reason() {
     assert!(text.contains("App Hub"), "{text}");
 }
 
-/// The two apps chaps is about, in the order it installs them.
+/// The two apps varde is about, in the order it installs them.
 fn shown_apps(versions: &[&str]) -> Vec<ShownApp> {
     dhis2::HUB_APPS
         .iter()
@@ -445,7 +445,7 @@ fn show_names_every_missing_piece_and_the_command_that_fixes_them() {
             "analytics has never run".to_string(),
             "the Modeling App is not installed".to_string(),
         ],
-        next: "run `chaps dhis2 connect` to do the rest".to_string(),
+        next: "run `varde dhis2 connect` to do the rest".to_string(),
     };
     let text = human_show(&report, &out());
     assert!(text.contains("route      none"), "{text}");
@@ -455,18 +455,18 @@ fn show_names_every_missing_piece_and_the_command_that_fixes_them() {
         "{text}"
     );
     assert!(text.contains("missing: there is no `chap` route"), "{text}");
-    assert!(text.contains("run `chaps dhis2 connect`"), "{text}");
+    assert!(text.contains("run `varde dhis2 connect`"), "{text}");
 }
 
 /// The row is the two apps and nothing else. A real instance lists 29
 /// bundled apps of its own, and they are not what this command answers for.
 #[test]
-fn the_apps_row_is_the_two_apps_chaps_installs_and_no_others() {
+fn the_apps_row_is_the_two_apps_varde_installs_and_no_others() {
     let bundled = serde_json::json!([
         {"name": "Reports", "key": "reports", "version": "100.2.4"},
         {"name": "Maintenance app", "key": "maintenance", "version": "32.34.1-v42.0"},
         // The instance's own spelling of the Modeling App, which is not
-        // the App Hub's and not chaps'.
+        // the App Hub's and not varde'.
         {"name": "Modeling", "key": "modeling", "version": "7.1.0"},
     ]);
     let apps: Vec<ShownApp> = dhis2::HUB_APPS
@@ -502,7 +502,7 @@ fn the_apps_row_is_the_two_apps_chaps_installs_and_no_others() {
 }
 
 /// The row a seeded deployment gets must not read as "analytics is done",
-/// and the one chaps watched finish must not read as more than that.
+/// and the one varde watched finish must not read as more than that.
 #[test]
 fn the_analytics_row_says_what_the_timestamp_is_worth() {
     let when = "2026-06-16T07:51:00.093";
@@ -514,7 +514,7 @@ fn the_analytics_row_says_what_the_timestamp_is_worth() {
 
     let here = analytics_cell(dhis2::AnalyticsEvidence::RanHere, when, &out());
     assert_eq!(here, format!("{when} (a run finished on this deployment)"));
-    // What chaps saw is a run finishing, which is not a row count: a run
+    // What varde saw is a run finishing, which is not a row count: a run
     // can finish having written nothing, which is why it says neither
     // "done" nor anything about the tables.
     assert!(!here.contains("done"), "{here}");
@@ -547,7 +547,7 @@ fn show_on_a_connected_instance_says_it_is_connected() {
         analytics: dhis2::AnalyticsEvidence::RanHere,
         apps: shown_apps(&["7.1.0", "1.16.2"]),
         missing: Vec::new(),
-        next: "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string(),
+        next: "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string(),
     };
     let text = human_show(&report, &out());
     assert!(text.contains("http://chap:8000/** (healthy)"), "{text}");
@@ -560,7 +560,7 @@ fn show_on_a_connected_instance_says_it_is_connected() {
         "{text}"
     );
     assert!(!text.contains("missing:"), "{text}");
-    assert!(text.contains("`chaps open dhis2`"), "{text}");
+    assert!(text.contains("`varde open dhis2`"), "{text}");
 }
 
 /// A route aimed at somebody else's chap-core is the trap the whole step
@@ -586,7 +586,7 @@ fn show_marks_a_route_that_points_at_another_chap_core() {
             "the `chap` route points at http://158.39.75.126/stable/**, not at this deployment"
                 .to_string(),
         ],
-        next: "run `chaps dhis2 connect` to do the rest".to_string(),
+        next: "run `varde dhis2 connect` to do the rest".to_string(),
     };
     let text = human_show(&report, &out());
     assert!(text.contains("(another chap-core)"), "{text}");
@@ -627,13 +627,13 @@ fn the_missing_apps_are_the_ones_the_instance_does_not_have() {
 /// what these commands do.
 #[test]
 fn the_refusals_name_what_is_true_instead_and_the_way_out() {
-    assert!(NO_CHAP_CORE.contains("`chaps components enable chap-core`"));
-    assert!(NOT_RUNNING.contains("`chaps up`"));
-    assert!(NO_DHIS2.contains("`chaps components enable dhis2`"));
+    assert!(NO_CHAP_CORE.contains("`varde components enable chap-core`"));
+    assert!(NOT_RUNNING.contains("`varde up`"));
+    assert!(NO_DHIS2.contains("`varde components enable dhis2`"));
     let internal = no_host_port("http://dhis2:8080");
     assert!(internal.contains("http://dhis2:8080"), "{internal}");
     assert!(
-        internal.contains("`chaps components enable dhis2 --port N`"),
+        internal.contains("`varde components enable dhis2 --port N`"),
         "{internal}"
     );
     for text in [NO_CHAP_CORE, NOT_RUNNING, NO_DHIS2, &internal] {
@@ -710,7 +710,7 @@ fn a_failed_analytics_run_says_the_cause_and_not_the_statement() {
     assert!(memory.contains("4 to 5 GB"), "{memory}");
     let other = failure_message("table is locked by job abc", "2 seconds");
     assert!(
-        other.ends_with("`chaps logs dhis2` has the rest"),
+        other.ends_with("`varde logs dhis2` has the rest"),
         "{other}"
     );
 }

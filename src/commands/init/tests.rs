@@ -19,7 +19,7 @@ fn a_deployment_without_chap_core_is_told_its_models_run_on_their_own() {
 
     components.set_enabled(Component::ChapCore, false);
     let line = no_models_line(&components).expect("a models-only deployment gets the line");
-    assert!(line.contains("`chaps models enable ID`"), "{line}");
+    assert!(line.contains("`varde models enable ID`"), "{line}");
     assert!(line.contains("published host port"), "{line}");
 
     // A DHIS2 or an OCS on its own was not about models.
@@ -460,7 +460,7 @@ fn a_re_init_says_which_components_it_is_taking_away() {
 
 /// The compose file of a component that is not coming back has to go with
 /// it. Nothing else would ever remove it: the new `project.yaml` lists it in
-/// neither `compose_files` nor `rendered_files`, so `chaps sync` does not see
+/// neither `compose_files` nor `rendered_files`, so `varde sync` does not see
 /// it as its own any more.
 #[test]
 fn the_compose_file_of_a_dropped_component_is_removed() {
@@ -661,10 +661,10 @@ fn offline_keeps_the_tag_as_given_and_the_embedded_compose_file() {
 #[test]
 fn a_cached_compose_file_is_reused_instead_of_downloaded() {
     let dir = tempfile::tempdir().unwrap();
-    let chaps = dir.path().join(CHAPS_DIR);
-    std::fs::create_dir_all(&chaps).unwrap();
+    let varde = dir.path().join(VARDE_DIR);
+    std::fs::create_dir_all(&varde).unwrap();
     let body = "services:\n  chap:\n    image: ghcr.io/x:${CHAP_IMAGE_TAG:-latest}\n";
-    std::fs::write(chaps.join(cached_compose_file("v2.3.1")), body).unwrap();
+    std::fs::write(varde.join(cached_compose_file("v2.3.1")), body).unwrap();
 
     // Offline, and still a fetched source: the copy is right there.
     let found = resolve_chap_core(&offline_ctx(), dir.path(), "v2.3.1");
@@ -683,7 +683,7 @@ fn a_cached_compose_file_is_reused_instead_of_downloaded() {
     );
 
     // A cached file that is not a usable compose document is ignored.
-    std::fs::write(chaps.join(cached_compose_file("v2.2.0")), "nonsense: [").unwrap();
+    std::fs::write(varde.join(cached_compose_file("v2.2.0")), "nonsense: [").unwrap();
     let ignored = resolve_chap_core(&offline_ctx(), dir.path(), "v2.2.0");
     assert_eq!(ignored.source, ComposeSource::Embedded);
 }

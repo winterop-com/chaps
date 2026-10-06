@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 /// The three jobs the stand-in chap-core reports, in the order it sends them:
-/// chap-core answers newest first already, and `chaps jobs` is what decides
+/// chap-core answers newest first already, and `varde jobs` is what decides
 /// the order the table is in.
 pub(crate) const DONE_ID: &str = "11111111-aaaa-4aaa-8aaa-000000000001";
 
@@ -57,22 +57,22 @@ pub(crate) fn job_list() -> String {
 
 /// A stand-in for chap-core's job and CRUD endpoints, on the port it returns.
 ///
-/// Answers the paths `chaps jobs` and `chaps api` reach, and nothing else:
+/// Answers the paths `varde jobs` and `varde api` reach, and nothing else:
 /// the point is the shapes - a bare JSON string for a status and for a log, a
 /// `detail` object for a 404, a `message` for a cancel - because those are
 /// what the commands render. The thread lives as long as the test process.
 ///
 /// The server binds before anything is written, and the port is the one the
 /// kernel gave that bind: a port picked first and bound later is free for a
-/// parallel test to take in between. `chaps init --api-port` with it only
+/// parallel test to take in between. `varde init --api-port` with it only
 /// notes that the port is busy.
 pub(crate) fn chap_core_server() -> u16 {
     serve_chap_core(false, false)
 }
 
 /// The paths chap-core answers without a token, copied from `OPEN_PATHS` in
-/// its `rest_api/auth.py` rather than from chaps, so the stand-in does not
-/// agree with chaps by construction.
+/// its `rest_api/auth.py` rather than from varde, so the stand-in does not
+/// agree with varde by construction.
 const CHAP_CORE_OPEN_PATHS: &[&str] = &["/health", "/health/ready", "/system/info"];
 
 /// The version the stand-in chap-core reports on `/system/info`, which no
@@ -485,9 +485,9 @@ pub(crate) fn analytics_route(
     }
 }
 
-/// The service a `chaps-test-<service>-<stamp>` dataset name is about.
+/// The service a `varde-test-<service>-<stamp>` dataset name is about.
 pub(crate) fn dataset_service(name: &str) -> String {
-    let rest = name.strip_prefix("chaps-test-").unwrap_or(name);
+    let rest = name.strip_prefix("varde-test-").unwrap_or(name);
     // The stamp is the last two hyphen-separated parts: `20260924-181500`.
     let parts: Vec<&str> = rest.rsplitn(3, '-').collect();
     parts.get(2).copied().unwrap_or(rest).to_string()
@@ -495,7 +495,7 @@ pub(crate) fn dataset_service(name: &str) -> String {
 
 /// One whole HTTP request, headers and body.
 ///
-/// A single `read` is enough for the requests `chaps jobs` makes and nowhere
+/// A single `read` is enough for the requests `varde jobs` makes and nowhere
 /// near enough for `make-dataset`, which is a few thousand observations, so
 /// the headers are read first and then exactly as much body as
 /// `Content-Length` promises.
@@ -566,7 +566,7 @@ pub(crate) fn chap_core_route(
         FAILED_ID => Some("FAILURE"),
         RUNNING_ID => Some("STARTED"),
         // The backtest of the model whose prediction crashes is the one job
-        // `chaps models test --backtest` has to report a reason for.
+        // `varde models test --backtest` has to report a reason for.
         id if id == format!("bt-{FAILING_MODEL}") => Some("FAILURE"),
         id if id.starts_with("ds-") || id.starts_with("bt-") => Some("SUCCESS"),
         _ => None,
@@ -653,7 +653,7 @@ pub(crate) fn chap_core_route(
             _ => (404, json, r#"{"detail":"Not Found"}"#.to_string()),
         };
     }
-    // A handful of paths for `chaps api` itself: an echo for a body, a
+    // A handful of paths for `varde api` itself: an echo for a body, a
     // non-JSON body, and one that reports whether a token arrived.
     match (method, route) {
         ("POST", "/v1/echo") | ("PUT", "/v1/echo") | ("PATCH", "/v1/echo") => {
@@ -666,7 +666,7 @@ pub(crate) fn chap_core_route(
     }
 }
 
-/// What the stand-in was asked to do, read back through `chaps api`.
+/// What the stand-in was asked to do, read back through `varde api`.
 pub(crate) fn recorded(sandbox: &Sandbox, dir: &Path) -> Json {
     json_of(&mut chap_in(
         sandbox,
@@ -675,7 +675,7 @@ pub(crate) fn recorded(sandbox: &Sandbox, dir: &Path) -> Json {
     ))
 }
 
-/// `chaps <args>` with the fake docker ahead of the real one on PATH.
+/// `varde <args>` with the fake docker ahead of the real one on PATH.
 #[cfg(unix)]
 pub(crate) fn chap_with_docker(
     sandbox: &Sandbox,
@@ -695,7 +695,7 @@ pub(crate) fn chap_with_docker(
 
 /// A `docker` on PATH that answers everything with success and nothing else.
 ///
-/// `chaps update` ends in `docker compose pull`, and a test must not pull
+/// `varde update` ends in `docker compose pull`, and a test must not pull
 /// anything: what it is about is the files the run writes before that, and
 /// the closing line it prints after. Every call is logged so a test can check
 /// that the pull was asked for at all.
@@ -733,12 +733,12 @@ pub(crate) fn pinned_sandbox() -> (Sandbox, PathBuf, u16, TempDir, PathBuf) {
         .stdout(predicates::str::contains(
             "chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)",
         ));
-    assert!(read(&dir.join("compose.yml")).contains("CHAPS_TEST_REF: v2.3.1"));
+    assert!(read(&dir.join("compose.yml")).contains("VARDE_TEST_REF: v2.3.1"));
     let (temp, bin, _) = quiet_docker();
     (sandbox, dir, port, temp, bin)
 }
 
-/// `chaps -C <project> update ...` against the hub, with the fake docker
+/// `varde -C <project> update ...` against the hub, with the fake docker
 /// ahead of the real one on PATH.
 #[cfg(unix)]
 pub(crate) fn online_update(sandbox: &Sandbox, port: u16, bin: &Path, args: &[&str]) -> Command {

@@ -81,7 +81,7 @@ fn an_id_the_marketplace_lists_is_a_model_to_enable() {
     // id it was built with, and then enabling it is the answer.
     assert!(
         err.to_string()
-            .contains("`chaps models enable chapkit_ewars_model` runs it"),
+            .contains("`varde models enable chapkit_ewars_model` runs it"),
         "{err}"
     );
 }
@@ -148,7 +148,7 @@ fn the_added_block_says_where_every_value_came_from() {
         "hint: source: https://github.com/chap-models/chapkit_ghr_model\n",
         "hint: image: ghcr.io/chap-models/chapkit_ghr_model:sha-b1d6c31\n",
         "hint: pin: sha-b1d6c31 (commit b1d6c31)\n",
-        "hint: follows: main (`chaps update` moves the pin)\n",
+        "hint: follows: main (`varde update` moves the pin)\n",
         "hint: data dir: /work/data (from the image config)\n",
         "hint: user: 10001:10001 (from a docker probe)\n",
     ] {

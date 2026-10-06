@@ -2,33 +2,33 @@
 
 use super::*;
 
-/// The files a deployment directory holds, as `chaps init` writes them: the
-/// `.chaps/` state, `.env` and the compose files rendered from them.
+/// The files a deployment directory holds, as `varde init` writes them: the
+/// `.varde/` state, `.env` and the compose files rendered from them.
 ///
 /// The base stack is only one of them when chap-core is a component of this
 /// deployment: `--without chap-core` renders neither `compose.yml` nor the
-/// chaps-owned override, so looking for them would report a deployment that is
+/// varde-owned override, so looking for them would report a deployment that is
 /// exactly as asked for as broken.
 ///
 /// What a component keeps in its own directory
 /// ([`crate::components::Component::dir`]) is deliberately not in here. Those
 /// files are the operator's rather than rendered, and the `components` line
-/// already judges each of them with the one thing to do about it - `chaps sync`
+/// already judges each of them with the one thing to do about it - `varde sync`
 /// scaffolds a missing `dhis2/dhis.conf`, and it says why DHIS2 will not start
 /// without it - so counting them here would report one fault on two lines and
-/// offer `chaps init --force` for a file `sync` writes on its own.
+/// offer `varde init --force` for a file `sync` writes on its own.
 /// [`files_verdict`] names the directories instead, so the count cannot be read
 /// as covering them.
 pub fn project_files(components: &Components) -> Vec<String> {
     let mut files = vec![
-        format!("{CHAPS_DIR}/{PROJECT_FILE}"),
-        format!("{CHAPS_DIR}/{MODELS_FILE}"),
-        format!("{CHAPS_DIR}/{COMPONENTS_FILE}"),
+        format!("{VARDE_DIR}/{PROJECT_FILE}"),
+        format!("{VARDE_DIR}/{MODELS_FILE}"),
+        format!("{VARDE_DIR}/{COMPONENTS_FILE}"),
         ENV_FILE.to_string(),
     ];
     if components.chap_core.enabled {
         files.push(BASE_COMPOSE.to_string());
-        files.push(CHAPS_COMPOSE.to_string());
+        files.push(VARDE_COMPOSE.to_string());
     }
     files.extend(components.compose_files());
     files.push(MARKETPLACE_COMPOSE.to_string());
@@ -63,7 +63,7 @@ pub fn files_verdict(
         Status::Fail,
         format!("missing {}", missing.join(", ")),
         Some(
-            "run `chaps sync` to render the compose files again, or `chaps init --force` here \
+            "run `varde sync` to render the compose files again, or `varde init --force` here \
              to write the whole deployment"
                 .to_string(),
         ),
@@ -116,26 +116,26 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
 ///
 /// Compose names a project after its directory unless a file says otherwise,
 /// so two deployments in directories both called `demo` share every container
-/// name and every named volume - a fresh `chaps up` in the second one finds
-/// the first one's database, with a password it has never seen. `chaps init`
+/// name and every named volume - a fresh `varde up` in the second one finds
+/// the first one's database, with a password it has never seen. `varde init`
 /// records a name of its own; an empty one is a hand edit, and this warns
 /// about it.
 pub fn project_name_verdict(recorded: Option<&str>) -> (Status, String, Option<String>) {
     if let Some(name) = recorded {
         return (
             Status::Ok,
-            format!("{name} (recorded in {CHAPS_DIR}/{PROJECT_FILE})"),
+            format!("{name} (recorded in {VARDE_DIR}/{PROJECT_FILE})"),
             None,
         );
     }
     (
         Status::Warn,
         format!(
-            "`compose_project` is empty in {CHAPS_DIR}/{PROJECT_FILE}; compose names the \
+            "`compose_project` is empty in {VARDE_DIR}/{PROJECT_FILE}; compose names the \
              deployment after its directory"
         ),
         Some(format!(
-            "set `compose_project:` in {CHAPS_DIR}/{PROJECT_FILE}, then run `chaps sync`"
+            "set `compose_project:` in {VARDE_DIR}/{PROJECT_FILE}, then run `varde sync`"
         )),
     )
 }
@@ -151,7 +151,7 @@ pub fn project_check(project: &Project) -> Check {
 
 /// Whether the named volumes this deployment would use are its own.
 ///
-/// `created` is when `.chaps/project.yaml` was created and each volume's is
+/// `created` is when `.varde/project.yaml` was created and each volume's is
 /// when docker created it. A database volume older than the deployment
 /// directory itself was made by something else - an earlier deployment of the
 /// same name, most often - and it still holds that deployment's role password,
@@ -162,7 +162,7 @@ pub fn project_check(project: &Project) -> Check {
 ///
 /// `ocs_data` is the OCS data volume and what it holds, when that could be
 /// measured: the one volume under this prefix whose size is usually worth
-/// knowing, because it is what a `chaps down --volumes` would destroy.
+/// knowing, because it is what a `varde down --volumes` would destroy.
 pub fn volume_verdict(
     prefix: &str,
     db_volume: &str,
@@ -174,7 +174,7 @@ pub fn volume_verdict(
     if volumes.is_empty() {
         return (
             Status::Ok,
-            format!("no {prefix}* volume yet; `chaps up` creates them"),
+            format!("no {prefix}* volume yet; `varde up` creates them"),
             None,
         );
     }
@@ -203,7 +203,7 @@ pub fn volume_verdict(
                 crate::backup::timestamp(created.unwrap_or_default())
             ),
             Some(
-                "remove it with `chaps down --volumes` if this deployment's data can go, \
+                "remove it with `varde down --volumes` if this deployment's data can go, \
                  or keep both by giving one of them a name of its own"
                     .to_string(),
             ),
@@ -234,7 +234,7 @@ pub fn volume_verdict(
 /// `down --volumes` is not among the answers on purpose: it only removes the
 /// volumes the compose files still declare, which is exactly the set these are
 /// not in.
-const LEFTOVER_FIX: &str = "remove each with `chaps models disable <id> --purge` or `chaps components disable <name> \
+const LEFTOVER_FIX: &str = "remove each with `varde models disable <id> --purge` or `varde components disable <name> \
      --purge`, or `docker volume rm <name>`; keep them to have the data back when the model or \
      component is enabled again";
 
@@ -242,7 +242,7 @@ const LEFTOVER_FIX: &str = "remove each with `chaps models disable <id> --purge`
 /// enables.
 ///
 /// A model's volume is `ck_<id>_data`, so a name of that shape whose id is no
-/// longer in `.chaps/models.yaml` is a disabled model's data; the component
+/// longer in `.varde/models.yaml` is a disabled model's data; the component
 /// ones are named outright, and are leftovers while the component is off.
 /// Every other name - the database, chap-core's own - belongs to the base
 /// stack, which is nobody's leftover.
@@ -283,7 +283,7 @@ pub fn leftover_volumes(
 /// container is up, the `components` line has the size from inside it, and
 /// starting a second container to measure what the first is writing to would
 /// be both slower and less true. While it is down, this is the line that says
-/// how much data a `chaps down --volumes` would destroy.
+/// how much data a `varde down --volumes` would destroy.
 pub(super) fn volumes_check(project: &Project, running: &BTreeSet<String>) -> Check {
     const ID: &str = "volumes";
     const NAME: &str = "volumes";
@@ -319,17 +319,17 @@ pub(super) fn volumes_check(project: &Project, running: &BTreeSet<String>) -> Ch
 
 /// When this deployment directory was created, in Unix seconds.
 ///
-/// The `.chaps/` directory rather than `project.yaml` inside it: every save
+/// The `.varde/` directory rather than `project.yaml` inside it: every save
 /// writes that file to a temporary sibling and renames it into place, so its
-/// creation time is the time of the last `chaps sync` and not the time the
-/// deployment was made. The directory is created once by `chaps init` and
+/// creation time is the time of the last `varde sync` and not the time the
+/// deployment was made. The directory is created once by `varde init` and
 /// never replaced.
 ///
 /// `None` where the filesystem records no creation time, and the check that
 /// uses it simply does not make the comparison.
 fn deployment_created_at(project: &Project) -> Option<u64> {
-    let chaps = project.chaps_dir();
-    file_created_at(&chaps).or_else(|| file_created_at(&chaps.join(PROJECT_FILE)))
+    let varde = project.varde_dir();
+    file_created_at(&varde).or_else(|| file_created_at(&varde.join(PROJECT_FILE)))
 }
 
 /// When a file or directory was created, in Unix seconds, when the filesystem
@@ -380,7 +380,7 @@ pub fn env_verdict(body: Option<&str>) -> (Status, String, Option<String>) {
         facts.push(format!("{CHAP_TAG_ENV_VAR} present"));
     } else {
         facts.push(format!("no {CHAP_TAG_ENV_VAR} line"));
-        fixes.push("run `chaps sync` to write the image pin comments back");
+        fixes.push("run `varde sync` to write the image pin comments back");
     }
 
     let detail = facts.join(", ");
@@ -402,12 +402,12 @@ pub fn env_check(body: Option<&str>) -> Check {
 /// Whether one host port the stack publishes is free to publish on.
 ///
 /// `busy` is injected so the verdict can be tested without binding anything,
-/// and the fix is the very sentence `chaps up`'s preflight would have failed
+/// and the fix is the very sentence `varde up`'s preflight would have failed
 /// with, so the two never drift apart.
 ///
 /// `note` is appended in parentheses to whatever the line says about the port:
 /// [`api_port_note`] uses it to name the file that moved the API port, without
-/// which the number looks wrong against `.chaps/project.yaml`.
+/// which the number looks wrong against `.varde/project.yaml`.
 pub fn port_check(
     claim: &PortClaim,
     running: &BTreeSet<String>,
@@ -445,18 +445,18 @@ pub fn port_check(
 }
 
 /// What the `api port` line says about where its number came from, when that
-/// is not what `.chaps/project.yaml` records.
+/// is not what `.varde/project.yaml` records.
 ///
 /// compose reads `.env` last, so a `CHAP_API_PORT=` line there moves the
 /// published port. The checklist has to name the file that did it: `18000 is
 /// free` next to a recorded `api_port: 8000` otherwise reads as a bug in
-/// `chaps` rather than as a deliberate override. The ordinary case, where the
+/// `varde` rather than as a deliberate override. The ordinary case, where the
 /// two agree, says nothing.
 pub fn api_port_note(project: &Project) -> Option<String> {
     let (port, source) = project.api_port_in_effect();
     (source == ApiPortSource::Env && port != project.state.api_port).then(|| {
         format!(
-            "{}, over the {} recorded in .chaps/project.yaml",
+            "{}, over the {} recorded in .varde/project.yaml",
             source.label(),
             project.state.api_port
         )

@@ -1,9 +1,9 @@
-//! `chaps up|down|logs|restart` and the `chaps docker` group — the docker
+//! `varde up|down|logs|restart` and the `varde docker` group — the docker
 //! compose wrappers.
 //!
 //! Every one of them builds an argument list and hands it to the same runner,
 //! so they all get the project's explicit `-f` list and the same exit-code
-//! behaviour. `up` syncs the compose files from `.chaps/` first; the others,
+//! behaviour. `up` syncs the compose files from `.varde/` first; the others,
 //! `restart` included, run against whatever is on disk.
 
 mod args;
@@ -29,7 +29,7 @@ use report::{not_running, nothing_running, report_what_changed, unknown_service_
 /// Run one docker compose wrapper against the project's explicit `-f` list.
 ///
 /// A non-zero child exit status surfaces as [`ChapError::DockerFailed`] so
-/// `main` can mirror the code: `chaps up` is then a drop-in for
+/// `main` can mirror the code: `varde up` is then a drop-in for
 /// `docker compose up` in scripts.
 ///
 /// Around the child run sit the two things docker will not say: what there was
@@ -46,7 +46,7 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
             ))));
         }
     }
-    // `up` renders the compose files from `.chaps/` and `down` may clear a
+    // `up` renders the compose files from `.varde/` and `down` may clear a
     // record in it, so both hold the state lock; `up` lets go of it once the
     // files are written, before compose starts anything.
     let (mut project, mut lock) = match cmd {
@@ -201,8 +201,8 @@ fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<wait::Readines
         return Ok(readiness);
     }
     Err(anyhow::anyhow!(
-        "not ready after {timeout}s: {}; `chaps status` shows each one, and \
-         `chaps logs <service>` says why",
+        "not ready after {timeout}s: {}; `varde status` shows each one, and \
+         `varde logs <service>` says why",
         wait::pending(&readiness).join(", ")
     ))
 }
@@ -284,7 +284,7 @@ enum Pre {
 
 /// Resume what this deployment has left paused.
 ///
-/// A `chaps backup create` interrupted while it held a service still leaves
+/// A `varde backup create` interrupted while it held a service still leaves
 /// it paused, and `compose up` counts a paused container as running, so it
 /// would stay frozen. `up` is what an operator runs to get things going
 /// again, so it resumes them first and says so.
@@ -298,7 +298,7 @@ fn resume_paused(ctx: &Ctx, project: &Project) {
     note(
         ctx,
         &format!(
-            "resuming {}, left paused (an interrupted `chaps backup create`?)",
+            "resuming {}, left paused (an interrupted `varde backup create`?)",
             paused.join(", ")
         ),
     );
@@ -483,10 +483,10 @@ pub fn edited_configs(
         .collect()
 }
 
-/// What `chaps up` says in a deployment that has nothing in it.
+/// What `varde up` says in a deployment that has nothing in it.
 pub const NOTHING_TO_START: &str = "nothing to start: this deployment has no components and no \
-    models; add one with `chaps models add URL`, `chaps models enable ID` or `chaps components \
-    enable NAME`, then run `chaps up`";
+    models; add one with `varde models add URL`, `varde models enable ID` or `varde components \
+    enable NAME`, then run `varde up`";
 
 /// Whether this deployment has nothing for `up` to start: no component of its
 /// own (a chap-core elsewhere is not one) and no model.

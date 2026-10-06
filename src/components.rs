@@ -1,9 +1,9 @@
-//! `.chaps/components.yaml` — which pieces a deployment is made of.
+//! `.varde/components.yaml` — which pieces a deployment is made of.
 //!
 //! A deployment is chap-core plus whatever else was asked for. chap-core is a
 //! component like the others, on by default; OCS (Open Climate Service), an
 //! S3-compatible object store and DHIS2 are opt-in. The file is intent, like
-//! `project.yaml` and `models.yaml`: `chaps sync` renders one compose file per
+//! `project.yaml` and `models.yaml`: `varde sync` renders one compose file per
 //! enabled component from it.
 //!
 //! Every field carries a `serde` default, so a file that leaves a field out,
@@ -12,8 +12,8 @@
 //! Two fields in here are records rather than intent, and each says so where it
 //! is declared: [`OcsComponent::read_only`] mirrors what
 //! `ocs/climate-service.yaml` says, and [`Dhis2Component::connected_at`] notes
-//! when `chaps dhis2 connect` last finished. Neither is ever read as evidence -
-//! OCS reads its own config file, and only `chaps dhis2 show` asks DHIS2.
+//! when `varde dhis2 connect` last finished. Neither is ever read as evidence -
+//! OCS reads its own config file, and only `varde dhis2 show` asks DHIS2.
 
 use crate::error::{ChapError, Result};
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ pub use external::*;
 pub use notes::*;
 pub use seed::*;
 
-/// The enabled component set, inside [`crate::project::CHAPS_DIR`].
+/// The enabled component set, inside [`crate::project::VARDE_DIR`].
 pub const COMPONENTS_FILE: &str = "components.yaml";
 
 /// Compose file rendered for the `ocs` component.
@@ -65,7 +65,7 @@ pub const OCS_IMAGE: &str = "ghcr.io/dhis2/open-climate-service";
 pub const OCS_DEFAULT_TAG: &str = "main";
 /// Container port OCS listens on, and the port chap-core reaches it at.
 pub const OCS_CONTAINER_PORT: u16 = 9000;
-/// Host port `ocs` publishes unless `--port` says otherwise: chaps' 87xx block,
+/// Host port `ocs` publishes unless `--port` says otherwise: varde' 87xx block,
 /// away from the 9000 so much else defaults to (see
 /// [`crate::project::DEFAULT_API_PORT`]).
 pub const OCS_DEFAULT_PORT: u16 = 8790;
@@ -138,7 +138,7 @@ pub const DHIS2_IMAGE: &str = "dhis2/core";
 pub const DHIS2_DEFAULT_TAG: &str = "2.42";
 /// The `.env` variable that moves the DHIS2 image pin.
 pub const DHIS2_TAG_ENV_VAR: &str = "DHIS2_IMAGE_TAG";
-/// Host port `dhis2` publishes unless something says otherwise: chaps' 87xx
+/// Host port `dhis2` publishes unless something says otherwise: varde' 87xx
 /// block rather than the container's 8080, which a DHIS2 already running on
 /// this machine is likely to hold (see [`crate::project::DEFAULT_API_PORT`]).
 pub const DHIS2_DEFAULT_PORT: u16 = 8780;
@@ -165,19 +165,19 @@ pub const DHIS2_DEFAULT_JAVA_OPTIONS: &str = "-Xms2g -Xmx4g -XX:+UseG1GC";
 /// A table rather than a URL built from the tag, because the published path does
 /// not follow from it (the 2.42 line publishes `climate/laos/2.42/laos.sql.gz`).
 /// Only dumps that are there belong in it: the 2.41 one this used to list is
-/// gone, and a dead URL here fails the seed one-shot and with it `chaps up`. A
-/// minor this does not list has no dump chaps can name, so such a deployment
+/// gone, and a dead URL here fails the seed one-shot and with it `varde up`. A
+/// minor this does not list has no dump varde can name, so such a deployment
 /// starts empty and is told so.
 pub const DHIS2_SEED_DUMPS: &[(&str, &str)] =
     &[("2.42", crate::compose::render::DHIS2_DEFAULT_SEED_URL)];
 
-/// The DHIS2 versions chaps offers to pick between, newest first: the minor
+/// The DHIS2 versions varde offers to pick between, newest first: the minor
 /// lines it has been run against. Any other tag still works when given.
 pub const DHIS2_VERSIONS: &[&str] = &["2.43", "2.42", "2.41"];
 
 /// One component, by name.
 ///
-/// The names are what `chaps components enable NAME` and `init --with NAME`
+/// The names are what `varde components enable NAME` and `init --with NAME`
 /// accept, and what `components.yaml` keys its blocks on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Component {
@@ -210,7 +210,7 @@ impl Component {
         }
     }
 
-    /// One line saying what it is, for `chaps components list`.
+    /// One line saying what it is, for `varde components list`.
     pub fn summary(self) -> &'static str {
         match self {
             Component::ChapCore => "Chap itself: chap-core, its worker, Valkey and PostgreSQL",
@@ -240,7 +240,7 @@ impl Component {
     /// [`Component::name`] for them; chap-core's is upstream's `chap`, which is
     /// the one reason this is a method rather than that one. Every caller that
     /// asks docker whether a component is up goes through here, so
-    /// `chaps status`, `chaps doctor` and `chaps open` all judge it by the same
+    /// `varde status`, `varde doctor` and `varde open` all judge it by the same
     /// container.
     pub fn service(self) -> &'static str {
         match self {
@@ -256,10 +256,10 @@ impl Component {
         matches!(self, Component::Ocs | Component::S3 | Component::Dhis2)
     }
 
-    /// The compose file `chaps sync` renders for this component.
+    /// The compose file `varde sync` renders for this component.
     ///
     /// `None` for chap-core: its services come from upstream's `compose.yml`
-    /// and `compose.chaps.yml`, which are the deployment itself rather than one
+    /// and `compose.varde.yml`, which are the deployment itself rather than one
     /// component's file, so there is nothing a `disable` or a re-init could
     /// remove on its own.
     pub fn compose_file(self) -> Option<&'static str> {
@@ -276,7 +276,7 @@ impl Component {
     ///
     /// The operator's half of a component, and the opposite of
     /// [`Component::compose_file`] in every way that matters: the compose file is
-    /// rendered from `.chaps/` and `chaps sync` can always write it again, while
+    /// rendered from `.varde/` and `varde sync` can always write it again, while
     /// what is in here is scaffolded once and never rewritten, so an edit made
     /// to it exists nowhere else. `ocs/climate-service.yaml` and
     /// `dhis2/dhis.conf` are the two, and the whole directory is named rather
@@ -289,7 +289,7 @@ impl Component {
     /// component's files are in the archive the moment this method answers for
     /// it.
     ///
-    /// `None` for chap-core, whose every setting is in `.chaps/` and `.env`, and
+    /// `None` for chap-core, whose every setting is in `.varde/` and `.env`, and
     /// for `s3`, which is configured by its compose file and two `.env` keys and
     /// has nothing on disk for anyone to edit.
     pub fn dir(self) -> Option<&'static str> {
@@ -301,18 +301,18 @@ impl Component {
     }
 
     /// The named volumes this component keeps its data in, as the compose file
-    /// `chaps sync` renders declares them, in the order they are reported.
+    /// `varde sync` renders declares them, in the order they are reported.
     ///
     /// A slice rather than one name because a component is not limited to one
     /// volume: `ocs` and `s3` have a single data volume each, and a component
     /// that is several services can keep one volume per service. Empty for
     /// chap-core: its volumes are upstream's own, declared in a compose file
-    /// this CLI does not write, and `chaps down --volumes` is what removes
-    /// them. So an empty slice is "nothing chaps names here", which is what
+    /// this CLI does not write, and `varde down --volumes` is what removes
+    /// them. So an empty slice is "nothing varde names here", which is what
     /// `components disable --purge` refuses on.
     ///
     /// Every volume the component's compose file declares belongs here, whether
-    /// or not it holds anything worth keeping: this is the list `chaps doctor`
+    /// or not it holds anything worth keeping: this is the list `varde doctor`
     /// decides leftovers by, so a volume left out would be reported as one on a
     /// deployment that legitimately has it, and `--purge` would leave it behind.
     /// `dhis2_dump` is the case in point - a download cache the one-shot refills
@@ -348,7 +348,7 @@ impl Component {
     /// no prefix with the component, so the only thing they have in common is
     /// that no other component claims them. Asking the other components is what
     /// keeps that true: a hand-kept list of the names that are not chap-core's
-    /// would hand a fourth component's services to chap-core, and `chaps
+    /// would hand a fourth component's services to chap-core, and `varde
     /// components disable chap-core` would stop them. A model service falls to
     /// chap-core on the same rule, which is the answer it has always given, and
     /// harmless because `disable` refuses while any model is enabled.
@@ -411,9 +411,9 @@ impl Components {
     ///
     /// [`Dhis2Component::connected_at`] is the one thing a switch-off does not
     /// leave alone, and it is not a setting: it records that a
-    /// `chaps dhis2 connect` finished against a DHIS2 this deployment no longer
-    /// has. Forgetting it here rather than in `chaps components disable` is
-    /// what keeps the browser's components page and `chaps init --force` from
+    /// `varde dhis2 connect` finished against a DHIS2 this deployment no longer
+    /// has. Forgetting it here rather than in `varde components disable` is
+    /// what keeps the browser's components page and `varde init --force` from
     /// each having to remember to do it.
     pub fn set_enabled(&mut self, component: Component, on: bool) {
         match component {
@@ -442,18 +442,18 @@ impl Components {
         self.chap_core.enabled || self.chap_core_external.is_some()
     }
 
-    /// Whether `chaps up` and `chaps status` should still name
-    /// `chaps dhis2 connect`.
+    /// Whether `varde up` and `varde status` should still name
+    /// `varde dhis2 connect`.
     ///
     /// Local knowledge and nothing else: this deployment has a DHIS2, it has a
     /// chap-core for the route to point at, and
     /// [`Dhis2Component::connected_at`] records no connect. chap-core is part
-    /// of it because `chaps dhis2 connect` refuses without one - the route
+    /// of it because `varde dhis2 connect` refuses without one - the route
     /// would aim at a service that is not there - so a `--without chap-core`
     /// deployment is never asked for something it cannot do.
     ///
     /// An external DHIS2 ([`ExternalDhis2`]) is asked the same question of its
-    /// own record: it is the DHIS2 `chaps dhis2 connect` would connect.
+    /// own record: it is the DHIS2 `varde dhis2 connect` would connect.
     pub fn dhis2_needs_connecting(&self) -> bool {
         self.has_chap_core_api()
             && match &self.dhis2_external {
@@ -462,7 +462,7 @@ impl Components {
             }
     }
 
-    /// The `connected_at` record of whichever DHIS2 `chaps dhis2` talks to:
+    /// The `connected_at` record of whichever DHIS2 `varde dhis2` talks to:
     /// the external one when there is one, the component otherwise.
     pub fn dhis2_connected_at_mut(&mut self) -> &mut Option<String> {
         match &mut self.dhis2_external {
@@ -505,7 +505,7 @@ impl Components {
     }
 
     /// The compose files the enabled components contribute, in the order they
-    /// belong in the `-f` list: after `compose.chaps.yml`, before the
+    /// belong in the `-f` list: after `compose.varde.yml`, before the
     /// marketplace umbrella.
     pub fn compose_files(&self) -> Vec<String> {
         self.enabled()
@@ -545,7 +545,7 @@ impl Components {
     ///
     /// The same terms [`Components::ocs_reach`] answers on, minus the proxy: the
     /// origin DHIS2 builds absolute links from is `server.base.url` in
-    /// `dhis2/dhis.conf`, which is the operator's file, so chaps records no
+    /// `dhis2/dhis.conf`, which is the operator's file, so varde records no
     /// second copy of it to print here.
     pub fn dhis2_reach(&self) -> String {
         match self.port_of(Component::Dhis2) {
@@ -554,7 +554,7 @@ impl Components {
         }
     }
 
-    /// The dump the first `chaps up` would restore, or `None` for a database
+    /// The dump the first `varde up` would restore, or `None` for a database
     /// DHIS2 migrates from empty.
     ///
     /// `Dhis2Seed::Default` resolves through [`dhis2_seed_dump`], so a minor line
@@ -570,7 +570,7 @@ impl Components {
     }
 
     /// Whether the seed was left at `default` and the pinned minor line has no
-    /// dump chaps knows of.
+    /// dump varde knows of.
     ///
     /// The database then starts empty, and [`dhis2_unknown_seed`] is the line
     /// that says so *with the reason*. One rule in one place, because that line

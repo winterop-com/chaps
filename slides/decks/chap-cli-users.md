@@ -1,10 +1,10 @@
 ---
 marp: true
-theme: chaps
+theme: varde
 paginate: true
-footer: chaps - the chap CLI without Python
+footer: varde - the chap CLI without Python
 title: The chap CLI, without Python
-description: For people who use `uvx --from chap-core chap`: the same commands through chaps chap, and how it works
+description: For people who use `uvx --from chap-core chap`: the same commands through varde chap, and how it works
 ---
 
 <!-- _class: title -->
@@ -13,7 +13,7 @@ description: For people who use `uvx --from chap-core chap`: the same commands t
 
 # The chap CLI, without Python
 
-## `uvx --from chap-core chap` becomes `chaps chap`
+## `uvx --from chap-core chap` becomes `varde chap`
 
 For people who use the chap CLI already
 
@@ -22,11 +22,11 @@ For people who use the chap CLI already
 ## What this deck covers
 
 1. What changes for you, and what does not
-2. How `chaps chap` runs chap: the container, the mounts, the user
+2. How `varde chap` runs chap: the container, the mounts, the user
 3. Which image and which chap-core version it runs
 4. Models: GitHub, directories, URLs, and marketplace ids
 5. Models that run in docker
-6. Your files: what is visible, what is written, what chaps reports
+6. Your files: what is visible, what is written, what varde reports
 7. Every message that stops a run, and what to do
 8. A full example: three models, compared
 9. Troubleshooting
@@ -51,12 +51,12 @@ Before the first evaluation, you need:
 
 ---
 
-## What you do with chaps
+## What you do with varde
 
 ```sh
-chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
+varde chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
   --dataset-csv laos_subset.csv --output-file r.nc
-chaps chap plot-backtest r.nc --output-file r.html
+varde chap plot-backtest r.nc --output-file r.html
 ```
 
 - **The same commands, the same options.** Each argument after `chap` goes to
@@ -68,19 +68,19 @@ chaps chap plot-backtest r.nc --output-file r.html
 
 ## One change of words
 
-| Today | With chaps |
+| Today | With varde |
 | --- | --- |
-| `chap eval ...` | `chaps chap eval ...` |
-| `chap plot-backtest ...` | `chaps chap plot-backtest ...` |
-| `chap export-metrics ...` | `chaps chap export-metrics ...` |
-| `chap validate data.csv` | `chaps chap validate data.csv` |
-| `chap --help` | `chaps chap` |
-| `chap eval --help` | `chaps chap eval --help` |
-| `uvx --from chap-core==2.3.1 chap ...` | `chaps chap --tag v2.3.1 ...` |
+| `chap eval ...` | `varde chap eval ...` |
+| `chap plot-backtest ...` | `varde chap plot-backtest ...` |
+| `chap export-metrics ...` | `varde chap export-metrics ...` |
+| `chap validate data.csv` | `varde chap validate data.csv` |
+| `chap --help` | `varde chap` |
+| `chap eval --help` | `varde chap eval --help` |
+| `uvx --from chap-core==2.3.1 chap ...` | `varde chap --tag v2.3.1 ...` |
 
 ---
 
-## The options of chaps itself
+## The options of varde itself
 
 They come **between** `chap` and chap's own command:
 
@@ -88,13 +88,13 @@ They come **between** `chap` and chap's own command:
 | --- | --- |
 | `--tag TAG` | The chap-core version to run |
 | `--image core` or `--image worker` | The image to run in |
-| `--group NAME` | The `chaps run` group whose models chap can reach |
+| `--group NAME` | The `varde run` group whose models chap can reach |
 | `--stop` | Stop the model that this run started, after the run |
-| `--timeout SECONDS` | How long to wait for a model that chaps starts (300) |
+| `--timeout SECONDS` | How long to wait for a model that varde starts (300) |
 | `--docker` | Give the container the docker socket |
 
-For example: `chaps chap --tag master --docker eval ...`. `chaps chap --help`
-shows these options, and `chaps chap` alone shows chap's own help.
+For example: `varde chap --tag master --docker eval ...`. `varde chap --help`
+shows these options, and `varde chap` alone shows chap's own help.
 
 ---
 
@@ -107,7 +107,7 @@ docker run --rm -i [-t] --init --platform linux/amd64
   -v <data>/chap:<data>/chap
   -e HOME=/tmp -e CHAP_RUNS_DIR=<data>/chap/runs ...
   [--network <deployment>_default]
-  --label com.winterop.chaps.kind=cli
+  --label com.winterop.varde.kind=cli
   ghcr.io/dhis2-chap/chap-worker:v2.3.1 chap eval ...
 ```
 
@@ -134,8 +134,8 @@ root.
 
 ## The caches: the second run is faster
 
-`<data>` is chaps' data directory: `~/.local/share/chaps`, or
-`$CHAPS_DATA_DIR`. chaps sets:
+`<data>` is varde' data directory: `~/.local/share/varde`, or
+`$VARDE_DATA_DIR`. varde sets:
 
 | Variable | Value | What it keeps |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ root.
 | `RENV_CONFIG_SANDBOX_ENABLED` | `FALSE` | no read-only sandbox |
 | `MPLCONFIGDIR` | `<data>/chap/cache/matplotlib` | the font cache |
 
-With the sandbox off, `rm -rf ~/.local/share/chaps/chap` deletes all of it.
+With the sandbox off, `rm -rf ~/.local/share/varde/chap` deletes all of it.
 
 ---
 
@@ -175,7 +175,7 @@ With the sandbox off, `rm -rf ~/.local/share/chaps/chap` deletes all of it.
 3. Outside a deployment: **the newest chap-core release**, from GitHub.
 4. With `--offline`: the newest image of that kind on this machine.
 
-If GitHub does not answer, chaps uses the newest local image, and says so:
+If GitHub does not answer, varde uses the newest local image, and says so:
 
 ```text
 warning: the newest chap-core release could not be read; using v2.3.1, the
@@ -194,9 +194,9 @@ model: chapkit_ewars_model at http://chapkit-ewars-model:8000 answers
 
 - The image and its tag, and the size when it is not local yet.
 - The directories that chap can see.
-- The model, when chaps checked that it answers.
+- The model, when varde checked that it answers.
 
-A run that only asks for help (`chaps chap`, `--help`, `--version`) gets
+A run that only asks for help (`varde chap`, `--help`, `--version`) gets
 only the first line.
 
 ---
@@ -207,37 +207,37 @@ only the first line.
 | --- | --- |
 | `https://github.com/...` | chap clones it, and runs it in the worker image |
 | `./my_model` (a directory) | chap runs it from your directory |
-| `http://...` (a chapkit service) | chaps checks that it answers, then chap calls it |
-| **`chapkit_ewars_model` (an id)** | **chaps starts the model, then chap calls it** |
+| `http://...` (a chapkit service) | varde checks that it answers, then chap calls it |
+| **`chapkit_ewars_model` (an id)** | **varde starts the model, then chap calls it** |
 
 A word is a model id only when no file or directory of that name is in the
 current directory. A directory of the same name wins, as it does for chap.
 
 ---
 
-## A model id: chaps starts the model
+## A model id: varde starts the model
 
-Outside a deployment, chaps starts the model in a `chaps run` group:
+Outside a deployment, varde starts the model in a `varde run` group:
 
 ```text
-starting chapkit-ewars-model (chapkit_ewars_model in ~/.local/share/chaps/run/default)
+starting chapkit-ewars-model (chapkit_ewars_model in ~/.local/share/varde/run/default)
 running `chap eval` in ghcr.io/dhis2-chap/chap-core:v2.3.1
 model: chapkit_ewars_model at http://chapkit-ewars-model:8000 answers
 chap finished; it wrote ewars.nc
-chapkit_ewars_model keeps running for the next run; `chaps stop chapkit_ewars_model`
+chapkit_ewars_model keeps running for the next run; `varde stop chapkit_ewars_model`
 stops it, and `--stop` stops it after a run
 ```
 
 The container joins the group's network, where the model has its service
-name. chaps gives chap that URL in place of the id.
+name. varde gives chap that URL in place of the id.
 
 ---
 
-## A model id in a deployment: no `chaps up`
+## A model id in a deployment: no `varde up`
 
 ```sh
 cd ~/mychap && mkdir -p eval && cd eval
-chaps chap eval --model-name chapkit_ewars_model \
+varde chap eval --model-name chapkit_ewars_model \
   --dataset-csv laos_subset.csv --output-file ewars.nc
 ```
 
@@ -245,11 +245,11 @@ chaps chap eval --model-name chapkit_ewars_model \
 starting chapkit-ewars-model for this run, without chap-core
 ```
 
-- chaps starts **only that model**, with `--no-deps`: chap-core, postgres and
+- varde starts **only that model**, with `--no-deps`: chap-core, postgres and
   redis stay down.
 - For this start, the model gets no registration settings, so it does not wait
   for a chap-core that does not run.
-- A later `chaps up` recreates the model, and it registers as usual.
+- A later `varde up` recreates the model, and it registers as usual.
 
 ---
 
@@ -257,30 +257,30 @@ starting chapkit-ewars-model for this run, without chap-core
 
 | Situation | After the run |
 | --- | --- |
-| chaps started the model | It keeps running, so the next run starts at once |
-| chaps started it, with `--stop` | chaps stops it |
-| the model ran before | chaps never stops it |
+| varde started the model | It keeps running, so the next run starts at once |
+| varde started it, with `--stop` | varde stops it |
+| the model ran before | varde never stops it |
 
 ```text
 chapkit_ewars_model ran before this run, so --stop left it running
 ```
 
-`--timeout SECONDS` (300) is how long chaps waits for a model that it
-starts. A first start pulls the model's image (1 to 7 GB), and chaps shows
+`--timeout SECONDS` (300) is how long varde waits for a model that it
+starts. A first start pulls the model's image (1 to 7 GB), and varde shows
 that pull.
 
 ---
 
 ## A chapkit URL: checked before chap starts
 
-chaps asks the URL for `/api/v1/info`, from a container on the same network.
+varde asks the URL for `/api/v1/info`, from a container on the same network.
 If nothing answers, chap is not started:
 
 ```text
 error: the model server at http://nothing:8000 is not running (no answer on
 /api/v1/info), so chap was not started; `nothing` is not a model of this
 deployment or group. Give a model id instead (`--model-name
-chapkit_ewars_model`) and chaps starts it, or start one with `chaps run ID`;
+chapkit_ewars_model`) and varde starts it, or start one with `varde run ID`;
 the `models:` line lists the URLs that answer
 ```
 
@@ -291,7 +291,7 @@ that this machine can reach it".
 
 ## Not `localhost`
 
-`chaps ps` shows a model at `http://localhost:5001`. That URL works on your
+`varde ps` shows a model at `http://localhost:5001`. That URL works on your
 machine. In the container, `localhost` is the container itself:
 
 ```text
@@ -300,7 +300,7 @@ error: `http://localhost:5001` is this machine, and in the container
 http://auto-arima-chapkit:8000`, the same model on the network
 ```
 
-When chaps knows which model has that port, the message names its service
+When varde knows which model has that port, the message names its service
 URL. Otherwise, it tells you to give the model id.
 
 ---
@@ -308,16 +308,16 @@ URL. Otherwise, it tells you to give the model id.
 ## Models that run in docker
 
 A model with `docker_env` in its `MLproject` starts a container of its own.
-chaps reads the `MLproject` first (from GitHub, or from your directory):
+varde reads the `MLproject` first (from GitHub, or from your directory):
 
 ```text
 error: `https://github.com/dhis2-chap/chap_auto_ewars` runs in docker
 (`docker_env` in its MLproject), and the container has no docker socket;
-run it again with `chaps chap --docker ...`
+run it again with `varde chap --docker ...`
 ```
 
 ```sh
-chaps chap --docker eval --model-name https://github.com/dhis2-chap/chap_auto_ewars \
+varde chap --docker eval --model-name https://github.com/dhis2-chap/chap_auto_ewars \
   --dataset-csv laos_subset.csv --output-file ewars.nc
 ```
 
@@ -340,31 +340,31 @@ The socket is full control of docker. So `--docker` is never the default.
 
 ---
 
-## Your files: what chaps does for you
+## Your files: what varde does for you
 
-- **Output directories:** chaps makes the directory of each `--output-file`
+- **Output directories:** varde makes the directory of each `--output-file`
   that does not exist. chap does not, and it fails with a traceback.
 - **Paths outside the directory:** `../out/r.nc`, `/data/r.nc` or
-  `--output-file=/data/r.nc`. chaps mounts the nearest existing directory
+  `--output-file=/data/r.nc`. varde mounts the nearest existing directory
   above the path, at the same path.
-- **The deployment directory:** if you run `chaps chap` there, chaps tells
+- **The deployment directory:** if you run `varde chap` there, varde tells
   you that a subdirectory (`mkdir eval && cd eval`) keeps chap's files apart
   from the compose files.
 
 ---
 
-## What chaps reports after the run
+## What varde reports after the run
 
 ```text
 chap finished; it wrote ewars.nc
-`chaps chap plot-backtest ewars.nc --output-file ewars.html` plots it
+`varde chap plot-backtest ewars.nc --output-file ewars.html` plots it
 ```
 
-- chaps looks at the mounted directories before and after the run, and names
+- varde looks at the mounted directories before and after the run, and names
   the files that are new or changed.
 - It also names the files that the arguments name, wherever they are.
 - For a `.nc` file, it gives the command that plots it.
-- When chap fails, chaps exits with chap's own status:
+- When chap fails, varde exits with chap's own status:
 
 ```text
 error: chap exited with status 1; its own message is above
@@ -374,13 +374,13 @@ error: chap exited with status 1; its own message is above
 
 ## Every message that stops a run
 
-| chaps says | What to do |
+| varde says | What to do |
 | --- | --- |
 | `--json does not apply` | Drop `--json`: the output is chap's own |
 | `` `./x` is not a directory here `` | Give a directory, a GitHub URL or a model id |
-| `is not a model of the deployment` | `chaps models enable ID`, then run again |
-| `there is no marketplace model` | `chaps models search WORD` finds the id |
-| ``there is no `chaps run` group called`` | `chaps ps` lists the groups |
+| `is not a model of the deployment` | `varde models enable ID`, then run again |
+| `there is no marketplace model` | `varde models search WORD` finds the id |
+| ``there is no `varde run` group called`` | `varde ps` lists the groups |
 | `no directory above it exists to mount` | Make the directory first |
 | `--offline needs a ... image on this machine` | Run once without `--offline`, or give `--tag` |
 | `` `chap plot-dataset` shows its plot in a browser `` | Use `plot-backtest`, which writes a file |
@@ -389,7 +389,7 @@ error: chap exited with status 1; its own message is above
 
 ## chap's commands in a container
 
-| Command | In `chaps chap` |
+| Command | In `varde chap` |
 | --- | --- |
 | `eval` | yes, with every kind of model |
 | `plot-backtest` | yes, it writes a file |
@@ -398,7 +398,7 @@ error: chap exited with status 1; its own message is above
 | `test` | yes |
 | `plot-dataset` | **no**: it opens a browser, and a container has none |
 
-chaps refuses `plot-dataset` before the run and names `plot-backtest`.
+varde refuses `plot-dataset` before the run and names `plot-backtest`.
 
 ---
 
@@ -410,7 +410,7 @@ Get the data, and check it:
 mkdir -p ~/compare && cd ~/compare
 curl -fsSO https://raw.githubusercontent.com/dhis2-chap/chap-core/master/example_data/laos_subset.csv
 curl -fsSO https://raw.githubusercontent.com/dhis2-chap/chap-core/master/example_data/laos_subset.geojson
-chaps chap validate laos_subset.csv
+varde chap validate laos_subset.csv
 ```
 
 ```text
@@ -422,28 +422,28 @@ Validation passed: no issues found.
 ## A full example: three models, compared (2)
 
 ```sh
-chaps chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
+varde chap eval --model-name https://github.com/dhis2-chap/minimalist_example_r \
   --dataset-csv laos_subset.csv --output-file out/r.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 3
-chaps chap eval --model-name auto_arima_chapkit \
+varde chap eval --model-name auto_arima_chapkit \
   --dataset-csv laos_subset.csv --output-file out/arima.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 3
-chaps chap --stop eval --model-name chapkit_simple_multistep_model \
+varde chap --stop eval --model-name chapkit_simple_multistep_model \
   --dataset-csv laos_subset.csv --output-file out/multistep.nc \
   --backtest-params.n-splits 3 --backtest-params.n-periods 3
 ```
 
-chaps makes `out/` with the first run. The third run stops its model after.
+varde makes `out/` with the first run. The third run stops its model after.
 
 ---
 
 ## A full example: three models, compared (3)
 
 ```sh
-chaps chap export-metrics out/r.nc out/arima.nc out/multistep.nc \
+varde chap export-metrics out/r.nc out/arima.nc out/multistep.nc \
   --output-file out/comparison.csv
-chaps chap plot-backtest out/arima.nc --output-file out/arima.html
-chaps stop auto_arima_chapkit
+varde chap plot-backtest out/arima.nc --output-file out/arima.html
+varde stop auto_arima_chapkit
 ```
 
 - `comparison.csv` has one row for each model: `crps`, `mae`, `rmse`,
@@ -459,9 +459,9 @@ chaps stop auto_arima_chapkit
 | --- | --- |
 | `Cannot reach the Docker daemon. The model ... requires Docker` | A `docker_env` model ran without the socket. Add `--docker`. |
 | `Rscript: not found` | An R model in the `chap-core` image. Drop `--image core`. |
-| `FileNotFoundError: [Errno 2]` | An output directory that chaps could not make. Make it, then run again. |
+| `FileNotFoundError: [Errno 2]` | An output directory that varde could not make. Make it, then run again. |
 | `did not answer on http://...:8000 within 300s` | A slow first start. Give a longer `--timeout`. |
-| `docker run exited with status 125` | The image did not pull. Check the tag, or run `chaps doctor`. |
+| `docker run exited with status 125` | The image did not pull. Check the tag, or run `varde doctor`. |
 
 Each message is in the book's Troubleshooting chapter, with more detail.
 
@@ -470,12 +470,12 @@ Each message is in the book's Troubleshooting chapter, with more detail.
 ## Start now
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/winterop-com/chaps/main/install.sh | sh
-chaps doctor
-chaps chap
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
+varde doctor
+varde chap
 ```
 
 - The full guide, from install to a comparison of two models:
-  **https://winterop-com.github.io/chaps/use-cases/evaluate-with-chap-cli.html**
-- The chapter about `chaps chap`:
-  **https://winterop-com.github.io/chaps/chap-cli.html**
+  **https://winterop-com.github.io/varde/use-cases/evaluate-with-chap-cli.html**
+- The chapter about `varde chap`:
+  **https://winterop-com.github.io/varde/chap-cli.html**

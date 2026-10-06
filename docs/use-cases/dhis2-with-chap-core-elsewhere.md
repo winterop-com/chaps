@@ -1,16 +1,16 @@
-# A DHIS2 from chaps, with a chap-core elsewhere
+# A DHIS2 from varde, with a chap-core elsewhere
 
-For chap-core development with the Modeling App in front of it: chaps runs a
+For chap-core development with the Modeling App in front of it: varde runs a
 DHIS2 (and any models), and chap-core runs somewhere else, usually from its own
 checkout on this machine.
 
 ```sh
-chaps init lab --chap-core-url http://localhost:8000 --with dhis2
+varde init lab --chap-core-url http://localhost:8000 --with dhis2
 cd lab
-chaps up                     # DHIS2's first start takes several minutes
-chaps status                 # wait for the dhis2 line to say up
-chaps dhis2 connect
-chaps open dhis2
+varde up                     # DHIS2's first start takes several minutes
+varde status                 # wait for the dhis2 line to say up
+varde dhis2 connect
+varde open dhis2
 ```
 
 `--chap-core-url` records the chap-core elsewhere (see
@@ -26,7 +26,7 @@ for the DHIS2 beside it:
 - **chap-core has to listen on more than the loopback** (`0.0.0.0`), since the
   route arrives from a container.
 
-It worked when `chaps dhis2 connect` finishes without `error:` and the Modeling
+It worked when `varde dhis2 connect` finishes without `error:` and the Modeling
 App opens in DHIS2.
 
 More: [DHIS2](../dhis2.md), [A chap-core elsewhere](../components.md#a-chap-core-elsewhere).

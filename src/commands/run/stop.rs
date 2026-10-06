@@ -1,4 +1,4 @@
-//! `chaps stop`, and the stop key of `chaps top`.
+//! `varde stop`, and the stop key of `varde top`.
 
 use super::group::remove_if_empty;
 use super::ps::scope;
@@ -11,7 +11,7 @@ use crate::project::Project;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-/// What `chaps stop` did, for `--json`.
+/// What `varde stop` did, for `--json`.
 #[derive(Debug, Serialize)]
 struct StopReport {
     stopped: Vec<StoppedModel>,
@@ -32,7 +32,7 @@ struct StoppedModel {
 
 /// Stop a model, or every model in scope: its container goes and its overlay
 /// with it; the data volume stays unless `--purge` says otherwise, and the
-/// definition of a model that was added stays too, so `chaps run` starts it
+/// definition of a model that was added stays too, so `varde run` starts it
 /// again without asking GitHub.
 pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
     let scope = scope(ctx, args.group.as_deref())?;
@@ -58,10 +58,10 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
     if let Some(id) = &args.id {
         if wanted.is_empty() {
             return Err(anyhow::anyhow!(
-                "{id} is not running {}; `chaps ps` lists what is",
+                "{id} is not running {}; `varde ps` lists what is",
                 match scope.as_slice() {
                     [(None, dir)] => format!("in {}", dir.display()),
-                    _ => "in any `chaps run` group".to_string(),
+                    _ => "in any `varde run` group".to_string(),
                 }
             ));
         }
@@ -137,7 +137,7 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
             text.push_str(&removed);
             text.push_str(
                 &ctx.out
-                    .backticks("nothing was running to stop; `chaps ps` lists what is"),
+                    .backticks("nothing was running to stop; `varde ps` lists what is"),
             );
             return text;
         }
@@ -159,11 +159,11 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
         let again = match report.stopped.as_slice() {
             [one] => match one.group.as_deref() {
                 Some(g) if g != DEFAULT_GROUP => {
-                    format!("`chaps run {} --group {g}` starts it again", one.id)
+                    format!("`varde run {} --group {g}` starts it again", one.id)
                 }
-                _ => format!("`chaps run {}` starts it again", one.id),
+                _ => format!("`varde run {}` starts it again", one.id),
             },
-            _ => "`chaps run <model>` starts one again".to_string(),
+            _ => "`varde run <model>` starts one again".to_string(),
         };
         text.push_str(&ctx.out.backticks(&again));
         text
@@ -171,7 +171,7 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
 }
 
 /// Stop one enabled model of the deployment in `dir`, printing nothing: what
-/// `chaps stop` and the stop key of `chaps top` share.
+/// `varde stop` and the stop key of `varde top` share.
 pub(crate) fn stop_in(
     ctx: &Ctx,
     dir: &Path,

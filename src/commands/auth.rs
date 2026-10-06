@@ -1,14 +1,14 @@
-//! `chaps auth` — the API token and the service registration key.
+//! `varde auth` — the API token and the service registration key.
 //!
 //! Four verbs over the same two `.env` lines: `show` reads them, `enable`
 //! writes them, `disable` comments them out and `rotate` replaces them. The
-//! values never leave `.env`; `.chaps/project.yaml` only records which of them
+//! values never leave `.env`; `.varde/project.yaml` only records which of them
 //! are in use, and the model overlays are re-rendered from that so each
 //! service sends the registration key when there is one.
 //!
 //! Nothing here restarts anything. chap-core and the model containers read
 //! `.env` when compose creates them, so every command that changes a secret
-//! ends by saying that `chaps up` has to follow.
+//! ends by saying that `varde up` has to follow.
 
 use crate::auth::{
     self, API_TOKEN_ENV_VAR, MODELING_APP_HINT, REGISTRATION_KEY_ENV_VAR, write_secrets,
@@ -21,11 +21,11 @@ use crate::output::{self, Out};
 use crate::project::{AuthState, ENV_FILE, Project};
 use std::path::{Path, PathBuf};
 
-/// What every `chaps up` reminder says, because neither chap-core nor a model
+/// What every `varde up` reminder says, because neither chap-core nor a model
 /// re-reads `.env` while its container exists.
-const RESTART_HINT: &str = "run `chaps up` to restart chap-core and the models with authentication";
+const RESTART_HINT: &str = "run `varde up` to restart chap-core and the models with authentication";
 
-/// `chaps auth show`: what is protected, and by which token.
+/// `varde auth show`: what is protected, and by which token.
 pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
     let project = ctx.project()?;
     let body = read_env(&project)?;
@@ -68,16 +68,16 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
     })
 }
 
-/// What `chaps auth token` says when there is no token to print.
+/// What `varde auth token` says when there is no token to print.
 ///
-/// On stderr, so stdout holds the token and nothing else: `TOKEN=$(chaps auth
+/// On stderr, so stdout holds the token and nothing else: `TOKEN=$(varde auth
 /// token)` has to come back empty rather than with a sentence in it.
 const NO_TOKEN: &str =
-    "API authentication is off in this deployment; run `chaps auth enable` to turn it on";
+    "API authentication is off in this deployment; run `varde auth enable` to turn it on";
 
-/// `chaps auth token`: the token alone, for a script to capture.
+/// `varde auth token`: the token alone, for a script to capture.
 ///
-/// `chaps auth show --reveal` prints the token inside a report meant to be
+/// `varde auth show --reveal` prints the token inside a report meant to be
 /// read; this prints the value and nothing else, which is the difference
 /// between a command a person runs and one a shell substitutes. A deployment
 /// with authentication off has no token, so stdout stays empty and the exit
@@ -113,7 +113,7 @@ fn data_sources(project: &Project, body: &str) -> Vec<(&'static str, Option<Stri
         .collect()
 }
 
-/// `chaps auth enable`: put both secrets in `.env` and render the overlays.
+/// `varde auth enable`: put both secrets in `.env` and render the overlays.
 pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
@@ -129,8 +129,8 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
             "registration_key": true,
         });
         return ctx.out.emit(&value, || {
-            "API authentication is already on; `chaps auth rotate` replaces both secrets, \
-             `chaps auth show --reveal` prints the token\n"
+            "API authentication is already on; `varde auth rotate` replaces both secrets, \
+             `varde auth show --reveal` prints the token\n"
                 .to_string()
         });
     }
@@ -167,7 +167,7 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     apply(ctx, &mut project, &body, &token, &key, Change::Enabled)
 }
 
-/// `chaps auth disable`: comment both secrets out and render the overlays.
+/// `varde auth disable`: comment both secrets out and render the overlays.
 pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
@@ -178,7 +178,7 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
         let value =
             serde_json::json!({ "changed": false, "api_token": false, "registration_key": false });
         return ctx.out.emit(&value, || {
-            "API authentication is already off; `chaps auth enable` turns it on\n".to_string()
+            "API authentication is already off; `varde auth enable` turns it on\n".to_string()
         });
     }
 
@@ -197,19 +197,19 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
     ctx.out.emit(&value, || {
         let mut text = String::from("API authentication is off\n");
         text.push_str(&format!(
-            "  both values are kept as comments in {ENV_FILE}, so `chaps auth enable` \
+            "  both values are kept as comments in {ENV_FILE}, so `varde auth enable` \
              recovers them\n"
         ));
         text.push_str(&written_block(&project.dir, &report.written));
         text.push_str(
-            "\nrun `chaps up` to restart chap-core and the models without \
+            "\nrun `varde up` to restart chap-core and the models without \
                        authentication\n",
         );
         text
     })
 }
 
-/// `chaps auth rotate`: replace both secrets with new ones.
+/// `varde auth rotate`: replace both secrets with new ones.
 pub fn rotate(ctx: &Ctx, _args: &AuthRotateArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
     let body = read_env(&project)?;
@@ -258,7 +258,7 @@ fn apply(
             Change::Rotated => String::from("API authentication rotated\n"),
         };
         text.push_str(
-            "  API token         written to .env; `chaps auth show --reveal` prints it\n",
+            "  API token         written to .env; `varde auth show --reveal` prints it\n",
         );
         text.push_str("  Registration key  written to .env; every model overlay now sends it\n");
         text.push_str(&written_block(&dir, &report.written));
@@ -266,11 +266,11 @@ fn apply(
         text.push_str(&format!("{RESTART_HINT}\n"));
         match change {
             Change::Enabled => text.push_str(&format!(
-                "{MODELING_APP_HINT}; any other client needs it from `chaps auth show --reveal`\n"
+                "{MODELING_APP_HINT}; any other client needs it from `varde auth show --reveal`\n"
             )),
             Change::Rotated => text.push_str(
                 "every client keeps sending the old token until it is updated: run \
-                 `chaps dhis2 connect` after `chaps up` for the DHIS2 route, and update \
+                 `varde dhis2 connect` after `varde up` for the DHIS2 route, and update \
                  anything else calling this API\n",
             ),
         }
@@ -279,7 +279,7 @@ fn apply(
 }
 
 /// A secret `.env` already knows: one that is in use, or one
-/// `chaps auth disable` left behind as a comment.
+/// `varde auth disable` left behind as a comment.
 ///
 /// Reusing it is what makes `disable` followed by `enable` a round trip: a
 /// deployment that was turned off by mistake comes back with the token its
@@ -288,7 +288,7 @@ fn recover(body: &str, var: &str) -> Option<String> {
     auth::active_value(body, var).or_else(|| auth::commented_value(body, var))
 }
 
-/// Re-render the compose files from the new state; `sync` saves `.chaps/`.
+/// Re-render the compose files from the new state; `sync` saves `.varde/`.
 fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport> {
     let registry = super::registry_for(ctx, Some(project))?;
     let report = sync(project, &registry, false)?;
@@ -298,7 +298,7 @@ fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport
     Ok(report)
 }
 
-/// Save `.chaps/project.yaml` with the state `.env` actually describes.
+/// Save `.varde/project.yaml` with the state `.env` actually describes.
 ///
 /// The no-change paths still do this: a project whose recorded booleans drifted
 /// from its `.env` - a hand-edited file, a restore -
@@ -344,7 +344,7 @@ fn written_block(dir: &Path, written: &[PathBuf]) -> String {
     text
 }
 
-/// The human rendering of `chaps auth show`.
+/// The human rendering of `varde auth show`.
 fn show_human(
     out: &Out,
     effective: &AuthState,
@@ -380,7 +380,7 @@ fn show_human(
         text.push('\n');
         text.push_str(&out.backticks(
             "nothing protects this API: anyone who can reach the port can use it. \
-             `chaps auth enable` turns authentication on.",
+             `varde auth enable` turns authentication on.",
         ));
         text.push('\n');
         text.push_str(&data_sources_block(out, data_sources));
@@ -400,15 +400,15 @@ fn show_human(
         ));
         text.push('\n');
     }
-    // `.env` is what the deployment does; the booleans in `.chaps/` are only a
+    // `.env` is what the deployment does; the booleans in `.varde/` are only a
     // record of it, and a mismatch means one of them was edited by hand.
     if recorded != *effective {
         text.push_str(&format!(
             "\n{} {}\n",
             out.warn("warning:"),
             out.backticks(&format!(
-                ".chaps/project.yaml records api_token: {}, registration_key: {}, \
-                 which is not what {ENV_FILE} sets; `chaps auth enable` or `chaps auth disable` \
+                ".varde/project.yaml records api_token: {}, registration_key: {}, \
+                 which is not what {ENV_FILE} sets; `varde auth enable` or `varde auth disable` \
                  lines them up again",
                 recorded.api_token, recorded.registration_key
             ))
@@ -445,7 +445,7 @@ fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> Str
     text.push_str(&output::fields_with(2, &rows, &|label| out.key(label)));
     text.push_str(&out.backticks(
         "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; \
-         WorldPop and CHIRPS3 need none. Set them in .env and run `chaps up`.",
+         WorldPop and CHIRPS3 need none. Set them in .env and run `varde up`.",
     ));
     text.push('\n');
     text

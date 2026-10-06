@@ -1,4 +1,4 @@
-//! `chaps update --list-tags`: where a deployment can move chap-core to.
+//! `varde update --list-tags`: where a deployment can move chap-core to.
 
 use crate::chapcore;
 use crate::commands::Ctx;
@@ -10,10 +10,10 @@ use crate::project::Project;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// What `chaps update --list-tags` prints, and the whole of its `--json`.
+/// What `varde update --list-tags` prints, and the whole of its `--json`.
 #[derive(Debug, Serialize)]
 pub struct TagList {
-    /// The tag `.chaps/project.yaml` records today.
+    /// The tag `.varde/project.yaml` records today.
     pub pin: String,
     /// Whether the releases could be listed at all. False is `--offline` or a
     /// lookup that did not arrive, and the table is then the moving tags plus
@@ -116,7 +116,7 @@ pub fn tag_note(row: &TagRow) -> String {
 /// The one line the listing ends on: what to do with a tag from the table.
 pub fn tag_closing_line(list: &TagList) -> String {
     format!(
-        "chap-core is pinned to {}; move it with `chaps update --chap-tag <TAG>`",
+        "chap-core is pinned to {}; move it with `varde update --chap-tag <TAG>`",
         list.pin
     )
 }
@@ -146,7 +146,7 @@ fn tag_table(out: &Out, list: &TagList) -> String {
     text
 }
 
-/// `chaps update --list-tags`: where this deployment can move chap-core to.
+/// `varde update --list-tags`: where this deployment can move chap-core to.
 ///
 /// It writes nothing and pulls nothing, so it is also the command to run
 /// before `--chap-tag`, and it works offline: the three moving tags and this

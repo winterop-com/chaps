@@ -2,14 +2,14 @@ use super::*;
 
 fn staged(body: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let temp = tempfile::tempdir().unwrap();
-    let chaps = temp.path().join(CHAPS_DIR);
-    std::fs::create_dir_all(&chaps).unwrap();
-    let path = chaps.join(PROJECT_FILE);
+    let varde = temp.path().join(VARDE_DIR);
+    std::fs::create_dir_all(&varde).unwrap();
+    let path = varde.join(PROJECT_FILE);
     std::fs::write(&path, body).unwrap();
     (temp, path)
 }
 
-const ARCHIVED: &str = "# Managed by chaps; change it with the chaps commands, not by hand.\n\
+const ARCHIVED: &str = "# Managed by varde; change it with the varde commands, not by hand.\n\
                         schema_version: 1\n\
                         compose_project: prod-1a2b3c\n\
                         api_port: 8700\n\
@@ -23,7 +23,7 @@ fn the_staged_state_takes_this_deployments_name_before_anything_is_copied() {
     let (temp, path) = staged(ARCHIVED);
     stage_identity(temp.path(), "staging-4d5e6f", false).unwrap();
     let body = std::fs::read_to_string(&path).unwrap();
-    assert!(body.starts_with("# Managed by chaps;"), "{body}");
+    assert!(body.starts_with("# Managed by varde;"), "{body}");
     assert!(body.contains("compose_project: staging-4d5e6f"), "{body}");
     assert!(body.contains("future_field: kept"), "{body}");
     assert!(body.contains("api_port: 8700"), "{body}");

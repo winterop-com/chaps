@@ -1,15 +1,15 @@
 # Your model from its checkout, with Chap
 
-For developing a chapkit model: chaps runs chap-core, and you run the model
+For developing a chapkit model: varde runs chap-core, and you run the model
 from its own checkout on this machine (with `uv run`, a debugger, hot reload),
 registered with that chap-core like any deployed model. Nothing about the model
 has to be built into an image.
 
 ```sh
-chaps init mychap --models none
+varde init mychap --models none
 cd mychap
-chaps up
-chaps status                 # chap-core up, no models yet
+varde up
+varde status                 # chap-core up, no models yet
 ```
 
 Then, in the model's checkout, start it on a port of its own and tell it where
@@ -32,20 +32,20 @@ layout chapkit models use; a model whose `main.py` is inside a package runs as
 - `SERVICEKIT_HOST` and `SERVICEKIT_PORT` are the address the model registers
   itself under, which is where chap-core calls it. chap-core runs in a
   container, where `localhost` is the container itself; `host.docker.internal`
-  is this machine, and chaps maps that name for the chap-core containers on
+  is this machine, and varde maps that name for the chap-core containers on
   Linux too.
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 
-It worked when `chaps status` lists the model's service id with a recent LAST
+It worked when `varde status` lists the model's service id with a recent LAST
 PING. Its state is `unmanaged`, because this deployment did not start it; that
 is expected. From there chap-core uses it like any other model, and
-`chaps models test SERVICE_ID --backtest` runs it through chap-core; the model
-level (`chapkit test` in a container) is for models chaps runs, so for this one
+`varde models test SERVICE_ID --backtest` runs it through chap-core; the model
+level (`chapkit test` in a container) is for models varde runs, so for this one
 it says to use `--backtest`.
 
-If the deployment has a registration key (`chaps auth show` says so), export
-`SERVICEKIT_REGISTRATION_KEY` with the value `chaps auth show --reveal` prints.
+If the deployment has a registration key (`varde auth show` says so), export
+`SERVICEKIT_REGISTRATION_KEY` with the value `varde auth show --reveal` prints.
 
 The model keeps re-registering while it runs, so restarting it (or chap-core)
 needs nothing else. When you are done with it, the image route is

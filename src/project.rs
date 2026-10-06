@@ -1,9 +1,9 @@
-//! `.chaps/` — the directory that records what a deployment is meant to be.
+//! `.varde/` — the directory that records what a deployment is meant to be.
 //!
 //! Three YAML files: `project.yaml` holds the project-wide settings,
 //! `models.yaml` the enabled model set and `components.yaml` the enabled
 //! components. They are intent; the compose files at the project root are
-//! artifacts rendered from them by `chaps sync`.
+//! artifacts rendered from them by `varde sync`.
 
 mod lock;
 mod manual;
@@ -23,12 +23,12 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 /// Directory that marks a project, at the root of a project directory.
-pub const CHAPS_DIR: &str = ".chaps";
-/// Project-wide settings, inside [`CHAPS_DIR`].
+pub const VARDE_DIR: &str = ".varde";
+/// Project-wide settings, inside [`VARDE_DIR`].
 pub const PROJECT_FILE: &str = "project.yaml";
-/// The enabled model set, inside [`CHAPS_DIR`].
+/// The enabled model set, inside [`VARDE_DIR`].
 pub const MODELS_FILE: &str = "models.yaml";
-/// Models added with `chaps models add`, inside [`CHAPS_DIR`].
+/// Models added with `varde models add`, inside [`VARDE_DIR`].
 ///
 /// The marketplace's answer for a model it does not list: the definition the
 /// catalogue would have carried, recorded per deployment. It is a definition,
@@ -36,12 +36,12 @@ pub const MODELS_FILE: &str = "models.yaml";
 pub const MANUAL_MODELS_FILE: &str = "models-manual.yaml";
 /// Base compose file: chap-core, worker, valkey, postgres.
 pub const BASE_COMPOSE: &str = "compose.yml";
-/// chaps-owned overrides that sit on top of [`BASE_COMPOSE`]: the API's host
+/// varde-owned overrides that sit on top of [`BASE_COMPOSE`]: the API's host
 /// port, and anything else this CLI decides about the base stack.
 ///
 /// It is a separate `-f` entry rather than an `include:` because a file listed
 /// in `include:` cannot override a service the main file defines.
-pub const CHAPS_COMPOSE: &str = "compose.chaps.yml";
+pub const VARDE_COMPOSE: &str = "compose.varde.yml";
 /// Umbrella file that `include:`s one overlay per enabled model.
 pub const MARKETPLACE_COMPOSE: &str = "compose.marketplace.yml";
 /// Environment file docker compose picks up automatically.
@@ -51,7 +51,7 @@ pub const ENV_FILE: &str = ".env";
 pub const CHECKOUT_COMPOSE: &str = "compose.ghcr.yml";
 /// The `.env` variable the chap-core images read their tag from.
 pub const CHAP_TAG_ENV_VAR: &str = "CHAP_IMAGE_TAG";
-/// The `.env` variable [`CHAPS_COMPOSE`] reads the API's host port from.
+/// The `.env` variable [`VARDE_COMPOSE`] reads the API's host port from.
 pub const API_PORT_ENV_VAR: &str = "CHAP_API_PORT";
 /// The `.env` variable that gives chap-core's API a path prefix, for an
 /// instance served behind a reverse proxy. Never written by `init`.
@@ -65,7 +65,7 @@ pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
 /// otherwise.
 ///
 /// Not the container's 8000: that, 8080 and 9000 are the ports every other
-/// development server defaults to, so chaps' services start one block away
+/// development server defaults to, so varde' services start one block away
 /// from them (8700 chap-core, 8780 DHIS2, 8790 OCS).
 pub const DEFAULT_API_PORT: u16 = 8700;
 
@@ -76,7 +76,7 @@ pub fn default_compose_files() -> Vec<String> {
 
 /// The `-f` list a project with these components has.
 ///
-/// The base stack and the chaps-owned override only appear when chap-core is
+/// The base stack and the varde-owned override only appear when chap-core is
 /// one of the components; a deployment that is only OCS has neither. Component
 /// files sit between the override and the marketplace umbrella, so a component
 /// can add to the base stack and still be added to by a model overlay.
@@ -84,7 +84,7 @@ pub fn compose_files_for(components: &Components) -> Vec<String> {
     let mut files = Vec::new();
     if components.chap_core.enabled {
         files.push(BASE_COMPOSE.to_string());
-        files.push(CHAPS_COMPOSE.to_string());
+        files.push(VARDE_COMPOSE.to_string());
     }
     files.extend(components.compose_files());
     files.push(MARKETPLACE_COMPOSE.to_string());
@@ -99,8 +99,8 @@ fn default_api_port() -> u16 {
 
 /// Which file decided the host port chap-core's API is published on.
 ///
-/// Two files can, and they do not always agree: `chaps init --api-port`
-/// records one in `.chaps/project.yaml` and writes the same number into
+/// Two files can, and they do not always agree: `varde init --api-port`
+/// records one in `.varde/project.yaml` and writes the same number into
 /// `.env`, but `.env` belongs to the operator afterwards and compose reads it
 /// last. So the answer has to come with its source, or a report naming a port
 /// the recorded state does not mention looks like a bug.
@@ -109,7 +109,7 @@ fn default_api_port() -> u16 {
 pub enum ApiPortSource {
     /// An active `CHAP_API_PORT=` line in `.env`, which is what compose reads.
     Env,
-    /// `api_port` in `.chaps/project.yaml`, because `.env` sets no usable one.
+    /// `api_port` in `.varde/project.yaml`, because `.env` sets no usable one.
     Project,
 }
 
@@ -118,13 +118,13 @@ impl ApiPortSource {
     pub fn label(self) -> &'static str {
         match self {
             ApiPortSource::Env => "from .env",
-            ApiPortSource::Project => "from .chaps/project.yaml",
+            ApiPortSource::Project => "from .varde/project.yaml",
         }
     }
 }
 
 /// File name of the cached copy of chap-core's `compose.ghcr.yml` at `tag`,
-/// inside [`CHAPS_DIR`].
+/// inside [`VARDE_DIR`].
 ///
 /// The tag is part of the name, so switching tags never overwrites the copy
 /// the running deployment was rendered from. Anything a tag may contain that a
@@ -152,8 +152,8 @@ pub enum ComposeSource {
     /// The copy of chap-core's `compose.ghcr.yml` compiled into this binary.
     #[default]
     Embedded,
-    /// chap-core's own `compose.ghcr.yml` at a tag, downloaded by `chaps init`
-    /// or `chaps update` and kept in `.chaps/` so `sync` can replay it
+    /// chap-core's own `compose.ghcr.yml` at a tag, downloaded by `varde init`
+    /// or `varde update` and kept in `.varde/` so `sync` can replay it
     /// offline.
     Fetched {
         url: String,
@@ -164,12 +164,12 @@ pub enum ComposeSource {
     },
     /// A chap-core checkout on this machine: `compose.yml` is rendered from
     /// its own `compose.ghcr.yml`, re-read on every sync, and the chap and
-    /// worker images are built from it (`chaps init --source`).
+    /// worker images are built from it (`varde init --source`).
     Checkout { path: String },
 }
 
 impl ComposeSource {
-    /// The cached copy's file name inside [`CHAPS_DIR`], for a fetched source.
+    /// The cached copy's file name inside [`VARDE_DIR`], for a fetched source.
     pub fn cached_file(&self) -> Option<String> {
         match self {
             ComposeSource::Embedded | ComposeSource::Checkout { .. } => None,
@@ -191,7 +191,7 @@ impl ComposeSource {
 ///
 /// Booleans only, and deliberately so: the values themselves live in `.env`,
 /// which is the file compose reads and the one nobody should copy around.
-/// `.chaps/` records the intent, so `project.yaml` can be committed, backed up
+/// `.varde/` records the intent, so `project.yaml` can be committed, backed up
 /// and pasted into a bug report without leaking a credential. A
 /// `project.yaml` without this field loads as both `false`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -217,7 +217,7 @@ impl AuthState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectState {
     pub schema_version: u32,
-    /// e.g. `chaps 0.1.0`.
+    /// e.g. `varde 0.1.0`.
     pub generated_by: String,
     pub chap_image_tag: String,
     /// Where `compose.yml` is rendered from.
@@ -229,13 +229,13 @@ pub struct ProjectState {
     /// Compose derives it from the directory name unless a file says
     /// otherwise, so two deployments in directories both called `demo` share
     /// `demo_chap-db` and every other volume - including one left behind by a
-    /// deployment deleted long ago. `chaps init` therefore generates
+    /// deployment deleted long ago. `varde init` therefore generates
     /// `<slug>-<6 hex>` and `sync` renders it as the top-level `name:` of the
     /// files it owns.
     pub compose_project: String,
     pub registry_url: String,
     /// Host port chap-core's API is published on. Written into `.env` as
-    /// `CHAP_API_PORT` and into [`CHAPS_COMPOSE`]; a `project.yaml` without
+    /// `CHAP_API_PORT` and into [`VARDE_COMPOSE`]; a `project.yaml` without
     /// it loads as [`DEFAULT_API_PORT`].
     #[serde(default = "default_api_port")]
     pub api_port: u16,
@@ -246,14 +246,14 @@ pub struct ProjectState {
     pub compose_files: Vec<String>,
     pub port_range: (u16, u16),
     /// The address model host ports are published on when a model names none
-    /// of its own: `127.0.0.1` for the deployment `chaps run` keeps.
+    /// of its own: `127.0.0.1` for the deployment `varde run` keeps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_bind: Option<IpAddr>,
-    /// The `chaps run` group this deployment is, `None` for one `chaps init`
+    /// The `varde run` group this deployment is, `None` for one `varde init`
     /// wrote. Every container's labels name it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
-    /// Files at the project root that `chaps sync` wrote last time, relative
+    /// Files at the project root that `varde sync` wrote last time, relative
     /// to the project directory. Only these are ever removed by a later sync.
     #[serde(default)]
     pub rendered_files: Vec<String>,
@@ -274,7 +274,7 @@ impl Default for ProjectState {
     fn default() -> Self {
         ProjectState {
             schema_version: SCHEMA_VERSION,
-            generated_by: format!("chaps {}", env!("CARGO_PKG_VERSION")),
+            generated_by: format!("varde {}", env!("CARGO_PKG_VERSION")),
             chap_image_tag: "latest".to_string(),
             chap_compose_source: ComposeSource::Embedded,
             compose_project: String::new(),
@@ -324,11 +324,11 @@ pub struct EnabledModel {
     /// name nothing could turn into numbers.
     ///
     /// Resolved from the image when the model was enabled and recorded here,
-    /// which is what keeps `chaps sync` offline: the overlay is rendered from
+    /// which is what keeps `varde sync` offline: the overlay is rendered from
     /// this line, not from a lookup.
     pub user: String,
     /// Where [`user`] came from, for `models info`, the browser and
-    /// `chaps doctor`. An entry without it reads as [`UserSource::Table`].
+    /// `varde doctor`. An entry without it reads as [`UserSource::Table`].
     ///
     /// [`user`]: EnabledModel::user
     #[serde(default)]
@@ -355,9 +355,9 @@ pub struct Project {
 }
 
 impl Project {
-    /// The `.chaps/` directory of this project.
-    pub fn chaps_dir(&self) -> PathBuf {
-        self.dir.join(CHAPS_DIR)
+    /// The `.varde/` directory of this project.
+    pub fn varde_dir(&self) -> PathBuf {
+        self.dir.join(VARDE_DIR)
     }
 
     /// Absolute path of the cached `compose.ghcr.yml` this project's
@@ -366,7 +366,7 @@ impl Project {
         self.state
             .chap_compose_source
             .cached_file()
-            .map(|name| self.chaps_dir().join(name))
+            .map(|name| self.varde_dir().join(name))
     }
 
     /// The compose project name this deployment records.
@@ -452,7 +452,7 @@ impl Project {
     ///
     /// `.env` wins, because compose reads it last and it is compose that does
     /// the publishing: an operator who wrote `CHAP_API_PORT=18000` there moved
-    /// the port, whatever `.chaps/project.yaml` still records. Everything in
+    /// the port, whatever `.varde/project.yaml` still records. Everything in
     /// this CLI that has to reach or reserve the API goes through here, so
     /// `status`, `doctor` and the `up` preflight all talk about the port the
     /// deployment really uses.
@@ -503,7 +503,7 @@ impl Project {
     /// best-effort like every other line of that file, and normalised to a
     /// leading slash and no trailing one so it can be concatenated.
     ///
-    /// Only the addresses a person is sent to use it. `chaps status` asks
+    /// Only the addresses a person is sent to use it. `varde status` asks
     /// `/health`, which the container's own healthcheck reaches without the
     /// prefix, so nothing that probes the API is changed by this.
     pub fn root_path(&self) -> String {

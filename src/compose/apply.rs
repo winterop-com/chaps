@@ -1,5 +1,5 @@
 //! The single state-edit path shared by `init`, `enable`, `disable` and the
-//! TUI. It updates `.chaps/models.yaml` in memory and then hands over to
+//! TUI. It updates `.varde/models.yaml` in memory and then hands over to
 //! [`crate::compose::sync()`], which renders the compose files and saves.
 
 use crate::components::{Component, Components};
@@ -51,7 +51,7 @@ pub struct EnableRequest {
     pub user: Option<String>,
     /// Where [`user`] came from, for a caller that resolved it already.
     ///
-    /// `chaps models add` reads the image itself and hands the answer over;
+    /// `varde models add` reads the image itself and hands the answer over;
     /// leaving this `None` records the flag as [`UserSource::Flag`], which is
     /// what it is for everyone who typed `--user`.
     ///
@@ -151,7 +151,7 @@ impl ApplyReport {
 /// changing nothing.
 ///
 /// [`apply`] starts here, so every caller gets these answers before a file is
-/// written. `chaps init --force` calls it directly as well: it deletes the
+/// written. `varde init --force` calls it directly as well: it deletes the
 /// previous deployment's overlays before handing over to [`apply`], and a
 /// selection that was never going to work must not take them with it.
 pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Result<()> {
@@ -176,7 +176,7 @@ pub fn validate(project: &Project, registry: &Registry, sel: &Selection) -> Resu
         }) {
             return Err(anyhow::anyhow!(
                 "{other} already runs as the compose service `{}`; disable it first with \
-                 `chaps models disable {other}`",
+                 `varde models disable {other}`",
                 model.service_id
             ));
         }
@@ -221,7 +221,7 @@ pub fn check_data_dir(dir: &str) -> Result<()> {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'));
     if !ok {
         return Err(ChapError::Usage(format!(
-            "`{dir}` is not a data directory chaps can render; give an absolute path of \
+            "`{dir}` is not a data directory varde can render; give an absolute path of \
              letters, digits, `/`, `.`, `_` and `-`, such as `--data-dir /app/data`"
         ))
         .into());
@@ -243,7 +243,7 @@ pub fn check_user(user: &str) -> Result<()> {
     };
     if !ok {
         return Err(ChapError::Usage(format!(
-            "`{user}` is not a user chaps can render; give a name or an id, with a group after \
+            "`{user}` is not a user varde can render; give a name or an id, with a group after \
              a `:` if needed, such as `--user 1000:1000`"
         ))
         .into());
@@ -252,7 +252,7 @@ pub fn check_user(user: &str) -> Result<()> {
 }
 
 /// Apply a selection: disable first, then enable, then sync the compose
-/// files and `.chaps/` from the new state.
+/// files and `.varde/` from the new state.
 ///
 /// Nothing is written until the whole selection has resolved, so an unknown
 /// model or a port clash leaves the directory as it was.
@@ -293,7 +293,7 @@ pub fn write_planned(
     mut report: ApplyReport,
 ) -> Result<ApplyReport> {
     // One rendering path: sync writes the overlays, the umbrella and the .env
-    // pins, removes the overlays of disabled models, and saves .chaps/.
+    // pins, removes the overlays of disabled models, and saves .varde/.
     let synced = sync(project, registry, false)?;
     report.written = synced.written;
     report.removed = synced.removed;
@@ -304,7 +304,7 @@ pub fn write_planned(
 /// Everything [`apply`] decides, made on `project` in memory and nothing
 /// written: the checks, the ports and the users. What fails, fails here,
 /// before [`write_planned`] touches a file - so a caller with something to do
-/// in between (`chaps ui` stopping the components it switches off) does it
+/// in between (`varde ui` stopping the components it switches off) does it
 /// only for a selection that will apply.
 pub(crate) fn plan_with(
     project: &mut Project,
@@ -518,8 +518,8 @@ pub(crate) fn plan_with(
             if crate::compose::overrides::FIXED_PORT_MODELS.contains(&id) {
                 report.warnings.push(format!(
                     "{id} starts on port 8000 whatever PORT says, so it cannot register with \
-                     the chap-core elsewhere this deployment uses; run it with chaps' own \
-                     chap-core (`chaps components enable chap-core`), or pick another model"
+                     the chap-core elsewhere this deployment uses; run it with varde' own \
+                     chap-core (`varde components enable chap-core`), or pick another model"
                 ));
             }
         }
@@ -566,7 +566,7 @@ pub(crate) fn plan_with(
         }
         project.state.components = wanted.clone();
         // A component publishes its host port straight from
-        // `.chaps/components.yaml`, so every one of them gets the same "is
+        // `.varde/components.yaml`, so every one of them gets the same "is
         // anything listening on it" question a model's port does. It is a
         // warning and never a refusal, which is what `init` does with a busy
         // component port too; a port one of this deployment's own running

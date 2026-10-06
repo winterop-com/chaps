@@ -1,4 +1,4 @@
-//! `chaps` updating `chaps`: which release asset this build wants, how to
+//! `varde` updating `varde`: which release asset this build wants, how to
 //! verify it, how to put it in place, and the once-a-day notice that a newer
 //! one exists.
 //!
@@ -29,11 +29,11 @@ pub use release::{
 use std::time::Duration;
 
 /// The repository releases are published from.
-pub const REPO: &str = "winterop-com/chaps";
+pub const REPO: &str = "winterop-com/varde";
 
 /// Release endpoint for the newest final release.
 ///
-/// A function rather than a constant because `CHAPS_GITHUB_API` moves the
+/// A function rather than a constant because `VARDE_GITHUB_API` moves the
 /// REST base for the tests, and this is one of the calls it has to move: a
 /// test that asked the real GitHub would spend a request of somebody's hourly
 /// quota to answer a question it already knows the answer to.
@@ -60,7 +60,7 @@ pub const GIT_REVISION: &str = env!("GIT_REVISION");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The channel this build follows, from the build script: `stable` or `dev`.
-pub const BUILD_CHANNEL: &str = env!("CHAPS_BUILD_CHANNEL");
+pub const BUILD_CHANNEL: &str = env!("VARDE_BUILD_CHANNEL");
 
 /// The tag the rolling pre-release of `main` is published under.
 ///
@@ -70,7 +70,7 @@ pub const BUILD_CHANNEL: &str = env!("CHAPS_BUILD_CHANNEL");
 pub const DEV_TAG: &str = "dev";
 
 /// `User-Agent` sent with every request, matching the registry fetch.
-const USER_AGENT: &str = concat!("chaps/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 
 /// The file inside the cache directory holding the last update check.
 pub const CHECK_FILE: &str = "self-update-check.json";
@@ -83,7 +83,7 @@ pub const CHECK_INTERVAL: Duration = Duration::from_hours(24);
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Set to `1` to turn the once-a-day update notice off entirely.
-pub const NO_CHECK_ENV: &str = "CHAPS_NO_UPDATE_CHECK";
+pub const NO_CHECK_ENV: &str = "VARDE_NO_UPDATE_CHECK";
 
 /// Largest archive `self update` will read into memory.
 const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
@@ -174,7 +174,7 @@ pub fn archive_extension(target: &str) -> &str {
 }
 
 /// The release asset `target` wants, e.g.
-/// `chaps-universal-apple-darwin.tar.gz`.
+/// `varde-universal-apple-darwin.tar.gz`.
 ///
 /// No version in the name: the tag is already in the download URL, and one
 /// name per target is what `releases/latest/download/<name>` needs to keep a
@@ -182,15 +182,15 @@ pub fn archive_extension(target: &str) -> &str {
 /// the version, because that is what someone sees after unpacking it.
 pub fn asset_name(target: &str) -> String {
     let target = asset_target(target);
-    format!("chaps-{target}.{}", archive_extension(target))
+    format!("varde-{target}.{}", archive_extension(target))
 }
 
 /// The name of the executable inside the archive.
 pub fn binary_name(target: &str) -> &str {
     if target.contains("-windows-") {
-        "chaps.exe"
+        "varde.exe"
     } else {
-        "chaps"
+        "varde"
     }
 }
 

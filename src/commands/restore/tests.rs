@@ -11,14 +11,14 @@ use std::path::PathBuf;
 fn manifest() -> Manifest {
     Manifest {
         schema_version: crate::backup::SCHEMA_VERSION,
-        created_by: "chaps 0.1.0".into(),
+        created_by: "varde 0.1.0".into(),
         created_at: "2026-09-23T07:10:00Z".into(),
         project: "e2e".into(),
         chap_image_tag: "latest".into(),
         files: vec![
             ".env".into(),
-            ".chaps/models.yaml".into(),
-            ".chaps/project.yaml".into(),
+            ".varde/models.yaml".into(),
+            ".varde/project.yaml".into(),
             "ocs/climate-service.yaml".into(),
             "compose.yml".into(),
         ],
@@ -92,8 +92,8 @@ fn members() -> BTreeSet<String> {
     [
         MANIFEST_MEMBER.to_string(),
         "files/.env".to_string(),
-        "files/.chaps/models.yaml".to_string(),
-        "files/.chaps/project.yaml".to_string(),
+        "files/.varde/models.yaml".to_string(),
+        "files/.varde/project.yaml".to_string(),
         "files/ocs/climate-service.yaml".to_string(),
         "files/compose.yml".to_string(),
         DB_MEMBER.to_string(),
@@ -249,8 +249,8 @@ fn a_file_the_manifest_lists_but_the_archive_lacks_is_not_planned() {
         plan.files,
         vec![
             ".env",
-            ".chaps/models.yaml",
-            ".chaps/project.yaml",
+            ".varde/models.yaml",
+            ".varde/project.yaml",
             "ocs/climate-service.yaml"
         ]
     );
@@ -311,7 +311,7 @@ fn the_plan_keeps_this_deployments_identity_unless_it_is_told_not_to() {
 fn report(started: bool, warnings: Vec<&str>) -> RestoreReport {
     RestoreReport {
         plan: plan_with(&running(&["chap", "worker"]), &[]),
-        files: vec![".env".into(), ".chaps/models.yaml".into()],
+        files: vec![".env".into(), ".varde/models.yaml".into()],
         removed_state: Vec::new(),
         env_backup: Some(ENV_BACKUP_FILE.to_string()),
         kept_credentials: Vec::new(),
@@ -328,7 +328,7 @@ fn report(started: bool, warnings: Vec<&str>) -> RestoreReport {
 fn the_summary_reads_in_the_order_things_happened() {
     let text = human(&report(true, vec![]), &Out::default());
     assert!(text.starts_with("stopped   chap, worker\n"));
-    assert!(text.contains("files     2 restored: .env, .chaps/models.yaml"));
+    assert!(text.contains("files     2 restored: .env, .varde/models.yaml"));
     assert!(text.contains("the previous .env is kept as .env.before-restore"));
     assert!(text.contains("database  chap_core restored\n"));
     assert!(text.contains("models    chapkit-ewars-model"));

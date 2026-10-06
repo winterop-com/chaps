@@ -204,7 +204,7 @@ impl TerminalGuard {
             anyhow::anyhow!(
                 "could not take over the terminal: {e}. \
                  The model browser needs an interactive terminal; \
-                 use `chaps models enable` and `chaps models disable` in a script."
+                 use `varde models enable` and `varde models disable` in a script."
             )
         })?;
         Ok(TerminalGuard { inner })

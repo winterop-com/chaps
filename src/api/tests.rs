@@ -25,7 +25,7 @@ fn the_methods_are_the_five_and_case_does_not_matter() {
         assert_eq!(method_of(spelling).unwrap(), "GET");
     }
     assert_eq!(method_of("delete").unwrap(), "DELETE");
-    let err = method_of("BREW").expect_err("not a method chaps sends");
+    let err = method_of("BREW").expect_err("not a method varde sends");
     assert!(err.to_string().contains("GET, POST, PUT, PATCH, DELETE"));
 }
 
@@ -119,7 +119,7 @@ fn an_unreachable_api_is_the_error_status_uses() {
     let text = err.to_string();
     assert!(text.contains(&base), "{text}");
     assert!(text.contains("is not responding"), "{text}");
-    assert!(text.contains("chaps status"), "{text}");
+    assert!(text.contains("varde status"), "{text}");
 }
 
 #[test]

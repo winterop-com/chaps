@@ -13,22 +13,22 @@ fn compose_is_quoted_by_its_error_line() {
 
 #[test]
 fn commands_named_inside_a_group_reach_it_with_dash_c() {
-    let dir = Path::new("/home/u/.local/share/chaps/run/g");
+    let dir = Path::new("/home/u/.local/share/varde/run/g");
     assert_eq!(
-        with_dir("run `chaps models remove x` first", dir),
-        "run `chaps -C /home/u/.local/share/chaps/run/g models remove x` first"
+        with_dir("run `varde models remove x` first", dir),
+        "run `varde -C /home/u/.local/share/varde/run/g models remove x` first"
     );
 
-    let err = anyhow::anyhow!("inner").context("x was added; run `chaps models remove x`");
+    let err = anyhow::anyhow!("inner").context("x was added; run `varde models remove x`");
     let out = for_group(err, true, dir);
     assert_eq!(
         out.to_string(),
-        "x was added; run `chaps -C /home/u/.local/share/chaps/run/g models remove x`"
+        "x was added; run `varde -C /home/u/.local/share/varde/run/g models remove x`"
     );
     assert_eq!(out.chain().nth(1).unwrap().to_string(), "inner");
 
     // A typed error keeps its type, which the exit code is read from.
-    let typed = anyhow::Error::from(ChapError::Usage("`chaps x`".into()));
+    let typed = anyhow::Error::from(ChapError::Usage("`varde x`".into()));
     let out = for_group(typed, true, dir);
     assert!(out.downcast_ref::<ChapError>().is_some());
 }

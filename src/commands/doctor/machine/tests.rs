@@ -240,30 +240,30 @@ fn free_space_is_read_out_of_what_each_platform_prints() {
 }
 
 #[test]
-fn the_chaps_line_offers_an_update_only_when_there_is_one() {
+fn the_varde_line_offers_an_update_only_when_there_is_one() {
     // Offline the lookup never ran, so the line is a skip that says why
     // and still describes the build.
-    let check = chaps_check(ReleaseList::Offline);
+    let check = varde_check(ReleaseList::Offline);
     assert_eq!(check.status, Status::Skip);
     assert!(check.detail.contains(VERSION) && check.detail.contains(TARGET));
     assert!(check.detail.contains("offline"), "{}", check.detail);
 
     // The release feed was asked and said nothing useful: still just a
     // description, and `net-releases` is where the network is reported.
-    let check = chaps_check(ReleaseList::Unreachable);
+    let check = varde_check(ReleaseList::Unreachable);
     assert_eq!(check.status, Status::Ok);
     assert!(check.detail.contains(VERSION) && check.detail.contains(TARGET));
     let current = format!("v{VERSION}");
     assert_eq!(
-        chaps_check(ReleaseList::Newest(&current)).status,
+        varde_check(ReleaseList::Newest(&current)).status,
         Status::Ok,
         "the running version is not an update"
     );
 
-    let check = chaps_check(ReleaseList::Newest("v999.0.0"));
+    let check = varde_check(ReleaseList::Newest("v999.0.0"));
     assert_eq!(check.status, Status::Warn);
     assert!(check.detail.contains("v999.0.0"));
-    assert_eq!(check.fix.unwrap(), "run `chaps self update`");
+    assert_eq!(check.fix.unwrap(), "run `varde self update`");
 }
 
 /// The memory line exists for one failure: DHIS2's JVM being killed part-way
@@ -328,5 +328,5 @@ fn leftovers_warn_and_name_cleanup_only_when_there_are_volumes() {
         check.detail,
         "2 volumes of 1 removed deployment still in docker"
     );
-    assert!(check.fix.unwrap().contains("`chaps cleanup`"));
+    assert!(check.fix.unwrap().contains("`varde cleanup`"));
 }

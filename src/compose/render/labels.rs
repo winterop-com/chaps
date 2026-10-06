@@ -1,14 +1,14 @@
-//! The labels every container chaps starts carries.
+//! The labels every container varde starts carries.
 //!
-//! They are what lets a tool find every chaps container on a machine with one
-//! `docker ps --filter label=com.winterop.chaps.role`, whatever deployment or
-//! `chaps run` group it belongs to, and tell what each one is without parsing
-//! compose project names. Nothing in them depends on the chaps version or the
+//! They are what lets a tool find every varde container on a machine with one
+//! `docker ps --filter label=com.winterop.varde.role`, whatever deployment or
+//! `varde run` group it belongs to, and tell what each one is without parsing
+//! compose project names. Nothing in them depends on the varde version or the
 //! time: a changed label makes compose recreate the container, so an upgrade
 //! of this CLI must render the same labels as the one before it.
 
 // The keys are defined once, beside the query that reads them back
-// ([`crate::docker::chaps_containers`]); these are the names the renderers use.
+// ([`crate::docker::varde_containers`]); these are the names the renderers use.
 pub const LABEL_ROLE: &str = crate::docker::ROLE_LABEL;
 pub const LABEL_MODEL: &str = crate::docker::MODEL_LABEL;
 pub const LABEL_KIND: &str = crate::docker::KIND_LABEL;
@@ -26,15 +26,15 @@ pub const ROLE_S3: &str = "s3";
 /// The `dhis2` component, its database and one-shots included.
 pub const ROLE_DHIS2: &str = "dhis2";
 
-/// A deployment `chaps init` wrote.
+/// A deployment `varde init` wrote.
 pub const KIND_INIT: &str = "init";
-/// A deployment that is a `chaps run` group.
+/// A deployment that is a `varde run` group.
 pub const KIND_RUN: &str = "run";
 
 /// One service's `labels:` block, indented for a service under `services:`
 /// and ending in its own newline.
 ///
-/// `group` is the `chaps run` group the deployment is, and decides the kind.
+/// `group` is the `varde run` group the deployment is, and decides the kind.
 /// The model id and the group name are quoted, since either could read as a
 /// number or a boolean to YAML, and compose wants every label value a string.
 pub fn labels_block(role: &str, model: Option<&str>, group: Option<&str>) -> String {

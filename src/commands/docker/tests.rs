@@ -59,15 +59,15 @@ fn a_volume_is_reported_by_name_whatever_became_of_it() {
     // The kept line names both ways out, because the second one still
     // works once the deployment directory is gone.
     assert_eq!(
-        kept_volume_line(volume, Some("chaps models disable chapkit_ewars_model")),
+        kept_volume_line(volume, Some("varde models disable chapkit_ewars_model")),
         format!(
             "kept volume {volume}; remove it with \
-                 `chaps models disable chapkit_ewars_model --purge` or \
+                 `varde models disable chapkit_ewars_model --purge` or \
                  `docker volume rm {volume}`"
         )
     );
 
-    // After `chaps models remove` no chaps command names the volume any
+    // After `varde models remove` no varde command names the volume any
     // more, so only the docker command is offered.
     assert_eq!(
         kept_volume_line(volume, None),
@@ -110,7 +110,7 @@ fn up(attach: bool, extra: &[&str]) -> DockerCmd {
     })
 }
 
-/// The `DockerCmd` behind `chaps down`, with its two flags.
+/// The `DockerCmd` behind `varde down`, with its two flags.
 fn down(volumes: bool, extra: &[&str]) -> DockerCmd {
     DockerCmd::Down(DownArgs {
         volumes,
@@ -138,7 +138,7 @@ fn up_detaches_unless_attach_is_asked_for() {
     );
 }
 
-/// `chaps` renders every file in the `-f` list, so a container whose
+/// `varde` renders every file in the `-f` list, so a container whose
 /// service is in none of them belongs to something that was disabled.
 /// Leaving it running would keep its host port published after a
 /// `models disable` said it was gone.
@@ -150,7 +150,7 @@ fn up_and_restart_take_the_orphans_of_a_disabled_service_with_them() {
             "{cmd:?}"
         );
     }
-    // Once, even when the caller asked for it as well: `chaps up
+    // Once, even when the caller asked for it as well: `varde up
     // --remove-orphans` is a thing people type.
     let asked = args_for(&up(false, &["--remove-orphans"]), TERM);
     assert_eq!(asked.iter().filter(|a| *a == "--remove-orphans").count(), 1);
@@ -218,7 +218,7 @@ fn down_and_pull_are_bare_commands() {
     );
 }
 
-/// The `RestartArgs` a `chaps restart` would have parsed.
+/// The `RestartArgs` a `varde restart` would have parsed.
 fn restart(all: bool, services: &[&str]) -> DockerCmd {
     DockerCmd::Restart(crate::cli::RestartArgs {
         all,
@@ -283,7 +283,7 @@ fn restart_says_which_services_it_recreated() {
     assert_eq!(
         restart_summary(&Out::default(), &before, &after, &[]),
         "recreated: chap, worker; unchanged: postgres\n\
-         run `chaps status` to check that everything answers"
+         run `varde status` to check that everything answers"
     );
     // Everything moved: there is no second half to print.
     assert_eq!(
@@ -293,18 +293,18 @@ fn restart_says_which_services_it_recreated() {
             &[container("chap", "ddd", "t2")],
             &[]
         ),
-        "recreated: chap\nrun `chaps status` to check that everything answers"
+        "recreated: chap\nrun `varde status` to check that everything answers"
     );
     // Nothing moved, which is an answer and not a failure, and the way to
     // force it names what was asked for.
     assert_eq!(
         restart_summary(&Out::default(), &before, &before, &["ocs".to_string()]),
-        "nothing needed a restart: every container matches its files; `chaps restart --all \
+        "nothing needed a restart: every container matches its files; `varde restart --all \
          ocs` recreates it anyway"
     );
     assert!(
         restart_summary(&Out::default(), &before, &before, &[])
-            .ends_with("`chaps restart --all` recreates every one anyway")
+            .ends_with("`varde restart --all` recreates every one anyway")
     );
 }
 
@@ -463,13 +463,13 @@ fn up_summarises_what_it_started_and_what_it_left_alone() {
     assert_eq!(
         summary(&before, &after),
         "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
-             run `chaps status` to check that everything answers"
+             run `varde status` to check that everything answers"
     );
 
     // A first start has nothing to leave alone.
     assert!(
         summary(&[], &after).starts_with(
-            "started/recreated: chap, postgres, chapkit-ewars-model\nrun `chaps status`"
+            "started/recreated: chap, postgres, chapkit-ewars-model\nrun `varde status`"
         )
     );
     // A no-op `up` says so rather than printing an empty list.
@@ -477,7 +477,7 @@ fn up_summarises_what_it_started_and_what_it_left_alone() {
     // And an `up` that left nothing running is a problem, not a summary.
     assert_eq!(
         summary(&[], &[]),
-        "nothing is running after `up`; run `chaps logs` to see why"
+        "nothing is running after `up`; run `varde logs` to see why"
     );
 }
 
@@ -496,34 +496,34 @@ fn up_names_the_connect_a_dhis2_deployment_still_needs() {
     let asked = up_summary(&Out::default(), &[], &after, &components);
     assert!(
         asked.ends_with(
-            "\nchaps has not connected this DHIS2 to Chap; \
-                 run `chaps dhis2 connect` once DHIS2 answers"
+            "\nvarde has not connected this DHIS2 to Chap; \
+                 run `varde dhis2 connect` once DHIS2 answers"
         ),
         "{asked}"
     );
     // Under the line that is always there, not instead of it.
     assert!(
-        asked.contains("run `chaps status` to check that everything answers"),
+        asked.contains("run `varde status` to check that everything answers"),
         "{asked}"
     );
 
     components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
     let recorded = up_summary(&Out::default(), &[], &after, &components);
-    assert!(!recorded.contains("chaps dhis2 connect"), "{recorded}");
+    assert!(!recorded.contains("varde dhis2 connect"), "{recorded}");
 
     // An `up` that started nothing has no deployment to connect, and the
     // line above already says to go and read the logs.
     components.dhis2.connected_at = None;
     assert_eq!(
         up_summary(&Out::default(), &[], &[], &components),
-        "nothing is running after `up`; run `chaps logs` to see why"
+        "nothing is running after `up`; run `varde logs` to see why"
     );
 
     // And a deployment without chap-core is never asked: the route would
     // point at a service that is not there.
     components.set_enabled(crate::components::Component::ChapCore, false);
     let standalone = up_summary(&Out::default(), &[], &after, &components);
-    assert!(!standalone.contains("chaps dhis2 connect"), "{standalone}");
+    assert!(!standalone.contains("varde dhis2 connect"), "{standalone}");
 }
 
 /// A mounted config written after its container was created is the edit
@@ -558,7 +558,7 @@ fn a_config_edited_after_its_container_started_is_recreated() {
     assert!(edited_configs(&project, &[], &[]).is_empty());
 }
 
-/// `down --volumes` takes `dhis2_db` with it, and the next `chaps up`
+/// `down --volumes` takes `dhis2_db` with it, and the next `varde up`
 /// restores the seed dump into a new one - which ships a `chap` route
 /// pointing at somebody else's Chap. So the record of a connect goes with
 /// the volume it was true of, and the line says why.
@@ -592,7 +592,7 @@ fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
 
     let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db)).unwrap();
     assert!(line.contains("`dhis2_db`"), "{line}");
-    assert!(line.contains("`chaps dhis2 connect`"), "{line}");
+    assert!(line.contains("`varde dhis2 connect`"), "{line}");
     assert_eq!(project.state.components.dhis2.connected_at, None);
     // And on disk, not only in memory: the next command reads the file.
     let reloaded = Project::load(temp.path()).unwrap();
@@ -625,12 +625,12 @@ fn down_reports_what_it_stopped_and_what_it_kept() {
     assert_eq!(
         kept(&stopped, name),
         "stopped: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
-             (`chaps down --volumes` removes them)"
+             (`varde down --volumes` removes them)"
     );
     assert!(kept(&stopped[..1], name).starts_with("stopped: chap (1 container);"));
     // A deployment whose name could not be worked out still gets the line.
     assert!(
-        kept(&stopped, None).ends_with("volumes kept (`chaps down --volumes` removes them)"),
+        kept(&stopped, None).ends_with("volumes kept (`varde down --volumes` removes them)"),
         "{}",
         kept(&stopped, None)
     );
@@ -674,9 +674,9 @@ fn down_volumes_names_the_volumes_it_removed() {
 
 #[test]
 fn down_names_what_brings_the_deployment_back() {
-    assert!(down_next(false).contains("`chaps up`"));
+    assert!(down_next(false).contains("`varde up`"));
     assert!(down_next(false).contains("with its data"));
-    assert!(down_next(true).contains("`chaps up`"));
+    assert!(down_next(true).contains("`varde up`"));
     assert!(down_next(true).contains("delete this folder"));
 }
 
@@ -691,35 +691,35 @@ fn a_volume_flag_after_down_is_refused_by_name() {
     // still say it was typed - and it has to be said, because compose
     // never saw it and the volumes are all still there.
     assert_eq!(
-        misused_volumes_flag(&argv(&["chaps", "down", "-v"]), &[]),
+        misused_volumes_flag(&argv(&["varde", "down", "-v"]), &[]),
         Some("-v")
     );
     assert_eq!(
-        misused_volumes_flag(&argv(&["chaps", "-C", "/srv/chap", "down", "-v"]), &[]),
+        misused_volumes_flag(&argv(&["varde", "-C", "/srv/chap", "down", "-v"]), &[]),
         Some("-v")
     );
     // Past a `--` it reaches EXTRA, where passing it through would
     // destroy the data of an operator who only asked for a louder `down`.
     for token in ["-v", "--volumes", "--volume"] {
         let extra = vec!["--timeout".to_string(), "5".to_string(), token.to_string()];
-        let line = argv(&["chaps", "down", "--", "--timeout", "5", token]);
+        let line = argv(&["varde", "down", "--", "--timeout", "5", token]);
         assert_eq!(misused_volumes_flag(&line, &extra), Some(token), "{token}");
     }
 
-    // `chaps -v down` asked for a verbose stop and gets one.
+    // `varde -v down` asked for a verbose stop and gets one.
     assert_eq!(
-        misused_volumes_flag(&argv(&["chaps", "-v", "down"]), &[]),
+        misused_volumes_flag(&argv(&["varde", "-v", "down"]), &[]),
         None
     );
     // And the flag that does the job is not the mistake it replaces.
     assert_eq!(
-        misused_volumes_flag(&argv(&["chaps", "down", "--volumes", "--yes"]), &[]),
+        misused_volumes_flag(&argv(&["varde", "down", "--volumes", "--yes"]), &[]),
         None
     );
     // Everything compose takes goes through untouched.
     assert_eq!(
         misused_volumes_flag(
-            &argv(&["chaps", "down", "--", "--rmi", "local"]),
+            &argv(&["varde", "down", "--", "--rmi", "local"]),
             &["--rmi".to_string(), "local".to_string()]
         ),
         None
@@ -736,8 +736,8 @@ fn the_refusal_names_both_flags_and_the_verbose_spelling() {
             "{message}"
         );
         assert!(message.contains("--verbose"), "{message}");
-        assert!(message.contains("`chaps down --volumes`"), "{message}");
-        assert!(message.contains("`chaps -v down`"), "{message}");
+        assert!(message.contains("`varde down --volumes`"), "{message}");
+        assert!(message.contains("`varde -v down`"), "{message}");
     }
 }
 
@@ -848,7 +848,7 @@ fn logs_names_the_services_there_are() {
 fn the_empty_state_line_says_what_to_do_about_it() {
     assert_eq!(
         NOTHING_RUNNING,
-        "nothing is running for this project; start Chap with `chaps up`"
+        "nothing is running for this project; start Chap with `varde up`"
     );
 }
 

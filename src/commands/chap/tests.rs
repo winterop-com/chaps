@@ -151,7 +151,7 @@ fn spec() -> RunSpec {
         image: "ghcr.io/dhis2-chap/chap-core:v2.3.1".to_string(),
         cwd: PathBuf::from("/home/u/work"),
         mounts: vec![PathBuf::from("/data")],
-        data: PathBuf::from("/home/u/.local/share/chaps/chap"),
+        data: PathBuf::from("/home/u/.local/share/varde/chap"),
         user: Some((1000, 1000)),
         network: None,
         docker: None,
@@ -182,12 +182,12 @@ fn a_run_mounts_every_directory_at_the_same_path_and_runs_as_the_user() {
         [
             "/home/u/work:/home/u/work",
             "/data:/data",
-            "/home/u/.local/share/chaps/chap:/home/u/.local/share/chaps/chap",
+            "/home/u/.local/share/varde/chap:/home/u/.local/share/varde/chap",
         ]
     );
     assert_eq!(values(&args, "-w"), ["/home/u/work"]);
     let env = values(&args, "-e");
-    assert!(env.contains(&"CHAP_RUNS_DIR=/home/u/.local/share/chaps/chap/runs"));
+    assert!(env.contains(&"CHAP_RUNS_DIR=/home/u/.local/share/varde/chap/runs"));
     assert!(env.contains(&"RENV_CONFIG_SANDBOX_ENABLED=FALSE"));
     assert!(values(&args, "--network").is_empty());
     assert_eq!(
@@ -315,7 +315,7 @@ fn the_note_for_a_server_that_does_not_answer_fits_the_url() {
     assert!(service.contains("`nothing` is not a model of this deployment or group"));
     let outside = unreachable_message("https://models.example.org");
     assert!(outside.contains("check that the server runs"));
-    assert!(!outside.contains("chaps run"));
+    assert!(!outside.contains("varde run"));
 }
 
 #[test]

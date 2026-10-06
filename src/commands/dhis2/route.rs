@@ -1,15 +1,15 @@
-//! `chaps dhis2 route`: the `chap` route, written and proved through.
+//! `varde dhis2 route`: the `chap` route, written and proved through.
 
 use super::*;
 
-/// `chaps dhis2 route` — create the `chap` route, or repoint the one that is
+/// `varde dhis2 route` — create the `chap` route, or repoint the one that is
 /// there.
 pub fn route(ctx: &Ctx, args: &Dhis2RouteArgs) -> Result<()> {
     let session = open_session(ctx, &args.common)?;
     let route = write_route(ctx, &session)?;
     let report = Dhis2Report {
         instance: session.instance(),
-        next: "run `chaps dhis2 apps` next, or `chaps dhis2 show` to see what is still missing"
+        next: "run `varde dhis2 apps` next, or `varde dhis2 show` to see what is still missing"
             .to_string(),
         route: Some(route),
         apps: None,
@@ -62,19 +62,19 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
 
     let (verified, answered, token_refused) = verify_route(&session.dhis2, token.is_some());
     // The route is correct whatever chap-core did, so a chap-core that is not
-    // answering is said rather than raised: it is `chaps up`'s problem, not
+    // answering is said rather than raised: it is `varde up`'s problem, not
     // this command's, and the report carries `verified: false` for a script.
     if token_refused {
         crate::output::warn(&format!(
             "the `{}` route carries this deployment's API token and chap-core refused it: \
-             {answered}; `chaps auth show` says which token chaps has, and chap-core has to be \
+             {answered}; `varde auth show` says which token varde has, and chap-core has to be \
              running with the same one",
             dhis2::ROUTE_CODE
         ));
     } else if !verified {
         crate::output::warn(&format!(
             "the `{}` route is in place but nothing answered through it: {answered}; run \
-             `chaps status` to see whether chap-core is up",
+             `varde status` to see whether chap-core is up",
             dhis2::ROUTE_CODE
         ));
     }

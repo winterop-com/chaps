@@ -1,4 +1,4 @@
-//! `chaps up --wait`: the command holds until chap-core and the models answer,
+//! `varde up --wait`: the command holds until chap-core and the models answer,
 //! and fails naming what never did. Unix only: the stand-in docker is a shell
 //! script.
 

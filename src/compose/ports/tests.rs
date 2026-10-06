@@ -80,7 +80,7 @@ fn claim_rejects_a_taken_port_and_one_outside_the_range() {
         assert!(text.contains("range 5001-5999"), "{text}");
         assert!(text.contains("`--port auto`"), "{text}");
         assert!(
-            text.contains("`port_range` in `.chaps/project.yaml`"),
+            text.contains("`port_range` in `.varde/project.yaml`"),
             "{text}"
         );
     }
@@ -214,7 +214,7 @@ fn scan_compose_dir_on_a_missing_directory_is_empty() {
 #[test]
 fn a_compose_override_tag_does_not_hide_its_port_list() {
     // `ports: !override` is the only way to replace a mapping across -f
-    // files, and compose.chaps.yml uses it; the scanner has to see through
+    // files, and compose.varde.yml uses it; the scanner has to see through
     // the tag rather than skip the file.
     let doc: Value = serde_yaml_ng::from_str(
         "services:\n  chap:\n    ports: !override\n      - \"8010:8000\"\n",

@@ -25,13 +25,13 @@ fn the_columns_line_up_whatever_the_names_are() {
 
 #[test]
 fn without_a_project_the_rendering_says_where_the_rest_would_be() {
-    let outside = report(vec![Check::ok("chaps", "chaps", "v0.2.0")], None);
+    let outside = report(vec![Check::ok("varde", "varde", "v0.2.0")], None);
     let text = render(&outside, &Out::default());
     assert!(text.contains(NO_PROJECT), "{text}");
     assert!(text.ends_with("1 checks: 1 ok, 0 warn, 0 fail\n"), "{text}");
 
     // Inside one, the line is not printed at all.
-    let inside = report(vec![Check::ok("chaps", "chaps", "v0.2.0")], Some("/srv/x"));
+    let inside = report(vec![Check::ok("varde", "varde", "v0.2.0")], Some("/srv/x"));
     assert!(!render(&inside, &Out::default()).contains("none here"));
 }
 
@@ -134,7 +134,7 @@ fn the_components_line_reports_the_set_and_the_ocs_config() {
         detail.contains("ocs/climate-service.yaml is missing"),
         "{detail}"
     );
-    assert!(fix.unwrap().contains("chaps sync"));
+    assert!(fix.unwrap().contains("varde sync"));
 
     // Present, but still the example: it deploys, it just deploys the
     // wrong country.

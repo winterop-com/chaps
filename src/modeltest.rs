@@ -1,10 +1,10 @@
-//! What `chaps models test` proves, and how it reads on a terminal.
+//! What `varde models test` proves, and how it reads on a terminal.
 //!
 //! Registration is a heartbeat. A model that answers its healthcheck and pings
 //! chap-core every thirty seconds can still be unable to produce a single
 //! prediction - the user it runs as cannot write, a library is missing from
 //! the image, the covariates it declares are not the ones it reads - and
-//! neither `chaps status` nor `chaps doctor` can tell. The only way to know is
+//! neither `varde status` nor `varde doctor` can tell. The only way to know is
 //! to make the model do the work.
 //!
 //! Everything here is pure: the parsing of what `chapkit test` printed, the
@@ -24,10 +24,10 @@ pub use summary::{SUMMARY_MARKER, chapkit_missing, log_hint, parse_summary};
 use serde::Serialize;
 use std::time::Duration;
 
-/// Seconds one model gets at the model level before chaps gives up on it.
+/// Seconds one model gets at the model level before varde gives up on it.
 ///
 /// Passed to `chapkit test --timeout` as well, so chapkit abandons a single
-/// job no later than chaps abandons the whole run. Five minutes is roughly
+/// job no later than varde abandons the whole run. Five minutes is roughly
 /// twenty times the slowest marketplace model's honest time.
 pub const MODEL_TIMEOUT: u64 = 300;
 
@@ -53,7 +53,7 @@ pub const SAMPLE_PERIODS: usize = 36;
 /// chapkit's own default.
 pub const SAMPLE_FEATURES: usize = 3;
 
-/// The backtest chaps asks for: three periods ahead, two splits, stride one.
+/// The backtest varde asks for: three periods ahead, two splits, stride one.
 ///
 /// The smallest backtest that still exercises a rolling split, because this
 /// is a check that the model runs and not a measurement of how well it does.
@@ -147,7 +147,7 @@ pub struct Run {
     /// The way out, printed indented under the row. `None` for a pass, which
     /// needs nothing done about it.
     pub detail: Option<String>,
-    /// The chap-core job the backtest level ended on, for `chaps jobs logs`.
+    /// The chap-core job the backtest level ended on, for `varde jobs logs`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,7 +272,7 @@ pub fn closing(runs: &[Run]) -> String {
             _ => "<id>".to_string(),
         };
         line.push_str(&format!(
-            "; run `chaps models test {which} -v` for the full output"
+            "; run `varde models test {which} -v` for the full output"
         ));
     }
     line

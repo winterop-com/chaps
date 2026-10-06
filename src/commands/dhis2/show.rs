@@ -1,8 +1,8 @@
-//! `chaps dhis2 show`: what DHIS2 has, asked and reported, changing nothing.
+//! `varde dhis2 show`: what DHIS2 has, asked and reported, changing nothing.
 
 use super::*;
 
-/// `chaps dhis2 show` — what this DHIS2 has, changing nothing.
+/// `varde dhis2 show` — what this DHIS2 has, changing nothing.
 pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let session = open_session(ctx, &args.common)?;
     let target = session.target();
@@ -45,7 +45,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
             dhis2::ROUTE_AUTHORITY
         )),
         Some(route) if route.token_refused => missing.push(format!(
-            "the `chap` route does not carry chap-core's API token: {}; run `chaps dhis2 connect` \
+            "the `chap` route does not carry chap-core's API token: {}; run `varde dhis2 connect` \
              to put it there",
             route.answered
         )),
@@ -53,7 +53,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         // is the one case the proxied request exists to catch: the app would
         // be told Chap is reachable and then fail on its first request.
         Some(route) if !route.verified => missing.push(format!(
-            "nothing answered through the `chap` route: {}; run `chaps status` to see whether \
+            "nothing answered through the `chap` route: {}; run `varde status` to see whether \
              chap-core is up",
             route.answered
         )),
@@ -61,13 +61,13 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     }
     match analytics {
         dhis2::AnalyticsEvidence::Never => missing.push("analytics has never run".to_string()),
-        // Not "analytics has never run": it may well have, and chaps cannot
+        // Not "analytics has never run": it may well have, and varde cannot
         // see the tables to tell. What it can say is that the timestamp beside
         // it proves nothing, and that one command settles the question.
         dhis2::AnalyticsEvidence::Unconfirmed => missing.push(
             "analytics may never have run on this deployment: a seeded database can carry the \
              dump's timestamp, and no run has finished since DHIS2 started; run \
-             `chaps dhis2 analytics` to settle it"
+             `varde dhis2 analytics` to settle it"
                 .to_string(),
         ),
         dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded => {}
@@ -87,16 +87,16 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let report = ShowReport {
         next: match report.missing.is_empty() {
             true => {
-                "the Modeling App can reach Chap; open DHIS2 with `chaps open dhis2`".to_string()
+                "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string()
             }
-            false => "run `chaps dhis2 connect` to do the rest".to_string(),
+            false => "run `varde dhis2 connect` to do the rest".to_string(),
         },
         ..report
     };
     ctx.out.emit(&report, || human_show(&report, &ctx.out))
 }
 
-/// The two apps chaps installs, as this instance has them.
+/// The two apps varde installs, as this instance has them.
 ///
 /// **The two, and not the rest.** `show` exists to say whether DHIS2 has what
 /// Chap needs; the climate demo ships 29 bundled apps of its own, the same 29
@@ -144,7 +144,7 @@ pub(super) fn missing_apps(apps: &[ShownApp]) -> Vec<String> {
 ///
 /// Two things it is not read against: DHIS2's notifier, which says whether a
 /// run has finished on *this* instance since it started, and
-/// `.chaps/components.yaml`, which says whether the database was restored from
+/// `.varde/components.yaml`, which says whether the database was restored from
 /// a seed dump and so came with somebody else's timestamp in it.
 ///
 /// A notifier that cannot be read is a trace line and not a failure - `show`
@@ -161,8 +161,8 @@ fn analytics_evidence(ctx: &Ctx, session: &Session) -> dhis2::AnalyticsEvidence 
             false
         }
     };
-    // A seed dump is something chaps restores into its own `dhis2_db`; an
-    // external DHIS2 came with nothing of chaps', so its timestamp is its own.
+    // A seed dump is something varde restores into its own `dhis2_db`; an
+    // external DHIS2 came with nothing of varde', so its timestamp is its own.
     let seeded = session.external().is_none()
         && session
             .project

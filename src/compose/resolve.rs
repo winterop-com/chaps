@@ -9,9 +9,9 @@
 //! then the table compiled into this binary.
 //!
 //! What comes out is recorded on the [`crate::project::EnabledModel`], which
-//! is what keeps `chaps sync` offline and deterministic: the lookup happens
+//! is what keeps `varde sync` offline and deterministic: the lookup happens
 //! once, when a model is enabled or moved to a new tag, and every render after
-//! that reads the answer out of `.chaps/models.yaml`.
+//! that reads the answer out of `.varde/models.yaml`.
 
 use crate::compose::overrides;
 use crate::error::Result;
@@ -36,7 +36,7 @@ pub enum UserSource {
 }
 
 impl UserSource {
-    /// How the source reads in `models info`, the browser and `chaps update`.
+    /// How the source reads in `models info`, the browser and `varde update`.
     pub fn label(self) -> &'static str {
         match self {
             UserSource::Flag => "--user",
@@ -203,7 +203,7 @@ pub fn from_image_with(
                 "" => "root",
                 user => user,
             };
-            // The name-to-numbers half is the same one `chaps models add`
+            // The name-to-numbers half is the same one `varde models add`
             // runs, `id -u` inside the image included.
             let (user, origin) =
                 resolve_user_with(None, user, &reference, endpoints, &mut notes, pull, probe);
@@ -216,7 +216,7 @@ pub fn from_image_with(
         (None, None) => {
             notes.push(format!(
                 "nothing could say what {reference} runs as, so `{}` was enabled \
-                 with the user the built-in table records - re-run `chaps models \
+                 with the user the built-in table records - re-run `varde models \
                  enable {}` with a network, or pass `--user <uid>:<gid>`",
                 req.id, req.id
             ));
@@ -279,9 +279,9 @@ fn flag(value: Option<&str>) -> Option<String> {
 /// decoded. Everything else that resolves becomes the numeric pair, so the
 /// `user:` line and the init container's `chown` are the same two
 /// numbers. A name nothing could resolve is kept as it is, which is what
-/// `chaps sync` warns about.
+/// `varde sync` warns about.
 ///
-/// `chaps doctor` compares through here as well: `chapkit` off an image and
+/// `varde doctor` compares through here as well: `chapkit` off an image and
 /// `1000:1000` out of `models.yaml` are the same answer written two ways.
 pub fn normalize(user: &str) -> String {
     if overrides::is_root(user) {

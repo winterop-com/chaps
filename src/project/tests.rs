@@ -37,7 +37,7 @@ fn enabled(port: Option<u16>) -> EnabledModel {
     }
 }
 
-/// The definition `chaps models add https://github.com/chap-models/\
+/// The definition `varde models add https://github.com/chap-models/\
 /// chapkit_ghr_model` records.
 fn manual() -> ManualModel {
     ManualModel {
@@ -68,14 +68,14 @@ fn a_manual_definition_round_trips_in_a_file_of_its_own() {
     };
     project.save().unwrap();
 
-    let path = dir.path().join(CHAPS_DIR).join(MANUAL_MODELS_FILE);
+    let path = dir.path().join(VARDE_DIR).join(MANUAL_MODELS_FILE);
     let body = std::fs::read_to_string(&path).expect("models-manual.yaml is written");
     assert!(body.starts_with(MANAGED_HEADER), "{body}");
     assert!(body.contains("\nchapkit_ghr_model:\n"), "{body}");
     assert!(body.contains("  follow: main\n"), "{body}");
     assert!(body.contains("  added: 2026-09-24\n"), "{body}");
     // A definition is not an enablement: models.yaml stays empty.
-    let models = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(MODELS_FILE)).unwrap();
+    let models = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(MODELS_FILE)).unwrap();
     assert!(!models.contains("chapkit_ghr_model"), "{models}");
 
     let loaded = Project::load(dir.path()).unwrap();
@@ -91,7 +91,7 @@ fn a_project_that_added_no_model_of_its_own_has_no_such_file() {
         state: ProjectState::default(),
     };
     project.save().unwrap();
-    let path = dir.path().join(CHAPS_DIR).join(MANUAL_MODELS_FILE);
+    let path = dir.path().join(VARDE_DIR).join(MANUAL_MODELS_FILE);
     assert!(!path.exists(), "an empty file would be one to explain");
     assert!(Project::load(dir.path()).unwrap().state.manual.is_empty());
 
@@ -185,8 +185,8 @@ fn save_then_load_round_trips_both_files() {
     };
     project.save().unwrap();
 
-    let chaps = dir.path().join(CHAPS_DIR);
-    let project_body = std::fs::read_to_string(chaps.join(PROJECT_FILE)).unwrap();
+    let varde = dir.path().join(VARDE_DIR);
+    let project_body = std::fs::read_to_string(varde.join(PROJECT_FILE)).unwrap();
     assert!(project_body.starts_with(MANAGED_HEADER), "{project_body}");
     assert!(project_body.contains("\nschema_version: 1\n"));
     assert!(project_body.contains("chap_image_tag: v1.2.3"));
@@ -195,13 +195,13 @@ fn save_then_load_round_trips_both_files() {
         !project_body.contains("models:"),
         "models live in their own file"
     );
-    let models_body = std::fs::read_to_string(chaps.join(MODELS_FILE)).unwrap();
+    let models_body = std::fs::read_to_string(varde.join(MODELS_FILE)).unwrap();
     assert!(models_body.starts_with(MANAGED_HEADER), "{models_body}");
     assert!(models_body.contains("\nchapkit_ewars_model:\n"));
     assert!(models_body.contains("host_port: 5001"));
     assert!(models_body.contains("channel: stable"));
     assert!(
-        std::fs::read_dir(&chaps).unwrap().all(|e| !e
+        std::fs::read_dir(&varde).unwrap().all(|e| !e
             .unwrap()
             .file_name()
             .to_string_lossy()
@@ -238,7 +238,7 @@ fn the_resolved_user_round_trips() {
         },
     };
     project.save().unwrap();
-    let path = dir.path().join(CHAPS_DIR).join(MODELS_FILE);
+    let path = dir.path().join(VARDE_DIR).join(MODELS_FILE);
     let body = std::fs::read_to_string(&path).unwrap();
     assert!(body.contains("  user: root\n"), "{body}");
     assert!(body.contains("  user_from: image-config\n"), "{body}");
@@ -259,7 +259,7 @@ fn a_model_with_no_published_port_round_trips() {
         },
     };
     project.save().unwrap();
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(MODELS_FILE)).unwrap();
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(MODELS_FILE)).unwrap();
     assert!(body.contains("host_port: null"), "{body}");
 
     let loaded = Project::load(dir.path()).unwrap();
@@ -305,7 +305,7 @@ fn load_refuses_a_compose_file_outside_the_directory() {
     let err = Project::load(dir.path()).expect_err("an absolute compose file");
     let text = err.to_string();
     assert!(
-        text.contains("`.chaps/models.yaml` gives chapkit_ewars_model"),
+        text.contains("`.varde/models.yaml` gives chapkit_ewars_model"),
         "{text}"
     );
     assert!(text.contains("`/tmp/compose.evil.yml`"), "{text}");
@@ -321,7 +321,7 @@ fn load_refuses_a_compose_file_outside_the_directory() {
     .unwrap();
     let err = Project::load(dir.path()).expect_err("a rendered file that climbs out");
     assert!(
-        err.to_string().contains("`.chaps/project.yaml` lists"),
+        err.to_string().contains("`.varde/project.yaml` lists"),
         "{err}"
     );
 }
@@ -464,7 +464,7 @@ fn the_api_port_in_effect_comes_from_env_before_the_recorded_state() {
 #[test]
 fn the_api_port_source_names_its_file() {
     assert_eq!(ApiPortSource::Env.label(), "from .env");
-    assert_eq!(ApiPortSource::Project.label(), "from .chaps/project.yaml");
+    assert_eq!(ApiPortSource::Project.label(), "from .varde/project.yaml");
     // It is a field of `status --json`, so the spelling is part of that
     // document.
     assert_eq!(
@@ -496,7 +496,7 @@ fn the_compose_source_round_trips_both_ways() {
     };
     project.save().unwrap();
 
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(PROJECT_FILE)).unwrap();
     assert!(body.contains("chap_compose_source:"));
     assert!(body.contains("kind: fetched"));
     assert!(body.contains("tag: v2.3.1"));
@@ -507,7 +507,7 @@ fn the_compose_source_round_trips_both_ways() {
         loaded.cached_compose_path(),
         Some(
             dir.path()
-                .join(CHAPS_DIR)
+                .join(VARDE_DIR)
                 .join("compose.chap-core.v2.3.1.yml")
         )
     );
@@ -518,7 +518,7 @@ fn the_compose_source_round_trips_both_ways() {
         state: ProjectState::default(),
     };
     project.save().unwrap();
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(PROJECT_FILE)).unwrap();
     assert!(body.contains("kind: embedded"));
     let loaded = Project::load(dir.path()).unwrap();
     assert_eq!(loaded.state.chap_compose_source, ComposeSource::Embedded);
@@ -540,7 +540,7 @@ fn the_auth_block_round_trips_as_two_booleans_and_no_secret() {
     };
     project.save().unwrap();
 
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(PROJECT_FILE)).unwrap();
     assert!(body.contains("auth:\n"), "{body}");
     assert!(body.contains("  api_token: true\n"), "{body}");
     assert!(body.contains("  registration_key: true\n"), "{body}");
@@ -570,7 +570,7 @@ fn the_compose_project_name_round_trips() {
         },
     };
     project.save().unwrap();
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(PROJECT_FILE)).unwrap();
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(PROJECT_FILE)).unwrap();
     assert!(
         body.contains("\ncompose_project: mychap-1ab2c3\n"),
         "{body}"
@@ -668,7 +668,7 @@ fn a_missing_or_blank_models_file_means_no_models() {
         state: ProjectState::default(),
     };
     project.save().unwrap();
-    let models = dir.path().join(CHAPS_DIR).join(MODELS_FILE);
+    let models = dir.path().join(VARDE_DIR).join(MODELS_FILE);
     assert!(models.is_file());
     assert!(Project::load(dir.path()).unwrap().state.models.is_empty());
 
@@ -695,7 +695,7 @@ fn the_components_file_round_trips_and_shapes_the_f_list() {
     };
     project.save().unwrap();
 
-    let body = std::fs::read_to_string(dir.path().join(CHAPS_DIR).join(COMPONENTS_FILE))
+    let body = std::fs::read_to_string(dir.path().join(VARDE_DIR).join(COMPONENTS_FILE))
         .expect("components.yaml is written beside the others");
     assert!(body.starts_with(MANAGED_HEADER), "{body}");
     assert!(body.contains("\nchap-core:\n"), "{body}");
@@ -707,7 +707,7 @@ fn the_components_file_round_trips_and_shapes_the_f_list() {
         compose_files_for(&loaded.state.components),
         vec![
             "compose.yml",
-            "compose.chaps.yml",
+            "compose.varde.yml",
             "compose.ocs.yml",
             "compose.s3.yml",
             "compose.marketplace.yml"
@@ -732,7 +732,7 @@ fn a_missing_or_blank_components_file_is_chap_core_alone() {
         },
     };
     project.save().unwrap();
-    let components = dir.path().join(CHAPS_DIR).join(COMPONENTS_FILE);
+    let components = dir.path().join(VARDE_DIR).join(COMPONENTS_FILE);
     std::fs::remove_file(&components).unwrap();
 
     let loaded = Project::load(dir.path()).unwrap();
@@ -842,7 +842,7 @@ fn exists_and_helpers_reflect_the_state() {
         project.compose_file_paths(),
         vec![
             dir.path().join(BASE_COMPOSE),
-            dir.path().join(CHAPS_COMPOSE),
+            dir.path().join(VARDE_COMPOSE),
             dir.path().join(MARKETPLACE_COMPOSE),
         ]
     );

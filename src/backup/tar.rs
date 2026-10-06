@@ -96,7 +96,7 @@ fn finish_tar(mut cmd: Command, what: &str) -> Result<String> {
 fn tar_spawn_error(err: &std::io::Error) -> anyhow::Error {
     if err.kind() == std::io::ErrorKind::NotFound {
         anyhow::anyhow!(
-            "`tar` was not found on PATH; chaps builds and reads backup archives with it"
+            "`tar` was not found on PATH; varde builds and reads backup archives with it"
         )
     } else {
         anyhow::anyhow!("could not run `tar`: {err}")

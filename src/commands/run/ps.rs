@@ -1,4 +1,4 @@
-//! `chaps ps`, and the scope `stop` and `top` share with it.
+//! `varde ps`, and the scope `stop` and `top` share with it.
 
 use super::{group_dir, groups, groups_dir, target};
 use crate::cli::ModelPsArgs;
@@ -13,19 +13,19 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// One model as `chaps ps` lists it.
+/// One model as `varde ps` lists it.
 #[derive(Debug, Serialize)]
 pub struct PsRow {
     /// The group it runs in; `null` inside a deployment of the caller's own.
     pub group: Option<String>,
     #[serde(flatten)]
     pub model: ModelRef,
-    /// The `chaps status` STATE word.
+    /// The `varde status` STATE word.
     pub state: &'static str,
     pub project_dir: PathBuf,
 }
 
-/// What `chaps ps` found, for `--json`.
+/// What `varde ps` found, for `--json`.
 #[derive(Debug, Serialize)]
 pub(super) struct PsReport {
     models: Vec<PsRow>,
@@ -53,7 +53,7 @@ pub(crate) fn scope(ctx: &Ctx, group: Option<&str>) -> Result<Vec<(Option<String
     })
 }
 
-/// Every model in `scope`, with its state as `chaps status` would say it.
+/// Every model in `scope`, with its state as `varde status` would say it.
 pub(crate) fn rows(scope: &[(Option<String>, PathBuf)]) -> Result<Vec<PsRow>> {
     let mut out = Vec::new();
     for (group, dir) in scope {
@@ -98,7 +98,7 @@ pub fn ps(ctx: &Ctx, args: &ModelPsArgs) -> Result<()> {
         .emit(&report, || ps_table(&report, &scope, &ctx.out))
 }
 
-/// The human rendering of `chaps ps`.
+/// The human rendering of `varde ps`.
 pub(super) fn ps_table(
     report: &PsReport,
     scope: &[(Option<String>, PathBuf)],
@@ -106,8 +106,8 @@ pub(super) fn ps_table(
 ) -> String {
     if report.models.is_empty() {
         return out.backticks(match scope.is_empty() {
-            true => "nothing has been started with `chaps run` yet; `chaps run <model>` starts one",
-            false => "no models are enabled here; `chaps run <model>` starts one",
+            true => "nothing has been started with `varde run` yet; `varde run <model>` starts one",
+            false => "no models are enabled here; `varde run <model>` starts one",
         });
     }
     let grouped = report.models.iter().any(|row| row.group.is_some());

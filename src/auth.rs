@@ -13,7 +13,7 @@
 //!   `$ping`, and chap-core accepts it only under `/v2/services`, so a
 //!   registration key is no general-purpose API credential.
 //!
-//! Both values belong in `.env` and nowhere else: `.chaps/project.yaml`
+//! Both values belong in `.env` and nowhere else: `.varde/project.yaml`
 //! records only whether each one is in use, so the state directory can be read,
 //! copied and committed without leaking a credential.
 
@@ -43,16 +43,16 @@ pub const MIN_TOKEN_LENGTH: usize = 32;
 /// Everything else needs one, `/v2/services` and `/docs` included.
 pub const OPEN_PATHS: &[&str] = &["/health", "/health/ready", "/system/info"];
 
-/// Comment `chaps auth enable` writes above secrets that had no line of their
+/// Comment `varde auth enable` writes above secrets that had no line of their
 /// own in `.env`.
-pub const APPENDED_HEADING: &str = "# API authentication, written by `chaps auth`.";
+pub const APPENDED_HEADING: &str = "# API authentication, written by `varde auth`.";
 
 /// What to do with the token once it exists.
 ///
 /// The Modeling App never sees it: DHIS2's `chap` route adds it to every
-/// request it proxies, and `chaps dhis2 connect` is what writes it there.
+/// request it proxies, and `varde dhis2 connect` is what writes it there.
 pub const MODELING_APP_HINT: &str =
-    "the DHIS2 `chap` route carries it once `chaps dhis2 connect` has run";
+    "the DHIS2 `chap` route carries it once `varde dhis2 connect` has run";
 
 /// A freshly generated secret: [`SECRET_BYTES`] random bytes as hex.
 pub fn random_secret() -> Result<String> {
@@ -94,7 +94,7 @@ pub fn active_value(body: &str, var: &str) -> Option<String> {
 /// The value of the last commented `# var=` line that still carries one.
 ///
 /// [`comment_out`] keeps the value behind the `#`, so this is how
-/// `chaps auth enable` hands a deployment back the very token its clients are
+/// `varde auth enable` hands a deployment back the very token its clients are
 /// already configured with, rather than a new one nobody has yet. The empty
 /// placeholder the generated `.env` ships carries no value and is skipped.
 pub fn commented_value(body: &str, var: &str) -> Option<String> {
@@ -151,7 +151,7 @@ pub fn write_secrets(body: &str, secrets: &[(&str, &str)]) -> String {
 /// Comment out every active `var=` line of a `.env` body, keeping the value
 /// behind the `#`.
 ///
-/// The value is kept so `chaps auth enable` can recover it, and so an operator
+/// The value is kept so `varde auth enable` can recover it, and so an operator
 /// who turned authentication off by mistake still has the token their clients
 /// were configured with.
 pub fn comment_out(body: &str, var: &str) -> String {

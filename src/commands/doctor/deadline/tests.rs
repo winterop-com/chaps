@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn a_bounded_run_reports_a_binary_that_is_not_there() {
-    let outcome = run_bounded("chaps-no-such-binary-exists", &["--help"], DOCKER_TIMEOUT);
+    let outcome = run_bounded("varde-no-such-binary-exists", &["--help"], DOCKER_TIMEOUT);
     assert_eq!(outcome, Outcome::Missing);
     assert!(!outcome.succeeded());
     assert_eq!(outcome.stderr(), "the binary is not on PATH");

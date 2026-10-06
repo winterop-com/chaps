@@ -1,4 +1,4 @@
-//! `chaps registry update|show`.
+//! `varde registry update|show`.
 
 use crate::cli::RegistryCmd;
 use crate::commands::Ctx;
@@ -94,12 +94,12 @@ fn catalogue_line(report: &RegistryReport) -> String {
     match report.models {
         0 => format!(
             "the catalogue ({source}) holds no models; \
-             run `chaps registry update` to fetch it again"
+             run `varde registry update` to fetch it again"
         ),
-        1 => format!("1 model in the catalogue ({source}); `chaps models info ID` describes one"),
+        1 => format!("1 model in the catalogue ({source}); `varde models info ID` describes one"),
         count => {
             format!(
-                "{count} models in the catalogue ({source}); `chaps models info ID` describes one"
+                "{count} models in the catalogue ({source}); `varde models info ID` describes one"
             )
         }
     }

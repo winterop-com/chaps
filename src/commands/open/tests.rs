@@ -38,24 +38,24 @@ fn a_model_opens_its_docs_on_its_port_or_through_chap_core() {
     project.state.components.chap_core.enabled = false;
     let err = url(&project, &model).unwrap_err().to_string();
     assert!(
-        err.contains("run `chaps models expose chapkit_ewars_model`"),
+        err.contains("run `varde models expose chapkit_ewars_model`"),
         "{err}"
     );
 }
 
 /// The three answers about the container each say something different, and
-/// only the one that knows nothing is running names `chaps up`.
+/// only the one that knows nothing is running names `varde up`.
 #[test]
 fn the_container_note_says_which_of_the_three_it_is() {
     assert_eq!(running_note(Running::Yes, Component::Dhis2), None);
     let no = running_note(Running::No, Component::Dhis2).expect("a note");
     assert!(no.contains("no dhis2 container is running"), "{no}");
-    assert!(no.contains("run `chaps up`"), "{no}");
+    assert!(no.contains("run `varde up`"), "{no}");
     let unknown = running_note(Running::Unknown, Component::Ocs).expect("a note");
     assert!(unknown.contains("docker could not be asked"), "{unknown}");
-    assert!(unknown.contains("run `chaps doctor`"), "{unknown}");
+    assert!(unknown.contains("run `varde doctor`"), "{unknown}");
     assert!(
-        !unknown.contains("chaps up"),
+        !unknown.contains("varde up"),
         "nothing was learned, so nothing is prescribed: {unknown}"
     );
 }
@@ -75,7 +75,7 @@ fn the_proxy_note_is_only_for_an_unpublished_instance() {
     assert_eq!(proxy_note(false, Component::Ocs), None);
     let note = proxy_note(true, Component::Ocs).expect("a note");
     assert!(
-        note.contains("`chaps components enable ocs --port N`"),
+        note.contains("`varde components enable ocs --port N`"),
         "{note}"
     );
 }
@@ -143,7 +143,7 @@ fn the_listing_closes_on_what_can_be_opened() {
         text.contains("nothing in this deployment has a web interface"),
         "{text}"
     );
-    assert!(text.contains("`chaps components list`"), "{text}");
+    assert!(text.contains("`varde components list`"), "{text}");
 
     let some = OpenListReport {
         components: vec![
@@ -153,7 +153,7 @@ fn the_listing_closes_on_what_can_be_opened() {
     };
     let text = human_list(&some, &out);
     assert!(text.contains("1 of them can be opened"), "{text}");
-    assert!(text.contains("run `chaps open NAME`"), "{text}");
+    assert!(text.contains("run `varde open NAME`"), "{text}");
 }
 
 /// A machine with no opener is told the address and not that something
@@ -205,7 +205,7 @@ fn a_successful_open_reports_the_page_then_the_container() {
     );
     assert_eq!(
         lines[1],
-        "dhis2 answered at that address; `chaps status` reports the rest of this deployment"
+        "dhis2 answered at that address; `varde status` reports the rest of this deployment"
     );
 
     // A container that is up and not serving yet is not called answering.
@@ -218,7 +218,7 @@ fn a_successful_open_reports_the_page_then_the_container() {
         text.contains("the dhis2 container is running and did not answer yet"),
         "{text}"
     );
-    assert!(text.contains("run `chaps status` in a moment"), "{text}");
+    assert!(text.contains("run `varde status` in a moment"), "{text}");
 }
 
 /// `--no-browser` says where the page is and nothing about an opener: none
