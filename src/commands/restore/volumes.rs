@@ -113,6 +113,14 @@ pub(super) fn restore_components(
             continue;
         };
 
+        if backup::is_dhis2_db_dump(&member) {
+            let dump = stage.path(&member)?;
+            backup::tar_extract_member_to(archive, &member, &dump)?;
+            super::dhis2::restore_dhis2_db(project, &dump, report)?;
+            report.components.push(part.service.clone());
+            continue;
+        }
+
         // Staged under the member's own path, which is unique per volume where
         // the component name is not.
         let tar = stage.path(&member)?;

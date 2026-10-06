@@ -22,6 +22,7 @@
 //! [`crate::backup::restored_compose_project`].
 
 mod database;
+mod dhis2;
 mod files;
 mod volumes;
 
@@ -439,10 +440,10 @@ fn human(report: &RestoreReport, out: &Out) -> String {
     text.push('\n');
     if report.started {
         text.push_str(
-            &out.backticks("Chap is starting; `chaps status` says when the models are back"),
+            &out.backticks("the deployment is starting; `chaps status` says when it answers"),
         );
     } else {
-        text.push_str(&out.backticks("Chap was left as it is; start it with `chaps up`"));
+        text.push_str(&out.backticks("the deployment was left as it is; start it with `chaps up`"));
     }
     text.push('\n');
     text

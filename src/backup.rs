@@ -20,12 +20,14 @@
 //! the system `tar` binary rather than a Rust tar crate, so what an operator
 //! sees with `tar -tzf` is exactly what `chaps backup restore` sees.
 
+mod dhis2;
 mod files;
 mod pg_restore;
 mod plan;
 mod tar;
 mod volumes;
 
+pub use dhis2::*;
 pub use files::{Stage, check_manifest_files, copy_file, join_relative, project_files};
 pub use pg_restore::{
     PgRestore, pg_restore_error_entries, pg_restore_outcome, pg_restore_warnings, tail_lines,

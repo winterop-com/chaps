@@ -948,3 +948,35 @@ fn a_manifest_path_outside_the_project_is_refused() {
     assert!(err.to_string().contains("refusing to copy"), "{err}");
     assert!(!dir.path().join("escaped").exists());
 }
+
+/// The DHIS2 dump leaves out what DHIS2 makes again, and keeps the metadata
+/// whose names start like the analytics tables.
+#[test]
+fn the_dhis2_dump_leaves_out_what_dhis2_makes_again() {
+    let command = dhis2_dump_command();
+    for table in ["analytics_*", "aggregated_*", "completeness_*", "_*"] {
+        assert!(command.contains(&format!(" -T '{table}'")), "{command}");
+    }
+    assert!(
+        command.contains("--exclude-table-data='audit'"),
+        "{command}"
+    );
+    // `analyticstablehook` is metadata, and `analytics*` would take it.
+    assert!(!command.contains("'analytics*'"), "{command}");
+    assert!(command.contains("-Fc -Z 1"), "{command}");
+
+    let restore = dhis2_restore_command();
+    assert!(restore.contains("--if-exists --force"), "{restore}");
+    assert!(
+        restore.contains(&format!("-j {DHIS2_RESTORE_JOBS}")),
+        "{restore}"
+    );
+    assert!(restore.contains("--no-owner --no-privileges"), "{restore}");
+    assert!(restore.ends_with(DHIS2_RESTORE_PATH), "{restore}");
+    assert!(
+        dhis2_mark_command().contains(crate::compose::render::DHIS2_SEED_MARK),
+        "the restored database is a complete one"
+    );
+    assert!(is_dhis2_db_dump(DHIS2_DB_DUMP_MEMBER));
+    assert!(!is_dhis2_db_dump("components/dhis2-home.tar"));
+}

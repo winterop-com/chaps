@@ -236,3 +236,21 @@ fn only_a_failed_read_fails_the_backup() {
     );
     assert!(failed_reads(&fine.manifest).is_empty());
 }
+
+/// A large volume of a running service is said before the pause, because the
+/// service does not answer until the copy is done.
+#[test]
+fn a_long_pause_is_said_before_it_starts() {
+    use super::capture::{LONG_PAUSE_BYTES, pause_warning_for};
+    assert_eq!(
+        pause_warning_for("dhis2-db", "x_dhis2_db", LONG_PAUSE_BYTES - 1),
+        None
+    );
+    let warning =
+        pause_warning_for("dhis2-db", "x_dhis2_db", 40 * LONG_PAUSE_BYTES).expect("a large volume");
+    assert!(
+        warning.starts_with("dhis2-db is paused while chaps copies 40.0 GB of `x_dhis2_db`"),
+        "{warning}"
+    );
+    assert!(warning.contains("`--no-components`"), "{warning}");
+}

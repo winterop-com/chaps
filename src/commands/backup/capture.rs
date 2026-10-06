@@ -6,6 +6,7 @@ use crate::backup::{self, DB_MEMBER, ManifestComponent, ManifestDatabase, Manife
 use crate::compose::volume_name;
 use crate::docker;
 use crate::error::Result;
+use crate::output;
 use crate::project::{ENV_FILE, Project};
 
 /// `pg_dump -Fc` the chap-core database into the stage.
@@ -226,9 +227,21 @@ pub(super) fn capture_components(
             continue;
         }
 
+        // The DHIS2 database as a dump: no pause, and without the tables
+        // that DHIS2 makes again. See `backup::dhis2`.
+        if part.service == "dhis2-db" {
+            dump_dhis2_db(project, stage, running.has(part.service), &mut entry)?;
+            out.push(entry);
+            continue;
+        }
+
         let member = backup::component_member(part.member);
         let dest = stage.path(&member)?;
-        let mut quiesce = Quiesce::hold(project, part.service, running.has(part.service));
+        let is_running = running.has(part.service);
+        if is_running && let Some(warning) = long_pause_warning(part.service, &volume) {
+            output::warn(&warning);
+        }
+        let mut quiesce = Quiesce::hold(project, part.service, is_running);
         let read = backup::read_volume(&volume, &dest);
         entry.quiesce = quiesce.release();
         let piped = read?;
@@ -248,6 +261,65 @@ pub(super) fn capture_components(
         out.push(entry);
     }
     Ok(out)
+}
+
+/// `pg_dump` the DHIS2 database into the stage, without the analytics tables
+/// and the audit data. The database must run; a dump needs no pause.
+fn dump_dhis2_db(
+    project: &Project,
+    stage: &Stage,
+    running: bool,
+    entry: &mut ManifestComponent,
+) -> Result<()> {
+    entry.data_dir = backup::DHIS2_DB_DUMP_SOURCE.to_string();
+    if !running {
+        entry.skipped = Some(
+            "dhis2-db is not running, so its database cannot be dumped; start it with \
+             `chaps up`, or pass --no-components"
+                .to_string(),
+        );
+        entry.failed = true;
+        return Ok(());
+    }
+    let dest = stage.path(backup::DHIS2_DB_DUMP_MEMBER)?;
+    let command = backup::dhis2_dump_command();
+    let args = compose_exec("dhis2-db", &["sh", "-c", &command]);
+    let piped = docker::run_compose_piped(project, &args, None, Some(&dest))?;
+    if piped.code != 0 {
+        let _ = std::fs::remove_file(&dest);
+        entry.failed = true;
+        entry.skipped = Some(format!(
+            "pg_dump of the DHIS2 database failed (exit {}): {}",
+            piped.code,
+            backup::first_line(&piped.stderr)
+        ));
+        return Ok(());
+    }
+    entry.size_bytes = backup::file_size(&dest);
+    entry.path = Some(backup::DHIS2_DB_DUMP_MEMBER.to_string());
+    Ok(())
+}
+
+/// From this size on, the pause of a service is long enough to say so first.
+pub(super) const LONG_PAUSE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// The warning before a running service is paused for a large volume: it does
+/// not answer until the copy is done. `None` for a small volume, or when its
+/// size is not known.
+fn long_pause_warning(service: &str, volume: &str) -> Option<String> {
+    pause_warning_for(service, volume, docker::volume_size_bytes(volume)?)
+}
+
+/// [`long_pause_warning`] for a known size.
+pub(super) fn pause_warning_for(service: &str, volume: &str, bytes: u64) -> Option<String> {
+    (bytes >= LONG_PAUSE_BYTES).then(|| {
+        format!(
+            "{service} is paused while chaps copies {} of `{volume}`, and it does not answer \
+             until the copy is done; this can take minutes, so run the backup when nobody \
+             uses it, or use `--no-components` to leave out the volumes of every component",
+            backup::human_size(bytes)
+        )
+    })
 }
 
 /// `exec -T <service> <cmd..>`, the form that needs no terminal.

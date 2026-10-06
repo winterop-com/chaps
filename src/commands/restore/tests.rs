@@ -333,7 +333,7 @@ fn the_summary_reads_in_the_order_things_happened() {
     assert!(text.contains("database  chap_core restored\n"));
     assert!(text.contains("models    chapkit-ewars-model"));
     assert!(text.contains("parts     ocs"));
-    assert!(text.contains("Chap is starting"));
+    assert!(text.contains("the deployment is starting"));
     // This archive came from this deployment, so there is nothing to say
     // about whose identity it kept.
     assert!(!text.contains("identity"), "{text}");
@@ -357,7 +357,7 @@ fn pg_restore_warnings_are_counted_not_hidden() {
         &Out::default(),
     );
     assert!(text.contains("database  chap_core restored with 1 warning(s) from pg_restore"));
-    assert!(text.contains("Chap was left as it is"));
+    assert!(text.contains("the deployment was left as it is"));
 }
 
 #[test]
