@@ -1114,3 +1114,37 @@ fn the_offline_refusal_names_both_halves_of_the_network_it_needs() {
     assert!(OFFLINE_APPS.contains("`--offline`"));
     assert!(OFFLINE_APPS.contains("App Management"));
 }
+
+/// The seed password serves every user of a DHIS2 chaps deployed from a
+/// seed, after `.env` and the environment, and never another instance.
+#[test]
+fn the_seed_password_serves_every_user_of_a_seeded_dhis2() {
+    let seeded = |user| CredentialInputs {
+        user,
+        seed_password: Some("district"),
+        ..inputs("")
+    };
+    let em = resolved(seeded(Some("em")));
+    assert_eq!(em.user(), Some("em"));
+    assert_eq!(em.source, CredentialSource::SeedPassword);
+    assert_eq!(
+        em.describe(),
+        "the seed password from `.chaps/components.yaml`"
+    );
+    // Without --user: the user `.env` names, or admin.
+    let admin = resolved(seeded(None));
+    assert_eq!(admin.user(), Some("admin"));
+    assert_eq!(admin.source, CredentialSource::SeedPassword);
+    // The environment still wins.
+    let exported = resolved(CredentialInputs {
+        env_password: Some("sekret"),
+        ..seeded(Some("em"))
+    });
+    assert_eq!(exported.source, CredentialSource::Environment);
+    // Not on a DHIS2 chaps did not deploy.
+    let external = credentials_of(&CredentialInputs {
+        deployed: false,
+        ..seeded(Some("em"))
+    });
+    assert!(external.is_err());
+}

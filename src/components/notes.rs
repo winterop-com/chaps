@@ -64,20 +64,13 @@ pub fn dhis2_seed_note(seed: Option<&str>) -> String {
     }
 }
 
-/// The note for a seed that gives every DHIS2 user one password.
-///
-/// `chaps dhis2` logs in as `admin` with [`crate::dhis2::DEFAULT_PASSWORD`]
-/// unless `.env` says otherwise, so another password names that line too.
-pub fn dhis2_seed_password_note(password: &str) -> String {
-    let base = "the restore gives every DHIS2 user the password set by `seed_password:` in \
-                `.chaps/components.yaml`, turns on every account and turns off two-factor login";
-    match password == crate::dhis2::DEFAULT_PASSWORD {
-        true => base.to_string(),
-        false => format!(
-            "{base}; set `{}` in `.env` to the same password, so `chaps dhis2` can log in",
-            crate::dhis2::ADMIN_PASSWORD_ENV_VAR
-        ),
-    }
+/// The note for a seed that gives every DHIS2 user one password. `chaps
+/// dhis2` uses that password for every user, so nothing else is to set.
+pub fn dhis2_seed_password_note() -> String {
+    "the restore gives every DHIS2 user the password set by `seed_password:` in \
+     `.chaps/components.yaml`, turns on every account and turns off two-factor login; \
+     `chaps dhis2 --user NAME` uses it for any user"
+        .to_string()
 }
 
 /// The note printed when the seed was left at `default` and the pinned minor

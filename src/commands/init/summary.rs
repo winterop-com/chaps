@@ -224,11 +224,8 @@ pub(super) fn summary(
                 components.dhis2_seed_source(),
             ));
         }
-        if let (Some(_), Some(password)) = (
-            components.dhis2_seed_source(),
-            &components.dhis2.seed_password,
-        ) {
-            dhis2.push(crate::components::dhis2_seed_password_note(password));
+        if components.dhis2_seed_source().is_some() && components.dhis2.seed_password.is_some() {
+            dhis2.push(crate::components::dhis2_seed_password_note());
         }
         dhis2.push(DHIS2_FIRST_START_NOTE.to_string());
         // Only with a chap-core to connect it to.

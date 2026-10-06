@@ -18,8 +18,12 @@ pub enum CredentialSource {
     /// [`TOKEN_ENV_VAR`] or [`PASSWORD_ENV_VAR`] in the environment this
     /// command ran in.
     Environment,
-    /// Neither, so [`DEFAULT_PASSWORD`] - which is what a seeded dump and an
-    /// empty database both give, on a DHIS2 chaps deployed and nowhere else.
+    /// `seed_password:` in `.chaps/components.yaml`: the restore of the seed
+    /// gave every user that password, on a DHIS2 chaps deployed.
+    SeedPassword,
+    /// None of these, so [`DEFAULT_PASSWORD`] - which is what a seeded dump
+    /// and an empty database both give, on a DHIS2 chaps deployed and nowhere
+    /// else.
     Default,
 }
 
@@ -40,6 +44,9 @@ pub fn describe_credential(kind: AuthKind, source: CredentialSource) -> String {
         (AuthKind::Basic, CredentialSource::EnvFile) => "password from `.env`".to_string(),
         (AuthKind::Basic, CredentialSource::Environment) => {
             format!("password from {PASSWORD_ENV_VAR}")
+        }
+        (AuthKind::Basic, CredentialSource::SeedPassword) => {
+            "the seed password from `.chaps/components.yaml`".to_string()
         }
         (AuthKind::Basic, CredentialSource::Default) => "the DHIS2 default password".to_string(),
         (AuthKind::Token, CredentialSource::EnvFile) => "API token from `.env`".to_string(),
@@ -157,6 +164,9 @@ pub struct CredentialInputs<'a> {
     /// Whether chaps deployed this DHIS2, which is the only case in which
     /// [`DEFAULT_PASSWORD`] is known to be anybody's password.
     pub deployed: bool,
+    /// `seed_password:` of a DHIS2 chaps deployed from a seed: the password of
+    /// every user, so it serves any `--user`.
+    pub seed_password: Option<&'a str>,
 }
 
 /// The credentials for this deployment's DHIS2, read from `.env` and the
@@ -165,6 +175,7 @@ pub fn credentials_for(
     project_dir: &Path,
     user: Option<&str>,
     deployed: bool,
+    seed_password: Option<&str>,
 ) -> Result<Credentials> {
     let body =
         std::fs::read_to_string(project_dir.join(crate::project::ENV_FILE)).unwrap_or_default();
@@ -181,6 +192,7 @@ pub fn credentials_for(
         env_password: env_password.as_deref(),
         env_token: env_token.as_deref(),
         deployed,
+        seed_password,
     })
 }
 
@@ -222,6 +234,9 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
     let env_user = clean(inputs.env_username);
     let env_password = clean(inputs.env_password);
     let env_token = clean(inputs.env_token);
+    // Only on a DHIS2 chaps deployed: a seed password says nothing about any
+    // other instance.
+    let seed_password = clean(inputs.seed_password).filter(|_| inputs.deployed);
     // Whose each password is.
     let file_owner = file_user
         .clone()
@@ -243,6 +258,13 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
                 &name,
                 &password,
                 CredentialSource::Environment,
+            ));
+        }
+        if let Some(password) = seed_password {
+            return Ok(Credentials::new(
+                &name,
+                &password,
+                CredentialSource::SeedPassword,
             ));
         }
         if inputs.deployed && name == DEFAULT_USERNAME {
@@ -277,6 +299,13 @@ pub fn credentials_of(inputs: &CredentialInputs) -> Result<Credentials> {
             &user,
             &password,
             CredentialSource::Environment,
+        ));
+    }
+    if let Some(password) = seed_password {
+        return Ok(Credentials::new(
+            &file_owner,
+            &password,
+            CredentialSource::SeedPassword,
         ));
     }
     if default_allowed {
