@@ -685,3 +685,32 @@ fn plain_http_to_another_machine_is_noted() {
     assert!(cleartext_note("http://192.168.1.20:8080").is_none());
     assert!(cleartext_note("http://dhis2:8080").is_none());
 }
+
+/// A failed SQL statement keeps its cause and loses the statement, and the
+/// memory note is there only for a memory failure.
+#[test]
+fn a_failed_analytics_run_says_the_cause_and_not_the_statement() {
+    use super::analytics::failure_message;
+    let reason = format!(
+        "StatementCallback; SQL [insert into analytics_2019_temp select ...]; ERROR: \"{}\" \
+         is out of range for type double precision",
+        "9".repeat(2081)
+    );
+    let text = failure_message(&reason, "41 seconds");
+    assert_eq!(
+        text,
+        "the analytics run failed after 41 seconds: \"999999999999... (2081 digits)\" is out \
+         of range for type double precision; a data value is a number too large for DHIS2; find \
+         it in the `datavalue` table, then correct it or delete it in DHIS2"
+    );
+    assert!(!text.contains("insert into"), "{text}");
+    assert!(!text.contains("4 to 5 GB"), "{text}");
+
+    let memory = failure_message("java.lang.OutOfMemoryError: Java heap space", "3 minutes");
+    assert!(memory.contains("4 to 5 GB"), "{memory}");
+    let other = failure_message("table is locked by job abc", "2 seconds");
+    assert!(
+        other.ends_with("`chaps logs dhis2` has the rest"),
+        "{other}"
+    );
+}

@@ -101,11 +101,10 @@ pub(super) fn run_analytics(
     )?;
     let seconds = began.elapsed().as_secs();
     if let Progress::Failed(reason) = &progress {
-        return Err(anyhow::anyhow!(
-            "the analytics run failed after {}: {reason}; `chaps logs dhis2` has the rest, and \
-             DHIS2 wants about 4 to 5 GB for the populate phase",
-            crate::output::human_age(began.elapsed())
-        ));
+        return Err(anyhow::anyhow!(failure_message(
+            reason,
+            &crate::output::human_age(began.elapsed())
+        )));
     }
     Ok(AnalyticsReport {
         job,
@@ -124,4 +123,55 @@ pub(super) fn run_analytics(
             .unwrap_or_default()
             .to_string(),
     })
+}
+
+/// The message for an analytics run that failed, from the reason DHIS2 gave.
+///
+/// A failed SQL statement comes back whole, with the statement in front of
+/// the cause, and a statement of DHIS2 analytics is several screens long. So
+/// the cause after `ERROR:` is kept, a long run of one digit is cut, and the
+/// memory note is there only when the cause is about memory.
+pub(super) fn failure_message(reason: &str, after: &str) -> String {
+    let cause = match reason.rfind("ERROR:") {
+        Some(at) => reason[at + "ERROR:".len()..].trim(),
+        None => reason.trim(),
+    };
+    let cause = shorten_numbers(cause);
+    let lower = cause.to_lowercase();
+    let next = if lower.contains("out of range for type double precision") {
+        "a data value is a number too large for DHIS2; find it in the `datavalue` table, then \
+         correct it or delete it in DHIS2"
+    } else if ["memory", "heap", "killed", "terminat"]
+        .iter()
+        .any(|word| lower.contains(word))
+    {
+        "DHIS2 wants about 4 to 5 GB for the populate phase; see `DHIS2_JAVA_TOOL_OPTIONS` in `.env`"
+    } else {
+        "`chaps logs dhis2` has the rest"
+    };
+    format!("the analytics run failed after {after}: {cause}; {next}")
+}
+
+/// Cut each run of more than 20 digits to its first 12, so that a number with
+/// thousands of digits reads as one: `999999999999... (2081 digits)`.
+fn shorten_numbers(text: &str) -> String {
+    let mut out = String::new();
+    let mut digits = String::new();
+    let flush = |out: &mut String, digits: &mut String| {
+        match digits.len() > 20 {
+            true => out.push_str(&format!("{}... ({} digits)", &digits[..12], digits.len())),
+            false => out.push_str(digits),
+        }
+        digits.clear();
+    };
+    for c in text.chars() {
+        if c.is_ascii_digit() {
+            digits.push(c);
+        } else {
+            flush(&mut out, &mut digits);
+            out.push(c);
+        }
+    }
+    flush(&mut out, &mut digits);
+    out
 }
