@@ -304,7 +304,12 @@ make install
 
 On macOS `make release` builds a universal (arm64 plus x86_64) binary at
 `bin/varde` first, and `make install` copies that; on Linux it builds the host
-binary. See [Development](./development.md) for the rest of the targets.
+binary. `make install` also adds the link `vg`, as the install script does;
+`cargo install` installs `varde` alone. See [Development](./development.md) for
+the rest of the targets.
+
+varde is released as binaries on GitHub, not on crates.io: `publish = false` in
+`Cargo.toml` makes a `cargo publish` fail at once.
 
 ## Requirements
 

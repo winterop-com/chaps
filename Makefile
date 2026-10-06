@@ -35,10 +35,11 @@ release: ## Build bin/varde: universal (arm64+x86_64) on macOS, host binary on L
 	fi
 run: release ## Build the release binary, then run it (ARGS="...")
 	$(BIN) $(ARGS)
-install: release ## Install bin/varde into PREFIX/bin (PREFIX defaults to ~/.local)
+install: release ## Install bin/varde and its short form vg into PREFIX/bin (PREFIX defaults to ~/.local)
 	@mkdir -p $(PREFIX)/bin
 	install -m 0755 $(BIN) $(PREFIX)/bin/varde
-	@echo "installed $(PREFIX)/bin/varde"
+	ln -sf varde $(PREFIX)/bin/vg
+	@echo "installed $(PREFIX)/bin/varde, and $(PREFIX)/bin/vg as its short form"
 vendor: ## Refresh the embedded marketplace snapshot in vendor/marketplace/
 	scripts/vendor-marketplace.sh
 e2e: build ## Run OCS, chap-core, DHIS2 and the models for real (TAGS="latest master")

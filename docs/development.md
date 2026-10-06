@@ -8,7 +8,7 @@ make check     # formatting and clippy, fixing nothing
 make lint      # fix what check reports: clippy --fix, then format (writes files)
 make build     # fast host-arch compile check
 make release   # universal (arm64+x86_64) macOS binary at bin/varde
-make install   # copy bin/varde to $PREFIX/bin (PREFIX defaults to ~/.local)
+make install   # copy bin/varde to $PREFIX/bin, with the link vg (PREFIX defaults to ~/.local)
 make run       # build the release binary, then run it (ARGS="...")
 make vendor    # refresh the embedded marketplace snapshot
 make docs      # regenerate the reference, then build the book into site/
