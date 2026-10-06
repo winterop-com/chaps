@@ -606,7 +606,7 @@ fn the_database_is_postgis_and_answers_over_tcp_once_the_restore_is_done() {
 }
 
 #[test]
-fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
+fn the_dump_one_shot_keeps_the_download_and_writes_the_one_pass_restore() {
     let text = render_dhis2(&dhis2_spec());
     let doc = parse(&text);
     let svc = service(&doc, "dhis2-dump");
@@ -623,9 +623,28 @@ fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
     assert_eq!(svc["volumes"][0]["target"].as_str(), Some("/opt/dump"));
 
     let script = svc["command"][0].as_str().unwrap();
-    // A truncated download must never become the cached dump: verify the
-    // gzip, verify the transformed gzip, then publish with one atomic move.
-    assert!(script.contains("gzip -t raw.part"), "{script}");
+    // A download that stopped is never kept: the move comes last.
+    assert!(
+        script.contains(&format!("mv raw.part {DHIS2_SEED_FILE}")),
+        "{script}"
+    );
+    assert!(
+        !script.contains("gzip -t"),
+        "no extra pass over the dump: {script}"
+    );
+    // The rewrite and the restore are one pass, through sed into psql.
+    assert!(
+        script.contains(&format!(
+            "| sed -E -f /docker-entrypoint-initdb.d/{DHIS2_REWRITE_SCRIPT}"
+        )),
+        "{script}"
+    );
+    assert!(script.contains("| psql -v ON_ERROR_STOP=1"), "{script}");
+    // The entrypoint loads *.sql.gz by itself; the seed must not be one.
+    assert!(!DHIS2_SEED_FILE.ends_with(".sql.gz"));
+    assert!(DHIS2_RESTORE_SCRIPT.ends_with(".sh"));
+    // A dump an earlier chaps prepared would be loaded twice.
+    assert!(script.contains("rm -f dump.sql.gz out.part"), "{script}");
     // A dump from a newer pg_dump loads into the PostgreSQL 16 of the image.
     for line in [
         "/^\\\\restrict /d",
@@ -638,12 +657,6 @@ fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
     ] {
         assert!(script.contains(line), "{line} in {script}");
     }
-    assert!(script.contains("gzip -t out.part"), "{script}");
-    assert!(script.contains("mv out.part dump.sql.gz"), "{script}");
-    assert!(
-        script.find("gzip -t out.part") < script.find("mv out.part"),
-        "the move must come after the check"
-    );
     // Published dumps are `pg_dump --clean` without `--if-exists`, and the
     // entrypoint runs init scripts under ON_ERROR_STOP=1.
     assert!(
@@ -658,11 +671,18 @@ fn the_dump_one_shot_verifies_the_download_and_retrofits_if_exists() {
     );
     // An already prepared dump is left alone, so a restart re-downloads
     // nothing.
-    assert!(script.contains("if [ -f dump.sql.gz ]; then"), "{script}");
+    assert!(
+        script.contains(&format!("if [ -f {DHIS2_SEED_FILE} ]; then")),
+        "{script}"
+    );
     // `$$` in the file is one `$` for the container's shell; a single one
     // would have been expanded away by compose.
     assert!(text.contains("$${DHIS2_DB_DUMP_URL}"), "{text}");
-    assert!(text.contains("$$(wc -c < dump.sql.gz)"), "{text}");
+    assert!(
+        text.contains(&format!("$$(wc -c < {DHIS2_SEED_FILE})")),
+        "{text}"
+    );
+    assert!(text.contains("--username \"$$POSTGRES_USER\""), "{text}");
 }
 
 /// A dump that is a file is bind-mounted and copied; a URL is downloaded.
@@ -710,9 +730,11 @@ fn a_file_seed_is_mounted_and_copied_where_a_url_is_downloaded() {
         "{script}"
     );
     // Everything after the fetch is shared, so an operator's own dump is
-    // verified and rewritten exactly as a published one is.
-    assert!(script.contains("gzip -t raw.part"), "{script}");
-    assert!(script.contains("mv out.part dump.sql.gz"), "{script}");
+    // restored exactly as a published one is.
+    assert!(
+        script.contains(&format!("mv raw.part {DHIS2_SEED_FILE}")),
+        "{script}"
+    );
 
     // An absolute path is passed through, and a URL adds no mount at all.
     let absolute = render_dhis2(&Dhis2Spec {
@@ -973,11 +995,11 @@ fn a_seed_password_resets_every_user_after_the_dump() {
     );
     // Before the check for a prepared dump, so a cached dump still gets it.
     assert!(
-        script.find(DHIS2_PASSWORD_SCRIPT) < script.find("if [ -f dump.sql.gz ]"),
+        script.find(DHIS2_PASSWORD_SCRIPT) < script.find(&format!("if [ -f {DHIS2_SEED_FILE} ]")),
         "{script}"
     );
     // The postgres entrypoint runs the files in name order.
-    assert!(DHIS2_PASSWORD_SCRIPT > "dump.sql.gz");
+    assert!(DHIS2_PASSWORD_SCRIPT > DHIS2_RESTORE_SCRIPT);
 
     let plain = render_dhis2(&dhis2_spec());
     let doc = parse(&plain);
@@ -1012,7 +1034,7 @@ fn a_seeded_database_is_healthy_only_after_the_whole_restore() {
     );
     // It runs last: after the dump and after the password script.
     assert!(DHIS2_SEED_MARK_SCRIPT > DHIS2_PASSWORD_SCRIPT);
-    assert!(DHIS2_SEED_MARK_SCRIPT > "dump.sql.gz");
+    assert!(DHIS2_SEED_MARK_SCRIPT > DHIS2_RESTORE_SCRIPT);
 
     let plain = render_dhis2(&unseeded_dhis2_spec());
     let doc = parse(&plain);
@@ -1053,7 +1075,7 @@ fn every_seed_empties_the_values_analytics_cannot_read() {
         "{script}"
     );
     // After the dump, before the password script and the mark.
-    assert!(DHIS2_CLEAN_SCRIPT > "dump.sql.gz");
+    assert!(DHIS2_CLEAN_SCRIPT > DHIS2_RESTORE_SCRIPT);
     assert!(DHIS2_CLEAN_SCRIPT < DHIS2_PASSWORD_SCRIPT);
     assert!(DHIS2_CLEAN_SCRIPT < DHIS2_SEED_MARK_SCRIPT);
 
@@ -1089,8 +1111,8 @@ fn only_a_downloaded_dump_is_checked_for_its_version() {
         "2.41 as the shell compares it: {script}"
     );
     assert!(
-        script.find("dump_minor=") < script.find("gunzip -c raw.part | sed -E"),
-        "before the slow rewrite: {script}"
+        script.find("dump_minor=") < script.find(&format!("mv raw.part {DHIS2_SEED_FILE}")),
+        "before the dump is kept: {script}"
     );
 
     let file = render_dhis2(&Dhis2Spec {

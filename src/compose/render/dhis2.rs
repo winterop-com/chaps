@@ -23,8 +23,8 @@ static DHIS2_CONFIG_TEMPLATE: LazyLock<String> =
 /// `pg_dump --clean` without `--if-exists`, and a truncated download that gets
 /// cached looks exactly like a dump with some of the data missing.
 const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
-    # One-shot: fetches the seed dump, rewrites it so it loads into a fresh
-    # database, and exits. dhis2-db mounts the same volume at
+    # One-shot: fetches the seed dump, writes the scripts that load it into a
+    # fresh database, and exits. dhis2-db mounts the same volume at
     # /docker-entrypoint-initdb.d/, so the restore is the stock postgres
     # entrypoint's - which runs it once, on a data directory it has just created,
     # and never again.
@@ -48,38 +48,21 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
         printf '%s\n' \
           "SELECT current_database() AS chaps_db \\gset" \
           "COMMENT ON DATABASE :\"chaps_db\" IS '@SEED_MARK@';" > @MARK_SCRIPT@
-        if [ -f dump.sql.gz ]; then
-          echo "dump.sql.gz is already prepared"
-          exit 0
-        fi
-        rm -f raw.part out.part
-        # A value that names a file is the one mounted above, which is copied in
-        # place of the download; everything after this line is the same either
-        # way, so an operator's own dump gets the same verification and the same
-        # rewriting a published one does.
-        if [ -f "$${DHIS2_DB_DUMP_URL}" ]; then
-          echo "copying $${DHIS2_DB_DUMP_URL}"
-          cp "$${DHIS2_DB_DUMP_URL}" raw.part
-        else
-          echo "downloading $${DHIS2_DB_DUMP_URL}"
-          wget -O raw.part "$${DHIS2_DB_DUMP_URL}"
-        fi
-        # Never cache a truncated download: verify the gzip before transforming
-        # it, verify the result, and publish with one atomic move. A half-finished
-        # download that gets cached is a dump that restores without an error and
-        # leaves most of the data out.
-        gzip -t raw.part
-@VERSION_CHECK@        # Published dumps are `pg_dump --clean` WITHOUT `--if-exists`, so they
+        # The rewrite and the restore are one pass: dump.sh, which the postgres
+        # entrypoint runs in name order, streams the dump through sed into psql.
+        # The dump is read once, and with the gzip and sed of the database
+        # image, which are faster than those of busybox. seed.dump.gz does not
+        # end in .sql.gz, so the entrypoint does not load it by itself.
+        #
+        # Published dumps are `pg_dump --clean` WITHOUT `--if-exists`, so they
         # open on DROP and ALTER statements that assume the schema is already
-        # there, and the postgres entrypoint runs init scripts under
-        # `psql -v ON_ERROR_STOP=1`: the first missing object aborts the whole
-        # restore. Retrofitting --if-exists makes that opening block a no-op on
-        # an empty database. The substitutions are idempotent, so a dump that
-        # already carries --if-exists is normalised rather than doubled, and each
-        # one is anchored to the start of a line, so COPY data rows are left
-        # alone. DROP EXTENSION and DROP SCHEMA go entirely: the postgis image
-        # owns those objects, dropping them fails on the dependency, and the dump
-        # recreates what it needs with CREATE EXTENSION IF NOT EXISTS.
+        # there, and the restore runs under `psql -v ON_ERROR_STOP=1`: the first
+        # missing object aborts it. Retrofitting --if-exists makes that opening
+        # block a no-op on an empty database. The substitutions are idempotent,
+        # and each one is anchored to the start of a line, so COPY data rows are
+        # left alone. DROP EXTENSION and DROP SCHEMA go entirely: the postgis
+        # image owns those objects, and the dump recreates what it needs with
+        # CREATE EXTENSION IF NOT EXISTS.
         # A dump from a newer pg_dump (17.6 and later, 16.10 and later) opens
         # with \restrict and closes with \unrestrict, which the psql of this
         # image does not know, and a dump from PostgreSQL 17 sets
@@ -87,23 +70,57 @@ const DHIS2_DUMP_TEMPLATE: &str = r#"  dhis2-dump:
         # The owners and the grants name the roles of the source server, which
         # do not exist here: they go too, as with pg_dump --no-owner
         # --no-privileges, and every object belongs to the database user.
-        gunzip -c raw.part | sed -E '
-          /^\\restrict /d
-          /^\\unrestrict /d
-          /^SET transaction_timeout /d
-          /^ALTER [^;]* OWNER TO /d
-          /^(GRANT|REVOKE) /d
-          /^ALTER DEFAULT PRIVILEGES /d
-          s/^ALTER TABLE (IF EXISTS )?(ONLY )?/ALTER TABLE IF EXISTS \2/
-          s/^DROP (TABLE|INDEX|SEQUENCE|FUNCTION|VIEW|MATERIALIZED VIEW|TYPE|DOMAIN|AGGREGATE|TRIGGER) (IF EXISTS )?/DROP \1 IF EXISTS /
-          /^DROP EXTENSION /d
-          /^DROP SCHEMA /d
-          s/^CREATE SCHEMA (IF NOT EXISTS )?/CREATE SCHEMA IF NOT EXISTS /
-        ' | gzip > out.part
-        gzip -t out.part
-        mv out.part dump.sql.gz
+        cat > @REWRITE_SCRIPT@ <<'EOF'
+        /^\\restrict /d
+        /^\\unrestrict /d
+        /^SET transaction_timeout /d
+        /^ALTER [^;]* OWNER TO /d
+        /^(GRANT|REVOKE) /d
+        /^ALTER DEFAULT PRIVILEGES /d
+        s/^ALTER TABLE (IF EXISTS )?(ONLY )?/ALTER TABLE IF EXISTS \2/
+        s/^DROP (TABLE|INDEX|SEQUENCE|FUNCTION|VIEW|MATERIALIZED VIEW|TYPE|DOMAIN|AGGREGATE|TRIGGER) (IF EXISTS )?/DROP \1 IF EXISTS /
+        /^DROP EXTENSION /d
+        /^DROP SCHEMA /d
+        s/^CREATE SCHEMA (IF NOT EXISTS )?/CREATE SCHEMA IF NOT EXISTS /
+        EOF
+        # The entrypoint sources this file with `set -Eeo pipefail`, so a
+        # truncated dump stops the restore, and the mark guard reports it.
+        cat > @RESTORE_SCRIPT@ <<'EOF'
+        echo "chaps: restoring @SEED_FILE@"
+        gunzip -c /docker-entrypoint-initdb.d/@SEED_FILE@ \
+          | sed -E -f /docker-entrypoint-initdb.d/@REWRITE_SCRIPT@ \
+          | psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --no-password --no-psqlrc --dbname "$$POSTGRES_DB"
+        EOF
+        # A dump an earlier chaps prepared would be loaded a second time.
+        rm -f dump.sql.gz out.part
+        if [ -f @SEED_FILE@ ]; then
+          echo "@SEED_FILE@ is already there"
+          exit 0
+        fi
         rm -f raw.part
-        echo "wrote dump.sql.gz ($$(wc -c < dump.sql.gz) bytes)""#;
+        # A value that names a file is the one mounted above, which is copied in
+        # place of the download. The move at the end means that a download that
+        # stopped is never kept as the seed.
+        if [ -f "$${DHIS2_DB_DUMP_URL}" ]; then
+          echo "copying $${DHIS2_DB_DUMP_URL}"
+          cp "$${DHIS2_DB_DUMP_URL}" raw.part
+        else
+          echo "downloading $${DHIS2_DB_DUMP_URL}"
+          wget -O raw.part "$${DHIS2_DB_DUMP_URL}"
+        fi
+@VERSION_CHECK@        mv raw.part @SEED_FILE@
+        echo "wrote @SEED_FILE@ ($$(wc -c < @SEED_FILE@) bytes)""#;
+
+/// The dump as the one-shot keeps it in the dump volume. Not `*.sql.gz`, so
+/// the postgres entrypoint does not load it by itself.
+pub const DHIS2_SEED_FILE: &str = "seed.dump.gz";
+
+/// The init script that streams [`DHIS2_SEED_FILE`] through the rewrite into
+/// psql. It sorts before the `zz-` scripts, which need the restored database.
+pub const DHIS2_RESTORE_SCRIPT: &str = "dump.sh";
+
+/// The sed program of the rewrite, in the dump volume.
+pub const DHIS2_REWRITE_SCRIPT: &str = "chaps-rewrite.sed";
 
 /// The init script that gives every DHIS2 user one password. The postgres
 /// entrypoint runs the files in `/docker-entrypoint-initdb.d/` in name order,
@@ -397,6 +414,9 @@ pub fn render_dhis2(spec: &Dhis2Spec) -> String {
                             Dhis2SeedSource::Url(_) => VERSION_CHECK,
                             Dhis2SeedSource::File(_) => "",
                         }),
+                        ("SEED_FILE", DHIS2_SEED_FILE),
+                        ("RESTORE_SCRIPT", DHIS2_RESTORE_SCRIPT),
+                        ("REWRITE_SCRIPT", DHIS2_REWRITE_SCRIPT),
                         ("SEED_MARK", DHIS2_SEED_MARK),
                         ("TAG_VAR", DHIS2_TAG_ENV_VAR),
                         ("IMAGE_TAG", &spec.image_tag),
