@@ -13,6 +13,31 @@ which catalogue it loaded and which files `sync` compared, all on stderr and
 all out of the way of `--json`. `-d` adds the response bodies and the resolved
 project paths.
 
+## the restore of the DHIS2 seed stopped before the end
+
+`chaps up` printed this under `why dhis2-db is unhealthy:`. The restore of the
+seed dump into `dhis2_db` stopped with an error, so the database is
+incomplete. The lines above the hint say why. Two causes are common:
+
+- The dump is not a complete gzip file. Download it again.
+- The dump needs a newer PostgreSQL than 16, the version of `dhis2-db`. chaps
+  removes the lines of `pg_dump` 17 that PostgreSQL 16 does not know
+  (`\restrict`, `\unrestrict`, `SET transaction_timeout`), but a dump can
+  use other new features.
+
+Fix the cause, then start the restore again:
+
+```sh
+chaps components disable dhis2 --purge
+chaps components enable dhis2
+chaps up
+```
+
+`--purge` removes only the three DHIS2 volumes. `seed:` and `seed_password:`
+in `.chaps/components.yaml` stay. Do not use `chaps down --volumes` for this:
+it also removes the chap-core database. See
+[The seed](./dhis2.md#a-restore-that-stops).
+
 ## A host port is already in use
 
 `chaps up` refuses before it calls Docker, with one line per conflict:

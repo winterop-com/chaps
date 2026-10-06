@@ -38,6 +38,8 @@ so. An empty DHIS2 still has the `admin` / `district` login, as a superuser.
 ```sh
 chaps init dhis --only dhis2 --dhis2-seed none                  # empty, whatever the version
 chaps init dhis --only dhis2 --dhis2-seed dumps/mine.sql.gz     # your own dump, a path
+chaps init dhis --only dhis2 --dhis2-seed dumps/mine.sql.gz \
+  --dhis2-seed-password                                         # every user logs in with district
 chaps init dhis --only dhis2 --dhis2-tag 2.43 \
   --dhis2-seed https://databases.dhis2.org/sierra-leone/2.43/dhis2-db-sierra-leone.sql.gz
 ```
@@ -47,6 +49,12 @@ database is DHIS2's. DHIS2's Sierra Leone demo is published for 2.41, 2.42 and
 2.43 at that address pattern. It has no climate data, and its `admin` is not a
 superuser: it cannot create the route the Modeling App uses, so pick it for a
 DHIS2 on its own, not for one you will connect to Chap.
+
+A dump of a real DHIS2 keeps the passwords of its users.
+`--dhis2-seed-password` gives every user the password `district`, turns on
+every account and turns off two-factor login, so you can log in as any of
+them. See
+[One password for every user](../dhis2.md#one-password-for-every-user).
 
 ## Next
 

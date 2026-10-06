@@ -44,4 +44,5 @@
 - [Doctor](./doctor.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Slides](./slides.md)
+- [Roadmap](./roadmap.md)
 - [Development](./development.md)

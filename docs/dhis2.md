@@ -244,6 +244,130 @@ initialises a data directory it has just created. So:
 Docker copies the image's own PostGIS init script into that volume as the
 container is created, so the extensions are still set up, ahead of the dump.
 
+### A restore that stops
+
+If the restore stops with an error, the postgres entrypoint stops too. Docker
+then starts `dhis2-db` again, and postgres sees a data directory, so it skips
+the init. Without a guard, the result is an empty or incomplete database that
+answers like a good one.
+
+So the restore leaves a mark as its last init script, `zzz-chaps-seeded.sql`:
+the comment `chaps: seed restored` on the database. On a seeded deployment, the
+health check of `dhis2-db` asks for that mark. A restore that stopped has no
+mark, so `dhis2-db` stays unhealthy, DHIS2 does not start, and `chaps up`
+prints the lines of the log that say why:
+
+```text
+why dhis2-db is unhealthy:
+  psql:/docker-entrypoint-initdb.d/dump.sql.gz:5: invalid command \restrict
+  the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `chaps components disable dhis2 --purge`, `chaps components enable dhis2` and `chaps up`
+```
+
+`chaps backup` copies the database with its mark, so a database that
+`chaps backup restore` puts back is healthy too.
+
+### The version of the dump
+
+DHIS2 runs a database of its own minor version or older, and chaps supports
+DHIS2 2.41 and newer, because the Modeling App needs it. The version of a dump
+is in its Flyway table: each migration that DHIS2 ran is a row of
+`flyway_schema_history`, and the newest one says the version. `2.42.54` is
+migration 54 of DHIS2 2.42. The last number is not the patch release.
+
+- For a dump on disk, `chaps init` reads the version. A dump of 3.9 GB takes
+  about 20 seconds, because the table comes after `datavalue`.
+  - Without `--dhis2-tag`, DHIS2 runs the version of the dump.
+  - A `--dhis2-tag` older than the dump is refused.
+  - A dump older than 2.41 is refused.
+- For a URL, the dump step reads the version after the download, before the
+  rewrite, and stops with the same messages. `chaps logs dhis2-dump` shows
+  them.
+
+```text
+$ chaps init laos --only dhis2 --dhis2-seed laos.sql.gz
+reading the DHIS2 version of laos.sql.gz from its Flyway table; a large dump takes about a minute
+laos.sql.gz is DHIS2 2.42 (Flyway migration 2.42.54), so DHIS2 runs 2.42
+```
+
+### Values that analytics cannot read
+
+A real DHIS2 database has data values that look like numbers but do not fit in
+the number type of analytics (`double precision`, at most about 1.8 × 10^308).
+An example is a value of 2,081 digits. DHIS2 accepted it when someone typed it
+in or imported it. Analytics casts every value of a numeric data element, so
+one such value stops every analytics run with `out of range for type double
+precision`.
+
+So every restore of a seed runs `zz-chaps-clean.sql` after the dump. The
+script does two things:
+
+1. It lists each such value in the log of `dhis2-db`: the data element, the
+   period, the organisation unit, the first digits and the length.
+2. It empties the value (`value = NULL`). It does this for deleted values
+   too, because the outlier query of analytics reads them as well.
+
+```text
+$ chaps logs dhis2-db | grep -A4 "cannot read as a number"
+chaps: data values that analytics cannot read as a number, emptied:
+ dataelement |    name     |   period   |   orgunit   | value_starts | length
+-------------+-------------+------------+-------------+--------------+--------
+ BW7mJYKnkks | SBCC - VF1  | 2023-05-01 | Kh35DvuCtnl | 999999999999 |   2081
+```
+
+This changes the data of the restored copy, not the dump. Only values that
+analytics cannot read change. Correct the values at their source too.
+
+### One password for every user
+
+A dump of a real DHIS2 has the passwords of its real users. To log in as any
+of them, give every user one password at the restore:
+
+```sh
+chaps init laos --only dhis2 --dhis2-tag 2.42 --dhis2-seed laos.sql.gz --dhis2-seed-password
+```
+
+Without a value, the password is `district`. The option writes
+`seed_password:` in `.chaps/components.yaml`:
+
+```yaml
+dhis2:
+  seed: laos.sql.gz
+  seed_password: district
+```
+
+The restore then does four things to every row of `userinfo`:
+
+- It sets the password. PostgreSQL makes the bcrypt hash with `pgcrypto`, one
+  hash for all the users. A hash for each user takes minutes on a large dump.
+- It turns on the account (`disabled = false`).
+- It turns off two-factor login (`twofactortype`, `secret`). A password alone
+  does not log in a user who has it.
+- It removes the expiry date of the account (`accountexpiry`).
+
+The last two run only when the column is in the dump, because the columns
+change between DHIS2 versions. Use this for a test or a development copy of a
+database, not for a server that real users log in to.
+
+The `dhis2-dump` one-shot writes the SQL to `zz-chaps-passwords.sql` in the
+`dhis2_dump` volume. The postgres entrypoint runs the files of that volume in
+name order, so the file runs after `dump.sql.gz`. When the dump did not have
+the `pgcrypto` extension, the file removes it again.
+
+The rules of the seed apply:
+
+- It applies once, when `dhis2_db` is created. To apply it to a database that
+  exists, run `chaps components disable dhis2 --purge` first.
+- It needs a seed. `--dhis2-seed none` has no users, so the two options
+  together are refused.
+- To change or remove it later, edit `seed_password:` and run `chaps sync`.
+  `DHIS2_SEED_PASSWORD` in `.env` also sets it.
+
+The password is plain text in `.chaps/components.yaml` and in
+`compose.dhis2.yml`. Use it for a known password such as `district`, not for a
+secret. `chaps dhis2` logs in as `admin` with `district` when `.env` names no
+password. If you set another password, set `DHIS2_ADMIN_PASSWORD` in `.env` to
+the same value.
+
 ### The default dump comes from a table, not from the tag
 
 The published filename does not follow from the version:
@@ -1032,8 +1156,31 @@ run `chaps up` to apply
 
 ## Backing it up
 
-`chaps backup create` archives `dhis2_home` and `dhis2_db`, one member each, and
-`chaps backup restore` puts both back. `dhis2_dump` is deliberately left out: it
+`chaps backup create` archives `dhis2_home` and the DHIS2 database, one member
+each, and `chaps backup restore` puts both back.
+
+The database is a `pg_dump`, not a copy of the `dhis2_db` volume, with the
+exclusions of [dhis2-server-tools](https://github.com/dhis2/dhis2-server-tools):
+
+- It leaves out the tables `analytics_*`, `aggregated_*`, `completeness_*` and
+  `_*`. DHIS2 makes them again with the next `chaps dhis2 analytics`.
+- It leaves out the rows of `audit`, and keeps the table.
+- It does not pause the database: `pg_dump` reads one consistent snapshot while
+  DHIS2 runs.
+
+The restore makes the database new, loads the dump with `pg_restore -j 4`, and
+sets the mark of a complete restore. Measured on a national dump of 22 GB, with
+a volume of 62 GB after analytics:
+
+| | Time | Size |
+| --- | --- | --- |
+| `chaps backup create` | 4 min 32 s | 4.2 GB |
+| `chaps backup restore` | 7 min 36 s | 19 GB database, no analytics tables |
+
+Run `chaps dhis2 analytics` after a restore: until then, DHIS2 has no
+analytics tables, so its dashboards and the Modeling App have no data.
+
+`dhis2_dump` is deliberately left out: it
 is a download cache the one-shot refills on its own, so archiving it would add
 the whole dump to every backup of the deployment for nothing. See
 [Backup and restore](./backup.md).

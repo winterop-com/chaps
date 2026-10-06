@@ -120,6 +120,7 @@ for what that failure looks like from the outside.
 | --- | --- |
 | `up` | Answering its health endpoint, or - for a component with no endpoint to ask - running. |
 | `starting` | Its container is up but it is not answering yet. |
+| `unhealthy` | Its container is up, it does not answer, and the health check of the container failed. It is broken, not starting: `chaps logs <service>` says why. |
 | `not running` | No container, so nothing to answer. `chaps up` starts it. |
 
 An OCS line carries two more facts when they can be had, which are the two an

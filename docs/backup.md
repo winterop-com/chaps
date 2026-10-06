@@ -109,6 +109,15 @@ stopped and started instead (`stopped for 6.0 s`), and where neither works the
 read goes ahead with a warning. The database needs none of this: `pg_dump`
 reads one transactional snapshot, however busy chap-core is while it runs.
 
+**A large volume means a long pause.** A paused service does not answer.
+Before chaps pauses a running service for a volume of 1 GB or more, it warns.
+The DHIS2 database is not paused at all: it is a `pg_dump` without the
+analytics tables, see [DHIS2](./dhis2.md#backing-it-up).
+
+```text
+warning: ocs is paused while chaps copies 3.1 GB of `mychap_ocs_data`, and it does not answer until the copy is done; this can take minutes, so run the backup when nobody uses it, or use `--no-components` to leave out the volumes of every component
+```
+
 Two things to know about the pause. Docker cannot run a health check on a
 frozen container, so a paused service is reported unhealthy until its next
 probe succeeds - up to one health check interval (30 seconds for the services
