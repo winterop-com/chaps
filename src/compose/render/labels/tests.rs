@@ -1,10 +1,10 @@
 use super::*;
 use crate::components::Components;
 use crate::compose::render::{
-    render_varde_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
+    render_dhis2, render_ocs, render_overlay, render_s3, render_varde_overlay,
 };
 use crate::compose::spec::{
-    VardeOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, compose_services,
+    Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, VardeOverlaySpec, compose_services,
 };
 use crate::registry::{Channel, VersionSelector, load_embedded};
 use serde_yaml_ng::Value;

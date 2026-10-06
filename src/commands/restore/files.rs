@@ -9,7 +9,7 @@ use crate::components::COMPONENTS_FILE;
 use crate::compose::sync;
 use crate::error::Result;
 use crate::output;
-use crate::project::{VARDE_DIR, ENV_FILE, MANUAL_MODELS_FILE, MODELS_FILE, PROJECT_FILE, Project};
+use crate::project::{ENV_FILE, MANUAL_MODELS_FILE, MODELS_FILE, PROJECT_FILE, Project, VARDE_DIR};
 use std::path::Path;
 
 /// Unpack `files/` over the project directory, then re-render the compose

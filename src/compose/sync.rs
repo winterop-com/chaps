@@ -21,16 +21,16 @@ pub use env::{EnvTag, refresh_env_pin, set_env_chap_tag};
 use crate::components::{DHIS2_COMPOSE, OCS_COMPOSE, S3_COMPOSE};
 use crate::compose::overrides;
 use crate::compose::render::{
-    render_base, render_varde_overlay, render_dhis2, render_ocs, render_overlay, render_s3,
-    render_umbrella,
+    render_base, render_dhis2, render_ocs, render_overlay, render_s3, render_umbrella,
+    render_varde_overlay,
 };
 use crate::compose::spec::{
-    BaseSpec, VardeOverlaySpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose,
+    BaseSpec, Dhis2Spec, OcsSpec, OverlaySpec, S3Spec, UpstreamCompose, VardeOverlaySpec,
     compose_services,
 };
 use crate::error::Result;
 use crate::project::{
-    BASE_COMPOSE, VARDE_COMPOSE, ComposeSource, MARKETPLACE_COMPOSE, Project, compose_files_for,
+    BASE_COMPOSE, ComposeSource, MARKETPLACE_COMPOSE, Project, VARDE_COMPOSE, compose_files_for,
 };
 use crate::registry::Registry;
 use config::{ensure_dhis2_config, ensure_ocs_config, ensure_plugins_key};

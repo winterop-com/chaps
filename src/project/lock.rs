@@ -7,7 +7,7 @@
 //! the command no longer writes. The operating system releases it when the
 //! process ends, however it ends, so there is no stale lock to clear.
 
-use super::{VARDE_DIR, Project};
+use super::{Project, VARDE_DIR};
 use crate::error::Result;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;

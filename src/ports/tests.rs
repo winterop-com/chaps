@@ -1,5 +1,5 @@
 use super::*;
-use crate::project::{VARDE_COMPOSE, EnabledModel, ProjectState};
+use crate::project::{EnabledModel, ProjectState, VARDE_COMPOSE};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A listener on a port the kernel picked, so the test never fights

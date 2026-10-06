@@ -3,8 +3,8 @@ use super::ocs::{OCS_TEMPLATE, S3_TEMPLATE};
 use super::overlay::OVERLAY_TEMPLATE;
 use super::*;
 use crate::compose::spec::{
-    VardeOverlaySpec, Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec, OcsConfigSpec, OcsSpec,
-    OverlaySpec, S3Spec, UpstreamCompose,
+    Dhis2ConfigSpec, Dhis2SeedSource, Dhis2Spec, OcsConfigSpec, OcsSpec, OverlaySpec, S3Spec,
+    UpstreamCompose, VardeOverlaySpec,
 };
 use crate::compose::{tag_env_var, volume_name};
 use crate::registry::{Channel, VersionSelector, load_embedded};

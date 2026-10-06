@@ -30,8 +30,8 @@ use crate::github;
 use crate::output::Out;
 use crate::ports::{self, PortClaim};
 use crate::project::{
-    ApiPortSource, BASE_COMPOSE, CHAP_TAG_ENV_VAR, VARDE_COMPOSE, VARDE_DIR, ENV_FILE,
-    MARKETPLACE_COMPOSE, MODELS_FILE, PROJECT_FILE, Project,
+    ApiPortSource, BASE_COMPOSE, CHAP_TAG_ENV_VAR, ENV_FILE, MARKETPLACE_COMPOSE, MODELS_FILE,
+    PROJECT_FILE, Project, VARDE_COMPOSE, VARDE_DIR,
 };
 use crate::registry;
 use crate::selfupdate::{self, TARGET, VERSION};

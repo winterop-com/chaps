@@ -27,7 +27,7 @@ pub(crate) use dhis2::{
 };
 
 use crate::auth::{API_TOKEN_ENV_VAR, REGISTRATION_KEY_ENV_VAR};
-use crate::compose::spec::{BaseSpec, VardeOverlaySpec, EnvSpec};
+use crate::compose::spec::{BaseSpec, EnvSpec, VardeOverlaySpec};
 use crate::project::API_PORT_ENV_VAR;
 use labels::{ROLE_CHAP_CORE, labels_block};
 use std::sync::LazyLock;

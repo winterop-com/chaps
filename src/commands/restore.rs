@@ -35,7 +35,7 @@ use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
 use crate::output::Out;
-use crate::project::{VARDE_DIR, PROJECT_FILE, Project};
+use crate::project::{PROJECT_FILE, Project, VARDE_DIR};
 use database::restore_database;
 use files::restore_files;
 use serde::Serialize;

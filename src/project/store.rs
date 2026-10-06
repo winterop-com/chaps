@@ -1,7 +1,7 @@
 //! Finding, loading and saving the state files in `.varde/`.
 
 use super::{
-    VARDE_DIR, MANUAL_MODELS_FILE, MODELS_FILE, ManualModels, PROJECT_FILE, Project, ProjectState,
+    MANUAL_MODELS_FILE, MODELS_FILE, ManualModels, PROJECT_FILE, Project, ProjectState, VARDE_DIR,
 };
 use crate::components::{COMPONENTS_FILE, Components};
 use crate::error::{ChapError, Result};

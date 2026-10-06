@@ -5,7 +5,7 @@ use super::MOVING_DEFAULT_TAG;
 use crate::chapcore;
 use crate::commands::Ctx;
 use crate::error::Result;
-use crate::project::{VARDE_DIR, ComposeSource, cached_compose_file};
+use crate::project::{ComposeSource, VARDE_DIR, cached_compose_file};
 use std::path::Path;
 
 /// What `.varde/project.yaml` records as the chap-core tag of a deployment

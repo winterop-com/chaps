@@ -15,8 +15,8 @@ use crate::compose::sync::{write_dhis2_config, write_ocs_config};
 use crate::compose::{API_SERVICE, EnableRequest, Selection, apply, render_env};
 use crate::error::{ChapError, Result};
 use crate::project::{
-    API_PORT_ENV_VAR, VARDE_DIR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE,
-    PROJECT_FILE, Project, ProjectState,
+    API_PORT_ENV_VAR, ComposeSource, DEFAULT_PORT_RANGE, ENV_FILE, MODELS_FILE, PROJECT_FILE,
+    Project, ProjectState, VARDE_DIR,
 };
 use crate::registry::{self, Registry};
 use chap_core::{CHECKOUT_TAG, ChapCore, checkout_source, resolve_chap_core};
