@@ -314,7 +314,7 @@ pub(super) fn parse_port(
     }
     if port < range.0 || port > range.1 {
         return Err(format!(
-            "port {port} is outside this project's range {}-{}",
+            "port {port} is outside this deployment's range {}-{}",
             range.0, range.1
         ));
     }

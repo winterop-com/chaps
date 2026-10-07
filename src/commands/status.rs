@@ -48,7 +48,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // containers and this is the only place that can say why.
         Err(why) => {
             if why.ran() {
-                warnings.push(format!("could not ask docker about this project: {why}"));
+                warnings.push(format!("could not ask docker about this deployment: {why}"));
             }
             None
         }

@@ -568,7 +568,7 @@ fn the_plan_says_what_it_overwrites_and_what_it_stops() {
     assert!(text.contains("taken  2026-09-23T07:10:00Z by varde 0.1.0"));
     assert!(text.contains("into   /srv/e2e"));
     assert!(
-        text.contains("files     2 file(s) in the project directory: .env, .varde/models.yaml")
+        text.contains("files     2 file(s) in the deployment directory: .env, .varde/models.yaml")
     );
     assert!(text.contains("database  chap_core on postgres, dropped and reloaded"));
     assert!(text.contains("chapkit-ewars-model /app/data emptied and refilled"));

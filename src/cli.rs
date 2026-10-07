@@ -229,7 +229,7 @@ pub struct Cli {
     #[arg(short, long, global = true, help_heading = GLOBAL)]
     pub debug: bool,
 
-    /// Project directory, or any directory inside one
+    /// Deployment directory, or any directory inside one
     #[arg(
         short = 'C',
         long,

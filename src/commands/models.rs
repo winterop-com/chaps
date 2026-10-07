@@ -29,7 +29,7 @@ struct ModelRow {
     latest: String,
     /// Whether this project has the model enabled at all.
     enabled: bool,
-    /// Host port in this project; `null` both for a model that is not enabled
+    /// Host port in this deployment; `null` both for a model that is not enabled
     /// and for one that publishes none (`enabled` tells the two apart).
     enabled_port: Option<u16>,
     /// Deployable image reference for the stable channel.
@@ -169,7 +169,7 @@ fn counted(rows: &[ModelRow], in_project: bool) -> String {
     format!("{} listed{}", rows.len(), enabled_clause(rows, in_project))
 }
 
-/// `, 2 enabled in this project`, or `, none enabled in this project`.
+/// `, 2 enabled in this deployment`, or `, none enabled in this deployment`.
 ///
 /// Outside a deployment there is nothing to be enabled in, so the clause is
 /// left off entirely rather than reported as zero.
@@ -178,8 +178,8 @@ fn enabled_clause(rows: &[ModelRow], in_project: bool) -> String {
         return String::new();
     }
     match rows.iter().filter(|r| r.enabled).count() {
-        0 => ", none enabled in this project".to_string(),
-        count => format!(", {count} enabled in this project"),
+        0 => ", none enabled in this deployment".to_string(),
+        count => format!(", {count} enabled in this deployment"),
     }
 }
 
@@ -234,7 +234,7 @@ fn info_lines(detail: &ModelDetail, lines: &mut Report) {
     match detail.in_project {
         // The absence of the project block is easy to miss.
         true => lines
-            .info(format!("{id} is not enabled in this project"))
+            .info(format!("{id} is not enabled in this deployment"))
             .hint(format!("`varde models enable {id}` enables it")),
         false => lines.hint(format!(
             "this is not a deployment directory; `varde init` creates one, then \
@@ -499,7 +499,10 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
     }
 
     if let Some(enabled) = detail.enabled {
-        text.push_str(&format!("\n{}\n", out.heading("enabled in this project")));
+        text.push_str(&format!(
+            "\n{}\n",
+            out.heading("enabled in this deployment")
+        ));
         text.push_str(&output::fields_with(
             2,
             &[

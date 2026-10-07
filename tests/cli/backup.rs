@@ -104,7 +104,7 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     // the symlink-free form of the temporary directory.
     assert!(text.contains("into   "));
     assert!(text.contains("chapy"), "the plan names the target:\n{text}");
-    assert!(text.contains("from   project chapx"));
+    assert!(text.contains("from   deployment chapx"));
     assert!(text.contains("files     "));
     assert!(text.contains("\nrestored "), "{text}");
     assert!(
@@ -268,7 +268,7 @@ fn backup_outside_a_project_says_so() {
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains("not a varde project"));
+    .stderr(predicates::str::contains("not a varde deployment"));
 
     chap_in(
         &sandbox,
@@ -277,7 +277,7 @@ fn backup_outside_a_project_says_so() {
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains("not a varde project"));
+    .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 /// `varde down --volumes --yes` for a deployment, when the guard goes out of

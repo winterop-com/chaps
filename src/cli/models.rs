@@ -59,7 +59,7 @@ pub struct ModelsListArgs {
     #[arg(long)]
     pub templates: bool,
 
-    /// List only the models enabled in this project
+    /// List only the models enabled in this deployment
     #[arg(long)]
     pub enabled: bool,
 }
@@ -87,7 +87,7 @@ pub struct ModelsTestArgs {
     #[arg(value_name = "ID", conflicts_with = "all")]
     pub ids: Vec<String>,
 
-    /// Test every model this project has enabled
+    /// Test every model this deployment has enabled
     #[arg(long)]
     pub all: bool,
 

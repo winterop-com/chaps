@@ -28,7 +28,7 @@ fn a_wrapper_that_could_not_ask_docker_first_says_what_docker_said() {
     let err = docker_failed(1, Some(refused_ps()));
     assert_eq!(
         err.to_string(),
-        "docker could not be asked about this project: `docker compose ps -a --format json` \
+        "docker could not be asked about this deployment: `docker compose ps -a --format json` \
              exited with status 1: error during connect: the daemon is not running"
     );
     // The status stays in the chain: `main` reads the code off it.
@@ -835,7 +835,7 @@ fn pull_counts_the_images_it_fetched() {
     assert_eq!(pull_summary(Some(0)), "pulled 0 images");
     assert_eq!(
         pull_summary(None),
-        "pulled the images this project pins",
+        "pulled the images this deployment pins",
         "the pull worked even when the count could not be read"
     );
 }
@@ -849,12 +849,12 @@ fn logs_names_the_services_there_are() {
     ];
     assert_eq!(
         unknown_service_message(&["chap-worker".to_string()], &services),
-        "no service `chap-worker` in this project; the services are \
+        "no service `chap-worker` in this deployment; the services are \
              chap, chapkit-ewars-model, postgres"
     );
     assert!(
         unknown_service_message(&["a".to_string(), "b".to_string()], &services)
-            .starts_with("no service `a`, `b` in this project;")
+            .starts_with("no service `a`, `b` in this deployment;")
     );
 }
 
@@ -862,7 +862,7 @@ fn logs_names_the_services_there_are() {
 fn the_empty_state_line_says_what_to_do_about_it() {
     assert_eq!(
         NOTHING_RUNNING,
-        "nothing is running for this project; start Chap with `varde up`"
+        "nothing is running for this deployment; start Chap with `varde up`"
     );
 }
 

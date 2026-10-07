@@ -1433,11 +1433,11 @@ fn dhis2_outside_a_project_says_so() {
     chap_in(&sandbox, sandbox.home.path(), &["dhis2"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
     chap_in(&sandbox, sandbox.home.path(), &["dhis2", "show"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 /// Enabling the component says the two halves cannot talk yet and names the one

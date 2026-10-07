@@ -404,7 +404,7 @@ fn enable_outside_a_project_says_so() {
         .models(&["enable", "chapkit_ewars_model"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 #[test]

@@ -338,7 +338,7 @@ fn read_env(project: &Project) -> Result<String> {
     match std::fs::read_to_string(&path) {
         Ok(body) => Ok(body),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(anyhow::anyhow!(
-            "{} has no {ENV_FILE} (a project created with `init --no-env`); the API token has \
+            "{} has no {ENV_FILE} (a deployment created with `init --no-env`); the API token has \
              to live in a {ENV_FILE} next to the compose files, because that is the file \
              compose reads",
             project.dir.display()

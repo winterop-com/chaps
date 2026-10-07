@@ -398,12 +398,12 @@ fn a_port_is_only_a_conflict_when_someone_else_holds_it() {
         "the fix is the sentence `varde up` would have failed with"
     );
 
-    // A port this project's own container publishes is ours, exactly as
+    // A port this deployment's own container publishes is ours, exactly as
     // the `up` preflight treats it.
     let running: BTreeSet<String> = [API_SERVICE.to_string()].into_iter().collect();
     let check = port_check(&api, &running, &taken, None, None);
     assert_eq!(check.status, Status::Ok);
-    assert!(check.detail.contains("this project's own container"));
+    assert!(check.detail.contains("this deployment's own container"));
 
     let model = claim("chapkit-ewars-model", 5001);
     let check = port_check(&model, &nothing, &taken, None, None);

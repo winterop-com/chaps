@@ -136,7 +136,7 @@ fn ocs_part(components: &Components, facts: &OcsFacts) -> Option<ComponentPart> 
             fix: Some(format!(
                 "edit {config} for your own country or region and delete the note at the top; \
                  `varde components enable ocs --ocs-name NAME --ocs-country CODE --ocs-bbox \
-                 xmin,ymin,xmax,ymax` writes it for a project that has none"
+                 xmin,ymin,xmax,ymax` writes it for a deployment that has none"
             )),
         });
     }

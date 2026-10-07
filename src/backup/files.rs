@@ -121,7 +121,7 @@ pub fn check_manifest_files(manifest: &Manifest, archive: &Path) -> Result<()> {
         .find(|rel| !is_contained_relative(rel))
     {
         Some(rel) => Err(anyhow::anyhow!(
-            "{} lists the project file `{rel}`, which is not inside a deployment directory; \
+            "{} lists the deployment file `{rel}`, which is not inside a deployment directory; \
              varde never writes such a path, so this archive was changed after `varde backup \
              create` made it - restore from another one",
             archive.display()

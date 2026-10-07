@@ -13,7 +13,7 @@ use crate::project::Project;
 /// What `logs` and `docker ps` say for a project that has no containers at
 /// all. Both would otherwise print nothing whatsoever.
 pub(super) const NOTHING_RUNNING: &str =
-    "nothing is running for this project; start Chap with `varde up`";
+    "nothing is running for this deployment; start Chap with `varde up`";
 
 /// What `restart` says when there is nothing to recreate. Recreating is not
 /// starting: a deployment that is down is `varde up`'s to bring up, the same
@@ -186,7 +186,7 @@ pub fn pull_summary(images: Option<usize>) -> String {
         Some(count) => format!("pulled {count} images"),
         // `config --images` is the only thing that could have failed here, and
         // the pull itself succeeded, so the count is all that is missing.
-        None => "pulled the images this project pins".to_string(),
+        None => "pulled the images this deployment pins".to_string(),
     }
 }
 
@@ -194,7 +194,7 @@ pub fn pull_summary(images: Option<usize>) -> String {
 pub fn unknown_service_message(unknown: &[String], services: &[String]) -> String {
     let named: Vec<String> = unknown.iter().map(|s| format!("`{s}`")).collect();
     format!(
-        "no service {} in this project; the services are {}",
+        "no service {} in this deployment; the services are {}",
         named.join(", "),
         services.join(", ")
     )

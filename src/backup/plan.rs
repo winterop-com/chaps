@@ -132,7 +132,7 @@ pub fn plan_text(plan: &RestorePlan) -> String {
             (
                 "from",
                 format!(
-                    "project {} (chap-core {})",
+                    "deployment {} (chap-core {})",
                     manifest.project, manifest.chap_image_tag
                 ),
             ),
@@ -145,7 +145,7 @@ pub fn plan_text(plan: &RestorePlan) -> String {
         text.push_str("  files     nothing\n");
     } else {
         text.push_str(&format!(
-            "  files     {} file(s) in the project directory: {}\n",
+            "  files     {} file(s) in the deployment directory: {}\n",
             plan.files.len(),
             plan.files.join(", ")
         ));

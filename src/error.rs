@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[derive(thiserror::Error, Debug)]
 pub enum ChapError {
     #[error(
-        "{0} is not a varde project (no .varde/project.yaml here or in a parent directory); \
+        "{0} is not a varde deployment (no .varde/project.yaml here or in a parent directory); \
          run `varde init` first"
     )]
     NotAProject(PathBuf),
@@ -18,7 +18,7 @@ pub enum ChapError {
     #[error("compose files are out of date with .varde/; run `varde sync`")]
     OutOfSync,
 
-    #[error("{0} already contains a varde project; use --force to overwrite")]
+    #[error("{0} already contains a varde deployment; use --force to overwrite")]
     AlreadyInitialized(PathBuf),
 
     #[error("unknown model `{0}`")]

@@ -117,7 +117,7 @@ pub struct RestartArgs {
     #[arg(long)]
     pub all: bool,
 
-    /// Services to restart; the whole project when omitted
+    /// Services to restart; the whole deployment when omitted
     #[arg(value_name = "SERVICE")]
     pub services: Vec<String>,
 }
@@ -132,7 +132,7 @@ pub struct DockerArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum DockerSub {
-    /// List the containers this project is running
+    /// List the containers this deployment is running
     Ps(PsArgs),
 
     /// Download the pinned images into the local Docker daemon
@@ -141,14 +141,14 @@ pub enum DockerSub {
     /// Run a command inside one of the running containers
     Exec(ExecArgs),
 
-    /// Run any docker compose command against this project
+    /// Run any docker compose command against this deployment
     Run(RunArgs),
 
     /// Print every compose file merged into one document
     Config(ConfigArgs),
 }
 
-/// List the containers this project is running
+/// List the containers this deployment is running
 #[derive(Debug, Clone, Args)]
 pub struct PsArgs {
     /// Extra arguments passed through to docker compose ps
@@ -180,7 +180,7 @@ pub struct ExecArgs {
     pub cmd: Vec<String>,
 }
 
-/// Run any docker compose command against this project
+/// Run any docker compose command against this deployment
 #[derive(Debug, Clone, Args)]
 pub struct RunArgs {
     /// Arguments passed to docker compose after the -f list

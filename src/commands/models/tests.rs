@@ -317,7 +317,7 @@ fn info_covers_every_documented_section() {
     // Not enabled here, and the page says so on its last lines rather than
     // leaving the missing block to be noticed.
     assert!(text.ends_with(
-        "chapkit_ewars_model is not enabled in this project\n\
+        "chapkit_ewars_model is not enabled in this deployment\n\
          hint: `varde models enable chapkit_ewars_model` enables it\n"
     ));
     assert!(text.lines().all(|l| !l.ends_with(' ')), "{text}");
@@ -351,7 +351,7 @@ fn info_wraps_the_summary_inside_eighty_columns() {
 #[test]
 fn info_shows_the_project_entry_when_the_model_is_enabled() {
     let text = detail_of(&model("chapkit_ewars_model"), Some(&enabled()));
-    assert!(text.contains("enabled in this project"));
+    assert!(text.contains("enabled in this deployment"));
     assert!(text.contains("reach     http://localhost:5001"), "{text}");
     assert!(text.contains("1.0.0 (stable)"));
     assert!(text.contains("compose.chapkit-ewars-model.yml"));
@@ -475,7 +475,7 @@ fn a_listing_ends_on_one_count_line_and_the_way_to_enable_is_a_hint() {
     list_lines(&rows, false, true, &mut lines);
     assert_eq!(
         lines.text(),
-        "1 listed, none enabled in this project\n\
+        "1 listed, none enabled in this deployment\n\
          hint: `varde models enable ID` enables one\n"
     );
 

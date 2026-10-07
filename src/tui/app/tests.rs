@@ -266,8 +266,8 @@ fn the_port_prompt_says_why_it_refuses_and_stays_open() {
     focus(&mut app, EWARS);
 
     for (typed, reason) in [
-        ("80", "outside this project's range"),
-        ("6000", "outside this project's range"),
+        ("80", "outside this deployment's range"),
+        ("6000", "outside this deployment's range"),
         ("8700", "chap-core's own API port"),
         ("five thousand", "is not a port"),
     ] {

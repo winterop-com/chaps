@@ -403,7 +403,7 @@ fn open_outside_a_deployment_says_there_is_none() {
         .arg("ocs")
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 /// A western extent starts with a minus sign, and the spelling without `=` is
@@ -1011,7 +1011,7 @@ fn doctor_checks_the_components_and_the_files_they_add() {
         "{text}"
     );
     assert!(text.contains("port ocs"), "{text}");
-    assert!(text.contains("project files"), "{text}");
+    assert!(text.contains("deployment files"), "{text}");
 
     // Editing the config and deleting the note turns the line green.
     std::fs::write(

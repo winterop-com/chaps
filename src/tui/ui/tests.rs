@@ -391,7 +391,7 @@ fn the_port_dialog_draws_the_state_and_what_it_refused() {
     let screen = render(&app, 120, 40);
     assert!(screen.contains("port  › 80_"), "{screen}");
     assert!(
-        screen.contains("port 80 is outside this project's range 5001-5999"),
+        screen.contains("port 80 is outside this deployment's range 5001-5999"),
         "{screen}"
     );
     assert!(screen.contains("Host port for CHAP-EWARS"), "still open");
@@ -400,7 +400,10 @@ fn the_port_dialog_draws_the_state_and_what_it_refused() {
     app.reduce(Action::FilterCancel);
     let screen = render(&app, 120, 40);
     assert!(!screen.contains("Host port for"), "{screen}");
-    assert!(!screen.contains("outside this project's range"), "{screen}");
+    assert!(
+        !screen.contains("outside this deployment's range"),
+        "{screen}"
+    );
 }
 
 /// The channel dialog: the two channels, what each resolves to, and which

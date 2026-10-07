@@ -636,7 +636,7 @@ fn models_add_outside_a_project_says_so() {
         .args(["models", "add", REPO_URL])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 #[test]

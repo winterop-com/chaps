@@ -100,7 +100,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
     // in here will find this project, not the outer one, so say so.
     if let Some(parent) = dir.parent().and_then(Project::find_root) {
         crate::output::warn(&format!(
-            "{} is inside the varde project at {}; commands run below it will use the new project",
+            "{} is inside the varde deployment at {}; commands run below it will use the new deployment",
             dir.display(),
             parent.display()
         ));
@@ -267,7 +267,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
             if args.api_token.is_some() {
                 warnings.push(format!(
                     "--api-token needs a .env to write to, and this run {}; \
-                     run `varde auth enable` in the project instead",
+                     run `varde auth enable` in the deployment instead",
                     match env {
                         EnvAction::Kept => "is keeping the one already there",
                         _ => "writes none (--no-env)",

@@ -385,7 +385,7 @@ fn docker_failed(code: i32, unasked: Option<docker::QueryFailure>) -> anyhow::Er
     let err = anyhow::Error::new(ChapError::DockerFailed(code));
     match unasked {
         Some(why) => err.context(format!(
-            "docker could not be asked about this project: {why}"
+            "docker could not be asked about this deployment: {why}"
         )),
         None => err,
     }
@@ -400,7 +400,7 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
     match cmd {
         DockerCmd::Logs(args) => {
             // An `Err` is "docker could not be asked", which is not the same
-            // as "this project has no containers"; docker itself says that
+            // as "this deployment has no containers"; docker itself says that
             // best, so the wrapper runs anyway - and keeps what docker said
             // about `ps` for the error that follows if it fails too.
             let containers = match docker::all_containers_or_why(project) {

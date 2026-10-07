@@ -116,7 +116,7 @@ impl Ctx {
     /// thing to check when it is not the one you meant.
     fn trace_project(&self, project: &crate::project::Project) {
         self.out.debug(&format!(
-            "project: {} (state in {})",
+            "deployment: {} (state in {})",
             project.dir.display(),
             project
                 .dir

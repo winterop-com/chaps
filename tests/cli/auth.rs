@@ -402,7 +402,7 @@ fn auth_outside_a_project_says_so() {
         chap_in(&sandbox, sandbox.home.path(), argv)
             .assert()
             .failure()
-            .stderr(predicates::str::contains("not a varde project"));
+            .stderr(predicates::str::contains("not a varde deployment"));
     }
 
     // A project written with --no-env has no file to keep a secret in, and
@@ -567,5 +567,5 @@ fn auth_token_prints_the_token_and_nothing_else() {
     chap_in(&sandbox, sandbox.home.path(), &["auth", "token"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }

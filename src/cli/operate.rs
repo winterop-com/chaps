@@ -52,7 +52,7 @@ pub struct RestoreArgs {
     #[arg(long)]
     pub yes: bool,
 
-    /// Restore only the project files; no Docker needed
+    /// Restore only the deployment files; no Docker needed
     #[arg(long, conflicts_with_all = ["db_only", "no_models", "no_components", "no_start"])]
     pub files_only: bool,
 

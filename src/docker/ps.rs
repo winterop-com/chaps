@@ -199,7 +199,7 @@ pub fn diff_containers(before: &[Container], after: &[Container]) -> (Vec<String
 ///
 /// An `Err` means docker could not be asked at all - no binary, no daemon, a
 /// daemon in a mode that cannot serve this stack - which callers have to tell
-/// apart from `Ok(vec![])`, "this project has no containers". It carries
+/// apart from `Ok(vec![])`, "this deployment has no containers". It carries
 /// docker's own words, because an exit code on its own explains none of that.
 pub fn all_containers_or_why(
     project: &Project,

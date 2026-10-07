@@ -514,7 +514,7 @@ pub(super) fn stack_check(
         return Check::skip_with(
             ID,
             NAME,
-            "no container of this project is running",
+            "no container of this deployment is running",
             "run `varde up` to start Chap",
         );
     }

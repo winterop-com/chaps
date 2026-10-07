@@ -181,7 +181,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "nothing is running for this project; start Chap with `varde up`",
+            "nothing is running for this deployment; start Chap with `varde up`",
         ));
 
     // The same line for `docker ps`, which is a question, not a failure.
@@ -189,7 +189,7 @@ fn the_wrappers_speak_up_for_a_project_that_was_never_started() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "nothing is running for this project",
+            "nothing is running for this deployment",
         ));
 
     // Under --json the answer is still one document: an empty list.

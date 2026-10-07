@@ -26,7 +26,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "already contains a varde project; use --force to overwrite",
+            "already contains a varde deployment; use --force to overwrite",
         ));
 
     // `varde init --api-port N --force` rewrites the project, but the
@@ -60,10 +60,9 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
     nested
         .current_dir(&dir)
         .args(["init", "inner", "--models", "none"]);
-    nested
-        .assert()
-        .success()
-        .stderr(predicates::str::contains("is inside the varde project at"));
+    nested.assert().success().stderr(predicates::str::contains(
+        "is inside the varde deployment at",
+    ));
     assert!(dir.join("inner/.varde/project.yaml").is_file());
 }
 
@@ -73,7 +72,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
 #[test]
 fn a_bare_group_command_outside_a_project_asks_for_a_project() {
     let sandbox = Sandbox::new();
-    let missing = "is not a varde project (no .varde/project.yaml here or in a parent \
+    let missing = "is not a varde deployment (no .varde/project.yaml here or in a parent \
                    directory); run `varde init` first";
 
     for group in ["components", "auth", "backup", "docker"] {
@@ -238,10 +237,9 @@ fn init_inside_a_project_warns_about_the_parent() {
         .arg("init")
         .arg(dir.join("inner"))
         .args(["--models", "none"]);
-    nested
-        .assert()
-        .success()
-        .stderr(predicates::str::contains("is inside the varde project at"));
+    nested.assert().success().stderr(predicates::str::contains(
+        "is inside the varde deployment at",
+    ));
     assert!(dir.join("inner/.varde/project.yaml").is_file());
 }
 
@@ -423,7 +421,7 @@ fn debug_implies_verbose_and_adds_the_resolved_project() {
     // -vv's half: the files the sync compared.
     assert!(stderr.contains("compared"), "{stderr}");
     // -d's own half: where the state it read actually lives.
-    assert!(stderr.contains("project:"), "{stderr}");
+    assert!(stderr.contains("deployment:"), "{stderr}");
     let state_file = Path::new(".varde").join("project.yaml");
     assert!(
         stderr.contains(&state_file.display().to_string()),
@@ -624,7 +622,7 @@ fn doctor_outside_a_project_checks_the_machine_and_says_so() {
         "{text}"
     );
     // Nothing that needs a deployment ran.
-    for name in ["project files", "api port", "chap-core pin"] {
+    for name in ["deployment files", "api port", "chap-core pin"] {
         assert!(!text.contains(name), "`{name}` needs a project:\n{text}");
     }
     let summary = regex::Regex::new(r"(?m)^\d+ checks: \d+ ok, \d+ warn, \d+ fail").unwrap();

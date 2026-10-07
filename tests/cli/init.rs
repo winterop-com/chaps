@@ -1035,7 +1035,7 @@ fn commands_find_the_project_from_a_subdirectory() {
     chap_in(&sandbox, sandbox.home.path(), &["sync", "--check"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"))
+        .stderr(predicates::str::contains("not a varde deployment"))
         .stderr(predicates::str::contains(".varde/project.yaml"));
 }
 
@@ -1156,7 +1156,7 @@ fn restart_outside_a_project_says_so() {
     chap_in(&sandbox, sandbox.home.path(), &["restart"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 #[test]
@@ -1300,7 +1300,7 @@ fn the_help_lists_only_the_commands_that_can_work_here() {
     chap_in(&sandbox, sandbox.home.path(), &["docker", "ps"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("not a varde project"));
+        .stderr(predicates::str::contains("not a varde deployment"));
 }
 
 /// A deployment with nothing in it: `up` says so and names the ways to add

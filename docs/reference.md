@@ -23,7 +23,7 @@ Usage: varde [OPTIONS] <COMMAND>
 | `--no-color` | Never colour the output (NO_COLOR does the same). |
 | `-v, --verbose` | Show the hints; -vv also shows the commands and requests that run. |
 | `-d, --debug` | -vv plus the raw responses. |
-| `-C, --project-dir <DIR>` | Project directory, or any directory inside one. Default: `.`. |
+| `-C, --project-dir <DIR>` | Deployment directory, or any directory inside one. Default: `.`. |
 | `--registry-url <URL>` | URL of the marketplace registry index. Default: `https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml`. |
 | `--offline` | Never touch the network; use what is cached or on this machine. |
 | `--cache-dir <DIR>` | Cache directory: the registry snapshot and the self-update downloads. |
@@ -44,7 +44,7 @@ Usage: varde init [OPTIONS] [DIR]
 | `--models <SPEC>` | Models to enable: none, default, all, or a list of ids. Default: `default`. |
 | `--interactive` | Pick the models in the browser instead of taking --models. |
 | `--chap-tag <TAG>` | chap-core image tag: latest, master, dev or vX.Y.Z. Default: `latest`. |
-| `--force` | Overwrite an existing project in the target directory. |
+| `--force` | Overwrite an existing deployment in the target directory. |
 | `--api-port <PORT>` | Host port to publish chap-core's API on. Default: `8700`. |
 | `--port-base <PORT>` | Lowest host port a model may be published on. Default: `5001`. |
 | `--api-token <TOKEN>` | Protect the API with a token (generated when no value is given). |
@@ -160,7 +160,7 @@ Usage: varde models list [OPTIONS]
 | --- | --- |
 | `--all` | Include every entry, templates as well as models. |
 | `--templates` | List only templates. |
-| `--enabled` | List only the models enabled in this project. |
+| `--enabled` | List only the models enabled in this deployment. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
@@ -203,7 +203,7 @@ Usage: varde models test [OPTIONS] [ID]...
 | Argument | Description |
 | --- | --- |
 | `<ID>...` | Marketplace ids or service ids of the models to test. |
-| `--all` | Test every model this project has enabled. |
+| `--all` | Test every model this deployment has enabled. |
 | `--backtest` | Run a backtest through chap-core instead of the model's own test. |
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
 | `--timeout <SECONDS>` | Give up on one model after this many seconds. |
@@ -519,7 +519,7 @@ Usage: varde restart [OPTIONS] [SERVICE]...
 | Argument | Description |
 | --- | --- |
 | `--all` | Recreate the named services even when nothing changed. |
-| `<SERVICE>...` | Services to restart; the whole project when omitted. |
+| `<SERVICE>...` | Services to restart; the whole deployment when omitted. |
 
 ## varde docker
 
@@ -533,7 +533,7 @@ Subcommands: [`varde docker ps`](#varde-docker-ps), [`varde docker pull`](#varde
 
 ## varde docker ps
 
-List the containers this project is running.
+List the containers this deployment is running.
 
 ```text
 Usage: varde docker ps [OPTIONS] [EXTRA]...
@@ -566,7 +566,7 @@ Usage: varde docker exec [OPTIONS] <SERVICE> [CMD]...
 
 ## varde docker run
 
-Run any docker compose command against this project.
+Run any docker compose command against this deployment.
 
 ```text
 Usage: varde docker run [OPTIONS] [ARGS]...
@@ -625,7 +625,7 @@ Usage: varde backup restore [OPTIONS] <ARCHIVE>
 | --- | --- |
 | `<ARCHIVE>` | The tar.gz written by varde backup create. |
 | `--yes` | Skip the confirmation. |
-| `--files-only` | Restore only the project files; no Docker needed. |
+| `--files-only` | Restore only the deployment files; no Docker needed. |
 | `--db-only` | Restore only the chap-core database. |
 | `--no-models` | Leave the model data volumes as they are. |
 | `--no-components` | Leave the component data volumes as they are. |

@@ -79,7 +79,7 @@ fn resolve_project(ctx: &Ctx, args: &ApiArgs) -> Result<Option<Project>> {
 /// The error for a request with no deployment and no `--url` to aim at.
 fn no_target() -> anyhow::Error {
     anyhow::anyhow!(
-        "no deployment here to send the request to; run this inside a project, \
+        "no deployment here to send the request to; run this inside a deployment, \
          or pass --url to name the chap-core API"
     )
 }

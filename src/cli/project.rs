@@ -24,7 +24,7 @@ pub struct InitArgs {
     #[arg(long, value_name = "TAG", default_value = "latest")]
     pub chap_tag: String,
 
-    /// Overwrite an existing project in the target directory
+    /// Overwrite an existing deployment in the target directory
     #[arg(long)]
     pub force: bool,
 

@@ -107,7 +107,7 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
         .collect();
     Check::from_verdict(
         "project-files",
-        "project files",
+        "deployment files",
         files_verdict(wanted.len(), &missing, &elsewhere),
     )
 }
@@ -144,7 +144,7 @@ pub fn project_name_verdict(recorded: Option<&str>) -> (Status, String, Option<S
 pub fn project_check(project: &Project) -> Check {
     Check::from_verdict(
         "compose-project",
-        "project",
+        "compose project",
         project_name_verdict(project.compose_project()),
     )
 }
@@ -431,7 +431,11 @@ pub fn port_check(
         None => format!("{} {what}", claim.port),
     };
     if running.contains(&claim.service) {
-        return Check::ok(id, name, detail("is held by this project's own container"));
+        return Check::ok(
+            id,
+            name,
+            detail("is held by this deployment's own container"),
+        );
     }
     if busy(claim.port) {
         return Check::fail(
