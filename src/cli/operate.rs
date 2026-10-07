@@ -28,15 +28,15 @@ pub struct BackupCreateArgs {
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
 
-    /// Leave the chap-core database out of the archive
+    /// Do not put the chap-core database in the archive
     #[arg(long)]
     pub no_db: bool,
 
-    /// Leave the model data volumes out of the archive
+    /// Do not put the model data volumes in the archive
     #[arg(long)]
     pub no_models: bool,
 
-    /// Leave the component data volumes out of the archive
+    /// Do not put the component data volumes in the archive
     #[arg(long)]
     pub no_components: bool,
 }
@@ -68,7 +68,7 @@ pub struct RestoreArgs {
     #[arg(long)]
     pub no_components: bool,
 
-    /// Take over the compose project name from the archive
+    /// Use the compose project name from the archive
     #[arg(long, conflicts_with = "db_only")]
     pub adopt_identity: bool,
 
@@ -236,7 +236,7 @@ pub struct CleanupArgs {
     pub yes: bool,
 }
 
-/// Turn API authentication on or off, and show the token
+/// Enable or disable API authentication, and show the token
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct AuthArgs {
@@ -252,13 +252,13 @@ pub enum AuthSub {
     /// Print the API token alone, for a script to capture
     Token(AuthTokenArgs),
 
-    /// Turn authentication on: write both secrets and sync
+    /// Enable authentication: write both secrets and sync
     Enable(AuthEnableArgs),
 
-    /// Turn authentication off, keeping both values as comments
+    /// Disable authentication; keep both values as comments
     Disable(AuthDisableArgs),
 
-    /// Replace both secrets with freshly generated ones
+    /// Replace both secrets with new generated ones
     Rotate(AuthRotateArgs),
 }
 
@@ -274,7 +274,7 @@ pub struct AuthShowArgs {
 #[derive(Debug, Clone, Args)]
 pub struct AuthTokenArgs {}
 
-/// Turn authentication on: write both secrets and sync
+/// Enable authentication: write both secrets and sync
 #[derive(Debug, Clone, Args)]
 pub struct AuthEnableArgs {
     /// Use this API token instead of generating one
@@ -282,10 +282,10 @@ pub struct AuthEnableArgs {
     pub token: Option<String>,
 }
 
-/// Turn authentication off, keeping both values as comments
+/// Disable authentication; keep both values as comments
 #[derive(Debug, Clone, Args)]
 pub struct AuthDisableArgs {}
 
-/// Replace both secrets with freshly generated ones
+/// Replace both secrets with new generated ones
 #[derive(Debug, Clone, Args)]
 pub struct AuthRotateArgs {}

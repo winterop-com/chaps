@@ -72,7 +72,7 @@ pub struct Dhis2AnalyticsArgs {
     #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_ANALYTICS_TIMEOUT)]
     pub timeout: u64,
 
-    /// Start the run and leave it going instead of waiting
+    /// Start the run and return without a wait for it to finish
     #[arg(long)]
     pub no_wait: bool,
 }
@@ -94,7 +94,7 @@ pub struct Dhis2ConnectArgs {
     #[arg(long, value_name = "SECONDS", default_value_t = crate::dhis2::DEFAULT_ANALYTICS_TIMEOUT)]
     pub timeout: u64,
 
-    /// Start the run and leave it going instead of waiting
+    /// Start the run and return without a wait for it to finish
     #[arg(long)]
     pub no_wait: bool,
 }

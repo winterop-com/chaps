@@ -19,7 +19,7 @@ Usage: varde [OPTIONS] <COMMAND>
 
 | Global option | Description |
 | --- | --- |
-| `--json` | Emit machine-readable JSON instead of human output. |
+| `--json` | Print machine-readable JSON instead of human output. |
 | `--no-color` | Never colour the output (NO_COLOR does the same). |
 | `-v, --verbose` | Show the hints; -vv also shows the commands and requests that run. |
 | `-d, --debug` | -vv plus the raw responses. |
@@ -42,17 +42,17 @@ Usage: varde init [OPTIONS] [DIR]
 | --- | --- |
 | `<DIR>` | Directory to create. Default: `.`. |
 | `--models <SPEC>` | Models to enable: none, default, all, or a list of ids. Default: `default`. |
-| `--interactive` | Pick the models in the browser instead of taking --models. |
+| `--interactive` | Select the models in the browser instead of with --models. |
 | `--chap-tag <TAG>` | chap-core image tag: latest, master, dev or vX.Y.Z. Default: `latest`. |
 | `--force` | Overwrite an existing deployment in the target directory. |
 | `--api-port <PORT>` | Host port to publish chap-core's API on. Default: `8700`. |
 | `--port-base <PORT>` | Lowest host port a model may be published on. Default: `5001`. |
 | `--api-token <TOKEN>` | Protect the API with a token (generated when no value is given). |
 | `--no-env` | Do not write a .env file. |
-| `--fresh-env` | Regenerate .env, rotating the database password. |
+| `--fresh-env` | Regenerate .env with a new database password. |
 | `--source <PATH>` | Build chap-core from the chap-core checkout at PATH. |
 | `--with <LIST>` | Components to add: ocs, s3, dhis2. |
-| `--without <LIST>` | Components to leave out: chap-core, ocs, s3, dhis2. |
+| `--without <LIST>` | Components to omit: chap-core, ocs, s3, dhis2. |
 | `--only <LIST>` | Exactly these components and nothing else; `none` for models alone. |
 | `--chap-core-url <URL>` | Register the models with the chap-core at URL instead of running one. |
 | `--ocs-base-url <URL>` | Public URL OCS is reached at, for a proxied instance. |
@@ -109,7 +109,7 @@ Usage: varde ps [OPTIONS]
 
 ## varde stop
 
-Stop a model and take its overlay away; its data stays.
+Stop a model and remove its compose overlay; its data stays.
 
 ```text
 Usage: varde stop [OPTIONS] [ID]
@@ -206,7 +206,7 @@ Usage: varde models test [OPTIONS] [ID]...
 | `--all` | Test every model this deployment has enabled. |
 | `--backtest` | Run a backtest through chap-core instead of the model's own test. |
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
-| `--timeout <SECONDS>` | Give up on one model after this many seconds. |
+| `--timeout <SECONDS>` | Time limit for the test of one model, in seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
@@ -316,7 +316,7 @@ Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see 
 
 ## varde models unexpose
 
-Take an enabled model's host port away again.
+Remove the host port of an enabled model.
 
 ```text
 Usage: varde models unexpose [OPTIONS] <ID>
@@ -348,7 +348,7 @@ Usage: varde components list [OPTIONS]
 
 ## varde components enable
 
-Turn a component on, or change the settings of one that is.
+Enable a component, or change the settings of an enabled one.
 
 ```text
 Usage: varde components enable [OPTIONS] <NAME>
@@ -373,7 +373,7 @@ Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see 
 
 ## varde components disable
 
-Turn a component off and remove its compose file.
+Disable a component and remove its compose file.
 
 ```text
 Usage: varde components disable [OPTIONS] <NAME>
@@ -473,7 +473,7 @@ Usage: varde up [OPTIONS] [EXTRA]...
 | `-a, --attach, --foreground` | Run in the foreground and stream all logs (Ctrl-C stops Chap). |
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
-| `--replace` | Stop the other varde deployments holding these ports first. |
+| `--replace` | First stop the other varde deployments that hold these ports. |
 | `--wait` | Return only once chap-core and every model answer. |
 | `--timeout <SECONDS>` | How long --wait waits before it fails, in seconds. Default: `300`. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
@@ -504,7 +504,7 @@ Usage: varde logs [OPTIONS] [SERVICE]...
 
 | Argument | Description |
 | --- | --- |
-| `-f, --follow` | Keep streaming new output. |
+| `-f, --follow` | Show new output when it arrives. |
 | `--tail <N>` | Show only the last N lines of each service's log. |
 | `<SERVICE>...` | Services to show logs for; all of them when omitted. |
 
@@ -523,7 +523,7 @@ Usage: varde restart [OPTIONS] [SERVICE]...
 
 ## varde docker
 
-Talk to Docker directly: containers, images, compose.
+Use Docker directly: containers, images, compose.
 
 ```text
 Usage: varde docker [OPTIONS] <COMMAND>
@@ -609,9 +609,9 @@ Usage: varde backup create [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--out <PATH>` | Where to write the archive: a file, or a directory. |
-| `--no-db` | Leave the chap-core database out of the archive. |
-| `--no-models` | Leave the model data volumes out of the archive. |
-| `--no-components` | Leave the component data volumes out of the archive. |
+| `--no-db` | Do not put the chap-core database in the archive. |
+| `--no-models` | Do not put the model data volumes in the archive. |
+| `--no-components` | Do not put the component data volumes in the archive. |
 
 ## varde backup restore
 
@@ -629,7 +629,7 @@ Usage: varde backup restore [OPTIONS] <ARCHIVE>
 | `--db-only` | Restore only the chap-core database. |
 | `--no-models` | Leave the model data volumes as they are. |
 | `--no-components` | Leave the component data volumes as they are. |
-| `--adopt-identity` | Take over the compose project name from the archive. |
+| `--adopt-identity` | Use the compose project name from the archive. |
 | `--no-start` | Do not start the deployment at the end. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
@@ -802,7 +802,7 @@ Usage: varde cleanup [OPTIONS]
 
 ## varde auth
 
-Turn API authentication on or off, and show the token.
+Enable or disable API authentication, and show the token.
 
 ```text
 Usage: varde auth [OPTIONS] <COMMAND>
@@ -832,7 +832,7 @@ Usage: varde auth token [OPTIONS]
 
 ## varde auth enable
 
-Turn authentication on: write both secrets and sync.
+Enable authentication: write both secrets and sync.
 
 ```text
 Usage: varde auth enable [OPTIONS]
@@ -846,7 +846,7 @@ Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see 
 
 ## varde auth disable
 
-Turn authentication off, keeping both values as comments.
+Disable authentication; keep both values as comments.
 
 ```text
 Usage: varde auth disable [OPTIONS]
@@ -856,7 +856,7 @@ Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see 
 
 ## varde auth rotate
 
-Replace both secrets with freshly generated ones.
+Replace both secrets with new generated ones.
 
 ```text
 Usage: varde auth rotate [OPTIONS]
@@ -913,7 +913,7 @@ Usage: varde dhis2 analytics [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
-| `--no-wait` | Start the run and leave it going instead of waiting. |
+| `--no-wait` | Start the run and return without a wait for it to finish. |
 
 ## varde dhis2 apps
 
@@ -943,7 +943,7 @@ Usage: varde dhis2 connect [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
-| `--no-wait` | Start the run and leave it going instead of waiting. |
+| `--no-wait` | Start the run and return without a wait for it to finish. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 

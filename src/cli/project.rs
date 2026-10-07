@@ -16,7 +16,7 @@ pub struct InitArgs {
     #[arg(long, value_name = "SPEC", default_value = "default")]
     pub models: String,
 
-    /// Pick the models in the browser instead of taking --models
+    /// Select the models in the browser instead of with --models
     #[arg(long)]
     pub interactive: bool,
 
@@ -44,7 +44,7 @@ pub struct InitArgs {
     #[arg(long)]
     pub no_env: bool,
 
-    /// Regenerate .env, rotating the database password
+    /// Regenerate .env with a new database password
     #[arg(long, conflicts_with = "no_env")]
     pub fresh_env: bool,
 
@@ -56,7 +56,7 @@ pub struct InitArgs {
     #[arg(long = "with", value_name = "LIST")]
     pub with: Option<String>,
 
-    /// Components to leave out: chap-core, ocs, s3, dhis2
+    /// Components to omit: chap-core, ocs, s3, dhis2
     #[arg(long = "without", value_name = "LIST")]
     pub without: Option<String>,
 
@@ -151,10 +151,10 @@ pub enum ComponentsCmd {
     /// List every component and whether this deployment has it
     List(ComponentsListArgs),
 
-    /// Turn a component on, or change the settings of one that is
+    /// Enable a component, or change the settings of an enabled one
     Enable(ComponentsEnableArgs),
 
-    /// Turn a component off and remove its compose file
+    /// Disable a component and remove its compose file
     Disable(ComponentsDisableArgs),
 }
 
@@ -162,7 +162,7 @@ pub enum ComponentsCmd {
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsListArgs {}
 
-/// Turn a component on, or change the settings of one that is
+/// Enable a component, or change the settings of an enabled one
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsEnableArgs {
     /// Component name: ocs, s3, dhis2 or chap-core
@@ -205,7 +205,7 @@ pub struct ComponentsEnableArgs {
     pub ocs: OcsConfigArgs,
 }
 
-/// Turn a component off and remove its compose file
+/// Disable a component and remove its compose file
 #[derive(Debug, Clone, Args)]
 pub struct ComponentsDisableArgs {
     /// Component name: ocs, s3, dhis2 or chap-core

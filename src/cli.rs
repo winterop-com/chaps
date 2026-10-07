@@ -213,7 +213,7 @@ fn with_global_copies(
 // everywhere else - and `docs/reference.md` is generated from that help.
 #[command(name = "varde", bin_name = "varde", version, about = ABOUT, after_help = DOCS_LINE)]
 pub struct Cli {
-    /// Emit machine-readable JSON instead of human output
+    /// Print machine-readable JSON instead of human output
     #[arg(long, global = true, help_heading = GLOBAL)]
     pub json: bool,
 
@@ -267,7 +267,7 @@ pub enum Command {
     /// List the models that run, and where each one answers
     Ps(ModelPsArgs),
 
-    /// Stop a model and take its overlay away; its data stays
+    /// Stop a model and remove its compose overlay; its data stays
     Stop(ModelStopArgs),
 
     /// Watch every varde deployment on this machine as a live tree
@@ -303,7 +303,7 @@ pub enum Command {
     /// Recreate the services whose image or configuration changed
     Restart(RestartArgs),
 
-    /// Talk to Docker directly: containers, images, compose
+    /// Use Docker directly: containers, images, compose
     Docker(DockerArgs),
 
     /// Create or restore a backup of this deployment
@@ -330,7 +330,7 @@ pub enum Command {
     /// Delete what deployments whose directory is gone left in docker
     Cleanup(CleanupArgs),
 
-    /// Turn API authentication on or off, and show the token
+    /// Enable or disable API authentication, and show the token
     Auth(AuthArgs),
 
     /// Let the DHIS2 Modeling App reach this deployment's Chap

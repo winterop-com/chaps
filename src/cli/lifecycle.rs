@@ -50,7 +50,7 @@ pub struct UpArgs {
     #[arg(long)]
     pub no_preflight: bool,
 
-    /// Stop the other varde deployments holding these ports first
+    /// First stop the other varde deployments that hold these ports
     #[arg(long, conflicts_with = "no_preflight")]
     pub replace: bool,
 
@@ -97,7 +97,7 @@ pub struct DownArgs {
 /// Show container logs (docker compose logs)
 #[derive(Debug, Clone, Args)]
 pub struct LogsArgs {
-    /// Keep streaming new output
+    /// Show new output when it arrives
     #[arg(short = 'f', long)]
     pub follow: bool,
 
@@ -122,7 +122,7 @@ pub struct RestartArgs {
     pub services: Vec<String>,
 }
 
-/// Talk to Docker directly: containers, images, compose
+/// Use Docker directly: containers, images, compose
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct DockerArgs {

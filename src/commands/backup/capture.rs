@@ -316,7 +316,7 @@ pub(super) fn pause_warning_for(service: &str, volume: &str, bytes: u64) -> Opti
         format!(
             "{service} is paused while varde copies {} of `{volume}`, and it does not answer \
              until the copy is done; this can take minutes, so run the backup when nobody \
-             uses it, or use `--no-components` to leave out the volumes of every component",
+             uses it, or use `--no-components` to omit the volumes of every component",
             backup::human_size(bytes)
         )
     })

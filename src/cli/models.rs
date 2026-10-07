@@ -44,7 +44,7 @@ pub enum ModelsCmd {
     /// Publish a host port for an enabled model
     Expose(ModelsExposeArgs),
 
-    /// Take an enabled model's host port away again
+    /// Remove the host port of an enabled model
     Unexpose(ModelsUnexposeArgs),
 }
 
@@ -99,7 +99,7 @@ pub struct ModelsTestArgs {
     #[arg(long, value_name = "N")]
     pub seed: Option<i64>,
 
-    /// Give up on one model after this many seconds
+    /// Time limit for the test of one model, in seconds
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
@@ -232,7 +232,7 @@ pub struct ModelsExposeArgs {
     pub bind: Option<std::net::IpAddr>,
 }
 
-/// Take an enabled model's host port away again
+/// Remove the host port of an enabled model
 #[derive(Debug, Clone, Args)]
 pub struct ModelsUnexposeArgs {
     /// Marketplace id or service id

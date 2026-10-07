@@ -77,7 +77,7 @@ pub struct TopArgs {
     pub interval: u64,
 }
 
-/// Stop a model and take its overlay away; its data stays
+/// Stop a model and remove its compose overlay; its data stays
 #[derive(Debug, Clone, Args)]
 pub struct ModelStopArgs {
     /// Id or service id of the model
