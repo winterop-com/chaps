@@ -29,6 +29,13 @@ pub fn stop_and_remove(project: &Project, losing: &dyn Fn(&str) -> bool) -> Opti
     if services.is_empty() {
         return None;
     }
+    let mut published: Vec<u16> = containers
+        .iter()
+        .filter(|c| losing(&c.service))
+        .flat_map(|c| c.published.iter().copied())
+        .collect();
+    published.sort_unstable();
+    published.dedup();
     let ran = |verb: &[&str]| {
         let mut args: Vec<String> = verb.iter().map(|s| s.to_string()).collect();
         args.extend(services.iter().cloned());
@@ -41,12 +48,7 @@ pub fn stop_and_remove(project: &Project, losing: &dyn Fn(&str) -> bool) -> Opti
         count => format!("{count} containers ({})", services.join(", ")),
     };
     if ran(&["stop"]) && ran(&["rm", "-f"]) {
-        let ports = if services.len() == 1 {
-            "the host port it published is"
-        } else {
-            "the host ports they published are"
-        };
-        return Some(format!("stopped and removed {what}; {ports} free again"));
+        return Some(removed_line(&what, &published));
     }
     let orphans = if services.len() == 1 {
         "it as an orphan"
@@ -56,6 +58,20 @@ pub fn stop_and_remove(project: &Project, losing: &dyn Fn(&str) -> bool) -> Opti
     Some(format!(
         "{what} could not be stopped; `varde up` removes {orphans}"
     ))
+}
+
+/// The line for containers that were stopped and removed. It says that a
+/// host port is free only for a port that the containers published.
+pub fn removed_line(what: &str, published: &[u16]) -> String {
+    let ports: Vec<String> = published.iter().map(u16::to_string).collect();
+    match ports.as_slice() {
+        [] => format!("stopped and removed {what}"),
+        [port] => format!("stopped and removed {what}; host port {port} is free again"),
+        many => format!(
+            "stopped and removed {what}; host ports {} are free again",
+            many.join(", ")
+        ),
+    }
 }
 
 /// What a `disable` says when the data volume cannot be named at all.

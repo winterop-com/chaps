@@ -750,3 +750,24 @@ fn compose_prints_no_progress_without_a_terminal() {
     );
     assert!(!quiet_progress(false, true), "-vv keeps the lines");
 }
+
+/// `Publishers` lists a binding per address family; a port of 0 is a
+/// container port that is not published on the host.
+#[test]
+fn the_published_host_ports_are_read_once_each() {
+    let text = concat!(
+        r#"{"ID":"a","Service":"m","State":"running","Publishers":["#,
+        r#"{"URL":"0.0.0.0","TargetPort":8000,"PublishedPort":5001,"Protocol":"tcp"},"#,
+        r#"{"URL":"::","TargetPort":8000,"PublishedPort":5001,"Protocol":"tcp"}]}"#,
+        "\n",
+        r#"{"ID":"b","Service":"n","State":"running","Publishers":["#,
+        r#"{"URL":"","TargetPort":8000,"PublishedPort":0,"Protocol":"tcp"}]}"#,
+        "\n",
+        r#"{"ID":"c","Service":"o","State":"exited"}"#,
+        "\n"
+    );
+    let found = containers(text);
+    assert_eq!(found[0].published, vec![5001]);
+    assert!(found[1].published.is_empty());
+    assert!(found[2].published.is_empty());
+}

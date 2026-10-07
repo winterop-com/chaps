@@ -879,3 +879,21 @@ fn up_resumes_only_the_paused_services() {
         vec!["chapkit-ewars-model".to_string()]
     );
 }
+
+/// A container that published no host port frees none, so the line does
+/// not say that a port is free again.
+#[test]
+fn a_removal_names_only_the_host_ports_that_were_published() {
+    assert_eq!(
+        removed_line("the m container", &[]),
+        "stopped and removed the m container"
+    );
+    assert_eq!(
+        removed_line("the m container", &[5001]),
+        "stopped and removed the m container; host port 5001 is free again"
+    );
+    assert_eq!(
+        removed_line("2 containers (ocs, s3)", &[8790, 9000]),
+        "stopped and removed 2 containers (ocs, s3); host ports 8790, 9000 are free again"
+    );
+}

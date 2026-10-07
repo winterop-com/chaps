@@ -60,6 +60,9 @@ pub struct Container {
     pub image: String,
     /// Docker's own summary, such as `Up 12 seconds` or `Exited (0) 3 hours ago`.
     pub status: String,
+    /// The host ports it publishes now, from `Publishers`. A stopped
+    /// container publishes none, and neither does one without `ports:`.
+    pub published: Vec<u16>,
 }
 
 impl Container {
@@ -146,9 +149,27 @@ pub fn containers(text: &str) -> Vec<Container> {
                 health: string("Health"),
                 image: string("Image"),
                 status: string("Status"),
+                published: published_ports(value),
             })
         })
         .collect()
+}
+
+/// The host ports one `ps` entry publishes, without the duplicate that an
+/// IPv4 and an IPv6 binding of the same port give.
+fn published_ports(value: &serde_json::Value) -> Vec<u16> {
+    let mut ports: Vec<u16> = value
+        .get("Publishers")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.get("PublishedPort").and_then(|n| n.as_u64()))
+        .filter_map(|n| u16::try_from(n).ok())
+        .filter(|n| *n != 0)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
 }
 
 /// The services with a running container, out of a [`containers`] list.
