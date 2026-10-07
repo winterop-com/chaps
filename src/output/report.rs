@@ -119,7 +119,8 @@ impl Out {
     }
 
     /// [`Out::report`] for a command that changed something: under `--json`
-    /// the document also says `"ok": true`, as [`Out::emit_ok`] does.
+    /// the document also says `"ok": true`, the counterpart of the `"ok": false`
+    /// an error carries, so a caller can branch on one field.
     pub fn report_ok<T: Serialize>(
         &self,
         value: &T,

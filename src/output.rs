@@ -121,20 +121,6 @@ impl Out {
         Ok(())
     }
 
-    /// [`Out::emit`] for a command that changed something: under `--json` the
-    /// document also says `"ok": true`, the counterpart of the `"ok": false`
-    /// an error carries, so a caller can branch on one field.
-    pub fn emit_ok<T: Serialize>(&self, value: &T, human: impl FnOnce() -> String) -> Result<()> {
-        if !self.json {
-            return self.emit(value, human);
-        }
-        let mut value = serde_json::to_value(value)?;
-        if let serde_json::Value::Object(map) = &mut value {
-            map.insert("ok".to_string(), serde_json::Value::Bool(true));
-        }
-        self.emit(&value, String::new)
-    }
-
     /// Apply a style, or hand the text back untouched when colour is off.
     fn paint(&self, text: &str, style: Style) -> String {
         if self.color {
