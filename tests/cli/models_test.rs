@@ -137,14 +137,9 @@ fn models_test_backtest_reports_scores_a_failure_and_a_skip() {
         text.contains("needs chapkit 1.1.0, this one reports 1.0.0"),
         "{text}"
     );
-    // And the line the run adds up to, with the failing model named.
-    assert!(
-        text.contains(
-            "1 pass, 1 fail, 1 skipped; run \
-             `varde models test chapkit_rwanda_malaria_bym_model -v` for the full output"
-        ),
-        "{text}"
-    );
+    // And the line the run adds up to. The way to the full output is under
+    // the failing row already, so the closing line is the count alone.
+    assert!(text.ends_with("\n1 pass, 1 fail, 1 skipped\n"), "{text}");
 
     let recorded = recorded(&sandbox, &dir);
     // The dataset is named after the service and the moment, and the org
@@ -289,6 +284,12 @@ fn models_test_json_is_one_object_per_model() {
     assert_eq!(row["job_id"], Json::from(format!("bt-{PASSING_MODEL}")));
     // The scores are handed back whole, not just the three the row prints.
     assert_eq!(row["metrics"]["mape"], Json::from(12.98));
+    // The closing line rides along with its level.
+    assert_eq!(doc["messages"][0]["level"], Json::from("info"));
+    assert_eq!(
+        doc["messages"][0]["text"],
+        Json::from("1 of 1 model passes")
+    );
 }
 
 #[test]

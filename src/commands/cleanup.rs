@@ -11,6 +11,7 @@ use crate::cli::CleanupArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
+use crate::output::Report;
 use serde::Serialize;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -63,6 +64,9 @@ struct CleanupReport {
     removed_volumes: Vec<String>,
     removed_networks: Vec<String>,
     refused: Vec<Refusal>,
+    /// What went wrong on the way that did not stop the run.
+    #[serde(skip)]
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,12 +139,13 @@ pub fn run(ctx: &Ctx, args: &CleanupArgs) -> Result<()> {
         removed_volumes: Vec::new(),
         removed_networks: Vec::new(),
         refused: Vec::new(),
+        warnings: Vec::new(),
     };
     if report.findings.leftovers.is_empty() {
         if !args.dry_run {
             crate::known::forget(&report.findings.forgotten)?;
         }
-        return ctx.out.emit_ok(&report, || summary(ctx, &report));
+        return ctx.out.report_ok(&report, |lines| summary(&report, lines));
     }
     if !args.dry_run {
         if !args.yes {
@@ -148,7 +153,7 @@ pub fn run(ctx: &Ctx, args: &CleanupArgs) -> Result<()> {
         }
         remove(&mut report);
     }
-    ctx.out.emit_ok(&report, || summary(ctx, &report))
+    ctx.out.report_ok(&report, |lines| summary(&report, lines))
 }
 
 /// Remove every leftover, and forget each deployment that left nothing
@@ -191,7 +196,7 @@ fn remove(report: &mut CleanupReport) {
         }
     }
     if let Err(err) = crate::known::forget(&done) {
-        crate::output::warn(&format!("{err:#}"));
+        report.warnings.push(format!("{err:#}"));
     }
 }
 
@@ -211,7 +216,9 @@ fn confirm(ctx: &Ctx, findings: &Findings) -> Result<()> {
              deletes it without asking"
         ));
     }
-    eprint!("{}", listing(ctx, findings));
+    for line in listing(findings) {
+        eprintln!("{line}");
+    }
     eprint!(
         "\ndelete {} volume{} of {} removed deployment{}? [y/N] ",
         findings.volume_count(),
@@ -231,89 +238,100 @@ fn confirm(ctx: &Ctx, findings: &Findings) -> Result<()> {
     }
 }
 
-/// Each gone deployment with what it left.
-fn listing(ctx: &Ctx, findings: &Findings) -> String {
-    let mut text = String::new();
+/// Each gone deployment with what it left, one line each.
+fn listing(findings: &Findings) -> Vec<String> {
+    let mut lines = Vec::new();
     for leftover in &findings.leftovers {
-        text.push_str(&format!(
-            "{} (was {})\n",
+        lines.push(format!(
+            "{} (was {})",
             leftover.project,
-            ctx.out.dim(&leftover.dir.display().to_string())
+            leftover.dir.display()
         ));
         for volume in &leftover.volumes {
-            text.push_str(&format!("  volume {volume}\n"));
+            lines.push(format!("  volume {volume}"));
         }
         if let Some(network) = &leftover.network {
-            text.push_str(&format!("  network {network}\n"));
+            lines.push(format!("  network {network}"));
         }
     }
-    text
+    lines
 }
 
-fn summary(ctx: &Ctx, report: &CleanupReport) -> String {
+/// `1 recorded deployment is still in place`, `2 ... are ...`.
+fn in_place(present: usize) -> String {
+    format!(
+        "{present} recorded deployment{} still in place",
+        match present {
+            1 => " is",
+            _ => "s are",
+        }
+    )
+}
+
+fn summary(report: &CleanupReport, lines: &mut Report) {
     let findings = &report.findings;
-    let mut text = String::new();
     for kept in &findings.kept {
-        text.push_str(&ctx.out.backticks(&format!(
-            "kept {} (was {}): {}\n",
+        lines.warning(format!(
+            "kept {} (was {}): {}",
             kept.project,
             kept.dir.display(),
             kept.reason
-        )));
+        ));
+    }
+    for warning in &report.warnings {
+        lines.warning(warning.as_str());
     }
     if findings.leftovers.is_empty() {
-        let forgot = match findings.forgotten.len() {
-            0 => String::new(),
-            n if report.dry_run => format!("; {n} removed deployment{} left nothing", plural(n)),
-            n => format!(
-                "; forgot {n} removed deployment{} that left nothing",
-                plural(n)
-            ),
-        };
-        text.push_str(&format!(
-            "nothing to clean up: {} recorded deployment{} still in place{forgot}",
-            findings.present,
-            match findings.present {
-                1 => " is",
-                _ => "s are",
-            },
-        ));
-        return text;
+        lines.info("nothing to clean up");
+        match findings.forgotten.len() {
+            0 => {}
+            n if report.dry_run => {
+                lines.hint(format!("{n} removed deployment{} left nothing", plural(n)));
+            }
+            n => {
+                lines.hint(format!(
+                    "forgot {n} removed deployment{} that left nothing",
+                    plural(n)
+                ));
+            }
+        }
+        lines.hint(in_place(findings.present));
+        return;
     }
     if report.dry_run {
-        text.push_str(&listing(ctx, findings));
-        text.push_str(&ctx.out.backticks(&format!(
-            "{} volume{} of {} removed deployment{} to delete; `varde cleanup` deletes them",
-            findings.volume_count(),
-            plural(findings.volume_count()),
-            findings.leftovers.len(),
-            plural(findings.leftovers.len())
-        )));
-        return text;
+        for line in listing(findings) {
+            lines.info(line);
+        }
+        lines
+            .info(format!(
+                "would delete {} volume{} of {} removed deployment{}",
+                findings.volume_count(),
+                plural(findings.volume_count()),
+                findings.leftovers.len(),
+                plural(findings.leftovers.len())
+            ))
+            .hint("`varde cleanup` deletes them");
+        return;
     }
     for volume in &report.removed_volumes {
-        text.push_str(&format!("{} volume {volume}\n", ctx.out.warn("removed")));
+        lines.info(format!("removed volume {volume}"));
     }
     for network in &report.removed_networks {
-        text.push_str(&format!("{} network {network}\n", ctx.out.warn("removed")));
+        lines.info(format!("removed network {network}"));
     }
     for refusal in &report.refused {
-        text.push_str(&ctx.out.backticks(&format!(
-            "kept {}: {}; `docker ps -a` shows what holds it\n",
+        lines.warning(format!(
+            "kept {}: {}; `docker ps -a` shows what holds it",
             refusal.volume, refusal.why
-        )));
+        ));
     }
-    text.push_str(&format!(
-        "cleaned up {} removed deployment{}; {} recorded deployment{} still in place",
-        findings.leftovers.len(),
-        plural(findings.leftovers.len()),
-        findings.present,
-        match findings.present {
-            1 => " is",
-            _ => "s are",
-        },
-    ));
-    text
+    lines
+        .info(format!(
+            "cleaned up {} removed deployment{}",
+            findings.leftovers.len(),
+            plural(findings.leftovers.len())
+        ))
+        .hint(in_place(findings.present));
 }
 
 fn plural(n: usize) -> &'static str {

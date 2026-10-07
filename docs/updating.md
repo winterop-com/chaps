@@ -27,7 +27,7 @@ a deployment nobody asked for. So `update` ends by telling you which of the
 other two to run, and you run it when it suits you:
 
 ```sh
-varde update     # ... restart needed: chap, worker (run `varde restart`)
+varde update     # ... restart needed: chap, worker
 varde restart    # recreated chap, worker
 ```
 
@@ -84,12 +84,15 @@ A run is four steps, printed in that order:
    pin stays where it is, and the rest of the update goes ahead.
 2. **The sync**, which renders the compose files from `.varde/`.
 3. **The pull**: `docker compose pull`, with docker's own output.
-4. **One closing line**, below.
+4. **The closing lines**, below.
 
-## The closing line
+## The closing lines
 
-It answers the only question a finished update leaves: is there anything to do
-now? There are four answers, and every run ends on exactly one of them.
+They answer the only question a finished update leaves: is there anything to
+do now? There are four answers, and every run ends on exactly one of them.
+With `-v`, the run also says which registry it used, as a hint. The warnings
+of the run, such as a lookup that did not answer, come after these lines on
+stderr.
 
 Nothing moved, no new image arrived, and nothing running is out of date:
 
@@ -101,19 +104,22 @@ Running services are behind what the files now say, which is the case the whole
 command is shaped around:
 
 ```text
-updated 1 model pin; restart needed: chap, worker (run `varde restart`)
+updated 1 model pin; restart needed: chap, worker
+run `varde restart` to apply
 ```
 
-Something moved and there is nothing running for it to be ahead of:
+Something moved and there is nothing running for it to be ahead of. With
+`-v`, a hint says that `varde up` starts the new versions:
 
 ```text
-updated chap-core v2.3.0 -> v2.3.1; Chap is not running, the new versions start with `varde up`
+updated chap-core v2.3.0 -> v2.3.1
+hint: Chap is not running; `varde up` starts the new versions
 ```
 
 Something moved, Chap is up, and none of it was affected:
 
 ```text
-updated 1 model pin; nothing needs a restart
+updated 1 model pin
 ```
 
 Nothing was pinned to move, but a moving tag brought a newer image - `ocs:main`
@@ -121,7 +127,8 @@ after upstream has published, say - and the running container is still on the
 old one:
 
 ```text
-pulled a new image for ocs; restart needed: ocs (run `varde restart`)
+pulled a new image for ocs; restart needed: ocs
+run `varde restart` to apply
 ```
 
 `varde restart` then recreates that service alone, and a second `varde update`
@@ -207,7 +214,7 @@ varde restart --all chapkit-rwanda-malaria-bym-model
 nothing is written. It still needs the network, and it says what it would do:
 
 ```text
-would update 1 model pin; nothing written (run `varde update` to do it)
+would update 1 model pin
 ```
 
 It says nothing about restarting. The images were not pulled and the files were
@@ -262,12 +269,13 @@ It is the same run as any other update: the tag is checked, the
 `compose.ghcr.yml` that goes with it is fetched and cached under `.varde/`,
 `chap_image_tag` and `chap_compose_source` are recorded, the single active
 `CHAP_IMAGE_TAG=` line in `.env` is rewritten, the compose files are
-re-rendered, the images are pulled, and the closing line says what moved and
+re-rendered, the images are pulled, and the closing lines say what moved and
 what needs restarting:
 
 ```text
   chap-core  v2.3.1 -> dev
-updated chap-core v2.3.1 -> dev; restart needed: chap, worker (run `varde restart`)
+updated chap-core v2.3.1 -> dev; restart needed: chap, worker
+run `varde restart` to apply
 ```
 
 `--chap-tag` cannot be combined with `--pin-chap-core`: both decide where
@@ -362,8 +370,10 @@ latest  moving   2026-09-21  -
 v2.3.1  release  2026-09-21  newest
 v2.3.0  release  2026-09-11  -
 
-chap-core is pinned to dev; move it with `varde update --chap-tag <TAG>`
+chap-core is pinned to dev
 ```
+
+With `-v`, a hint names `varde update --chap-tag <TAG>`, which moves the pin.
 
 `PUBLISHED` is the day the release was published, or the day the branch behind
 a moving tag was last committed to; `latest` carries the date of the release it

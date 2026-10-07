@@ -1,10 +1,10 @@
-//! What the run prints: the plan, and the one line it ends on.
+//! What the run prints: the plan, and the lines it ends on.
 
 use super::UpdateReport;
 use super::chap_core::chap_core_cell;
 use super::components::component_line;
 use super::models::ModelUpdate;
-use crate::output::Out;
+use crate::output::{Out, Report};
 
 /// What this run actually changed, as the closing line names it, or `None`
 /// when the answer is "nothing".
@@ -51,16 +51,17 @@ pub(super) fn updated(report: &UpdateReport) -> Option<String> {
     updated_phrase(report.changed().count(), chap_core, &report.pulled_new)
 }
 
-/// The one line the run ends on.
+/// The lines the run ends on.
 ///
-/// It answers the only question left: is there anything to do now? A stale
+/// They answer the only question left: is there anything to do now? A stale
 /// running service is that answer whether or not this run is what made it
-/// stale, so the restart clause comes first and stands on its own.
-pub fn closing_line(
+/// stale, so the restart comes first and stands on its own.
+pub fn closing(
+    lines: &mut Report,
     what: Option<&str>,
     restart_needed: &[String],
     running: Option<bool>,
-) -> String {
+) {
     let head = match what {
         // A run that only pulled says so in its own verb.
         Some(what) if what.starts_with("pulled ") => what.to_string(),
@@ -68,44 +69,52 @@ pub fn closing_line(
         None => "already up to date".to_string(),
     };
     if !restart_needed.is_empty() {
-        return format!(
-            "{head}; restart needed: {} (run `varde restart`)",
-            restart_needed.join(", ")
-        );
+        lines
+            .info(format!(
+                "{head}; restart needed: {}",
+                restart_needed.join(", ")
+            ))
+            .info("run `varde restart` to apply");
+        return;
     }
+    lines.info(head);
     if what.is_none() {
-        return head;
+        return;
     }
     match running {
-        Some(false) => {
-            format!("{head}; Chap is not running, the new versions start with `varde up`")
-        }
-        Some(true) => format!("{head}; nothing needs a restart"),
+        Some(false) => lines.hint("Chap is not running; `varde up` starts the new versions"),
+        Some(true) => lines.hint("nothing running needs a restart"),
         // Docker would not say what is running, so neither will we.
-        None => format!("{head}; run `varde restart` to apply it to whatever is running"),
-    }
+        None => lines.info("run `varde restart` to apply it to what is running"),
+    };
 }
 
-/// The one line a `--dry-run` ends on.
+/// The lines a `--dry-run` ends on.
 ///
-/// It says what the pins would do and nothing about restarting: the images
+/// They say what the pins would do and nothing about restarting: the images
 /// were not pulled and the files were not written, so what a running
 /// container would then be out of step with does not exist yet.
-pub fn dry_run_line(what: Option<&str>) -> String {
+pub fn dry_run(lines: &mut Report, what: Option<&str>) {
     match what {
-        Some(what) => format!("would update {what}; nothing written (run `varde update` to do it)"),
-        None => "already up to date; nothing would change".to_string(),
-    }
+        Some(what) => lines
+            .info(format!("would update {what}"))
+            .hint("`varde update` does it"),
+        None => lines.info("already up to date"),
+    };
 }
 
-/// The plan: where the catalogue came from, and a row per thing that can move.
-pub(super) fn plan_text(report: &UpdateReport, out: &Out) -> String {
-    let mut text = format!(
-        "{} {} {}\n",
-        out.key("registry:"),
+/// Where the catalogue came from, as a hint under the closing lines.
+pub(super) fn registry_hint(report: &UpdateReport, lines: &mut Report) {
+    lines.hint(format!(
+        "the registry is {} ({})",
         report.registry.url,
-        out.dim(&format!("({})", report.registry.provenance.describe()))
-    );
+        report.registry.provenance.describe()
+    ));
+}
+
+/// The plan: a row per thing that can move.
+pub(super) fn plan_text(report: &UpdateReport, out: &Out) -> String {
+    let mut text = String::new();
     if report.models.is_empty() {
         text.push_str(&out.dim("no models enabled"));
         text.push('\n');

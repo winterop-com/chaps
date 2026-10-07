@@ -281,7 +281,9 @@ fn detail_with(m: &Model, enabled: Option<&EnabledModel>, manual: Option<&Manual
         image_latest: channel_image(m, Channel::Latest),
         needs_amd64: m.needs_amd64(),
     };
-    render_info(&Out::default(), &detail)
+    let mut lines = Report::default();
+    info_lines(&detail, &mut lines);
+    format!("{}{}", render_info(&Out::default(), &detail), lines.text())
 }
 
 #[test]
@@ -312,10 +314,11 @@ fn info_covers_every_documented_section() {
     }
     assert!(text.contains("(amd64 only)"), "ewars is an R-INLA model");
     assert!(text.contains(&m.channels.stable));
-    // Not enabled here, and the page says so on its last line rather than
+    // Not enabled here, and the page says so on its last lines rather than
     // leaving the missing block to be noticed.
     assert!(text.ends_with(
-        "not enabled in this project; enable it with `varde models enable chapkit_ewars_model`\n"
+        "chapkit_ewars_model is not enabled in this project\n\
+         hint: `varde models enable chapkit_ewars_model` enables it\n"
     ));
     assert!(text.lines().all(|l| !l.ends_with(' ')), "{text}");
 }
@@ -461,4 +464,29 @@ fn labels_match_the_yaml_spelling() {
     assert_eq!(first_line(Some("first\nsecond")), "first");
     assert_eq!(first_line(None), "");
     assert_eq!(indent_block("a\nb", 2), "  a\n  b\n");
+}
+
+#[test]
+fn a_listing_ends_on_one_count_line_and_the_way_to_enable_is_a_hint() {
+    let m = model("chapkit_ewars_model");
+    let rows = vec![row(&m, None)];
+
+    let mut lines = Report::default();
+    list_lines(&rows, false, true, &mut lines);
+    assert_eq!(
+        lines.text(),
+        "1 listed, none enabled in this project\n\
+         hint: `varde models enable ID` enables one\n"
+    );
+
+    let mut lines = Report::default();
+    list_lines(&rows, false, false, &mut lines);
+    assert_eq!(lines.text(), "1 listed\n");
+
+    let mut lines = Report::default();
+    list_lines(&[], true, true, &mut lines);
+    assert_eq!(
+        lines.text(),
+        "no models enabled\nhint: `varde models enable ID` enables one\n"
+    );
 }

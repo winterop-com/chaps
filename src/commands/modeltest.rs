@@ -31,7 +31,7 @@ use crate::commands::Ctx;
 use crate::docker;
 use crate::error::{ChapError, Result};
 use crate::modeltest::{self, Level, Run, Verdict};
-use crate::output::Out;
+use crate::output::{self, Out, Report};
 use crate::project::{EnabledModel, Project};
 use backtest::backtest_level;
 use model::model_level;
@@ -135,20 +135,28 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
         runs.push(run);
     }
 
-    if ctx.out.json {
-        let value = serde_json::json!({
-            "ok": !modeltest::any_failed(&runs),
-            "models": runs,
-        });
-        ctx.out.emit(&value, String::new)?;
-    } else {
+    if !ctx.out.json {
         println!();
-        println!("{}", ctx.out.cmd(&modeltest::closing(&runs)));
     }
+    let value = serde_json::json!({
+        "ok": !modeltest::any_failed(&runs),
+        "models": runs,
+    });
+    ctx.out.report(&value, |lines| closing(&runs, lines))?;
     if modeltest::any_failed(&runs) {
         std::process::exit(EXIT_FAILED);
     }
     Ok(())
+}
+
+/// The line the run ends on: how many passed. The way to see the full output
+/// of a failure is already under its row, so here it is a hint.
+fn closing(runs: &[Run], lines: &mut Report) {
+    let (count, more) = output::split_hint(&modeltest::closing(runs));
+    lines.info(count);
+    if let Some(more) = more {
+        lines.hint(more);
+    }
 }
 
 /// One row, and the way out under it when there is one.
@@ -160,7 +168,7 @@ fn print_run(out: &Out, run: &Run, width: usize) {
     };
     println!("{}", modeltest::row(run, &verdict, width));
     if let Some(detail) = &run.detail {
-        println!("  {}", out.backticks(detail));
+        println!("  {detail}");
     }
 }
 

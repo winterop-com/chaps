@@ -173,19 +173,23 @@ fn cleanup_yes_deletes_the_leftovers_and_forgets_the_deployment() {
     assert!(!record.contains(&gone), "{record}");
     assert!(record.contains(&kept), "{record}");
 
-    // A second run has nothing left to do, and says so.
-    let text = String::from_utf8(
-        chap_with_docker(&sandbox, sandbox.home.path(), &bin, &["cleanup"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone(),
-    )
-    .unwrap();
-    assert!(
-        text.contains("nothing to clean up: 1 recorded deployment is still in place"),
-        "{text}"
+    // A second run has nothing left to do, and says so in one line; the
+    // count of deployments still in place is a hint.
+    let stdout = |args: &[&str]| {
+        String::from_utf8(
+            chap_with_docker(&sandbox, sandbox.home.path(), &bin, args)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone(),
+        )
+        .unwrap()
+    };
+    assert_eq!(stdout(&["cleanup"]), "nothing to clean up\n");
+    assert_eq!(
+        stdout(&["-v", "cleanup"]),
+        "nothing to clean up\nhint: 1 recorded deployment is still in place\n"
     );
 }
 

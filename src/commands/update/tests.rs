@@ -9,7 +9,7 @@ use crate::chapcore;
 use crate::compose::apply::apply_with;
 use crate::compose::resolve::UserSource;
 use crate::compose::{EnableRequest, Selection};
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::ManualModel;
 use crate::project::ProjectState;
 use crate::registry::{Channel, load_embedded};
@@ -283,7 +283,15 @@ fn the_plan_lists_each_model_before_anything_is_pulled() {
         dry_run: true,
     };
     let text = plan_text(&report, &Out::default());
-    assert!(text.starts_with("registry: https://example.test/registry.yaml (network)\n"));
+    // Where the registry came from is a hint under the closing lines, not
+    // a line of the plan.
+    assert!(!text.contains("registry"), "{text}");
+    let mut lines = Report::default();
+    registry_hint(&report, &mut lines);
+    assert_eq!(
+        lines.text(),
+        "hint: the registry is https://example.test/registry.yaml (network)\n"
+    );
     assert!(text.contains("  a  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
     assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
     assert!(text.contains(
@@ -729,7 +737,7 @@ fn a_switch_reports_the_way_the_rest_of_the_update_does() {
         Some("chap-core v2.3.1 -> dev")
     );
     assert_eq!(
-        closing_line(
+        closing_text(
             updated_phrase(
                 0,
                 Some(("v2.3.1", "dev")),
@@ -740,17 +748,16 @@ fn a_switch_reports_the_way_the_rest_of_the_update_does() {
             Some(true)
         ),
         "updated chap-core v2.3.1 -> dev and pulled new images for chap, worker; \
-             restart needed: chap, worker (run `varde restart`)"
+             restart needed: chap, worker\nrun `varde restart` to apply\n"
     );
     // A dry run says the same thing in the conditional, and nothing about
     // restarting: nothing was written for anything to be behind.
-    let line = dry_run_line(updated_phrase(0, Some(("v2.3.1", "dev")), &[]).as_deref());
+    let text = dry_run_text(updated_phrase(0, Some(("v2.3.1", "dev")), &[]).as_deref());
     assert_eq!(
-        line,
-        "would update chap-core v2.3.1 -> dev; nothing written \
-             (run `varde update` to do it)"
+        text,
+        "would update chap-core v2.3.1 -> dev\nhint: `varde update` does it\n"
     );
-    assert!(!line.contains("restart"));
+    assert!(!text.contains("restart"));
 }
 
 #[test]
@@ -846,18 +853,28 @@ fn the_component_rows_cover_every_enabled_component() {
 fn a_requested_tag_is_checked_before_anything_happens() {
     // Offline: nothing can be looked up, and the tag is taken as given.
     let offline = std::time::Duration::from_secs(1);
-    assert_eq!(check_chap_tag("v9.9.9", true, offline).unwrap(), "v9.9.9");
+    assert_eq!(
+        check_chap_tag("v9.9.9", true, offline, &mut Vec::new()).unwrap(),
+        "v9.9.9"
+    );
     // A moving tag needs no lookup at all, online or not.
     for tag in chapcore::MOVING_TAGS {
-        assert_eq!(&check_chap_tag(tag, false, offline).unwrap(), tag);
+        assert_eq!(
+            &check_chap_tag(tag, false, offline, &mut Vec::new()).unwrap(),
+            tag
+        );
     }
     // Nor does a tag that is neither, which is recorded as an exact pin.
+    let mut warnings = Vec::new();
     assert_eq!(
-        check_chap_tag("sha-fa880a1", false, offline).unwrap(),
+        check_chap_tag("sha-fa880a1", false, offline, &mut warnings).unwrap(),
         "sha-fa880a1"
     );
+    // The warning that it will never move goes with the closing lines.
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("exact pin"), "{warnings:?}");
     // An empty tag is the one thing this refuses without asking anyone.
-    let err = check_chap_tag("", false, offline).expect_err("nothing to move to");
+    let err = check_chap_tag("", false, offline, &mut Vec::new()).expect_err("nothing to move to");
     assert!(err.to_string().contains("--chap-tag needs a tag"), "{err}");
 }
 
@@ -956,9 +973,11 @@ fn a_pin_the_listing_does_not_hold_gets_a_row_of_its_own() {
         releases_listed: false,
         tags: rows,
     };
+    let mut lines = Report::default();
+    tag_closing(&list, &mut lines);
     assert_eq!(
-        tag_closing_line(&list),
-        "chap-core is pinned to dev; move it with `varde update --chap-tag <TAG>`"
+        lines.text(),
+        "chap-core is pinned to dev\nhint: `varde update --chap-tag <TAG>` moves it\n"
     );
 }
 
@@ -1021,53 +1040,68 @@ fn the_updated_phrase_names_only_what_actually_moved() {
     );
 }
 
+/// The closing lines of a run, as the tests read them.
+fn closing_text(what: Option<&str>, restart_needed: &[String], running: Option<bool>) -> String {
+    let mut lines = Report::default();
+    closing(&mut lines, what, restart_needed, running);
+    lines.text()
+}
+
+/// The closing lines of a dry run, as the tests read them.
+fn dry_run_text(what: Option<&str>) -> String {
+    let mut lines = Report::default();
+    dry_run(&mut lines, what);
+    lines.text()
+}
+
 #[test]
-fn the_closing_line_is_one_of_four_things() {
+fn the_closing_lines_are_one_of_four_things() {
     let stale = ["chap".to_string(), "worker".to_string()];
 
     // Nothing moved, nothing is stale: the short answer.
-    assert_eq!(closing_line(None, &[], Some(true)), "already up to date");
+    assert_eq!(closing_text(None, &[], Some(true)), "already up to date\n");
     // A moving tag that pulled the image this machine already had counts
     // as nothing moving, because `updated` never names it.
-    assert_eq!(closing_line(None, &[], Some(false)), "already up to date");
+    assert_eq!(closing_text(None, &[], Some(false)), "already up to date\n");
 
-    // Something moved and running services are behind it.
+    // Something moved and running services are behind it: the restart is
+    // the step the reader must do next.
     assert_eq!(
-        closing_line(Some("1 model pin"), &stale, Some(true)),
-        "updated 1 model pin; restart needed: chap, worker (run `varde restart`)"
+        closing_text(Some("1 model pin"), &stale, Some(true)),
+        "updated 1 model pin; restart needed: chap, worker\nrun `varde restart` to apply\n"
     );
     // Stale without this run having moved anything: someone edited `.env`
-    // and never applied it. Still worth saying, and still one line.
+    // and never applied it. Still worth saying.
     assert_eq!(
-        closing_line(None, &stale, Some(true)),
-        "already up to date; restart needed: chap, worker (run `varde restart`)"
+        closing_text(None, &stale, Some(true)),
+        "already up to date; restart needed: chap, worker\nrun `varde restart` to apply\n"
     );
 
     // Something moved and there is nothing running to be behind it.
     assert_eq!(
-        closing_line(Some("chap-core v2.3.0 -> v2.3.1"), &[], Some(false)),
-        "updated chap-core v2.3.0 -> v2.3.1; Chap is not running, the new versions start \
-             with `varde up`"
+        closing_text(Some("chap-core v2.3.0 -> v2.3.1"), &[], Some(false)),
+        "updated chap-core v2.3.0 -> v2.3.1\n\
+         hint: Chap is not running; `varde up` starts the new versions\n"
     );
-    // Something moved, the stack is up, and none of it was affected.
+    // Something moved, the deployment is up, and none of it was affected.
     assert_eq!(
-        closing_line(Some("1 model pin"), &[], Some(true)),
-        "updated 1 model pin; nothing needs a restart"
+        closing_text(Some("1 model pin"), &[], Some(true)),
+        "updated 1 model pin\nhint: nothing running needs a restart\n"
     );
     // A run that only pulled uses its own verb: the case a moving tag such
     // as `ocs:main` is in whenever upstream has published since.
     assert_eq!(
-        closing_line(
+        closing_text(
             updated_phrase(0, None, &["ocs".to_string()]).as_deref(),
             &["ocs".to_string()],
             Some(true)
         ),
-        "pulled a new image for ocs; restart needed: ocs (run `varde restart`)"
+        "pulled a new image for ocs; restart needed: ocs\nrun `varde restart` to apply\n"
     );
     // Docker would not say what is running, so neither do we.
     assert_eq!(
-        closing_line(Some("1 model pin"), &[], None),
-        "updated 1 model pin; run `varde restart` to apply it to whatever is running"
+        closing_text(Some("1 model pin"), &[], None),
+        "updated 1 model pin\nrun `varde restart` to apply it to what is running\n"
     );
 }
 
@@ -1083,14 +1117,11 @@ fn a_dry_run_does_not_say_a_moving_tag_was_pulled() {
 
 #[test]
 fn a_dry_run_says_what_would_happen_and_claims_nothing_else() {
+    assert_eq!(dry_run_text(None), "already up to date\n");
     assert_eq!(
-        dry_run_line(None),
-        "already up to date; nothing would change"
-    );
-    assert_eq!(
-        dry_run_line(Some("1 model pin")),
-        "would update 1 model pin; nothing written (run `varde update` to do it)"
+        dry_run_text(Some("1 model pin")),
+        "would update 1 model pin\nhint: `varde update` does it\n"
     );
     // A dry run pulls nothing, so it never claims a restart is needed.
-    assert!(!dry_run_line(Some("1 model pin")).contains("restart"));
+    assert!(!dry_run_text(Some("1 model pin")).contains("restart"));
 }

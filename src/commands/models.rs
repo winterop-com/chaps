@@ -6,7 +6,7 @@
 use crate::cli::{ModelsInfoArgs, ModelsListArgs, ModelsSearchArgs};
 use crate::commands::Ctx;
 use crate::error::{ChapError, Result};
-use crate::output::{self, Out};
+use crate::output::{self, Out, Report};
 use crate::project::{EnabledModel, ManualModel, Project};
 use crate::registry::{AssessedStatus, Channel, Kind, Model, VersionStatus};
 
@@ -101,23 +101,29 @@ pub fn list(ctx: &Ctx, args: &ModelsListArgs) -> Result<()> {
     // marketplace one, so it appears whenever there is one to tell apart.
     let with_kind = args.all || args.templates || rows.iter().any(|r| r.manual);
 
-    ctx.out.emit(&rows, || {
-        if rows.is_empty() {
-            // `--enabled` with nothing to show is a different fact from a
-            // filter that matched nothing, and has an obvious next step.
-            return if args.enabled {
-                ctx.out
-                    .backticks("no models enabled; run `varde models enable ID` to add one")
-            } else {
-                "no models match".to_string()
-            };
-        }
-        format!(
-            "{}\n{}\n",
-            table(&ctx.out, &rows, with_kind),
-            ctx.out.backticks(&counted(&rows, project.is_some()))
-        )
+    if !ctx.out.json && !rows.is_empty() {
+        println!("{}", table(&ctx.out, &rows, with_kind));
+    }
+    ctx.out.report(&rows, |lines| {
+        list_lines(&rows, args.enabled, project.is_some(), lines)
     })
+}
+
+/// The lines under a `models list` table, or in place of an empty one.
+fn list_lines(rows: &[ModelRow], only_enabled: bool, in_project: bool, lines: &mut Report) {
+    if rows.is_empty() {
+        // `--enabled` with nothing to show is a different fact from a
+        // filter that matched nothing.
+        match only_enabled {
+            true => lines
+                .info("no models enabled")
+                .hint("`varde models enable ID` enables one"),
+            false => lines.info("no models match"),
+        };
+        return;
+    }
+    lines.info(counted(rows, in_project));
+    enable_hint(rows, in_project, lines);
 }
 
 /// Search the catalogue by id, display name or summary.
@@ -133,12 +139,16 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
         .map(|m| row(m, enabled_entry(project.as_ref(), m)))
         .collect();
 
-    ctx.out.emit(&rows, || {
+    // A search can turn up templates, so their kind is always shown.
+    if !ctx.out.json && !rows.is_empty() {
+        println!("{}", table(&ctx.out, &rows, true));
+    }
+    ctx.out.report(&rows, |lines| {
         if rows.is_empty() {
-            return format!("no model matches `{}`", args.query);
+            lines.info(format!("no model matches `{}`", args.query));
+            return;
         }
-        // A search can turn up templates, so their kind is always shown.
-        let closing = format!(
+        lines.info(format!(
             "{} {} `{}`{}",
             rows.len(),
             if rows.len() == 1 {
@@ -147,13 +157,9 @@ pub fn search(ctx: &Ctx, args: &ModelsSearchArgs) -> Result<()> {
                 "models match"
             },
             args.query,
-            enabled_clause(&rows, project.is_some())
-        );
-        format!(
-            "{}\n{}\n",
-            table(&ctx.out, &rows, true),
-            ctx.out.backticks(&closing)
-        )
+            enabled_clause(rows.as_slice(), project.is_some())
+        ));
+        enable_hint(&rows, project.is_some(), lines);
     })
 }
 
@@ -163,7 +169,7 @@ fn counted(rows: &[ModelRow], in_project: bool) -> String {
     format!("{} listed{}", rows.len(), enabled_clause(rows, in_project))
 }
 
-/// `, 2 enabled in this project`, plus the way to enable one when none are.
+/// `, 2 enabled in this project`, or `, none enabled in this project`.
 ///
 /// Outside a deployment there is nothing to be enabled in, so the clause is
 /// left off entirely rather than reported as zero.
@@ -172,8 +178,16 @@ fn enabled_clause(rows: &[ModelRow], in_project: bool) -> String {
         return String::new();
     }
     match rows.iter().filter(|r| r.enabled).count() {
-        0 => ", none enabled in this project; enable one with `varde models enable ID`".to_string(),
+        0 => ", none enabled in this project".to_string(),
         count => format!(", {count} enabled in this project"),
+    }
+}
+
+/// The way to enable a model, as a hint, when this project enables none of
+/// the rows.
+fn enable_hint(rows: &[ModelRow], in_project: bool, lines: &mut Report) {
+    if in_project && !rows.iter().any(|r| r.enabled) {
+        lines.hint("`varde models enable ID` enables one");
     }
 }
 
@@ -199,7 +213,34 @@ pub fn info(ctx: &Ctx, args: &ModelsInfoArgs) -> Result<()> {
         needs_amd64: model.needs_amd64(),
     };
 
-    ctx.out.emit(&detail, || render_info(&ctx.out, &detail))
+    if !ctx.out.json {
+        print!("{}", render_info(&ctx.out, &detail));
+        // The line that says the model is not enabled stands apart from the
+        // page, as the project block would.
+        if detail.enabled.is_none() && detail.in_project {
+            println!();
+        }
+    }
+    ctx.out.report(&detail, |lines| info_lines(&detail, lines))
+}
+
+/// The lines under the `models info` page: whether this project runs the
+/// model, and how to enable it when it does not.
+fn info_lines(detail: &ModelDetail, lines: &mut Report) {
+    let id = &detail.model.id;
+    if detail.enabled.is_some() {
+        return;
+    }
+    match detail.in_project {
+        // The absence of the project block is easy to miss.
+        true => lines
+            .info(format!("{id} is not enabled in this project"))
+            .hint(format!("`varde models enable {id}` enables it")),
+        false => lines.hint(format!(
+            "this is not a deployment directory; `varde init` creates one, then \
+             `varde models enable {id}` enables the model"
+        )),
+    };
 }
 
 /// Load the project in `ctx.project_dir`, if there is one.
@@ -497,25 +538,6 @@ fn render_info(out: &Out, detail: &ModelDetail) -> String {
                 ("overlay", enabled.compose_file.clone()),
             ],
             &|label| out.dim(label),
-        ));
-    } else if detail.in_project {
-        // The absence of the block above is easy to miss, and the next step
-        // is the whole reason anyone reads this page.
-        text.push_str(&format!(
-            "\n{}\n",
-            out.backticks(&format!(
-                "not enabled in this project; enable it with `varde models enable {}`",
-                m.id
-            ))
-        ));
-    } else {
-        text.push_str(&format!(
-            "\n{}\n",
-            out.backticks(&format!(
-                "not in a deployment directory; `varde init` creates one, \
-                 then `varde models enable {}`",
-                m.id
-            ))
         ));
     }
 

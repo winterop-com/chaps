@@ -128,8 +128,8 @@ deployment is removed when its directory was deleted from a parent directory
 that is still there, or when the directory now holds a deployment of another
 name (`varde init --force` wrote over it). Only the name in
 `.varde/project.yaml` is read, so a typo in another state file never makes a
-deployment look removed. Everything else is kept and said on a line of its
-own: a `project.yaml` that cannot be read, a directory missing along with its
+deployment look removed. Everything else is kept and named in a warning of
+its own: a `project.yaml` that cannot be read, a directory missing along with its
 parent (as on a disk that is not mounted), and a removed deployment that
 still has containers (the line names the `docker compose -p <project> down`
 that removes them). Volumes of a compose project varde never recorded are not

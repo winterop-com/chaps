@@ -181,8 +181,8 @@ fn a_dry_run_switch_writes_nothing() {
         .assert()
         .success()
         .stdout(predicates::str::contains("chap-core  v2.3.1 -> dev"))
-        .stdout(predicates::str::contains(
-            "would update chap-core v2.3.1 -> dev; nothing written",
+        .stdout(predicates::str::ends_with(
+            "would update chap-core v2.3.1 -> dev\n",
         ));
 
     assert_eq!(read(&dir.join("compose.yml")), before.0);
@@ -228,12 +228,12 @@ fn list_tags_names_the_moving_tags_the_releases_and_the_pin() {
     ] {
         assert!(text.contains(row), "missing row `{row}` in:\n{text}");
     }
+    // The pin is the result; the way to move it is a hint.
     assert!(
-        text.contains(
-            "chap-core is pinned to v2.3.0; move it with `varde update --chap-tag <TAG>`"
-        ),
+        text.ends_with("\nchap-core is pinned to v2.3.0\n"),
         "{text}"
     );
+    assert!(!text.contains("--chap-tag <TAG>"), "{text}");
 
     // The same as JSON, which is the list a script reads.
     let mut cmd = sandbox.online(port);
@@ -250,6 +250,8 @@ fn list_tags_names_the_moving_tags_the_releases_and_the_pin() {
     assert_eq!(tags, vec!["dev", "master", "latest", "v2.3.1", "v2.3.0"]);
     assert_eq!(list["tags"][3]["newest"], true);
     assert_eq!(list["tags"][4]["pinned"], true);
+    assert_eq!(list["messages"][0]["level"], "info");
+    assert_eq!(list["messages"][0]["text"], "chap-core is pinned to v2.3.0");
 
     // It writes nothing: the listing is a question, not a change.
     assert_eq!(state(&sandbox.project())["chap_image_tag"], "v2.3.0");

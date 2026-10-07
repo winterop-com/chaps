@@ -17,7 +17,7 @@
 //! answers where a deployment can go, and writes nothing at all.
 //!
 //! What it does not do is touch a container. The run reads: the plan, then
-//! the pull, then one line saying what moved and which running services are
+//! the pull, then the closing lines: what moved and which running services are
 //! now out of date. Applying that is `varde restart`, and starting a
 //! deployment that is down is `varde up`; an update that did either would be
 //! a deployment nobody asked for.
@@ -52,7 +52,7 @@ use chap_core::{
 };
 use components::{ComponentUpdate, dhis2_pull_note, plan_components};
 use models::{ModelUpdate, newest_published, plan, resolve_users};
-use report::{closing_line, dry_run_line, plan_text, updated};
+use report::{closing, dry_run, plan_text, registry_hint, updated};
 use restart::{pulled_new, restart_needed, service_checks};
 use serde::Serialize;
 use tags::list_tags;
@@ -102,6 +102,20 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if crate::project::Project::find_root(&ctx.project_dir).is_none() {
         return registry::refresh(ctx, args);
     }
+    // The warnings of the run go under its closing lines. A run that fails
+    // part way prints the ones it has, so the error does not hide them.
+    let mut warnings = Vec::new();
+    let result = update(ctx, args, &mut warnings);
+    if result.is_err() {
+        for warning in &warnings {
+            output::warn(warning);
+        }
+    }
+    result
+}
+
+/// The run in a deployment, with the warnings it collects on the way.
+fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
     // A listing writes nothing and asks the marketplace nothing, so it is
     // answered before the refresh that the rest of the command needs.
@@ -145,6 +159,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
             tag.trim(),
             ctx.registry.offline,
             ctx.registry.timeout,
+            warnings,
         )?),
         None => None,
     };
@@ -155,9 +170,11 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // The manual entries are resolved against their own repositories, which
     // is the one lookup the registry refresh above cannot make.
     let endpoints = manual::Endpoints::from_env(ctx.registry.offline);
+    let manual_warnings = std::cell::RefCell::new(Vec::new());
     let models = plan(&project, &registry, &|id, entry| {
-        newest_published(id, entry, &endpoints)
+        newest_published(id, entry, &endpoints, &mut manual_warnings.borrow_mut())
     })?;
+    warnings.extend(manual_warnings.into_inner());
     // A new tag is a new image, and an image can change what it runs as
     // between two builds - which is the difference between a model that works
     // and one whose own binaries it may not execute. Only the rows that move
@@ -165,7 +182,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // would point the service at an empty path next to a volume holding its
     // database.
     let mut models = models;
-    resolve_users(&project, &mut models, &endpoints);
+    resolve_users(&project, &mut models, &endpoints, warnings);
     // Without chap-core there is no pin for the newest release to move.
     let latest = has_chap_core
         .then(|| {
@@ -174,6 +191,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
                 args.pin_chap_core,
                 requested,
                 ctx.registry.timeout,
+                warnings,
             )
         })
         .flatten();
@@ -200,22 +218,30 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     // is about to act on, and it is the half a person reads.
     say(ctx, &plan_text(&report, &ctx.out));
     // Going back to an older chap-core is the one move this command makes
-    // that can cost data, so it is named before anything is fetched, written
-    // or pulled - in the dry run too, where it is half of what there is to see.
+    // that can cost data. A real run names it before anything is fetched,
+    // written or pulled; a dry run names it with its result, where it is half
+    // of what there is to see.
     if let Some(core) = report.chap_core.as_ref().filter(|c| c.backwards) {
-        output::warn(&backwards_warning(&core.old_tag, &core.new_tag));
+        let warning = backwards_warning(&core.old_tag, &core.new_tag);
+        match args.dry_run {
+            true => warnings.push(warning),
+            false => output::warn(&warning),
+        }
     }
-    // And the same for DHIS2, which needs no move to be at risk: the pull alone
-    // can bring an image that migrates `dhis2_db` on the next `varde up`, and
-    // nothing in the plan above would show it. In the dry run too, where it is
-    // the only thing this run has to say about that.
-    if let Some(warning) = dhis2_pull_note(&project, &report.components) {
-        output::warn(&warning);
-    }
+    // DHIS2 needs no move to be at risk: the pull alone can bring an image
+    // that migrates `dhis2_db` on the next `varde up`, and nothing in the plan
+    // above would show it. In the dry run too, where it is the only thing this
+    // run has to say about that.
+    warnings.extend(dhis2_pull_note(&project, &report.components));
     if args.dry_run {
-        return ctx
-            .out
-            .emit(&report, || dry_run_line(updated(&report).as_deref()));
+        let warnings = std::mem::take(warnings);
+        return ctx.out.report(&report, |lines| {
+            dry_run(lines, updated(&report).as_deref());
+            registry_hint(&report, lines);
+            for warning in &warnings {
+                lines.warning(warning.as_str());
+            }
+        });
     }
     // And confirmed, once it is about to actually happen.
     if let Some(core) = report.chap_core.as_ref().filter(|c| c.backwards)
@@ -225,7 +251,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     }
 
     if let Some(core) = report.chap_core.as_mut().filter(|c| c.changed) {
-        apply_chap_core(&mut project, core, ctx.registry.timeout)?;
+        apply_chap_core(&mut project, core, ctx.registry.timeout, warnings)?;
     }
     for change in report.models.iter().filter(|m| m.changed) {
         // A manual entry's definition carries the pin as well: the recorded
@@ -250,9 +276,7 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
         refresh_env_pin(&project.dir, &tag_env_var(&change.id), &change.new_tag)?;
     }
     let synced = sync(&mut project, &registry, false)?;
-    for warning in &synced.warnings {
-        output::warn(warning);
-    }
+    warnings.extend(synced.warnings.iter().cloned());
 
     // After the sync, so these are the images the files pin now, and before
     // the pull, so the difference the pull makes can be seen at all.
@@ -286,12 +310,19 @@ pub fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     );
     report.restart_needed = restart_needed(&checks);
 
-    let line = closing_line(
-        updated(&report).as_deref(),
-        &report.restart_needed,
-        report.stack_running,
-    );
-    ctx.out.emit(&report, || ctx.out.backticks(&line))
+    let warnings = std::mem::take(warnings);
+    ctx.out.report(&report, |lines| {
+        closing(
+            lines,
+            updated(&report).as_deref(),
+            &report.restart_needed,
+            report.stack_running,
+        );
+        registry_hint(&report, lines);
+        for warning in &warnings {
+            lines.warning(warning.as_str());
+        }
+    })
 }
 
 /// Print one of the command's own sections, unless a parser is reading.

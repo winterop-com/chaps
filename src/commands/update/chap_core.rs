@@ -5,7 +5,7 @@ use crate::chapcore;
 use crate::commands::Ctx;
 use crate::compose::sync::{EnvTag, set_env_chap_tag};
 use crate::error::Result;
-use crate::output::{self, Out};
+use crate::output::Out;
 use crate::project::{CHAP_TAG_ENV_VAR, ComposeSource, Project, cached_compose_file};
 use serde::Serialize;
 
@@ -49,6 +49,7 @@ pub(super) fn lookup_latest(
     pin: bool,
     requested: Option<&str>,
     timeout: std::time::Duration,
+    warnings: &mut Vec<String>,
 ) -> Option<String> {
     if !needs_release_lookup(current, pin, requested) {
         return None;
@@ -56,7 +57,7 @@ pub(super) fn lookup_latest(
     match chapcore::latest_release(timeout) {
         Ok(tag) => Some(tag),
         Err(err) => {
-            output::warn(&format!(
+            warnings.push(format!(
                 "could not resolve the newest chap-core release ({err:#}); \
                  the chap-core pin stays at `{current}`"
             ));
@@ -143,7 +144,12 @@ pub(super) fn plan_chap_core(
 /// made - `--offline`, a rate limit, a network that is not there - is a
 /// warning and the tag as typed: not being able to check is not the same as
 /// having checked.
-pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) -> Result<String> {
+pub fn check_chap_tag(
+    tag: &str,
+    offline: bool,
+    timeout: std::time::Duration,
+    warnings: &mut Vec<String>,
+) -> Result<String> {
     if tag.is_empty() {
         return Err(anyhow::anyhow!(
             "--chap-tag needs a tag: a release such as `v2.3.1`, or `latest`, `master` or `dev`"
@@ -151,13 +157,13 @@ pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) ->
     }
     match chapcore::tag_kind(tag) {
         chapcore::TagKind::Moving => {}
-        chapcore::TagKind::Other => output::warn(&format!(
+        chapcore::TagKind::Other => warnings.push(format!(
             "{tag} is neither a chap-core release nor a moving tag, so it is recorded as an exact \
              pin and `varde update` will never move it"
         )),
         chapcore::TagKind::Release => {
             if offline {
-                output::warn(&format!(
+                warnings.push(format!(
                     "--offline: whether chap-core has released {tag} cannot be looked up; the tag \
                      is taken as given"
                 ));
@@ -170,7 +176,7 @@ pub fn check_chap_tag(tag: &str, offline: bool, timeout: std::time::Duration) ->
                              the tags this deployment can move to"
                         ));
                     }
-                    Err(err) => output::warn(&format!(
+                    Err(err) => warnings.push(format!(
                         "whether chap-core has released {tag} cannot be looked up ({err:#}); the \
                          tag is taken as given"
                     )),
@@ -253,10 +259,11 @@ pub(super) fn apply_chap_core(
     project: &mut Project,
     update: &mut ChapCoreUpdate,
     timeout: std::time::Duration,
+    warnings: &mut Vec<String>,
 ) -> Result<()> {
     let tag = update.new_tag.clone();
     match update.compose_ref.clone() {
-        None => output::warn(&format!(
+        None => warnings.push(format!(
             "there is no chap-core ref to fetch compose.ghcr.yml from for {tag}; the image pin \
              moves but compose.yml keeps the layout it has"
         )),
@@ -276,7 +283,7 @@ pub(super) fn apply_chap_core(
                 project.state.chap_compose_source = source.clone();
                 update.compose_source = source;
             }
-            Err(err) => output::warn(&format!(
+            Err(err) => warnings.push(format!(
                 "could not fetch chap-core's compose.ghcr.yml at {reference} ({err:#}); the image \
                  pin moves but compose.yml keeps the layout it has"
             )),
@@ -287,15 +294,15 @@ pub(super) fn apply_chap_core(
     // value. Only the line this project wrote is touched.
     match set_env_chap_tag(&project.dir, &update.old_tag, &tag)? {
         EnvTag::Updated | EnvTag::NoFile => {}
-        EnvTag::Commented => output::warn(&format!(
+        EnvTag::Commented => warnings.push(format!(
             ".env has {CHAP_TAG_ENV_VAR} commented out, so Chap still follows the compose \
              default; set `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),
-        EnvTag::Foreign(value) => output::warn(&format!(
+        EnvTag::Foreign(value) => warnings.push(format!(
             ".env pins {CHAP_TAG_ENV_VAR}={value}, which is yours, not ours; it is left alone, so \
              Chap keeps running {value} rather than {tag}"
         )),
-        EnvTag::Absent => output::warn(&format!(
+        EnvTag::Absent => warnings.push(format!(
             ".env does not mention {CHAP_TAG_ENV_VAR}, so Chap follows the compose default; \
              add `{CHAP_TAG_ENV_VAR}={tag}` there to run the pin this update recorded"
         )),

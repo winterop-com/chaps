@@ -4,7 +4,6 @@
 use crate::compose::resolve::{self, UserSource};
 use crate::error::{ChapError, Result};
 use crate::manual;
-use crate::output;
 use crate::project::{ManualModel, Project};
 use crate::registry::{Registry, VersionSelector};
 use serde::Serialize;
@@ -139,6 +138,7 @@ pub(super) fn resolve_users(
     project: &Project,
     models: &mut [ModelUpdate],
     endpoints: &manual::Endpoints,
+    warnings: &mut Vec<String>,
 ) {
     for update in models.iter_mut().filter(|m| m.changed && !m.manual) {
         let Some(entry) = project.state.models.get(&update.id) else {
@@ -154,9 +154,7 @@ pub(super) fn resolve_users(
             },
             endpoints,
         );
-        for note in &resolution.notes {
-            output::warn(note);
-        }
+        warnings.extend(resolution.notes.iter().cloned());
         update.new_user = resolution.user;
         update.user_from = resolution.user_from;
         update.reads_port = resolution.reads_port;
@@ -173,9 +171,10 @@ pub(super) fn newest_published(
     id: &str,
     entry: &ManualModel,
     endpoints: &manual::Endpoints,
+    warnings: &mut Vec<String>,
 ) -> Option<(String, String)> {
     let (Some(repository), Some(branch)) = (&entry.repository, &entry.follow) else {
-        output::warn(&format!(
+        warnings.push(format!(
             "{id} follows a branch but records no repository, so its pin cannot be checked"
         ));
         return None;
@@ -183,13 +182,13 @@ pub(super) fn newest_published(
     match manual::newest_published(repository, branch, endpoints) {
         Ok(Some(found)) => Some(found),
         Ok(None) => {
-            output::warn(&format!(
+            warnings.push(format!(
                 "{repository} has no published `sha-` build on {branch}, so {id} keeps the pin it has"
             ));
             None
         }
         Err(err) => {
-            output::warn(&format!(
+            warnings.push(format!(
                 "could not check {repository} for a newer build of {id} ({err:#}); \
                  the pin stays at {}",
                 entry.tag

@@ -5,7 +5,7 @@ use crate::commands::Ctx;
 use crate::compose::API_SERVICE;
 use crate::docker;
 use crate::error::Result;
-use crate::output::{self, Out};
+use crate::output::{Out, Report};
 use crate::project::Project;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -113,15 +113,14 @@ pub fn tag_note(row: &TagRow) -> String {
     parts.join(", ")
 }
 
-/// The one line the listing ends on: what to do with a tag from the table.
-pub fn tag_closing_line(list: &TagList) -> String {
-    format!(
-        "chap-core is pinned to {}; move it with `varde update --chap-tag <TAG>`",
-        list.pin
-    )
+/// The lines the listing ends on: where chap-core is, and how to move it.
+pub fn tag_closing(list: &TagList, lines: &mut Report) {
+    lines
+        .info(format!("chap-core is pinned to {}", list.pin))
+        .hint("`varde update --chap-tag <TAG>` moves it");
 }
 
-/// The table, then that line.
+/// The table of tags.
 fn tag_table(out: &Out, list: &TagList) -> String {
     let rows: Vec<Vec<String>> = list
         .tags
@@ -140,10 +139,7 @@ fn tag_table(out: &Out, list: &TagList) -> String {
             ]
         })
         .collect();
-    let mut text = out.table(&["TAG", "KIND", "PUBLISHED", "NOTE"], &rows);
-    text.push('\n');
-    text.push_str(&out.cmd(&out.backticks(&tag_closing_line(list))));
-    text
+    out.table(&["TAG", "KIND", "PUBLISHED", "NOTE"], &rows)
 }
 
 /// `varde update --list-tags`: where this deployment can move chap-core to.
@@ -155,17 +151,19 @@ pub(super) fn list_tags(ctx: &Ctx, project: &Project) -> Result<()> {
     let pin = project.state.chap_image_tag.clone();
     let timeout = ctx.registry.timeout;
     let offline = ctx.registry.offline;
+    let mut warnings = Vec::new();
     let releases = if offline {
-        output::warn(
+        warnings.push(
             "--offline: the chap-core releases were not listed, so this is the moving tags and \
-             this deployment's own pin",
+             this deployment's own pin"
+                .to_string(),
         );
         Vec::new()
     } else {
         match chapcore::releases(chapcore::LIST_LIMIT, timeout) {
             Ok(list) => list,
             Err(err) => {
-                output::warn(&format!(
+                warnings.push(format!(
                     "could not list the chap-core releases ({err:#}), so this is the moving tags \
                      and this deployment's own pin"
                 ));
@@ -206,5 +204,13 @@ pub(super) fn list_tags(ctx: &Ctx, project: &Project) -> Result<()> {
         tags: tag_rows(&pin, &releases, &published, running.as_deref()),
         pin,
     };
-    ctx.out.emit(&list, || tag_table(&ctx.out, &list))
+    if !ctx.out.json {
+        println!("{}", tag_table(&ctx.out, &list));
+    }
+    ctx.out.report(&list, |lines| {
+        tag_closing(&list, lines);
+        for warning in &warnings {
+            lines.warning(warning.as_str());
+        }
+    })
 }
