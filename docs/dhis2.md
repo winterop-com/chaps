@@ -603,8 +603,7 @@ saying it until a connect has been recorded. `varde up` closes with it, under
 the line it always ends on:
 
 ```text
-unchanged: chap, dhis2
-run `varde status` to check that everything answers
+already running: chap, dhis2
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
 ```
 

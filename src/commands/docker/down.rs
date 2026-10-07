@@ -7,7 +7,7 @@ use crate::commands::Ctx;
 use crate::components::DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME;
 use crate::docker;
 use crate::error::Result;
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::Project;
 use std::io::{BufRead, IsTerminal, Write};
 
@@ -225,8 +225,12 @@ pub fn down_next(volumes_removed: bool) -> &'static str {
 /// `down --volumes` on a deployment whose `compose.dhis2.yml` has already gone
 /// leaves `dhis2_db` exactly where it was. `None` when there was no record,
 /// when this deployment can name no volumes, or when that volume survived - in
-/// each case nothing was changed and there is nothing to say.
-pub(super) fn forget_dhis2_connect(project: &mut Project, removed: &[String]) -> Option<String> {
+/// each case nothing was changed and there is nothing to say. `Err` is the
+/// warning for a record that could not be cleared.
+pub(super) fn forget_dhis2_connect(
+    project: &mut Project,
+    removed: &[String],
+) -> Option<std::result::Result<String, String>> {
     project.state.components.dhis2.connected_at.as_ref()?;
     let volume = project.prefixed_volume(crate::compose::render::DHIS2_DB_VOLUME)?;
     if !removed.contains(&volume) {
@@ -237,19 +241,16 @@ pub(super) fn forget_dhis2_connect(project: &mut Project, removed: &[String]) ->
     // record is still there, and the next `varde up` will still be quiet about
     // connecting. The `down` itself succeeded and is not failed for it.
     if let Err(why) = project.save() {
-        crate::output::warn(&format!(
+        return Some(Err(format!(
             "the record of `varde dhis2 connect` could not be cleared from \
              `.varde/components.yaml`: {why}; run `varde dhis2 connect` after the next `varde up`"
-        ));
-        return None;
+        )));
     }
-    Some(
-        match project.state.components.dhis2_seed_source() {
-            Some(_) => DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME,
-            None => crate::components::DHIS2_CONNECT_FORGOTTEN_UNSEEDED,
-        }
-        .to_string(),
-    )
+    Some(Ok(match project.state.components.dhis2_seed_source() {
+        Some(_) => DHIS2_CONNECT_FORGOTTEN_WITH_VOLUME,
+        None => crate::components::DHIS2_CONNECT_FORGOTTEN_UNSEEDED,
+    }
+    .to_string()))
 }
 
 /// What `down` did about the volumes, for the second half of its line.
@@ -281,50 +282,52 @@ pub(super) fn removed_volumes(project: &Project, before: &[String]) -> Vec<Strin
 
 /// What `down` stopped, and what became of the volumes.
 ///
-/// The volumes are the point of the second half: `down` is the command people
-/// reach for to "reset" a deployment, and it keeps the database. The compose
-/// project name goes with them, because it is the prefix those volumes carry
-/// and therefore what `docker volume ls` has to be asked about. A
-/// `--volumes` run names what it removed instead, by name: the deployment
-/// whose data is gone is not the place for a count alone.
-pub fn down_summary(
-    out: &Out,
+/// The kept volumes are background: `down` is the command people reach for
+/// to "reset" a deployment, and it keeps the database. The compose project
+/// name goes with them, because it is the prefix those volumes carry and
+/// therefore what `docker volume ls` has to be asked about. A `--volumes`
+/// run names what it removed instead, by name: the deployment whose data is
+/// gone is not the place for a count alone.
+pub fn down_lines(
     stopped: &[String],
     volumes: DownVolumes,
     project_name: Option<&str>,
-) -> String {
-    let head = if stopped.is_empty() {
-        out.dim("nothing was running")
-    } else {
-        format!(
-            "{} {}",
-            out.warn("stopped:"),
-            out.dim(&format!(
-                "{} ({} container{})",
-                stopped.join(", "),
-                stopped.len(),
-                if stopped.len() == 1 { "" } else { "s" }
-            ))
-        )
+    lines: &mut Report,
+) {
+    match stopped {
+        [] => lines.info("nothing was running"),
+        _ => lines.info(format!(
+            "stopped {} ({})",
+            stopped.join(", "),
+            container_count(stopped.len())
+        )),
     };
     match volumes {
-        // Nothing ran and nothing was asked about the volumes: one clause
+        // Nothing ran and nothing was asked about the volumes: one line
         // says everything there is to say.
-        DownVolumes::Kept if stopped.is_empty() => head,
+        DownVolumes::Kept if stopped.is_empty() => {}
         DownVolumes::Kept => {
-            let kept = match project_name {
+            lines.hint(match project_name {
                 Some(name) => {
-                    format!("volumes kept: {name}_* (`varde down --volumes` removes them)")
+                    format!("kept the volumes {name}_*; `varde down --volumes` removes them")
                 }
-                None => "volumes kept (`varde down --volumes` removes them)".to_string(),
-            };
-            format!("{head}; {}", out.backticks(&kept))
+                None => "kept the volumes; `varde down --volumes` removes them".to_string(),
+            });
         }
-        DownVolumes::Removed([]) => format!("{head}; {}", out.dim("no volumes were removed")),
-        DownVolumes::Removed(names) => format!(
-            "{head}; {} {}",
-            out.warn(&format!("removed {}", volume_count(names.len()))),
-            out.value(&format!("({})", names.join(", ")))
-        ),
+        DownVolumes::Removed([]) => {
+            lines.info("no volumes were removed");
+        }
+        DownVolumes::Removed(names) => {
+            lines.info(format!(
+                "removed {} ({})",
+                volume_count(names.len()),
+                names.join(", ")
+            ));
+        }
     }
+}
+
+/// `1 container` or `N containers`.
+fn container_count(count: usize) -> String {
+    format!("{count} container{}", if count == 1 { "" } else { "s" })
 }

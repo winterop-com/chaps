@@ -28,7 +28,7 @@ other two to run, and you run it when it suits you:
 
 ```sh
 varde update     # ... restart needed: chap, worker (run `varde restart`)
-varde restart    # recreated: chap, worker; unchanged: postgres, redis
+varde restart    # recreated chap, worker
 ```
 
 ## What moves a pin
@@ -171,10 +171,19 @@ varde restart --all my-model        # recreate this one, changed or not
 It ends with what it did:
 
 ```text
-recreated: chap, worker; unchanged: postgres, redis
+recreated chap, worker
 ```
 
-or, when it turned out there was nothing to apply, `nothing needed a restart`.
+or, when it turned out there was nothing to apply, `nothing needed a restart:
+every container matches its files`. With `-v`, the hints are there too: the
+services it did not recreate, and the command that recreates them anyway:
+
+```text
+$ varde -v restart
+recreated chap, worker
+hint: unchanged: postgres, redis
+hint: run `varde status` to check that everything answers
+```
 
 A service name the project does not have is refused with the list of the names
 it does have. A deployment with nothing running at all is not this command's

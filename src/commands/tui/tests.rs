@@ -20,6 +20,13 @@ fn model(port: Option<u16>) -> EnabledModel {
     }
 }
 
+/// The lines of [`summary`], as the tests read them.
+fn human(report: &ApplyReport, notes: &[String]) -> String {
+    let mut lines = Report::default();
+    summary(report, notes, &mut lines);
+    lines.text()
+}
+
 #[test]
 fn a_report_lists_what_changed_and_what_to_do_next() {
     let report = ApplyReport {
@@ -31,10 +38,10 @@ fn a_report_lists_what_changed_and_what_to_do_next() {
     };
     let text = human(&report, &[]);
     assert!(text.starts_with("warning: templates are not for real forecasts\n"));
-    assert!(text.contains("enabled:\n  chapkit_ewars_model  1.0.0  port 5001\n"));
-    assert!(text.contains("updated:\n  auto_arima_chapkit  1.0.0  port 5002\n"));
-    assert!(text.contains("disabled:\n  chapkit_simple_multistep_model\n"));
-    assert!(text.ends_with("run `varde up` to apply the new compose files\n"));
+    assert!(text.contains("enabled chapkit_ewars_model v1.0.0 on http://localhost:5001\n"));
+    assert!(text.contains("updated auto_arima_chapkit v1.0.0 on http://localhost:5002\n"));
+    assert!(text.contains("disabled chapkit_simple_multistep_model\n"));
+    assert!(text.ends_with("run `varde up` to apply\n"));
 }
 
 #[test]
@@ -147,14 +154,11 @@ fn what_the_browser_selects_on_the_components_page_applies_too() {
     assert!(dir.path().join(".varde/components.yaml").is_file());
     let text = human(&report, &["stopped nothing".to_string()]);
     assert!(
-        text.contains("components on:\n  ocs  http://localhost:8790\n"),
+        text.contains("enabled the ocs component on http://localhost:8790\n"),
         "{text}"
     );
-    assert!(text.contains("note: stopped nothing\n"), "{text}");
-    assert!(
-        text.ends_with("run `varde up` to apply the new compose files\n"),
-        "{text}"
-    );
+    assert!(text.contains("\nstopped nothing\n"), "{text}");
+    assert!(text.ends_with("run `varde up` to apply\n"), "{text}");
 }
 
 /// A component that was switched off is reported as off, with the notes
@@ -173,11 +177,8 @@ fn the_report_names_the_components_that_were_switched_off() {
             "kept the volume ocs_data".to_string(),
         ],
     );
-    assert!(text.contains("components off:\n  ocs\n"), "{text}");
-    assert!(text.contains("note: stopped ocs\n"), "{text}");
-    assert!(text.contains("note: kept the volume ocs_data\n"), "{text}");
-    assert!(
-        text.ends_with("run `varde up` to apply the new compose files\n"),
-        "{text}"
-    );
+    assert!(text.contains("disabled the ocs component\n"), "{text}");
+    assert!(text.contains("\nstopped ocs\n"), "{text}");
+    assert!(text.contains("\nkept the volume ocs_data\n"), "{text}");
+    assert!(text.ends_with("run `varde up` to apply\n"), "{text}");
 }

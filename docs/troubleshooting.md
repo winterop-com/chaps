@@ -907,7 +907,7 @@ a `connection.*` line, one of the commented `server.https` proxy lines - ran
 `varde restart dhis2`, and it said:
 
 ```text
-nothing needed a restart: every container matches its files; `varde restart --all dhis2` recreates it anyway
+nothing needed a restart: every container matches its files
 ```
 
 `dhis.conf` is a **bind mount**, which compose does not compare, so `varde

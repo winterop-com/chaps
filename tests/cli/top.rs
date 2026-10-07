@@ -71,7 +71,16 @@ fn top_off_a_terminal_prints_one_snapshot_of_the_tree() {
     assert!(text.contains("running (healthy)"), "{text}");
     assert!(text.contains("2.00%"), "{text}");
     assert!(text.contains("exited"), "{text}");
-    assert!(text.contains("a snapshot"), "{text}");
+    // That it is a snapshot is background, shown with `-v`.
+    assert!(!text.contains("a snapshot"), "{text}");
+    let out = chap_with_docker(&sandbox, cwd, &bin, &["-v", "top"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(text.contains("hint: a snapshot"), "{text}");
 
     let out = chap_with_docker(&sandbox, cwd, &bin, &["--json", "top"])
         .assert()

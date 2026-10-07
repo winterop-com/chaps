@@ -12,6 +12,7 @@ use crate::commands::Ctx;
 use crate::components::Components;
 use crate::compose::ApplyReport;
 use crate::error::Result;
+use crate::output::Report;
 use crate::tui::run_tui;
 
 /// Open the browser against the current project and catalogue.
@@ -24,12 +25,18 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     let registry = super::registry_for(ctx, Some(&project))?;
 
     let Some(selection) = run_tui(ctx, &project, &registry)? else {
-        println!("left the browser; nothing was written, and `varde ui` opens it again");
-        return Ok(());
+        return ctx.out.report(&serde_json::json!({}), |lines| {
+            lines
+                .info("left the browser; nothing was written")
+                .hint("`varde ui` opens it again");
+        });
     };
     if selection.is_empty() {
-        println!("no changes to save; `varde ui` opens the browser again");
-        return Ok(());
+        return ctx.out.report(&serde_json::json!({}), |lines| {
+            lines
+                .info("no changes to save")
+                .hint("`varde ui` opens the browser again");
+        });
     }
 
     // The browser may have been open for minutes, and another varde may have
@@ -75,76 +82,60 @@ pub fn run(ctx: &Ctx, _args: &UiArgs) -> Result<()> {
     // A DHIS2 version picked in the browser moves the same database the
     // command line would, so it gets the same warning, before anything is
     // written.
-    if let Some(note) = super::components::dhis2_tag_moved(&project, &after) {
-        crate::output::warn(&note);
-    }
+    let moved = super::components::dhis2_tag_moved(&project, &after);
 
     let report = crate::compose::apply::write_planned(&mut planned, &registry, plan)?;
-    ctx.out.emit(&report, || human(&report, &stopped))?;
-    Ok(())
+    ctx.out.report(&report, |lines| {
+        if let Some(note) = moved {
+            lines.warning(note);
+        }
+        summary(&report, &stopped, lines);
+    })
 }
 
-/// The human rendering of what was applied.
-fn human(report: &ApplyReport, notes: &[String]) -> String {
-    let mut text = String::new();
+/// The lines of what was applied.
+///
+/// `notes` are what stopping the containers of a switched-off component did,
+/// and which data volumes it left behind. They are info, because they say
+/// what happened to the data.
+fn summary(report: &ApplyReport, notes: &[String], lines: &mut Report) {
     for warning in &report.warnings {
-        text.push_str(&format!("warning: {warning}\n"));
+        lines.warning(warning.as_str());
     }
-
-    for (label, models) in [("enabled", &report.enabled), ("updated", &report.updated)] {
-        if models.is_empty() {
-            continue;
-        }
-        text.push_str(&format!("{label}:\n"));
+    for (verb, models) in [("enabled", &report.enabled), ("updated", &report.updated)] {
         for (id, model) in models {
-            text.push_str(&format!(
-                "  {id}  {}  {}\n",
-                model.version,
-                match model.host_port {
-                    Some(port) => format!("port {port}"),
-                    None => "internal".to_string(),
-                }
-            ));
+            // A manually added model's version is its image tag, so `v` in
+            // front of it would read as a version number it does not have.
+            let version = match model.version == model.image_tag {
+                true => model.image_tag.clone(),
+                false => format!("v{}", model.version),
+            };
+            let place = match model.host_port {
+                Some(port) => format!(" on http://localhost:{port}"),
+                None => String::new(),
+            };
+            lines.info(format!("{verb} {id} {version}{place}"));
         }
     }
-
-    if !report.disabled.is_empty() {
-        text.push_str("disabled:\n");
-        for id in &report.disabled {
-            text.push_str(&format!("  {id}\n"));
-        }
+    for id in &report.disabled {
+        lines.info(format!("disabled {id}"));
     }
-
-    if !report.components_enabled.is_empty() {
-        text.push_str("components on:\n");
-        for (name, port) in &report.components_enabled {
-            text.push_str(&format!(
-                "  {name}  {}\n",
-                match port {
-                    Some(port) => format!("http://localhost:{port}"),
-                    None => "internal".to_string(),
-                }
-            ));
-        }
+    for (name, port) in &report.components_enabled {
+        lines.info(match port {
+            Some(port) => format!("enabled the {name} component on http://localhost:{port}"),
+            None => format!("enabled the {name} component"),
+        });
     }
-    if !report.components_disabled.is_empty() {
-        text.push_str("components off:\n");
-        for name in &report.components_disabled {
-            text.push_str(&format!("  {name}\n"));
-        }
+    for name in &report.components_disabled {
+        lines.info(format!("disabled the {name} component"));
     }
-    // What stopping the containers of a switched-off component did, and which
-    // data volumes it left behind.
     for note in notes {
-        text.push_str(&format!("note: {note}\n"));
+        lines.info(note.as_str());
     }
-
-    if report.is_empty() {
-        text.push_str("no changes\n");
-    } else {
-        text.push_str("run `varde up` to apply the new compose files\n");
-    }
-    text
+    match report.is_empty() {
+        true => lines.info("no changes"),
+        false => lines.info("run `varde up` to apply"),
+    };
 }
 
 #[cfg(test)]

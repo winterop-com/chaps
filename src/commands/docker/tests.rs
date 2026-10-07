@@ -5,7 +5,14 @@ use super::report::*;
 use super::*;
 use crate::cli::{ConfigArgs, DownArgs, ExecArgs, LogsArgs, PsArgs, PullArgs, RunArgs, UpArgs};
 use crate::components::Components;
-use crate::output::Out;
+use crate::output::{Out, Report};
+
+/// The lines a `build` adds to a report, as the tests read them.
+fn text(build: impl FnOnce(&mut Report)) -> String {
+    let mut lines = Report::default();
+    build(&mut lines);
+    lines.text()
+}
 
 /// A `docker compose ps` that ran and was refused.
 fn refused_ps() -> docker::QueryFailure {
@@ -280,32 +287,28 @@ fn restart_says_which_services_it_recreated() {
         container("worker", "eee", "t2"),
         container("postgres", "ccc", "t1"),
     ];
+    let summary = |after: &[docker::Container], named: &[String]| {
+        text(|lines| restart_lines(&before, after, named, lines))
+    };
     assert_eq!(
-        restart_summary(&Out::default(), &before, &after, &[]),
-        "recreated: chap, worker; unchanged: postgres\n\
-         run `varde status` to check that everything answers"
+        summary(&after, &[]),
+        "recreated chap, worker\n\
+         hint: unchanged: postgres\n\
+         hint: run `varde status` to check that everything answers\n"
     );
     // Everything moved: there is no second half to print.
     assert_eq!(
-        restart_summary(
-            &Out::default(),
-            &before,
-            &[container("chap", "ddd", "t2")],
-            &[]
-        ),
-        "recreated: chap\nrun `varde status` to check that everything answers"
+        summary(&[container("chap", "ddd", "t2")], &[]),
+        "recreated chap\nhint: run `varde status` to check that everything answers\n"
     );
     // Nothing moved, which is an answer and not a failure, and the way to
     // force it names what was asked for.
     assert_eq!(
-        restart_summary(&Out::default(), &before, &before, &["ocs".to_string()]),
-        "nothing needed a restart: every container matches its files; `varde restart --all \
-         ocs` recreates it anyway"
+        summary(&before, &["ocs".to_string()]),
+        "nothing needed a restart: every container matches its files\n\
+         hint: `varde restart --all ocs` recreates it anyway\n"
     );
-    assert!(
-        restart_summary(&Out::default(), &before, &before, &[])
-            .ends_with("`varde restart --all` recreates every one anyway")
-    );
+    assert!(summary(&before, &[]).ends_with("`varde restart --all` recreates every one anyway\n"));
 }
 
 #[test]
@@ -449,7 +452,7 @@ fn container(service: &str, id: &str, created: &str) -> docker::Container {
 fn up_summarises_what_it_started_and_what_it_left_alone() {
     let plain = Components::default();
     let summary = |before: &[docker::Container], after: &[docker::Container]| {
-        up_summary(&Out::default(), before, after, &plain)
+        text(|lines| up_lines(before, after, &plain, false, lines))
     };
     let before = vec![
         container("chap", "aaa", "t1"),
@@ -462,23 +465,26 @@ fn up_summarises_what_it_started_and_what_it_left_alone() {
     ];
     assert_eq!(
         summary(&before, &after),
-        "started/recreated: chap, chapkit-ewars-model; unchanged: postgres\n\
-             run `varde status` to check that everything answers"
+        "started chap, chapkit-ewars-model\n\
+         hint: unchanged: postgres\n\
+         hint: run `varde status` to check that everything answers\n"
     );
 
     // A first start has nothing to leave alone.
     assert!(
-        summary(&[], &after).starts_with(
-            "started/recreated: chap, postgres, chapkit-ewars-model\nrun `varde status`"
-        )
+        summary(&[], &after)
+            .starts_with("started chap, postgres, chapkit-ewars-model\nhint: run `varde status`")
     );
     // A no-op `up` says so rather than printing an empty list.
-    assert!(summary(&after, &after).starts_with("unchanged: chap, postgres, chapkit"));
+    assert!(summary(&after, &after).starts_with("already running: chap, postgres, chapkit"));
     // And an `up` that left nothing running is a problem, not a summary.
     assert_eq!(
         summary(&[], &[]),
-        "nothing is running after `up`; run `varde logs` to see why"
+        "warning: nothing is running after `varde up`; run `varde logs` to see why\n"
     );
+    // After `--wait` the hint to check is redundant: the wait checked.
+    let waited = text(|lines| up_lines(&[], &after, &plain, true, lines));
+    assert!(!waited.contains("varde status"), "{waited}");
 }
 
 /// A deployment with a DHIS2 nothing has connected is told so by the one
@@ -493,11 +499,14 @@ fn up_names_the_connect_a_dhis2_deployment_still_needs() {
         container("dhis2", "bbb", "t1"),
     ];
 
-    let asked = up_summary(&Out::default(), &[], &after, &components);
+    let up = |components: &Components, after: &[docker::Container]| {
+        text(|lines| up_lines(&[], after, components, false, lines))
+    };
+    let asked = up(&components, &after);
     assert!(
         asked.ends_with(
             "\nvarde has not connected this DHIS2 to Chap; \
-                 run `varde dhis2 connect` once DHIS2 answers"
+                 run `varde dhis2 connect` once DHIS2 answers\n"
         ),
         "{asked}"
     );
@@ -508,21 +517,21 @@ fn up_names_the_connect_a_dhis2_deployment_still_needs() {
     );
 
     components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
-    let recorded = up_summary(&Out::default(), &[], &after, &components);
+    let recorded = up(&components, &after);
     assert!(!recorded.contains("varde dhis2 connect"), "{recorded}");
 
     // An `up` that started nothing has no deployment to connect, and the
     // line above already says to go and read the logs.
     components.dhis2.connected_at = None;
     assert_eq!(
-        up_summary(&Out::default(), &[], &[], &components),
-        "nothing is running after `up`; run `varde logs` to see why"
+        up(&components, &[]),
+        "warning: nothing is running after `varde up`; run `varde logs` to see why\n"
     );
 
     // And a deployment without chap-core is never asked: the route would
     // point at a service that is not there.
     components.set_enabled(crate::components::Component::ChapCore, false);
-    let standalone = up_summary(&Out::default(), &[], &after, &components);
+    let standalone = up(&components, &after);
     assert!(!standalone.contains("varde dhis2 connect"), "{standalone}");
 }
 
@@ -590,7 +599,9 @@ fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
     );
     assert!(project.state.components.dhis2.connected_at.is_some());
 
-    let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db)).unwrap();
+    let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db))
+        .unwrap()
+        .unwrap();
     assert!(line.contains("`dhis2_db`"), "{line}");
     assert!(line.contains("`varde dhis2 connect`"), "{line}");
     assert_eq!(project.state.components.dhis2.connected_at, None);
@@ -608,7 +619,9 @@ fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
     // An unseeded DHIS2 comes back empty, with no route to be wrong about.
     project.state.components.dhis2.seed = crate::components::Dhis2Seed::None;
     project.state.components.dhis2.connected_at = Some("2026-09-27T09:12:33Z".to_string());
-    let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db)).unwrap();
+    let line = forget_dhis2_connect(&mut project, std::slice::from_ref(&db))
+        .unwrap()
+        .unwrap();
     assert!(line.contains("an empty DHIS2"), "{line}");
     assert!(!line.contains("seed dump"), "{line}");
 }
@@ -617,24 +630,26 @@ fn down_volumes_forgets_a_connect_recorded_for_the_database_it_removed() {
 fn down_reports_what_it_stopped_and_what_it_kept() {
     let stopped = vec!["chap".to_string(), "worker".to_string()];
     let name = Some("mychap-1ab2c3");
-    let kept =
-        |stopped: &[String], name| down_summary(&Out::default(), stopped, DownVolumes::Kept, name);
+    let kept = |stopped: &[String], name| {
+        text(|lines| down_lines(stopped, DownVolumes::Kept, name, lines))
+    };
     // The volumes that stay behind are named after the compose project,
-    // so the line says which prefix to look for them under - and the
+    // so the hint says which prefix to look for them under - and the
     // command that would take them, spelled as it is typed.
     assert_eq!(
         kept(&stopped, name),
-        "stopped: chap, worker (2 containers); volumes kept: mychap-1ab2c3_* \
-             (`varde down --volumes` removes them)"
+        "stopped chap, worker (2 containers)\n\
+         hint: kept the volumes mychap-1ab2c3_*; `varde down --volumes` removes them\n"
     );
-    assert!(kept(&stopped[..1], name).starts_with("stopped: chap (1 container);"));
-    // A deployment whose name could not be worked out still gets the line.
+    assert!(kept(&stopped[..1], name).starts_with("stopped chap (1 container)\n"));
+    // A deployment whose name could not be worked out still gets the hint.
     assert!(
-        kept(&stopped, None).ends_with("volumes kept (`varde down --volumes` removes them)"),
+        kept(&stopped, None)
+            .ends_with("hint: kept the volumes; `varde down --volumes` removes them\n"),
         "{}",
         kept(&stopped, None)
     );
-    assert_eq!(kept(&[], name), "nothing was running");
+    assert_eq!(kept(&[], name), "nothing was running\n");
 }
 
 #[test]
@@ -642,7 +657,7 @@ fn down_volumes_names_the_volumes_it_removed() {
     let stopped = vec!["chap".to_string(), "worker".to_string()];
     let name = Some("mychap-1ab2c3");
     let removed = |stopped: &[String], gone: &[String]| {
-        down_summary(&Out::default(), stopped, DownVolumes::Removed(gone), name)
+        text(|lines| down_lines(stopped, DownVolumes::Removed(gone), name, lines))
     };
     let gone = vec![
         "mychap-1ab2c3_chap-db".to_string(),
@@ -650,25 +665,24 @@ fn down_volumes_names_the_volumes_it_removed() {
     ];
     assert_eq!(
         removed(&stopped, &gone),
-        "stopped: chap, worker (2 containers); removed 2 volumes \
-             (mychap-1ab2c3_chap-db, mychap-1ab2c3_chap-data)"
+        "stopped chap, worker (2 containers)\n\
+         removed 2 volumes (mychap-1ab2c3_chap-db, mychap-1ab2c3_chap-data)\n"
     );
     assert_eq!(
         removed(&stopped, &gone[..1]),
-        "stopped: chap, worker (2 containers); removed 1 volume \
-             (mychap-1ab2c3_chap-db)"
+        "stopped chap, worker (2 containers)\nremoved 1 volume (mychap-1ab2c3_chap-db)\n"
     );
     // A deployment that was not running still had volumes to remove, and
     // that is the half worth reporting.
     assert_eq!(
         removed(&[], &gone[..1]),
-        "nothing was running; removed 1 volume (mychap-1ab2c3_chap-db)"
+        "nothing was running\nremoved 1 volume (mychap-1ab2c3_chap-db)\n"
     );
     // Compose removes the volumes its files declare, so a run that
     // reached none of them says so rather than claiming a removal.
     assert_eq!(
         removed(&stopped, &[]),
-        "stopped: chap, worker (2 containers); no volumes were removed"
+        "stopped chap, worker (2 containers)\nno volumes were removed\n"
     );
 }
 

@@ -1,13 +1,13 @@
 //! What a wrapper says once docker has finished, and when there was nothing
 //! for docker to do.
 
-use super::down::{DownVolumes, down_next, down_summary, forget_dhis2_connect, removed_volumes};
-use super::note;
+use super::down::{DownVolumes, down_lines, down_next, forget_dhis2_connect, removed_volumes};
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;
 use crate::components::{Components, dhis2_connect_hint};
 use crate::docker;
-use crate::output::Out;
+use crate::error::Result;
+use crate::output::{Out, Report};
 use crate::project::Project;
 
 /// What `logs` and `docker ps` say for a project that has no containers at
@@ -20,65 +20,65 @@ pub(super) const NOTHING_RUNNING: &str =
 /// answer `varde status` gives.
 const NOT_RUNNING: &str = "Chap is not running; start it with `varde up`";
 
-/// The hint that closes a detached `up`.
+/// The hint that closes a detached `up` and a `restart`.
 const AFTER_UP: &str = "run `varde status` to check that everything answers";
 
 /// Say what the wrapper did, now that docker has finished.
 ///
 /// `volumes` are the ones docker held before a `down --volumes`, and empty
-/// for every other wrapper.
+/// for every other wrapper. A detached `up` is not here: it may wait first,
+/// and [`super::finish_up`] reports it.
 pub(super) fn report_what_changed(
     ctx: &Ctx,
     project: &mut Project,
     cmd: &DockerCmd,
     before: &[docker::Container],
     volumes: &[String],
-) {
+) -> Result<()> {
     match cmd {
-        // An attached `up` has just streamed the logs and been interrupted;
-        // there is nothing left running to summarise.
-        DockerCmd::Up(args) if !args.attach => {
-            let after = docker::running_containers(project).unwrap_or_default();
-            note(
-                ctx,
-                &up_summary(&ctx.out, before, &after, &project.state.components),
-            );
-        }
         DockerCmd::Restart(args) => {
             let after = docker::running_containers(project).unwrap_or_default();
-            note(
-                ctx,
-                &restart_summary(&ctx.out, before, &after, &args.services),
-            );
+            let (recreated, unchanged) = docker::diff_containers(before, &after);
+            let value = serde_json::json!({ "recreated": recreated, "unchanged": unchanged });
+            ctx.out.report_ok(&value, |lines| {
+                restart_lines(before, &after, &args.services, lines)
+            })
         }
         DockerCmd::Down(args) => {
+            let stopped = docker::service_names(before);
             let removed = args.volumes.then(|| removed_volumes(project, volumes));
-            note(
-                ctx,
-                &down_summary(
-                    &ctx.out,
-                    &docker::service_names(before),
-                    match &removed {
-                        Some(names) => DownVolumes::Removed(names),
-                        None => DownVolumes::Kept,
-                    },
-                    project.compose_project_name().as_deref(),
-                ),
-            );
             // Said after the line that names what went, because it is a
             // consequence of it.
-            if let Some(names) = &removed
-                && let Some(line) = forget_dhis2_connect(project, names)
-            {
-                note(ctx, &ctx.out.backticks(&line));
+            let forgot = removed
+                .as_deref()
+                .and_then(|names| forget_dhis2_connect(project, names));
+            let mut value = serde_json::json!({ "stopped": stopped });
+            if let Some(names) = &removed {
+                value["removed_volumes"] = serde_json::json!(names);
             }
-            note(ctx, &ctx.out.backticks(down_next(removed.is_some())));
+            let name = project.compose_project_name();
+            ctx.out.report_ok(&value, |lines| {
+                let volumes = match &removed {
+                    Some(names) => DownVolumes::Removed(names),
+                    None => DownVolumes::Kept,
+                };
+                down_lines(&stopped, volumes, name.as_deref(), lines);
+                match forgot {
+                    Some(Ok(line)) => lines.info(line),
+                    Some(Err(line)) => lines.warning(line),
+                    None => lines,
+                };
+                lines.hint(down_next(removed.is_some()));
+            })
         }
-        DockerCmd::Pull(_) => note(
-            ctx,
-            &ctx.out.ok(&pull_summary(docker::image_count(project))),
-        ),
-        _ => {}
+        DockerCmd::Pull(_) => {
+            let images = docker::image_count(project);
+            let value = serde_json::json!({ "images": images });
+            ctx.out.report_ok(&value, |lines| {
+                lines.info(pull_summary(images));
+            })
+        }
+        _ => Ok(()),
     }
 }
 
@@ -86,7 +86,8 @@ pub(super) fn report_what_changed(
 ///
 /// Compose prints one line per service as it goes, in no particular order and
 /// in the language of its own steps ("Created", "Running"); this is the one
-/// line that says which services are new to this run.
+/// line that says which services are new to this run. A recreated container
+/// is a new one, so it counts as started.
 ///
 /// A deployment with a DHIS2 nothing has connected gets one more line under
 /// that, because this is the run the reader is about to wait minutes for and
@@ -96,36 +97,39 @@ pub(super) fn report_what_changed(
 /// recorded rather than what DHIS2 is. See [`dhis2_connect_hint`].
 ///
 /// Not on the run that started nothing at all: there is no deployment up to
-/// connect, and the line above already says to go and read the logs.
-pub fn up_summary(
-    out: &Out,
+/// connect, and the warning already says to go and read the logs.
+///
+/// `waited` is set after `--wait`, which has already checked what the hint
+/// about `varde status` would send the reader to check.
+pub fn up_lines(
     before: &[docker::Container],
     after: &[docker::Container],
     components: &Components,
-) -> String {
+    waited: bool,
+    lines: &mut Report,
+) {
     let (started, unchanged) = docker::diff_containers(before, after);
-    let started_cell = |names: &[String]| {
-        format!(
-            "{} {}",
-            out.ok("started/recreated:"),
-            out.value(&names.join(", "))
-        )
-    };
-    let unchanged_cell = |names: &[String]| out.dim(&format!("unchanged: {}", names.join(", ")));
-    let summary = match (started.is_empty(), unchanged.is_empty()) {
+    match (started.is_empty(), unchanged.is_empty()) {
         (true, true) => {
-            return out.backticks("nothing is running after `up`; run `varde logs` to see why");
+            lines.warning("nothing is running after `varde up`; run `varde logs` to see why");
+            return;
         }
-        (false, true) => started_cell(&started),
-        (true, false) => unchanged_cell(&unchanged),
-        (false, false) => format!("{}; {}", started_cell(&started), unchanged_cell(&unchanged)),
-    };
-    let mut text = format!("{summary}\n{}", out.backticks(AFTER_UP));
-    if components.dhis2_needs_connecting() {
-        text.push('\n');
-        text.push_str(&out.backticks(&dhis2_connect_hint(false)));
+        (true, false) => {
+            lines.info(format!("already running: {}", unchanged.join(", ")));
+        }
+        (false, _) => {
+            lines.info(format!("started {}", started.join(", ")));
+            if !unchanged.is_empty() {
+                lines.hint(format!("unchanged: {}", unchanged.join(", ")));
+            }
+        }
     }
-    text
+    if !waited {
+        lines.hint(AFTER_UP);
+    }
+    if components.dhis2_needs_connecting() {
+        lines.info(dhis2_connect_hint(false));
+    }
 }
 
 /// What `restart` recreated, from the containers before and after.
@@ -137,39 +141,30 @@ pub fn up_summary(
 ///
 /// `named` are the services the command was given, which is what the way to
 /// force it spells out; none named is the whole project.
-pub fn restart_summary(
-    out: &Out,
+pub fn restart_lines(
     before: &[docker::Container],
     after: &[docker::Container],
     named: &[String],
-) -> String {
+    lines: &mut Report,
+) {
     let (recreated, unchanged) = docker::diff_containers(before, after);
     if recreated.is_empty() {
-        let force = match named {
+        lines.info("nothing needed a restart: every container matches its files");
+        lines.hint(match named {
             [] => "`varde restart --all` recreates every one anyway".to_string(),
             [one] => format!("`varde restart --all {one}` recreates it anyway"),
             many => format!(
                 "`varde restart --all {}` recreates them anyway",
                 many.join(" ")
             ),
-        };
-        return out.backticks(&format!(
-            "nothing needed a restart: every container matches its files; {force}"
-        ));
+        });
+        return;
     }
-    let head = format!(
-        "{} {}",
-        out.ok("recreated:"),
-        out.value(&recreated.join(", "))
-    );
-    let head = match unchanged.is_empty() {
-        true => head,
-        false => format!(
-            "{head}; {}",
-            out.dim(&format!("unchanged: {}", unchanged.join(", ")))
-        ),
-    };
-    format!("{head}\n{}", out.backticks(AFTER_UP))
+    lines.info(format!("recreated {}", recreated.join(", ")));
+    if !unchanged.is_empty() {
+        lines.hint(format!("unchanged: {}", unchanged.join(", ")));
+    }
+    lines.hint(AFTER_UP);
 }
 
 /// The "there is nothing here" answer `logs` and `ps` give a project whose

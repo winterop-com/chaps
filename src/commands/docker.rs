@@ -20,11 +20,14 @@ use crate::commands::Ctx;
 use crate::compose::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
+use crate::output::Report;
 use crate::project::Project;
 use args::{Shell, args_for};
 use down::{confirm_volumes, misused_volumes_flag, volumes_flag_message};
 use preflight::preflight;
-use report::{not_running, nothing_running, report_what_changed, unknown_service_message};
+use report::{
+    not_running, nothing_running, report_what_changed, unknown_service_message, up_lines,
+};
 
 /// Run one docker compose wrapper against the project's explicit `-f` list.
 ///
@@ -63,8 +66,10 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
         // Compose answers an empty file list with `no service selected` and a
         // failure, which says nothing about what to do; this does.
         if nothing_to_start(&project) {
-            note(ctx, &ctx.out.backticks(NOTHING_TO_START));
-            return Ok(());
+            let value = serde_json::json!({ "running": [], "started": [] });
+            return ctx.out.report(&value, |lines| {
+                lines.info(NOTHING_TO_START);
+            });
         }
         // After the sync, because the files it just wrote are the ones whose
         // ports we are about to probe.
@@ -144,29 +149,67 @@ pub fn run(ctx: &Ctx, cmd: &DockerCmd) -> Result<()> {
     if code != 0 {
         return Err(docker_failed(code, unasked));
     }
-    report_what_changed(ctx, &mut project, cmd, &before, &volumes);
-    if let DockerCmd::Up(args) = cmd
-        && !args.attach
-    {
-        let readiness = match args.wait {
-            true => Some(wait_for(ctx, &project, args.timeout)?),
-            false => None,
-        };
-        if ctx.out.json {
-            emit_up(ctx, &project, &before, readiness)?;
+    match cmd {
+        // An attached `up` has just streamed the logs and been interrupted;
+        // there is nothing left running to summarise.
+        DockerCmd::Up(args) if args.attach => Ok(()),
+        DockerCmd::Up(args) => finish_up(ctx, &project, &before, args.wait, args.timeout),
+        _ => report_what_changed(ctx, &mut project, cmd, &before, &volumes),
+    }
+}
+
+/// The end of a detached `up`: wait when asked to, then say what started
+/// and, after `--wait`, what answers where.
+///
+/// Under `--json` the document carries what runs now, what this run started,
+/// and every model with where it answers. A wait that runs out fails, naming
+/// what never answered; a person sees the lines first.
+fn finish_up(
+    ctx: &Ctx,
+    project: &Project,
+    before: &[docker::Container],
+    wait: bool,
+    timeout: u64,
+) -> Result<()> {
+    let after = docker::running_containers(project).unwrap_or_default();
+    let readiness = wait.then(|| wait_for(ctx, project, timeout));
+    let build = |lines: &mut Report| {
+        up_lines(
+            before,
+            &after,
+            &project.state.components,
+            readiness.is_some(),
+            lines,
+        );
+        if let Some(readiness) = &readiness {
+            ready_lines(readiness, lines);
+        }
+    };
+    match &readiness {
+        Some(readiness) if !readiness.ready => {
+            if !ctx.out.json {
+                ctx.out.report(&(), build)?;
+            }
+            Err(anyhow::anyhow!(
+                "not ready after {timeout}s: {}; `varde status` shows each one, and \
+                 `varde logs <service>` says why",
+                wait::pending(readiness).join(", ")
+            ))
+        }
+        _ => {
+            let value = up_value(project, before, readiness.clone());
+            ctx.out.report_ok(&value, build)
         }
     }
-    Ok(())
 }
 
 /// `up --json`: what runs now, what this run started, and every model with
 /// where it answers.
-fn emit_up(
-    ctx: &Ctx,
+fn up_value(
     project: &Project,
     before: &[docker::Container],
     readiness: Option<wait::Readiness>,
-) -> Result<()> {
+) -> serde_json::Value {
     let after = docker::running_containers(project).unwrap_or_default();
     let was: std::collections::BTreeSet<String> = docker::running_of(before);
     let running: Vec<String> = docker::running_of(&after).into_iter().collect();
@@ -177,42 +220,30 @@ fn emit_up(
         .iter()
         .map(|(id, model)| super::enable::ModelRef::of(id, model, project))
         .collect();
-    let value = serde_json::json!({
+    serde_json::json!({
         "api_url": project.state.components.has_chap_core_api().then(|| project.api_url()),
         "running": running,
         "started": started,
         "models": models,
         "wait": readiness,
-    });
-    ctx.out.emit_ok(&value, String::new)
+    })
 }
 
-/// `up --wait`: wait, say what answers where, and fail on the deadline naming
-/// what never did.
-fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> Result<wait::Readiness> {
+/// `up --wait`: wait until chap-core and the models answer, or the deadline.
+fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> wait::Readiness {
     note(
         ctx,
         &format!("waiting up to {timeout}s for chap-core and the models to answer"),
     );
-    let readiness =
-        wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout), None);
-    note(ctx, &ready_lines(&ctx.out, &readiness));
-    if readiness.ready {
-        return Ok(readiness);
-    }
-    Err(anyhow::anyhow!(
-        "not ready after {timeout}s: {}; `varde status` shows each one, and \
-         `varde logs <service>` says why",
-        wait::pending(&readiness).join(", ")
-    ))
+    wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout), None)
 }
 
-/// What `--wait` found, one line per thing it waited for.
-fn ready_lines(out: &crate::output::Out, readiness: &wait::Readiness) -> String {
-    let mut text = match readiness.ready {
-        true => format!("{} in {}s", out.ok("ready"), readiness.waited_s),
-        false => format!("{} after {}s", out.warn("not ready"), readiness.waited_s),
-    };
+/// What `--wait` found: one line, then a row per thing it waited for.
+fn ready_lines(readiness: &wait::Readiness, lines: &mut Report) {
+    lines.info(match readiness.ready {
+        true => format!("ready in {}s", readiness.waited_s),
+        false => format!("not ready after {}s", readiness.waited_s),
+    });
     let api_state = match readiness.api_up {
         true => "up",
         false => "not answering",
@@ -230,12 +261,8 @@ fn ready_lines(out: &crate::output::Out, readiness: &wait::Readiness) -> String 
     let name = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     let state = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
     for (service, status, url) in rows {
-        text.push_str(&format!(
-            "\n  {service:name$}  {status:state$}  {}",
-            out.value(url)
-        ));
+        lines.info(format!("  {service:name$}  {status:state$}  {url}"));
     }
-    text
 }
 
 /// Whether this wrapper is one whose stderr is worth reading: a detached `up`

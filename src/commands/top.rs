@@ -3,7 +3,7 @@
 use crate::cli::TopArgs;
 use crate::commands::Ctx;
 use crate::error::Result;
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::Project;
 use crate::top::data::{self, Node};
 use std::io::IsTerminal;
@@ -25,19 +25,28 @@ pub fn run(ctx: &Ctx, args: &TopArgs) -> Result<()> {
     if ctx.out.json || !std::io::stdout().is_terminal() {
         let nodes = data::collect(&known(ctx));
         let value = serde_json::json!({ "deployments": nodes });
-        return ctx.out.emit(&value, || snapshot(&nodes, &ctx.out));
+        if !ctx.out.json {
+            print!("{}", snapshot(&nodes, &ctx.out));
+        }
+        return ctx
+            .out
+            .report(&value, |lines| snapshot_lines(&nodes, lines));
     }
     crate::top::run(ctx, known(ctx), args.interval)
 }
 
-/// The tree as text, for a pipe.
+/// The lines under the tree: what was found, and that it is a snapshot.
+fn snapshot_lines(nodes: &[Node], lines: &mut Report) {
+    match nodes.is_empty() {
+        true => lines
+            .info("no varde deployment has a container on this machine")
+            .hint("`varde run <model>` or `varde up` starts one"),
+        false => lines.hint("a snapshot: on a terminal `varde top` keeps it up to date"),
+    };
+}
+
+/// The tree as text, for a pipe; empty when there is no deployment to show.
 fn snapshot(nodes: &[Node], out: &Out) -> String {
-    if nodes.is_empty() {
-        return out.backticks(
-            "no varde deployment has a container on this machine; \
-             `varde run <model>` or `varde up` starts one",
-        );
-    }
     let mut text = String::new();
     for node in nodes {
         text.push_str(&format!(
@@ -69,6 +78,5 @@ fn snapshot(nodes: &[Node], out: &Out) -> String {
             .collect();
         text.push_str(&out.table(&["  SERVICE", "STATE", "CPU", "MEMORY", "URL"], &rows));
     }
-    text.push_str(&out.dim("a snapshot: on a terminal `varde top` keeps it up to date"));
     text
 }
