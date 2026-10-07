@@ -291,6 +291,26 @@ fn a_bare_open_lists_what_there_is_to_open() {
     assert!(text.contains("run `varde open NAME`"), "{text}");
 }
 
+/// A deployment of models alone has no component to open, but each model
+/// that publishes a host port has its API documentation there.
+#[test]
+fn a_bare_open_lists_the_models_that_publish_a_host_port() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--only", "none", "--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let listed = sandbox.open(&[]).assert().success();
+    let text = String::from_utf8_lossy(&listed.get_output().stdout).into_owned();
+    assert!(text.contains("MODEL"), "{text}");
+    assert!(
+        text.contains("chapkit_ewars_model") && text.contains("/docs"),
+        "{text}"
+    );
+    assert!(text.contains("1 of them can be opened"), "{text}");
+    assert!(!text.contains("nothing in this deployment"), "{text}");
+}
+
 /// The three answers that open nothing are refusals with the way out on the
 /// same line, and none of them hands a browser an address this deployment has
 /// nobody on.

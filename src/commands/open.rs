@@ -107,6 +107,15 @@ pub struct OpenRow {
 #[derive(Debug, Serialize)]
 pub struct OpenListReport {
     pub components: Vec<OpenRow>,
+    /// The enabled models that publish a host port, each with its API
+    /// documentation on that port.
+    pub models: Vec<OpenRow>,
+    /// The ids of the enabled models that publish no host port.
+    pub unpublished: Vec<String>,
+    /// Whether this deployment has a chap-core API, through which
+    /// `varde open ID` reaches a model that publishes no host port.
+    #[serde(skip)]
+    pub proxy: bool,
 }
 
 /// Open one component's web interface, or say why there is none to open.
@@ -339,7 +348,27 @@ fn list(ctx: &Ctx, project: &Project) -> Result<()> {
             }
         })
         .collect();
-    let report = OpenListReport { components };
+    let (published, unpublished): (Vec<_>, Vec<_>) = project
+        .state
+        .models
+        .iter()
+        .partition(|(_, model)| model.host_port.is_some());
+    let models = published
+        .into_iter()
+        .filter_map(|(id, model)| {
+            Some(OpenRow {
+                name: id.clone(),
+                url: Some(model_docs_url(project, id, model).ok()?),
+                what: "the model's API documentation".to_string(),
+            })
+        })
+        .collect();
+    let report = OpenListReport {
+        components,
+        models,
+        unpublished: unpublished.into_iter().map(|(id, _)| id.clone()).collect(),
+        proxy: project.state.components.has_chap_core_api(),
+    };
     if !ctx.out.json {
         print!("{}", human_list(&report, &ctx.out));
     }
@@ -395,22 +424,29 @@ fn say(report: &OpenReport, lines: &mut Report) {
 
 /// The table of a bare `varde open`, which the closing lines follow.
 fn human_list(report: &OpenListReport, out: &Out) -> String {
-    let rows: Vec<Vec<String>> = report
-        .components
-        .iter()
-        .map(|row| {
-            vec![
-                row.name.clone(),
-                match &row.url {
-                    Some(url) => out.value(url),
-                    None => out.dim("-"),
-                },
-                out.dim(&row.what),
-            ]
-        })
-        .collect();
-    let mut text = out.table(&["COMPONENT", "OPENS", "WHAT IT IS"], &rows);
+    let cells = |rows: &[OpenRow]| -> Vec<Vec<String>> {
+        rows.iter()
+            .map(|row| {
+                vec![
+                    row.name.clone(),
+                    match &row.url {
+                        Some(url) => out.value(url),
+                        None => out.dim("-"),
+                    },
+                    out.dim(&row.what),
+                ]
+            })
+            .collect()
+    };
+    let mut text = out.table(
+        &["COMPONENT", "OPENS", "WHAT IT IS"],
+        &cells(&report.components),
+    );
     text.push('\n');
+    if !report.models.is_empty() {
+        text.push_str(&out.table(&["MODEL", "OPENS", "WHAT IT IS"], &cells(&report.models)));
+        text.push('\n');
+    }
     text
 }
 
@@ -419,6 +455,7 @@ fn say_list(report: &OpenListReport, lines: &mut Report) {
     let openable = report
         .components
         .iter()
+        .chain(&report.models)
         .filter(|row| row.url.is_some())
         .count();
     match openable {
@@ -431,6 +468,16 @@ fn say_list(report: &OpenListReport, lines: &mut Report) {
             ))
             .hint("`varde status` shows what is running"),
     };
+    for id in &report.unpublished {
+        match report.proxy {
+            true => lines.hint(format!(
+                "{id} publishes no host port; `varde open {id}` opens it through chap-core"
+            )),
+            false => lines.hint(format!(
+                "{id} publishes no host port; run `varde models expose {id}` to publish one"
+            )),
+        };
+    }
 }
 
 #[cfg(test)]

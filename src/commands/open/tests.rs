@@ -141,6 +141,9 @@ fn the_listing_closes_on_what_can_be_opened() {
     };
     let none = OpenListReport {
         components: vec![row("ocs", None), row("s3", None)],
+        models: Vec::new(),
+        unpublished: Vec::new(),
+        proxy: false,
     };
     assert_eq!(
         text(&none),
@@ -153,6 +156,9 @@ fn the_listing_closes_on_what_can_be_opened() {
             row("chap-core", Some("http://localhost:8000/docs")),
             row("s3", None),
         ],
+        models: Vec::new(),
+        unpublished: Vec::new(),
+        proxy: true,
     };
     assert_eq!(
         text(&some),
@@ -292,4 +298,37 @@ fn a_note_serializes_as_its_text() {
         serde_json::to_value(&note).unwrap(),
         serde_json::json!("a note")
     );
+}
+
+/// A deployment of models alone has something to open: each model that
+/// publishes a host port, at its `/docs`. A model without one is named with
+/// the way to publish one.
+#[test]
+fn the_listing_names_the_models_that_publish_a_host_port() {
+    let row = |name: &str, url: Option<&str>| OpenRow {
+        name: name.to_string(),
+        url: url.map(str::to_string),
+        what: "the model's API documentation".to_string(),
+    };
+    let report = OpenListReport {
+        components: vec![row("chap-core", None), row("ocs", None)],
+        models: vec![row(
+            "chapkit_ewars_model",
+            Some("http://localhost:5001/docs"),
+        )],
+        unpublished: vec!["auto_arima".to_string()],
+        proxy: false,
+    };
+    let mut lines = Report::default();
+    say_list(&report, &mut lines);
+    assert_eq!(
+        lines.text(),
+        "1 of them can be opened: run `varde open NAME`\n\
+         hint: `varde status` shows what is running\n\
+         hint: auto_arima publishes no host port; run `varde models expose auto_arima` to \
+         publish one\n"
+    );
+    let table = human_list(&report, &Out::detect(false, true));
+    assert!(table.contains("MODEL"), "{table}");
+    assert!(table.contains("http://localhost:5001/docs"), "{table}");
 }
