@@ -33,9 +33,9 @@ varde restart    # recreated chap, worker
 
 ## What moves a pin
 
-Model pins only move in two ways: `varde models enable ID` (with `--channel`
-or `--version`) and `varde update`. Nothing else, `up`, `restart`, `expose` and
-`unexpose` included, changes the version a model runs.
+Model pins move only with `varde models enable ID` (with `--channel` or
+`--version`), `varde models add SOURCE` and `varde update`. Nothing else, `up`,
+`restart`, `expose` and `unexpose` included, changes the version a model runs.
 
 | Command | Moves a pin? |
 | --- | --- |

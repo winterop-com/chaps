@@ -336,7 +336,7 @@ pub struct RunSpec {
     pub cwd: PathBuf,
     /// More directories mounted at the same path, for the paths outside `cwd`.
     pub mounts: Vec<PathBuf>,
-    /// varde' own directory for the runs and the caches.
+    /// varde's own directory for the runs and the caches.
     pub data: PathBuf,
     /// `uid:gid` to run as; `None` keeps the image's own user.
     pub user: Option<(u32, u32)>,

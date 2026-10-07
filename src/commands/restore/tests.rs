@@ -445,3 +445,23 @@ fn the_init_container_is_always_run_without_a_terminal_or_dependencies() {
         ]
     );
 }
+
+/// A DHIS2 dump goes into this deployment's own role, so its password stays;
+/// the archive's encryption key comes with the rows it encrypted.
+#[test]
+fn a_dhis2_dump_keeps_this_password_and_takes_the_archive_key() {
+    use super::files::{Dhis2DbRestore, dhis2_credentials_kept};
+    assert_eq!(
+        dhis2_credentials_kept(Dhis2DbRestore::Dump),
+        &["DHIS2_DB_PASSWORD"]
+    );
+    assert_eq!(
+        dhis2_credentials_kept(Dhis2DbRestore::None),
+        crate::backup::DHIS2_DB_CREDENTIALS,
+        "nothing of DHIS2 restored: both stay"
+    );
+    assert!(
+        dhis2_credentials_kept(Dhis2DbRestore::Volume).is_empty(),
+        "a whole volume brings its own password"
+    );
+}

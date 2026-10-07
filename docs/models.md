@@ -869,9 +869,9 @@ most that cannot be seen from its row:
 │   `seed:` in .varde/components.yaml, then `varde sync`                             │
 │     the dump a database being created is restored from: default, none, a URL, or a │
 │     path in the deployment directory                                               │
-│   `image_tag:` in .varde/components.yaml, then `varde sync`                        │
+│   `v` on this row, or `varde components enable dhis2 --tag TAG`                    │
 │     the DHIS2 version, 2.42 here; it migrates a schema forward only, so run `varde │
-│     backup` first                                                                  │
+│     backup create` first                                                           │
 ╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 

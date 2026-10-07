@@ -728,10 +728,10 @@ varde up
 
 There is no way back down a migration. A database migrated by 2.42 does not work
 under 2.41 again, so the choice is the newer image or a restore. `varde` warns
-before it happens - the warning names `varde backup` first for exactly this reason:
+before it happens - the warning names `varde backup create` first for exactly this reason:
 
 ```text
-warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
+warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup create` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 A deployment with nothing in DHIS2 worth keeping is quicker to start again:

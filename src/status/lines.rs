@@ -339,7 +339,7 @@ pub fn test_hint(rows: &[ModelStatus]) -> Option<&'static str> {
 /// With a chap-core elsewhere the cause is nearly always the address: models
 /// register as `localhost:<port>` by default, which is this machine for a
 /// chap-core running as a process here and the chap-core container itself for
-/// one running in Docker. With varde' own chap-core both sit on the compose
+/// one running in Docker. With varde's own chap-core both sit on the compose
 /// network, so the model's log is where the answer is.
 fn unreachable_hint(row: &ModelStatus, elsewhere: Option<&str>) -> String {
     let (url, answer) = row

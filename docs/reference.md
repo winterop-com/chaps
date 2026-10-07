@@ -204,7 +204,7 @@ Usage: varde models test [OPTIONS] [ID]...
 | --- | --- |
 | `<ID>...` | Marketplace ids or service ids of the models to test. |
 | `--all` | Test every model this project has enabled. |
-| `--backtest` | Also run each model through chap-core as a backtest. |
+| `--backtest` | Run a backtest through chap-core instead of the model's own test. |
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
 | `--timeout <SECONDS>` | Give up on one model after this many seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |

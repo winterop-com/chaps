@@ -67,20 +67,19 @@ pub(super) fn restore_files(
     // restore replaces wholesale - a component tar, or all of them under
     // `--adopt-identity`, which points this directory at the archive's
     // volumes - takes the archive's credentials.
+    //
+    // The DHIS2 database arrives as a dump, loaded into this deployment's own
+    // role, so its password stays this deployment's. Its rows were encrypted
+    // with the archive's key, so `DHIS2_ENCRYPTION_PASSWORD` comes from the
+    // archive.
     if let (Some(current), Some(_)) = (&current, &incoming) {
         let adopting = args.adopt_identity
             && archived_identity_differs(&project.state.compose_project, &report.plan);
-        let dhis2_db_replaced = report
-            .plan
-            .components
-            .iter()
-            .any(|c| c.volume == crate::compose::render::DHIS2_DB_VOLUME);
+        let dhis2_db = dhis2_db_restore(&report.plan);
         let mut kept = Vec::new();
         if !adopting {
             kept.extend_from_slice(backup::CHAP_DB_CREDENTIALS);
-            if !dhis2_db_replaced {
-                kept.extend_from_slice(backup::DHIS2_DB_CREDENTIALS);
-            }
+            kept.extend_from_slice(dhis2_credentials_kept(dhis2_db));
         }
         let env = project.dir.join(ENV_FILE);
         let restored_env = std::fs::read_to_string(&env).unwrap_or_default();
@@ -211,3 +210,41 @@ fn stage_identity(from: &Path, destination: &str, adopt: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+/// How a restore brings the DHIS2 database back, from its plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Dhis2DbRestore {
+    /// The archive has no DHIS2 database, or the restore leaves it out.
+    None,
+    /// A `pg_dump`, loaded into this deployment's own database role.
+    Dump,
+    /// A tar of the `dhis2_db` volume, which replaces the volume whole.
+    Volume,
+}
+
+fn dhis2_db_restore(plan: &backup::RestorePlan) -> Dhis2DbRestore {
+    let volume = crate::compose::render::DHIS2_DB_VOLUME;
+    if !plan.components.iter().any(|c| c.volume == volume) {
+        return Dhis2DbRestore::None;
+    }
+    let dump = plan
+        .manifest
+        .components
+        .iter()
+        .find(|c| c.volume == volume)
+        .and_then(|c| c.path.as_deref())
+        .is_some_and(backup::is_dhis2_db_dump);
+    match dump {
+        true => Dhis2DbRestore::Dump,
+        false => Dhis2DbRestore::Volume,
+    }
+}
+
+/// The DHIS2 variables of `.env` that keep this deployment's value.
+pub(super) fn dhis2_credentials_kept(restore: Dhis2DbRestore) -> &'static [&'static str] {
+    match restore {
+        Dhis2DbRestore::None => backup::DHIS2_DB_CREDENTIALS,
+        Dhis2DbRestore::Dump => &["DHIS2_DB_PASSWORD"],
+        Dhis2DbRestore::Volume => &[],
+    }
+}

@@ -3,7 +3,7 @@
 //! The current directory is mounted at the same path inside the container,
 //! so the file arguments mean what they mean on the host and every file chap
 //! writes is on the host after the run. The caches and the model runs live
-//! under varde' data directory, mounted the same way. See `docs/chap-cli.md`.
+//! under varde's data directory, mounted the same way. See `docs/chap-cli.md`.
 
 mod files;
 mod plan;

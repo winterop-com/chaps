@@ -532,7 +532,7 @@ fn the_chap_cli_answers_from_the_real_image() {
     }
     let sandbox = Sandbox::new();
     let work = workdir(&sandbox);
-    // No arguments: chap's own help, not the help of varde' options.
+    // No arguments: chap's own help, not the help of varde's options.
     chap_in(&sandbox, &work, &["chap", "--tag", "v2.3.1"])
         .assert()
         .success()

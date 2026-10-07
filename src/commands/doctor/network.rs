@@ -1,4 +1,4 @@
-//! Checks of the hosts Chap needs: ghcr.io, the marketplace, GitHub and varde' own releases.
+//! Checks of the hosts Chap needs: ghcr.io, the marketplace, GitHub and varde's own releases.
 
 use super::*;
 

@@ -88,7 +88,7 @@ pub struct ModelsTestArgs {
     #[arg(long)]
     pub all: bool,
 
-    /// Also run each model through chap-core as a backtest
+    /// Run a backtest through chap-core instead of the model's own test
     #[arg(long)]
     pub backtest: bool,
 

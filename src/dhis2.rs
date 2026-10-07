@@ -167,7 +167,7 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// a compose file or the DHIS2 process.
 pub const ADMIN_USERNAME_ENV_VAR: &str = "DHIS2_ADMIN_USERNAME";
 
-/// The `.env` variable holding that user's password. Also varde' alone.
+/// The `.env` variable holding that user's password. Also varde's alone.
 pub const ADMIN_PASSWORD_ENV_VAR: &str = "DHIS2_ADMIN_PASSWORD";
 
 /// The `.env` variable holding a DHIS2 personal access token. Also varde'

@@ -242,9 +242,9 @@ fn the_dhis2_overlay_names_its_config_its_cache_and_the_keys_no_flag_moves() {
         "`varde logs dhis2` is where that shows",
         "not on this page:",
         "`seed:` in .varde/components.yaml, then `varde sync`",
-        "`image_tag:` in .varde/components.yaml, then `varde sync`",
+        "`v` on this row, or `varde components enable dhis2 --tag TAG`",
         "the DHIS2 version, 2.42 here; it migrates a schema forward only",
-        "backup` first",
+        "backup create` first",
     ] {
         assert!(screen.contains(needle), "{needle} is missing:\n{screen}");
     }

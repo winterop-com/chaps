@@ -234,9 +234,9 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             width,
         ));
         lines.push(Line::raw(""));
-        // The seed and the image tag, which no flag moves after `init`: they are
-        // an edit to `.varde/components.yaml` and a sync, and this overlay is
-        // where someone finds that out rather than in the YAML.
+        // The seed has no flag after `init`: it is an edit to
+        // `.varde/components.yaml` and a sync. The image tag moves with `v` on
+        // this row or `varde components enable dhis2 --tag`.
         lines.extend(not_on_this_page(
             theme,
             width,
@@ -247,10 +247,10 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
                      a URL, or a path in the deployment directory",
                 ),
                 (
-                    "`image_tag:` in .varde/components.yaml, then `varde sync`",
+                    "`v` on this row, or `varde components enable dhis2 --tag TAG`",
                     &format!(
                         "the DHIS2 version, {} here; it migrates a schema forward only, \
-                         so run `varde backup` first",
+                         so run `varde backup create` first",
                         app.components.dhis2.image_tag
                     ),
                 ),

@@ -572,7 +572,7 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
     // so the line leads with the command that makes it recoverable.
     let moved = dhis2_tag_change_note("2.42", "2.41");
     assert!(moved.contains("from 2.42 to 2.41"), "{moved}");
-    assert!(moved.contains("`varde backup`"), "{moved}");
+    assert!(moved.contains("`varde backup create`"), "{moved}");
     assert!(moved.contains("404"), "{moved}");
 
     for note in [

@@ -190,7 +190,7 @@ chap_cli() {
   )
 }
 
-# dhis2_seed VERSION: varde' own seed where it has one (the Laos climate demo,
+# dhis2_seed VERSION: varde's own seed where it has one (the Laos climate demo,
 # 2.42), and otherwise an empty database. DHIS2's Sierra Leone demo exists for
 # other versions, but its admin is not a superuser and may not create the
 # route `varde dhis2 connect` writes; an empty DHIS2's admin is one.

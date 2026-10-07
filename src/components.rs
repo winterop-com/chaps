@@ -65,7 +65,7 @@ pub const OCS_IMAGE: &str = "ghcr.io/dhis2/open-climate-service";
 pub const OCS_DEFAULT_TAG: &str = "main";
 /// Container port OCS listens on, and the port chap-core reaches it at.
 pub const OCS_CONTAINER_PORT: u16 = 9000;
-/// Host port `ocs` publishes unless `--port` says otherwise: varde' 87xx block,
+/// Host port `ocs` publishes unless `--port` says otherwise: varde's 87xx block,
 /// away from the 9000 so much else defaults to (see
 /// [`crate::project::DEFAULT_API_PORT`]).
 pub const OCS_DEFAULT_PORT: u16 = 8790;
@@ -138,7 +138,7 @@ pub const DHIS2_IMAGE: &str = "dhis2/core";
 pub const DHIS2_DEFAULT_TAG: &str = "2.42";
 /// The `.env` variable that moves the DHIS2 image pin.
 pub const DHIS2_TAG_ENV_VAR: &str = "DHIS2_IMAGE_TAG";
-/// Host port `dhis2` publishes unless something says otherwise: varde' 87xx
+/// Host port `dhis2` publishes unless something says otherwise: varde's 87xx
 /// block rather than the container's 8080, which a DHIS2 already running on
 /// this machine is likely to hold (see [`crate::project::DEFAULT_API_PORT`]).
 pub const DHIS2_DEFAULT_PORT: u16 = 8780;

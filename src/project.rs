@@ -65,7 +65,7 @@ pub const DEFAULT_PORT_RANGE: (u16, u16) = (5001, 5999);
 /// otherwise.
 ///
 /// Not the container's 8000: that, 8080 and 9000 are the ports every other
-/// development server defaults to, so varde' services start one block away
+/// development server defaults to, so varde's services start one block away
 /// from them (8700 chap-core, 8780 DHIS2, 8790 OCS).
 pub const DEFAULT_API_PORT: u16 = 8700;
 

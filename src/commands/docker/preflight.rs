@@ -48,7 +48,7 @@ pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
         .collect();
     let message = ports::preflight_message(&conflicts);
     // Only when every conflict is another varde deployment: a port some other
-    // program holds is not varde' to take away.
+    // program holds is not varde's to take away.
     if conflicts.iter().any(|conflict| conflict.holders.is_empty()) {
         return Err(anyhow::anyhow!(message));
     }

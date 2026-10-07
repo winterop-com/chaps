@@ -222,9 +222,11 @@ varde init mychap --with dhis2 --dhis2-seed https://example.org/mine.sql.gz
 There is no flag for it after `init`. Change `seed:` in
 `.varde/components.yaml` and run `varde sync`.
 
-A path has to be inside the deployment directory, because it becomes a bind mount
-and compose refuses to start a service whose bind source does not exist. `varde
-sync` warns when the file is not there rather than leaving that for `varde up`.
+A path is relative to the deployment directory, or absolute. It becomes a bind
+mount, and compose refuses to start a service whose bind source does not exist,
+so `varde sync` warns when the file is not there, before `varde up` fails. A
+relative path keeps the deployment directory self-contained: copy the dump into
+it.
 A URL seed under `--offline` is refused outright: the two ask for opposite
 things.
 
@@ -530,7 +532,7 @@ compares the tag in the **rendered** `compose.dhis2.yml` - what is deployed -
 against the one being asked for, not two records against each other:
 
 ```text
-warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
+warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup create` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 Moving the seed does not need this care and moving the tag does. So the browser

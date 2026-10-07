@@ -518,7 +518,7 @@ pub(crate) fn plan_with(
             if crate::compose::overrides::FIXED_PORT_MODELS.contains(&id) {
                 report.warnings.push(format!(
                     "{id} starts on port 8000 whatever PORT says, so it cannot register with \
-                     the chap-core elsewhere this deployment uses; run it with varde' own \
+                     the chap-core elsewhere this deployment uses; run it with varde's own \
                      chap-core (`varde components enable chap-core`), or pick another model"
                 ));
             }

@@ -192,7 +192,7 @@ pub const DHIS2_CONNECT_FORGOTTEN_UNSEEDED: &str = "the record of `varde dhis2 c
 pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
     format!(
         "the DHIS2 image moves from {from} to {to} and `dhis2_db` is already there: DHIS2 \
-         migrates a schema forward only, so run `varde backup` first - an older image on a \
+         migrates a schema forward only, so run `varde backup create` first - an older image on a \
          migrated database answers healthy while every API request 404s"
     )
 }

@@ -715,7 +715,7 @@ curl -X POST http://localhost:8790/ingestions -H 'Content-Type: application/json
 ```
 
 It worked when the answer contains `"status":"completed"`.
-`curl http://localhost:8790/dataset-templates` lists every other dataset;
+`curl http://localhost:8790/data-sources` lists every other dataset;
 temperature (`era5land_temperature_monthly`) needs a Copernicus account, whose
 key goes in `.env`. To get the values out per province as the CSV Chap reads,
 or as a NetCDF file, follow
