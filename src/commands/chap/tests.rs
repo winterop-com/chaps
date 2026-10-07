@@ -49,15 +49,23 @@ fn a_model_name_is_a_chapkit_service_a_repository_or_a_directory() {
 fn only_the_models_that_are_not_chapkit_services_need_the_worker_image() {
     let repo = model_kind(Some("https://github.com/o/r"));
     let chapkit = model_kind(Some("http://m:8000"));
-    assert_eq!(image_for(&ModelKind::None, false), ChapImage::Core);
-    assert_eq!(image_for(&chapkit, false), ChapImage::Core);
-    assert_eq!(image_for(&repo, false), ChapImage::Worker);
+    // Nothing here: the smaller download.
+    assert_eq!(image_for(&ModelKind::None, false, false), ChapImage::Core);
+    assert_eq!(image_for(&chapkit, false, false), ChapImage::Core);
+    // An R model needs the worker image, whatever is here.
+    assert_eq!(image_for(&repo, true, false), ChapImage::Worker);
     assert_eq!(
-        image_for(&ModelKind::Local("m".into()), false),
+        image_for(&ModelKind::Local("m".into()), true, true),
         ChapImage::Worker
     );
-    // A deployment has the worker image already, so it runs everything.
-    assert_eq!(image_for(&chapkit, true), ChapImage::Worker);
+    // Only the worker image here, as in a deployment that runs chap-core:
+    // it does the rest too, and nothing is downloaded.
+    assert_eq!(image_for(&chapkit, false, true), ChapImage::Worker);
+    assert_eq!(image_for(&ModelKind::None, false, true), ChapImage::Worker);
+    // Both here: the core image, wherever the run is. A deployment without
+    // chap-core no longer pulls the 12 GB worker image for `--help`.
+    assert_eq!(image_for(&ModelKind::None, true, true), ChapImage::Core);
+    assert_eq!(image_for(&ModelKind::None, true, false), ChapImage::Core);
 }
 
 #[test]

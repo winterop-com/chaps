@@ -25,6 +25,10 @@ fn fake_docker() -> (TempDir, PathBuf, PathBuf) {
          'image ls ghcr.io/dhis2-chap/chap-core'*) printf 'master\\nv2.3.1\\n<none>\\n'; exit 0;;\n\
          'image ls ghcr.io/dhis2-chap/chap-worker'*) printf 'v2.2.0\\n'; exit 0;;\n\
          'network inspect'*) [ -n \"$NETWORK_UP\" ] && exit 0; exit 1;;\n\
+         'image inspect --format {{{{.Id}}}} ghcr.io/dhis2-chap/chap-worker'*) \
+         [ -n \"$WORKER_HERE\" ] && echo sha256:worker && exit 0; exit 1;;\n\
+         'image inspect --format {{{{.Id}}}} ghcr.io/dhis2-chap/chap-core'*) \
+         [ -n \"$CORE_HERE\" ] && echo sha256:core && exit 0; exit 1;;\n\
          'run --rm -v /var/run/docker.sock'*) echo 0; exit 0;;\n\
          'run --rm --platform'*) exit \"${{PROBE_EXIT:-0}}\";;\n\
          run*) echo \"hints=$DOCKER_CLI_HINTS\" >> '{log}'; \
@@ -219,6 +223,7 @@ fn a_run_in_a_deployment_uses_its_tag_and_reaches_its_models() {
         &["chap", "eval", "--model-name", "http://x:8000"],
     )
     .env("NETWORK_UP", "1")
+    .env("WORKER_HERE", "1")
     .assert()
     .success()
     .stderr(predicates::str::contains(format!(
@@ -514,7 +519,7 @@ fn json_and_a_missing_group_and_a_missing_image_are_refused_with_the_way_out() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "--offline needs a ghcr.io/dhis2-chap/chap-core image on this machine",
+            "--offline needs a chap-core or chap-worker image on this machine",
         ));
 }
 
@@ -607,4 +612,27 @@ fn the_directory_of_an_output_file_is_made_before_the_run() {
     .assert()
     .success();
     assert!(work.join("out/new").is_dir());
+}
+
+/// A deployment without chap-core has no worker image, so a run that needs
+/// no R takes the core image there too, and pulls nothing large.
+#[test]
+fn a_run_takes_the_image_that_is_already_here() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--only", "none", "--models", "none"])
+        .assert()
+        .success();
+    let tag = state(&dir)["chap_image_tag"].as_str().unwrap().to_string();
+    let (_temp, bin, log) = fake_docker();
+    chap_with_docker(&sandbox, &dir, &bin, &["chap", "eval", "--help"])
+        .env("CORE_HERE", "1")
+        .assert()
+        .success();
+    let args = chap_run(&log);
+    assert!(
+        args.contains(&format!("ghcr.io/dhis2-chap/chap-core:{tag}")),
+        "{args:?}"
+    );
 }

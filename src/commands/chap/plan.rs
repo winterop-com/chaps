@@ -202,21 +202,24 @@ pub fn needs_a_browser(args: &[String]) -> Option<String> {
     })
 }
 
-/// The image a model runs in.
+/// The image a run uses, from what it needs and what this machine has.
 ///
 /// The models that are not chapkit services run in the worker image, as
 /// chap-core's own worker runs them: that image has uv and R. A chapkit
-/// service is plain HTTP, and so is every command without a model, so the
-/// smaller image does those. Inside a deployment the worker image is local
-/// already, so it is the one used there.
-pub fn image_for(kind: &ModelKind, in_deployment: bool) -> ChapImage {
-    // A model id resolves to a chapkit service before the run.
-    if in_deployment {
-        return ChapImage::Worker;
-    }
+/// service is plain HTTP, and so is every command without a model, so either
+/// image does those. They take the one that is on this machine already, so
+/// the run downloads nothing: the worker image when only it is here, as in a
+/// deployment that runs chap-core, and else the core image, which is the
+/// smaller download. `core_here` and `worker_here` say which images this
+/// machine has at the tag of the run.
+pub fn image_for(kind: &ModelKind, core_here: bool, worker_here: bool) -> ChapImage {
     match kind {
-        ModelKind::None | ModelKind::Chapkit(_) => ChapImage::Core,
         ModelKind::GitHub { .. } | ModelKind::Local(_) => ChapImage::Worker,
+        // A model id resolves to a chapkit service before the run.
+        ModelKind::None | ModelKind::Chapkit(_) => match (core_here, worker_here) {
+            (false, true) => ChapImage::Worker,
+            _ => ChapImage::Core,
+        },
     }
 }
 

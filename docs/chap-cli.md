@@ -76,16 +76,23 @@ chap-core publishes two images with the same tags. varde selects one from
 
 | The model | The image | Size |
 | --- | --- | --- |
-| A chapkit service (an `http://` URL that is not GitHub) | `chap-core` | about 2.4 GB |
-| No model (`plot-backtest`, `export-metrics`, ...) | `chap-core` | about 2.4 GB |
 | A GitHub repository, or a model directory | `chap-worker` | about 12 GB |
+| A chapkit service (an `http://` URL that is not GitHub, or a model id) | the image that is on this machine; else `chap-core` | |
+| No model (`--help`, `plot-backtest`, `export-metrics`, ...) | the image that is on this machine; else `chap-core` | |
 
 The worker image has uv, R and INLA, and chap-core's own worker runs models in
-it. A chapkit service is plain HTTP, so the small image is sufficient for it.
-In a deployment, varde always uses the worker image, because the deployment
-has it already. A model id, such as `chapkit_ewars_model`, is a chapkit
-service too. `--image core` or `--image worker` overrides the choice. A
-model that needs R fails in the small image with `Rscript: not found`.
+it, so a model that needs R always runs there. Everything else is plain chap
+and HTTP, and both images can do it, so varde takes the image that this
+machine has at the tag of the run, and downloads nothing:
+
+- Only `chap-worker` is here, as in a deployment that runs chap-core: varde
+  uses it.
+- `chap-core` is here, or neither image is: varde uses `chap-core`, the smaller
+  download (about 2.4 GB). A deployment without chap-core, such as `varde init
+  --only dhis2`, does not pull the 12 GB worker image for `varde chap --help`.
+
+`--image core` or `--image worker` overrides the choice. A model that needs R
+fails in the core image with `Rscript: not found`.
 
 The first run pulls the image. The line before the run says so, with the
 size.
@@ -96,7 +103,9 @@ size.
   deployment's chap-core tag. The CLI and the server are then the same
   version.
 - Outside a deployment, varde uses the newest chap-core release.
-- With `--offline`, varde uses the newest image of that kind on this machine.
+- With `--offline`, or when the newest release cannot be read, varde uses the
+  newest tag on this machine: of `chap-worker` when the run needs it, and else
+  of either image.
 - `--tag TAG` overrides all of these, for example `--tag master`.
 
 ## Chapkit models: no `varde up`

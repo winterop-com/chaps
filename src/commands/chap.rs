@@ -75,16 +75,23 @@ pub fn run(ctx: &Ctx, args: &ChapArgs) -> Result<()> {
         kind = ModelKind::Chapkit(url);
     }
 
-    let image = args
-        .image
-        .unwrap_or_else(|| plan::image_for(&kind, place.deployment.is_some()));
-    let repository = plan::repository(image);
+    // The tag first: both images have the same chap at a tag, and which of
+    // them is already on this machine decides the image.
+    let needs_worker = args.image == Some(ChapImage::Worker)
+        || (args.image.is_none() && matches!(kind, ModelKind::GitHub { .. } | ModelKind::Local(_)));
     let tag = resolve_tag(
         ctx,
         args.tag.as_deref(),
         place.deployment.as_ref(),
-        repository,
+        needs_worker,
     )?;
+    let image = args.image.unwrap_or_else(|| {
+        let core = format!("{}:{tag}", plan::CORE_REPOSITORY);
+        let worker = format!("{}:{tag}", plan::WORKER_REPOSITORY);
+        let here = docker::image_ids(&[core.clone(), worker.clone()]);
+        plan::image_for(&kind, here.contains_key(&core), here.contains_key(&worker))
+    });
+    let repository = plan::repository(image);
     let reference = format!("{repository}:{tag}");
 
     if args.image == Some(ChapImage::Core)
@@ -461,11 +468,14 @@ fn loopback_refusal(url: &str, port: u16, place: &Place) -> String {
 
 /// The tag to run: `--tag`, else the deployment's own, else the newest
 /// release, else the newest one this docker has.
+/// The tag of the run. Without network, the newest local tag: of the worker
+/// image when the run needs it, and else of either image, since both carry
+/// the same chap at a tag.
 fn resolve_tag(
     ctx: &Ctx,
     asked: Option<&str>,
     deployment: Option<&Project>,
-    repository: &str,
+    needs_worker: bool,
 ) -> Result<String> {
     if let Some(tag) = asked {
         return Ok(tag.to_string());
@@ -473,12 +483,19 @@ fn resolve_tag(
     if let Some(project) = deployment {
         return Ok(project.state.chap_image_tag.clone());
     }
-    let local = || plan::newest_tag(&docker::local_tags(repository));
+    let local = || {
+        let mut tags = docker::local_tags(plan::WORKER_REPOSITORY);
+        if !needs_worker {
+            tags.extend(docker::local_tags(plan::CORE_REPOSITORY));
+        }
+        plan::newest_tag(&tags)
+    };
+    let core = plan::CORE_REPOSITORY;
     if ctx.registry.offline {
         return local().ok_or_else(|| {
             anyhow::anyhow!(
-                "--offline needs a {repository} image on this machine, and there is none; \
-                 run once without --offline, or `docker pull {repository}:TAG`"
+                "--offline needs a chap-core or chap-worker image on this machine, and there is \
+                 none; run once without --offline, or `docker pull {core}:TAG`"
             )
         });
     }
@@ -486,10 +503,10 @@ fn resolve_tag(
         Ok(tag) => Ok(tag),
         Err(err) => {
             let tag = local().ok_or_else(|| {
-                err.context(format!(
+                err.context(
                     "the newest chap-core release could not be read, and this machine has no \
-                     {repository} image; pass `--tag TAG`"
-                ))
+                     chap-core or chap-worker image; pass `--tag TAG`",
+                )
             })?;
             output::warn(&format!(
                 "the newest chap-core release could not be read; using {tag}, the newest \
