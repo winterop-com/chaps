@@ -311,7 +311,7 @@ Before the model starts, a busybox container chowns the data volume:
 
 ```yaml
 chapkit-ewars-model-init:
-  image: busybox:1.37
+  image: busybox:1.38
   command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
   user: "0:0"
 ```

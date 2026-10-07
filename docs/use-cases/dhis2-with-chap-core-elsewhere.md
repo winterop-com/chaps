@@ -13,6 +13,9 @@ varde dhis2 connect
 varde open dhis2
 ```
 
+With `--chap-core-url`, `init` enables no model unless you name one. Add
+`--models ID,ID` to start models that register with that chap-core.
+
 `--chap-core-url` records the chap-core elsewhere (see
 [chap-core from its checkout, with the models](./chap-core-on-host.md)), and
 for the DHIS2 beside it:

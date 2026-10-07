@@ -6,7 +6,7 @@ one command afterwards.
 
 ```sh
 varde init mychap --models default --api-token   # at creation
-varde auth enable                                # on a project that already exists
+varde auth enable                                # on a deployment that already exists
 ```
 
 ## What the token protects
@@ -51,8 +51,8 @@ Nothing has to be copied for that to work. Every model overlay carries
 
 and Compose substitutes the value from the `.env` beside the compose files, the
 same file chap-core reads its own copy from. The two ends cannot disagree.
-`varde sync` writes that line when `.varde/project.yaml` says the project has a
-key, and comments it out again when it does not.
+`varde sync` writes that line when `.varde/project.yaml` says the deployment has
+a key, and comments it out again when it has none.
 
 chap-core needs the same value, and upstream's `compose.ghcr.yml` passes only
 `CHAP_API_TOKEN` into the `chap` service - so the key never reached the
@@ -111,7 +111,7 @@ authentication off. A quote, a backslash or a control character cannot be
 written that way, so a token containing one is refused.
 
 `varde` reads `.env` by Compose's rules as well: `CHAP_API_PORT=8701 # mine` is
-port `8001` to both, because a `#` after a space starts a comment. A `#`
+port `8701` to both, because a `#` after a space starts a comment. A `#`
 without a space before it (`val#ue`) is part of the value.
 
 ## Turning it on and off
@@ -122,6 +122,7 @@ without a space before it (`val#ue`) is part of the value.
 | `varde auth enable [--token VALUE]` | Write both secrets, record them, re-render the overlays. |
 | `varde auth disable` | Comment both lines out, keeping their values, and re-render. |
 | `varde auth rotate` | Replace both secrets with new ones. |
+| `varde auth token` | Print the token alone on stdout, for a script; exit 1 when authentication is off. |
 
 `varde auth show` reads both ends: `.varde/project.yaml` for what the
 deployment intends and `.env` for what is actually set, and says so when the two
@@ -147,7 +148,7 @@ there is nothing to paste into a client, only the question of whether a dataset
 will ingest. `--json` carries them under `ocs_data_sources`. See
 [Components](./components.md#data-source-credentials).
 
-All four only ever touch those two `.env` lines. The database password, the
+`enable`, `disable` and `rotate` only ever write those two `.env` lines. The database password, the
 image pins, the comments and the blank lines come out byte for byte as they
 went in, which is what makes them safe on a file an operator has edited.
 

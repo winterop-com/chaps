@@ -50,8 +50,8 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 - [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in Chap without publishing it.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; varde runs the models and registers them with it.
 - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md): varde builds chap-core from your clone and runs it with everything else.
-- [A DHIS2 you run yourself, with Chap from varde](./use-cases/dhis2-dev-with-chap.md): your DHIS2, varde' chap-core, connected.
-- [A DHIS2 from varde, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md): varde' DHIS2, your chap-core, connected.
+- [A DHIS2 you run yourself, with Chap from varde](./use-cases/dhis2-dev-with-chap.md): your DHIS2 and a chap-core from varde, connected.
+- [A DHIS2 from varde, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md): a DHIS2 from varde and your chap-core, connected.
 
 ## More than one, and changing your mind
 
@@ -64,8 +64,9 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 | --- | --- | --- |
 | `up`, `down`, `restart`, `logs`, `status`, `doctor`, `sync` | no | work on whatever the deployment has |
 | `components`, `models enable/disable/add/expose` | no | work; models get a host port |
+| `models test` | no | runs `chapkit test` in the model's container |
 | `update` | no | pulls the images; `--chap-tag` and `--pin-chap-core` refuse |
-| `backup create` / `restore` | no | back up files and volumes; no database to dump |
+| `backup create` / `restore` | no | back up the files and the volumes, and a `pg_dump` of the DHIS2 database when DHIS2 is a component; there is no chap-core database to dump |
 | `open` | no | opens whatever is enabled |
-| `models test`, `jobs`, `api` | yes | refuse, naming `varde components enable chap-core` (`api --url` still works) |
+| `models test --backtest`, `jobs`, `api` | yes | refuse, naming `varde components enable chap-core` (`api --url` still works) |
 | `dhis2 connect` | yes | refuses: there is no chap-core to connect DHIS2 to |

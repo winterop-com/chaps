@@ -75,8 +75,8 @@ of the deployment. `--chap-tag` picks another tag; see [Updating](./updating.md)
 
 The deployment above has no authentication: anything that can reach the port can
 use the API. `varde init mychap --models default --api-token` generates a token
-instead and protects it, and `varde auth enable` does the same to a project that
-already exists. See [Authentication](./auth.md).
+and protects the API with it. `varde auth enable` does the same to a deployment
+that already exists. See [Authentication](./auth.md).
 
 ## 2. Start it
 
@@ -90,9 +90,9 @@ host port Chap is about to publish is free, then calls
 `docker compose up -d` and reports what started or was recreated and what it
 left alone.
 
-Every command that operates on a project finds it the way git finds `.git`:
-from the current directory (or `-C DIR`) upwards to the nearest `.varde/`, so
-`varde up` works from any subdirectory of the deployment.
+Every command that operates on a deployment finds its directory the way git
+finds `.git`: from the current directory (or `-C DIR`) upwards to the nearest
+`.varde/`, so `varde up` works from any subdirectory of the deployment.
 
 ## 3. Check it
 
@@ -133,7 +133,8 @@ varde ui
 
 The browser lists the catalogue on the left and the selected entry on the right.
 `space` enables or disables, `p` publishes a host port, `v` switches channel,
-`Enter` saves. Nothing is written until you save.
+and `s` saves. `Enter` or `i` shows the full entry. Nothing is written until
+you save.
 
 The same thing without the browser:
 

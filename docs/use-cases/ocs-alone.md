@@ -46,10 +46,10 @@ http://localhost:8790/extent` shows the one in use.
 ## Which datasets there are
 
 ```sh
-curl http://localhost:8790/dataset-templates
+curl http://localhost:8790/data-sources
 ```
 
-lists every dataset OCS knows, and `"ingestable": true` marks the ones
+lists every data source OCS knows, and `"ingestable": true` marks the ones
 `/ingestions` takes. The ones Chap models use:
 
 | Dataset id | Period | Account |
@@ -86,8 +86,9 @@ the earlier ingestion rather than downloading it twice.
 Values per district or province, as the CSV Chap reads: OCS averages the
 dataset over each area in a GeoJSON `FeatureCollection` whose feature ids
 become the `location` column. A DHIS2 hands out its org units in that shape,
-so with the demo DHIS2 (`--with dhis2`, or option 1 on the
-[AI page](../ai.md)):
+so with the demo DHIS2 beside OCS (`varde components enable dhis2`, then
+`varde up`; or `--only ocs,s3,dhis2` at `init`, option 10 on the
+[AI page](../ai.md#10-climate-data-and-dhis2-no-chap)):
 
 ```sh
 curl -u admin:district -o provinces.geojson \

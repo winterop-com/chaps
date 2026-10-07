@@ -71,9 +71,11 @@ Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, `--port none` takes it away, and nothing else
 is touched. `--port none` reads the same on every component that takes a port, so
 there is one flag to remember rather than a verb per component. `dhis2` has two
-settings `--port` is not among - the seed and the image tag - and those are an
-edit to `.varde/components.yaml` followed by `varde sync`, because neither is a
-thing to change by accident: see [DHIS2](./dhis2.md#the-seed).
+settings that are not `--port`: the seed and the image. `--tag` and `--image`
+change the image (see
+[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version)). No flag
+changes the seed after `init`: edit `seed:` in `.varde/components.yaml` and run
+`varde sync` (see [The seed](./dhis2.md#the-seed)).
 
 ### What `enable` tells you
 
@@ -126,14 +128,14 @@ hint: the OCS service loses its S3_* variables on this sync; OCS does not read t
 Neither is a refusal. A store with nothing to put in it and an OCS with no
 store are both states an operator may well be passing through on purpose.
 
-Turning `dhis2` on says two more things, because neither is visible from the
-compose file and both decide what the first start does:
+Turning `dhis2` on says three more things, because none of them is visible
+from the compose file:
 
 ```text
 $ varde -v components enable dhis2
 enabled dhis2 on http://localhost:8780
 hint: wrote dhis2/dhis.conf; it is yours to edit, and varde never rewrites it
-hint: the first `varde up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `varde components disable dhis2 --purge` makes it happen again
+hint: the first `varde up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `varde components disable dhis2 --purge` makes it happen again; the restore empties the data values that analytics cannot read as a number, and `varde logs dhis2-db` lists them
 hint: the first `varde up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `varde logs dhis2` is where that shows
 the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
 hint: wrote compose.dhis2.yml
@@ -145,7 +147,10 @@ The first is the restore happening **once**, on a data directory PostgreSQL has
 just created, which is the half that decides whether changing the seed later does
 anything. The second is the first start taking minutes rather than seconds, which
 is the half that decides whether the first `varde status` reads as a broken
-deployment. See [DHIS2](./dhis2.md).
+deployment. The third comes only on a deployment with chap-core: the Modeling App
+needs a DHIS2 route to chap-core, and `varde dhis2 connect` adds it (see
+[Connecting the Modeling App to Chap](./dhis2.md#connecting-the-modeling-app-to-chap)).
+See [DHIS2](./dhis2.md).
 
 ### The data volume
 
@@ -253,13 +258,13 @@ dhis2:
   enabled: true
   port: 8780
   image_tag: '2.42'
+  image: dhis2/core
   seed: default
   connected_at: null
 ```
 
-Every field has a default, so a deployment created before components existed
-loads as "chap-core on, nothing else" - which is exactly what it was. There is
-nothing to migrate; the file simply appears the next time `varde sync` runs.
+Every field has a default, so a missing field, or a missing file, loads as
+"chap-core on, nothing else".
 
 Two keys in there are records rather than intent, and each is marked as such
 where it appears. `ocs.read_only` mirrors what `ocs/climate-service.yaml` says,
@@ -366,9 +371,9 @@ warning: no chap container is running, so the page will not load yet; run `varde
 The container is what decides that, exactly as it does for `varde status` and
 `varde doctor`. Three things follow from asking docker rather than the port:
 
-- A component whose container is up gets the hint above. It says
-  `running`, not `up`: whether it is *answering* is what `varde status` asks, one
-  request per component, and this command does not spend those.
+- A component whose container is up gets one request to its address, with a
+  three-second limit. The closing line says `answered at that address` or
+  `did not answer yet`. `varde status` is the full check.
 - A component with no container gets the warning above. It is a warning and
   not a refusal because the browser reloads: the tab is already at the right address
   when `varde up` has finished, and DHIS2 in particular takes minutes to answer
@@ -935,7 +940,7 @@ chap-core-external:
 It is one or the other: `components enable chap-core --url` is refused while
 this deployment runs its own chap-core (disable that first, which stops it),
 `components enable chap-core` without `--url` forgets the external one and runs
-varde' own again, and `components disable chap-core` forgets it too.
+varde's own again, and `components disable chap-core` forgets it too.
 
 ## What the other commands say
 
@@ -996,7 +1001,9 @@ varde' own again, and `components disable chap-core` forgets it too.
   pull brings an image the machine did not have, the closing line names the
   component and `varde restart` is what puts it in service.
 - **`varde backup`** archives each component volume that holds state: `ocs_data`,
-  `s3_data`, and `dhis2_home` and `dhis2_db` as two members. `dhis2_dump` is left
+  `s3_data` and `dhis2_home`. The DHIS2 database is a `pg_dump` without the
+  analytics tables, not a copy of `dhis2_db`; see
+  [Backing it up](./dhis2.md#backing-it-up). `dhis2_dump` is left
   out on purpose - it is a download cache the one-shot refills - so no archive
   carries the seed dump. See [Backup and restore](./backup.md).
 - **`varde ui`** has a components page beside the models one: `Tab` moves
@@ -1006,6 +1013,7 @@ varde' own again, and `components disable chap-core` forgets it too.
   is none. One `s` saves both pages. The settings it deliberately does not edit are named in each
   component's `i` overlay rather than hidden: OCS's `--base-url` and
   `--read-only`, because they write to `ocs/climate-service.yaml`, which is
-  yours; and DHIS2's `seed:` and `image_tag:`, because no flag moves either after
-  `init` and both are an edit to `.varde/components.yaml` and a `varde sync`. See
+  yours; and DHIS2's `seed:`, because no flag changes it after `init` and it is
+  an edit to `.varde/components.yaml` and a `varde sync`. `v` on the `dhis2` row
+  picks the DHIS2 version. See
   [The components page](./models.md#the-components-page).

@@ -12,7 +12,7 @@ varde up
 
 Start chap-core from its checkout as you normally do, listening on
 `0.0.0.0:8000` so the model containers can reach it. `--chap-core-url` leaves
-varde' own chap-core out and records yours, so:
+varde's own chap-core out and records yours, so:
 
 - **Each model registers with your chap-core.** Its overlay sets
   `SERVICEKIT_ORCHESTRATOR_URL` to your URL, with `localhost` turned into
@@ -33,7 +33,8 @@ varde models test --all
 ```
 
 It worked when `varde status` shows chap-core `up` at your URL and the models
-`registered`.
+`registered`. The models register again every few seconds, so starting your
+chap-core after `varde up`, or restarting it, needs nothing else.
 
 **Without a deployment directory**, `varde run --chap-core` does the same for
 one model at a time:
@@ -43,19 +44,18 @@ varde run -a --rm --chap-core http://localhost:8000 https://github.com/chap-mode
 ```
 
 It worked when the lines after the start say `registered with
-http://localhost:8000`. See [Running one model](../run.md#your-own-chap-core). The models register again every few seconds, so starting your
-chap-core after `varde up`, or restarting it, needs nothing else.
+http://localhost:8000`. See [Running one model](../run.md#your-own-chap-core).
 
 To point an existing deployment at your chap-core, or back:
 
 ```sh
-varde components disable chap-core                            # stop varde' own, if it has one
+varde components disable chap-core                            # stop varde's own, if it has one
 varde components enable chap-core --url http://localhost:8000
 varde components list                                         # chap-core: external
 varde up
 
 varde components disable chap-core                            # forget it again
-varde components enable chap-core                             # or run varde' own again
+varde components enable chap-core                             # or run varde's own again
 ```
 
 If your chap-core is itself a container (another compose project, which is
@@ -66,13 +66,17 @@ chap-core --url` see that for themselves when a container publishes the URL's
 port at the time, and say so; otherwise add `--models-host host.docker.internal`
 to `components enable chap-core --url`. Without it the models still register,
 and `varde status` shows them `registered, unreachable`.
-For a chap-core on another machine, pass the name that machine reaches this one
-by.
+If chap-core runs on another machine, run `varde components enable chap-core
+--url URL --models-host HOST`, with HOST the name or address that machine
+reaches this one at.
 
-If your chap-core requires a registration key, run `varde auth enable` (which
-makes every overlay pass `SERVICEKIT_REGISTRATION_KEY` from `.env`), then set
-that line in `.env` to your chap-core's key and run `varde up`. See
-[Authentication](../auth.md).
+If your chap-core requires a registration key, run `varde auth enable`. It
+writes an API token and a registration key to `.env`, and every overlay then
+passes `SERVICEKIT_REGISTRATION_KEY` from `.env`. Set that line in `.env` to
+your chap-core's key. varde sends the API token to your chap-core in `varde
+status`, `api`, `jobs` and `models test`. If your chap-core checks an API
+token, give its token with `varde auth enable --token TOKEN`. Then run
+`varde up`. See [Authentication](../auth.md).
 
 More: [A chap-core elsewhere](../components.md#a-chap-core-elsewhere).
 

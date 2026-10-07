@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install varde, which deploys CHAP and its services with Docker Compose.
+# Install varde, which deploys Chap and its services with Docker Compose.
 #
 #   curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
 #
@@ -54,7 +54,7 @@ die() {
 
 usage() {
   cat <<'USAGE'
-install varde, which deploys CHAP and its services with Docker Compose
+install varde, which deploys Chap and its services with Docker Compose
 
 Usage: install.sh [OPTIONS]
 

@@ -13,7 +13,7 @@ varde up
 varde status                 # the models now register with chap-core
 ```
 
-Model services pick up the orchestrator URL on that `varde up` and register.
+Model services read the orchestrator URL on that `varde up` and register.
 The host ports they were given while standalone stay published until you
 `varde models unexpose ID`. The chap-core compose file comes from the copy built
 into varde; `varde update --pin-chap-core` moves it to the newest release.

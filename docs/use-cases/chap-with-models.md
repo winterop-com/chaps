@@ -21,7 +21,7 @@ you reach them through chap-core at
 
 ## Every model in the marketplace
 
-`default` is the one model varde starts with; `all` is every model the
+`default` is the one model varde starts with, `chapkit_ewars_model`; `all` is every model the
 marketplace lists (templates aside), and a list of ids picks some.
 `varde models list` prints them:
 

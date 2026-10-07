@@ -15,7 +15,7 @@ varde ps
 varde stop chapkit_ewars_model
 ```
 
-`varde run` keeps the model in a group under varde' data directory, publishes
+`varde run` keeps the model in a group under varde's data directory, publishes
 it on `127.0.0.1` only, and returns once it answers. `-a` keeps it in the
 foreground with its log, until Ctrl-C stops it. See
 [Running one model](../run.md). For a deployment directory of your own, with

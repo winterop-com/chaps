@@ -42,8 +42,8 @@ For people who use DHIS2 and the Modeling App
 </div>
 </div>
 
-The Modeling App reaches chap-core through a **route** in DHIS2. chap-core
-never calls DHIS2, and DHIS2 never calls chap-core.
+The Modeling App reaches chap-core through a **route** in DHIS2: DHIS2 sends
+each request on to chap-core. chap-core never calls DHIS2.
 
 ---
 
@@ -132,7 +132,7 @@ That line in `.env` sets the heap. Uncomment it and edit the whole set.
 `varde up` is a thin wrapper around `docker compose up`. Connecting is the
 wrong work for it:
 
-- it needs **DHIS2 credentials**, which are not varde' to invent;
+- it needs **DHIS2 credentials**, which are not varde's to invent;
 - it uses the **network**, the App Hub, and `varde up` never does;
 - DHIS2's API is **not ready when `up` returns**.
 
@@ -326,7 +326,8 @@ The first source with a value wins:
 | 2 | `DHIS2_ADMIN_PASSWORD` in `.env`, for `DHIS2_ADMIN_USERNAME` |
 | 3 | `VARDE_DHIS2_TOKEN` in the environment |
 | 4 | `VARDE_DHIS2_PASSWORD` in the environment |
-| 5 | `admin` / `district`, only on a DHIS2 that varde deployed |
+| 5 | `seed_password:` in `.varde/components.yaml`, only on a DHIS2 that varde deployed |
+| 6 | `admin` / `district`, only on a DHIS2 that varde deployed |
 
 There is **no `--password` flag**: a password on a command line goes into the
 shell history.

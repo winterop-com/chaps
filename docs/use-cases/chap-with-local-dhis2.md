@@ -36,8 +36,8 @@ The Laos climate demo database exists for 2.42 only, so these start with an
 empty DHIS2 (still with `admin` / `district`); `dhis2 connect` works the same.
 Do not seed them with DHIS2's Sierra Leone demo when you want Chap connected:
 its `admin` is not a superuser, and DHIS2 refuses it the route. See
-[A DHIS2 on its own](./dhis2-alone.md#picking-the-version) for the versions and
-the data.
+[Picking the version](./dhis2-alone.md#picking-the-version) and
+[Picking the data](./dhis2-alone.md#picking-the-data) in A DHIS2 on its own.
 
 Next: [DHIS2](../dhis2.md), especially
 [Connecting the Modeling App to Chap](../dhis2.md#connecting-the-modeling-app-to-chap)

@@ -2,7 +2,8 @@
 
 For testing a chap-core change the way it will ship: varde builds the chap-core
 and worker images from your checkout and runs them with everything else it
-normally runs (PostgreSQL, Valkey, the models, OCS, DHIS2).
+normally runs (PostgreSQL, Valkey, the models, and OCS or DHIS2 if you add them
+with `--with`).
 
 ```sh
 varde init mychap --source ~/dev/chap-core --models default
@@ -29,8 +30,8 @@ The checkout has to have `Dockerfile`, `Dockerfile.worker` and
 before a file is written. The images are `linux/amd64`, so on an Apple Silicon
 Mac the build runs under emulation and the first one takes a while.
 
-To go back to a released chap-core, re-initialise without `--source`; `.env`
-and the data are kept:
+To go back to a released chap-core, run `init` again without `--source`, with
+the same `--with` and `--models` values you used. `.env` and the data are kept:
 
 ```sh
 varde init . --force --models default

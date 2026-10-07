@@ -12,7 +12,8 @@ varde dhis2 connect
 
 `--api-token` protects chap-core's API from the start. `dhis2 use` records the
 external DHIS2 and the address it reaches chap-core at; `connect` then creates
-the route on that DHIS2 with the credentials you give it, and puts chap-core's
+the `chap` route on that DHIS2, or points an existing `chap` route at this
+chap-core, with the credentials you give it, and puts chap-core's
 token in the route, so the Modeling App reaches chap-core without ever holding
 the token itself. On a DHIS2 varde does not run, the route is all `connect`
 changes: installing the Modeling and Climate apps (`varde dhis2 apps`) and
@@ -26,6 +27,11 @@ stops to say it has no credentials for that DHIS2: put
 `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
 `.env` and run it again. `--chap-url` has to be an address that DHIS2 server
 can reach this machine at, not `localhost`.
+
+varde serves chap-core over http on port 8700; an `https://` address needs a
+reverse proxy in front of it. If you use `http://SERVER:8700`, the DHIS2 admin
+must add that origin, with no path, to `route.remote_servers_allowed` in the
+`dhis.conf` of the DHIS2 server (DHIS2 2.42 and later).
 
 Next: [A DHIS2 that runs elsewhere](../dhis2.md#a-dhis2-that-runs-elsewhere),
 [Authentication](../auth.md).

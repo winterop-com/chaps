@@ -29,7 +29,7 @@ as an image in the local image store:
   starts what is in the store and `varde update` skips it.
 - **`--platform linux/amd64`** matches the platform every model overlay pins.
   On an Apple Silicon Mac the build runs under emulation and takes longer.
-- **Rebuilding** with the same tag and running `varde restart` picks up the new
+- **Rebuilding** with the same tag and running `varde restart` starts the new
   build.
 
 ## A local build of a marketplace model
@@ -49,7 +49,7 @@ service is refused, naming the `varde models disable` that frees it. To go back
 to the published image:
 
 ```sh
-varde models remove ewars_dev
+varde models remove ewars
 varde models enable chapkit_ewars_model
 varde up
 ```

@@ -25,7 +25,7 @@ e3e9f243...  create_backtest    eval-chapkit-rwanda-malaria-bym-model  FAILURE  
 501d5b5d...  create_backtest    eval-chapkit-ghr-model                 SUCCESS  33m ago  2m 9s
 0fa57ec9...  create_dataset     eval-chapkit-5ou-202101-202312         SUCCESS  47m ago  2s
 
-8 jobs: 7 done, 1 failed
+5 jobs: 4 done, 1 failed
 run `varde jobs logs e3e9f243-2492-47cf-9d02-7de886154f70` to see why
 ```
 
@@ -133,6 +133,7 @@ from Chap saying no.
 | `--data` | The JSON body: inline, `@path` to read a file, or `-` to read stdin. It is checked as JSON here and then sent byte for byte, with `Content-Type: application/json`. |
 | `--url` | Talk to another chap-core instead of this deployment's. Works outside a project. The token sent is this deployment's own only when the URL is this deployment's API (same scheme, host and port; `localhost` and `127.0.0.1` count as one); to any other server only `CHAP_API_TOKEN` from the environment goes, so a typo in the host never hands it this deployment's token. |
 | `--raw` | Write the body through untouched, without any of the rendering below. |
+| `--timeout` | How long to wait for the answer, in seconds (30 by default). |
 
 The answer goes to stdout, rendered the way it reads best:
 

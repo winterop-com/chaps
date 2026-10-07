@@ -134,7 +134,7 @@ root.
 
 ## The caches: the second run is faster
 
-`<data>` is varde' data directory: `~/.local/share/varde`, or
+`<data>` is varde's data directory: `~/.local/share/varde`, or
 `$VARDE_DATA_DIR`. varde sets:
 
 | Variable | Value | What it keeps |

@@ -44,6 +44,10 @@ varde init dhis --only dhis2 --dhis2-tag 2.43 \
   --dhis2-seed https://databases.dhis2.org/sierra-leone/2.43/dhis2-db-sierra-leone.sql.gz
 ```
 
+A relative path is relative to the deployment directory, not to the directory
+you run `init` in. For the commands above, put the dump at
+`dhis/dumps/mine.sql.gz` before `varde up`.
+
 The seed is applied once, when the database is first created; after that the
 database is DHIS2's. DHIS2's Sierra Leone demo is published for 2.41, 2.42 and
 2.43 at that address pattern. It has no climate data, and its `admin` is not a

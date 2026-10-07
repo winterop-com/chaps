@@ -18,20 +18,19 @@ user.
 
 - Linux or macOS. On Windows, use WSL with the Linux binary.
 - Docker, and it must run. On macOS, start Docker Desktop.
-- About 25 GB of free disk space, for the images that the steps download:
+- About 20 GB of free disk space, for the images that the steps download:
 
   | Image | Size on disk | Step |
   | --- | --- | --- |
   | `ghcr.io/dhis2-chap/chap-worker` | about 12 GB | 4, the model from GitHub |
-  | `ghcr.io/dhis2-chap/chap-core` | about 2.4 GB | 5 to 7 |
-  | `auto_arima_chapkit` | about 6.2 GB | 6, the marketplace model |
+  | `ghcr.io/dhis2-chap/chap-core` | about 2.4 GB | 5 to 7, only if you have no `chap-worker` |
+  | `ghcr.io/chap-models/auto_arima_chapkit` | about 6.2 GB | 6, the marketplace model |
 
   varde says before each run when it must download an image first. On a slow
   network, download the images in advance:
 
   ```sh
   docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
-  docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-core:v2.3.1
   ```
 - A connection to the internet for the first run.
 
@@ -172,7 +171,7 @@ varde starts the model, waits until it answers, and then runs chap:
 
 ```text
 starting auto-arima-chapkit (auto_arima_chapkit in /home/me/.local/share/varde/run/default)
-running `chap eval` in ghcr.io/dhis2-chap/chap-core:v2.3.1
+running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.3.1
 files: chap reads and writes in /home/me/chap-eval
 model: auto_arima_chapkit at http://auto-arima-chapkit:8000 answers
 ...
@@ -183,8 +182,9 @@ auto_arima_chapkit keeps running for the next run; `varde stop auto_arima_chapki
 It worked when you see `chap finished; it wrote auto_arima.nc`. The first
 time, the model's image is downloaded, which takes some minutes.
 
-This run uses the smaller `chap-core` image, because chap only talks HTTP to
-a model service. The model keeps running, so a second evaluation of it starts
+chap only talks HTTP to a model service, so the smaller `chap-core` image is
+enough. varde uses `chap-worker` here because step 4 already downloaded it.
+The model keeps running, so a second evaluation of it starts
 at once. `varde ps` lists it. Find more ids with `varde models list`.
 
 ## Step 7: Compare the two models
@@ -216,7 +216,7 @@ varde stop auto_arima_chapkit --purge
 ```
 
 Your `.nc`, `.html` and `.csv` files stay in `~/chap-eval`. To get the disk
-space of the caches back, delete varde' chap directory:
+space of the caches back, delete varde's chap directory:
 
 ```sh
 rm -rf ~/.local/share/varde/chap
@@ -227,6 +227,7 @@ To remove the images too, list them, then remove each one with
 
 ```sh
 docker image ls 'ghcr.io/dhis2-chap/*'
+docker image ls 'ghcr.io/chap-models/*'
 docker image rm ghcr.io/dhis2-chap/chap-worker:v2.3.1
 ```
 
@@ -238,7 +239,7 @@ docker image rm ghcr.io/dhis2-chap/chap-worker:v2.3.1
 | `the model server at ... is not running` | The URL does not answer. Give a model id, and varde starts the model. |
 | `is not a model of the deployment` | In a deployment, add the model first with `varde models enable ID`. |
 | ``runs in docker (`docker_env` in its MLproject)`` | The model starts a container of its own. Run the same command with `varde chap --docker ...`. See [Models that run in docker](../chap-cli.md#models-that-run-in-docker). |
-| `FileNotFoundError: [Errno 2] No such file or directory` | The directory of the output file does not exist. Make it with `mkdir -p`, then run again. |
+| `FileNotFoundError: [Errno 2] No such file or directory` | chap cannot find an input file. Make sure that the CSV and the GeoJSON with the same name are there, then run again. |
 | `Rscript: not found` | The model needs R. Add `--image worker` after `chap`. |
 | `chap exited with status N` | chap stopped with an error. The cause is in chap's own lines above. |
 | `docker could not start ...` | Docker could not download or start the image. Run `varde doctor`. |

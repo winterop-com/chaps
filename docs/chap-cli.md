@@ -195,9 +195,9 @@ file (for example, with `--offline`), it does not check it.
 
 ## The caches
 
-The model runs and the uv, Python and R caches are in `chap/` under varde'
-data directory (`~/.local/share/varde/chap`, or `$VARDE_DATA_DIR/chap`). The
-second run of a model thus installs nothing again. There is one directory for
+The model runs and the uv, Python and R caches are in `chap/` under the data
+directory of varde: `$VARDE_DATA_DIR`, else `$XDG_DATA_HOME/varde`, else
+`~/.local/share/varde`. The second run of a model thus installs nothing again. There is one directory for
 each model in `chap/runs`, and the R packages can use some hundred megabytes.
 To get the space back, delete the directory:
 

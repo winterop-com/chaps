@@ -263,8 +263,9 @@ why dhis2-db is unhealthy:
   the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `varde components disable dhis2 --purge`, `varde components enable dhis2` and `varde up`
 ```
 
-`varde backup` copies the database with its mark, so a database that
-`varde backup restore` puts back is healthy too.
+`varde backup restore` sets the mark again after it loads the `pg_dump` of the
+database, so a database that it puts back is healthy too. See
+[Backing it up](#backing-it-up).
 
 ### The version of the dump
 
@@ -491,7 +492,7 @@ setting here worth being careful with:
   its own health check while every API request 404s. Up, and wrong - the worst
   shape a deployment can be in.
 
-So: `varde backup` first. Then move the tag deliberately, either in
+So: run `varde backup create` first. Then move the tag deliberately, either in
 `.varde/components.yaml` followed by `varde sync`:
 
 ```yaml
@@ -499,6 +500,7 @@ dhis2:
   enabled: true
   port: 8780
   image_tag: '2.41'
+  image: dhis2/core
   seed: default
 ```
 
@@ -531,9 +533,10 @@ against the one being asked for, not two records against each other:
 warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
-Moving the seed does not need this care and moving the tag does, which is why the
-two are the settings the browser's components page deliberately does not edit:
-its `i` overlay names both and sends you to `.varde/components.yaml`.
+Moving the seed does not need this care and moving the tag does. So the browser
+edits the tag only through the `v` prompt, which states the forward-only rule.
+It does not edit the seed: its `i` overlay sends you to `seed:` in
+`.varde/components.yaml`.
 
 ## Connecting the Modeling App to Chap
 
@@ -575,7 +578,7 @@ nothing to do still reports it.
 `varde up` is a thin wrapper around `docker compose up`, and three things make
 this the wrong work to hang off it:
 
-- it needs **DHIS2 credentials**, which are not varde' to invent;
+- it needs **DHIS2 credentials**, which are not varde's to invent;
 - it reaches the **network** - the App Hub, twice - and `varde up` never does;
 - DHIS2's API is **not ready when `up` returns**. Tomcat serves pages while every
   `/api/*` request 404s, which is the shape `varde status`'s `dhis2` row already
@@ -639,6 +642,7 @@ dhis2:
   enabled: true
   port: 8780
   image_tag: '2.42'
+  image: dhis2/core
   seed: default
   connected_at: 2026-09-27T12:09:53Z
 ```
@@ -786,6 +790,8 @@ password, even when a token is on offer, and only a password that belongs to
 
 - `DHIS2_ADMIN_PASSWORD`, when `.env` names `NAME`;
 - `VARDE_DHIS2_PASSWORD`, unless `VARDE_DHIS2_USERNAME` gives it to someone else;
+- `seed_password:` in `.varde/components.yaml`, for any user, on a DHIS2 varde
+  restored from a seed with that option;
 - the default, for `admin` on a DHIS2 varde deployed.
 
 Anything else is refused before a request is made, rather than sending one user's
@@ -892,7 +898,7 @@ What changes against an external DHIS2:
 - **Nothing asks docker.** There is no container. The wait for `/api/ping` is
   the whole check, and a DHIS2 that does not answer points you back at the
   recorded URL rather than at `varde logs dhis2`.
-- **The analytics timestamp is trusted.** No seed dump of varde' was restored
+- **The analytics timestamp is trusted.** No seed dump of varde's was restored
   into it, so `lastAnalyticsTableSuccess` is that instance's own.
 - **The allowlist is that server's.** A refused route names
   `route.remote_servers_allowed` in the `dhis.conf` on the DHIS2 server, which is
@@ -963,8 +969,9 @@ error: DHIS2 refused the route: version 42 and later only allow the origins `rou
 DHIS2's own answer to that write is `409 Conflict` with the message `Route URL
 is not permitted`, which names neither the setting nor the file - and its
 `errorCode`, `E1004`, is DHIS2's general-purpose conflict code rather than this
-one's, so the message above is built from the message alone. `--all` is not a
-flourish: see [Applying an edit](#applying-an-edit).
+one's, so the message above is built from the message alone. If
+`varde restart dhis2` does not recreate the container, use
+`varde restart --all dhis2`; see [Applying an edit](#applying-an-edit).
 
 ### Analytics, and the parameter that populates nothing
 
@@ -1155,8 +1162,7 @@ DHIS2_ENCRYPTION_PASSWORD=217ab7126f92244466434ebc5a4c7c16
 The commented lines each carry the value the command that reads them already
 falls back to, so uncommenting one changes nothing until it is edited. The login
 block is [a section of its own](#the-credentials-and-where-they-come-from) so that
-a deployment which enabled DHIS2 before `varde dhis2` existed gets it appended on
-its next `varde sync`; the two variables are the whole answer to where the
+`varde sync` appends it to a `.env` that does not have it yet; the two variables are the whole answer to where the
 credentials come from, and a name nobody can find is a name nobody sets. For a seed
 that is a file rather than a URL, `DHIS2_DB_DUMP_URL` carries the path *inside*
 the container (`/opt/seed.sql.gz`), because the host path would be one nothing in

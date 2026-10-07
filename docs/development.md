@@ -53,7 +53,7 @@ four hooks nothing on the command line can set:
 
 | Variable | What it moves |
 | --- | --- |
-| `VARDE_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`: the repository lookups, chap-core's release feed, `varde`' own, and `/rate_limit`. |
+| `VARDE_GITHUB_API` | The GitHub REST base URL, normally `https://api.github.com`: the repository lookups, chap-core's release feed, `varde`'s own, and `/rate_limit`. |
 | `VARDE_GITHUB_RAW` | The raw file base URL, normally `https://raw.githubusercontent.com`: chap-core's `compose.ghcr.yml` at a ref. |
 | `VARDE_GHCR_URL` | The registry base URL, normally `https://ghcr.io`. |
 | `VARDE_NO_DOCKER_PROBE` | `1` turns off the uid probe, which would otherwise `docker pull` an image the test has not got. |
@@ -242,7 +242,8 @@ The generated file is committed, and `cargo test` compares
 `make docs-reference` and commit the result. `make docs` depends on
 `docs-reference`, so a local book build can never be stale.
 
-To document a new flag: add it to `src/cli.rs` with a doc comment, run
+To document a new flag: add it to its argument struct in `src/cli/` (or to
+`src/cli.rs` for a global option) with a doc comment, run
 `make docs-reference`, and mention it in whichever hand-written chapter it
 belongs to.
 

@@ -82,9 +82,9 @@ varde models add ghcr.io/org/model:latest --port auto --bind 127.0.0.1
 The overlay then publishes `"127.0.0.1:5001:8000"`, which only this machine's
 own processes can reach: `docker port <container>` shows `127.0.0.1:5001`. A
 model's own `--bind` is recorded as `bind:` in `.varde/models.yaml` and wins over
-the deployment's `model_bind:` in `.varde/project.yaml`, which the deployment
-`varde run` keeps sets to `127.0.0.1`; with neither, the port is published on
-every address as before. `--bind 0.0.0.0` asks for every
+the deployment's `model_bind:` in `.varde/project.yaml`. The deployment that
+`varde run` keeps sets `model_bind:` to `127.0.0.1`. With neither, the port is
+published on every address as before. `--bind 0.0.0.0` asks for every
 address explicitly, which is how one model leaves a loopback default. An IPv6
 address is written bare (`--bind ::1`) and rendered in brackets.
 [`varde run`](./run.md) groups publish every model on `127.0.0.1`.
@@ -132,7 +132,7 @@ waiting for a service on an address no file mentions.
 rather than opening anything when the component publishes none. See
 [Reaching a component from a browser](./components.md#reaching-a-component-from-a-browser).
 
-8000, 8080 and 9000 are what most development servers default to, so varde'
+8000, 8080 and 9000 are what most development servers default to, so varde's
 own services start one block away from them: chap-core on 8700, DHIS2 on 8780
 and OCS on 8790, while inside the deployment they keep their container ports
 (`http://chap:8000`, `http://ocs:9000`). Two deployments on the same defaults
@@ -229,6 +229,7 @@ before it calls Docker, and refuses with one line per conflict:
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `varde models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `varde models expose chapkit-ewars-model --port auto`
+  or run `varde up --no-preflight` to hand the conflict to Docker
 ```
 
 Docker finds the same conflict eventually, several seconds in and named after a

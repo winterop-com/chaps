@@ -49,6 +49,7 @@ it also removes the chap-core database. See
   port 5001 is already in use on this machine (needed by chapkit-ewars-model);
   free it, or run `varde models unexpose chapkit-ewars-model` (the model stays
   reachable through chap-core) / `varde models expose chapkit-ewars-model --port auto`
+  or run `varde up --no-preflight` to hand the conflict to Docker
 ```
 
 Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
@@ -76,7 +77,7 @@ climate is using these ports. Stop it and start this deployment instead? Its dat
 own `varde up` brings it back) and then starts this one. `varde up --replace`
 is the same answer given in advance, for a script. The offer is only made
 when every taken port belongs to another varde deployment: a port some other
-program holds is never varde' to take away.
+program holds is never varde's to take away.
 
 ## The port answers, but it is not chap-core
 
@@ -155,7 +156,7 @@ The row is one clause out of the model's own error stream, which is as much as
 a row has room for. Three places have more, in the order worth reading them:
 
 ```sh
-varde models test chapkit_rwanda_malaria_bym_model -v   # the whole run, as it happens
+varde models test chapkit_rwanda_malaria_bym_model -vv  # the whole run, as it happens
 varde logs chapkit-rwanda-malaria-bym-model             # what the service itself said
 ```
 
@@ -711,7 +712,7 @@ database.
 
 ```sh
 varde logs dhis2 | grep -iE "flyway|migrat|exception|failed"
-docker compose config | grep "image: dhis2/core"    # the tag that is running
+varde docker config | grep "image: dhis2/"         # the tag that is running
 grep -n "image_tag" .varde/components.yaml          # the tag that was asked for
 grep -n "DHIS2_IMAGE_TAG" .env                      # and any override, which wins
 ```
@@ -1117,10 +1118,11 @@ running instead, `varde up` starts it with the new versions. See
 
 ## `varde update` fails offline
 
-By design. `varde update` fetches the registry from the network with no cache
-and no fallback, `--dry-run` included, because a plan made from a stale
-catalogue is not a plan. Every other command falls back to the cache and then
-to the snapshot compiled into the binary.
+By design. Inside a deployment, `varde update` fetches the registry from the
+network with no cache and no fallback, `--dry-run` included, because a plan
+made from a stale catalogue is not a plan. Outside a deployment, `--dry-run`
+shows the cached registry instead. Every other command falls back to the cache
+and then to the snapshot compiled into the binary.
 
 ## `GitHub's rate limit is used up`
 

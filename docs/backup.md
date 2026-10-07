@@ -1,8 +1,9 @@
 # Backup and restore
 
 A deployment is four things: the files in the project directory, the chap-core
-database in PostgreSQL, one data volume per model service, and one data volume
-per volume an enabled component keeps state in (`ocs`, `s3`, and `dhis2` twice).
+database in PostgreSQL, one data volume per model service, and the state of
+each enabled component: the `ocs` and `s3` volumes, the `dhis2_home` volume and
+a `pg_dump` of the DHIS2 database.
 `varde backup create` puts all four into one `tar.gz`, and
 `varde backup restore` puts them back.
 
@@ -24,8 +25,11 @@ varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
                              compose*.yml at the project root
   db/chap_core.dump          pg_dump in the custom format (-Fc)
   models/<service_id>.tar    one model's data directory, as tar saw it
-  components/<name>.tar      one component volume, likewise: ocs, s3, dhis2-home
-                             and dhis2-db
+  components/<name>.tar      one component volume, likewise: ocs, s3 and
+                             dhis2-home
+  components/dhis2-db.dump   the DHIS2 database: pg_dump -Fc without
+                             analytics_*, aggregated_*, completeness_*, _* and
+                             the rows of audit
 ```
 
 Every member but the manifest is optional, and the manifest records which ones
@@ -70,8 +74,8 @@ start Chap or pass `--no-db`.
 
 Model data is read through the overlay's one-shot `<service_id>-init`
 container, which mounts the same named volume at the same path as the model
-itself, so it works whether the model is running, stopped, or was brought down
-entirely. Every model overlay has one, root included. A model that has never
+itself, so it works whether the model is running, stopped, or removed by
+`varde down`. Every model overlay has one, root included. A model that has never
 started has no volume yet; it is skipped with a warning and recorded as such
 in the manifest. A read that fails - the busybox image cannot be pulled, tar
 errors out - is different: the archive is still written, for what it does
@@ -81,7 +85,10 @@ script does not take a partial backup for a whole one.
 
 Component data is read through a throwaway `busybox` container instead: no
 component one-shot - `s3-init`, `dhis2-dump`, `dhis2-prep` - mounts a volume
-that ends up in the archive. `--no-components` leaves all of it out.
+that ends up in the archive. The DHIS2 database is the exception: it is a
+`pg_dump` run in `dhis2-db`, so `dhis2-db` must be running. If it is not, the
+backup marks it as failed and exits non-zero; start it with `varde up`, or pass
+`--no-components`. `--no-components` leaves all of it out.
 
 `dhis2` contributes two members rather than one, `dhis2-home` and `dhis2-db`,
 because it keeps `/opt/dhis2` - the installed apps and the file store - apart
@@ -191,8 +198,14 @@ Then, in order:
    no account names, which is why the numbers matter),
 5. each component data volume is emptied and refilled the same way, through a
    `busybox` container, since no component one-shot mounts a volume the archive
-   holds,
+   holds. The DHIS2 database is the exception: varde starts `dhis2-db` alone,
+   makes the database new (`dropdb`, `createdb`), loads the dump with
+   `pg_restore -j 4`, and sets the mark of a complete restore,
 6. `docker compose up -d`, unless `--no-start`.
+
+If the archive holds the DHIS2 database, run `varde dhis2 analytics` after the
+restore. The dump has no analytics tables, so DHIS2 has no data for its
+dashboards and the Modeling App until then.
 
 The order is the whole design: nothing writes to the database or a data volume
 while its storage is being swapped underneath it.
@@ -268,8 +281,9 @@ Scopes:
 - `--no-start` skips the last step.
 
 `--files-only` cannot be combined with `--db-only`, `--no-models`,
-`--no-components` or `--no-start`, and `--db-only` cannot be combined with
-`--no-models` or `--no-components`.
+`--no-components` or `--no-start`, `--db-only` cannot be combined with
+`--no-models` or `--no-components`, and `--adopt-identity` cannot be combined
+with `--db-only`.
 
 ## The same thing without varde
 
@@ -297,11 +311,12 @@ defaulting to `chap` and `chap_core`.
 | hold a service still | `docker compose pause <service>`, and `unpause` afterwards |
 | read a component volume | `docker run --rm -v <project>_ocs_data:/v busybox:1.38 tar -C /v -cf - . > ocs.tar` |
 | write it back | `docker run --rm -i -v <project>_ocs_data:/v busybox:1.38 sh -c 'rm -rf /v/* /v/.[!.]* /v/..?* 2>/dev/null; tar -C /v -xf -' < ocs.tar` |
+| dump the DHIS2 database | `docker compose exec -T dhis2-db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -Z 1 -T "analytics_*" -T "aggregated_*" -T "completeness_*" -T "_*" --exclude-table-data=audit' > dhis2-db.dump` |
+| load it | `docker compose cp dhis2-db.dump dhis2-db:/tmp/d.dump`, then in `dhis2-db`: `dropdb --force`, `createdb` and `pg_restore -j 4 --no-owner --no-privileges /tmp/d.dump` |
 
-Stop `chap`, `worker`, the model services and the component services - `ocs`,
-`s3`, `dhis2` and `dhis2-db` - before loading a database or a data volume, and
-start them again afterwards. A DHIS2 whose `dhis2_db` volume is replaced under it
-is the one case where it matters most: it read the schema version at startup. `<data_dir>` and
+Stop `chap`, `worker`, the model services, `ocs`, `s3` and `dhis2` before you
+load a database or a data volume. Keep `dhis2-db` running for its own dump and
+restore. Start the services again afterwards. `<data_dir>` and
 the uid:gid are in the manifest, one entry per model; `<project>` is the
 `compose_project` in `.varde/project.yaml`, which is also the prefix
 `docker volume ls` shows.

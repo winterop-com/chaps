@@ -15,8 +15,8 @@ with anything here.
 
 **Without a deployment**, `varde update` has no pin to move. It refreshes the
 marketplace registry of this machine instead, as `varde registry update` does.
-`varde self update` updates varde itself, and `varde -C <group> update` updates
-a `varde run` group. `--dry-run` reports
+`varde self update` updates varde itself, and
+`varde -C ~/.local/share/varde/run/<group> update` updates a `varde run` group. `--dry-run` reports
 the registry that varde has now, and fetches nothing. `--chap-tag`,
 `--pin-chap-core` and `--list-tags` need a deployment, so they are refused
 there.
@@ -89,7 +89,7 @@ A run is four steps, printed in that order:
 ## The closing lines
 
 They answer the only question a finished update leaves: is there anything to
-do now? There are four answers, and every run ends on exactly one of them.
+do now? There are five answers, and every run ends on exactly one of them.
 With `-v`, the run also says which registry it used, as a hint. The warnings
 of the run, such as a lookup that did not answer, come after these lines on
 stderr.
@@ -122,9 +122,16 @@ Something moved, Chap is up, and none of it was affected:
 updated 1 model pin
 ```
 
-Nothing was pinned to move, but a moving tag brought a newer image - `ocs:main`
-after upstream has published, say - and the running container is still on the
-old one:
+Something moved, and docker could not say what is running:
+
+```text
+updated 1 model pin
+run `varde restart` to apply it to what is running
+```
+
+The second answer can also start with another clause. Nothing was pinned to
+move, but a moving tag brought a newer image - `ocs:main` after upstream has
+published, say - and the running container is still on the old one:
 
 ```text
 pulled a new image for ocs; restart needed: ocs
@@ -167,6 +174,12 @@ varde restart [SERVICE..] [--all]
 that no longer match the files and leaves the rest running. It changes no file,
 no pin and nothing in `.varde/`, and it never syncs: it applies what is already
 on disk.
+
+Compose cannot see an edit to a mounted config file such as `dhis2/dhis.conf`
+or `ocs/climate-service.yaml`. If such a file changed after its container was
+made, `varde restart` first recreates that service and says
+`recreating <service> to apply its edited config file`. `--all` recreates
+everything anyway, so it skips this step.
 
 ```sh
 varde restart                       # the whole project; compose decides

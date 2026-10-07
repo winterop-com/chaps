@@ -46,8 +46,9 @@ OCS](./chap-with-ocs.md) for the OCS side.
 
 ## Settings any of these take
 
-`--dhis2-tag` and `--dhis2-seed` for DHIS2 (see
-[A DHIS2 on its own](./dhis2-alone.md#picking-the-version)), `--ocs-read-only`
+`--dhis2-tag` (see [Picking the version](./dhis2-alone.md#picking-the-version))
+and `--dhis2-seed` (see [Picking the data](./dhis2-alone.md#picking-the-data))
+for DHIS2, `--ocs-read-only`
 and `--ocs-base-url` for OCS, and `--api-port`, `--ocs-port`, `--dhis2-port`
 for ports other than the defaults (see
 [Several deployments on one machine](./several-deployments.md)).

@@ -43,11 +43,13 @@ and about **25 GB** of free disk space.
 | `chap-worker` | about 12 GB | the model from GitHub |
 | `chap-core` | about 2.4 GB | plots, metrics, the model services |
 | `auto_arima_chapkit` | about 6.2 GB | the second model |
+| `chapkit_simple_multistep_model` | less than 1 GB | the third model |
 
 ```sh
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
 docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-core:v2.3.1
 varde run auto_arima_chapkit && varde stop auto_arima_chapkit
+varde run chapkit_simple_multistep_model && varde stop chapkit_simple_multistep_model
 ```
 
 ---

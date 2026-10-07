@@ -81,8 +81,8 @@ varde stop --all                          # every model in every group
 varde stop --group dengue --purge         # and its data, and the group itself
 ```
 
-A stop keeps the model's data volume, so the next `varde run` of it picks up
-where it left off. `--purge` deletes the data too, and removes a group it
+A stop keeps the model's data volume, so the next `varde run` of it continues
+with the same data. `--purge` deletes the data too, and removes a group it
 leaves empty: its network, its directory and every volume it had, including
 those of models stopped earlier.
 

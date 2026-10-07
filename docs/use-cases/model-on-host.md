@@ -44,8 +44,10 @@ is expected. From there chap-core uses it like any other model, and
 level (`chapkit test` in a container) is for models varde runs, so for this one
 it says to use `--backtest`.
 
-If the deployment has a registration key (`varde auth show` says so), export
-`SERVICEKIT_REGISTRATION_KEY` with the value `varde auth show --reveal` prints.
+If the deployment has a registration key (`varde auth show` says
+`Registration key  on`), export `SERVICEKIT_REGISTRATION_KEY` with the value of
+that line in the deployment's `.env`, for example
+`export $(grep '^SERVICEKIT_REGISTRATION_KEY=' /path/to/mychap/.env)`.
 
 The model keeps re-registering while it runs, so restarting it (or chap-core)
 needs nothing else. When you are done with it, the image route is

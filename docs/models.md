@@ -48,7 +48,8 @@ one model.
 `varde registry update` forces a fetch and refreshes the cache, as does
 `varde update`. `--offline` never touches the network, so a laptop on a plane
 still resolves the catalogue from the cache or the embedded snapshot;
-`varde update` is the one command that refuses to run that way.
+`varde update` and `varde registry update` refuse to run that way, because a
+refresh needs the network.
 
 The cache lives in `$VARDE_CACHE_DIR`, else `$XDG_CACHE_HOME/varde`, else
 `~/.cache/varde`; `--cache-dir` overrides it for one invocation. A private
@@ -105,7 +106,7 @@ varde models info chapkit_ewars_model
 
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
-chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.3   1.0.3   via chap-core
+chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.4   1.0.4   via chap-core
 chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
 auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
 chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.2   0.1.2   -
@@ -164,13 +165,16 @@ and the DNS name).
 
 ```sh
 varde models enable ID [--channel stable|latest | --version X]
-                       [--port N|auto] [--data-dir PATH] [--user USER:GROUP]
-                       [--allow-template]
+                       [--port N|auto] [--bind ADDR] [--data-dir PATH]
+                       [--user USER:GROUP] [--allow-template]
 varde models disable ID [--purge]
-varde models expose ID [--port N|auto]
+varde models expose ID [--port N|auto] [--bind ADDR]
 varde models unexpose ID
 varde up                            # apply any of them
 ```
+
+`--bind ADDR` sets the host address of the model port; see
+[Which address a model port is published on](./ports.md#which-address-a-model-port-is-published-on).
 
 `enable` and `disable` edit `.varde/models.yaml` and then re-render the compose
 files; `expose` and `unexpose` only rewrite the overlay's `ports:`, so they
@@ -568,7 +572,7 @@ catalogue entry:
 
 ```text
 ID                    SERVICE               NAME                  STATUS        STABLE       LATEST       PORT  KIND
-chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            limited data  1.0.3        1.0.3        -     model
+chapkit_ewars_model   chapkit-ewars-model   CHAP-EWARS            limited data  1.0.4        1.0.4        -     model
 chapkit_dengue_model  chapkit-dengue-model  chapkit_dengue_model  not for use   sha-b1d6c31  sha-b1d6c31  5001  manual
 ```
 
@@ -633,11 +637,11 @@ varde · models                                                registry: cache �
 ╭ Marketplace ─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │     MODEL                  ID                                 STATUS         VERSION  PORT                           │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● limited data 1.0.3    via chap-core                  │
+│ ▸ ✓ CHAP-EWARS             chapkit_ewars_model                ● limited data 1.0.4    via chap-core                  │
 │     Simple Multistep       chapkit_simple_multistep_model     ● limited data 0.1.1                                   │
 │     Auto-ARIMA             auto_arima_chapkit                 ● experimental 1.0.1                                   │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│ CHAP-EWARS  ● limited data  1.0.3 (sha-24d58c0)  enabled, via chap-core  requires population            i for details│
+│ CHAP-EWARS  ● limited data  1.0.4 (sha-964eea8)  enabled, via chap-core  requires population            i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  [j/k] move  [tab] page  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
@@ -719,8 +723,8 @@ one resolves to and a `✓` on the one the row follows today:
 
 ```text
 ╭ Channel for CHAP-EWARS ─────────────────────────────────╮
-│ ▸ ✓ stable  1.0.3                                       │
-│     latest  1.0.3                                       │
+│ ▸ ✓ stable  1.0.4                                       │
+│     latest  1.0.4                                       │
 │                                                         │
 │ [enter] apply  [esc] cancel  [j/k] move  [s/l] pick one │
 ╰─────────────────────────────────────────────────────────╯
@@ -879,16 +883,13 @@ a deployment that has already started means removing the volume. And that the
 first start takes minutes, which is the difference between reading the first
 `varde status` as slow or as broken.
 
-The two settings at the bottom are not commands but a key in
-`.varde/components.yaml` and a `varde sync`, because no flag moves either after
-`init`. The seed is a one-chance setting and the image tag is one DHIS2 migrates
-a database forward for, irreversibly, so neither belongs behind a dialog on a
-row. See [DHIS2](./dhis2.md).
-
-
-`v` on the `dhis2` row picks its version, since DHIS2 is the one component with
-versions to choose between. See
+The two settings at the bottom are a key in `.varde/components.yaml` and a
+`varde sync`. No flag changes the seed after `init`: it is a one-chance setting.
+The image tag also has `--tag` on `varde components enable dhis2`, and `v` on
+the `dhis2` row picks it, since DHIS2 is the one component with versions to
+choose between. See
 [Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version).
+
 ### The details, and the command palette
 
 `i` or `Enter` opens the full entry over the list, in the order the Chap
@@ -918,8 +919,6 @@ only then how this deployment runs it.
 │                                                                                    │
 │ maintainers mortenoh, edvinstava                                                   │
 │ repository  https://github.com/chap-models/chapkit_rwanda_malaria_bym_model        │
-│ citation    Climate Health Analytics Platform. 2025. "Kigali Malaria BYM Model".   │
-│             HISP Centre, University of Oslo.                                       │
 ╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -930,8 +929,10 @@ is the pin, how far that release is trusted and which channels point at it,
 with the rest of the published history under it when there is more than one.
 `target` is what chap-core forecasts, the same for every model in the
 catalogue. A model this deployment runs also lists its data directory and its
-service user with where that user came from. Long values - the summary, the
-assessment, the citation - wrap under their label rather than being cut.
+service user with where that user came from. A model with a citation in the
+marketplace also gets a `citation` row, with the attribution as the marketplace
+gives it. Long values - the summary, the assessment, the citation - wrap under
+their label rather than being cut.
 
 `j` and `k` scroll it when it is taller than the terminal, `o` opens the
 repository in a browser, `c` puts the image reference on the status line, and
@@ -1172,7 +1173,9 @@ is added, and carries its answers in `.varde/models-manual.yaml`. See
 
 ## The amd64 pin, and why
 
-Every overlay also pins `platform: linux/amd64`. The marketplace images are
+The overlay of every marketplace model pins `platform: linux/amd64`, and the
+overlay of a model added with `varde models add` pins it only when its image is
+published for amd64 alone (or `--runtime-amd64` says so). The marketplace images are
 published for amd64, as is chap-core itself, so an arm64 host such as Apple
 silicon pulls that variant and runs it under emulation instead of failing with
 `no matching manifest for linux/arm64`.

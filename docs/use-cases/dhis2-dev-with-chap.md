@@ -23,6 +23,10 @@ varde dhis2 use http://localhost:8080 --chap-url http://host.docker.internal:870
 varde dhis2 connect
 ```
 
+varde has no default login for a DHIS2 it did not start. Before `connect`, put
+`DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
+`.env`. For a local dev DHIS2 these are often `admin` and `district`.
+
 The first URL is where varde reaches DHIS2; `--chap-url` is where DHIS2 reaches
 chap-core, which is what the `chap` route points at:
 
@@ -33,8 +37,9 @@ chap-core, which is what the `chap` route points at:
   machine. On Linux, give that container
   `extra_hosts: ["host.docker.internal:host-gateway"]` in its own compose file.
 
-DHIS2 42 and later only proxy to origins its `dhis.conf` allows: add the
-`--chap-url` origin to `route.remote_servers_allowed` there, and restart it.
+DHIS2 2.42 and later only proxy to origins that its `dhis.conf` allows. Add the
+`--chap-url` origin, with no path, to `route.remote_servers_allowed` there, and
+restart DHIS2.
 `varde dhis2 connect` names the setting if DHIS2 refuses the route.
 
 It worked when `varde dhis2 connect` finishes without `error:` and

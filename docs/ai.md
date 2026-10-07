@@ -1,7 +1,7 @@
 # For AI assistants
 
-This page is written for an AI assistant helping someone set something up with
-`varde`. If a person pointed you here, follow the steps below in order. Keep
+This page is written for an AI assistant that helps someone install and run
+something with `varde`. If a person pointed you here, follow the steps below in order. Keep
 your answers short and concrete, and give one command at a time.
 
 ## What Chap is
@@ -47,14 +47,15 @@ A few words the person will see:
    - *One piece on its own* (climate data, one model, a DHIS2): options 6 to 10.
    - *Develop a model, chap-core or DHIS2*: options 11 to 17.
    - *Two deployments at once*: option 18.
+   - *Evaluate a model on their own data file, without DHIS2*: option 19.
 
    If they are unsure, recommend option 1.
 2. **Check the machine** with [Before any option](#before-any-option).
 3. **Give the commands for their option**, in order, one block at a time. Wait
    for them to say it worked before giving the next block. Every option has an
    "It worked when" line: use it to decide.
-4. **When it works, say what to do next.** Options 1 and 3 continue in the
-   Modeling App: walk them through [Your first forecast in the Modeling
+4. **When it works, say what to do next.** Option 1 continues in the Modeling
+   App, and so do options 3 and 4 when they added DHIS2: walk them through [Your first forecast in the Modeling
    App](./modeling-app.md). Option 2 continues with
    [What to try next without DHIS2](#what-to-try-next-without-dhis2).
 5. **If something fails**, ask them to paste the exact output. Then look for the
@@ -62,8 +63,8 @@ A few words the person will see:
    same line, usually a command in backticks: tell them to run that command.
    If that does not help, search [Troubleshooting](./troubleshooting.md) for
    the exact message. If varde says it does not know a command or an option,
-   the installed `varde` is older than this page: `varde self update` brings
-   it up to date, and `varde <command> --help` is always right for the
+   the installed `varde` is older than this page: `varde self update` installs
+   the newest release, and `varde <command> --help` is always right for the
    installed one.
 6. **Never** tell them to edit the `compose*.yml` files by hand (varde rewrites
    them), and never ask them to paste the `.env` file (it holds passwords).
@@ -91,12 +92,14 @@ telling the person what to type:
 - The first `varde up` downloads the images that take most of the disk in
   [Before any option](#before-any-option). Give it a long timeout, or run it
   in the background, and do not start a second one while it runs. Running
-  `varde up` again after it has finished or timed out is safe: it picks up
-  where it stopped.
+  `varde up` again after it has finished or timed out is safe: it continues
+  from where it stopped.
 - `varde dhis2 connect` waits by itself for DHIS2 to start, up to 20 minutes;
   it prints a line on stderr while it waits.
 - Nothing prompts you: without a terminal, a question becomes an `error:`
-  with the flag that answers it. `varde up --replace` stops another
+  with the flag that answers it. `varde self update` is the exception: without
+  a terminal it replaces the binary and does not ask, so ask the person before
+  you run it. `varde up --replace` stops another
   deployment holding the ports, `varde down --volumes --yes` deletes data;
   ask the person before either.
 - Credentials go in the `.env` file in the folder. Ask the person to add them
@@ -116,7 +119,7 @@ Linux. On Windows, varde runs inside WSL 2: Docker Desktop with its WSL
 integration turned on for the distribution, and every command below typed in
 the WSL shell. Check two numbers before they start:
 
-| | With DHIS2 (options 1, 3, 8, 9, 10, 17) | Without DHIS2 |
+| | With DHIS2 (options 1, 8, 9, 10, 17, and 3 or 4 with `dhis2` added) | Without DHIS2 |
 | --- | --- | --- |
 | Memory for Docker | 8 GB or more | 6 GB or more |
 | Free disk | about 30 GB | about 25 GB |
@@ -134,7 +137,9 @@ On Windows, run those two lines in the WSL shell, which installs the Linux
 binary; do not use the native Windows zip, which is published untested. See
 [Install](./install.md#windows).
 
-It worked when `varde doctor` shows no `fail` lines. On an Apple Silicon Mac a
+It worked when `varde doctor` shows no `fail` lines, and its `disk space` and
+`memory` lines show at least the numbers in the table above. `varde doctor`
+passes with less, so compare the numbers yourself. On an Apple Silicon Mac a
 `warn` line about `linux/amd64` and emulation is normal and can be ignored:
 the models run, only slower.
 
@@ -523,8 +528,8 @@ More: [A model image you built yourself](./use-cases/local-model-image.md).
 
 For someone developing chap-core itself. They run chap-core from its folder,
 listening on `0.0.0.0:8000`; varde runs the models. Have them start their
-chap-core first: `varde init` then sees whether it runs in Docker and sets the
-models up to match.
+chap-core first: `varde init` then sees whether it runs in Docker and
+configures the models to match.
 
 ```sh
 varde init models --chap-core-url http://localhost:8000 --models chapkit_simple_multistep_model
@@ -664,8 +669,8 @@ Use their model's GitHub URL in `--model-name`, or a marketplace id such as
 `varde up`. Never give a `localhost` URL. The first run pulls
 an image of about 12 GB, so tell them it takes some minutes. If varde stops with
 `runs in docker`, run the same command with `varde chap --docker` and tell
-them that the flag gives the container control of docker. An output path must
-be in a directory that exists.
+them that the flag gives the container control of docker. If the directory of
+an output file is not there, varde creates it.
 
 It worked when the last lines say `chap finished; it wrote eval.nc` and
 `chap finished; it wrote eval.html`. They open `eval.html` in a browser.

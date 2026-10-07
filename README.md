@@ -48,12 +48,14 @@ an evaluation and a three-month dengue forecast on demo data from Laos.
 - [A DHIS2 on its own](https://winterop-com.github.io/varde/use-cases/dhis2-alone.html): A DHIS2 and its database, nothing else; 2.41, 2.42, 2.43 or the next one.
 - [A chapkit model service on its own](https://winterop-com.github.io/varde/use-cases/model-alone.html): One chapkit model service answering on its own port, no chap-core.
 - [Several model services side by side](https://winterop-com.github.io/varde/use-cases/models-alone.html): Several model services, each on its own port, no chap-core.
+- [Any number of model services, no folder](https://winterop-com.github.io/varde/use-cases/models-with-run.html): one `varde run` per model, each on its own port.
 - [Your model from its checkout, with Chap](https://winterop-com.github.io/varde/use-cases/model-on-host.html): varde runs chap-core; you run your model with `uv run` and it registers.
 - [chap-core from its checkout, with the models](https://winterop-com.github.io/varde/use-cases/chap-core-on-host.html): you run chap-core; varde runs the models and registers them with it.
 - [chap-core built from its checkout](https://winterop-com.github.io/varde/use-cases/chap-core-from-checkout.html): varde builds chap-core from your clone and runs it with everything else.
-- [A DHIS2 you run yourself, with Chap from varde](https://winterop-com.github.io/varde/use-cases/dhis2-dev-with-chap.html): your DHIS2, varde' chap-core, connected.
-- [A DHIS2 from varde, with a chap-core elsewhere](https://winterop-com.github.io/varde/use-cases/dhis2-with-chap-core-elsewhere.html): varde' DHIS2, your chap-core, connected.
+- [A DHIS2 you run yourself, with Chap from varde](https://winterop-com.github.io/varde/use-cases/dhis2-dev-with-chap.html): your DHIS2 and a chap-core from varde, connected.
+- [A DHIS2 from varde, with a chap-core elsewhere](https://winterop-com.github.io/varde/use-cases/dhis2-with-chap-core-elsewhere.html): a DHIS2 from varde and your chap-core, connected.
 - [A model image you built yourself](https://winterop-com.github.io/varde/use-cases/local-model-image.html): `docker build` a model and run it in Chap without publishing it.
+- [Evaluating a model on your own data](https://winterop-com.github.io/varde/use-cases/evaluate-with-chap-cli.html): `chap eval` on your CSV through `varde chap`, with no Python or uv.
 - [Combinations](https://winterop-com.github.io/varde/use-cases/combinations.html): OCS and DHIS2 without Chap, a model beside OCS, everything at once.
 - [Several deployments on one machine](https://winterop-com.github.io/varde/use-cases/several-deployments.html): taking turns on the default ports, or giving each its own.
 - [Growing a deployment](https://winterop-com.github.io/varde/use-cases/growing.html): Moving a deployment from one shape to another.
@@ -137,8 +139,9 @@ command takes `--json`, and every command ends with a line saying what it did.
 
 ## The three words to remember
 
-- **`varde up`** starts what is on disk. It never changes which version of
-  anything you run.
+- **`varde up`** starts what is on disk. It never moves a pin. Only
+  `varde up --pull` downloads a newer build, and only for an image on a moving
+  tag such as the `main` tag of OCS.
 - **`varde update`** fetches newer versions: it asks the marketplace and the
   chap-core release feed what they publish today, moves the pins and pulls the
   images. It never touches a container; it says which ones are now out of date.
@@ -166,8 +169,9 @@ CI runs the same three checks on Linux and macOS, and shellcheck over
 targets (Linux, macOS and Windows, on x86_64 and aarch64), fuses the two macOS
 builds into a seventh universal archive, and attaches all seven to a GitHub
 release together with one `SHA256SUMS`, each archive carrying the shell
-completion scripts. A weekly workflow refreshes the embedded marketplace
-snapshot and opens a pull request when upstream moved.
+completion scripts. `make vendor` refreshes the embedded marketplace snapshot;
+no workflow does it on a schedule. A weekly workflow runs `scripts/e2e.sh`,
+which starts OCS, chap-core, DHIS2 and the models for real.
 
 The documentation lives in `docs/` and is built with
 [mdbook](https://rust-lang.github.io/mdBook/); `docs/reference.md` is generated

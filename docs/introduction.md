@@ -64,8 +64,6 @@ deployment is meant to be.
 
 ```sh
 varde init mychap --models default   # writes the deployment directory
-varde init mychap --with ocs         # ...with Open Climate Service beside it
-varde init climate --only ocs,s3     # or OCS alone, with no Chap at all
 cd mychap
 varde up                             # sync the compose files, docker compose up -d
 varde status                         # chap-core health and registered models
@@ -73,6 +71,13 @@ varde ui                             # browse the marketplace, toggle models
 varde up                             # apply what the browser changed
 varde update                         # move the pins to what upstream publishes now
 varde restart                        # apply them to the services that are running
+```
+
+Other shapes:
+
+```sh
+varde init mychap --with ocs         # Chap with Open Climate Service beside it
+varde init climate --only ocs,s3     # OCS alone, with no Chap
 ```
 
 After `init`, `varde` is two things at once: a thin wrapper around
@@ -86,7 +91,8 @@ ends with a line saying what it did or found. Empty output is a bug.
 
 - **`varde up`** starts what is on disk. It renders the compose files from
   `.varde/`, checks the host ports, and runs `docker compose up -d`. It never
-  changes which version of anything you run.
+  moves a pin. Only `varde up --pull` downloads a newer build, and only for an
+  image on a moving tag such as the `main` tag of OCS.
 - **`varde update`** fetches newer versions. It asks the marketplace and the
   chap-core release feed what they publish today, moves the pins that follow a
   channel or a release, and pulls the images. It never touches a container: it
@@ -97,8 +103,9 @@ ends with a line saying what it did or found. Empty output is a bug.
 
 Everything else follows from that split. `varde up`, `varde restart`,
 `varde models expose` and `varde models unexpose` are safe on a deployment
-running a build you do not want moved; `varde update` and `varde models enable`
-are the only commands that move a version.
+running a build you do not want moved. `varde update`, `varde models enable`,
+`varde models add` and `varde components enable --tag` are the commands that
+move a version; see [What moves a pin](./updating.md#what-moves-a-pin).
 
 ## The pure server promise
 
@@ -117,12 +124,16 @@ docker compose -f compose.yml -f compose.varde.yml -f compose.marketplace.yml up
 works on a machine that has never had `varde` installed. That is the point of
 generating them rather than keeping the deployment inside the tool.
 
+That is the list for chap-core and models. A component adds its own file
+before `compose.marketplace.yml`, for example `-f compose.ocs.yml`. A
+deployment without chap-core has no `compose.yml` or `compose.varde.yml`.
+
 ## Where to go next
 
 - [Install](./install.md) puts the binary on the machine.
 - [Quickstart](./quickstart.md) walks a first deployment end to end.
 - [Your first forecast in the Modeling App](./modeling-app.md) uses one.
-- [Concepts](./concepts.md) explains the project directory, intent versus
+- [Concepts](./concepts.md) explains the deployment directory, intent versus
   artifacts, and the pins.
 - [Commands](./commands.md) is the tour; [Command reference](./reference.md) is
   the generated, complete list.

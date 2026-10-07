@@ -214,13 +214,14 @@ docker ps --filter label=com.winterop.varde.role
 ```
 
 lists every varde container, of every deployment and every `varde run` group,
-and `varde top` finds its containers the same way.
+and `varde top` finds its containers the same way. The one-shot container of
+`varde chap` has no role label; `label=com.winterop.varde.kind` finds it too.
 
 | Label | Value | On |
 | --- | --- | --- |
-| `com.winterop.varde.role` | `chap-core`, `model`, `ocs`, `s3` or `dhis2` | Every container. `chap-core` covers chap, the worker, Valkey and PostgreSQL; `dhis2` covers its database and one-shots; `s3` its bucket one-shot. |
+| `com.winterop.varde.role` | `chap-core`, `model`, `ocs`, `s3` or `dhis2` | Every container except the one of `varde chap`. `chap-core` covers chap, the worker, Valkey and PostgreSQL; `dhis2` covers its database and one-shots; `s3` its bucket one-shot. |
 | `com.winterop.varde.model` | The marketplace id, such as `chapkit_ewars_model` | A model service and its `-init` container. |
-| `com.winterop.varde.kind` | `run` for a [`varde run` group](./run.md#where-it-runs-groups), `init` for a deployment `varde init` wrote | Every container. |
+| `com.winterop.varde.kind` | `run` for a [`varde run` group](./run.md#where-it-runs-groups), `init` for a deployment `varde init` wrote, `cli` for the one-shot container of `varde chap` | Every container. |
 | `com.winterop.varde.group` | The group name | Every container of a `varde run` group, and nothing else. |
 
 The model and component files carry the labels themselves. chap-core's
@@ -364,16 +365,27 @@ only the commands that can work there:
 
 ```text
 Commands:
-  init      Create a deployment directory: compose files, .env and .varde/
-  models    Browse and manage marketplace models
-  registry  Inspect and refresh the marketplace registry
-  help      Print this message or the help of the given subcommand(s)
+  init         Create a deployment directory: compose files, .env and .varde/
+  run          Start one model and print where it answers
+  ps           List the models that run, and where each one answers
+  stop         Stop a model and take its overlay away; its data stays
+  top          Watch every varde deployment on this machine as a live tree
+  models       Browse and manage marketplace models
+  registry     Inspect and refresh the marketplace registry
+  update       Move the pins to what upstream publishes now, and pull
+  api          Send one authenticated request to chap-core's API
+  chap         Run the chap CLI in a container, with no Python or uv installed
+  doctor       Run a checklist over this machine and this deployment
+  cleanup      Delete what deployments whose directory is gone left in docker
+  self         Update varde itself, and report what this build is
+  completions  Print a shell completion script for varde
+  help         Print this message or the help of the given subcommand(s)
 ```
 
 Inside one, the deployment commands are listed too: up, down, logs, restart,
-status, sync, update, ui, components, docker, backup, auth. The hiding runs
-both ways, so `init` drops out of that listing: the deployment it would create
-is already here. It still runs there - `varde init --force` is how the API
+status, sync, ui, components, docker, backup, auth, jobs, open and dhis2. The
+hiding runs both ways, so `init` drops out of that listing: the deployment it
+would create is already here. It still runs there - `varde init --force` is how the API
 port or the components of a deployment are rewritten, see
 [How the API port is set](./ports.md#how-the-api-port-is-set), and
 `varde init sub` creates a second deployment in a subdirectory of the first.
@@ -383,8 +395,8 @@ project. A group command typed on its own says the same thing rather than
 listing subcommands that cannot run either, so `varde components` outside a
 deployment is the missing-project error, not the components help. `varde
 models` is split the same way: `list`, `search` and `info` browse the
-marketplace and work anywhere, while `enable`, `disable`, `expose` and
-`unexpose` change a project's model set and are hidden outside one. The
+marketplace and work anywhere, while `add`, `remove`, `enable`, `disable`,
+`expose`, `unexpose` and `test` need a deployment and are hidden outside one. The
 [command reference](./reference.md) lists all of them, because it is rendered
 from the static command tree rather than from where you happen to be.
 
@@ -401,7 +413,7 @@ The wrappers then always run
 docker compose -f <dir>/compose.yml -f <dir>/compose.varde.yml -f <dir>/compose.marketplace.yml ...
 ```
 
-with one `-f` per enabled component inserted before the umbrella.
-
-from the project directory, so they behave the same whatever your shell's
+with one `-f` per enabled component before the umbrella (and without
+`compose.yml` and `compose.varde.yml` when chap-core is not a component), from
+the project directory, so they behave the same whatever your shell's
 working directory is, and they exit with Compose's own exit code.

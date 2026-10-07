@@ -26,10 +26,10 @@ continues. The wait must grow with the size of the dump.
 
 ### Levels for the output of every command
 
-`varde models` and `varde update` print their lines with a level (info,
-warning, hint), as [Status and output](./status.md#levels) describes. The
-other commands still print text with no level. They change to the levels one
-group at a time.
+Most commands print their closing lines with a level (info, warning, hint),
+as [Status and output](./status.md#levels) describes. `varde api` and
+`varde chap` still print their closing lines on stderr with no level. They
+change to the levels next.
 
 ### Registry options only where they apply
 
