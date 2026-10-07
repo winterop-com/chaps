@@ -7,6 +7,7 @@ use crate::cli::ModelStopArgs;
 use crate::commands::Ctx;
 use crate::commands::enable::enabled_id;
 use crate::error::{ChapError, Result};
+use crate::output::Report;
 use crate::project::Project;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -120,54 +121,57 @@ pub fn stop(ctx: &Ctx, args: &ModelStopArgs) -> Result<()> {
         removed,
         removed_volumes,
     };
-    ctx.out.emit_ok(&report, || {
-        let mut text = String::new();
-        let removed: String = report
-            .removed
-            .iter()
-            .map(|group| format!("{} group {group}\n", ctx.out.warn("removed")))
-            .chain(
-                report
-                    .removed_volumes
-                    .iter()
-                    .map(|volume| format!("{} volume {volume}\n", ctx.out.warn("removed"))),
-            )
-            .collect();
-        if report.stopped.is_empty() {
-            text.push_str(&removed);
-            text.push_str(
-                &ctx.out
-                    .backticks("nothing was running to stop; `varde ps` lists what is"),
-            );
-            return text;
-        }
-        for model in &report.stopped {
-            let place = match model.group.as_deref() {
-                Some(group) if group != DEFAULT_GROUP => format!(" (group {group})"),
-                _ => String::new(),
-            };
-            text.push_str(&format!(
-                "{} {}{place}\n",
-                ctx.out.warn("stopped"),
-                model.id
-            ));
-            for note in &model.notes {
-                text.push_str(&format!("{}\n", ctx.out.backticks(note)));
-            }
-        }
-        text.push_str(&removed);
-        let again = match report.stopped.as_slice() {
-            [one] => match one.group.as_deref() {
-                Some(g) if g != DEFAULT_GROUP => {
-                    format!("`varde run {} --group {g}` starts it again", one.id)
-                }
-                _ => format!("`varde run {}` starts it again", one.id),
-            },
-            _ => "`varde run <model>` starts one again".to_string(),
+    ctx.out.report_ok(&report, |lines| say(&report, lines))
+}
+
+/// The closing lines of `varde stop`.
+fn say(report: &StopReport, lines: &mut Report) {
+    if report.stopped.is_empty() {
+        lines.info("nothing was running to stop");
+    }
+    for model in &report.stopped {
+        let place = match model.group.as_deref() {
+            Some(group) if group != DEFAULT_GROUP => format!(" (group {group})"),
+            _ => String::new(),
         };
-        text.push_str(&ctx.out.backticks(&again));
-        text
-    })
+        lines.info(format!("stopped {}{place}", model.id));
+        for note in &model.notes {
+            say_note(&model.report, note, lines);
+        }
+    }
+    for group in &report.removed {
+        lines.info(format!("removed group {group}"));
+    }
+    for volume in &report.removed_volumes {
+        lines.hint(format!("removed volume {volume}"));
+    }
+    match report.stopped.as_slice() {
+        [] => lines.hint("`varde ps` lists what runs"),
+        [one] => lines.hint(match one.group.as_deref() {
+            Some(g) if g != DEFAULT_GROUP => {
+                format!("`varde run {} --group {g}` starts it again", one.id)
+            }
+            _ => format!("`varde run {}` starts it again", one.id),
+        }),
+        _ => lines.hint("`varde run <model>` starts one again"),
+    };
+}
+
+/// One note of a stopped model, at its level: a volume that went is info,
+/// what was kept is background, and what did not work needs attention.
+fn say_note(report: &crate::commands::enable::DisableReport, note: &str, lines: &mut Report) {
+    let removed = report
+        .purged
+        .iter()
+        .any(|volume| note == format!("removed volume {volume}"));
+    let fine = note.starts_with("stopped and removed ")
+        || note.starts_with("kept volume ")
+        || (note.starts_with("volume ") && note.ends_with(" not found"));
+    match (removed, fine) {
+        (true, _) => lines.info(note),
+        (false, true) => lines.hint(note),
+        (false, false) => lines.warning(note),
+    };
 }
 
 /// Stop one enabled model of the deployment in `dir`, printing nothing: what
@@ -187,3 +191,6 @@ pub(crate) fn stop_in(
     let registry = crate::commands::registry_for(ctx, Some(&project))?;
     crate::commands::enable::disable_enabled(&mut project, &registry, &id, purge, false)
 }
+
+#[cfg(test)]
+mod tests;

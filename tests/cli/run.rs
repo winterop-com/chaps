@@ -27,6 +27,11 @@ fn run_outside_a_deployment_starts_the_model_in_a_group_on_loopback() {
     assert_eq!(doc["bind"], "127.0.0.1");
     let port = doc["port"].as_u64().expect("a host port");
     assert_eq!(doc["url"], format!("http://localhost:{port}"));
+    assert_eq!(doc["messages"][0]["level"], "info", "{doc}");
+    assert_eq!(
+        doc["messages"][0]["text"],
+        format!("started chapkit_ewars_model on http://localhost:{port}")
+    );
 
     let dir = data(&sandbox).join("run").join("default");
     assert_eq!(PathBuf::from(doc["project_dir"].as_str().unwrap()), dir);
@@ -97,11 +102,16 @@ fn groups_keep_models_apart_and_ps_and_stop_find_them() {
     let stopped = run_json(&sandbox, cwd, &bin, &["stop", "auto_arima_chapkit"]);
     assert_eq!(stopped["ok"], true);
     assert_eq!(stopped["stopped"][0]["group"], "trial");
+    assert_eq!(
+        stopped["messages"][0]["text"], "stopped auto_arima_chapkit (group trial)",
+        "{stopped}"
+    );
 
     let stopped = run_json(&sandbox, cwd, &bin, &["stop", "--all"]);
     assert_eq!(stopped["stopped"][0]["id"], "chapkit_ewars_model");
     let ps = run_json(&sandbox, cwd, &bin, &["ps"]);
     assert!(ps["models"].as_array().unwrap().is_empty(), "{ps}");
+    assert_eq!(ps["messages"][0]["level"], "info", "{ps}");
 }
 
 #[test]
@@ -349,6 +359,7 @@ fn a_run_into_a_group_names_its_log_with_the_group_dir() {
         cwd,
         &bin,
         &[
+            "-v",
             "run",
             "chapkit_ewars_model",
             "--group",
@@ -489,17 +500,17 @@ fn without_attach_run_returns_and_leaves_the_model_running() {
     let (_temp, bin) = docker_running_services(&["chapkit-ewars-model"]);
 
     // Without -a there is no foreground, as with `varde up`: the command
-    // returns, and its last line names the stop.
+    // returns, and under -v a hint names the stop.
     chap_with_docker(
         &sandbox,
         sandbox.home.path(),
         &bin,
-        &["run", "chapkit_ewars_model", "--no-wait"],
+        &["-v", "run", "chapkit_ewars_model", "--no-wait"],
     )
     .assert()
     .success()
     .stdout(predicates::str::contains(
-        "stop it with `varde stop chapkit_ewars_model`",
+        "hint: `varde stop chapkit_ewars_model` stops it",
     ))
     .stderr(predicates::str::contains("following the log").not());
 }

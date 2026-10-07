@@ -15,9 +15,9 @@ use crate::components::Component;
 use crate::docker;
 use crate::error::Result;
 use crate::open::{NO_WEB_INTERFACE, Openable, internal_reason, off_reason, resolve};
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::Project;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 /// Whether the component's container is running, as far as docker would say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -59,7 +59,37 @@ pub struct OpenReport {
     /// `null` when the container is not running or docker could not say.
     pub answering: Option<bool>,
     /// Everything worth saying that is not a failure.
-    pub notes: Vec<String>,
+    pub notes: Vec<Note>,
+}
+
+/// How much one note of [`OpenReport`] matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Weight {
+    /// A step the reader must do to use the page.
+    Info,
+    /// Background.
+    Hint,
+    /// The page may not load.
+    Warning,
+}
+
+/// One note of [`OpenReport`]. Under `--json` it is the text alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub weight: Weight,
+    pub text: String,
+}
+
+impl Note {
+    fn new(weight: Weight, text: String) -> Note {
+        Note { weight, text }
+    }
+}
+
+impl Serialize for Note {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text)
+    }
 }
 
 /// One row of the listing a bare `varde open` prints.
@@ -118,9 +148,9 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
         false => running(&project, component),
     };
     let mut notes = Vec::new();
-    notes.extend(proxy_note(proxied && !external, component));
-    notes.extend(running_note(running, component));
-    notes.extend(auth_note(&project, component));
+    notes.extend(proxy_note(proxied && !external, component).map(|n| Note::new(Weight::Hint, n)));
+    notes.extend(running_note(running, component).map(|n| Note::new(Weight::Warning, n)));
+    notes.extend(auth_note(&project, component).map(|n| Note::new(Weight::Info, n)));
 
     // One request, to the address being opened: the container being up is not
     // the page loading, and any HTTP status - a 401 from a protected `/docs`
@@ -139,7 +169,7 @@ pub fn run(ctx: &Ctx, args: &OpenArgs) -> Result<()> {
         running,
         notes,
     };
-    ctx.out.emit(&report, || human(&report, &ctx.out))
+    ctx.out.report(&report, |lines| say(&report, lines))
 }
 
 /// Where one model's API documentation is, as this machine reaches it.
@@ -179,10 +209,13 @@ fn open_model(
     };
     let mut notes = Vec::new();
     if running == Running::No {
-        notes.push(format!(
-            "no {} container is running, so the page will not load yet; run `varde up` to start \
-             this deployment",
-            model.service_id
+        notes.push(Note::new(
+            Weight::Warning,
+            format!(
+                "no {} container is running, so the page will not load yet; run `varde up` to \
+                 start this deployment",
+                model.service_id
+            ),
         ));
     }
     let answering = (running == Running::Yes)
@@ -198,7 +231,7 @@ fn open_model(
         running,
         notes,
     };
-    ctx.out.emit(&report, || human(&report, &ctx.out))
+    ctx.out.report(&report, |lines| say(&report, lines))
 }
 
 /// Whether the address is only printed, never handed to a browser: asked for
@@ -307,66 +340,60 @@ fn list(ctx: &Ctx, project: &Project) -> Result<()> {
         })
         .collect();
     let report = OpenListReport { components };
-    ctx.out.emit(&report, || human_list(&report, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", human_list(&report, &ctx.out));
+    }
+    ctx.out.report(&report, |lines| say_list(&report, lines))
 }
 
-fn human(report: &OpenReport, out: &Out) -> String {
-    let url = out.value(&report.url);
-    let mut text = if report.no_browser {
-        format!("{} is at {url}\n", report.page)
-    } else if report.opened {
-        format!("opening {} at {url}\n", report.page)
-    } else {
-        // No opener is the honest answer on a server, and the URL is the whole
-        // of what the reader needs, so it is not painted as a failure.
-        let (command, _) = crate::open::opener();
-        format!(
-            "{} is at {url}\n{}\n",
-            report.page,
-            out.backticks(&format!(
-                "there is no `{command}` on this machine to open it with, so the address above is \
-                 the whole of it"
-            ))
-        )
+/// The closing lines of `varde open NAME`.
+fn say(report: &OpenReport, lines: &mut Report) {
+    let url = &report.url;
+    match (report.no_browser, report.opened) {
+        (false, true) => lines.info(format!("opening {} at {url}", report.page)),
+        (true, _) => lines.info(format!("{} is at {url}", report.page)),
+        // No opener is the honest answer on a server, and the URL is the
+        // whole of what the reader needs, so it is not a warning.
+        (false, false) => {
+            let (command, _) = crate::open::opener();
+            lines
+                .info(format!("{} is at {url}", report.page))
+                .hint(format!(
+                    "there is no `{command}` on this machine to open it with, so the address above \
+                 is the whole of it"
+                ))
+        }
     };
     for note in &report.notes {
-        text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
+        match note.weight {
+            Weight::Info => lines.info(note.text.as_str()),
+            Weight::Hint => lines.hint(note.text.as_str()),
+            Weight::Warning => lines.warning(note.text.as_str()),
+        };
     }
-    match report.running {
-        Running::Yes => {
-            text.push_str(&out.backticks(&match report.answering {
-                Some(true) => format!(
-                    "{} answered at that address; `varde status` reports the rest of this \
-                     deployment",
-                    report.name
-                ),
-                _ => format!(
-                    "the {} container is running and did not answer yet; run `varde status` in \
-                     a moment to see when it does",
-                    report.name
-                ),
-            }));
-            text.push('\n');
-        }
-        Running::External => {
-            text.push_str(&out.backticks(match report.answering {
-                Some(true) => {
-                    "the external DHIS2 recorded by `varde dhis2 use` answered at that address; \
-                     `varde dhis2 show` says whether Chap is connected to it"
-                }
-                _ => {
-                    "the external DHIS2 recorded by `varde dhis2 use` did not answer at that \
-                     address; check that it is up, or record its URL again with `varde dhis2 use \
-                     URL`"
-                }
-            }));
-            text.push('\n');
-        }
-        Running::No | Running::Unknown => {}
-    }
-    text
+    match (report.running, report.answering) {
+        (Running::Yes, Some(true)) => lines.hint(format!(
+            "{} answered at that address; `varde status` reports the rest of this deployment",
+            report.name
+        )),
+        (Running::Yes, _) => lines.warning(format!(
+            "the {} container is running and did not answer yet; run `varde status` in a moment \
+             to see when it does",
+            report.name
+        )),
+        (Running::External, Some(true)) => lines.hint(
+            "the external DHIS2 recorded by `varde dhis2 use` answered at that address; \
+             `varde dhis2 show` says whether Chap is connected to it",
+        ),
+        (Running::External, _) => lines.warning(
+            "the external DHIS2 recorded by `varde dhis2 use` did not answer at that address; \
+             make sure that it is up, or record its URL again with `varde dhis2 use URL`",
+        ),
+        (Running::No | Running::Unknown, _) => lines,
+    };
 }
 
+/// The table of a bare `varde open`, which the closing lines follow.
 fn human_list(report: &OpenListReport, out: &Out) -> String {
     let rows: Vec<Vec<String>> = report
         .components
@@ -384,24 +411,26 @@ fn human_list(report: &OpenListReport, out: &Out) -> String {
         .collect();
     let mut text = out.table(&["COMPONENT", "OPENS", "WHAT IT IS"], &rows);
     text.push('\n');
+    text
+}
+
+/// The closing lines of a bare `varde open`.
+fn say_list(report: &OpenListReport, lines: &mut Report) {
     let openable = report
         .components
         .iter()
         .filter(|row| row.url.is_some())
         .count();
-    text.push_str(
-        &out.backticks(&match openable {
-            0 => "nothing in this deployment has a web interface on this machine; \
-              `varde components list` says what it is made of"
-                .to_string(),
-            _ => format!(
-                "{openable} of them can be opened: run `varde open NAME`, or `varde status` to see \
-             what is running first"
-            ),
-        }),
-    );
-    text.push('\n');
-    text
+    match openable {
+        0 => lines
+            .info("nothing in this deployment has a web interface on this machine")
+            .hint("`varde components list` says what it is made of"),
+        _ => lines
+            .info(format!(
+                "{openable} of them can be opened: run `varde open NAME`"
+            ))
+            .hint("`varde status` shows what is running"),
+    };
 }
 
 #[cfg(test)]

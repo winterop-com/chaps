@@ -28,7 +28,7 @@ use crate::commands::enable::{ModelRef, enabled_id};
 use crate::compose::sync::sync;
 use crate::docker;
 use crate::error::{ChapError, Result};
-use crate::output::Out;
+use crate::output::Report;
 use crate::project::Project;
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr};
@@ -132,6 +132,9 @@ struct RunReport {
     /// Whether that chap-core listed the model after the start.
     #[serde(skip_serializing_if = "Option::is_none")]
     registered: Option<bool>,
+    /// What the sync before the start warned about.
+    #[serde(skip)]
+    warnings: Vec<String>,
 }
 
 /// Enable the model if it is not, start its container, and wait for it;
@@ -143,7 +146,7 @@ pub fn run(ctx: &Ctx, args: &ModelRunArgs) -> Result<()> {
     crate::interrupt::install();
     let report = start(ctx, args)?;
     ctx.out
-        .emit_ok(&report, || run_summary(&report, &ctx.out, attached))?;
+        .report_ok(&report, |lines| say(&report, attached, lines))?;
     match attached {
         true => foreground::follow(ctx, &report, args.rm),
         false => Ok(()),
@@ -171,6 +174,9 @@ pub(crate) fn start_quietly(ctx: &Ctx, args: &ModelRunArgs) -> Result<Started> {
         ..ctx.clone()
     };
     let report = start(&quiet, args)?;
+    for warning in &report.warnings {
+        crate::output::warn(warning);
+    }
     Ok(Started {
         id: report.model.id.clone(),
         enabled: report.enabled,
@@ -222,9 +228,6 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
     // before compose reads them.
     let registry = super::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
-    for warning in &synced.warnings {
-        crate::output::warn(warning);
-    }
     drop(lock);
 
     let model = project.state.models[&id].clone();
@@ -319,6 +322,7 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
         was_running,
         chap_core,
         registered,
+        warnings: synced.warnings,
     };
     if let Some(wait) = &report.wait
         && !wait.ready
@@ -448,61 +452,50 @@ fn enable_source(
     })
 }
 
-/// The human rendering of a run.
-fn run_summary(report: &RunReport, out: &Out, attached: bool) -> String {
-    let url = report
-        .model
-        .url
-        .clone()
-        .unwrap_or_else(|| "internal".to_string());
-    let mut text = match &report.wait {
-        Some(wait) => format!(
-            "{} {} on {} (answered in {}s)\n",
-            out.ok("running"),
-            report.model.id,
-            out.value(&url),
-            wait.waited_s
-        ),
-        None => format!(
-            "{} {} on {} (not waited for; `varde ps` says when it answers)\n",
-            out.ok("started"),
-            report.model.id,
-            out.value(&url)
-        ),
+/// The closing lines of a run. Under `-a` the log follows, and Ctrl-C is
+/// the way to stop the model, so no command for that is named.
+fn say(report: &RunReport, attached: bool, lines: &mut Report) {
+    let url = report.model.url.as_deref().unwrap_or("internal");
+    let place = match report.group.as_deref() {
+        Some(group) if group != DEFAULT_GROUP => format!(" in group {group}"),
+        _ => String::new(),
     };
-    if let Some(group) = report.group.as_deref().filter(|g| *g != DEFAULT_GROUP) {
-        text.push_str(&format!("{}\n", out.dim(&format!("in group {group}"))));
+    match &report.wait {
+        Some(wait) => lines.info(format!(
+            "running {}{place} on {url} (answered in {}s)",
+            report.model.id, wait.waited_s
+        )),
+        None => lines
+            .info(format!("started {}{place} on {url}", report.model.id))
+            .hint("`varde ps` shows when it answers"),
+    };
+    for warning in &report.warnings {
+        lines.warning(warning.as_str());
     }
     match (&report.chap_core, report.registered) {
         (Some(url), Some(true)) => {
-            text.push_str(&format!(
-                "{} with {}\n",
-                out.ok("registered"),
-                out.value(url)
-            ));
+            lines.info(format!("registered with {url}"));
         }
-        (Some(url), Some(false)) => text.push_str(&format!(
-            "{}\n",
-            out.warn(&format!(
+        (Some(url), Some(false)) => {
+            lines.warning(format!(
                 "not registered with {url}; {}",
                 logs_hint(&report.project_dir, &report.model.service_id)
-            ))
-        )),
+            ));
+        }
         _ => {}
     }
     if attached {
-        return text;
+        return;
     }
-    text.push_str(&out.backticks(&format!(
-        "stop it with `varde stop {}{}`; {}",
+    lines.hint(format!(
+        "`varde stop {}{}` stops it",
         report.model.id,
         match report.group.as_deref() {
             Some(g) if g != DEFAULT_GROUP => format!(" --group {g}"),
             _ => String::new(),
-        },
-        logs_hint(&report.project_dir, &report.model.service_id)
-    )));
-    text
+        }
+    ));
+    lines.hint(logs_hint(&report.project_dir, &report.model.service_id));
 }
 
 /// The `logs` command for a service, with `-C` when the deployment is not

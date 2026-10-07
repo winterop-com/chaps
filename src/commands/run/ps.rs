@@ -6,7 +6,7 @@ use crate::commands::Ctx;
 use crate::commands::enable::ModelRef;
 use crate::docker;
 use crate::error::Result;
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::Project;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -28,7 +28,7 @@ pub struct PsRow {
 /// What `varde ps` found, for `--json`.
 #[derive(Debug, Serialize)]
 pub(super) struct PsReport {
-    models: Vec<PsRow>,
+    pub(super) models: Vec<PsRow>,
 }
 
 /// The deployments `ps`, `stop` and `top` look at: the one the caller is
@@ -94,21 +94,16 @@ pub fn ps(ctx: &Ctx, args: &ModelPsArgs) -> Result<()> {
     let report = PsReport {
         models: rows(&scope)?,
     };
-    ctx.out
-        .emit(&report, || ps_table(&report, &scope, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", ps_table(&report, &ctx.out));
+    }
+    ctx.out.report(&report, |lines| say(&report, &scope, lines))
 }
 
-/// The human rendering of `varde ps`.
-pub(super) fn ps_table(
-    report: &PsReport,
-    scope: &[(Option<String>, PathBuf)],
-    out: &Out,
-) -> String {
+/// The table of `varde ps`; empty when there is no model to list.
+pub(super) fn ps_table(report: &PsReport, out: &Out) -> String {
     if report.models.is_empty() {
-        return out.backticks(match scope.is_empty() {
-            true => "nothing has been started with `varde run` yet; `varde run <model>` starts one",
-            false => "no models are enabled here; `varde run <model>` starts one",
-        });
+        return String::new();
     }
     let grouped = report.models.iter().any(|row| row.group.is_some());
     let mut headers = vec!["ID", "SERVICE", "STATE", "URL"];
@@ -134,9 +129,20 @@ pub(super) fn ps_table(
             cells
         })
         .collect();
-    let mut text = out.table(&headers, &rows);
-    if grouped {
-        text.push_str(&out.dim(&format!("groups live in {}", groups_dir().display())));
+    out.table(&headers, &rows)
+}
+
+/// The lines after the table of `varde ps`, or in place of it.
+pub(super) fn say(report: &PsReport, scope: &[(Option<String>, PathBuf)], lines: &mut Report) {
+    if report.models.is_empty() {
+        match scope.is_empty() {
+            true => lines.info("nothing has been started with `varde run` yet"),
+            false => lines.info("no models are enabled here"),
+        };
+        lines.hint("`varde run <model>` starts one");
+        return;
     }
-    text
+    if report.models.iter().any(|row| row.group.is_some()) {
+        lines.hint(format!("groups live in {}", groups_dir().display()));
+    }
 }

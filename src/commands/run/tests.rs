@@ -63,3 +63,111 @@ fn a_path_is_quoted_for_the_shell_only_when_it_needs_it() {
     assert_eq!(shell_quote("/tmp/it's"), r"'/tmp/it'\''s'");
     assert_eq!(shell_quote("/tmp/$HOME"), "'/tmp/$HOME'");
 }
+
+fn run_report(group: Option<&str>, waited: Option<u64>) -> RunReport {
+    RunReport {
+        model: ModelRef {
+            id: "chapkit_ewars_model".to_string(),
+            service_id: "chapkit-ewars-model".to_string(),
+            port: Some(5001),
+            bind: None,
+            url: Some("http://localhost:5001".to_string()),
+        },
+        group: group.map(str::to_string),
+        project_dir: PathBuf::from("/data/run/g"),
+        enabled: true,
+        wait: waited.map(|waited_s| Readiness {
+            ready: true,
+            waited_s,
+            api_url: None,
+            api_up: true,
+            models: Vec::new(),
+        }),
+        was_running: false,
+        chap_core: None,
+        registered: None,
+        warnings: Vec::new(),
+    }
+}
+
+fn said(report: &RunReport, attached: bool) -> String {
+    let mut lines = Report::default();
+    say(report, attached, &mut lines);
+    lines.text()
+}
+
+/// A run that answered is one line; how to stop it and its log are hints.
+#[test]
+fn a_run_is_one_line_and_the_next_commands_are_hints() {
+    let text = said(&run_report(Some(DEFAULT_GROUP), Some(41)), false);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[0],
+        "running chapkit_ewars_model on http://localhost:5001 (answered in 41s)"
+    );
+    assert_eq!(lines[1], "hint: `varde stop chapkit_ewars_model` stops it");
+    assert!(
+        lines[2].starts_with("hint: `varde -C /data/run/g logs"),
+        "{text}"
+    );
+    assert_eq!(lines.len(), 3, "{text}");
+
+    // In the foreground, Ctrl-C stops it, so nothing else is named.
+    assert_eq!(
+        said(&run_report(None, Some(2)), true),
+        "running chapkit_ewars_model on http://localhost:5001 (answered in 2s)\n"
+    );
+}
+
+/// A group other than the default is in the line, and in the stop command.
+#[test]
+fn a_run_in_a_group_names_it() {
+    let text = said(&run_report(Some("trial"), None), false);
+    assert!(
+        text.starts_with("started chapkit_ewars_model in group trial on http://localhost:5001\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("hint: `varde ps` shows when it answers"),
+        "{text}"
+    );
+    assert!(
+        text.contains("hint: `varde stop chapkit_ewars_model --group trial` stops it"),
+        "{text}"
+    );
+}
+
+/// Registration with a chap-core elsewhere is info, and its absence a
+/// warning.
+#[test]
+fn registration_is_info_and_its_absence_a_warning() {
+    let mut report = run_report(None, Some(2));
+    report.chap_core = Some("http://localhost:8000".to_string());
+    report.registered = Some(true);
+    let text = said(&report, true);
+    assert!(
+        text.ends_with("\nregistered with http://localhost:8000\n"),
+        "{text}"
+    );
+    report.registered = Some(false);
+    report.warnings = vec!["a sync warning".to_string()];
+    let text = said(&report, true);
+    assert!(text.contains("warning: a sync warning\n"), "{text}");
+    assert!(
+        text.contains("warning: not registered with http://localhost:8000; "),
+        "{text}"
+    );
+}
+
+/// An empty `varde ps` says so in one line; the next command is a hint.
+#[test]
+fn an_empty_ps_says_so() {
+    let report = ps::PsReport { models: Vec::new() };
+    let mut lines = Report::default();
+    ps::say(&report, &[], &mut lines);
+    assert_eq!(
+        lines.text(),
+        "nothing has been started with `varde run` yet\nhint: `varde run <model>` starts one\n"
+    );
+    assert_eq!(ps::ps_table(&report, &crate::output::Out::default()), "");
+}

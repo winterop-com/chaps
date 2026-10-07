@@ -14,11 +14,19 @@ varde run my-dengue-model:dev                 # built on this machine
 ```text
 starting chapkit-ewars-model (chapkit_ewars_model in /home/me/.local/share/varde/run/default)
 running chapkit_ewars_model on http://localhost:5001 (answered in 41s)
-stop it with `varde stop chapkit_ewars_model`; `varde -C /home/me/.local/share/varde/run/default logs chapkit-ewars-model` shows its log
+```
+
+With `-v`, two hints follow: the command that stops the model, and the command
+that shows its log:
+
+```text
+hint: `varde stop chapkit_ewars_model` stops it
+hint: `varde -C /home/me/.local/share/varde/run/default logs chapkit-ewars-model` shows its log
 ```
 
 The command returns once the model answers its own `/health`, so the URL works
-when the line is printed. A first run pulls the image, which takes a while for
+when the line is printed. With `--no-wait`, the line starts with `started`
+instead of `running`, and `varde ps` shows when the model answers. A first run pulls the image, which takes a while for
 the R-INLA models; `--timeout SECONDS` (300 by default) is how long it waits
 before it fails naming the state the model was in.
 
@@ -71,7 +79,7 @@ registered with http://localhost:8000
   container on this machine calls `host.docker.internal`, and a chap-core
   process calls `localhost`. `--models-host HOST` sets it.
 - After the start, varde asks chap-core whether it lists the model, and says
-  `registered with URL` or `not registered with URL`. "Up" means chap-core
+  `registered with URL`, or gives the warning `not registered with URL`. "Up" means chap-core
   answered, not only that the container started.
 - A group that had another chap-core moves to the new one. Its models that run
   now register with the old one until they restart, and varde says so.
@@ -138,8 +146,10 @@ GROUP    ID                  SERVICE             STATE        URL
 default  chapkit_ewars_model chapkit-ewars-model up           http://localhost:5001
 trial    auto_arima_chapkit  auto-arima-chapkit  up           http://localhost:5002
 trial    chapkit_ghr_model   chapkit-ghr-model   not running  http://localhost:5003
-groups live in /home/me/.local/share/varde/run
 ```
+
+With `-v`, a hint after the table names the directory that holds the groups,
+for example `hint: groups live in /home/me/.local/share/varde/run`.
 
 `--port auto` takes the lowest port in 5001-5999 that nothing on the machine
 holds and no group has given to a model, running or stopped, so two groups
@@ -171,6 +181,17 @@ has it; when two groups do, it asks for `--group`. `varde stop --all` stops
 every model in every group, and `varde stop --group NAME` every model in one.
 The data volume stays, as with `models disable`, and so does the definition of
 an added model, so `varde run ID` starts it again without asking GitHub.
+`varde stop` prints one line for each model it stopped. With `-v`, hints say
+what became of the container and the volume, and how to start the model again:
+
+```text
+$ varde -v stop chapkit_ewars_model
+stopped chapkit_ewars_model
+hint: stopped and removed the chapkit-ewars-model container; the host port it published is free again
+hint: kept volume default-1ab2c3_ck_chapkit_ewars_model_data; remove it with `varde -C /home/me/.local/share/varde/run/default models disable chapkit_ewars_model --purge` or `docker volume rm default-1ab2c3_ck_chapkit_ewars_model_data`
+hint: `varde run chapkit_ewars_model` starts it again
+```
+
 `--purge` takes the volume too, and the group it leaves with no model in it
 goes as well: its network, its directory and every volume compose made for
 it, including the volume of a model stopped earlier without `--purge`. Only
@@ -204,8 +225,9 @@ Every one of the three takes `--json` and prints one document on stdout:
 }
 ```
 
-`varde ps --json` is `{"models": [...]}` with the same fields per model plus
-`state`; `varde stop --json` lists what it `stopped`, the groups it
+Each document also has the `messages` list of every closing line with its
+level; see [Output](./status.md#output). `varde ps --json` is
+`{"models": [...]}` with the same fields per model plus `state`; `varde stop --json` lists what it `stopped`, the groups it
 `removed` and the volumes that went with them, `removed_volumes`. A failure is
 `{"ok": false, "error": ..., "hint": ...}` like every other command's, a usage error included; see
 [`--json` for scripts and tools](./commands.md#--json-for-scripts-and-tools).

@@ -129,21 +129,24 @@ fn the_listing_covers_every_component_with_its_reason() {
 /// entirely when nothing can.
 #[test]
 fn the_listing_closes_on_what_can_be_opened() {
-    let out = Out::detect(false, true);
     let row = |name: &str, url: Option<&str>| OpenRow {
         name: name.to_string(),
         url: url.map(str::to_string),
         what: String::new(),
     };
+    let text = |report: &OpenListReport| {
+        let mut lines = Report::default();
+        say_list(report, &mut lines);
+        lines.text()
+    };
     let none = OpenListReport {
         components: vec![row("ocs", None), row("s3", None)],
     };
-    let text = human_list(&none, &out);
-    assert!(
-        text.contains("nothing in this deployment has a web interface"),
-        "{text}"
+    assert_eq!(
+        text(&none),
+        "nothing in this deployment has a web interface on this machine\n\
+         hint: `varde components list` says what it is made of\n"
     );
-    assert!(text.contains("`varde components list`"), "{text}");
 
     let some = OpenListReport {
         components: vec![
@@ -151,16 +154,26 @@ fn the_listing_closes_on_what_can_be_opened() {
             row("s3", None),
         ],
     };
-    let text = human_list(&some, &out);
-    assert!(text.contains("1 of them can be opened"), "{text}");
-    assert!(text.contains("run `varde open NAME`"), "{text}");
+    assert_eq!(
+        text(&some),
+        "1 of them can be opened: run `varde open NAME`\n\
+         hint: `varde status` shows what is running\n"
+    );
+    let table = human_list(&some, &Out::detect(false, true));
+    assert!(table.starts_with("COMPONENT"), "{table}");
+}
+
+/// The closing lines of one `varde open NAME`.
+fn said(report: &OpenReport) -> String {
+    let mut lines = Report::default();
+    say(report, &mut lines);
+    lines.text()
 }
 
 /// A machine with no opener is told the address and not that something
-/// failed, and the line names the opener that is missing.
+/// failed, and the hint names the opener that is missing.
 #[test]
 fn no_opener_reports_the_address_rather_than_a_failure() {
-    let out = Out::detect(false, true);
     let report = OpenReport {
         name: "dhis2".to_string(),
         url: "http://localhost:18080".to_string(),
@@ -171,22 +184,25 @@ fn no_opener_reports_the_address_rather_than_a_failure() {
         answering: Some(true),
         notes: Vec::new(),
     };
-    let text = human(&report, &out);
-    assert!(text.contains("http://localhost:18080"), "{text}");
+    let text = said(&report);
     assert!(
-        text.contains("the address above is the whole of it"),
+        text.starts_with("the DHIS2 user interface is at http://localhost:18080\n"),
         "{text}"
     );
-    assert!(!text.to_lowercase().contains("error"), "{text}");
     let (command, _) = crate::open::opener();
-    assert!(text.contains(command), "{text}");
+    assert!(
+        text.contains(&format!(
+            "hint: there is no `{command}` on this machine to open it with"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("warning:"), "{text}");
 }
 
-/// A run that opened something says so first, then whatever is worth
-/// knowing about it, and ends on the command that says whether it answered.
+/// A run that opened something says so in one line; that it answered is a
+/// hint.
 #[test]
 fn a_successful_open_reports_the_page_then_the_container() {
-    let out = Out::detect(false, true);
     let report = OpenReport {
         name: "dhis2".to_string(),
         url: "http://localhost:18080".to_string(),
@@ -197,15 +213,11 @@ fn a_successful_open_reports_the_page_then_the_container() {
         answering: Some(true),
         notes: Vec::new(),
     };
-    let text = human(&report, &out);
-    let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
-        lines[0],
-        "opening the DHIS2 user interface at http://localhost:18080"
-    );
-    assert_eq!(
-        lines[1],
-        "dhis2 answered at that address; `varde status` reports the rest of this deployment"
+        said(&report),
+        "opening the DHIS2 user interface at http://localhost:18080\n\
+         hint: dhis2 answered at that address; `varde status` reports the rest of this \
+         deployment\n"
     );
 
     // A container that is up and not serving yet is not called answering.
@@ -213,9 +225,9 @@ fn a_successful_open_reports_the_page_then_the_container() {
         answering: Some(false),
         ..report
     };
-    let text = human(&starting, &out);
+    let text = said(&starting);
     assert!(
-        text.contains("the dhis2 container is running and did not answer yet"),
+        text.contains("warning: the dhis2 container is running and did not answer yet"),
         "{text}"
     );
     assert!(text.contains("run `varde status` in a moment"), "{text}");
@@ -225,7 +237,6 @@ fn a_successful_open_reports_the_page_then_the_container() {
 /// was asked, so its absence is not worth a line.
 #[test]
 fn no_browser_names_the_page_and_no_opener() {
-    let out = Out::detect(false, true);
     let report = OpenReport {
         name: "ocs".to_string(),
         url: "http://localhost:8790".to_string(),
@@ -236,21 +247,19 @@ fn no_browser_names_the_page_and_no_opener() {
         answering: Some(true),
         notes: Vec::new(),
     };
-    let text = human(&report, &out);
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(
-        lines[0],
-        "the OCS web interface is at http://localhost:8790"
+    let text = said(&report);
+    assert!(
+        text.starts_with("the OCS web interface is at http://localhost:8790\n"),
+        "{text}"
     );
     assert!(!text.contains("opening"), "{text}");
     assert!(!text.contains("the whole of it"), "{text}");
 }
 
 /// Nothing about the container is claimed when docker said nothing, and the
-/// note is what stands in for the closing line.
+/// warning is what stands in for the closing line.
 #[test]
 fn an_unknown_container_says_so_and_claims_nothing() {
-    let out = Out::detect(false, true);
     let report = OpenReport {
         name: "ocs".to_string(),
         url: "http://localhost:9000".to_string(),
@@ -259,12 +268,28 @@ fn an_unknown_container_says_so_and_claims_nothing() {
         no_browser: false,
         running: Running::Unknown,
         answering: None,
-        notes: vec![running_note(Running::Unknown, Component::Ocs).expect("a note")],
+        notes: vec![Note::new(
+            Weight::Warning,
+            running_note(Running::Unknown, Component::Ocs).expect("a note"),
+        )],
     };
-    let text = human(&report, &out);
-    assert!(text.contains("note: docker could not be asked"), "{text}");
+    let text = said(&report);
+    assert!(
+        text.contains("warning: docker could not be asked"),
+        "{text}"
+    );
     assert!(
         !text.contains("container is running"),
         "nothing is claimed: {text}"
+    );
+}
+
+/// Under `--json` a note is its text alone, as it was before the levels.
+#[test]
+fn a_note_serializes_as_its_text() {
+    let note = Note::new(Weight::Hint, "a note".to_string());
+    assert_eq!(
+        serde_json::to_value(&note).unwrap(),
+        serde_json::json!("a note")
     );
 }

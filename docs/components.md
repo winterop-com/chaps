@@ -284,12 +284,18 @@ varde open              # what is there to open, and at which address
 
 ```text
 opening the DHIS2 user interface at http://localhost:18080
-dhis2 answered at that address; `varde status` reports the rest of this deployment
 ```
 
-The second line is one request to that address, with a three-second limit:
-any HTTP answer counts, a 401 from a protected `/docs` included. A
-container that is up and not serving yet says `did not answer yet` instead.
+Before that line, varde sends one request to that address, with a
+three-second limit. Any HTTP answer counts, a 401 from a protected `/docs`
+included. With `-v`, a hint gives the result:
+
+```text
+hint: dhis2 answered at that address; `varde status` reports the rest of this deployment
+```
+
+A container that is up and not serving yet gives the warning `the dhis2
+container is running and did not answer yet` instead.
 
 The address is not always the component's origin, because the origin is not
 always the useful page:
@@ -306,7 +312,7 @@ deployment served under a path prefix opens `/master/docs` rather than `/docs`:
 the prefix moves every route chap-core serves. See
 [How the API port is set](./ports.md#how-the-api-port-is-set) and
 [What `.env` holds](./concepts.md#what-env-holds). A deployment with an API token
-also gets a line saying that `/docs` is behind it, and that
+also gets a line that says that `/docs` is behind it, and that
 `varde auth show --reveal` prints the token to paste into the page's Authorize
 button; see [Authentication](./auth.md).
 
@@ -320,7 +326,7 @@ ocs        -                            not a component of this deployment
 s3         -                            an S3 API; no web interface to open
 dhis2      http://localhost:18080       the DHIS2 user interface
 
-2 of them can be opened: run `varde open NAME`, or `varde status` to see what is running first
+2 of them can be opened: run `varde open NAME`
 ```
 
 ### What it refuses, and what it only warns about
@@ -341,22 +347,22 @@ that is what `varde open ocs` opens, with a line saying it is the proxy and not 
 port on this machine. See
 [Behind a reverse proxy](#behind-a-reverse-proxy).
 
-A component that is enabled but **not running** is a note rather than a refusal,
-and the page is opened anyway:
+A component that is enabled but **not running** is a warning rather than a
+refusal, and the page is opened anyway:
 
 ```text
 opening chap-core's API documentation at http://localhost:8700/docs
-note: no chap container is running, so the page will not load yet; run `varde up` to start this deployment
+warning: no chap container is running, so the page will not load yet; run `varde up` to start this deployment
 ```
 
 The container is what decides that, exactly as it does for `varde status` and
 `varde doctor`. Three things follow from asking docker rather than the port:
 
-- A component whose container is up gets the closing line above. It says
+- A component whose container is up gets the hint above. It says
   `running`, not `up`: whether it is *answering* is what `varde status` asks, one
   request per component, and this command does not spend those.
-- A component with no container gets the note above. It is a note and not a
-  refusal because the browser reloads: the tab is already at the right address
+- A component with no container gets the warning above. It is a warning and
+  not a refusal because the browser reloads: the tab is already at the right address
   when `varde up` has finished, and DHIS2 in particular takes minutes to answer
   after its container starts.
 - A machine where docker cannot be asked at all - no CLI, no daemon - gets
@@ -374,7 +380,12 @@ that something failed, and the exit code stays 0:
 
 ```text
 the DHIS2 user interface is at http://localhost:18080
-there is no `xdg-open` on this machine to open it with, so the address above is the whole of it
+```
+
+With `-v`, a hint names the opener that is missing:
+
+```text
+hint: there is no `xdg-open` on this machine to open it with, so the address above is the whole of it
 ```
 
 `--no-browser` asks for that answer on a machine that does have an opener: the
@@ -385,11 +396,11 @@ machine the command runs on helps nobody:
 ```text
 $ varde open ocs --no-browser
 the OCS web interface is at http://localhost:8790
-ocs answered at that address; `varde status` reports the rest of this deployment
 ```
 
 `varde open NAME --json` carries `url`, `page`, `opened`, `no_browser`, `running`
-and the notes, which is the shape to read from a script, and never opens a
+and the notes, and `messages` with every closing line and its level. That is
+the shape to read from a script, and it never opens a
 browser: `no_browser` is always `true` under `--json`. `varde open --json` carries
 the listing under `components`.
 
