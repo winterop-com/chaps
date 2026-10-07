@@ -672,7 +672,7 @@ fn a_claimed_port_names_the_deployment_and_the_way_out() {
     assert_eq!(
         line,
         "port 8000 is also used by hello1 (/Users/x/t/hello1), which is not running; \
-             both cannot be up at once. Keep it, or set CHAP_API_PORT=8001 in `.env`"
+             run only one of them at a time, or set CHAP_API_PORT=8001 in `.env`"
     );
     // The same ways out as the live-listener line, so the two read alike.
     assert!(busy_line(&claim, Some(8001)).ends_with("set CHAP_API_PORT=8001 in `.env`"));
@@ -700,7 +700,7 @@ fn several_deployments_are_named_three_at_a_time_and_then_counted() {
     assert!(
         line.starts_with(&format!(
             "port 9000 is also used by {}, {}, which are not running; \
-                 they cannot all be up at once.",
+                 run only one of them at a time,",
             named(0),
             named(1),
         )),
@@ -709,7 +709,7 @@ fn several_deployments_are_named_three_at_a_time_and_then_counted() {
     // A component's port moves with the command that set it, to the free
     // port found above this one.
     assert!(
-        line.ends_with("Keep it, or run `varde components enable ocs --port 9001`"),
+        line.ends_with("at a time, or run `varde components enable ocs --port 9001`"),
         "{line}"
     );
 

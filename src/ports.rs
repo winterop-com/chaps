@@ -219,7 +219,7 @@ const NAMED_HOLDERS: usize = 3;
 ///
 /// Not the same problem as a busy port: nothing is wrong today, and the
 /// collision only surfaces at the second `varde up`. So the first way out is
-/// to keep the port and live with the two deployments taking turns.
+/// to keep the port and run the deployments one at a time.
 pub fn claimed_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Option<u16>) -> String {
     let named: Vec<String> = holders
         .iter()
@@ -230,13 +230,10 @@ pub fn claimed_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Opti
     if holders.len() > named.len() {
         who.push_str(&format!(" and {} more", holders.len() - named.len()));
     }
-    let (verb, clash) = if holders.len() == 1 {
-        ("is", "both cannot be up at once")
-    } else {
-        ("are", "they cannot all be up at once")
-    };
+    let verb = if holders.len() == 1 { "is" } else { "are" };
     format!(
-        "port {port} is also used by {who}, which {verb} not running; {clash}. Keep it, or {}",
+        "port {port} is also used by {who}, which {verb} not running; run only one of them \
+         at a time, or {}",
         ways_out(claim, suggestion),
         port = claim.port,
     )

@@ -932,8 +932,8 @@ fn init_warns_when_a_deployment_beside_it_already_uses_the_port() {
         .success()
         // The suggested port is the next free one, which this machine decides.
         .stderr(predicates::str::contains(format!(
-            "port {port} is also used by a ({first}), which is not running; both cannot be up at \
-             once. Keep it, or set CHAP_API_PORT="
+            "port {port} is also used by a ({first}), which is not running; run only one of them \
+             at a time, or set CHAP_API_PORT="
         )));
 
     // Written all the same, at the port that was asked for.
