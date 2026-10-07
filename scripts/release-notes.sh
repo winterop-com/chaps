@@ -152,9 +152,15 @@ bullets_for() {
     fi
 
     # Capitalise the first letter, the way a heading-less bullet list reads
-    # best, without relying on bash 4's ${var^}.
-    first="$(printf '%s' "${rest:0:1}" | tr '[:lower:]' '[:upper:]')"
-    rest="${first}${rest:1}"
+    # best, without relying on bash 4's ${var^}. Not a name that is written in
+    # lower case: "varde chap takes ..." stays as the command is typed.
+    case "${rest%% *}" in
+      varde | vg | chap | chap-core | chapkit | docker | compose) ;;
+      *)
+        first="$(printf '%s' "${rest:0:1}" | tr '[:lower:]' '[:upper:]')"
+        rest="${first}${rest:1}"
+        ;;
+    esac
     [ -n "$scope" ] && rest="**${scope}**: ${rest}"
     out="${out}- ${rest}"$'\n'
   done <<SUBJECTS
