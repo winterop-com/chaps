@@ -135,6 +135,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         notes,
         purged,
         kept_volumes,
+        read_mode: None,
     };
     ctx.out
         .report(&report, |lines| change_summary(&report, &project, lines))

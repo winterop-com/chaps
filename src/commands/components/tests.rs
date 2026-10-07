@@ -3,6 +3,7 @@ use super::enable::*;
 use super::*;
 use crate::cli::{ComponentPortArg, ComponentsEnableArgs, OcsConfigArgs};
 use crate::components::{DHIS2_COMPOSE, OCS_DEFAULT_PORT, S3Component};
+use crate::compose::sync::KeyEdit;
 
 #[test]
 fn the_rows_cover_every_component_in_order() {
@@ -398,4 +399,88 @@ fn the_scaffold_request_follows_the_flags() {
     assert_eq!(filled.extent_name, "Malawi");
     assert_eq!(filled.country_code, "MWI");
     assert_eq!(filled.bbox, "32.6, -17.2, 35.9, -9.3");
+}
+
+/// Only an OCS that was on, with nothing but its read mode changed, gets the
+/// `varde restart ocs` closing line instead of `varde up`.
+#[test]
+fn only_a_changed_read_mode_of_a_running_ocs_is_a_restart() {
+    let mut before = Components::default();
+    before.ocs.enabled = true;
+    let mut after = before.clone();
+    after.ocs.read_only = true;
+    assert!(only_the_read_mode(&before, &after));
+    assert!(
+        only_the_read_mode(&before, &before),
+        "the file may change alone"
+    );
+
+    let mut moved = after.clone();
+    moved.ocs.port = Some(9011);
+    assert!(
+        !only_the_read_mode(&before, &moved),
+        "a new port needs `up`"
+    );
+
+    let mut off = before.clone();
+    off.ocs.enabled = false;
+    assert!(
+        !only_the_read_mode(&off, &after),
+        "a new instance needs `up`"
+    );
+
+    assert_eq!(
+        read_mode(KeyEdit::Rewritten, true),
+        ReadMode::Changed { read_only: true }
+    );
+    assert_eq!(
+        read_mode(KeyEdit::Appended, false),
+        ReadMode::Changed { read_only: false }
+    );
+    assert_eq!(
+        read_mode(KeyEdit::Unchanged, true),
+        ReadMode::Unchanged { read_only: true }
+    );
+}
+
+#[test]
+fn a_changed_read_mode_says_what_changed_and_names_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project {
+        dir: dir.path().to_path_buf(),
+        state: crate::project::ProjectState::default(),
+    };
+    let report = |mode| ChangeReport {
+        name: "ocs".to_string(),
+        enabled: true,
+        port: Some(OCS_DEFAULT_PORT),
+        base_url: None,
+        read_only: Some(true),
+        unchanged: false,
+        written: Vec::new(),
+        removed: Vec::new(),
+        notes: vec![Note::hint(
+            "set read_only: true in ocs/climate-service.yaml".to_string(),
+        )],
+        purged: Vec::new(),
+        kept_volumes: Vec::new(),
+        read_mode: Some(mode),
+    };
+    let text = |mode| {
+        let mut lines = Report::default();
+        change_summary(&report(mode), &project, &mut lines);
+        lines.text()
+    };
+    assert_eq!(
+        text(ReadMode::Changed { read_only: true }),
+        "ocs is now read-only\n\
+         hint: set read_only: true in ocs/climate-service.yaml\n\
+         run `varde restart ocs` to apply\n"
+    );
+    assert_eq!(
+        text(ReadMode::Unchanged { read_only: false }),
+        "ocs is already read-write\n\
+         hint: set read_only: true in ocs/climate-service.yaml\n\
+         hint: `varde status` shows what runs now\n"
+    );
 }

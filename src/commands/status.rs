@@ -57,6 +57,18 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         .as_deref()
         .map(docker::running_of)
         .unwrap_or_default();
+    // The read-only mark and the rest of an instance config are read from the
+    // file, which a running container read only when it started.
+    if let Some(containers) = containers.as_deref() {
+        let up: Vec<docker::Container> = containers
+            .iter()
+            .filter(|c| c.is_running())
+            .cloned()
+            .collect();
+        for service in crate::commands::docker::edited_configs(&project, &up, &[]) {
+            warnings.push(edited_config_line(&service));
+        }
+    }
     // A protected deployment needs the token for `/v2/services`; `.env` is
     // where it lives, `CHAP_API_TOKEN` the fallback every request to chap-core
     // shares (`api::token_for`), and a deployment without either reads as
@@ -208,6 +220,20 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         _ if exit_failure(&report) => std::process::exit(1),
         _ => Ok(()),
     }
+}
+
+/// The warning for a running service whose instance config changed after its
+/// container started. The service may still run on the old settings.
+fn edited_config_line(service: &str) -> String {
+    let file = crate::commands::docker::MOUNTED_CONFIGS
+        .iter()
+        .find(|(name, ..)| *name == service)
+        .map(|(_, dir, file)| format!("{dir}/{file}"))
+        .unwrap_or_else(|| "its config".to_string());
+    format!(
+        "`{file}` changed after the {service} container started, so {service} may still use \
+         the old settings; run `varde restart {service}` to apply it"
+    )
 }
 
 /// The error line for an API that is not answering, plus what its own

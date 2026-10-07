@@ -479,7 +479,7 @@ fn reject_unknown_services(project: &Project, names: &[String]) -> Result<()> {
 
 /// The config files a component reads once, at startup, from a bind mount,
 /// by the service that reads them.
-const MOUNTED_CONFIGS: [(&str, &str, &str); 2] = [
+pub const MOUNTED_CONFIGS: [(&str, &str, &str); 2] = [
     (
         crate::compose::DHIS2_SERVICE,
         crate::components::DHIS2_DIR,

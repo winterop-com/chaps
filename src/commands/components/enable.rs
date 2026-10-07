@@ -1,7 +1,7 @@
 //! `varde components enable`: turn a component on, change the settings of
 //! one that already is, or point the deployment at a chap-core elsewhere.
 
-use super::{ChangeReport, Note, NoteLevel, change_summary, label, notes_of};
+use super::{ChangeReport, Note, NoteLevel, ReadMode, change_summary, label, notes_of};
 use crate::cli::{ComponentsEnableArgs, OcsConfigArgs};
 use crate::commands::Ctx;
 use crate::components::{
@@ -10,7 +10,7 @@ use crate::components::{
     S3_WITHOUT_OCS_NOTE, dhis2_seed_note,
 };
 use crate::compose::spec::{Dhis2ConfigSpec, OcsConfigRequest};
-use crate::compose::sync::{sync, write_dhis2_config, write_ocs_config};
+use crate::compose::sync::{KeyEdit, sync, write_dhis2_config, write_ocs_config};
 use crate::error::Result;
 use crate::project::{ENV_FILE, Project};
 
@@ -75,6 +75,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     project.state.components.set_enabled(component, true);
 
     let mut notes = Vec::new();
+    let mut read_edit = None;
     notes.extend(port_warning.map(Note::warning));
     // The scaffold goes in before the sync, so the `--ocs-*` values reach the
     // file rather than the example ones sync would fall back to.
@@ -97,8 +98,11 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         }
         // And the read-only switch after it, so a component enabled and set
         // read-only in one command edits the file this run just scaffolded.
-        if let Some(note) = set_read_only(&mut project, args)? {
-            notes.push(note);
+        if let Some((edit, text)) = set_read_only(&mut project, args)? {
+            // A hint for now; the line is settled once the run knows whether
+            // the read mode is all it changed.
+            read_edit = Some((edit, text.clone(), notes.len()));
+            notes.push(Note::hint(text));
         }
     }
     // DHIS2's config is scaffolded the same way and for a harder reason: without
@@ -162,6 +166,18 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         notes.push(Note::hint(OCS_DATA_SOURCE_NOTE));
     }
 
+    let only_the_mode = component == Component::Ocs
+        && synced.written.is_empty()
+        && synced.removed.is_empty()
+        && only_the_read_mode(&before, &after);
+    // A running instance reads the file again only when it is recreated. When
+    // the read mode is all that changed, the closing line names the restart.
+    if let Some((KeyEdit::Rewritten | KeyEdit::Appended, text, at)) = &read_edit
+        && before.ocs.enabled
+        && !only_the_mode
+    {
+        notes[*at] = Note::info(format!("{text}; {READ_ONLY_APPLY}"));
+    }
     let report = ChangeReport {
         name: component.name().to_string(),
         enabled: true,
@@ -174,6 +190,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         notes,
         purged: Vec::new(),
         kept_volumes: Vec::new(),
+        read_mode: read_edit
+            .filter(|_| only_the_mode)
+            .map(|(edit, ..)| read_mode(edit, after.ocs.read_only)),
     };
     ctx.out
         .report(&report, |lines| change_summary(&report, &project, lines))
@@ -240,6 +259,7 @@ fn use_external_chap_core(
         notes,
         purged: Vec::new(),
         kept_volumes: Vec::new(),
+        read_mode: None,
     };
     ctx.out
         .report(&report, |lines| change_summary(&report, &project, lines))
@@ -394,8 +414,11 @@ pub(super) fn base_url(args: &ComponentsEnableArgs) -> Result<Option<Option<Stri
 ///
 /// The file is what OCS reads and the record is only a record of it, so the
 /// file is edited first and the record follows. `None` when neither flag was
-/// given.
-fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<Option<Note>> {
+/// given; otherwise what happened to the file, and the line that says it.
+fn set_read_only(
+    project: &mut Project,
+    args: &ComponentsEnableArgs,
+) -> Result<Option<(KeyEdit, String)>> {
     if !args.read_only && !args.read_write {
         return Ok(None);
     }
@@ -413,17 +436,28 @@ fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<O
     };
     project.state.components.ocs.read_only = wanted;
     let key = crate::components::OCS_READ_ONLY_KEY;
-    Ok(Some(match edit {
-        crate::compose::sync::KeyEdit::Unchanged => {
-            Note::hint(format!("{config} already has {key}: {wanted}"))
-        }
-        crate::compose::sync::KeyEdit::Rewritten => Note::info(format!(
-            "set {key}: {wanted} in {config}; {READ_ONLY_APPLY}"
-        )),
-        crate::compose::sync::KeyEdit::Appended => Note::info(format!(
-            "added {key}: {wanted} to {config}; {READ_ONLY_APPLY}"
-        )),
-    }))
+    let text = match edit {
+        KeyEdit::Unchanged => format!("{config} already has {key}: {wanted}"),
+        KeyEdit::Rewritten => format!("set {key}: {wanted} in {config}"),
+        KeyEdit::Appended => format!("added {key}: {wanted} to {config}"),
+    };
+    Ok(Some((edit, text)))
+}
+
+/// Whether OCS was on before the run and nothing but its read mode differs
+/// after it.
+pub(super) fn only_the_read_mode(before: &Components, after: &Components) -> bool {
+    let mut same = before.clone();
+    same.ocs.read_only = after.ocs.read_only;
+    before.ocs.enabled && same == *after
+}
+
+/// The [`ReadMode`] a run reports, from what it did to the instance config.
+pub(super) fn read_mode(edit: KeyEdit, read_only: bool) -> ReadMode {
+    match edit {
+        KeyEdit::Unchanged => ReadMode::Unchanged { read_only },
+        KeyEdit::Rewritten | KeyEdit::Appended => ReadMode::Changed { read_only },
+    }
 }
 
 /// How a change to `ocs/climate-service.yaml` reaches the running instance.

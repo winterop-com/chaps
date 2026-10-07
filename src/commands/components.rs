@@ -69,6 +69,27 @@ pub struct ChangeReport {
     /// Data volumes `disable` left in place, which is what it does without
     /// `--purge`.
     pub kept_volumes: Vec<String>,
+    /// Set when the run changed nothing but the read mode of an OCS that was
+    /// already on: then `varde restart ocs` applies it, and `varde up` does not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_mode: Option<ReadMode>,
+}
+
+/// The read mode of an OCS that was already on, when that is all a run of
+/// `components enable ocs --read-only` or `--read-write` touched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadMode {
+    /// The instance config now says this; the running instance reads it at
+    /// its next start.
+    Changed { read_only: bool },
+    /// The instance config already said this.
+    Unchanged { read_only: bool },
+}
+
+/// `read-only` or `read-write`, as the flags spell the two modes.
+fn mode_word(read_only: bool) -> &'static str {
+    if read_only { "read-only" } else { "read-write" }
 }
 
 /// List every component and whether this deployment has it.
@@ -197,6 +218,9 @@ fn notes_of(level: NoteLevel, texts: impl IntoIterator<Item = String>) -> Vec<No
 
 /// The lines of one `components enable` or `components disable`.
 fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) {
+    if let Some(mode) = report.read_mode {
+        return read_mode_summary(report, mode, lines);
+    }
     let name = &report.name;
     let headline = match (report.enabled, report.unchanged) {
         (true, false) => format!("enabled {name}"),
@@ -235,15 +259,9 @@ fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) 
         (false, _) => lines.info(headline),
     };
     if report.read_only == Some(true) {
-        lines.hint("ocs is read-only: it refuses ingestion over HTTP");
+        lines.hint("a read-only ocs refuses ingestion over HTTP");
     }
-    for note in &report.notes {
-        match note.level {
-            NoteLevel::Info => lines.info(note.text.as_str()),
-            NoteLevel::Hint => lines.hint(note.text.as_str()),
-            NoteLevel::Warning => lines.warning(note.text.as_str()),
-        };
-    }
+    note_lines(&report.notes, lines);
     for path in &report.written {
         lines.hint(format!("wrote {}", label(project, path)));
     }
@@ -255,6 +273,39 @@ fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) 
     match report.enabled || !report.written.is_empty() {
         true => lines.info("run `varde up` to apply"),
         false => lines.hint("`varde status` shows what runs now"),
+    };
+}
+
+/// Every note, at its own level.
+fn note_lines(notes: &[Note], lines: &mut Report) {
+    for note in notes {
+        match note.level {
+            NoteLevel::Info => lines.info(note.text.as_str()),
+            NoteLevel::Hint => lines.hint(note.text.as_str()),
+            NoteLevel::Warning => lines.warning(note.text.as_str()),
+        };
+    }
+}
+
+/// The lines of a run that changed only the read mode of an OCS that was on.
+///
+/// The instance config is a bind mount, which compose does not compare, so
+/// `varde up` leaves the container as it is; `varde restart ocs` recreates it
+/// (see [`crate::commands::docker::edited_configs`]).
+fn read_mode_summary(report: &ChangeReport, mode: ReadMode, lines: &mut Report) {
+    let name = &report.name;
+    match mode {
+        ReadMode::Changed { read_only } => {
+            lines.info(format!("{name} is now {}", mode_word(read_only)))
+        }
+        ReadMode::Unchanged { read_only } => {
+            lines.info(format!("{name} is already {}", mode_word(read_only)))
+        }
+    };
+    note_lines(&report.notes, lines);
+    match mode {
+        ReadMode::Changed { .. } => lines.info(format!("run `varde restart {name}` to apply")),
+        ReadMode::Unchanged { .. } => lines.hint("`varde status` shows what runs now"),
     };
 }
 

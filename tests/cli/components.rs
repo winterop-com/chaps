@@ -521,12 +521,25 @@ fn ocs_can_be_put_behind_a_proxy_and_made_read_only() {
     assert_eq!(ocs["read_only"], serde_json::json!(true));
     assert_eq!(ocs["health_url"], serde_json::Value::Null);
 
-    // --read-write puts it back, editing the one key in place.
+    // --read-write puts it back, editing the one key in place. The read mode
+    // is all that changed, so the closing line names the restart that
+    // applies it, and `varde up`, which would not, is not named.
     sandbox
         .components(&["enable", "ocs", "--read-write"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("read_only: false"));
+        .stdout(predicates::str::starts_with("ocs is now read-write\n"))
+        .stdout(predicates::str::contains(
+            "run `varde restart ocs` to apply",
+        ))
+        .stdout(predicates::str::contains("varde up").not());
+    // Again, and there is nothing to apply.
+    sandbox
+        .components(&["enable", "ocs", "--read-write"])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("ocs is already read-write\n"))
+        .stdout(predicates::str::contains("varde restart").not());
     assert_eq!(
         read(&dir.join("ocs/climate-service.yaml")),
         config.replace("read_only: true", "read_only: false")

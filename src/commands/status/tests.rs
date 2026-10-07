@@ -587,3 +587,15 @@ fn an_external_chap_core_names_the_log_and_hints_what_it_means() {
     closing(&report, false, &mut lines);
     assert!(!lines.text().contains("says why it does not register"));
 }
+
+/// The read-only mark comes from the file, so a file newer than its running
+/// container is named, with the command that applies it.
+#[test]
+fn an_instance_config_newer_than_its_container_is_named() {
+    assert_eq!(
+        edited_config_line("ocs"),
+        "`ocs/climate-service.yaml` changed after the ocs container started, so ocs may still \
+         use the old settings; run `varde restart ocs` to apply it"
+    );
+    assert!(edited_config_line("dhis2").starts_with("`dhis2/dhis.conf` changed"));
+}
