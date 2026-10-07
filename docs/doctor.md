@@ -150,10 +150,11 @@ an answer of nothing from a daemon that is down would read as "no volumes" or
 
 These only run when the command found a deployment, which it does the way git
 finds `.git`: from the current directory (or `-C DIR`) upwards. Outside one,
-`doctor` prints the machine half and a single line saying so:
+`doctor` prints the machine half. With `-v`, a hint under the summary says why
+the project checks are not there:
 
 ```text
-project: none here (run varde doctor inside a deployment directory for more)
+hint: no deployment here, so the deployment checks did not run; run `varde doctor` in a deployment directory for them
 ```
 
 | Check | What it asks | What a bad answer means |
@@ -175,8 +176,8 @@ project: none here (run varde doctor inside a deployment directory for more)
 
 ## `--json`
 
-The same checklist as one document: an array of checks and the counts they add
-up to.
+The same checklist as one document: an array of checks, the counts they add
+up to, and the closing lines in `messages`.
 
 ```sh
 varde doctor --json
@@ -200,7 +201,10 @@ varde doctor --json
       "fix": "port 8700 is already in use on this machine (needed by chap); free it, or set CHAP_API_PORT=8701 in `.env`"
     }
   ],
-  "summary": { "ok": 1, "warn": 0, "fail": 1, "skip": 0 }
+  "summary": { "ok": 1, "warn": 0, "fail": 1, "skip": 0 },
+  "messages": [
+    { "level": "info", "text": "2 checks: 1 ok, 0 warn, 1 fail" }
+  ]
 }
 ```
 

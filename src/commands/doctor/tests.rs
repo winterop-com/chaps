@@ -18,21 +18,32 @@ fn the_columns_line_up_whatever_the_names_are() {
              free up space\n\
              fail  api port    8000 is in use\n      \
              free it\n\
-             \n\
-             3 checks: 1 ok, 1 warn, 1 fail\n"
+             \n"
     );
+    let mut lines = crate::output::Report::default();
+    closing(&report, &mut lines);
+    assert_eq!(lines.text(), "3 checks: 1 ok, 1 warn, 1 fail\n");
 }
 
 #[test]
-fn without_a_project_the_rendering_says_where_the_rest_would_be() {
+fn without_a_project_a_hint_says_where_the_rest_would_be() {
     let outside = report(vec![Check::ok("varde", "varde", "v0.2.0")], None);
-    let text = render(&outside, &Out::default());
-    assert!(text.contains(NO_PROJECT), "{text}");
-    assert!(text.ends_with("1 checks: 1 ok, 0 warn, 0 fail\n"), "{text}");
+    let mut lines = crate::output::Report::default();
+    closing(&outside, &mut lines);
+    assert_eq!(
+        lines.text(),
+        format!("1 checks: 1 ok, 0 warn, 0 fail\nhint: {NO_PROJECT}\n")
+    );
 
-    // Inside one, the line is not printed at all.
+    // Inside one, the hint is not there at all.
     let inside = report(vec![Check::ok("varde", "varde", "v0.2.0")], Some("/srv/x"));
-    assert!(!render(&inside, &Out::default()).contains("none here"));
+    let mut lines = crate::output::Report::default();
+    closing(&inside, &mut lines);
+    assert!(
+        !lines.text().contains("no deployment here"),
+        "{}",
+        lines.text()
+    );
 }
 
 #[test]

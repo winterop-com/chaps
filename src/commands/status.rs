@@ -4,10 +4,8 @@ use crate::cli::StatusArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
-use crate::output::Out;
-use crate::status::{
-    ApiHealth, ModelState, ModelStatus, StatusReport, closing_line, exit_failure, hints, status,
-};
+use crate::output::{Out, Report};
+use crate::status::{ApiHealth, ModelState, ModelStatus, StatusReport, exit_failure, status};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -41,6 +39,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     // says and whether there is a deployment here to report on at all. It is
     // best-effort, as everywhere - `None` means docker could not be asked,
     // which is not the same as a project with no containers.
+    let mut warnings = Vec::new();
     let containers = match docker::all_containers_or_why(&project) {
         Ok(containers) => Some(containers),
         // A docker that is not installed is nothing to say a word about here:
@@ -49,7 +48,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         // containers and this is the only place that can say why.
         Err(why) => {
             if why.ran() {
-                crate::output::warn(&format!("could not ask docker about this project: {why}"));
+                warnings.push(format!("could not ask docker about this project: {why}"));
             }
             None
         }
@@ -158,24 +157,32 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
     let never_started = args.url.is_none()
         && !up
         && matches!(containers.as_deref(), Some(containers) if containers.is_empty());
+    let warn = |lines: &mut Report| {
+        for warning in &warnings {
+            lines.warning(warning.as_str());
+        }
+    };
     if never_started {
         // The JSON report is the same document either way; only the human
         // rendering collapses to what matters when nothing has run.
-        ctx.out.emit(&report, || not_running(&report, &ctx.out))?;
+        if !ctx.out.json {
+            print!("{}", not_running_rows(&report, &ctx.out));
+        }
+        ctx.out.report(&report, |lines| {
+            warn(lines);
+            not_running_lines(&report, lines);
+        })?;
         std::process::exit(1);
     }
 
-    ctx.out.emit(&report, || human(&report, &ctx.out))?;
-    // Only while that chap-core answers: when it does not, that is the reason
-    // nothing registered, and the error line below says so.
-    if !ctx.out.json
-        && project.state.components.chap_core_external.is_some()
-        && matches!(report.api, ApiHealth::Up { .. })
-    {
-        for hint in crate::status::external_registration_hints(&report.models) {
-            println!("  {}", ctx.out.backticks(&hint));
-        }
+    if !ctx.out.json {
+        print!("{}", rows(&report, &ctx.out));
     }
+    let external = project.state.components.chap_core_external.is_some();
+    ctx.out.report(&report, |lines| {
+        warn(lines);
+        closing(&report, external, lines);
+    })?;
 
     match &report.api {
         // The single error line for an API that is not answering as
@@ -231,50 +238,23 @@ fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
     text
 }
 
-/// Which "nothing is running" line this deployment gets.
+/// The rows a deployment with no containers at all still prints, above the
+/// lines from [`not_running_lines`].
 ///
-/// [`ApiHealth::Off`] is exactly "chap-core is not a component of this
-/// deployment", so the report already carries the answer and the choice needs
-/// no project: a deployment that has no Chap in it is never told that Chap is
-/// not running.
-fn nothing_running_line(report: &StatusReport) -> &'static str {
-    match report.api {
-        ApiHealth::Off if report.components.is_empty() && report.models.is_empty() => {
-            crate::status::EMPTY
-        }
-        ApiHealth::Off => crate::status::NOTHING_RUNNING,
-        _ => NOT_RUNNING,
-    }
-}
-
-/// What a deployment with no containers at all is told.
-///
-/// The box is the whole answer when the deployment is chap-core and nothing
-/// else: a table whose every row says "not running" says nothing the one line
-/// does not, and a pipe still gets the one line it has always parsed.
+/// A deployment that is chap-core and nothing else prints no rows: a table
+/// whose every row says "not running" says nothing the one line does not, and
+/// a pipe still gets the one line it has always parsed.
 ///
 /// A deployment with components has more than that to show - which components
 /// it is made of, and where each of them will answer - and those rows are
 /// recorded state rather than an answer docker had to give, so they are known
-/// whether anything is up or not. There they are printed and the verdict goes
-/// under them, in the shape a running deployment has. The model table stays
-/// out: nothing can have registered with a chap-core that has never started.
-fn not_running(report: &StatusReport, out: &Out) -> String {
-    let line = nothing_running_line(report);
-    // The port answering anyway is the one thing worth adding: it is why a
-    // browser on it shows a Chap while this says none is running.
-    let elsewhere = report
-        .api_elsewhere
-        .as_deref()
-        .map(|why| format!("\n  {}", out.backticks(why)))
-        .unwrap_or_default();
+/// whether anything is up or not. The model table stays out: nothing can have
+/// registered with a chap-core that has never started.
+fn not_running_rows(report: &StatusReport, out: &Out) -> String {
     if report.components.is_empty() {
-        return format!("{}{elsewhere}", out.backticks(line));
+        return String::new();
     }
     let mut text = service_lines(report, out);
-    text.push('\n');
-    text.push_str(&out.cmd(line));
-    text.push_str(&elsewhere);
     text.push('\n');
     text
 }
@@ -405,10 +385,9 @@ fn service_lines(report: &StatusReport, out: &Out) -> String {
     text
 }
 
-/// The human rendering: what the deployment is made of, the model table, then
-/// the one line it adds up to and a hint per model that needs something done.
-fn human(report: &StatusReport, out: &Out) -> String {
-    let up = matches!(report.api, ApiHealth::Up { .. });
+/// The human rendering of the rows: what the deployment is made of and the
+/// model table. The lines under them come from [`closing`].
+fn rows(report: &StatusReport, out: &Out) -> String {
     let mut text = service_lines(report, out);
 
     // A refused token hides the registry, so every row would be a guess.
@@ -429,77 +408,12 @@ fn human(report: &StatusReport, out: &Out) -> String {
         text.push('\n');
         text.push_str(&out.table(&["MODEL", "STATE", "REACH", "LAST PING"], &rows));
     }
-
-    // A deployment chap-core is not a component of has no API to be down and
-    // no models to register, so its components are its verdict. Without this
-    // it would be the one deployment shape `varde status` said nothing about
-    // at the end, and `closing_line` would name `varde models enable`, which
-    // is refused there.
-    if matches!(report.api, ApiHealth::Off) {
+    // The blank line above the closing lines. An API that is down or refused
+    // the token has none: the error line says why.
+    if matches!(report.api, ApiHealth::Off | ApiHealth::Up { .. }) {
         text.push('\n');
-        for line in crate::status::standalone_closing_lines(&report.models, &report.components) {
-            text.push_str(&out.cmd(&line));
-            text.push('\n');
-        }
-        return text;
-    }
-
-    // Everything the API cannot be asked about is left out while it is down:
-    // one error line beats a table's worth of consequences.
-    if !up {
-        return text;
-    }
-
-    // The REACH column says `via chap-core` for a model with no host port of
-    // its own; the way in is printed once, here, rather than in every row.
-    if report.models.iter().any(|m| m.reach == INTERNAL) {
-        text.push_str(&out.dim(&format!(
-            "\nmodels without a host port are reachable through chap-core at \
-             {}/v2/services/<id>/run/",
-            report.api_url
-        )));
-        text.push('\n');
-    }
-
-    text.push('\n');
-    // The verdict is the line someone scanning the screen should land on.
-    text.push_str(&out.cmd(&closing_line(&report.models)));
-    text.push('\n');
-    let elsewhere = report
-        .chap_core_elsewhere
-        .then_some(report.api_url.as_str());
-    for hint in hints(&report.models, report.auth, elsewhere) {
-        text.push_str(&format!("  {}\n", out.backticks(&hint)));
-    }
-    if let Some(hint) = connect_hint(report) {
-        text.push_str(&format!("  {}\n", out.backticks(&hint)));
     }
     text
-}
-
-/// The hint that this deployment's DHIS2 has still to be connected to Chap,
-/// for a run where it is worth acting on.
-///
-/// Two conditions, and the second is the one worth arguing about. The first is
-/// [`StatusReport::dhis2_needs_connecting`], which is `.varde/components.yaml`
-/// and no request at all. The second is that the `dhis2` row says `up`: telling
-/// someone to connect to a DHIS2 that is not running is advice they cannot
-/// take, and `varde status` has just asked `/api/ping` and knows the answer, so
-/// the line waits for the run where the command it names would work. A DHIS2
-/// that is `starting` is one whose API is not answering yet, which is exactly
-/// the wait `varde dhis2 connect` would sit in.
-///
-/// It sits with the model hints, under the verdict, because it is the same kind
-/// of thing: one line per row that still needs something done about it.
-fn connect_hint(report: &crate::status::StatusReport) -> Option<String> {
-    if !report.dhis2_needs_connecting {
-        return None;
-    }
-    let up = report.components.iter().any(|component| {
-        component.name == crate::compose::DHIS2_SERVICE
-            && component.state == crate::status::ComponentState::Up
-    });
-    up.then(|| crate::components::dhis2_connect_hint(true))
 }
 
 /// The STATE cell of the chap-core line.
@@ -592,5 +506,10 @@ fn dash(value: &str) -> String {
     }
 }
 
+mod closing;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use closing::nothing_running_line;
+use closing::{closing, not_running_lines};

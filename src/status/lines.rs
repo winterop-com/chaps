@@ -4,7 +4,9 @@
 use super::{ComponentState, ComponentStatus, ModelState, ModelStatus};
 
 /// The closing lines of a deployment without chap-core: the models, when it
-/// has any, then the components, when it has any. Each names what to run.
+/// has any, then the components, when it has any. A line names a command only
+/// when something is not up; the optional next commands are in
+/// [`standalone_hints`].
 pub fn standalone_closing_lines(
     models: &[ModelStatus],
     components: &[ComponentStatus],
@@ -38,14 +40,9 @@ pub fn standalone_closing_lines(
                 first.id
             )
         } else if total == 1 {
-            "1 model up, answering on its own host port; `varde models test --all` checks it \
-             can run"
-                .to_string()
+            "1 model up, answering on its own host port".to_string()
         } else {
-            format!(
-                "all {total} models up, each answering on its own host port; `varde models test \
-                 --all` checks they can run"
-            )
+            format!("all {total} models up, each answering on its own host port")
         });
     }
     if !components.is_empty() || models.is_empty() {
@@ -123,29 +120,40 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
              run `varde status` again in a moment"
         );
     }
-    // An instance with a page of its own is what a person opens next; the
-    // object store has none.
-    let openable: Vec<&str> = rows
-        .iter()
-        .map(|row| row.name.as_str())
-        .filter(|name| *name != crate::compose::S3_SERVICE)
-        .collect();
-    let opens = match openable.as_slice() {
-        [] => String::new(),
-        [one] => format!("; `varde open {one}` opens it"),
-        many => format!(
-            "; {} open them",
-            many.iter()
-                .map(|name| format!("`varde open {name}`"))
-                .collect::<Vec<_>>()
-                .join(" and ")
-        ),
-    };
     match rows {
-        [only] => format!("{} is up{opens}", only.name),
-        [_, _] => format!("both components are up{opens}"),
-        _ => format!("all {total} {noun} are up{opens}"),
+        [only] => format!("{} is up", only.name),
+        [_, _] => "both components are up".to_string(),
+        _ => format!("all {total} {noun} are up"),
     }
+}
+
+/// The optional next commands under the closing lines of a deployment without
+/// chap-core: a test when every model is up, and `varde open` when every
+/// component is up.
+pub fn standalone_hints(models: &[ModelStatus], components: &[ComponentStatus]) -> Vec<String> {
+    let mut hints = Vec::new();
+    if !models.is_empty() && models.iter().all(|m| m.state == ModelState::Up) {
+        hints.push(match models.len() {
+            1 => TEST_HINT_ONE.to_string(),
+            _ => TEST_HINT.to_string(),
+        });
+    }
+    if !components.is_empty() && components.iter().all(|c| c.state == ComponentState::Up) {
+        // An instance with a page of its own is what a person opens next; the
+        // object store has none.
+        let openable: Vec<String> = components
+            .iter()
+            .map(|row| row.name.as_str())
+            .filter(|name| *name != crate::compose::S3_SERVICE)
+            .map(|name| format!("`varde open {name}`"))
+            .collect();
+        match openable.as_slice() {
+            [] => {}
+            [one] => hints.push(format!("{one} opens it")),
+            many => hints.push(format!("{} open them", many.join(" and "))),
+        }
+    }
+    hints
 }
 
 /// What a deployment with nothing in it at all is told, by `varde status` and
@@ -204,7 +212,7 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
     }
 }
 
-/// One hint per row that needs doing something about, in table order.
+/// One line per row that needs a fix, in table order.
 ///
 /// A model whose container is up but which chap-core does not know about is
 /// not a crash to read the logs for: chapkit tries to register five times
@@ -220,7 +228,7 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
 /// deployment: chap-core rejects a registration that carries no key, and a
 /// chap-core created before `compose.varde.yml` passed the key through never
 /// had one to check against.
-/// The line under a clean status: registration is a heartbeat, and the only
+/// The hint under a clean status: registration is a heartbeat, and the only
 /// way to know a model can work is to make it work.
 pub const TEST_HINT: &str = "run `varde models test --all` to check they can run";
 
@@ -236,15 +244,19 @@ pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
         .filter(|row| row.state == ModelState::RunningNotRegistered && !row.young)
         .map(|row| {
             format!(
-                "{id}: `varde logs {id}` says why it does not register: \
-                 `registration.attempt_failed` means it cannot reach chap-core, and \
-                 `App never became ready` means it does not listen on the port varde read \
-                 off its image; enable it again with a network (`varde models enable {id}`)",
+                "{id}: `varde logs {id}` says why it does not register; then enable it again \
+                 with a network (`varde models enable {id}`)",
                 id = row.id
             )
         })
         .collect()
 }
+
+/// The background to [`external_registration_hints`]: what the two log lines
+/// mean.
+pub const EXTERNAL_REGISTRATION_LOG: &str = "in the log of a model, \
+     `registration.attempt_failed` means it cannot reach chap-core, and `App never became \
+     ready` means it does not listen on the port varde read off its image";
 
 /// `elsewhere` is the URL of a chap-core this deployment does not run, which
 /// changes what an unreachable model most likely means.
@@ -261,8 +273,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
         .iter()
         .filter(|row| row.state != ModelState::Unmanaged)
         .collect();
-    let hints: Vec<String> = mine
-        .iter()
+    mine.iter()
         .filter_map(|row| match row.state {
             ModelState::RunningNotRegistered if row.registered_as.is_some() => {
                 let actual = row.registered_as.as_deref().unwrap_or_default();
@@ -303,18 +314,24 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
             ModelState::Unreachable => Some(unreachable_hint(row, elsewhere)),
             ModelState::Registered | ModelState::Unmanaged | ModelState::Up => None,
         })
+        .collect()
+}
+
+/// The optional next command when no row needs a fix: every model answered
+/// its heartbeat, which is as far as `varde status` can see.
+pub fn test_hint(rows: &[ModelStatus]) -> Option<&'static str> {
+    let mine: Vec<&ModelStatus> = rows
+        .iter()
+        .filter(|row| row.state != ModelState::Unmanaged)
         .collect();
-    // Nothing to fix is not nothing to do: every model answered its
-    // heartbeat, which is as far as `varde status` can see.
-    if hints.is_empty() && !mine.is_empty() {
-        let hint = if mine.len() == 1 {
-            TEST_HINT_ONE
-        } else {
-            TEST_HINT
-        };
-        return vec![hint.to_string()];
+    let clean = mine
+        .iter()
+        .all(|row| matches!(row.state, ModelState::Registered | ModelState::Up));
+    match (mine.len(), clean) {
+        (0, _) | (_, false) => None,
+        (1, true) => Some(TEST_HINT_ONE),
+        (_, true) => Some(TEST_HINT),
     }
-    hints
 }
 
 /// The hint for a model chap-core has registered and cannot reach.

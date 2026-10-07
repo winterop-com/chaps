@@ -596,7 +596,7 @@ fn a_captured_run_never_checks_for_an_update() {
 fn doctor_outside_a_project_checks_the_machine_and_says_so() {
     let (_cache, mut cmd) = bare();
     let out = cmd
-        .args(["--offline", "doctor"])
+        .args(["--offline", "-v", "doctor"])
         .output()
         .expect("doctor runs");
     assert!(
@@ -619,7 +619,7 @@ fn doctor_outside_a_project_checks_the_machine_and_says_so() {
         assert!(text.contains(name), "`{name}` is missing from:\n{text}");
     }
     assert!(
-        text.contains("project: none here (run varde doctor inside a deployment directory"),
+        text.contains("hint: no deployment here, so the deployment checks did not run"),
         "{text}"
     );
     // Nothing that needs a deployment ran.

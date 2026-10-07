@@ -3,7 +3,8 @@
 ## What `varde status` reports
 
 One line for chap-core, one line per enabled component, one row per model, and
-one line saying what it adds up to:
+one line saying what it adds up to. Under that line, each row that needs a fix
+gets a line that says what to do. With `-v`, the hints are there too:
 
 ```text
 chap-core   up   http://localhost:8700   v2.3.1   auth: on
@@ -16,11 +17,10 @@ chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core       -
 auto-arima-chapkit                not running              via chap-core       -
 some-other-service                unmanaged                http://c0ffee:8000  3s ago
 
-models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
-
 2 of 3 models are not registered.
-  chapkit-rwanda-malaria-bym-model: restart it with `varde restart --all chapkit-rwanda-malaria-bym-model`
-  auto-arima-chapkit: start Chap with `varde up`, then `varde logs auto-arima-chapkit`
+chapkit-rwanda-malaria-bym-model: restart it with `varde restart --all chapkit-rwanda-malaria-bym-model`
+auto-arima-chapkit: start Chap with `varde up`, then `varde logs auto-arima-chapkit`
+hint: models without a host port are reachable through chap-core at http://localhost:8700/v2/services/<id>/run/
 ```
 
 In a deployment without chap-core nothing registers, so the STATE column says
@@ -30,11 +30,15 @@ not answer (still starting, or failed: read `varde logs <id>`), and
 `not running`. The closing line counts those instead of registrations, and the
 exit code is non-zero while any model is not `up`.
 
-There is one hint per row that needs doing something about, and - when no row
-does - a single hint pointing at the one check `status` cannot make itself. A
-model whose container started under two minutes ago is not stuck yet, so its
-hint is to run `varde status` again in a minute rather than to restart it. See
+There is one line per row that needs a fix. When no row needs one, a hint
+(shown with `-v`) names the one check `status` cannot do itself. A model whose
+container started under two minutes ago is not stuck yet, so its line says to
+run `varde status` again in a minute, not to restart it. See
 [When everything registered](#when-everything-registered) below.
+
+With a chap-core that this deployment does not run, a model that does not
+register gets one more line: `varde logs <id>` says why. A hint says what the
+two log lines that matter mean.
 
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.varde/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
@@ -97,7 +101,7 @@ nothing has recorded a `varde dhis2 connect` for this deployment:
 
 ```text
 no models enabled; run `varde models enable ID` to add one
-  varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
 Being `up` is not being connected: the Modeling App reaches chap-core through a
@@ -142,11 +146,11 @@ both `null` where the line says nothing.
 
 A deployment with `chap-core` disabled has no chap-core line at all, and
 `status` does not exit non-zero over an API that is not meant to be there. Its
-closing line counts components rather than models - `both components are up;
-`varde open ocs` opens it`,
+closing line counts components rather than models - `both components are up`,
 or `1 of 2 components is not running; start it with `varde up`` - because it
 has no models to count and the models line would name `varde models enable`,
-the one command such a deployment refuses. See
+the one command such a deployment refuses. When all components are up, a hint
+names `varde open` for each one that has a page. See
 [Standalone OCS](./components.md#standalone-ocs).
 
 Every model the project enables gets a row, registered or not, with its state
@@ -160,7 +164,7 @@ taken from the registry and `docker compose ps` together.
 | `unmanaged` | chap-core has a service registered that this project does not enable. |
 
 `via chap-core` in `REACH` means the model publishes no host port of its own;
-the way in is printed once, under the table, rather than repeated per row. A
+the way in is a hint under the table (shown with `-v`), not repeated per row. A
 model that does publish one reads `port 5001`. `--json` is unchanged: it
 carries `internal` and the full `http://localhost:5001` as it always has. See
 [Ports](./ports.md).
@@ -175,12 +179,12 @@ anyway.
 
 ### When everything registered
 
-When every model is registered there is nothing to fix and still one thing to
-do, on its own indented line under the closing line:
+When every model is registered there is nothing to fix. One thing is left to
+do, and `-v` shows it as a hint under the closing line:
 
 ```text
 all 5 models registered
-  run `varde models test --all` to check they can run
+hint: run `varde models test --all` to check they can run
 ```
 
 Registration is a heartbeat. It says the service is alive and talking to

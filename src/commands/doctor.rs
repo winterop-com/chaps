@@ -119,10 +119,9 @@ const USER_AGENT: &str = concat!("varde/", env!("CARGO_PKG_VERSION"));
 /// to the same daemon.
 const INFO_FORMAT: &str = "{{.ServerVersion}}\t{{.DockerRootDir}}\t{{.MemTotal}}";
 
-/// What `doctor` says instead of the project section when it was not run
-/// inside a deployment directory.
-pub const NO_PROJECT: &str =
-    "project: none here (run varde doctor inside a deployment directory for more)";
+/// The hint `doctor` adds when it was not run inside a deployment directory.
+pub const NO_PROJECT: &str = "no deployment here, so the deployment checks did not run; \
+     run `varde doctor` in a deployment directory for them";
 
 /// What one check concluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -303,8 +302,8 @@ pub fn summary_line(summary: &Summary) -> String {
     line
 }
 
-/// The human rendering: one line per check, an indented fix under the ones
-/// that have one, and the summary at the bottom.
+/// The human rendering of the checklist: one line per check and an indented
+/// fix under the ones that have one. The closing lines come from [`closing`].
 ///
 /// The name column is padded to the widest name so the results line up, and
 /// the padding is written outside the styled spans so a coloured word is the
@@ -335,14 +334,18 @@ pub fn render(report: &Report, out: &Out) -> String {
             text.push('\n');
         }
     }
-    if report.project.is_none() {
-        text.push_str(&out.dim(NO_PROJECT));
-        text.push('\n');
-    }
-    text.push('\n');
-    text.push_str(&out.cmd(&summary_line(&report.summary)));
+    // The blank line between the checklist and the summary under it.
     text.push('\n');
     text
+}
+
+/// The lines under the checklist: the summary, and a hint when there was no
+/// deployment to check.
+pub fn closing(report: &Report, lines: &mut crate::output::Report) {
+    lines.info(summary_line(&report.summary));
+    if report.project.is_none() {
+        lines.hint(NO_PROJECT);
+    }
 }
 
 /// Run the checklist and print it.
@@ -357,7 +360,10 @@ pub fn run(ctx: &Ctx, _args: &DoctorArgs) -> Result<()> {
         checks,
         project: project.map(|project| project.dir),
     };
-    ctx.out.emit(&report, || render(&report, &ctx.out))?;
+    if !ctx.out.json {
+        print!("{}", render(&report, &ctx.out));
+    }
+    ctx.out.report(&report, |lines| closing(&report, lines))?;
     let code = exit_code(&report.summary);
     if code != 0 {
         // Everything there was to say is on the screen already; an `error:`

@@ -14,8 +14,8 @@ mod time;
 
 pub use components::{ComponentState, ComponentStatus, ocs_datasets};
 pub use lines::{
-    EMPTY, NOTHING_RUNNING, TEST_HINT, closing_line, external_registration_hints, hints,
-    standalone_closing_lines,
+    EMPTY, EXTERNAL_REGISTRATION_LOG, NOTHING_RUNNING, TEST_HINT, closing_line,
+    external_registration_hints, hints, standalone_closing_lines, standalone_hints, test_hint,
 };
 pub use models::{
     MODEL_HEALTH_PATH, ModelState, ModelStatus, RegisteredService, enabled_models, link_strays,

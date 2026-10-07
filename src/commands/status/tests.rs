@@ -6,6 +6,21 @@ use crate::status::{
 /// A fixed "now", so the ages in these tests do not move.
 const NOW: u64 = 1_790_147_400;
 
+/// The rows and the closing lines, with the levels as [`Report::text`] shows
+/// them.
+fn human(report: &StatusReport, out: &Out) -> String {
+    let mut lines = Report::default();
+    closing(report, false, &mut lines);
+    format!("{}{}", rows(report, out), lines.text())
+}
+
+/// [`human`] for a deployment with no containers at all.
+fn not_running(report: &StatusReport, out: &Out) -> String {
+    let mut lines = Report::default();
+    not_running_lines(report, &mut lines);
+    format!("{}{}", not_running_rows(report, out), lines.text())
+}
+
 fn service(id: &str, version: &str) -> RegisteredService {
     RegisteredService {
         id: id.to_string(),
@@ -149,7 +164,7 @@ fn the_verdict_names_the_connect_a_running_dhis2_still_needs() {
         "chap-core   up   http://localhost:8000   2.3.1   auth: off\n\
              dhis2       up   http://localhost:8080\n\
              \n\
-             no models enabled; run `varde models enable ID` to add one\n  \
+             no models enabled; run `varde models enable ID` to add one\n\
              varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`\n"
     );
 
@@ -255,7 +270,7 @@ fn a_healthy_report_is_a_line_a_table_and_a_verdict() {
              chapkit-ewars-model  registered  port 5001  12s ago\n\
              \n\
              1 model registered\n\
-             \u{20}\u{20}run `varde models test --all` to check it can run\n"
+             hint: run `varde models test --all` to check it can run\n"
     );
 }
 
@@ -319,14 +334,13 @@ fn the_layout_names_every_state_once_and_hints_once_per_problem() {
              auto-arima-chapkit                not running              via chap-core                   -\n\
              some-other-service                unmanaged                http://some-other-service:8000  12s ago\n\
              \n\
-             models without a host port are reachable through chap-core at \
-             http://localhost:8000/v2/services/<id>/run/\n\
-             \n\
              2 of 3 models are not registered.\n\
-             \x20 chapkit-rwanda-malaria-bym-model: restart it with \
+             chapkit-rwanda-malaria-bym-model: restart it with \
              `varde restart --all chapkit-rwanda-malaria-bym-model`\n\
-             \x20 auto-arima-chapkit: start Chap with `varde up`, \
-             then `varde logs auto-arima-chapkit`\n"
+             auto-arima-chapkit: start Chap with `varde up`, \
+             then `varde logs auto-arima-chapkit`\n\
+             hint: models without a host port are reachable through chap-core at \
+             http://localhost:8000/v2/services/<id>/run/\n"
     );
     // The proxy URL appears once, not once per internal row, and the
     // verdict carries no `error:` line of its own.
@@ -445,7 +459,10 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
     // names Chap because there is one to name.
     let bare = up(Vec::new(), &[], &[]);
     assert_eq!(nothing_running_line(&bare), NOT_RUNNING);
-    assert_eq!(not_running(&bare, &Out::default()), NOT_RUNNING);
+    assert_eq!(
+        not_running(&bare, &Out::default()),
+        format!("{NOT_RUNNING}\n")
+    );
 }
 
 /// A deployment that has components and chap-core shows both when nothing
@@ -495,7 +512,8 @@ fn a_components_only_report_ends_on_a_verdict_about_its_components() {
         "ocs   up   http://localhost:9000\n\
              s3    up   internal\n\
              \n\
-             both components are up; `varde open ocs` opens it\n"
+             both components are up\n\
+             hint: `varde open ocs` opens it\n"
     );
     assert!(
         !text.contains("chap-core"),
@@ -536,4 +554,36 @@ fn a_row_with_nothing_in_a_cell_prints_a_dash() {
         .find(|l| l.starts_with("y "))
         .expect("the row is there");
     assert!(row.contains('-'), "empty cells become dashes: {row}");
+}
+
+/// With a chap-core elsewhere, a model that does not register gets a fix at
+/// info level and what its log lines mean as a hint.
+#[test]
+fn an_external_chap_core_names_the_log_and_hints_what_it_means() {
+    let report = up(
+        vec![],
+        &[("chapkit-ewars-model", Some(5001))],
+        &["chap", "chapkit-ewars-model"],
+    );
+    let mut lines = Report::default();
+    closing(&report, true, &mut lines);
+    let text = lines.text();
+    assert!(
+        text.contains(
+            "\nchapkit-ewars-model: `varde logs chapkit-ewars-model` says why it does not register"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(&format!(
+            "hint: {}\n",
+            crate::status::EXTERNAL_REGISTRATION_LOG
+        )),
+        "{text}"
+    );
+
+    // Its own chap-core has no such lines.
+    let mut lines = Report::default();
+    closing(&report, false, &mut lines);
+    assert!(!lines.text().contains("says why it does not register"));
 }

@@ -796,13 +796,13 @@ fn standalone_models_are_judged_by_their_own_health() {
         vec!["1 of 4 models is not running; start them with `varde up`"]
     );
     let up = standalone_closing_lines(&rows[..1], &[]);
+    assert_eq!(up, vec!["1 model up, answering on its own host port"]);
+    // The test is an optional next command, so it is a hint.
     assert_eq!(
-        up,
-        vec![
-            "1 model up, answering on its own host port; `varde models test --all` checks it can \
-             run"
-        ]
+        standalone_hints(&rows[..1], &[]),
+        vec![TEST_HINT_ONE.to_string()]
     );
+    assert!(standalone_hints(&rows, &[]).is_empty());
     let silent = standalone_closing_lines(&rows[..2], &[]);
     assert!(silent[0].contains("not answering on /health"), "{silent:?}");
     assert!(
@@ -820,19 +820,24 @@ fn the_components_verdict_counts_what_is_not_up_and_never_mentions_models() {
 
     assert_eq!(
         components_closing_line(&[component(Up), component(Up), component(Up)]),
-        "all 3 components are up; `varde open ocs` and `varde open ocs` and `varde open ocs` \
-         open them"
+        "all 3 components are up"
     );
-    // Two are both, and one is named rather than counted, with the command
-    // that opens it.
-    assert!(
-        components_closing_line(&[component(Up), component(Up)])
-            .starts_with("both components are up; ")
+    // Two are both, and one is named rather than counted.
+    assert_eq!(
+        components_closing_line(&[component(Up), component(Up)]),
+        "both components are up"
+    );
+    assert_eq!(components_closing_line(&[component(Up)]), "ocs is up");
+    // The command that opens them is a hint, and only when all are up.
+    assert_eq!(
+        standalone_hints(&[], &[component(Up), component(Up), component(Up)]),
+        vec!["`varde open ocs` and `varde open ocs` and `varde open ocs` open them"]
     );
     assert_eq!(
-        components_closing_line(&[component(Up)]),
-        "ocs is up; `varde open ocs` opens it"
+        standalone_hints(&[], &[component(Up)]),
+        vec!["`varde open ocs` opens it"]
     );
+    assert!(standalone_hints(&[], &[component(Up), component(NotRunning)]).is_empty());
 
     // Nothing running at all is the same sentence the "never started"
     // rendering uses, so the two states do not read as different answers.
@@ -890,12 +895,11 @@ fn a_model_that_never_registers_elsewhere_is_told_how_to_find_why() {
     };
     let hints = external_registration_hints(&[row]);
     assert_eq!(hints.len(), 1);
-    assert!(hints[0].contains("App never became ready"), "{hints:?}");
-    assert!(
-        hints[0].contains("registration.attempt_failed"),
-        "{hints:?}"
-    );
+    assert!(hints[0].contains("`varde logs m`"), "{hints:?}");
     assert!(hints[0].contains("`varde models enable m`"), "{hints:?}");
+    // What the log lines mean is the background, in a hint of its own.
+    assert!(EXTERNAL_REGISTRATION_LOG.contains("App never became ready"));
+    assert!(EXTERNAL_REGISTRATION_LOG.contains("registration.attempt_failed"));
 }
 
 #[test]
@@ -918,22 +922,27 @@ fn every_problem_row_gets_its_own_hint() {
         ]
     );
 
-    // Nothing wrong: the one line left is the check `status` cannot make
-    // itself, and it does not depend on whether the API is protected.
+    // Rows with a problem get no test hint.
+    assert_eq!(test_hint(&rows), None);
+
+    // Nothing wrong: no fix, and the hint left is the check `status` cannot
+    // make itself, whether or not the API is protected.
     let rows = model_rows(
         &enabled()[..1],
         &[registered("chapkit-ewars-model", 12)],
         &BTreeSet::new(),
         NOW,
     );
-    assert_eq!(hints(&rows, false, None), vec![TEST_HINT_ONE.to_string()]);
-    assert_eq!(hints(&rows, true, None), vec![TEST_HINT_ONE.to_string()]);
+    assert!(hints(&rows, false, None).is_empty());
+    assert!(hints(&rows, true, None).is_empty());
+    assert_eq!(test_hint(&rows), Some(TEST_HINT_ONE));
     assert!(TEST_HINT.contains("varde models test --all"));
     assert!(TEST_HINT_ONE.contains("check it can run"));
 
     // Nothing enabled at all has nothing to test either, and a
     // registration this project does not manage is not a model of ours.
     assert!(hints(&[], false, None).is_empty());
+    assert_eq!(test_hint(&[]), None);
     let stranger = model_rows(
         &[],
         &[registered("some-other-service", 3)],
@@ -941,6 +950,7 @@ fn every_problem_row_gets_its_own_hint() {
         NOW,
     );
     assert!(hints(&stranger, false, None).is_empty());
+    assert_eq!(test_hint(&stranger), None);
 }
 
 /// A model added by hand that registered under another id gets the two
