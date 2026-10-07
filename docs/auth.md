@@ -166,13 +166,19 @@ varde auth enable
 
 ```text
 API authentication is on
-  API token         written to .env; `varde auth show --reveal` prints it
-  Registration key  written to .env; every model overlay now sends it
-
-written  compose.chapkit-ewars-model.yml
-
 run `varde up` to restart chap-core and the models with authentication
-the DHIS2 `chap` route carries it once `varde dhis2 connect` has run; any other client needs it from `varde auth show --reveal`
+```
+
+With `-v`, the hints say where the secrets went and which files changed:
+
+```text
+$ varde -v auth enable
+API authentication is on
+hint: wrote the API token to `.env`; `varde auth show --reveal` prints it
+hint: wrote the registration key to `.env`; every model overlay now sends it
+hint: wrote compose.chapkit-ewars-model.yml
+run `varde up` to restart chap-core and the models with authentication
+hint: the DHIS2 `chap` route carries it once `varde dhis2 connect` has run; any other client needs it from `varde auth show --reveal`
 ```
 
 `varde up` is not optional. chap-core and the model containers read `.env` when

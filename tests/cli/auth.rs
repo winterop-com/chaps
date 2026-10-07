@@ -173,7 +173,7 @@ fn auth_show_hides_the_token_until_reveal_asks_for_it() {
     assert!(!masked.contains(&token), "the token leaked:\n{masked}");
 
     sandbox
-        .auth(&["show", "--reveal"])
+        .auth(&["show", "--reveal", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(token.clone()))
@@ -219,7 +219,7 @@ fn auth_enable_protects_a_project_that_was_created_without_a_token() {
     assert!(!overlay_sends_the_key(&dir));
 
     sandbox
-        .auth(&["enable"])
+        .auth(&["enable", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("API authentication is on"))
@@ -227,10 +227,10 @@ fn auth_enable_protects_a_project_that_was_created_without_a_token() {
             "run `varde up` to restart chap-core and the models with authentication",
         ))
         .stdout(predicates::str::contains(
-            "the DHIS2 `chap` route carries it once `varde dhis2 connect` has run",
+            "hint: the DHIS2 `chap` route carries it once `varde dhis2 connect` has run",
         ))
         .stdout(predicates::str::contains(
-            "written  compose.chapkit-ewars-model.yml",
+            "hint: wrote compose.chapkit-ewars-model.yml",
         ));
 
     let after = sandbox.env();
@@ -255,7 +255,7 @@ fn auth_enable_protects_a_project_that_was_created_without_a_token() {
         .assert()
         .success()
         .stdout(predicates::str::contains("already on"))
-        .stdout(predicates::str::contains("varde auth rotate"));
+        .stdout(predicates::str::contains("varde auth rotate").not());
     assert_eq!(env_value(&sandbox.env(), "CHAP_API_TOKEN"), Some(token));
 
     // An explicit token is taken at the point authentication is turned on.
@@ -286,11 +286,13 @@ fn auth_disable_keeps_the_values_so_enable_recovers_them() {
         .to_string();
 
     sandbox
-        .auth(&["disable"])
+        .auth(&["disable", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("API authentication is off"))
-        .stdout(predicates::str::contains("kept as comments"))
+        .stdout(predicates::str::contains(
+            "hint: both values are kept as comments",
+        ))
         .stdout(predicates::str::contains("run `varde up`"));
 
     let off = sandbox.env();
@@ -346,7 +348,9 @@ fn auth_rotate_replaces_both_secrets_and_leaves_the_rest_of_env_alone() {
         .auth(&["rotate"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("API authentication rotated"))
+        .stdout(predicates::str::contains(
+            "replaced the API token and the registration key",
+        ))
         .stdout(predicates::str::contains(
             "run `varde up` to restart chap-core and the models with authentication",
         ))

@@ -391,20 +391,18 @@ fn dhis2_route_creates_the_route_when_there_is_none() {
     let stand_in = Dhis2StandIn::new();
     let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "created the `chap` route at http://chap:8000/**",
+            "created the `chap` route at http://chap:8000/**; chap-core answered through it",
         ))
-        .stdout(predicates::str::contains(
-            "verified chap-core answered through it: healthy",
-        ))
+        .stdout(predicates::str::contains("hint: chap-core said: healthy"))
         .stdout(predicates::str::contains(
             "DHIS2 2.42.6 at http://localhost:",
         ))
         .stdout(predicates::str::contains(
-            "as `admin` (the DHIS2 default password)",
+            "hint: the credential is the DHIS2 default password",
         ));
 
     // The payload is the one that works, and the target is the compose alias.
@@ -449,15 +447,13 @@ fn dhis2_route_carries_chap_cores_token() {
     text.push_str("CHAP_API_TOKEN=s3cret\n");
     std::fs::write(&env, text).expect("write .env");
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "it carried no chap-core API token",
+            "hint: the route was rewritten because it carried no chap-core API token",
         ))
-        .stdout(predicates::str::contains(
-            "verified chap-core answered through it: healthy",
-        ))
+        .stdout(predicates::str::contains("hint: chap-core said: healthy"))
         .stdout(predicates::str::contains("s3cret").not());
 
     let route = stand_in.route().expect("the route");
@@ -474,7 +470,7 @@ fn dhis2_route_carries_chap_cores_token() {
     dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("nothing to change"));
+        .stdout(predicates::str::contains("already points at"));
 }
 
 /// A route carrying a token chap-core no longer takes: DHIS2 hides the value,
@@ -505,11 +501,11 @@ fn dhis2_show_names_a_route_whose_token_chap_core_refuses() {
         ))
         .stdout(predicates::str::contains("varde dhis2 connect"));
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "chap-core refused the API token it carried",
+            "hint: the route was rewritten because chap-core refused the API token it carried",
         ));
     assert_eq!(
         stand_in.route().expect("the route")["auth"]["headers"]["Authorization"],
@@ -530,14 +526,14 @@ fn dhis2_route_repoints_a_route_that_points_at_another_chap_core() {
     });
     let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
             "repointed the `chap` route at http://chap:8000/**",
         ))
         .stdout(predicates::str::contains(
-            "it pointed at http://158.39.75.126/stable/**",
+            "hint: the route was rewritten because it pointed at http://158.39.75.126/stable/**",
         ));
 
     assert_eq!(
@@ -574,7 +570,8 @@ fn dhis2_route_leaves_a_route_that_already_matches_alone() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "the `chap` route already points at http://chap:8000/**; nothing to change",
+            "the `chap` route already points at http://chap:8000/**; chap-core answered \
+             through it",
         ));
 
     let asked = stand_in.asked();
@@ -688,13 +685,15 @@ fn dhis2_analytics_runs_the_request_that_populates_and_waits_for_it() {
     let stand_in = Dhis2StandIn::new();
     let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("analytics finished in"))
-        .stdout(predicates::str::contains("Analytics tables updated"))
         .stdout(predicates::str::contains(
-            "DHIS2 records its last analytics success as 2026-09-25T10:01:00.000",
+            "hint: DHIS2 said: Analytics tables updated",
+        ))
+        .stdout(predicates::str::contains(
+            "hint: DHIS2 records its last analytics success as 2026-09-25T10:01:00.000",
         ));
 
     let asked = stand_in.asked();
@@ -754,15 +753,21 @@ fn dhis2_analytics_no_wait_starts_the_run_and_names_the_way_back() {
     let stand_in = Dhis2StandIn::new();
     let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics", "--no-wait"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "started the analytics run (job job-1)",
-        ))
-        .stdout(predicates::str::contains(
-            "run `varde dhis2 analytics` again to watch the same run",
-        ));
+    dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        None,
+        &["analytics", "--no-wait", "-v"],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains(
+        "started the analytics run (job job-1)",
+    ))
+    .stdout(predicates::str::contains(
+        "hint: run `varde dhis2 analytics` again to watch the same run",
+    ));
 
     assert!(
         !stand_in.was_asked("GET /api/system/tasks/ANALYTICS_TABLE/job-1"),
@@ -784,14 +789,16 @@ fn dhis2_apps_resolves_the_version_on_the_app_hub_and_has_dhis2_install_it() {
     let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
     let hub = Some(stand_in.port);
 
-    dhis2_chap(&sandbox, &dir, &bin, hub, &["apps"])
+    dhis2_chap(&sandbox, &dir, &bin, hub, &["apps", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("installed Modeling App 7.1.0"))
         .stdout(predicates::str::contains(
             "installed DHIS2 Climate App 1.16.2",
         ))
-        .stdout(predicates::str::contains("`varde open dhis2`"))
+        .stdout(predicates::str::contains(
+            "hint: open DHIS2 with `varde open dhis2`",
+        ))
         // The sentence the blank bound produced, which was false.
         .stdout(predicates::str::contains("no version of").not());
 
@@ -1222,17 +1229,25 @@ fn dhis2_connect_records_that_it_ran_and_says_what_the_record_is_worth() {
     // other field in it is written in.
     assert_eq!(recorded(), "connected_at: null");
 
-    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "recorded in `.varde/components.yaml`, so `varde up` and `varde status` stop asking",
-        ))
-        // The caveat sits where the record is, because this is the one moment
-        // it could be taken for a verdict.
-        .stdout(predicates::str::contains(
-            "a note that this ran, not proof the route is still right; `varde dhis2 show` asks DHIS2",
-        ));
+    dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        Some(stand_in.port),
+        &["connect", "-v"],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains(
+        "hint: recorded the connect in `.varde/components.yaml`, so `varde up` and \
+             `varde status` stop asking for it",
+    ))
+    // The caveat sits where the record is, because this is the one moment
+    // it could be taken for a verdict.
+    .stdout(predicates::str::contains(
+        "hint: the record says that this ran, not that the route is still right; \
+             `varde dhis2 show` asks DHIS2",
+    ));
 
     let at = recorded();
     assert!(at.starts_with("connected_at: 20"), "{at}");
@@ -1271,12 +1286,12 @@ fn dhis2_connect_offline_leaves_the_record_as_it_found_it() {
             .expect("components.yaml")
     };
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["connect"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["connect", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("created the `chap` route"))
         .stdout(predicates::str::contains("skipped:"))
-        .stdout(predicates::str::contains("recorded in").not())
+        .stdout(predicates::str::contains("recorded the connect").not())
         .stdout(predicates::str::contains("cleared the earlier").not());
     assert!(recorded().contains("connected_at: null"), "{}", recorded());
 
@@ -1289,10 +1304,16 @@ fn dhis2_connect_offline_leaves_the_record_as_it_found_it() {
 
     // Now a full connect, and then the same offline run on top of it: the
     // record it wrote is still there afterwards, and nothing was said about it.
-    dhis2_chap(&sandbox, &dir, &bin, Some(stand_in.port), &["connect"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("recorded in"));
+    dhis2_chap(
+        &sandbox,
+        &dir,
+        &bin,
+        Some(stand_in.port),
+        &["connect", "-v"],
+    )
+    .assert()
+    .success()
+    .stdout(predicates::str::contains("recorded the connect"));
     let at = recorded()
         .lines()
         .find(|line| line.trim_start().starts_with("connected_at:"))
@@ -1301,7 +1322,7 @@ fn dhis2_connect_offline_leaves_the_record_as_it_found_it() {
         .to_string();
     assert!(at.starts_with("connected_at: 20"), "{at}");
 
-    dhis2_chap(&sandbox, &dir, &bin, None, &["connect"])
+    dhis2_chap(&sandbox, &dir, &bin, None, &["connect", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("skipped:"))
@@ -1330,11 +1351,11 @@ fn disabling_dhis2_forgets_the_connect_it_had_recorded() {
     assert!(!body.contains("connected_at: null"), "{body}");
 
     sandbox
-        .components(&["disable", "dhis2"])
+        .components(&["disable", "dhis2", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "the record of `varde dhis2 connect` is forgotten with the component; \
+            "hint: the record of `varde dhis2 connect` is forgotten with the component; \
              a DHIS2 enabled here again is asked to connect afresh",
         ));
 

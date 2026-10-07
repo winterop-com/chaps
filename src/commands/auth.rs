@@ -17,9 +17,9 @@ use crate::cli::{AuthDisableArgs, AuthEnableArgs, AuthRotateArgs, AuthShowArgs};
 use crate::commands::Ctx;
 use crate::compose::sync::sync;
 use crate::error::Result;
-use crate::output::{self, Out};
+use crate::output::{self, Out, Report};
 use crate::project::{AuthState, ENV_FILE, Project};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// What every `varde up` reminder says, because neither chap-core nor a model
 /// re-reads `.env` while its container exists.
@@ -56,15 +56,20 @@ pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
             })
             .collect::<Vec<_>>(),
     });
-    ctx.out.emit(&value, || {
-        show_human(
-            &ctx.out,
-            &effective,
-            recorded,
-            token.as_deref(),
-            args.reveal,
-            &data_sources,
-        )
+    if !ctx.out.json {
+        print!(
+            "{}",
+            show_tables(
+                &ctx.out,
+                &effective,
+                token.as_deref(),
+                args.reveal,
+                &data_sources
+            )
+        );
+    }
+    ctx.out.report(&value, |lines| {
+        show_summary(&effective, recorded, &data_sources, lines)
     })
 }
 
@@ -128,15 +133,17 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
             "api_token": true,
             "registration_key": true,
         });
-        return ctx.out.emit(&value, || {
-            "API authentication is already on; `varde auth rotate` replaces both secrets, \
-             `varde auth show --reveal` prints the token\n"
-                .to_string()
+        return ctx.out.report(&value, |lines| {
+            lines
+                .info("API authentication is already on")
+                .hint("`varde auth rotate` replaces both secrets")
+                .hint("`varde auth show --reveal` prints the token");
         });
     }
 
     // Half on: keep whichever secret is already in use, so clients that
     // already hold the token keep working.
+    let mut warnings = Vec::new();
     let token = match args.token.as_deref().map(str::trim) {
         Some(given) if !given.is_empty() => {
             if let Some(problem) = crate::dotenv::literal_problem(given) {
@@ -147,12 +154,12 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
                 .into());
             }
             if given.chars().count() < auth::MIN_TOKEN_LENGTH {
-                output::warn(&auth::weak_token_warning(given.chars().count()));
+                warnings.push(auth::weak_token_warning(given.chars().count()));
             }
             given.to_string()
         }
         Some(_) => {
-            output::warn("--token was given an empty value; generated one instead");
+            warnings.push("--token was given an empty value; generated one instead".to_string());
             auth::random_secret()?
         }
         None => match recover(&body, API_TOKEN_ENV_VAR) {
@@ -164,7 +171,15 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
         Some(known) => known,
         None => auth::random_secret()?,
     };
-    apply(ctx, &mut project, &body, &token, &key, Change::Enabled)
+    apply(
+        ctx,
+        &mut project,
+        &body,
+        &token,
+        &key,
+        Change::Enabled,
+        warnings,
+    )
 }
 
 /// `varde auth disable`: comment both secrets out and render the overlays.
@@ -177,8 +192,10 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
         record(&mut project, effective)?;
         let value =
             serde_json::json!({ "changed": false, "api_token": false, "registration_key": false });
-        return ctx.out.emit(&value, || {
-            "API authentication is already off; `varde auth enable` turns it on\n".to_string()
+        return ctx.out.report(&value, |lines| {
+            lines
+                .info("API authentication is already off")
+                .hint("`varde auth enable` turns it on");
         });
     }
 
@@ -194,18 +211,13 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
         "registration_key": false,
         "written": report.written,
     });
-    ctx.out.emit(&value, || {
-        let mut text = String::from("API authentication is off\n");
-        text.push_str(&format!(
-            "  both values are kept as comments in {ENV_FILE}, so `varde auth enable` \
-             recovers them\n"
+    ctx.out.report(&value, |lines| {
+        lines.info("API authentication is off").hint(format!(
+            "both values are kept as comments in `{ENV_FILE}`, so `varde auth enable` \
+             recovers them"
         ));
-        text.push_str(&written_block(&project.dir, &report.written));
-        text.push_str(
-            "\nrun `varde up` to restart chap-core and the models without \
-                       authentication\n",
-        );
-        text
+        written_lines(&project.dir, &report, lines);
+        lines.info("run `varde up` to restart chap-core and the models without authentication");
     })
 }
 
@@ -215,7 +227,15 @@ pub fn rotate(ctx: &Ctx, _args: &AuthRotateArgs) -> Result<()> {
     let body = read_env(&project)?;
     let token = auth::random_secret()?;
     let key = auth::random_secret()?;
-    apply(ctx, &mut project, &body, &token, &key, Change::Rotated)
+    apply(
+        ctx,
+        &mut project,
+        &body,
+        &token,
+        &key,
+        Change::Rotated,
+        Vec::new(),
+    )
 }
 
 /// Which verb wrote the secrets, so the closing lines can say the right thing.
@@ -233,6 +253,7 @@ fn apply(
     token: &str,
     key: &str,
     change: Change,
+    warnings: Vec<String>,
 ) -> Result<()> {
     let out = write_secrets(
         body,
@@ -252,29 +273,33 @@ fn apply(
         "written": report.written,
     });
     let dir = project.dir.clone();
-    ctx.out.emit(&value, || {
-        let mut text = match change {
-            Change::Enabled => String::from("API authentication is on\n"),
-            Change::Rotated => String::from("API authentication rotated\n"),
-        };
-        text.push_str(
-            "  API token         written to .env; `varde auth show --reveal` prints it\n",
-        );
-        text.push_str("  Registration key  written to .env; every model overlay now sends it\n");
-        text.push_str(&written_block(&dir, &report.written));
-        text.push('\n');
-        text.push_str(&format!("{RESTART_HINT}\n"));
+    ctx.out.report(&value, |lines| {
+        lines.info(match change {
+            Change::Enabled => "API authentication is on",
+            Change::Rotated => "replaced the API token and the registration key",
+        });
+        for warning in &warnings {
+            lines.warning(warning.as_str());
+        }
+        lines
+            .hint(format!(
+                "wrote the API token to `{ENV_FILE}`; `varde auth show --reveal` prints it"
+            ))
+            .hint(format!(
+                "wrote the registration key to `{ENV_FILE}`; every model overlay now sends it"
+            ));
+        written_lines(&dir, &report, lines);
+        lines.info(RESTART_HINT);
         match change {
-            Change::Enabled => text.push_str(&format!(
-                "{MODELING_APP_HINT}; any other client needs it from `varde auth show --reveal`\n"
+            Change::Enabled => lines.hint(format!(
+                "{MODELING_APP_HINT}; any other client needs it from `varde auth show --reveal`"
             )),
-            Change::Rotated => text.push_str(
+            Change::Rotated => lines.info(
                 "every client keeps sending the old token until it is updated: run \
                  `varde dhis2 connect` after `varde up` for the DHIS2 route, and update \
-                 anything else calling this API\n",
+                 anything else calling this API",
             ),
-        }
-        text
+        };
     })
 }
 
@@ -291,11 +316,7 @@ fn recover(body: &str, var: &str) -> Option<String> {
 /// Re-render the compose files from the new state; `sync` saves `.varde/`.
 fn render(ctx: &Ctx, project: &mut Project) -> Result<crate::compose::SyncReport> {
     let registry = super::registry_for(ctx, Some(project))?;
-    let report = sync(project, &registry, false)?;
-    for warning in &report.warnings {
-        output::warn(warning);
-    }
-    Ok(report)
+    sync(project, &registry, false)
 }
 
 /// Save `.varde/project.yaml` with the state `.env` actually describes.
@@ -331,24 +352,22 @@ fn write_env(project: &Project, body: &str) -> Result<()> {
     crate::dotenv::write(&path, body)
 }
 
-/// The `written  <file>` block, empty when the render changed nothing.
-fn written_block(dir: &Path, written: &[PathBuf]) -> String {
-    if written.is_empty() {
-        return String::new();
+/// The files the render wrote, as hints, and the warnings it gave.
+fn written_lines(dir: &Path, report: &crate::compose::SyncReport, lines: &mut Report) {
+    for warning in &report.warnings {
+        lines.warning(warning.as_str());
     }
-    let mut text = String::from("\n");
-    for path in written {
+    for path in &report.written {
         let label = path.strip_prefix(dir).unwrap_or(path).display();
-        text.push_str(&format!("written  {label}\n"));
+        lines.hint(format!("wrote {label}"));
     }
-    text
 }
 
-/// The human rendering of `varde auth show`.
-fn show_human(
+/// The tables of `varde auth show`: the two switches and the token, then the
+/// OCS data sources.
+fn show_tables(
     out: &Out,
     effective: &AuthState,
-    recorded: AuthState,
     token: Option<&str>,
     reveal: bool,
     data_sources: &[(&str, Option<String>)],
@@ -375,47 +394,47 @@ fn show_human(
         rows.push(("API token", shown));
     }
     let mut text = output::fields_with(0, &rows, &|label| out.key(label));
+    text.push_str(&data_sources_block(out, data_sources));
+    text
+}
 
+/// The lines after the tables of `varde auth show`.
+fn show_summary(
+    effective: &AuthState,
+    recorded: AuthState,
+    data_sources: &[(&str, Option<String>)],
+    lines: &mut Report,
+) {
     if !effective.is_on() {
-        text.push('\n');
-        text.push_str(&out.backticks(
-            "nothing protects this API: anyone who can reach the port can use it. \
-             `varde auth enable` turns authentication on.",
-        ));
-        text.push('\n');
-        text.push_str(&data_sources_block(out, data_sources));
-        return text;
+        lines
+            .info("nothing protects this API: anyone who can reach the port can use it")
+            .hint("`varde auth enable` turns authentication on");
     }
     if effective.api_token {
-        text.push_str(&format!(
-            "\n{}\n",
-            out.backticks(&format!(
-                "clients send it as `Authorization: Bearer <token>`; {MODELING_APP_HINT}."
-            ))
+        lines.hint(format!(
+            "clients send the token as `Authorization: Bearer <token>`; {MODELING_APP_HINT}"
         ));
     }
     if effective.registration_key {
-        text.push_str(&out.backticks(
-            "model services send the registration key as `X-Service-Key` when they register.",
-        ));
-        text.push('\n');
+        lines
+            .hint("model services send the registration key as `X-Service-Key` when they register");
     }
     // `.env` is what the deployment does; the booleans in `.varde/` are only a
     // record of it, and a mismatch means one of them was edited by hand.
-    if recorded != *effective {
-        text.push_str(&format!(
-            "\n{} {}\n",
-            out.warn("warning:"),
-            out.backticks(&format!(
-                ".varde/project.yaml records api_token: {}, registration_key: {}, \
-                 which is not what {ENV_FILE} sets; `varde auth enable` or `varde auth disable` \
-                 lines them up again",
-                recorded.api_token, recorded.registration_key
-            ))
+    if effective.is_on() && recorded != *effective {
+        lines.warning(format!(
+            "`.varde/project.yaml` records api_token: {}, registration_key: {}, which is not \
+             what `{ENV_FILE}` sets; `varde auth enable` or `varde auth disable` lines them up \
+             again",
+            recorded.api_token, recorded.registration_key
         ));
     }
-    text.push_str(&data_sources_block(out, data_sources));
-    text
+    if !data_sources.is_empty() {
+        lines.hint(
+            "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; \
+             WorldPop and CHIRPS3 need none; set them in `.env` and run `varde up`",
+        );
+    }
 }
 
 /// The `OCS data sources` block: one row per credential variable, saying
@@ -443,11 +462,6 @@ fn data_sources_block(out: &Out, data_sources: &[(&str, Option<String>)]) -> Str
         .collect();
     let mut text = format!("\n{}\n", out.heading("OCS data sources"));
     text.push_str(&output::fields_with(2, &rows, &|label| out.key(label)));
-    text.push_str(&out.backticks(
-        "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; \
-         WorldPop and CHIRPS3 need none. Set them in .env and run `varde up`.",
-    ));
-    text.push('\n');
     text
 }
 

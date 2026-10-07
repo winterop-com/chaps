@@ -137,6 +137,10 @@ pub struct RouteReport {
     pub verified: bool,
     /// What chap-core said through the route, or why nothing did.
     pub answered: String,
+    /// Whether chap-core refused the API token the route carries. Only for
+    /// the human lines; `verified` already says it to a script.
+    #[serde(skip)]
+    pub token_refused: bool,
 }
 
 /// What became of the analytics tables.

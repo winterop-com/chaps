@@ -177,11 +177,11 @@ fn enabling_the_object_store_adds_its_file_its_secrets_and_the_ocs_variables() {
         .success();
 
     sandbox
-        .components(&["enable", "s3"])
+        .components(&["enable", "s3", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("enabled s3"))
-        .stdout(predicates::str::contains("compose.s3.yml"));
+        .stdout(predicates::str::contains("hint: wrote compose.s3.yml"));
 
     assert!(dir.join("compose.s3.yml").is_file());
     let s3 = yaml(&dir.join("compose.s3.yml"));
@@ -640,11 +640,11 @@ fn disabling_a_component_removes_its_file_and_its_place_in_the_f_list() {
         .success();
 
     sandbox
-        .components(&["disable", "ocs"])
+        .components(&["disable", "ocs", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains("disabled ocs"))
-        .stdout(predicates::str::contains("compose.ocs.yml"));
+        .stdout(predicates::str::contains("hint: removed compose.ocs.yml"));
 
     assert!(!dir.join("compose.ocs.yml").exists());
     assert!(

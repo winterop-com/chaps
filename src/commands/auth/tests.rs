@@ -1,5 +1,24 @@
 use super::*;
 
+/// What `varde auth show` prints: the tables, then the lines with their
+/// level in front.
+fn show_human(
+    out: &Out,
+    effective: &AuthState,
+    recorded: AuthState,
+    token: Option<&str>,
+    reveal: bool,
+    data_sources: &[(&str, Option<String>)],
+) -> String {
+    let mut lines = Report::default();
+    show_summary(effective, recorded, data_sources, &mut lines);
+    format!(
+        "{}{}",
+        show_tables(out, effective, token, reveal, data_sources),
+        lines.text()
+    )
+}
+
 fn on() -> AuthState {
     AuthState {
         api_token: true,
@@ -20,7 +39,7 @@ fn show_says_off_and_what_to_do_about_it() {
     assert!(text.contains("API authentication  off"), "{text}");
     assert!(text.contains("Registration key    off"), "{text}");
     assert!(text.contains("nothing protects this API"), "{text}");
-    assert!(text.contains("varde auth enable"), "{text}");
+    assert!(text.contains("hint: `varde auth enable`"), "{text}");
     assert!(!text.contains("API token"), "there is none: {text}");
 }
 
@@ -60,7 +79,7 @@ fn show_flags_a_state_file_that_disagrees_with_the_env() {
         &[],
     );
     assert!(
-        text.contains("warning: .varde/project.yaml records"),
+        text.contains("warning: `.varde/project.yaml` records"),
         "{text}"
     );
     assert!(text.contains("api_token: false"), "{text}");
@@ -123,8 +142,8 @@ fn show_reports_whether_the_ocs_data_sources_are_set_and_never_their_values() {
         // reads both. Picking one is not something to tell an operator.
         assert!(
             text.contains(
-                "ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, \
-                     per dataset; WorldPop and CHIRPS3 need none."
+                "hint: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, \
+                     per dataset; WorldPop and CHIRPS3 need none;"
             ),
             "{text}"
         );
@@ -149,13 +168,17 @@ fn show_reports_whether_the_ocs_data_sources_are_set_and_never_their_values() {
 }
 
 #[test]
-fn the_written_block_is_empty_when_nothing_changed() {
+fn the_written_files_are_hints() {
     let dir = Path::new("/p");
-    assert_eq!(written_block(dir, &[]), "");
-    assert_eq!(
-        written_block(dir, &[PathBuf::from("/p/compose.x.yml")]),
-        "\nwritten  compose.x.yml\n"
-    );
+    let mut lines = Report::default();
+    written_lines(dir, &crate::compose::SyncReport::default(), &mut lines);
+    assert_eq!(lines.text(), "");
+    let report = crate::compose::SyncReport {
+        written: vec![std::path::PathBuf::from("/p/compose.x.yml")],
+        ..Default::default()
+    };
+    written_lines(dir, &report, &mut lines);
+    assert_eq!(lines.text(), "hint: wrote compose.x.yml\n");
 }
 
 #[test]

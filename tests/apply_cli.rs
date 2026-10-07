@@ -278,11 +278,17 @@ fn models_register_with_a_chap_core_elsewhere() {
 
     // And back, through `components enable --url`.
     sandbox
-        .components(&["enable", "chap-core", "--url", "http://localhost:18998"])
+        .components(&[
+            "enable",
+            "chap-core",
+            "--url",
+            "http://localhost:18998",
+            "-v",
+        ])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "register with the chap-core at http://localhost:18998",
+            "hint: model services register with the chap-core at http://localhost:18998",
         ));
     let overlay = read(&dir.join("compose.chapkit-ewars-model.yml"));
     assert!(overlay.contains("host.docker.internal:18998"), "{overlay}");
@@ -558,14 +564,14 @@ fn disabling_a_component_names_its_volume_and_chap_core_has_none_to_purge() {
 
     // OCS keeps a directory of its own as well, and it is never touched.
     sandbox
-        .components(&["disable", "ocs", "--purge"])
+        .components(&["disable", "ocs", "--purge", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
             "volume {project}_ocs_data not found"
         )))
         .stdout(predicates::str::contains(
-            "the ocs/ directory is left alone",
+            "hint: the ocs/ directory is left alone",
         ));
     assert!(dir.join("ocs").join("climate-service.yaml").is_file());
 

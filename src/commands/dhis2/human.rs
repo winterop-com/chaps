@@ -1,111 +1,130 @@
 //! The human rendering of every `varde dhis2` report.
 
 use super::*;
+use crate::commands::components::{Note, NoteLevel};
+use crate::output::Report;
 
 /// The line every verb opens with: where DHIS2 is, what it is, and who it was
-/// asked as. Never the password, only where it was found.
-pub(super) fn instance_line(instance: &Instance, out: &Out) -> String {
+/// asked as. Never the password; the hint says only where it was found.
+pub(super) fn instance_line(instance: &Instance) -> String {
     let what = match instance.external {
-        true => format!("external DHIS2 {}", display_version(&instance.version)),
-        false => format!("DHIS2 {}", display_version(&instance.version)),
+        true => "external DHIS2",
+        false => "DHIS2",
     };
     format!(
-        "{} at {}, as {} ({})\n",
-        out.value(&what),
-        out.value(&instance.url),
-        out.value(&format!("`{}`", instance.user)),
-        out.dim(&dhis2::describe_credential(
-            instance.auth,
-            instance.credential_from
-        )),
+        "{what} {} at {}, as `{}`",
+        display_version(&instance.version),
+        instance.url,
+        instance.user
     )
 }
 
-/// What `use` prints.
-pub(super) fn human_use(report: &UseReport, out: &Out) -> String {
-    let mut text = String::new();
+/// Where the credential that DHIS2 was asked with came from.
+pub(super) fn credential_hint(instance: &Instance) -> String {
+    format!(
+        "the credential is {}",
+        dhis2::describe_credential(instance.auth, instance.credential_from)
+    )
+}
+
+/// The table `use` prints for the DHIS2 it recorded: what answered and with
+/// which login. Empty when there is nothing recorded to ask.
+pub(super) fn use_table(report: &UseReport, out: &Out) -> String {
+    let (Some(external), Some(probe)) = (&report.external, &report.probe) else {
+        return String::new();
+    };
+    let dhis2 = match probe.answered {
+        true => format!(
+            "{} {}",
+            out.value(&external.url),
+            out.ok(&format!("({})", probe.answer))
+        ),
+        false => format!(
+            "{} {}",
+            out.value(&external.url),
+            out.warn(&format!("({})", probe.answer))
+        ),
+    };
+    let login = match (&probe.credential, probe.accepted) {
+        (None, _) => out.warn("none"),
+        (Some(credential), Some(true)) => format!("{credential} {}", out.ok("(accepted)")),
+        (Some(credential), Some(false)) => format!("{credential} {}", out.warn("(refused)")),
+        (Some(credential), None) => format!("{credential} {}", out.dim("(not tried)")),
+    };
+    let connected = match &external.connected_at {
+        Some(at) => out.value(at),
+        None => out.dim("never recorded"),
+    };
+    crate::output::fields_with(
+        0,
+        &[
+            ("dhis2", dhis2),
+            ("chap-url", out.value(&external.chap_url)),
+            (
+                "route",
+                out.dim(report.target.as_deref().unwrap_or_default()),
+            ),
+            ("login", login),
+            ("connected", connected),
+        ],
+        &|label| out.key(label),
+    )
+}
+
+/// The lines of `use`, after its table.
+pub(super) fn use_summary(report: &UseReport, lines: &mut Report) {
     let headline = match (report.outcome, &report.external, &report.previous) {
         (UseOutcome::Cleared, _, Some(previous)) => {
-            format!("forgot the external DHIS2 at {}", out.value(&previous.url))
+            format!("forgot the external DHIS2 at {}", previous.url)
         }
-        (UseOutcome::Unchanged, None, _) => {
-            "no external DHIS2 is recorded; nothing to clear".to_string()
-        }
+        (UseOutcome::Unchanged, None, _) => "no external DHIS2 is recorded".to_string(),
         (UseOutcome::Recorded, Some(external), _) => format!(
             "recorded the external DHIS2 at {} in `.varde/components.yaml`",
-            out.value(&external.url)
+            external.url
         ),
         (UseOutcome::Changed, Some(external), _) => format!(
             "changed the external DHIS2 to {} in `.varde/components.yaml`",
-            out.value(&external.url)
+            external.url
         ),
-        (UseOutcome::Unchanged, Some(external), _) => format!(
-            "the external DHIS2 at {} is already recorded; nothing changed",
-            out.value(&external.url)
-        ),
-        (_, Some(external), _) => format!(
-            "`varde dhis2` talks to the external DHIS2 at {}",
-            out.value(&external.url)
-        ),
+        (UseOutcome::Unchanged, Some(external), _) => {
+            format!("the external DHIS2 at {} is already recorded", external.url)
+        }
+        (_, Some(external), _) => {
+            format!(
+                "`varde dhis2` talks to the external DHIS2 at {}",
+                external.url
+            )
+        }
         (_, None, _) => match report.component {
             true => "no external DHIS2 is recorded; `varde dhis2` talks to the `dhis2` component"
                 .to_string(),
             false => "no external DHIS2 is recorded, and the `dhis2` component is off".to_string(),
         },
     };
-    text.push_str(&out.backticks(&headline));
-    text.push('\n');
-    if let (Some(external), Some(probe)) = (&report.external, &report.probe) {
-        let dhis2 = match probe.answered {
-            true => format!(
-                "{} {}",
-                out.value(&external.url),
-                out.ok(&format!("({})", probe.answer))
-            ),
-            false => format!(
-                "{} {}",
-                out.value(&external.url),
-                out.warn(&format!("({})", probe.answer))
-            ),
-        };
-        let login = match (&probe.credential, probe.accepted) {
-            (None, _) => out.warn("none"),
-            (Some(credential), Some(true)) => format!("{credential} {}", out.ok("(accepted)")),
-            (Some(credential), Some(false)) => format!("{credential} {}", out.warn("(refused)")),
-            (Some(credential), None) => format!("{credential} {}", out.dim("(not tried)")),
-        };
-        let connected = match &external.connected_at {
-            Some(at) => out.value(at),
-            None => out.dim("never recorded"),
-        };
-        text.push_str(&crate::output::fields_with(
-            0,
-            &[
-                ("dhis2", dhis2),
-                ("chap-url", out.value(&external.chap_url)),
-                (
-                    "route",
-                    out.dim(report.target.as_deref().unwrap_or_default()),
-                ),
-                ("login", login),
-                ("connected", connected),
-            ],
-            &|label| out.key(label),
-        ));
-        if let Some(problem) = &probe.problem {
-            text.push_str(&format!(
-                "{} {}\n",
-                out.dim("problem:"),
-                out.backticks(problem)
-            ));
-        }
+    lines.info(headline);
+    if let Some(problem) = report
+        .probe
+        .as_ref()
+        .and_then(|probe| probe.problem.as_ref())
+    {
+        lines.warning(problem.as_str());
     }
-    for note in &report.notes {
-        text.push_str(&format!("{} {}\n", out.dim("note:"), out.backticks(note)));
+    note_lines(&report.notes, lines);
+    match report.next_is_hint {
+        true => lines.hint(report.next.as_str()),
+        false => lines.info(report.next.as_str()),
+    };
+}
+
+/// Every note at its own level.
+pub(super) fn note_lines(notes: &[Note], lines: &mut Report) {
+    for note in notes {
+        match note.level {
+            NoteLevel::Info => lines.info(note.text.as_str()),
+            NoteLevel::Hint => lines.hint(note.text.as_str()),
+            NoteLevel::Warning => lines.warning(note.text.as_str()),
+        };
     }
-    text.push_str(&out.backticks(&report.next));
-    text.push('\n');
-    text
 }
 
 /// A version to print, or the words for an instance that did not say.
@@ -116,158 +135,150 @@ pub(super) fn display_version(version: &str) -> String {
     }
 }
 
-/// What `route`, `analytics`, `apps` and `connect` print.
-pub(super) fn human_report(report: &Dhis2Report, out: &Out) -> String {
-    let mut text = instance_line(&report.instance, out);
+/// The lines of `route`, `analytics`, `apps` and `connect`.
+///
+/// `connect` is the one with a record, and its `next` is the verdict of the
+/// whole run, so it is info; the next step of one verb is a hint.
+pub(super) fn report_summary(report: &Dhis2Report, lines: &mut Report) {
+    lines
+        .info(instance_line(&report.instance))
+        .hint(credential_hint(&report.instance));
     if let Some(route) = &report.route {
-        text.push_str(&route_lines(route, out));
+        route_lines(route, lines);
     }
     if let Some(apps) = &report.apps {
-        text.push_str(&app_lines(apps, out));
+        app_lines(apps, lines);
     }
     if let Some(analytics) = &report.analytics {
-        text.push_str(&analytics_lines(analytics, out));
+        analytics_lines(analytics, lines);
     }
     for skip in &report.skipped {
-        text.push_str(&format!(
-            "{} {}\n",
-            out.dim("skipped:"),
-            out.backticks(skip)
-        ));
+        lines.info(format!("skipped: {skip}"));
     }
     if let Some(record) = report.record {
-        text.push_str(&record_lines(record, out));
+        record_lines(record, lines);
     }
-    text.push_str(&out.backticks(&report.next));
-    text.push('\n');
-    text
+    match report.record.is_some() {
+        true => lines.info(report.next.as_str()),
+        false => lines.hint(report.next.as_str()),
+    };
 }
 
-/// What `connect` says about the note it left behind, in the shape the route
-/// block uses: what happened, then the indented line that says what it is
-/// worth.
+/// What `connect` says about the note it left behind.
 ///
-/// The caveat is printed where the record is, rather than left to the chapter,
-/// because this is the one moment a reader could take it for a verdict. It is a
-/// note that this command ran; `varde dhis2 show` is what asks DHIS2.
-pub(super) fn record_lines(record: ConnectRecord, out: &Out) -> String {
+/// The caveat is said where the record is, because this is the one moment a
+/// reader could take it for a verdict. It is a note that this command ran;
+/// `varde dhis2 show` is what asks DHIS2.
+pub(super) fn record_lines(record: ConnectRecord, lines: &mut Report) {
     match record {
-        ConnectRecord::Unchanged => String::new(),
-        ConnectRecord::Recorded => format!(
-            "{} in `.varde/components.yaml`, so `varde up` and `varde status` stop asking\n  {}\n",
-            out.ok("recorded"),
-            out.dim(
-                "a note that this ran, not proof the route is still right; \
-                 `varde dhis2 show` asks DHIS2"
-            )
-        ),
-        ConnectRecord::Cleared => format!(
-            "{} the earlier `varde dhis2 connect` from `.varde/components.yaml`\n  {}\n",
-            out.warn("cleared"),
-            out.dim("`varde up` and `varde status` ask for it again")
-        ),
+        ConnectRecord::Unchanged => {}
+        ConnectRecord::Recorded => {
+            lines
+                .hint(
+                    "recorded the connect in `.varde/components.yaml`, so `varde up` and \
+                     `varde status` stop asking for it",
+                )
+                .hint(
+                    "the record says that this ran, not that the route is still right; \
+                     `varde dhis2 show` asks DHIS2",
+                );
+        }
+        ConnectRecord::Cleared => {
+            lines.hint(
+                "cleared the earlier `varde dhis2 connect` from `.varde/components.yaml`; \
+                 `varde up` and `varde status` ask for it again",
+            );
+        }
     }
 }
 
-fn route_lines(route: &RouteReport, out: &Out) -> String {
-    let where_ = out.value(&route.url);
-    let mut text = match route.outcome {
-        RouteOutcome::Created => format!(
-            "{} the `{}` route at {where_}\n",
-            out.ok("created"),
-            route.code
-        ),
-        RouteOutcome::Repointed => format!(
-            "{} the `{}` route at {where_}\n",
-            out.ok("repointed"),
-            route.code
-        ),
-        RouteOutcome::Unchanged => format!(
-            "the `{}` route already points at {where_}; nothing to change\n",
-            route.code
-        ),
+pub(super) fn route_lines(route: &RouteReport, lines: &mut Report) {
+    let code = route.code;
+    let headline = match route.outcome {
+        RouteOutcome::Created => format!("created the `{code}` route at {}", route.url),
+        RouteOutcome::Repointed => format!("repointed the `{code}` route at {}", route.url),
+        RouteOutcome::Unchanged => format!("the `{code}` route already points at {}", route.url),
+    };
+    match route.verified {
+        true => lines.info(format!("{headline}; chap-core answered through it")),
+        false => lines.info(headline),
     };
     for reason in &route.reasons {
-        text.push_str(&format!("  {}\n", out.dim(reason)));
+        lines.hint(format!("the route was rewritten because {reason}"));
     }
-    text.push_str(&match route.verified {
-        true => format!(
-            "  {} chap-core answered through it: {}\n",
-            out.ok("verified"),
+    // The route is correct whatever chap-core did, so a chap-core that is not
+    // answering is a warning rather than an error: it is `varde up`'s
+    // problem, and `verified: false` says it to a script.
+    match (route.verified, route.token_refused) {
+        (true, _) => lines.hint(format!("chap-core said: {}", route.answered)),
+        (false, true) => lines.warning(format!(
+            "the `{code}` route carries this deployment's API token and chap-core refused it: \
+             {}; `varde auth show` says which token varde has, and chap-core has to be \
+             running with the same one",
             route.answered
-        ),
-        false => format!(
-            "  {} nothing answered through it: {}\n",
-            out.warn("unverified"),
+        )),
+        (false, false) => lines.warning(format!(
+            "the `{code}` route is in place but nothing answered through it: {}; run \
+             `varde status` to see whether chap-core is up",
             route.answered
-        ),
-    });
-    text
+        )),
+    };
 }
 
-pub(super) fn app_lines(apps: &AppsReport, out: &Out) -> String {
-    let mut text = String::new();
+pub(super) fn app_lines(apps: &AppsReport, lines: &mut Report) {
     for app in &apps.apps {
-        let name = out.value(&app.name);
-        text.push_str(&match app.outcome {
-            AppOutcome::Installed => {
-                format!("{} {name} {}\n", out.ok("installed"), app.version)
-            }
-            AppOutcome::Moved => format!(
-                "{} {name} from {} to {}\n",
-                out.ok("moved"),
+        let name = &app.name;
+        match app.outcome {
+            AppOutcome::Installed => lines.info(format!("installed {name} {}", app.version)),
+            AppOutcome::Moved => lines.info(format!(
+                "moved {name} from {} to {}",
                 app.previous.clone().unwrap_or_default(),
                 app.version
-            ),
+            )),
             AppOutcome::Unchanged => {
-                format!("{name} {} is already installed\n", app.version)
+                lines.info(format!("{name} {} is already installed", app.version))
             }
-            AppOutcome::Failed => format!(
-                "{} {name} was not installed: {}\n",
-                out.bad("failed"),
+            AppOutcome::Failed => lines.warning(format!(
+                "{name} was not installed: {}",
                 app.reason.clone().unwrap_or_default()
-            ),
-        });
-    }
-    text
-}
-
-pub(super) fn analytics_lines(analytics: &AnalyticsReport, out: &Out) -> String {
-    let job = out.dim(&format!("(job {})", analytics.job));
-    if !analytics.finished {
-        return match analytics.started {
-            true => format!("{} the analytics run {job}\n", out.ok("started")),
-            false => format!("an analytics run was already going {job}\n"),
+            )),
         };
     }
-    let mut text = format!(
-        "{} in {} {job}\n",
-        out.ok(match analytics.started {
+}
+
+pub(super) fn analytics_lines(analytics: &AnalyticsReport, lines: &mut Report) {
+    let job = format!("(job {})", analytics.job);
+    if !analytics.finished {
+        match analytics.started {
+            true => lines.info(format!("started the analytics run {job}")),
+            false => lines.info(format!("an analytics run was already going {job}")),
+        };
+        return;
+    }
+    lines.info(format!(
+        "{} in {} {job}",
+        match analytics.started {
             true => "analytics finished",
             // The distinction matters: this run watched somebody else's job,
             // so the duration is how long it watched, not how long it took.
             false => "the analytics run that was already going finished",
-        }),
+        },
         crate::output::human_age(Duration::from_secs(analytics.seconds)),
-    );
+    ));
     if !analytics.message.is_empty() {
-        text.push_str(&format!("  {}\n", out.dim(&analytics.message)));
+        lines.hint(format!("DHIS2 said: {}", analytics.message));
     }
     if !analytics.last_success.is_empty() {
-        text.push_str(&format!(
-            "  {}\n",
-            out.dim(&format!(
-                "DHIS2 records its last analytics success as {}",
-                analytics.last_success
-            ))
+        lines.hint(format!(
+            "DHIS2 records its last analytics success as {}",
+            analytics.last_success
         ));
     }
-    text
 }
 
-/// What `show` prints: three rows and whatever is missing.
-pub(super) fn human_show(report: &ShowReport, out: &Out) -> String {
-    let mut text = instance_line(&report.instance, out);
+/// What `show` prints first: the instance, then its rows.
+pub(super) fn show_table(report: &ShowReport, out: &Out) -> String {
+    let mut text = format!("{}\n", instance_line(&report.instance));
     let route = match &report.route {
         None => out.warn("none"),
         Some(route) => {
@@ -314,12 +325,16 @@ pub(super) fn human_show(report: &ShowReport, out: &Out) -> String {
         ],
         &|label| out.key(label),
     ));
-    for missing in &report.missing {
-        text.push_str(&format!("{} {}\n", out.dim("missing:"), missing));
-    }
-    text.push_str(&out.backticks(&report.next));
-    text.push('\n');
     text
+}
+
+/// The lines of `show`, after its rows: whatever is missing, then what to do.
+pub(super) fn show_summary(report: &ShowReport, lines: &mut Report) {
+    lines.hint(credential_hint(&report.instance));
+    for missing in &report.missing {
+        lines.info(format!("missing: {missing}"));
+    }
+    lines.info(report.next.as_str());
 }
 
 /// One of the two apps in the `apps` row: the version, or that it is absent.

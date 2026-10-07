@@ -62,7 +62,9 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
             skipped: notes,
             record: Some(record),
         };
-        return ctx.out.emit(&report, || human_report(&report, &ctx.out));
+        return ctx
+            .out
+            .report(&report, |lines| report_summary(&report, lines));
     }
 
     // `--offline` and the App Hub ask for opposite things, so the step is a
@@ -97,7 +99,8 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         skipped,
         record: Some(record),
     };
-    ctx.out.emit(&report, || human_report(&report, &ctx.out))?;
+    ctx.out
+        .report(&report, |lines| report_summary(&report, lines))?;
     match failed {
         Some(why) => Err(anyhow::anyhow!(why)),
         None => Ok(()),

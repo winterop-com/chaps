@@ -16,7 +16,7 @@ use crate::cli::ComponentsListArgs;
 use crate::commands::Ctx;
 use crate::components::{Component, Components};
 use crate::error::Result;
-use crate::output::Out;
+use crate::output::{Out, Report};
 use crate::project::Project;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -63,7 +63,7 @@ pub struct ChangeReport {
     /// Everything worth saying that is not a failure: a host port that is
     /// already spoken for, the S3 heads-up either way round, a scaffolded config
     /// file, the data source variables that just landed in `.env`.
-    pub notes: Vec<String>,
+    pub notes: Vec<Note>,
     /// Data volumes `disable --purge` removed.
     pub purged: Vec<String>,
     /// Data volumes `disable` left in place, which is what it does without
@@ -77,7 +77,10 @@ pub fn list(ctx: &Ctx, _args: &ComponentsListArgs) -> Result<()> {
     let report = ComponentsReport {
         components: rows(&project.state.components, project.effective_api_port()),
     };
-    ctx.out.emit(&report, || human_list(&report, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", human_list(&report, &ctx.out));
+    }
+    ctx.out.report(&report, list_summary)
 }
 
 /// One row per component. chap-core's port is the API port, which is not in
@@ -128,90 +131,131 @@ fn human_list(report: &ComponentsReport, out: &Out) -> String {
             ]
         })
         .collect();
-    let mut text = out.table(&["COMPONENT", "STATE", "REACH", "WHAT IT IS"], &rows);
-    text.push('\n');
-    text.push_str(&out.backticks(
-        "`varde components enable NAME` adds one, `disable NAME` takes it away; \
-         the set lives in .varde/components.yaml",
-    ));
-    text.push('\n');
-    text
+    out.table(&["COMPONENT", "STATE", "REACH", "WHAT IT IS"], &rows)
 }
 
-fn human_change(report: &ChangeReport, project: &Project, out: &Out) -> String {
-    let verb = if report.enabled {
-        "enabled"
-    } else {
-        "disabled"
+/// The lines after the `components list` table.
+fn list_summary(lines: &mut Report) {
+    lines.hint(
+        "`varde components enable NAME` adds a component, `disable NAME` removes it; \
+         the set is in `.varde/components.yaml`",
+    );
+}
+
+/// How much one note of a [`ChangeReport`] matters, as a [`Report`] level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteLevel {
+    Info,
+    Hint,
+    Warning,
+}
+
+/// One note of a [`ChangeReport`]. `--json` carries the text alone, so the
+/// `notes` list stays a list of strings.
+#[derive(Debug, Clone)]
+pub struct Note {
+    pub level: NoteLevel,
+    pub text: String,
+}
+
+impl Note {
+    pub fn info(text: impl Into<String>) -> Note {
+        Note {
+            level: NoteLevel::Info,
+            text: text.into(),
+        }
+    }
+
+    pub fn hint(text: impl Into<String>) -> Note {
+        Note {
+            level: NoteLevel::Hint,
+            text: text.into(),
+        }
+    }
+
+    pub fn warning(text: impl Into<String>) -> Note {
+        Note {
+            level: NoteLevel::Warning,
+            text: text.into(),
+        }
+    }
+}
+
+impl Serialize for Note {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text)
+    }
+}
+
+/// Every note, as one level each.
+fn notes_of(level: NoteLevel, texts: impl IntoIterator<Item = String>) -> Vec<Note> {
+    texts.into_iter().map(|text| Note { level, text }).collect()
+}
+
+/// The lines of one `components enable` or `components disable`.
+fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) {
+    let name = &report.name;
+    let headline = match (report.enabled, report.unchanged) {
+        (true, false) => format!("enabled {name}"),
+        (true, true) => format!("{name} was already enabled"),
+        (false, false) => format!("disabled {name}"),
+        (false, true) => format!("{name} was already disabled"),
     };
-    let painted = if report.enabled {
-        out.ok(verb)
-    } else {
-        out.warn(verb)
-    };
-    let mut text = match (report.enabled, report.port) {
-        (true, Some(port)) => format!(
-            "{painted} {} on {}\n",
-            report.name,
-            out.value(&format!("http://localhost:{port}"))
-        ),
+    match (report.enabled, report.port) {
+        (true, Some(port)) => lines.info(format!("{headline} on http://localhost:{port}")),
         // A component with no host port is reached somewhere else rather than
-        // not at all, so the proxy that reaches it is named where the address
-        // would have been.
-        (true, None) if report.name == "chap-core" => {
+        // not at all, so the line names how it is reached.
+        (true, None) if name == "chap-core" => {
             match &project.state.components.chap_core_external {
-                Some(external) => format!(
-                    "{painted} chap-core at {} {}\n",
-                    out.value(&external.url),
-                    out.dim(&format!(
-                        "(elsewhere; models are called back at {}:<port>)",
+                Some(external) => {
+                    lines.info(format!("{headline} at {}", external.url));
+                    lines.hint(format!(
+                        "chap-core runs elsewhere; it calls the models back at {}:<port>",
                         external.models_host
                     ))
-                ),
-                None => format!(
-                    "{painted} chap-core {}\n",
-                    out.dim("(no host port; it is reached inside the compose network)")
-                ),
+                }
+                None => {
+                    lines.info(headline);
+                    lines.hint("chap-core publishes no host port; it is reached inside the compose network")
+                }
             }
         }
-        (true, None) => format!(
-            "{painted} {} {}\n",
-            report.name,
-            match &report.base_url {
-                Some(base) => out.dim(&format!(
-                    "(no host port; reached through the proxy at {base})"
-                )),
-                None => out.dim("(no host port; it is reached inside the compose network)"),
+        (true, None) => match &report.base_url {
+            Some(base) => lines.info(format!("{headline}, reached through the proxy at {base}")),
+            None => {
+                lines.info(headline);
+                lines.hint(format!(
+                    "{name} publishes no host port; it is reached inside the compose network"
+                ))
             }
-        ),
-        (false, _) => format!("{painted} {}\n", report.name),
+        },
+        (false, _) => lines.info(headline),
     };
     if report.read_only == Some(true) {
-        text.push_str(&out.dim("read-only: ingestion over HTTP is refused\n"));
-    }
-    if report.unchanged {
-        text.push_str(&out.dim("(that is what it was already)"));
-        text.push('\n');
-    }
-    for path in &report.written {
-        text.push_str(&format!(
-            "{}  {}\n",
-            out.ok("written"),
-            out.dim(&label(project, path))
-        ));
-    }
-    for path in &report.removed {
-        text.push_str(&format!(
-            "{} {}\n",
-            out.bad("removed"),
-            out.dim(&label(project, path))
-        ));
+        lines.hint("ocs is read-only: it refuses ingestion over HTTP");
     }
     for note in &report.notes {
-        text.push_str(&format!("{} {note}\n", out.dim("note:")));
+        match note.level {
+            NoteLevel::Info => lines.info(note.text.as_str()),
+            NoteLevel::Hint => lines.hint(note.text.as_str()),
+            NoteLevel::Warning => lines.warning(note.text.as_str()),
+        };
     }
-    text.push_str(&out.backticks("run `varde up` to apply"));
-    text
+    for path in &report.written {
+        lines.hint(format!("wrote {}", label(project, path)));
+    }
+    for path in &report.removed {
+        lines.hint(format!("removed {}", label(project, path)));
+    }
+    // A disable has already stopped the containers; `up` has work only when
+    // the sync changed a file that a running service reads.
+    match report.enabled || !report.written.is_empty() {
+        true => lines.info("run `varde up` to apply"),
+        false => lines.hint("`varde status` shows what runs now"),
+    };
 }
 
 /// A written path, relative to the project directory.

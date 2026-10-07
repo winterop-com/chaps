@@ -20,7 +20,8 @@ pub fn apps(ctx: &Ctx, args: &Dhis2AppsArgs) -> Result<()> {
         skipped: Vec::new(),
         record: None,
     };
-    ctx.out.emit(&report, || human_report(&report, &ctx.out))?;
+    ctx.out
+        .report(&report, |lines| report_summary(&report, lines))?;
     match failed {
         Some(why) => Err(anyhow::anyhow!(why)),
         None => Ok(()),

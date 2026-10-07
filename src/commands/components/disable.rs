@@ -1,7 +1,7 @@
 //! `varde components disable`, and stopping the containers of a component
 //! that is going, for every caller that turns one off.
 
-use super::{ChangeReport, human_change};
+use super::{ChangeReport, Note, NoteLevel, change_summary, notes_of};
 use crate::cli::ComponentsDisableArgs;
 use crate::commands::Ctx;
 use crate::components::{Component, Components, DHIS2_CONNECT_FORGOTTEN, S3_LEAVES_OCS_NOTE};
@@ -69,46 +69,51 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     // Taking chap-core away from models goes through apply(), which publishes
     // a host port for each model that had none: with nothing left to reach
     // them over the compose network, that port is the only way in.
-    let (mut notes, written, removed) = if component == Component::ChapCore
-        && !project.state.models.is_empty()
-    {
-        let sel = crate::compose::apply::Selection {
-            enable: Vec::new(),
-            disable: Vec::new(),
-            components: Some(after.clone()),
+    let (mut notes, written, removed) =
+        if component == Component::ChapCore && !project.state.models.is_empty() {
+            let sel = crate::compose::apply::Selection {
+                enable: Vec::new(),
+                disable: Vec::new(),
+                components: Some(after.clone()),
+            };
+            let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
+            let applied = crate::compose::apply::apply(&mut project, &registry, &sel, &endpoints)?;
+            let mut notes = notes_of(NoteLevel::Warning, applied.warnings);
+            notes.extend(applied.updated.iter().filter_map(|(id, e)| {
+                e.host_port.map(|port| {
+                    Note::info(format!(
+                        "{id} now registers nowhere and is published on http://localhost:{port}"
+                    ))
+                })
+            }));
+            (notes, applied.written, applied.removed)
+        } else {
+            project.state.components = after.clone();
+            let synced = sync(&mut project, &registry, false)?;
+            (
+                notes_of(NoteLevel::Warning, synced.warnings),
+                synced.written,
+                synced.removed,
+            )
         };
-        let endpoints = crate::manual::Endpoints::from_env(ctx.registry.offline);
-        let applied = crate::compose::apply::apply(&mut project, &registry, &sel, &endpoints)?;
-        let mut notes = applied.warnings;
-        notes.extend(applied.updated.iter().filter_map(|(id, e)| {
-            e.host_port.map(|port| {
-                format!("{id} now registers nowhere and is published on http://localhost:{port}")
-            })
-        }));
-        (notes, applied.written, applied.removed)
-    } else {
-        project.state.components = after.clone();
-        let synced = sync(&mut project, &registry, false)?;
-        (synced.warnings, synced.written, synced.removed)
-    };
-    notes.extend(stopped);
+    notes.extend(notes_of(NoteLevel::Info, stopped));
     if component == Component::ChapCore {
-        notes.push(
-            "chap-core's own volumes are left alone; \
-             `varde down --volumes` removes them"
-                .to_string(),
-        );
+        notes.push(Note::hint(
+            "chap-core's own volumes are left alone; `varde down --volumes` removes them",
+        ));
     }
     if component == Component::Ocs {
-        notes.push("the ocs/ directory is left alone; it is yours".to_string());
+        notes.push(Note::hint("the ocs/ directory is left alone; it is yours"));
     }
     if component == Component::Dhis2 {
-        notes.push("the dhis2/ directory is left alone; it is yours".to_string());
+        notes.push(Note::hint(
+            "the dhis2/ directory is left alone; it is yours",
+        ));
         // `set_enabled` forgot it a few lines up, where every caller goes
         // through. Only said on the run that had something to forget: a
         // deployment that was never connected has nothing to report here.
         if before.dhis2.connected_at.is_some() {
-            notes.push(DHIS2_CONNECT_FORGOTTEN.to_string());
+            notes.push(Note::hint(DHIS2_CONNECT_FORGOTTEN));
         }
     }
     // The store going takes the `S3_*` block out of `compose.ocs.yml`, which is
@@ -116,7 +121,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     // that took it: a store that was already off left OCS without those
     // variables long ago.
     if disabled_between(&before, &after).contains(&Component::S3) && after.ocs.enabled {
-        notes.push(S3_LEAVES_OCS_NOTE.to_string());
+        notes.push(Note::hint(S3_LEAVES_OCS_NOTE));
     }
     let report = ChangeReport {
         name: component.name().to_string(),
@@ -132,7 +137,7 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
         kept_volumes,
     };
     ctx.out
-        .emit(&report, || human_change(&report, &project, &ctx.out))
+        .report(&report, |lines| change_summary(&report, &project, lines))
 }
 
 /// Why `components disable chap-core --purge` is refused.

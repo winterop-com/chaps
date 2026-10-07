@@ -67,17 +67,15 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
     )
     .assert()
     .success()
-    .stdout(predicates::str::contains(
-        "is already recorded; nothing changed",
-    ));
+    .stdout(predicates::str::contains("is already recorded"));
 
     // `route` points it at the recorded chap-core URL, not the compose alias
     // no server outside this deployment could resolve.
-    dhis2_chap(&sandbox, &dir, empty.path(), None, &["route"])
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["route", "-v"])
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "external DHIS2 2.42.6 at {url}, as `ops` (API token from `.env`)"
+            "external DHIS2 2.42.6 at {url}, as `ops`\nhint: the credential is API token from `.env`"
         )))
         .stdout(predicates::str::contains(format!(
             "created the `chap` route at {EXTERNAL_CHAP_URL_TARGET}"
@@ -148,7 +146,7 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
     dhis2_chap(&sandbox, &dir, empty.path(), None, &["use", "--clear"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("nothing to clear"));
+        .stdout(predicates::str::contains("no external DHIS2 is recorded"));
 }
 
 /// varde did not create an external DHIS2, so it knows none of its passwords:
@@ -237,13 +235,14 @@ fn an_external_dhis2_without_credentials_is_never_sent_the_default() {
     assert_eq!(stand_in.authorization(), "", "{:?}", stand_in.asked());
 
     // A password exported for the run is used, with the user it names.
-    dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
+    dhis2_chap(&sandbox, &dir, empty.path(), None, &["show", "-v"])
         .env("VARDE_DHIS2_USERNAME", "ops")
         .env("VARDE_DHIS2_PASSWORD", "theirs")
         .assert()
         .success()
+        .stdout(predicates::str::contains("as `ops`"))
         .stdout(predicates::str::contains(
-            "as `ops` (password from VARDE_DHIS2_PASSWORD)",
+            "hint: the credential is password from VARDE_DHIS2_PASSWORD",
         ));
 }
 

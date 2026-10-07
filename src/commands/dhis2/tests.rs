@@ -1,7 +1,29 @@
 use super::*;
+use crate::output::Report;
 
 fn out() -> Out {
     Out::detect(false, true)
+}
+
+/// The lines a summary builds, with the level in front of hints and warnings.
+fn lines(build: impl FnOnce(&mut Report)) -> String {
+    let mut report = Report::default();
+    build(&mut report);
+    report.text()
+}
+
+/// What `route`, `analytics`, `apps` and `connect` print.
+fn human_report(report: &Dhis2Report) -> String {
+    lines(|l| report_summary(report, l))
+}
+
+/// What `show` prints: the rows, then the lines.
+fn human_show(report: &ShowReport, out: &Out) -> String {
+    format!(
+        "{}{}",
+        show_table(report, out),
+        lines(|l| show_summary(report, l))
+    )
 }
 
 /// A [`Ctx`] for the one thing in here that writes a file.
@@ -38,6 +60,7 @@ fn route_report(outcome: RouteOutcome) -> RouteReport {
         id: Some("abc123".to_string()),
         verified: true,
         answered: "healthy".to_string(),
+        token_refused: false,
     }
 }
 
@@ -198,42 +221,42 @@ fn a_run_that_could_not_look_leaves_the_record_as_it_found_it() {
 /// could otherwise take it for a verdict.
 #[test]
 fn the_record_line_never_claims_the_route_is_right() {
-    let recorded = record_lines(ConnectRecord::Recorded, &out());
+    let recorded = lines(|l| record_lines(ConnectRecord::Recorded, l));
     assert_eq!(
         recorded,
-        "recorded in `.varde/components.yaml`, so `varde up` and `varde status` stop asking\n  \
-             a note that this ran, not proof the route is still right; \
-             `varde dhis2 show` asks DHIS2\n"
+        "hint: recorded the connect in `.varde/components.yaml`, so `varde up` and \
+         `varde status` stop asking for it\n\
+         hint: the record says that this ran, not that the route is still right; \
+         `varde dhis2 show` asks DHIS2\n"
     );
 
-    let cleared = record_lines(ConnectRecord::Cleared, &out());
+    let cleared = lines(|l| record_lines(ConnectRecord::Cleared, l));
     assert!(
-        cleared.starts_with("cleared the earlier `varde dhis2 connect`"),
+        cleared.starts_with("hint: cleared the earlier `varde dhis2 connect`"),
         "{cleared}"
     );
     assert!(cleared.contains("ask for it again"), "{cleared}");
 
     // Nothing moved, nothing said: the report is already a full account of
     // what the run did.
-    assert_eq!(record_lines(ConnectRecord::Unchanged, &out()), "");
+    assert_eq!(lines(|l| record_lines(ConnectRecord::Unchanged, l)), "");
 }
 
 /// The opening line says where, what and who - and nothing whatsoever
 /// about the password beyond where it was found.
 #[test]
 fn the_instance_line_never_carries_the_password() {
-    let text = instance_line(&instance(), &out());
-    assert_eq!(
-        text,
-        "DHIS2 2.42.6 at http://localhost:18080, as `admin` (the DHIS2 default password)\n"
-    );
-    assert!(!text.contains("district"), "{text}");
+    let text = instance_line(&instance());
+    assert_eq!(text, "DHIS2 2.42.6 at http://localhost:18080, as `admin`");
+    let hint = credential_hint(&instance());
+    assert_eq!(hint, "the credential is the DHIS2 default password");
+    assert!(!text.contains("district") && !hint.contains("district"));
 
     let from_file = Instance {
         credential_from: CredentialSource::EnvFile,
         ..instance()
     };
-    assert!(instance_line(&from_file, &out()).contains("(password from `.env`)"));
+    assert!(credential_hint(&from_file).contains("password from `.env`"));
 
     // A token is named by what it is, with the user DHIS2 said owns it,
     // and an external DHIS2 says that it is one.
@@ -245,9 +268,12 @@ fn the_instance_line_never_carries_the_password() {
         ..instance()
     };
     assert_eq!(
-        instance_line(&token, &out()),
-        "external DHIS2 2.42.6 at http://localhost:18080, as `ops` (API token from \
-             VARDE_DHIS2_TOKEN)\n"
+        instance_line(&token),
+        "external DHIS2 2.42.6 at http://localhost:18080, as `ops`"
+    );
+    assert_eq!(
+        credential_hint(&token),
+        "the credential is API token from VARDE_DHIS2_TOKEN"
     );
 
     // An instance that did not say its version still gets a line.
@@ -256,9 +282,9 @@ fn the_instance_line_never_carries_the_password() {
         ..instance()
     };
     assert!(
-        instance_line(&bare, &out()).starts_with("DHIS2 (version unknown) at"),
+        instance_line(&bare).starts_with("DHIS2 (version unknown) at"),
         "{}",
-        instance_line(&bare, &out())
+        instance_line(&bare)
     );
 }
 
@@ -269,30 +295,31 @@ fn a_repointed_route_prints_the_reason_it_was_wrong() {
     let mut route = route_report(RouteOutcome::Repointed);
     route.previous = Some("http://158.39.75.126/stable/**".to_string());
     route.reasons = vec!["it pointed at http://158.39.75.126/stable/**".to_string()];
-    let text = human_report(&report(Some(route)), &out());
+    let text = human_report(&report(Some(route)));
     assert!(
-        text.contains("repointed the `chap` route at http://chap:8000/**"),
+        text.contains(
+            "repointed the `chap` route at http://chap:8000/**; chap-core answered through it\n"
+        ),
         "{text}"
     );
     assert!(
-        text.contains("it pointed at http://158.39.75.126/stable/**"),
+        text.contains(
+            "hint: the route was rewritten because it pointed at http://158.39.75.126/stable/**"
+        ),
         "{text}"
     );
-    assert!(
-        text.contains("verified chap-core answered through it: healthy"),
-        "{text}"
-    );
+    assert!(text.contains("hint: chap-core said: healthy"), "{text}");
 }
 
 /// Nothing to do is still said out loud, and named as nothing to do.
 #[test]
 fn a_route_that_is_already_right_says_there_was_nothing_to_change() {
-    let text = human_report(&report(Some(route_report(RouteOutcome::Unchanged))), &out());
+    let text = human_report(&report(Some(route_report(RouteOutcome::Unchanged))));
     assert!(
-        text.contains("already points at http://chap:8000/**; nothing to change"),
+        text.contains("already points at http://chap:8000/**; chap-core answered through it"),
         "{text}"
     );
-    assert!(text.contains("run `varde dhis2 show`"), "{text}");
+    assert!(text.contains("hint: run `varde dhis2 show`"), "{text}");
 }
 
 /// A route that was written but proved nothing says so rather than
@@ -302,9 +329,12 @@ fn an_unverified_route_does_not_claim_chap_core_answered() {
     let mut route = route_report(RouteOutcome::Created);
     route.verified = false;
     route.answered = "HTTP 502 Bad Gateway".to_string();
-    let text = human_report(&report(Some(route)), &out());
+    let text = human_report(&report(Some(route)));
     assert!(
-        text.contains("unverified nothing answered through it: HTTP 502 Bad Gateway"),
+        text.contains(
+            "warning: the `chap` route is in place but nothing answered through it: \
+             HTTP 502 Bad Gateway"
+        ),
         "{text}"
     );
     assert!(!text.contains("chap-core answered through it"), "{text}");
@@ -344,7 +374,7 @@ fn the_app_lines_say_which_of_the_four_happened() {
             },
         ],
     };
-    let text = app_lines(&apps, &out());
+    let text = lines(|l| app_lines(&apps, l));
     assert!(text.contains("installed Modeling App 7.1.0"), "{text}");
     assert!(
         text.contains("moved Climate from 1.15.0 to 1.16.2"),
@@ -352,7 +382,7 @@ fn the_app_lines_say_which_of_the_four_happened() {
     );
     assert!(text.contains("Old 1.0.0 is already installed"), "{text}");
     assert!(
-        text.contains("failed Broken was not installed: HTTP 409"),
+        text.contains("warning: Broken was not installed: HTTP 409"),
         "{text}"
     );
 
@@ -376,20 +406,20 @@ fn the_analytics_lines_tell_a_started_run_from_a_finished_one() {
         message: String::new(),
         last_success: String::new(),
     };
+    let text = lines(|l| analytics_lines(&running, l));
     assert!(
-        analytics_lines(&running, &out()).contains("started the analytics run (job abc)"),
-        "{}",
-        analytics_lines(&running, &out())
+        text.contains("started the analytics run (job abc)"),
+        "{text}"
     );
 
     let adopted = AnalyticsReport {
         started: false,
         ..running.clone()
     };
+    let text = lines(|l| analytics_lines(&adopted, l));
     assert!(
-        analytics_lines(&adopted, &out()).contains("an analytics run was already going"),
-        "{}",
-        analytics_lines(&adopted, &out())
+        text.contains("an analytics run was already going"),
+        "{text}"
     );
 
     let done = AnalyticsReport {
@@ -399,7 +429,7 @@ fn the_analytics_lines_tell_a_started_run_from_a_finished_one() {
         last_success: "2026-09-25T10:01:00.000".to_string(),
         ..running
     };
-    let text = analytics_lines(&done, &out());
+    let text = lines(|l| analytics_lines(&done, l));
     assert!(text.contains("analytics finished in 1 minute"), "{text}");
     assert!(text.contains("Analytics tables updated"), "{text}");
     assert!(
@@ -413,7 +443,7 @@ fn the_analytics_lines_tell_a_started_run_from_a_finished_one() {
 fn a_skipped_step_is_reported_with_the_reason() {
     let mut report = report(Some(route_report(RouteOutcome::Created)));
     report.skipped = vec![dhis2::OFFLINE_APPS.to_string()];
-    let text = human_report(&report, &out());
+    let text = human_report(&report);
     assert!(text.contains("skipped:"), "{text}");
     assert!(text.contains("App Hub"), "{text}");
 }

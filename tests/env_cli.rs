@@ -185,7 +185,9 @@ fn auth_rotate_leaves_one_active_token_line_on_an_env_with_a_duplicate() {
         .run(&["auth", "rotate"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("API authentication rotated"));
+        .stdout(predicates::str::contains(
+            "replaced the API token and the registration key",
+        ));
 
     let after = sandbox.env();
     let active = active_values(&after, "CHAP_API_TOKEN");

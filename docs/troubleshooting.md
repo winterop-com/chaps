@@ -727,10 +727,10 @@ varde up
 
 There is no way back down a migration. A database migrated by 2.42 does not work
 under 2.41 again, so the choice is the newer image or a restore. `varde` warns
-before it happens - the note names `varde backup` first for exactly this reason:
+before it happens - the warning names `varde backup` first for exactly this reason:
 
 ```text
-note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
+warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 A deployment with nothing in DHIS2 worth keeping is quicker to start again:
@@ -848,7 +848,7 @@ It keeps coming back in three cases, all of them deliberate:
 - **`varde down --volumes` removed `dhis2_db`.** Same hazard, said on the spot:
   the record of `varde dhis2 connect` went with `dhis2_db`.
 - **the last `connect` found something wrong.** A route nothing answered on, or
-  an app that would not install, clears the record and the report says
+  an app that would not install, clears the record, and with `-v` the report says
   `cleared` - `varde dhis2 show` names which of the two it was. A run that could
   not look is not one of these: `varde dhis2 connect --offline` skips the apps,
   judges nothing and leaves the record exactly as it found it.

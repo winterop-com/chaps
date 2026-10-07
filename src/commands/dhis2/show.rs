@@ -93,7 +93,11 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         },
         ..report
     };
-    ctx.out.emit(&report, || human_show(&report, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", show_table(&report, &ctx.out));
+    }
+    ctx.out
+        .report(&report, |lines| show_summary(&report, lines))
 }
 
 /// The two apps varde installs, as this instance has them.

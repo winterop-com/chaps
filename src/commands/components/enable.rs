@@ -1,7 +1,7 @@
 //! `varde components enable`: turn a component on, change the settings of
 //! one that already is, or point the deployment at a chap-core elsewhere.
 
-use super::{ChangeReport, human_change, label};
+use super::{ChangeReport, Note, NoteLevel, change_summary, label, notes_of};
 use crate::cli::{ComponentsEnableArgs, OcsConfigArgs};
 use crate::commands::Ctx;
 use crate::components::{
@@ -75,24 +75,24 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     project.state.components.set_enabled(component, true);
 
     let mut notes = Vec::new();
-    notes.extend(port_warning);
+    notes.extend(port_warning.map(Note::warning));
     // The scaffold goes in before the sync, so the `--ocs-*` values reach the
     // file rather than the example ones sync would fall back to.
     if component == Component::Ocs {
         let wanted = request(&args.ocs);
         let asked_for = !wanted.is_empty();
         match write_ocs_config(&project.dir, &wanted.into_spec())? {
-            Some(path) => notes.push(format!(
+            Some(path) => notes.push(Note::hint(format!(
                 "wrote {}; it is yours to edit, and varde never rewrites it",
                 label(&project, &path)
-            )),
+            ))),
             // Values were given for a file that is already there. Silently
             // discarding them would be the worst of the three answers.
-            None if asked_for => notes.push(format!(
+            None if asked_for => notes.push(Note::warning(format!(
                 "{} is already there, so the --ocs-* values were not used; edit that file \
                  instead, or delete it and enable ocs again",
                 label(&project, &project.ocs_config_path())
-            )),
+            ))),
             None => {}
         }
         // And the read-only switch after it, so a component enabled and set
@@ -108,33 +108,33 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     if component == Component::Dhis2
         && let Some(path) = write_dhis2_config(&project.dir, &Dhis2ConfigSpec::default())?
     {
-        notes.push(format!(
+        notes.push(Note::hint(format!(
             "wrote {}; it is yours to edit, and varde never rewrites it",
             label(&project, &path)
-        ));
+        )));
     }
     let after = project.state.components.clone();
     if component == Component::Ocs && !after.s3.enabled {
-        notes.push(S3_SOON_NOTE.to_string());
+        notes.push(Note::hint(S3_SOON_NOTE));
     }
     if component == Component::Dhis2 {
         // The pin first: it is the one line that asks the reader to stop and run
         // something else before `varde up`.
-        notes.extend(dhis2_tag_moved(&project, &after));
+        notes.extend(dhis2_tag_moved(&project, &after).map(Note::warning));
         // The sync below says it with the reason when the pinned minor has no
         // dump, so this line would be the same sentence twice.
         if !after.dhis2_seed_is_unknown() {
-            notes.push(dhis2_seed_note(after.dhis2_seed_source()));
+            notes.push(Note::hint(dhis2_seed_note(after.dhis2_seed_source())));
         }
-        notes.push(DHIS2_FIRST_START_NOTE.to_string());
+        notes.push(Note::hint(DHIS2_FIRST_START_NOTE));
         if after.has_chap_core_api() {
-            notes.push(DHIS2_CONNECT_NOTE.to_string());
+            notes.push(Note::info(DHIS2_CONNECT_NOTE));
         }
     }
     // The other half of the same soft dependency: a store with nothing to put
     // in it is worth a line, because the operator may have meant to add OCS too.
     if component == Component::S3 && !after.ocs.enabled {
-        notes.push(S3_WITHOUT_OCS_NOTE.to_string());
+        notes.push(Note::hint(S3_WITHOUT_OCS_NOTE));
     }
     // A deployment that started without chap-core never asked GitHub for a
     // release, so compose.yml comes from the copy built into this binary.
@@ -142,11 +142,11 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         && !before.chap_core.enabled
         && project.state.chap_compose_source == crate::project::ComposeSource::Embedded
     {
-        notes.push(format!(
+        notes.push(Note::hint(format!(
             "compose.yml is rendered from the chap-core compose file built into varde, at tag \
              `{}`; `varde update --pin-chap-core` moves it to the newest release",
             project.state.chap_image_tag
-        ));
+        )));
     }
 
     // `sync` appends the OCS `.env` sections on the run that first needs them,
@@ -157,9 +157,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     let env_before = env_text(&project);
     let registry = crate::commands::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
-    notes.extend(synced.warnings);
+    notes.extend(notes_of(NoteLevel::Warning, synced.warnings));
     if component == Component::Ocs && data_sources_appended(&env_before, &env_text(&project)) {
-        notes.push(OCS_DATA_SOURCE_NOTE.to_string());
+        notes.push(Note::hint(OCS_DATA_SOURCE_NOTE));
     }
 
     let report = ChangeReport {
@@ -176,7 +176,7 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         kept_volumes: Vec::new(),
     };
     ctx.out
-        .emit(&report, || human_change(&report, &project, &ctx.out))
+        .report(&report, |lines| change_summary(&report, &project, lines))
 }
 
 /// `varde components enable chap-core --url URL`: record a chap-core that runs
@@ -221,13 +221,13 @@ fn use_external_chap_core(
 
     let registry = crate::commands::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
-    let mut notes = synced.warnings;
-    notes.extend(detected);
-    notes.push(format!(
+    let mut notes = notes_of(NoteLevel::Warning, synced.warnings);
+    notes.extend(detected.map(Note::hint));
+    notes.push(Note::hint(format!(
         "model services register with the chap-core at {} on the next `varde up`, calling \
          back to them at {}; `varde status` asks it",
         external.url, external.models_host
-    ));
+    )));
     let report = ChangeReport {
         name: component.name().to_string(),
         enabled: true,
@@ -242,7 +242,7 @@ fn use_external_chap_core(
         kept_volumes: Vec::new(),
     };
     ctx.out
-        .emit(&report, || human_change(&report, &project, &ctx.out))
+        .report(&report, |lines| change_summary(&report, &project, lines))
 }
 
 /// The host port a component will publish once this run is done: the `--port`
@@ -395,7 +395,7 @@ pub(super) fn base_url(args: &ComponentsEnableArgs) -> Result<Option<Option<Stri
 /// The file is what OCS reads and the record is only a record of it, so the
 /// file is edited first and the record follows. `None` when neither flag was
 /// given.
-fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<Option<String>> {
+fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<Option<Note>> {
     if !args.read_only && !args.read_write {
         return Ok(None);
     }
@@ -415,14 +415,14 @@ fn set_read_only(project: &mut Project, args: &ComponentsEnableArgs) -> Result<O
     let key = crate::components::OCS_READ_ONLY_KEY;
     Ok(Some(match edit {
         crate::compose::sync::KeyEdit::Unchanged => {
-            format!("{config} already has {key}: {wanted}")
+            Note::hint(format!("{config} already has {key}: {wanted}"))
         }
-        crate::compose::sync::KeyEdit::Rewritten => {
-            format!("set {key}: {wanted} in {config}; {READ_ONLY_APPLY}")
-        }
-        crate::compose::sync::KeyEdit::Appended => {
-            format!("added {key}: {wanted} to {config}; {READ_ONLY_APPLY}")
-        }
+        crate::compose::sync::KeyEdit::Rewritten => Note::info(format!(
+            "set {key}: {wanted} in {config}; {READ_ONLY_APPLY}"
+        )),
+        crate::compose::sync::KeyEdit::Appended => Note::info(format!(
+            "added {key}: {wanted} to {config}; {READ_ONLY_APPLY}"
+        )),
     }))
 }
 

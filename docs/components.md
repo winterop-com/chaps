@@ -64,8 +64,8 @@ varde components disable ocs --purge  # and its data
 Both commands edit `.varde/components.yaml` and then run `varde sync`, so the
 compose files on disk always match. `varde up` applies them. `disable` also
 stops and removes the containers of the component it is taking away, while
-compose still has the definition to name them by, and says so in a `note:`
-line - so the host port it published is free straight away.
+compose still has the definition to name them by, and says so in a line of
+its output - so the host port it published is free straight away.
 
 Enabling a component that is already on is how its settings change: `--port`
 moves the host port it publishes, `--port none` takes it away, and nothing else
@@ -77,20 +77,25 @@ thing to change by accident: see [DHIS2](./dhis2.md#the-seed).
 
 ### What `enable` tells you
 
-Every run says what it wrote and what to do next, and adds a `note:` line per
-thing that is worth knowing but is nobody's fault. Turning OCS on for the first
-time is the noisiest of them:
+Every run says what it did and what to do next. A problem comes as a
+`warning:` line on stderr. With `-v`, the files it wrote and the background
+come as `hint:` lines (see [Levels](./status.md#levels)). Turning OCS on for
+the first time is the noisiest of them:
 
 ```text
+$ varde -v components enable ocs
 enabled ocs on http://localhost:8790
-written  compose.ocs.yml
-written  .env
-note: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
-note: wrote ocs/climate-service.yaml; it is yours to edit, and varde never rewrites it
-note: OCS will soon need an S3-compatible object store; `varde components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
-note: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `varde auth show` reports which are set
+warning: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
+hint: wrote ocs/climate-service.yaml; it is yours to edit, and varde never rewrites it
+hint: OCS will soon need an S3-compatible object store; `varde components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
+hint: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `varde auth show` reports which are set
+hint: wrote compose.ocs.yml
+hint: wrote .env
 run `varde up` to apply
 ```
+
+Without `-v`, the same run prints the first line, the warning and the last
+line.
 
 The port line is the same probe `varde init` makes, and a warning for the same
 reason: nothing is being started here, the listener is often something you are
@@ -108,14 +113,14 @@ directions. Enabling `s3` on a deployment with no OCS says so, because nothing
 else in a varde deployment writes to it:
 
 ```text
-note: the object store is for OCS to keep its objects in, and this deployment has no OCS; `varde components enable ocs` adds one, and nothing else here writes to the store
+hint: the object store is for OCS to keep its objects in, and this deployment has no OCS; `varde components enable ocs` adds one, and nothing else here writes to the store
 ```
 
 and disabling `s3` while OCS is on says what the next sync takes off the OCS
 service, which is a change to a service you did not name:
 
 ```text
-note: the OCS service loses its S3_* variables on this sync; OCS does not read them yet, and `varde components enable s3` puts them back
+hint: the OCS service loses its S3_* variables on this sync; OCS does not read them yet, and `varde components enable s3` puts them back
 ```
 
 Neither is a refusal. A store with nothing to put in it and an OCS with no
@@ -125,12 +130,14 @@ Turning `dhis2` on says two more things, because neither is visible from the
 compose file and both decide what the first start does:
 
 ```text
+$ varde -v components enable dhis2
 enabled dhis2 on http://localhost:8780
-written  compose.dhis2.yml
-written  .env
-note: wrote dhis2/dhis.conf; it is yours to edit, and varde never rewrites it
-note: the first `varde up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `varde components disable dhis2 --purge` makes it happen again
-note: the first `varde up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `varde logs dhis2` is where that shows
+hint: wrote dhis2/dhis.conf; it is yours to edit, and varde never rewrites it
+hint: the first `varde up` restores https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz into `dhis2_db`, once, on the database it creates; after that only `varde components disable dhis2 --purge` makes it happen again
+hint: the first `varde up` takes minutes before DHIS2 answers - it migrates its schema on the way up - and `varde logs dhis2` is where that shows
+the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
+hint: wrote compose.dhis2.yml
+hint: wrote .env
 run `varde up` to apply
 ```
 
@@ -146,11 +153,12 @@ deployment. See [DHIS2](./dhis2.md).
 and names the volume it kept:
 
 ```text
+$ varde -v components disable ocs
 disabled ocs
-removed compose.ocs.yml
-note: kept volume mychap-1ab2c3_ocs_data; remove it with `varde components disable ocs --purge` or `docker volume rm mychap-1ab2c3_ocs_data`
-note: the ocs/ directory is left alone; it is yours
-run `varde up` to apply
+kept volume mychap-1ab2c3_ocs_data; remove it with `varde components disable ocs --purge` or `docker volume rm mychap-1ab2c3_ocs_data`
+hint: the ocs/ directory is left alone; it is yours
+hint: removed compose.ocs.yml
+hint: `varde status` shows what runs now
 ```
 
 `ocs` keeps `ocs_data`, `s3` keeps `s3_data`, and `dhis2` keeps `dhis2_home`,

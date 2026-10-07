@@ -528,7 +528,7 @@ compares the tag in the **rendered** `compose.dhis2.yml` - what is deployed -
 against the one being asked for, not two records against each other:
 
 ```text
-note: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
+warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
 Moving the seed does not need this care and moving the tag does, which is why the
@@ -587,7 +587,7 @@ So `varde init --with dhis2` and `varde components enable dhis2` each end with t
 line that names the command instead:
 
 ```text
-note: the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
+the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
 ```
 
 ### `up` and `status` keep asking until a connect is recorded
@@ -659,8 +659,8 @@ that is the command; `connected_at` cannot answer it and does not try.
 `connect` says as much where it writes the record:
 
 ```text
-recorded in `.varde/components.yaml`, so `varde up` and `varde status` stop asking
-  a note that this ran, not proof the route is still right; `varde dhis2 show` asks DHIS2
+hint: recorded the connect in `.varde/components.yaml`, so `varde up` and `varde status` stop asking for it
+hint: the record says that this ran, not that the route is still right; `varde dhis2 show` asks DHIS2
 ```
 
 #### What sets it
@@ -720,7 +720,7 @@ route, which is why it clears the record whether or not `--purge` was given: a
 `dhis2_db` kept on disk may be re-created from the dump later anyway.
 
 ```text
-note: the record of `varde dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
+hint: the record of `varde dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
 ```
 
 #### What does not clear it
@@ -862,12 +862,12 @@ connect`. A URL that did not answer is still recorded, since the DHIS2 may just
 be down for maintenance. The report says so.
 
 ```text
+dhis2      https://dhis2.example.org (answers /api/ping)
+chap-url   https://chap.example.org
+route      https://chap.example.org/**
+login      API token from `.env` (accepted)
+connected  never recorded
 recorded the external DHIS2 at https://dhis2.example.org in `.varde/components.yaml`
-dhis2     https://dhis2.example.org (answers /api/ping)
-chap-url  https://chap.example.org
-route     https://chap.example.org/**
-login     API token from `.env` (accepted)
-connected never recorded
 run `varde dhis2 connect` to point its route at this Chap
 ```
 
@@ -922,9 +922,13 @@ only when all three are already true, and names whichever is not:
 - it carries the `F_CHAP_MODELING_APP` authority.
 
 ```text
-repointed the `chap` route at http://chap:8000/**
-  it pointed at http://158.39.75.126/stable/**
-  verified chap-core answered through it: healthy
+$ varde -v dhis2 route
+DHIS2 2.42.6 at http://localhost:8780, as `admin`
+hint: the credential is the DHIS2 default password
+repointed the `chap` route at http://chap:8000/**; chap-core answered through it
+hint: the route was rewritten because it pointed at http://158.39.75.126/stable/**
+hint: chap-core said: healthy
+hint: run `varde dhis2 apps` next, or `varde dhis2 show` to see what is still missing
 ```
 
 The target is `http://chap:8000/**` - the compose service alias, never
@@ -1162,13 +1166,14 @@ there can read.
 leaves `dhis2/` alone:
 
 ```text
+$ varde -v components disable dhis2
 disabled dhis2
-removed compose.dhis2.yml
-note: kept volume mychap-1ab2c3_dhis2_home; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_home`
-note: kept volume mychap-1ab2c3_dhis2_db; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_db`
-note: kept volume mychap-1ab2c3_dhis2_dump; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_dump`
-note: the dhis2/ directory is left alone; it is yours
-run `varde up` to apply
+kept volume mychap-1ab2c3_dhis2_home; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_home`
+kept volume mychap-1ab2c3_dhis2_db; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_db`
+kept volume mychap-1ab2c3_dhis2_dump; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_dump`
+hint: the dhis2/ directory is left alone; it is yours
+hint: removed compose.dhis2.yml
+hint: `varde status` shows what runs now
 ```
 
 ## Backing it up

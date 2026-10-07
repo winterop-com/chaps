@@ -17,7 +17,8 @@ pub fn route(ctx: &Ctx, args: &Dhis2RouteArgs) -> Result<()> {
         skipped: Vec::new(),
         record: None,
     };
-    ctx.out.emit(&report, || human_report(&report, &ctx.out))
+    ctx.out
+        .report(&report, |lines| report_summary(&report, lines))
 }
 
 /// Put the route where it belongs, and prove the path through it.
@@ -60,24 +61,9 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
         }
     };
 
+    // A chap-core that does not answer is a warning in the report, not an
+    // error: the route is correct whatever chap-core did.
     let (verified, answered, token_refused) = verify_route(&session.dhis2, token.is_some());
-    // The route is correct whatever chap-core did, so a chap-core that is not
-    // answering is said rather than raised: it is `varde up`'s problem, not
-    // this command's, and the report carries `verified: false` for a script.
-    if token_refused {
-        crate::output::warn(&format!(
-            "the `{}` route carries this deployment's API token and chap-core refused it: \
-             {answered}; `varde auth show` says which token varde has, and chap-core has to be \
-             running with the same one",
-            dhis2::ROUTE_CODE
-        ));
-    } else if !verified {
-        crate::output::warn(&format!(
-            "the `{}` route is in place but nothing answered through it: {answered}; run \
-             `varde status` to see whether chap-core is up",
-            dhis2::ROUTE_CODE
-        ));
-    }
     // A create has just made an id nothing here has seen, so that one case
     // re-reads the listing; the other two already know it, and a second
     // request for something already in hand is a request not worth making.
@@ -99,6 +85,7 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
         id,
         verified,
         answered,
+        token_refused,
     })
 }
 

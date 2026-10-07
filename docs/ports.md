@@ -149,8 +149,7 @@ and warns rather than refuses:
 
 ```text
 enabled ocs on http://localhost:8790
-written  compose.ocs.yml
-note: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
+warning: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
 run `varde up` to apply
 ```
 

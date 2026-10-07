@@ -23,7 +23,8 @@ pub fn analytics(ctx: &Ctx, args: &Dhis2AnalyticsArgs) -> Result<()> {
         skipped: Vec::new(),
         record: None,
     };
-    ctx.out.emit(&report, || human_report(&report, &ctx.out))
+    ctx.out
+        .report(&report, |lines| report_summary(&report, lines))
 }
 
 /// Start an analytics run, or adopt the one that is already going, and wait.

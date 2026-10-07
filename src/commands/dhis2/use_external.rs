@@ -1,6 +1,7 @@
 //! `varde dhis2 use`: a DHIS2 that runs elsewhere, recorded and asked.
 
 use super::*;
+use crate::commands::components::Note;
 
 /// How long `use` gives DHIS2 to answer: it asks once, and a DHIS2 that is
 /// still migrating is `varde dhis2 show`'s to wait for.
@@ -58,8 +59,12 @@ pub struct UseReport {
     pub component: bool,
     /// What asking it just now found; `null` when there is nothing to ask.
     pub probe: Option<UseProbe>,
-    pub notes: Vec<String>,
+    pub notes: Vec<Note>,
     pub next: String,
+    /// Whether `next` is an optional command rather than a step the reader
+    /// has to do. Only for the human lines.
+    #[serde(skip)]
+    pub next_is_hint: bool,
 }
 
 /// `varde dhis2 use` — record a DHIS2 that runs elsewhere, change it, forget
@@ -92,6 +97,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             component,
             probe: None,
             notes: Vec::new(),
+            next_is_hint: component,
             next: match component {
                 true => "`varde dhis2` talks to the `dhis2` component; run `varde dhis2 show`",
                 false => {
@@ -101,7 +107,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             }
             .to_string(),
         };
-        return ctx.out.emit(&report, || human_use(&report, &ctx.out));
+        return ctx.out.report(&report, |lines| use_summary(&report, lines));
     }
 
     let (external, outcome) = match (&args.url, &args.chap_url) {
@@ -171,6 +177,7 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             component,
             probe: None,
             notes: Vec::new(),
+            next_is_hint: component,
             next: match component {
                 true => "`varde dhis2` talks to the `dhis2` component; run `varde dhis2 show`",
                 false => {
@@ -180,21 +187,20 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
             }
             .to_string(),
         };
-        return ctx.out.emit(&report, || human_use(&report, &ctx.out));
+        return ctx.out.report(&report, |lines| use_summary(&report, lines));
     };
 
     let probe = probe_external(&project, recorded);
     let mut notes = Vec::new();
     if listed_login {
-        notes.push(
-            "listed the DHIS2 login variables in `.env`, commented out, for the credentials"
-                .to_string(),
-        );
+        notes.push(Note::hint(
+            "listed the DHIS2 login variables in `.env`, commented out, for the credentials",
+        ));
     }
-    notes.extend(loopback_note(&recorded.url, &recorded.chap_url));
-    notes.extend(cleartext_note(&recorded.url));
+    notes.extend(loopback_note(&recorded.url, &recorded.chap_url).map(Note::warning));
+    notes.extend(cleartext_note(&recorded.url).map(Note::warning));
     if !project.state.components.has_chap_core_api() {
-        notes.push(NO_CHAP_CORE.to_string());
+        notes.push(Note::warning(NO_CHAP_CORE));
     }
     let next = match (&probe, &recorded.connected_at) {
         (probe, _) if !probe.answered => {
@@ -211,6 +217,11 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         (_, None) => "run `varde dhis2 connect` to point its route at this Chap".to_string(),
         (_, Some(_)) => "run `varde dhis2 show` to see what it has".to_string(),
     };
+    // A recorded connect leaves nothing the reader has to do.
+    let next_is_hint = probe.answered
+        && probe.credential.is_some()
+        && probe.accepted != Some(false)
+        && recorded.connected_at.is_some();
     let report = UseReport {
         outcome,
         target: Some(dhis2::external_route_target(&recorded.chap_url)),
@@ -220,8 +231,12 @@ pub fn use_external(ctx: &Ctx, args: &Dhis2UseArgs) -> Result<()> {
         probe: Some(probe),
         notes,
         next,
+        next_is_hint,
     };
-    ctx.out.emit(&report, || human_use(&report, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", use_table(&report, &ctx.out));
+    }
+    ctx.out.report(&report, |lines| use_summary(&report, lines))
 }
 
 /// A note for a DHIS2 reached over plain `http://` on another machine: every
