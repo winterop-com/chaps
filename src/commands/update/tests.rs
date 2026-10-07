@@ -292,8 +292,10 @@ fn the_plan_lists_each_model_before_anything_is_pulled() {
         lines.text(),
         "hint: the registry is https://example.test/registry.yaml (network)\n"
     );
-    assert!(text.contains("  a  v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
-    assert!(text.contains("  b  v1.0.0 (sha-3333333)  pinned, skipped\n"));
+    // The names are padded to the width of "chap-core", so the versions
+    // line up in one column.
+    assert!(text.contains("  a          v1.0.0 (sha-1111111) -> v1.1.0 (sha-2222222)\n"));
+    assert!(text.contains("  b          v1.0.0 (sha-3333333)  pinned, skipped\n"));
     assert!(text.contains(
         "  chap-core  latest  moving tag, would be re-pulled; pin it with \
              `varde update --pin-chap-core`\n"

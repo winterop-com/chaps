@@ -352,8 +352,8 @@ pub fn chap_core_line(c: &ChapCoreUpdate) -> String {
 }
 
 /// The chap-core row, with the new tag coloured the way a model row's is.
-pub(super) fn chap_core_cell(out: &Out, change: &ChapCoreUpdate) -> String {
-    let line = chap_core_line(change);
+pub(super) fn chap_core_cell(out: &Out, change: &ChapCoreUpdate, width: usize) -> String {
+    let line = super::report::pad_name(chap_core_line(change), "chap-core", width);
     if !change.changed {
         return out.dim(&line);
     }

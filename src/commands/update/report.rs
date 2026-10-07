@@ -119,19 +119,33 @@ pub(super) fn plan_text(report: &UpdateReport, out: &Out) -> String {
         text.push_str(&out.dim("no models enabled"));
         text.push('\n');
     }
+    // The names are padded to one width so that the versions line up.
+    let width = report
+        .models
+        .iter()
+        .map(|m| m.id.len())
+        .chain(report.chap_core.iter().map(|_| "chap-core".len()))
+        .chain(report.components.iter().map(|c| c.name.len()))
+        .max()
+        .unwrap_or(0);
     for m in &report.models {
         // The new version is the only thing on the line that changed, so it is
         // the only thing that is coloured.
         let old = version_cell(m, &m.old_version, &m.old_tag);
         let line = if m.changed {
             format!(
-                "  {}  {} -> {}",
+                "  {:<width$}  {} -> {}",
                 m.id,
                 out.dim(&old),
                 out.ok(&version_cell(m, &m.new_version, &m.new_tag))
             )
         } else {
-            format!("  {}  {}  {}", m.id, out.dim(&old), out.dim(state_of(m)))
+            format!(
+                "  {:<width$}  {}  {}",
+                m.id,
+                out.dim(&old),
+                out.dim(state_of(m))
+            )
         };
         text.push_str(&line);
         text.push('\n');
@@ -141,15 +155,27 @@ pub(super) fn plan_text(report: &UpdateReport, out: &Out) -> String {
     }
     let tense = |line: String| would(line, report.dry_run);
     if let Some(core) = &report.chap_core {
-        text.push_str(&format!("  {}\n", tense(chap_core_cell(out, core))));
+        text.push_str(&format!("  {}\n", tense(chap_core_cell(out, core, width))));
     }
     for component in &report.components {
         text.push_str(&format!(
             "  {}\n",
-            out.dim(&tense(component_line(component)))
+            out.dim(&tense(pad_name(
+                component_line(component),
+                &component.name,
+                width
+            )))
         ));
     }
     text
+}
+
+/// `line` with `name` at its start padded to `width`.
+pub(super) fn pad_name(line: String, name: &str, width: usize) -> String {
+    match line.strip_prefix(name) {
+        Some(rest) => format!("{name:<width$}{rest}"),
+        None => line,
+    }
 }
 
 /// A plan line in the tense of the run: a dry run pulls nothing, so a moving
