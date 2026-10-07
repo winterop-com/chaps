@@ -1,6 +1,6 @@
 //! `varde completions <shell>`: a completion script on stdout.
 //!
-//! Generated from the same [`Cli::command()`] tree the reference chapter is
+//! Generated from the same [`crate::cli::command()`] tree the reference chapter is
 //! generated from, so a new flag is completable as soon as it exists.
 //!
 //! The release archives carry four of the scripts under `completions/`, named
@@ -8,10 +8,9 @@
 //! and `_varde.ps1` - and `install.sh` puts them in place; this command is
 //! what produced them.
 
-use crate::cli::{Cli, CompletionsArgs};
+use crate::cli::CompletionsArgs;
 use crate::commands::Ctx;
 use crate::error::Result;
-use clap::CommandFactory;
 use clap_complete::Shell;
 use std::io::Write;
 
@@ -38,7 +37,7 @@ pub fn run(_ctx: &Ctx, args: &CompletionsArgs) -> Result<()> {
 
 /// The completion script for `shell`.
 pub fn script(shell: Shell) -> String {
-    let mut command = Cli::command();
+    let mut command = crate::cli::command();
     let mut buffer = Vec::new();
     clap_complete::generate(shell, &mut command, "varde", &mut buffer);
     String::from_utf8(buffer).expect("clap_complete writes UTF-8")

@@ -1,9 +1,10 @@
 use super::*;
-use clap::CommandFactory;
+use clap::{CommandFactory, FromArgMatches};
 
 #[test]
 fn command_tree_is_valid() {
     Cli::command().debug_assert();
+    command().debug_assert();
 }
 
 /// The help line and the URL the browser opens must not drift apart.
@@ -51,10 +52,11 @@ fn no_help_is_longer_than_a_screen_and_no_option_longer_than_a_clause() {
     /// One screen of `--help`, and one clause of option help.
     ///
     /// The root listing is the only thing near the line: it grows by one
-    /// row per top-level command, and there are now twenty-eight of them.
+    /// row per top-level command, and there are now twenty-eight of them,
+    /// and it lists both option blocks: the global and the registry ones.
     /// Outside a deployment the listing is shorter still, because the
     /// commands that need a project are hidden from it.
-    const MAX_LINES: usize = 50;
+    const MAX_LINES: usize = 52;
     const MAX_CHARS: usize = 90;
 
     fn check(command: &mut clap::Command, path: &str) {
@@ -107,7 +109,7 @@ fn no_help_is_longer_than_a_screen_and_no_option_longer_than_a_clause() {
         }
     }
 
-    let mut root = Cli::command();
+    let mut root = command();
     // The globals only reach the subcommands, and the usage lines only
     // exist, once clap has built the tree.
     root.build();
@@ -907,4 +909,77 @@ fn registry_has_update_and_show() {
         };
         assert_eq!(matches!(r.command, RegistryCmd::Update(_)), want_update);
     }
+}
+
+/// The help of a command, from the tree `main` parses with.
+fn help_of(path: &[&str]) -> String {
+    let mut command = command();
+    command.build();
+    let mut sub = &mut command;
+    for name in path {
+        sub = sub.find_subcommand_mut(name).expect("a subcommand");
+    }
+    sub.render_help().to_string()
+}
+
+/// The registry options show where the registry is read, and nowhere else.
+#[test]
+fn only_the_commands_that_read_the_registry_show_its_options() {
+    for path in [&["init"][..], &["models", "list"], &["sync"], &["up"]] {
+        let help = help_of(path);
+        assert!(help.contains("Registry options:"), "{path:?}:\n{help}");
+        assert!(help.contains("--registry-url"), "{path:?}:\n{help}");
+        assert!(help.contains("--offline"), "{path:?}:\n{help}");
+    }
+    for path in [&["logs"][..], &["down"], &["status"], &["auth", "show"]] {
+        let help = help_of(path);
+        assert!(!help.contains("Registry options"), "{path:?}:\n{help}");
+        assert!(!help.contains("--registry-url"), "{path:?}:\n{help}");
+        assert!(!help.contains("--offline"), "{path:?}:\n{help}");
+        assert!(help.contains("--json"), "{path:?}:\n{help}");
+    }
+    let apps = help_of(&["dhis2", "apps"]);
+    assert!(apps.contains("--offline"), "{apps}");
+    assert!(!apps.contains("--registry-url"), "{apps}");
+    let root = help_of(&[]);
+    assert!(root.contains("Registry options:"), "{root}");
+}
+
+/// Every entry in the list names a command that exists, so a rename cannot
+/// hide the options from a command that reads the registry.
+#[test]
+fn every_registry_user_is_a_command() {
+    let root = command();
+    for (path, _) in REGISTRY_USERS {
+        let mut sub = &root;
+        for name in path.split(' ') {
+            sub = sub
+                .find_subcommand(name)
+                .unwrap_or_else(|| panic!("`varde {path}` is not a command"));
+        }
+    }
+}
+
+/// Hidden is not removed: the options still parse on every command, before
+/// the command name and after it.
+#[test]
+fn hidden_registry_options_still_parse() {
+    let parse = |argv: &[&str]| {
+        let matches = command()
+            .try_get_matches_from(argv)
+            .unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+        Cli::from_arg_matches(&matches).unwrap()
+    };
+    let cli = parse(&["varde", "--offline", "status"]);
+    assert!(cli.offline);
+    assert!(matches!(cli.command, Command::Status(_)));
+    assert!(parse(&["varde", "status", "--offline"]).offline);
+    assert!(parse(&["varde", "--offline", "init"]).offline);
+    let url = "http://127.0.0.1:18001/registry.yaml";
+    assert_eq!(
+        parse(&["varde", "logs", "--registry-url", url]).registry_url,
+        url
+    );
+    let cli = parse(&["varde", "auth", "show", "--cache-dir", "cache"]);
+    assert_eq!(cli.cache_dir, Some(PathBuf::from("cache")));
 }

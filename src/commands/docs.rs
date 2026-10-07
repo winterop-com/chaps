@@ -6,14 +6,14 @@
 //! this output to `docs/reference.md` and a test compares the two, so a flag
 //! cannot change without the chapter changing with it.
 //!
-//! Rendering walks the static [`Cli::command()`] tree, not the one `main.rs`
+//! Rendering walks the static [`crate::cli::command()`] tree, not the one `main.rs`
 //! parsed: outside a deployment directory `main.rs` hides the commands that
 //! need a project, and the reference documents all of them.
 
-use crate::cli::{Cli, DocsMarkdownArgs};
+use crate::cli::DocsMarkdownArgs;
 use crate::commands::Ctx;
 use crate::error::Result;
-use clap::{Arg, ArgAction, Command as ClapCommand, CommandFactory};
+use clap::{Arg, ArgAction, Command as ClapCommand};
 use std::fmt::Write as _;
 
 /// The chapter's own front matter, so the generated file stands alone in the
@@ -24,8 +24,10 @@ const HEADER: &str = "\
 Generated from the `--help` texts by `make docs-reference`; edit
 `src/cli.rs` and run that target rather than editing this file.
 
-Every command accepts the global options listed under [varde](#varde),
-`--json` included. Commands that need a deployment directory are hidden from
+Every command accepts the options listed under [varde](#varde), `--json`
+included. The registry options (`--registry-url`, `--offline`, `--cache-dir`)
+show only in the help of the commands that use them, and each such command
+names them below. Commands that need a deployment directory are hidden from
 `varde --help` outside one, but they are all listed here.
 ";
 
@@ -43,9 +45,9 @@ pub fn run(ctx: &Ctx, _args: &DocsMarkdownArgs) -> Result<()> {
 /// One trailing newline and no other trailing whitespace, so a shell
 /// redirection and a `assert_eq!` against the file agree byte for byte.
 fn reference() -> String {
-    let mut root = Cli::command();
-    // `render_usage` and the propagated global options only exist once clap has
-    // built the tree.
+    // With the registry options hidden where the help hides them, and built:
+    // `render_usage` and the propagated global options need the build.
+    let mut root = crate::cli::command();
     root.build();
 
     // Each block below ends in a blank line, so the header needs one too.
@@ -76,6 +78,20 @@ fn render(command: &ClapCommand, path: &str, is_root: bool, out: &mut String) {
             let _ = writeln!(out, "| {} | {} |", spelling(arg), description(arg));
         }
         out.push('\n');
+    }
+
+    let registry: Vec<String> = command
+        .get_arguments()
+        .filter(|arg| !is_root && arg.is_global_set() && !arg.is_hide_set())
+        .filter(|arg| arg.get_help_heading() == Some("Registry options"))
+        .map(spelling)
+        .collect();
+    if !registry.is_empty() {
+        let _ = writeln!(
+            out,
+            "Registry options: {} (see [varde](#varde)).\n",
+            registry.join(", ")
+        );
     }
 
     let subs: Vec<&ClapCommand> = command.get_subcommands().filter(documented_sub).collect();

@@ -114,8 +114,9 @@ and [DHIS2](./dhis2.md).
 
 For a deployment with the [`dhis2` component](./dhis2.md), or with an
 [external DHIS2](./dhis2.md#a-dhis2-that-runs-elsewhere) recorded by `varde dhis2
-use`. Apart from `use`, which records one in `.varde/components.yaml`, nothing
-here touches Docker or a file: every verb is requests to DHIS2's own API.
+use`. Apart from `use`, which records a DHIS2 in `.varde/components.yaml`, and
+`connect`, which records when it ran in the same file, nothing here touches
+Docker or a file: every verb is requests to DHIS2's own API.
 
 | Command | What it does |
 | --- | --- |
@@ -128,11 +129,14 @@ here touches Docker or a file: every verb is requests to DHIS2's own API.
 
 Every one of them is idempotent: a second run repoints nothing, reinstalls nothing
 and says so. All of them take `--user NAME` and `--wait SECONDS` (how long to wait
-for DHIS2's API, twenty minutes by default, because a first start takes minutes).
-The credentials come from `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` in
-`.env`, else `VARDE_DHIS2_PASSWORD` in the environment, else the DHIS2 default -
-and there is no `--password` flag, because a password on a command line is in the
-shell history. `varde up` does none of this and
+for DHIS2's API: 20 minutes by default for the `dhis2` component, because a first
+start takes minutes, and 60 seconds for an external DHIS2). The credential comes
+from `DHIS2_API_TOKEN` or `DHIS2_ADMIN_USERNAME`/`DHIS2_ADMIN_PASSWORD` in
+`.env`, else `VARDE_DHIS2_TOKEN` or `VARDE_DHIS2_PASSWORD` in the environment,
+else the seed password, else `admin`/`district` (only on a DHIS2 that varde
+deployed). See [The
+credentials](./dhis2.md#the-credentials-and-where-they-come-from). There is no
+`--password` flag, because a password on a command line is in the shell history. `varde up` does none of this and
 [the chapter says why](./dhis2.md#varde-up-does-none-of-this-on-purpose) - so
 `varde up` and `varde status` each end by naming `varde dhis2 connect` until one
 has been recorded in `.varde/components.yaml`. That record suppresses the hint
@@ -193,8 +197,8 @@ way to find out why a setting is not taking effect.
 
 | Command | What it does |
 | --- | --- |
-| `varde backup create [--out PATH] [--no-db] [--no-models]` | Write the database, the model data and the project files to one `tar.gz`. |
-| `varde backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-start]` | Put a deployment back from such an archive, after printing what it overwrites. |
+| `varde backup create [--out PATH] [--no-db] [--no-models] [--no-components]` | Write the chap-core database (pg_dump), the model data, the component data (the DHIS2 database as a pg_dump) and the project files to one `tar.gz`. |
+| `varde backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-components] [--adopt-identity] [--no-start]` | Put a deployment back from such an archive, after printing what it overwrites. |
 
 See [Backup and restore](./backup.md).
 
@@ -216,8 +220,12 @@ newer release exists.
 
 ## Global options
 
-They are accepted before or after the subcommand, and the
-[reference](./reference.md#varde) lists them with their defaults.
+They are accepted before or after the subcommand, on every command, and the
+[reference](./reference.md#varde) lists them with their defaults. The last
+three are the registry options. The help lists them under "Registry options"
+only for the commands that use them; [Global
+options](./status.md#global-options) names those commands. On the other
+commands they change only the once-a-day notice that a newer release exists.
 
 | Option | What it does |
 | --- | --- |
@@ -227,8 +235,8 @@ They are accepted before or after the subcommand, and the
 | `-d, --debug` | Everything `-vv` says, plus response bodies and resolved paths. |
 | `-C, --project-dir DIR` | Where to look for the project; found like git finds `.git`. |
 | `--registry-url URL` | A different marketplace index, for a fork or a mirror. Inside a deployment the default is the one `init` recorded. |
-| `--offline` | Never touch the network; use the cache or the embedded snapshot. |
-| `--cache-dir DIR` | Override the registry cache directory for one invocation. |
+| `--offline` | Never touch the network; use the cache or the embedded snapshot. Shown by the commands that read the registry, and by `dhis2 apps`, `dhis2 connect` and `self update`, which use it for the App Hub and the release feed. |
+| `--cache-dir DIR` | Override the cache directory for one invocation: the registry snapshot, and the downloads of `self update`. |
 
 ## `--json` for scripts and tools
 

@@ -33,7 +33,7 @@ mod status;
 mod top;
 mod tui;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::FromArgMatches;
 use cli::{
     AuthSub, BackupSub, Cli, Command, ComponentsCmd, Dhis2Sub, DockerCmd, JobsCmd, ModelsCmd,
     SelfSub,
@@ -239,9 +239,9 @@ fn parse() -> Cli {
         no_project(&matches, &project_dir);
     }
     let command = if inside {
-        hide_outside_commands(Cli::command())
+        hide_outside_commands(cli::command())
     } else {
-        hide_project_commands(Cli::command())
+        hide_project_commands(cli::command())
     };
     let json = argv
         .iter()
@@ -385,7 +385,7 @@ fn hide_outside_commands(mut command: clap::Command) -> clap::Command {
 /// keeps clap's required-subcommand usage line and its own help. Anything
 /// else - a subcommand, an unknown word, `--help` - stays clap's to answer.
 fn bare_project_group(argv: &[String]) -> Option<clap::ArgMatches> {
-    let mut command = Cli::command();
+    let mut command = cli::command();
     for name in PROJECT_ONLY_GROUPS {
         command = command.mut_subcommand(name, |c| {
             c.subcommand_required(false).arg_required_else_help(false)

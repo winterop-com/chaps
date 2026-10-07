@@ -3,8 +3,10 @@
 Generated from the `--help` texts by `make docs-reference`; edit
 `src/cli.rs` and run that target rather than editing this file.
 
-Every command accepts the global options listed under [varde](#varde),
-`--json` included. Commands that need a deployment directory are hidden from
+Every command accepts the options listed under [varde](#varde), `--json`
+included. The registry options (`--registry-url`, `--offline`, `--cache-dir`)
+show only in the help of the commands that use them, and each such command
+names them below. Commands that need a deployment directory are hidden from
 `varde --help` outside one, but they are all listed here.
 
 ## varde
@@ -23,8 +25,8 @@ Usage: varde [OPTIONS] <COMMAND>
 | `-d, --debug` | -vv plus the raw responses. |
 | `-C, --project-dir <DIR>` | Project directory, or any directory inside one. Default: `.`. |
 | `--registry-url <URL>` | URL of the marketplace registry index. Default: `https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml`. |
-| `--offline` | Never touch the network; use the cache or the snapshot. |
-| `--cache-dir <DIR>` | Directory for the cached registry snapshot. |
+| `--offline` | Never touch the network; use what is cached or on this machine. |
+| `--cache-dir <DIR>` | Cache directory: the registry snapshot and the self-update downloads. |
 
 Subcommands: [`varde init`](#varde-init), [`varde run`](#varde-run), [`varde ps`](#varde-ps), [`varde stop`](#varde-stop), [`varde top`](#varde-top), [`varde models`](#varde-models), [`varde components`](#varde-components), [`varde ui`](#varde-ui), [`varde registry`](#varde-registry), [`varde sync`](#varde-sync), [`varde update`](#varde-update), [`varde up`](#varde-up), [`varde down`](#varde-down), [`varde logs`](#varde-logs), [`varde restart`](#varde-restart), [`varde docker`](#varde-docker), [`varde backup`](#varde-backup), [`varde status`](#varde-status), [`varde open`](#varde-open), [`varde jobs`](#varde-jobs), [`varde api`](#varde-api), [`varde chap`](#varde-chap), [`varde doctor`](#varde-doctor), [`varde cleanup`](#varde-cleanup), [`varde auth`](#varde-auth), [`varde dhis2`](#varde-dhis2), [`varde self`](#varde-self), [`varde completions`](#varde-completions)
 
@@ -66,6 +68,8 @@ Usage: varde init [OPTIONS] [DIR]
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde run
 
 Start one model and print where it answers.
@@ -88,6 +92,8 @@ Usage: varde run [OPTIONS] <MODEL>
 | `--chap-core <URL>` | A chap-core elsewhere for the group's models to register with. |
 | `--models-host <HOST>` | Host that chap-core calls the models back at; detected if omitted. |
 | `--timeout <SECONDS>` | How long to wait for the model to answer, in seconds. Default: `300`. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde ps
 
@@ -116,6 +122,8 @@ Usage: varde stop [OPTIONS] [ID]
 | `--all` | Stop every model in the group, or in every group. |
 | `--purge` | Delete the data volumes too, and a group left empty with them. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde top
 
 Watch every varde deployment on this machine as a live tree.
@@ -136,6 +144,8 @@ Browse and manage marketplace models.
 Usage: varde models [OPTIONS] <COMMAND>
 ```
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
 
 ## varde models list
@@ -152,6 +162,8 @@ Usage: varde models list [OPTIONS]
 | `--templates` | List only templates. |
 | `--enabled` | List only the models enabled in this project. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde models search
 
 Search the marketplace by id, name or summary.
@@ -164,6 +176,8 @@ Usage: varde models search [OPTIONS] <QUERY>
 | --- | --- |
 | `<QUERY>` | Text to look for; matching is case-insensitive. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde models info
 
 Show everything known about one model.
@@ -175,6 +189,8 @@ Usage: varde models info [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde models test
 
@@ -192,6 +208,8 @@ Usage: varde models test [OPTIONS] [ID]...
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
 | `--timeout <SECONDS>` | Give up on one model after this many seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde models add
 
@@ -213,6 +231,8 @@ Usage: varde models add [OPTIONS] <SOURCE>
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--runtime-amd64` | Record the image as published for amd64 only. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde models remove
 
 Remove a model that was added with models add.
@@ -225,6 +245,8 @@ Usage: varde models remove [OPTIONS] <ID>
 | --- | --- |
 | `<ID>` | Id of a model added with models add. |
 | `--purge` | Delete the model's data volume as well. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde models enable
 
@@ -245,6 +267,8 @@ Usage: varde models enable [OPTIONS] <ID>
 | `--user <USER>` | User the container runs as, as user:group. |
 | `--allow-template` | Enable a template even though it is not a model. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde models disable
 
 Disable a model and remove its compose overlay.
@@ -257,6 +281,8 @@ Usage: varde models disable [OPTIONS] <ID>
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
 | `--purge` | Delete the model's data volume as well. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde models expose
 
@@ -272,6 +298,8 @@ Usage: varde models expose [OPTIONS] <ID>
 | `--port <PORT\|auto>` | Host port to publish on, or auto for the lowest free one. |
 | `--bind <ADDR>` | Host address to publish the port on, e.g. 127.0.0.1 for this machine. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde models unexpose
 
 Take an enabled model's host port away again.
@@ -283,6 +311,8 @@ Usage: varde models unexpose [OPTIONS] <ID>
 | Argument | Description |
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde components
 
@@ -325,6 +355,8 @@ Usage: varde components enable [OPTIONS] <NAME>
 | `--ocs-country <CODE>` | ISO 3166-1 alpha-3 country code for the OCS extent. |
 | `--ocs-bbox <BBOX>` | OCS extent as xmin,ymin,xmax,ymax in degrees. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde components disable
 
 Turn a component off and remove its compose file.
@@ -338,6 +370,8 @@ Usage: varde components disable [OPTIONS] <NAME>
 | `<NAME>` | Component name: ocs, s3, dhis2 or chap-core. |
 | `--purge` | Delete the component's data volume as well. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde ui
 
 Open the browser: marketplace models and components.
@@ -346,6 +380,8 @@ Open the browser: marketplace models and components.
 Usage: varde ui [OPTIONS]
 ```
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde registry
 
 Inspect and refresh the marketplace registry.
@@ -353,6 +389,8 @@ Inspect and refresh the marketplace registry.
 ```text
 Usage: varde registry [OPTIONS] <COMMAND>
 ```
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 Subcommands: [`varde registry update`](#varde-registry-update), [`varde registry show`](#varde-registry-show)
 
@@ -364,6 +402,8 @@ Fetch the registry from the network and refresh the cache.
 Usage: varde registry update [OPTIONS]
 ```
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde registry show
 
 Show where the registry was loaded from and what it holds.
@@ -371,6 +411,8 @@ Show where the registry was loaded from and what it holds.
 ```text
 Usage: varde registry show [OPTIONS]
 ```
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde sync
 
@@ -383,6 +425,8 @@ Usage: varde sync [OPTIONS]
 | Argument | Description |
 | --- | --- |
 | `--check` | Write nothing; exit non-zero if anything would change. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde update
 
@@ -399,6 +443,8 @@ Usage: varde update [OPTIONS]
 | `--chap-tag <TAG>` | Move chap-core to this tag: vX.Y.Z, latest, master or dev. |
 | `--list-tags` | List the chap-core tags you can move to, newest first. |
 | `--yes` | Answer yes to the confirmation a backwards move asks for. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde up
 
@@ -417,6 +463,8 @@ Usage: varde up [OPTIONS] [EXTRA]...
 | `--wait` | Return only once chap-core and every model answer. |
 | `--timeout <SECONDS>` | How long --wait waits before it fails, in seconds. Default: `300`. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde down
 
@@ -570,6 +618,8 @@ Usage: varde backup restore [OPTIONS] <ARCHIVE>
 | `--adopt-identity` | Take over the compose project name from the archive. |
 | `--no-start` | Do not start the deployment at the end. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde status
 
 Show chap-core health and which models registered.
@@ -711,6 +761,8 @@ Usage: varde chap [OPTIONS] [CHAP_ARGS]...
 | `--timeout <SECONDS>` | How long a model this run starts may take to answer, in seconds. Default: `300`. |
 | `<CHAP_ARGS>...` | Arguments for chap, such as `eval --model-name URL ...`. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde doctor
 
 Run a checklist over this machine and this deployment.
@@ -718,6 +770,8 @@ Run a checklist over this machine and this deployment.
 ```text
 Usage: varde doctor [OPTIONS]
 ```
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde cleanup
 
@@ -774,6 +828,8 @@ Usage: varde auth enable [OPTIONS]
 | --- | --- |
 | `--token <TOKEN>` | Use this API token instead of generating one. |
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde auth disable
 
 Turn authentication off, keeping both values as comments.
@@ -782,6 +838,8 @@ Turn authentication off, keeping both values as comments.
 Usage: varde auth disable [OPTIONS]
 ```
 
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
 ## varde auth rotate
 
 Replace both secrets with freshly generated ones.
@@ -789,6 +847,8 @@ Replace both secrets with freshly generated ones.
 ```text
 Usage: varde auth rotate [OPTIONS]
 ```
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde dhis2
 
@@ -854,6 +914,8 @@ Usage: varde dhis2 apps [OPTIONS]
 | `--user <NAME>` | DHIS2 user to authenticate as, with a password rather than a token. |
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 
+Registry options: `--offline` (see [varde](#varde)).
+
 ## varde dhis2 connect
 
 The route, the apps, then analytics; the route only on an external DHIS2.
@@ -868,6 +930,8 @@ Usage: varde dhis2 connect [OPTIONS]
 | `--wait <SECONDS>` | Seconds to wait for DHIS2's API; 1200 local, 60 external by default. |
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
+
+Registry options: `--offline` (see [varde](#varde)).
 
 ## varde dhis2 use
 
@@ -906,6 +970,8 @@ Usage: varde self update [OPTIONS]
 | `--check` | Report what an update would do and change nothing. |
 | `--version <TAG>` | Install this release tag instead of the newest one. |
 | `-y, --yes` | Do not ask before replacing the binary. |
+
+Registry options: `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde self version
 

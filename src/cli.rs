@@ -100,6 +100,111 @@ pub const DOCS_URL: &str = "https://winterop-com.github.io/varde/";
 /// each command's own options.
 const GLOBAL: &str = "Global options";
 
+/// The heading of `--registry-url`, `--offline` and `--cache-dir`. They are
+/// global, so `varde --offline init` parses, but [`command`] hides them from
+/// the help of every command that does not read them.
+const REGISTRY: &str = "Registry options";
+
+/// The ids of the registry options, as clap names them.
+const REGISTRY_OPTIONS: &[&str] = &["registry_url", "offline", "cache_dir"];
+
+/// The commands whose help lists registry options, and which ones.
+///
+/// Every other command parses them (they are global) and its help leaves them
+/// out. The root lists them all, because the root is where they are usually
+/// typed. A group is here only when every subcommand it has reads the
+/// registry. `self update` and the two `dhis2` commands use `--offline` (and
+/// `self update` the cache directory) for things other than the registry.
+const REGISTRY_USERS: &[(&str, &[&str])] = &[
+    ("init", REGISTRY_OPTIONS),
+    ("run", REGISTRY_OPTIONS),
+    ("stop", REGISTRY_OPTIONS),
+    ("models", REGISTRY_OPTIONS),
+    ("models list", REGISTRY_OPTIONS),
+    ("models search", REGISTRY_OPTIONS),
+    ("models info", REGISTRY_OPTIONS),
+    ("models test", REGISTRY_OPTIONS),
+    ("models add", REGISTRY_OPTIONS),
+    ("models remove", REGISTRY_OPTIONS),
+    ("models enable", REGISTRY_OPTIONS),
+    ("models disable", REGISTRY_OPTIONS),
+    ("models expose", REGISTRY_OPTIONS),
+    ("models unexpose", REGISTRY_OPTIONS),
+    ("components enable", REGISTRY_OPTIONS),
+    ("components disable", REGISTRY_OPTIONS),
+    ("ui", REGISTRY_OPTIONS),
+    ("registry", REGISTRY_OPTIONS),
+    ("registry update", REGISTRY_OPTIONS),
+    ("registry show", REGISTRY_OPTIONS),
+    ("sync", REGISTRY_OPTIONS),
+    ("update", REGISTRY_OPTIONS),
+    ("up", REGISTRY_OPTIONS),
+    ("backup restore", REGISTRY_OPTIONS),
+    ("chap", REGISTRY_OPTIONS),
+    ("doctor", REGISTRY_OPTIONS),
+    ("auth enable", REGISTRY_OPTIONS),
+    ("auth disable", REGISTRY_OPTIONS),
+    ("auth rotate", REGISTRY_OPTIONS),
+    ("dhis2 apps", &["offline"]),
+    ("dhis2 connect", &["offline"]),
+    ("self update", &["offline", "cache_dir"]),
+];
+
+/// The registry options a command's help lists, by its path below `varde`
+/// (`"models list"`).
+pub fn registry_options_of(path: &str) -> &'static [&'static str] {
+    REGISTRY_USERS
+        .iter()
+        .find(|(name, _)| *name == path)
+        .map(|(_, ids)| *ids)
+        .unwrap_or(&[])
+}
+
+/// The command tree that parses and prints help: [`Cli::command`] with the
+/// registry options hidden where they do not apply.
+///
+/// Clap copies a global option into each subcommand when it builds the tree,
+/// unless the subcommand already has an option with that id. So every
+/// subcommand gets its own copies first, in the order clap would use, with
+/// the registry options hidden where [`REGISTRY_USERS`] does not list them.
+/// The copies stay global, so an option still parses on every command, before
+/// or after its name.
+pub fn command() -> clap::Command {
+    use clap::CommandFactory;
+    let root = Cli::command();
+    let globals: Vec<clap::Arg> = root
+        .get_arguments()
+        .filter(|arg| arg.is_global_set())
+        .cloned()
+        .collect();
+    with_global_copies(root, "", &globals)
+}
+
+/// Give each subcommand below `command` its own copy of the global options.
+fn with_global_copies(
+    mut command: clap::Command,
+    prefix: &str,
+    globals: &[clap::Arg],
+) -> clap::Command {
+    let names: Vec<String> = command
+        .get_subcommands()
+        .map(|sub| sub.get_name().to_string())
+        .collect();
+    for name in names {
+        let path = format!("{prefix}{name}");
+        command = command.mut_subcommand(&name, |mut sub| {
+            let shown = registry_options_of(&path);
+            for arg in globals {
+                let id = arg.get_id().as_str();
+                let hide = REGISTRY_OPTIONS.contains(&id) && !shown.contains(&id);
+                sub = sub.arg(arg.clone().hide(hide));
+            }
+            with_global_copies(sub, &format!("{path} "), globals)
+        });
+    }
+    command
+}
+
 /// Deploy Chap (climate-informed disease forecasting) and its services.
 #[derive(Debug, Parser)]
 // `bin_name` as well as `name`: without it clap takes the usage line from
@@ -135,15 +240,15 @@ pub struct Cli {
     pub project_dir: PathBuf,
 
     /// URL of the marketplace registry index
-    #[arg(long, global = true, value_name = "URL", default_value = DEFAULT_REGISTRY_URL, help_heading = GLOBAL)]
+    #[arg(long, global = true, value_name = "URL", default_value = DEFAULT_REGISTRY_URL, help_heading = REGISTRY)]
     pub registry_url: String,
 
-    /// Never touch the network; use the cache or the snapshot
-    #[arg(long, global = true, help_heading = GLOBAL)]
+    /// Never touch the network; use what is cached or on this machine
+    #[arg(long, global = true, help_heading = REGISTRY)]
     pub offline: bool,
 
-    /// Directory for the cached registry snapshot
-    #[arg(long, global = true, value_name = "DIR", help_heading = GLOBAL)]
+    /// Cache directory: the registry snapshot and the self-update downloads
+    #[arg(long, global = true, value_name = "DIR", help_heading = REGISTRY)]
     pub cache_dir: Option<PathBuf>,
 
     #[command(subcommand)]

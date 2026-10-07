@@ -162,6 +162,7 @@ taken from the registry and `docker compose ps` together.
 | `running, not registered` | The container is up but chap-core has never heard from it. |
 | `not running` | The project enables it, but no container exists or it is stopped. |
 | `unmanaged` | chap-core has a service registered that this project does not enable. |
+| `registered, unreachable` | chap-core knows it, but cannot reach the model's `/health` through its proxy. Usually the model registered with an address chap-core cannot use, such as `localhost` from inside a container. |
 
 `via chap-core` in `REACH` means the model publishes no host port of its own;
 the way in is a hint under the table (shown with `-v`), not repeated per row. A
@@ -390,8 +391,8 @@ that a person sees, so a script can show them or keep them in a log.
 
 ### Global options
 
-Some options work on every command, and some only on the commands that use
-them. `varde <command> --help` lists them under "Global options":
+These options work on every command, before or after the command name.
+`varde <command> --help` lists them under "Global options":
 
 | Option | What it does |
 | --- | --- |
@@ -400,10 +401,25 @@ them. `varde <command> --help` lists them under "Global options":
 | `-v`, `-vv`, `-d` | Sets the verbosity, as in the table above. |
 | `-C DIR` | Uses the deployment in `DIR`, or in a directory above it. |
 
+The registry options (`--registry-url`, `--offline`, `--cache-dir`) are also
+accepted everywhere, so `varde --offline init` works. The help lists them under
+"Registry options" only for the commands that use them:
+
+- All three: `init`, `run`, `stop`, `models` and its subcommands, `components
+  enable`, `components disable`, `ui`, `registry`, `sync`, `update`, `up`,
+  `backup restore`, `chap`, `doctor`, `auth enable`, `auth disable` and `auth
+  rotate`.
+- `--offline` only: `dhis2 apps` and `dhis2 connect`.
+- `--offline` and `--cache-dir`: `self update`.
+
+On the other commands they change nothing but the once-a-day notice that a
+newer release exists: `--offline` stops it, and `--cache-dir` is where it keeps
+its record.
+
 ## `--json`
 
-`--json` works everywhere and prints exactly one document on stdout. A line the
-wrapper has to say for itself goes to stderr there, so a parser's stdin stays
+`--json` works on every command except `ui` and `chap`, and prints exactly one
+document on stdout. A line the wrapper has to say for itself goes to stderr there, so a parser's stdin stays
 that one document. Warnings always go to stderr for the same reason, and an
 error under `--json` is a JSON object with `error` and `causes`.
 
@@ -414,8 +430,8 @@ varde --json docker ps
 varde --json docker config        # the merged configuration as JSON
 ```
 
-`varde ui` is the one command that rejects `--json`: it owns the terminal, so
-there is nothing to serialise.
+`varde ui` and `varde chap` reject `--json`: `ui` owns the terminal, and `chap`
+prints the output of chap itself, so there is nothing to serialise.
 
 The Docker wrappers exit with Compose's own exit code, so `varde up` is a
 drop-in for `docker compose up` in a script.

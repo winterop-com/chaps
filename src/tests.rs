@@ -68,7 +68,7 @@ fn the_project_dir_falls_back_to_the_flags_own_default() {
 
 #[test]
 fn outside_a_project_the_help_offers_only_what_works() {
-    let mut command = hide_project_commands(Cli::command());
+    let mut command = hide_project_commands(cli::command());
     let help = command.render_long_help().to_string();
     for hidden in PROJECT_ONLY {
         assert!(
@@ -91,7 +91,7 @@ fn outside_a_project_the_help_offers_only_what_works() {
 
 #[test]
 fn inside_a_project_the_help_hides_only_what_belongs_outside() {
-    let mut command = hide_outside_commands(Cli::command());
+    let mut command = hide_outside_commands(cli::command());
     let help = command.render_long_help().to_string();
     for name in PROJECT_ONLY {
         assert!(
