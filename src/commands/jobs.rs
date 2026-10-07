@@ -21,7 +21,7 @@ use crate::cli::{JobsCancelArgs, JobsDeleteArgs, JobsListArgs, JobsLogsArgs, Job
 use crate::commands::Ctx;
 use crate::error::Result;
 use crate::jobs::{self, Job, Matched};
-use crate::output::Out;
+use crate::output::{self, Out};
 use crate::project::Project;
 use std::time::Duration;
 
@@ -45,22 +45,32 @@ pub fn list(ctx: &Ctx, args: &JobsListArgs) -> Result<()> {
     let raw: Vec<serde_json::Value> = raw.into_iter().take(keep).collect();
 
     let now = crate::backup::now();
-    ctx.out.emit(&raw, || human_list(&jobs, now, &ctx.out))
+    if !ctx.out.json {
+        print!("{}", human_list(&jobs, now, &ctx.out));
+    }
+    ctx.out.report(&raw, |lines| say_list(&jobs, lines))
 }
 
-/// The table, the line it adds up to, and what to do about a failure.
+/// The table, with a blank line under it; nothing for an empty list.
 fn human_list(jobs: &[Job], now: u64, out: &Out) -> String {
     if jobs.is_empty() {
-        return format!("{}\n", out.backticks(jobs::NO_JOBS));
+        return String::new();
     }
     let mut text = out.table(jobs::HEADERS, &jobs::rows(jobs, now));
     text.push('\n');
-    text.push_str(&out.cmd(&jobs::summary(jobs)));
-    text.push('\n');
-    if let Some(hint) = jobs::failure_hint(jobs) {
-        text.push_str(&format!("  {}\n", out.backticks(&hint)));
-    }
     text
+}
+
+/// The line the table adds up to, and what to do about a failure.
+fn say_list(jobs: &[Job], lines: &mut output::Report) {
+    if jobs.is_empty() {
+        lines.info(jobs::NO_JOBS);
+        return;
+    }
+    lines.info(jobs::summary(jobs));
+    if let Some(step) = jobs::failure_hint(jobs) {
+        lines.info(step);
+    }
 }
 
 /// `varde jobs show ID`.
@@ -96,12 +106,18 @@ pub fn show(ctx: &Ctx, args: &JobsShowArgs) -> Result<()> {
         "database_result_id": database_result,
     });
     let now = crate::backup::now();
-    ctx.out.emit(&value, || {
-        human_show(&job, &status, database_result, now, &ctx.out)
+    if !ctx.out.json {
+        print!(
+            "{}",
+            human_show(&job, &status, database_result, now, &ctx.out)
+        );
+    }
+    ctx.out.report(&value, |lines| {
+        next_step(&job, &status, database_result, lines)
     })
 }
 
-/// One job as a block of fields, then the next step its status implies.
+/// One job as a block of fields.
 fn human_show(
     job: &Job,
     status: &str,
@@ -140,39 +156,34 @@ fn human_show(
             database_result.map(|id| id.to_string()).unwrap_or_default(),
         ),
     ];
-    let mut text = crate::output::fields_with(0, &rows, &|label| out.key(label));
-    text.push('\n');
-    text.push_str(&out.backticks(&next_step(job, status, database_result)));
-    text.push('\n');
-    text
+    crate::output::fields_with(0, &rows, &|label| out.key(label))
 }
 
-/// What to do with this job now, which is never nothing.
-fn next_step(job: &Job, status: &str, database_result: Option<i64>) -> String {
+/// What to do with this job now. Only a failure needs a step; the other
+/// statuses get the optional commands as hints.
+fn next_step(job: &Job, status: &str, database_result: Option<i64>, lines: &mut output::Report) {
+    let id = &job.id;
     match jobs::Outcome::of(status) {
-        jobs::Outcome::Failed => format!("run `varde jobs logs {}` to see why", job.id),
-        jobs::Outcome::Running => format!(
-            "still running; `varde jobs` says when it finishes and \
-             `varde jobs cancel {}` stops it",
-            job.id
-        ),
-        jobs::Outcome::Cancelled => format!(
-            "this job was cancelled; `varde jobs logs {}` shows how far it got",
-            job.id
-        ),
+        jobs::Outcome::Failed => lines.info(format!("run `varde jobs logs {id}` to see why")),
+        jobs::Outcome::Running => lines.hint(format!(
+            "`varde jobs` shows when it finishes, and `varde jobs cancel {id}` stops it"
+        )),
+        jobs::Outcome::Cancelled => {
+            lines.hint(format!("`varde jobs logs {id}` shows how far it got"))
+        }
         jobs::Outcome::Done => match database_result {
             // The collection the row is in follows the job type, so the line
             // is a command that works rather than one to adapt.
-            Some(id) => match collection_of(&job.kind) {
-                Some(collection) => format!(
-                    "the result is row {id} in chap-core's database; \
-                     `varde api GET /v1/crud/{collection}/{id}` reads it"
-                ),
-                None => format!("the result is row {id} in chap-core's database"),
+            Some(row) => match collection_of(&job.kind) {
+                Some(collection) => lines.hint(format!(
+                    "the result is row {row} in chap-core's database; \
+                     `varde api GET /v1/crud/{collection}/{row}` reads it"
+                )),
+                None => lines.hint(format!("the result is row {row} in chap-core's database")),
             },
-            None => format!("run `varde jobs logs {}` to see what it did", job.id),
+            None => lines.hint(format!("`varde jobs logs {id}` shows what it did")),
         },
-    }
+    };
 }
 
 /// The `/v1/crud/` collection a job of this type writes its result into.
@@ -268,12 +279,10 @@ pub fn cancel(ctx: &Ctx, args: &JobsCancelArgs) -> Result<()> {
     }
     let message = message_of(&answer, "cancelled");
     let value = serde_json::json!({ "id": id, "cancelled": true, "message": message });
-    ctx.out.emit(&value, || {
-        format!(
-            "{message}\n{}\n",
-            ctx.out
-                .backticks("run `varde jobs` to see whether it has stopped")
-        )
+    ctx.out.report(&value, |lines| {
+        lines
+            .info(message.as_str())
+            .hint("`varde jobs` shows whether it has stopped");
     })
 }
 
@@ -295,11 +304,10 @@ pub fn delete(ctx: &Ctx, args: &JobsDeleteArgs) -> Result<()> {
     }
     let message = message_of(&answer, "deleted");
     let value = serde_json::json!({ "id": id, "deleted": true, "message": message });
-    ctx.out.emit(&value, || {
-        format!(
-            "{message}\n{}\n",
-            ctx.out.backticks("run `varde jobs` for what is left")
-        )
+    ctx.out.report(&value, |lines| {
+        lines
+            .info(message.as_str())
+            .hint("`varde jobs` shows the jobs that are left");
     })
 }
 

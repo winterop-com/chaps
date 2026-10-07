@@ -20,13 +20,12 @@ mod capture;
 mod quiesce;
 
 use crate::backup::{
-    self, COMPONENTS_MEMBER, FILES_MEMBER, MANIFEST_MEMBER, MODELS_MEMBER, Manifest,
-    ManifestComponent, ManifestModel, Stage,
+    self, COMPONENTS_MEMBER, FILES_MEMBER, MANIFEST_MEMBER, MODELS_MEMBER, Manifest, Stage,
 };
 use crate::cli::BackupCreateArgs;
 use crate::commands::Ctx;
 use crate::error::Result;
-use crate::output::{self, Out};
+use crate::output;
 use crate::project::Project;
 use capture::{capture_components, capture_models, dump_database};
 use quiesce::Running;
@@ -111,26 +110,14 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     }
     write_archive(&out, &stage.dir, &members)?;
 
-    for model in manifest.models.iter().filter(|m| m.skipped.is_some()) {
-        output::warn(&format!(
-            "{}: {}",
-            model.service_id,
-            model.skipped.as_deref().unwrap_or("skipped")
-        ));
-    }
-    for part in manifest.components.iter().filter(|c| c.skipped.is_some()) {
-        output::warn(&format!(
-            "{}: {}",
-            part.name,
-            part.skipped.as_deref().unwrap_or("skipped")
-        ));
-    }
-
     // A volume that could not be read is a backup that is not whole: the
     // archive stays, for what it does hold, and the run fails so a cron job
     // or a script hears about it.
     let failed = failed_reads(&manifest);
     if !failed.is_empty() {
+        for (name, why) in skip_reasons(&manifest) {
+            output::warn(&format!("{name}: {why}"));
+        }
         return Err(anyhow::anyhow!(
             "{} was written without the data of {} (see the warnings above); fix what stopped \
              the read, then `varde backup create` again",
@@ -145,7 +132,7 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         manifest,
         no_chap_core,
     };
-    ctx.out.emit(&report, || human(&report, &ctx.out))
+    ctx.out.report(&report, |lines| say(&report, lines))
 }
 
 /// The models and volumes whose read failed, as opposed to data there was no
@@ -185,6 +172,20 @@ fn write_archive(out: &Path, stage: &Path, members: &[String]) -> Result<()> {
     packed
 }
 
+/// Each model and component that the archive does not hold, and why.
+fn skip_reasons(manifest: &Manifest) -> impl Iterator<Item = (&str, &str)> {
+    manifest
+        .models
+        .iter()
+        .filter_map(|m| Some((m.service_id.as_str(), m.skipped.as_deref()?)))
+        .chain(
+            manifest
+                .components
+                .iter()
+                .filter_map(|c| Some((c.name.as_str(), c.skipped.as_deref()?))),
+        )
+}
+
 /// Where the archive lands, as an absolute path.
 fn destination(project: &Project, out: Option<&Path>) -> Result<PathBuf> {
     let cwd = std::env::current_dir()
@@ -202,120 +203,62 @@ fn project_name(dir: &Path) -> String {
         .unwrap_or_else(|| "varde".to_string())
 }
 
-/// What went in, with sizes, and where it landed.
-fn human(report: &BackupReport, out: &Out) -> String {
+/// Where the archive landed, then what went in, with sizes, under `-v`.
+fn say(report: &BackupReport, lines: &mut output::Report) {
     let manifest = &report.manifest;
-    let content = manifest.content_bytes();
-    let mut text = format!(
-        "{}  {}  {}\n\n",
-        out.heading("backup"),
-        out.value(&report.path.display().to_string()),
-        out.dim(&format!(
-            "({} gzipped, {} of data)",
-            backup::human_size(report.size_bytes),
-            backup::human_size(content)
-        ))
-    );
-
-    text.push_str(&format!("{}\n", out.heading("included")));
-    if manifest.files.is_empty() {
-        text.push_str(&format!("  {}     {}\n", out.key("files"), out.dim("none")));
-    } else {
-        text.push_str(&format!(
-            "  {}     {} {}\n",
-            out.key("files"),
-            format_args!("{} file(s):", manifest.files.len()),
-            out.dim(&manifest.files.join(", "))
-        ));
+    lines.info(format!(
+        "wrote {} ({} gzipped, {} of data)",
+        report.path.display(),
+        backup::human_size(report.size_bytes),
+        backup::human_size(manifest.content_bytes())
+    ));
+    if !manifest.files.is_empty() {
+        lines.hint(format!("files: {}", manifest.files.join(", ")));
     }
-    match &manifest.database {
-        Some(db) => text.push_str(&format!(
-            "  {}  {} as {} {}\n",
-            out.key("database"),
+    lines.hint(match &manifest.database {
+        Some(db) => format!(
+            "database: {} as {} ({}){}",
             db.name,
             db.user,
-            out.dim(&format!(
-                "({}){}",
-                backup::human_size(db.size_bytes),
-                db.server_version
-                    .as_deref()
-                    .map(|v| format!(", PostgreSQL {v}"))
-                    .unwrap_or_default()
-            ))
-        )),
-        None => text.push_str(&format!(
-            "  {}  {}\n",
-            out.key("database"),
-            out.dim(if report.no_chap_core {
-                "none (this deployment has no chap-core)"
-            } else {
-                "not included (--no-db)"
-            })
-        )),
-    }
-    let captured: Vec<&ManifestModel> = manifest.captured_models().collect();
-    if captured.is_empty() {
-        text.push_str(&format!("  {}    {}\n", out.key("models"), out.dim("none")));
-    } else {
-        for (i, model) in captured.iter().enumerate() {
-            let label = if i == 0 {
-                format!("  {}  ", out.key("models"))
-            } else {
-                "          ".to_string()
-            };
-            text.push_str(&format!(
-                "{label}  {}  {}  {}\n",
-                model.service_id,
-                model.data_dir,
-                out.dim(&size_note(model.size_bytes, model.quiesce.as_deref()))
-            ));
+            backup::human_size(db.size_bytes),
+            db.server_version
+                .as_deref()
+                .map(|v| format!(", PostgreSQL {v}"))
+                .unwrap_or_default()
+        ),
+        None if report.no_chap_core => {
+            "database: none (this deployment has no chap-core)".to_string()
         }
+        None => "database: not included (--no-db)".to_string(),
+    });
+    for model in manifest.captured_models() {
+        lines.hint(format!(
+            "model {}: {} {}",
+            model.service_id,
+            model.data_dir,
+            size_note(model.size_bytes, model.quiesce.as_deref())
+        ));
     }
-
-    let parts: Vec<&ManifestComponent> = manifest.captured_components().collect();
-    if parts.is_empty() {
-        text.push_str(&format!("  {}     {}\n", out.key("parts"), out.dim("none")));
-    } else {
-        for (i, part) in parts.iter().enumerate() {
-            let label = if i == 0 {
-                format!("  {}   ", out.key("parts"))
-            } else {
-                "          ".to_string()
-            };
-            text.push_str(&format!(
-                "{label}  {}  {}  {}\n",
-                part.name,
-                part.data_dir,
-                out.dim(&size_note(part.size_bytes, part.quiesce.as_deref()))
-            ));
-        }
+    for part in manifest.captured_components() {
+        lines.hint(format!(
+            "component {}: {} {}",
+            part.name,
+            part.data_dir,
+            size_note(part.size_bytes, part.quiesce.as_deref())
+        ));
     }
-
-    let skipped: Vec<(&str, &str)> = manifest
-        .models
-        .iter()
-        .filter_map(|m| Some((m.service_id.as_str(), m.skipped.as_deref()?)))
-        .chain(
-            manifest
-                .components
-                .iter()
-                .filter_map(|c| Some((c.name.as_str(), c.skipped.as_deref()?))),
-        )
-        .collect();
-    if !skipped.is_empty() {
-        text.push_str(&format!("\n{}\n", out.heading("skipped")));
-        for (name, why) in skipped {
-            text.push_str(&format!("  {name}  {}\n", out.warn(why)));
-        }
+    for (name, why) in skip_reasons(manifest) {
+        // A part left out by a flag is what the reader asked for; any other
+        // reason is data that the archive does not hold.
+        match why.starts_with("--") {
+            true => lines.hint(format!("{name}: not included ({why})")),
+            false => lines.warning(format!("{name}: {why}")),
+        };
     }
-    // What to do with it: the one command that reads it back. The path is
-    // the one the reader just saw, and a restore prints what it would
-    // overwrite and asks before it does anything.
-    text.push_str(&format!(
-        "\nrestore it with {}\n",
-        out.cmd(&format!("`varde backup restore {}`", report.path.display()))
+    lines.hint(format!(
+        "`varde backup restore {}` restores it",
+        report.path.display()
     ));
-    text
 }
 
 /// `(40.0 KB)`, and how long the service was held still when it was:

@@ -20,9 +20,20 @@ fn job(id: &str, status: &str) -> Job {
 /// Epoch seconds for `2026-09-24T16:01:00Z`.
 const NOW: u64 = 1_790_265_660;
 
+fn said(build: impl FnOnce(&mut output::Report)) -> String {
+    let mut lines = output::Report::default();
+    build(&mut lines);
+    lines.text()
+}
+
+fn step(job: &Job, status: &str, row: Option<i64>) -> String {
+    said(|lines| next_step(job, status, row, lines))
+}
+
 #[test]
 fn an_empty_list_says_where_a_job_would_come_from() {
-    let text = human_list(&[], NOW, &out());
+    assert_eq!(human_list(&[], NOW, &out()), "");
+    let text = said(|lines| say_list(&[], lines));
     assert!(text.starts_with("no jobs yet;"), "{text}");
     assert!(text.contains("Modeling App"), "{text}");
     assert!(text.ends_with('\n'));
@@ -39,22 +50,21 @@ fn the_table_is_followed_by_the_line_it_adds_up_to() {
     assert!(lines[0].starts_with("ID  "), "{text}");
     assert!(lines[0].contains("DURATION"), "{text}");
     assert!(lines[1].starts_with("aaaaaaaa..."), "{text}");
-    assert!(text.contains("2 jobs: 1 done, 1 failed"), "{text}");
-    assert!(
-        text.contains("run `varde jobs logs bbbbbbbb-2222` to see why"),
-        "{text}"
+    let text = said(|lines| say_list(&jobs, lines));
+    assert_eq!(
+        text,
+        "2 jobs: 1 done, 1 failed\nrun `varde jobs logs bbbbbbbb-2222` to see why\n"
     );
 }
 
 #[test]
 fn a_clean_list_offers_no_failure_hint() {
-    let text = human_list(&[job("aaaaaaaa-1111", "SUCCESS")], NOW, &out());
-    assert!(text.contains("1 job: 1 done"), "{text}");
-    assert!(!text.contains("logs"), "{text}");
+    let text = said(|lines| say_list(&[job("aaaaaaaa-1111", "SUCCESS")], lines));
+    assert_eq!(text, "1 job: 1 done\n");
 }
 
 #[test]
-fn show_prints_every_field_and_ends_on_the_next_step() {
+fn show_prints_every_field() {
     let job = job("aaaaaaaa-1111", "SUCCESS");
     let text = human_show(&job, "SUCCESS", Some(4), NOW, &out());
     for label in [
@@ -72,7 +82,6 @@ fn show_prints_every_field_and_ends_on_the_next_step() {
     }
     assert!(text.contains("1m ago"), "{text}");
     assert!(text.contains("30s"), "{text}");
-    assert!(text.contains("row 4 in chap-core's database"), "{text}");
 
     // An empty field is left out rather than printed as a blank.
     let mut bare = job.clone();
@@ -81,30 +90,34 @@ fn show_prints_every_field_and_ends_on_the_next_step() {
     let text = human_show(&bare, "STARTED", None, NOW, &out());
     assert!(!text.contains("Ended"), "{text}");
     assert!(!text.contains("Result"), "{text}");
-    assert!(text.contains("still running"), "{text}");
 }
 
 #[test]
 fn the_next_step_follows_the_status() {
     let job = job("abc", "SUCCESS");
-    assert!(next_step(&job, "FAILURE", None).starts_with("run `varde jobs logs abc`"));
-    assert!(next_step(&job, "STARTED", None).contains("varde jobs cancel abc"));
-    assert!(next_step(&job, "REVOKED", None).contains("was cancelled"));
-    assert!(next_step(&job, "SUCCESS", Some(9)).contains("/v1/crud/backtests/9"));
-    assert!(next_step(&job, "SUCCESS", None).contains("to see what it did"));
+    // Only a failure is a step to take now; the rest are hints.
+    assert_eq!(
+        step(&job, "FAILURE", None),
+        "run `varde jobs logs abc` to see why\n"
+    );
+    assert!(step(&job, "STARTED", None).starts_with("hint: "));
+    assert!(step(&job, "STARTED", None).contains("varde jobs cancel abc"));
+    assert!(step(&job, "REVOKED", None).contains("shows how far it got"));
+    assert!(step(&job, "SUCCESS", Some(9)).contains("/v1/crud/backtests/9"));
+    assert!(step(&job, "SUCCESS", None).contains("shows what it did"));
 
     // The collection follows the job type rather than always being the
     // backtests one.
     let mut dataset = job.clone();
     dataset.kind = "create_dataset".to_string();
-    assert!(next_step(&dataset, "SUCCESS", Some(1)).contains("/v1/crud/datasets/1"));
+    assert!(step(&dataset, "SUCCESS", Some(1)).contains("/v1/crud/datasets/1"));
     let mut prediction = job.clone();
     prediction.kind = "create_prediction".to_string();
-    assert!(next_step(&prediction, "SUCCESS", Some(2)).contains("/v1/crud/predictions/2"));
+    assert!(step(&prediction, "SUCCESS", Some(2)).contains("/v1/crud/predictions/2"));
     // A job type this CLI has never seen names the row and no path.
     let mut unknown = job.clone();
     unknown.kind = "create_something_new".to_string();
-    let text = next_step(&unknown, "SUCCESS", Some(3));
+    let text = step(&unknown, "SUCCESS", Some(3));
     assert!(text.contains("row 3 in chap-core's database"), "{text}");
     assert!(!text.contains("/v1/crud/"), "{text}");
 }

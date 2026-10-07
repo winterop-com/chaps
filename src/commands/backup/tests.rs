@@ -1,7 +1,7 @@
 use super::capture::*;
 use super::quiesce::*;
 use super::*;
-use crate::backup::{DB_MEMBER, ManifestDatabase, model_member};
+use crate::backup::{DB_MEMBER, ManifestComponent, ManifestDatabase, ManifestModel, model_member};
 use std::time::Duration;
 
 fn model(service_id: &str, skipped: Option<&str>) -> ManifestModel {
@@ -65,47 +65,51 @@ fn report_with(
     }
 }
 
-#[test]
-fn the_human_output_lists_every_part_with_its_size() {
-    let text = human(
-        &report_with(
-            true,
-            vec![model("chapkit-ewars-model", None)],
-            vec![component("ocs", None)],
-        ),
-        &Out::default(),
-    );
-    assert!(text.starts_with(
-        "backup  /backups/varde-backup-e2e-20260923-071000.tar.gz  \
-             (5.0 MB gzipped, 46.0 KB of data)\n"
-    ));
-    assert!(text.contains("files     2 file(s): .env, compose.yml"));
-    assert!(text.contains("database  chap_core as chap (2.0 KB), PostgreSQL 17.6"));
-    // A running service was held still for the read, and says for how long.
-    assert!(text.contains("models    chapkit-ewars-model  /app/data  (40.0 KB, paused for 1.4 s)"));
-    assert!(text.contains("parts     ocs  /app/data  (4.0 KB)"));
-    assert!(!text.contains("skipped"));
-    // And it ends on the command that reads the archive back.
-    assert!(text.ends_with(
-            "\nrestore it with `varde backup restore /backups/varde-backup-e2e-20260923-071000.tar.gz`\n"
-        ));
+fn rendered(report: &BackupReport) -> String {
+    let mut lines = output::Report::default();
+    say(report, &mut lines);
+    lines.text()
 }
 
 #[test]
-fn what_was_left_out_is_said_out_loud() {
-    let text = human(
-        &report_with(
-            false,
-            vec![model("auto-arima-chapkit", Some("no volume yet"))],
-            vec![component("s3", Some("--no-components"))],
-        ),
-        &Out::default(),
+fn the_output_is_one_line_and_the_parts_are_hints() {
+    let text = rendered(&report_with(
+        true,
+        vec![model("chapkit-ewars-model", None)],
+        vec![component("ocs", None)],
+    ));
+    assert!(text.starts_with(
+        "wrote /backups/varde-backup-e2e-20260923-071000.tar.gz \
+         (5.0 MB gzipped, 46.0 KB of data)\n"
+    ));
+    assert!(text.contains("hint: files: .env, compose.yml\n"));
+    assert!(text.contains("hint: database: chap_core as chap (2.0 KB), PostgreSQL 17.6\n"));
+    // A running service was held still for the read, and says for how long.
+    assert!(
+        text.contains("hint: model chapkit-ewars-model: /app/data (40.0 KB, paused for 1.4 s)\n")
     );
-    assert!(text.contains("database  not included (--no-db)"));
-    assert!(text.contains("models    none"));
-    assert!(text.contains("parts     none"));
-    assert!(text.contains("skipped\n  auto-arima-chapkit  no volume yet"));
-    assert!(text.contains("\n  s3  --no-components"));
+    assert!(text.contains("hint: component ocs: /app/data (4.0 KB)\n"));
+    assert!(!text.contains("warning:"));
+    // And it ends on the command that reads the archive back.
+    assert!(text.ends_with(
+        "hint: `varde backup restore /backups/varde-backup-e2e-20260923-071000.tar.gz` \
+         restores it\n"
+    ));
+    assert_eq!(text.lines().filter(|l| !l.starts_with("hint:")).count(), 1);
+}
+
+#[test]
+fn what_was_left_out_is_a_warning_unless_a_flag_asked_for_it() {
+    let text = rendered(&report_with(
+        false,
+        vec![model("auto-arima-chapkit", Some("no volume yet"))],
+        vec![component("s3", Some("--no-components"))],
+    ));
+    assert!(text.contains("hint: database: not included (--no-db)\n"));
+    assert!(text.contains("warning: auto-arima-chapkit: no volume yet\n"));
+    assert!(text.contains("hint: s3: not included (--no-components)\n"));
+    assert!(!text.contains("model "));
+    assert!(!text.contains("component "));
 }
 
 #[test]

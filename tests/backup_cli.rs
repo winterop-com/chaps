@@ -452,6 +452,7 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
             .chap(
                 &target,
                 &[
+                    "-v",
                     "backup",
                     "restore",
                     archive.to_str().unwrap(),
@@ -467,12 +468,10 @@ fn restoring_into_a_second_deployment_keeps_that_deployments_identity() {
     )
     .expect("the report is text");
 
-    // Said before it happened, and again afterwards.
-    assert!(
-        text.contains(&format!("the archive's own ({taken_from}) is not adopted")),
-        "{text}"
-    );
-    assert_eq!(text.matches("identity").count(), 2, "{text}");
+    // Said in the plan before it happened, and again as a hint afterwards.
+    let adopted = format!("the archive's own ({taken_from}) is not adopted");
+    assert_eq!(text.matches(&adopted).count(), 2, "{text}");
+    assert!(text.contains(&format!("hint: {kept} is kept;")), "{text}");
 
     // The state that arrived is the archive's, except for the one field that
     // says which containers and volumes belong to this deployment.

@@ -324,44 +324,61 @@ fn report(started: bool, warnings: Vec<&str>) -> RestoreReport {
     }
 }
 
-#[test]
-fn the_summary_reads_in_the_order_things_happened() {
-    let text = human(&report(true, vec![]), &Out::default());
-    assert!(text.starts_with("stopped   chap, worker\n"));
-    assert!(text.contains("files     2 restored: .env, .varde/models.yaml"));
-    assert!(text.contains("the previous .env is kept as .env.before-restore"));
-    assert!(text.contains("database  chap_core restored\n"));
-    assert!(text.contains("models    chapkit-ewars-model"));
-    assert!(text.contains("parts     ocs"));
-    assert!(text.contains("the deployment is starting"));
-    // This archive came from this deployment, so there is nothing to say
-    // about whose identity it kept.
-    assert!(!text.contains("identity"), "{text}");
+fn rendered(report: &RestoreReport) -> String {
+    let mut lines = output::Report::default();
+    say(report, &mut lines);
+    lines.text()
 }
 
 #[test]
-fn the_summary_repeats_whose_identity_the_deployment_kept() {
+fn the_summary_is_one_line_with_the_details_as_hints() {
+    let text = rendered(&report(true, vec![]));
+    assert!(
+        text.starts_with(
+            "restored 2 files, the chap_core database, the data of chapkit-ewars-model, ocs\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("hint: stopped chap, worker first\n"));
+    assert!(text.contains("hint: files: .env, .varde/models.yaml\n"));
+    assert!(text.contains("hint: the previous .env is in .env.before-restore\n"));
+    assert!(text.contains("\nthe deployment is starting\n"));
+    // This archive came from this deployment, so there is nothing to say
+    // about whose identity it kept.
+    assert!(!text.contains("compose project"), "{text}");
+}
+
+#[test]
+fn the_summary_says_whose_identity_the_deployment_kept() {
     let mut report = report(true, vec![]);
     report.plan = plan_for(&running(&[]), &[], Some("chapx-9f01bc"));
-    let text = human(&report, &Out::default());
+    let text = rendered(&report);
     assert!(
-        text.contains("identity  e2e-ab12cd is kept; the archive's own (chapx-9f01bc)"),
+        text.contains("hint: e2e-ab12cd is kept; the archive's own (chapx-9f01bc) is not adopted"),
+        "{text}"
+    );
+
+    let mut report = self::report(true, vec![]);
+    report.plan = plan_for(&running(&[]), &["--adopt-identity"], Some("chapx-9f01bc"));
+    let text = rendered(&report);
+    assert!(
+        text.contains("\ncompose project chapx-9f01bc, taken over from the archive"),
         "{text}"
     );
 }
 
 #[test]
 fn pg_restore_warnings_are_counted_not_hidden() {
-    let text = human(
-        &report(false, vec!["warning: errors ignored on restore: 2"]),
-        &Out::default(),
-    );
-    assert!(text.contains("database  chap_core restored with 1 warning(s) from pg_restore"));
-    assert!(text.contains("the deployment was left as it is"));
+    let text = rendered(&report(
+        false,
+        vec!["warning: errors ignored on restore: 2"],
+    ));
+    assert!(text.contains("hint: pg_restore gave 1 warning(s), shown above\n"));
+    assert!(text.ends_with("\nrun `varde up` to apply\n"), "{text}");
 }
 
 #[test]
-fn a_run_that_restored_nothing_says_so_for_every_part() {
+fn a_run_that_restored_nothing_says_so() {
     let mut report = report(true, vec![]);
     report.files.clear();
     report.env_backup = None;
@@ -369,11 +386,8 @@ fn a_run_that_restored_nothing_says_so_for_every_part() {
     report.models.clear();
     report.components.clear();
     report.stopped.clear();
-    let text = human(&report, &Out::default());
-    assert!(text.starts_with("files     not restored\n"));
-    assert!(text.contains("database  not restored"));
-    assert!(text.contains("models    not restored"));
-    assert!(text.contains("parts     not restored"));
+    let text = rendered(&report);
+    assert!(text.starts_with("restored nothing\n"));
     assert!(!text.contains("stopped"));
 }
 

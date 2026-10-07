@@ -34,7 +34,7 @@ use crate::cli::RestoreArgs;
 use crate::commands::Ctx;
 use crate::docker;
 use crate::error::Result;
-use crate::output::Out;
+use crate::output;
 use crate::project::{PROJECT_FILE, Project, VARDE_DIR};
 use database::restore_database;
 use files::restore_files;
@@ -155,7 +155,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         report.started = true;
     }
 
-    ctx.out.emit(&report, || human(&report, &ctx.out))
+    ctx.out.report(&report, |lines| say(&report, lines))
 }
 
 /// The compose project name the archive was taken under, when its
@@ -329,54 +329,13 @@ fn compose(project: &Project, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// What was restored, in the order it happened.
-fn human(report: &RestoreReport, out: &Out) -> String {
-    let mut text = String::new();
-    if !report.stopped.is_empty() {
-        text.push_str(&format!(
-            "{}   {}\n",
-            out.key("stopped"),
-            out.warn(&report.stopped.join(", "))
-        ));
-    }
-    if report.files.is_empty() {
-        text.push_str(&format!(
-            "{}     {}\n",
-            out.key("files"),
-            out.dim("not restored")
-        ));
-    } else {
-        text.push_str(&format!(
-            "{}     {} {}\n",
-            out.key("files"),
-            out.ok(&format!("{} restored:", report.files.len())),
-            out.dim(&report.files.join(", "))
-        ));
-    }
-    if !report.removed_state.is_empty() {
-        text.push_str(&format!(
-            "          {}\n",
-            out.dim(&format!(
-                "removed {}: the archive has none, so neither does this deployment now",
-                report.removed_state.join(", ")
-            ))
-        ));
-    }
-    if let Some(kept) = &report.env_backup {
-        text.push_str(&format!(
-            "          {}\n",
-            out.dim(&format!("the previous .env is kept as {kept}"))
-        ));
-    }
-    if !report.kept_credentials.is_empty() {
-        text.push_str(&format!(
-            "          {}\n",
-            out.dim(&format!(
-                "kept this deployment's {} in .env: its database volumes stayed, and they only \
-                 open with these",
-                report.kept_credentials.join(", ")
-            ))
-        ));
+/// What was restored in one line, the details under `-v`, and the next step.
+fn say(report: &RestoreReport, lines: &mut output::Report) {
+    let mut parts = Vec::new();
+    match report.files.len() {
+        0 => {}
+        1 => parts.push("1 file".to_string()),
+        n => parts.push(format!("{n} files")),
     }
     if report.database {
         let name = report
@@ -385,68 +344,70 @@ fn human(report: &RestoreReport, out: &Out) -> String {
             .database
             .as_ref()
             .map(|d| d.name.as_str())
-            .unwrap_or("the database");
-        text.push_str(&format!("{}  ", out.key("database")));
-        if report.database_warnings.is_empty() {
-            text.push_str(&out.ok(&format!("{name} restored")));
-            text.push('\n');
-        } else {
-            text.push_str(&out.warn(&format!(
-                "{name} restored with {} warning(s) from pg_restore",
-                report.database_warnings.len()
-            )));
-            text.push('\n');
-        }
-    } else {
-        text.push_str(&format!(
-            "{}  {}\n",
-            out.key("database"),
-            out.dim("not restored")
+            .unwrap_or("chap-core");
+        parts.push(format!("the {name} database"));
+    }
+    let volumes: Vec<&str> = report
+        .models
+        .iter()
+        .chain(&report.components)
+        .map(String::as_str)
+        .collect();
+    if !volumes.is_empty() {
+        parts.push(format!("the data of {}", volumes.join(", ")));
+    }
+    match parts.is_empty() {
+        true => lines.info("restored nothing"),
+        false => lines.info(format!("restored {}", parts.join(", "))),
+    };
+
+    if !report.stopped.is_empty() {
+        lines.hint(format!("stopped {} first", report.stopped.join(", ")));
+    }
+    if !report.files.is_empty() {
+        lines.hint(format!("files: {}", report.files.join(", ")));
+    }
+    if !report.removed_state.is_empty() {
+        lines.hint(format!(
+            "removed {}: the archive has none, so this deployment has none now",
+            report.removed_state.join(", ")
         ));
     }
-    if report.models.is_empty() {
-        text.push_str(&format!(
-            "{}    {}\n",
-            out.key("models"),
-            out.dim("not restored")
-        ));
-    } else {
-        text.push_str(&format!(
-            "{}    {}\n",
-            out.key("models"),
-            out.ok(&report.models.join(", "))
+    if let Some(kept) = &report.env_backup {
+        lines.hint(format!("the previous .env is in {kept}"));
+    }
+    if !report.kept_credentials.is_empty() {
+        lines.hint(format!(
+            "kept this deployment's {} in .env: its database volumes stayed, and they open \
+             only with these values",
+            report.kept_credentials.join(", ")
         ));
     }
-    if report.components.is_empty() {
-        text.push_str(&format!(
-            "{}     {}\n",
-            out.key("parts"),
-            out.dim("not restored")
-        ));
-    } else {
-        text.push_str(&format!(
-            "{}     {}\n",
-            out.key("parts"),
-            out.ok(&report.components.join(", "))
+    if !report.database_warnings.is_empty() {
+        lines.hint(format!(
+            "pg_restore gave {} warning(s), shown above",
+            report.database_warnings.len()
         ));
     }
+    // The plan printed this before the confirmation. A takeover is repeated
+    // as info, because it is the one thing to be sure of afterwards.
     let identity = backup::identity_line(&report.plan);
-    if !identity.is_empty() {
-        // The plan printed this before the confirmation; the summary repeats
-        // it, because "restored from another deployment's backup" is the one
-        // thing to be sure of afterwards.
-        text.push_str(identity.trim_start());
+    let identity = identity.trim().trim_start_matches("identity").trim();
+    match (identity.is_empty(), report.plan.adopt_identity) {
+        (true, _) => {}
+        (false, true) => {
+            lines.info(identity);
+        }
+        (false, false) => {
+            lines.hint(identity);
+        }
     }
-    text.push('\n');
-    if report.started {
-        text.push_str(
-            &out.backticks("the deployment is starting; `varde status` says when it answers"),
-        );
-    } else {
-        text.push_str(&out.backticks("the deployment was left as it is; start it with `varde up`"));
-    }
-    text.push('\n');
-    text
+    match report.started {
+        true => lines
+            .info("the deployment is starting")
+            .hint("`varde status` shows when it answers"),
+        false => lines.info("run `varde up` to apply"),
+    };
 }
 
 #[cfg(test)]

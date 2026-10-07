@@ -148,12 +148,8 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             asset: asset.ok(),
             path: path.clone(),
         };
-        return ctx.out.emit(&report, || {
-            format!(
-                "{} {}",
-                ctx.out.ok("already up to date:"),
-                ctx.out.value(&format!("varde {}", describe_build()))
-            )
+        return ctx.out.report(&report, |lines| {
+            lines.info(format!("varde {} is up to date", describe_build()));
         });
     }
 
@@ -169,23 +165,15 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             asset: Some(asset.clone()),
             path: path.clone(),
         };
-        return ctx.out.emit(&report, || {
-            format!(
-                "{}\n{}",
-                ctx.out.warn(&format!(
+        return ctx.out.report(&report, |lines| {
+            lines
+                .info(format!(
                     "varde {} is available (you have {})",
                     describe_release(&release),
                     describe_build()
-                )),
-                output::fields_with(
-                    2,
-                    &[
-                        ("asset", asset.clone()),
-                        ("run", ctx.out.cmd("varde self update")),
-                    ],
-                    &|label| ctx.out.key(label),
-                )
-            )
+                ))
+                .hint(format!("the download is {asset}"))
+                .hint("`varde self update` installs it");
         });
     }
 
@@ -215,9 +203,9 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             asset: Some(asset),
             path: Some(path),
         };
-        return ctx
-            .out
-            .emit(&report, || ctx.out.warn("nothing was changed").to_string());
+        return ctx.out.report(&report, |lines| {
+            lines.info("cancelled; nothing was changed");
+        });
     }
 
     install(ctx, &release.tag, &asset, &path)?;
@@ -231,19 +219,14 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
         asset: Some(asset),
         path: Some(path.clone()),
     };
-    ctx.out.emit(&report, || {
-        format!(
-            "{} {} {} {}\n{}",
-            ctx.out.ok("updated varde:"),
-            ctx.out.value(&describe_build()),
-            ctx.out.dim("->"),
-            ctx.out.value(&describe_release(&release)),
-            output::fields_with(
-                2,
-                &[("path", ctx.out.dim(&path.display().to_string()))],
-                &|label| ctx.out.key(label),
-            )
-        )
+    ctx.out.report(&report, |lines| {
+        lines
+            .info(format!(
+                "updated varde: {} -> {}",
+                describe_build(),
+                describe_release(&release)
+            ))
+            .hint(format!("replaced {}", path.display()));
     })
 }
 

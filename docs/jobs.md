@@ -26,8 +26,13 @@ e3e9f243...  create_backtest    eval-chapkit-rwanda-malaria-bym-model  FAILURE  
 0fa57ec9...  create_dataset     eval-chapkit-5ou-202101-202312         SUCCESS  47m ago  2s
 
 8 jobs: 7 done, 1 failed
-  run `varde jobs logs e3e9f243-2492-47cf-9d02-7de886154f70` to see why
+run `varde jobs logs e3e9f243-2492-47cf-9d02-7de886154f70` to see why
 ```
+
+`varde jobs show <id>` prints the fields of one job. A failed job adds the
+`varde jobs logs` step. For the other statuses, the next commands are hints,
+shown with `-v`: for a finished job, the row in chap-core's database and the
+`varde api` request that reads it.
 
 | Column | What it holds |
 | --- | --- |

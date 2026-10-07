@@ -82,6 +82,7 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
             &sandbox,
             &target,
             &[
+                "-v",
                 "backup",
                 "restore",
                 archive.to_str().unwrap(),
@@ -105,8 +106,12 @@ fn backup_restore_files_only_rebuilds_a_second_deployment() {
     assert!(text.contains("chapy"), "the plan names the target:\n{text}");
     assert!(text.contains("from   project chapx"));
     assert!(text.contains("files     "));
-    assert!(text.contains(".env.before-restore"));
-    assert!(text.contains("the deployment was left as it is"));
+    assert!(text.contains("\nrestored "), "{text}");
+    assert!(
+        text.contains("hint: the previous .env is in .env.before-restore"),
+        "{text}"
+    );
+    assert!(text.contains("run `varde up` to apply"));
 
     // The archive's `.env`, but for the one line its own `postgres` volume
     // decides: the role there was created with this deployment's password.

@@ -91,11 +91,24 @@ would add the whole seed dump to every backup of the deployment for nothing.
 `varde components disable dhis2 --purge` still takes it, and `varde doctor` does
 not call it a leftover; the archive is the one place it costs something.
 
-A service that is running is paused for the seconds its volume takes to read:
+`varde backup create` prints one line: where the archive is, and its size.
+With `-v`, a hint for each part gives its size:
 
 ```text
-models    chapkit-ewars-model  /app/data  (40.0 KB, paused for 1.4 s)
+$ varde -v backup create
+wrote /srv/chapx/varde-backup-chapx-20260923-071000.tar.gz (5.0 MB gzipped, 46.0 KB of data)
+hint: files: .env, .varde/project.yaml, .varde/models.yaml, compose.yml
+hint: database: chap_core as chap (2.0 KB), PostgreSQL 17.6
+hint: model chapkit-ewars-model: /app/data (40.0 KB, paused for 1.4 s)
+hint: `varde backup restore /srv/chapx/varde-backup-chapx-20260923-071000.tar.gz` restores it
 ```
+
+A part left out by `--no-db`, `--no-models` or `--no-components` is a hint. A
+part left out for another reason, such as a model that never started, is a
+warning.
+
+A service that is running is paused for the seconds its volume takes to read,
+as the `paused for 1.4 s` above shows.
 
 `docker compose pause` freezes the processes in the container without touching
 its storage, so nothing writes into a half-read tar - a chapkit model keeps a
@@ -183,6 +196,18 @@ Then, in order:
 
 The order is the whole design: nothing writes to the database or a data volume
 while its storage is being swapped underneath it.
+
+When it is done, the restore prints what it restored in one line, and the next
+step. The services it stopped, the files, the `.env` copy and the kept
+credentials are hints, shown with `-v`:
+
+```text
+restored 5 files, the chap_core database, the data of chapkit-ewars-model, ocs
+the deployment is starting
+```
+
+Under `--no-start` or `--files-only`, the last line is ``run `varde up` to
+apply``.
 
 ### When the database restore fails
 

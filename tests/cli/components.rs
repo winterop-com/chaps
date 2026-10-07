@@ -740,8 +740,9 @@ fn a_standalone_ocs_deployment_leaves_chap_core_out() {
                 "`varde components enable chap-core`",
             ));
     }
-    // A backup has no database to dump, and says why rather than blaming a flag.
-    in_project(&["backup", "create", "--no-models", "--no-components"])
+    // A backup has no database to dump, and says why rather than blaming a
+    // flag. That is a hint, so it shows with `-v`.
+    in_project(&["-v", "backup", "create", "--no-models", "--no-components"])
         .assert()
         .success()
         .stdout(predicates::str::contains(

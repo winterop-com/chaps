@@ -302,8 +302,9 @@ fn backup_create_packs_the_files_without_touching_docker() {
         name.starts_with("chapx-") || name.starts_with("varde-backup-chapx-"),
         "the archive is named after the project: {name}"
     );
-    assert!(text.contains(&archive.display().to_string()));
-    assert!(text.contains("database  not included (--no-db)"));
+    assert!(text.contains(&format!("wrote {}", archive.display())));
+    // What was left out is a hint, shown only with -v.
+    assert!(!text.contains("not included (--no-db)"));
 
     let members = members(&archive);
     assert!(members.contains(&"manifest.yaml".to_string()));

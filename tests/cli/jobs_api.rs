@@ -1,4 +1,5 @@
 use crate::common::*;
+use predicates::prelude::PredicateBooleanExt;
 use std::path::PathBuf;
 
 /// A project whose API port is the one the stand-in chap-core listens on.
@@ -206,7 +207,14 @@ fn jobs_takes_an_id_prefix_and_says_when_it_matches_nothing() {
         .success()
         .stdout(predicates::str::contains(DONE_ID))
         .stdout(predicates::str::contains("Database result  4"))
-        .stdout(predicates::str::contains("row 4 in chap-core's database"));
+        .stdout(predicates::str::contains("hint:").not());
+    // The command that reads the result is a hint, shown with `-v`.
+    chap_in(&sandbox, &dir, &["-v", "jobs", "show", "11111111"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "hint: the result is row 4 in chap-core's database",
+        ));
 
     // `-v` says which job the prefix landed on.
     chap_in(&sandbox, &dir, &["-vv", "jobs", "show", "11111111"])
@@ -239,8 +247,7 @@ fn jobs_cancel_and_delete_report_what_chap_core_said() {
     chap_in(&sandbox, &dir, &["jobs", "cancel", RUNNING_ID])
         .assert()
         .success()
-        .stdout(predicates::str::contains("Job cancelled"))
-        .stdout(predicates::str::contains("run `varde jobs`"));
+        .stdout("Job cancelled\n");
 
     chap_in(&sandbox, &dir, &["jobs", "delete", DONE_ID])
         .assert()
