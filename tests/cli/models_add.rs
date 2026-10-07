@@ -151,6 +151,25 @@ fn models_add_from_a_repository_without_a_public_image_says_to_build_one() {
         .stderr(predicates::str::contains("/token?").not());
 }
 
+/// GitHub answers 404 for a repository that does not exist and for a
+/// private one, so the error names both and the way out of each.
+#[test]
+fn models_add_from_a_repository_github_does_not_know_says_what_404_means() {
+    let (sandbox, _dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .args(["models", "add", "https://github.com/example/does-not-exist"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "GitHub has no repository example/does-not-exist, or it is private; check the \
+             URL, or set GITHUB_TOKEN to a token that can read it if it is private",
+        ))
+        .stderr(predicates::str::contains("HTTP 404").not());
+}
+
 #[test]
 fn models_add_from_a_repository_pins_the_newest_published_build() {
     let (sandbox, dir, port) = added_sandbox(Hub::new());

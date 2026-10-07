@@ -295,6 +295,11 @@ impl Hub {
                 None => (404, json, r#"{"message":"Not Found"}"#.to_string()),
             };
         }
+        // A repository named `does-not-exist` is what GitHub answers for
+        // one that is missing or private: a 404.
+        if path.starts_with("/repos/") && path.contains("/does-not-exist") {
+            return (404, json, r#"{"message":"Not Found"}"#.to_string());
+        }
         if path.starts_with("/repos/") && path.contains("/commits") {
             let entries: Vec<String> = self
                 .commits

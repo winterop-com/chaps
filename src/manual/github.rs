@@ -24,8 +24,24 @@ pub const COMMIT_PAGE: u32 = 30;
 /// The repository's default branch, e.g. `main`.
 pub fn default_branch(api: &str, repo: &Repo, timeout: Duration) -> Result<String> {
     let url = format!("{}/repos/{}", api.trim_end_matches('/'), repo.path());
-    let body = get(&url, timeout)?;
-    parse_default_branch(&body).map_err(|e| anyhow::anyhow!("reading {url}: {e}"))
+    let answer = crate::github::get(&url, timeout)?;
+    if answer.status == 404 {
+        return Err(anyhow::anyhow!(no_such_repo(&repo.path(), answer.token)));
+    }
+    if !answer.ok() {
+        return Err(answer.error(&url));
+    }
+    parse_default_branch(&answer.body).map_err(|e| anyhow::anyhow!("reading {url}: {e}"))
+}
+
+/// What a 404 for a repository means. GitHub gives the same answer for a
+/// private repository as for one that does not exist.
+pub fn no_such_repo(path: &str, token: bool) -> String {
+    let way_out = match token {
+        true => "check the URL, and that the token in GITHUB_TOKEN can read the repository",
+        false => "check the URL, or set GITHUB_TOKEN to a token that can read it if it is private",
+    };
+    format!("GitHub has no repository {path}, or it is private; {way_out}")
 }
 
 /// One entry of a commit listing: the commit, and the day it was made.

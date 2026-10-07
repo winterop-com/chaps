@@ -100,3 +100,19 @@ fn a_short_sha_is_the_first_seven_characters() {
     assert_eq!(sha_tag("b1d6c31f4b2f"), "sha-b1d6c31");
     assert_eq!(sha_tag("abc"), "sha-abc");
 }
+
+/// With a token already set, the way out is that token, not a new one.
+#[test]
+fn a_missing_repository_names_the_token_only_when_one_was_sent() {
+    let without = no_such_repo("my-org/x", false);
+    assert!(
+        without.starts_with("GitHub has no repository my-org/x, or it is private;"),
+        "{without}"
+    );
+    assert!(without.contains("set GITHUB_TOKEN"), "{without}");
+    let with = no_such_repo("my-org/x", true);
+    assert!(
+        with.ends_with("check the URL, and that the token in GITHUB_TOKEN can read the repository"),
+        "{with}"
+    );
+}
