@@ -12,23 +12,28 @@ fn report(check: bool) -> SyncReport {
     }
 }
 
+fn text(report: &SyncReport) -> String {
+    let mut lines = Report::default();
+    say(report, Path::new("/p"), &mut lines);
+    lines.text()
+}
+
 #[test]
-fn human_lists_files_relative_to_the_project() {
-    let text = human(&report(false), Path::new("/p"), &Out::default());
+fn a_sync_says_the_totals_and_lists_the_files_as_hints() {
     assert_eq!(
-        text,
-        "written       compose.chapkit-ewars-model.yml\n\
-             removed       compose.auto-arima-chapkit.yml\n\
-             unchanged     compose.marketplace.yml\n\
-             1 written, 1 unchanged, 1 removed\n"
+        text(&report(false)),
+        "hint: wrote compose.chapkit-ewars-model.yml\n\
+         hint: removed compose.auto-arima-chapkit.yml\n\
+         hint: compose.marketplace.yml is unchanged\n\
+         1 written, 1 unchanged, 1 removed\n"
     );
 }
 
 #[test]
-fn check_mode_uses_the_conditional() {
-    let text = human(&report(true), Path::new("/p"), &Out::default());
-    assert!(text.starts_with("would write   compose.chapkit-ewars-model.yml\n"));
-    assert!(text.contains("would remove  compose.auto-arima-chapkit.yml\n"));
+fn check_mode_names_the_files_that_would_change() {
+    let text = text(&report(true));
+    assert!(text.starts_with("would write compose.chapkit-ewars-model.yml\n"));
+    assert!(text.contains("would remove compose.auto-arima-chapkit.yml\n"));
     assert!(text.ends_with("1 to write, 1 unchanged, 1 to remove\n"));
 }
 
@@ -39,6 +44,14 @@ fn a_clean_check_says_in_sync() {
         check: true,
         ..SyncReport::default()
     };
-    let text = human(&clean, Path::new("/p"), &Out::default());
-    assert!(text.ends_with("in sync: 0 to write, 1 unchanged, 0 to remove\n"));
+    assert!(text(&clean).ends_with("in sync: 0 to write, 1 unchanged, 0 to remove\n"));
+}
+
+#[test]
+fn a_sync_warning_is_a_warning() {
+    let warned = SyncReport {
+        warnings: vec!["something to look at".to_string()],
+        ..SyncReport::default()
+    };
+    assert!(text(&warned).starts_with("warning: something to look at\n"));
 }

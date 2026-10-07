@@ -460,10 +460,12 @@ fn force_keeps_the_env_file_it_found() {
     // the API token and the registration key: --force re-renders everything
     // else, but rewriting this file locks the operator out of their own data.
     sandbox
-        .init(&["--models", "none", "--force"])
+        .init(&["-v", "--models", "none", "--force"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("kept .env (already present)"));
+        .stdout(predicates::str::contains(
+            "hint: kept .env (already present)",
+        ));
 
     let after = read(&dir.join(".env"));
     assert_eq!(
@@ -549,13 +551,13 @@ fn the_chap_tag_reaches_the_env_file_and_the_state() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
     sandbox
-        .init(&["--models", "none", "--chap-tag", "v1.2.3"])
+        .init(&["-v", "--models", "none", "--chap-tag", "v1.2.3"])
         .assert()
         .success()
         // Offline, the tag is taken as given but the compose file that tag
         // publishes cannot be downloaded; the summary and a warning say so.
         .stdout(predicates::str::contains(
-            "chap-core: v1.2.3 (the compose.ghcr.yml built into this binary)",
+            "hint: chap-core v1.2.3 is from the compose.ghcr.yml built into this binary",
         ))
         .stderr(predicates::str::contains("--offline"))
         .stderr(predicates::str::contains("compose.ghcr.yml"));
@@ -592,11 +594,11 @@ fn offline_leaves_the_default_tag_moving_and_says_so() {
     // it can reach GitHub. It cannot here, so the literal tag survives and the
     // warning spells out what that means.
     sandbox
-        .init(&["--models", "none"])
+        .init(&["-v", "--models", "none"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "chap-core: latest (the compose.ghcr.yml built into this binary)",
+            "hint: chap-core latest is from the compose.ghcr.yml built into this binary",
         ))
         .stderr(predicates::str::contains(
             "the chap-core tag stays `latest`",
@@ -625,11 +627,11 @@ fn init_reuses_a_cached_compose_file_and_sync_renders_from_it() {
     let body = "services:\n  chap:\n    image: ghcr.io/x/chap-core:${CHAP_IMAGE_TAG:-latest}\n";
     std::fs::write(&cached, body).unwrap();
     sandbox
-        .init(&["--models", "none", "--force", "--chap-tag", "v9.9.9"])
+        .init(&["-v", "--models", "none", "--force", "--chap-tag", "v9.9.9"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "chap-core: v9.9.9 (chap-core compose.ghcr.yml at v9.9.9)",
+            "hint: chap-core v9.9.9 is from chap-core compose.ghcr.yml at v9.9.9",
         ));
 
     let state = state(&dir);
@@ -685,15 +687,15 @@ fn sync_restores_a_hand_edited_compose_yml() {
     check
         .assert()
         .failure()
-        .stdout(predicates::str::contains("would write   compose.yml"))
+        .stdout(predicates::str::contains("would write compose.yml\n"))
         .stderr(predicates::str::contains("varde sync"));
     assert_eq!(read(&base), "services: {}\n", "--check writes nothing");
 
     let mut sync = sandbox.chap();
-    sync.arg("-C").arg(&dir).arg("sync");
+    sync.arg("-C").arg(&dir).args(["-v", "sync"]);
     sync.assert()
         .success()
-        .stdout(predicates::str::contains("written       compose.yml"));
+        .stdout(predicates::str::contains("hint: wrote compose.yml\n"));
     assert_eq!(
         read(&base),
         original,
@@ -720,11 +722,11 @@ fn a_cached_compose_file_that_goes_missing_leaves_compose_yml_alone() {
 
     std::fs::remove_file(&cached).unwrap();
     let mut sync = sandbox.chap();
-    sync.arg("-C").arg(&dir).arg("sync");
+    sync.arg("-C").arg(&dir).args(["-v", "sync"]);
     let out = sync
         .assert()
         .success()
-        .stdout(predicates::str::contains(
+        .stderr(predicates::str::contains(
             "warning: .varde/compose.chap-core.v9.9.9.yml is missing",
         ))
         .get_output()
@@ -732,9 +734,7 @@ fn a_cached_compose_file_that_goes_missing_leaves_compose_yml_alone() {
         .clone();
     let stdout = String::from_utf8(out).expect("utf-8 stdout");
     assert!(
-        !stdout
-            .lines()
-            .any(|l| !l.starts_with("warning:") && l.contains("compose.yml")),
+        !stdout.lines().any(|l| l.ends_with(" compose.yml")),
         "a base file we cannot reproduce is not reported as written: {stdout}"
     );
     assert_eq!(read(&dir.join("compose.yml")), before);
@@ -779,7 +779,7 @@ fn the_api_port_reaches_the_env_file_the_state_and_status() {
         .assert()
         .success()
         .stdout(predicates::str::contains(format!(
-            "API:       http://localhost:{port}"
+            "chap-core: latest, API on http://localhost:{port}"
         )));
 
     assert_eq!(state(&dir)["api_port"], port);
@@ -817,6 +817,7 @@ fn a_kept_env_file_that_pins_another_api_port_is_reported() {
     // the line in it wins over the new --api-port. Say so.
     sandbox
         .init(&[
+            "-v",
             "--models",
             "none",
             "--force",
@@ -825,7 +826,9 @@ fn a_kept_env_file_that_pins_another_api_port_is_reported() {
         ])
         .assert()
         .success()
-        .stdout(predicates::str::contains("kept .env (already present)"))
+        .stdout(predicates::str::contains(
+            "hint: kept .env (already present)",
+        ))
         .stderr(predicates::str::contains(format!(
             "warning: .env already sets CHAP_API_PORT={pinned}"
         )))
@@ -1065,7 +1068,7 @@ fn sync_check_is_clean_after_init_and_reports_drift_after_a_deletion() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "would write   compose.chapkit-ewars-model.yml",
+            "would write compose.chapkit-ewars-model.yml\n",
         ))
         .stderr(predicates::str::contains("varde sync"));
     assert!(!overlay.exists(), "--check writes nothing");
@@ -1094,11 +1097,11 @@ fn sync_recreates_a_deleted_overlay() {
     std::fs::remove_file(&overlay).unwrap();
 
     let mut sync = sandbox.chap();
-    sync.arg("-C").arg(&dir).arg("sync");
+    sync.arg("-C").arg(&dir).args(["-v", "sync"]);
     sync.assert()
         .success()
         .stdout(predicates::str::contains(
-            "written       compose.chapkit-ewars-model.yml",
+            "hint: wrote compose.chapkit-ewars-model.yml\n",
         ))
         .stdout(predicates::str::contains(
             "1 written, 3 unchanged, 0 removed",
@@ -1137,9 +1140,9 @@ fn sync_never_removes_a_hand_written_overlay() {
     let models = dir.join(".varde/models.yaml");
     std::fs::write(&models, "# emptied by hand\n").unwrap();
     let mut sync = sandbox.chap();
-    sync.arg("-C").arg(&dir).arg("sync");
+    sync.arg("-C").arg(&dir).args(["-v", "sync"]);
     sync.assert().success().stdout(predicates::str::contains(
-        "removed       compose.chapkit-ewars-model.yml",
+        "hint: removed compose.chapkit-ewars-model.yml\n",
     ));
     assert!(!dir.join("compose.chapkit-ewars-model.yml").exists());
     assert!(custom.is_file(), "compose.custom.yml is not ours to delete");
@@ -1326,14 +1329,16 @@ fn init_of_an_empty_deployment_names_adding_a_model_next() {
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "&& varde models add URL\n  varde up",
+            "&& varde models add URL` to add a model\n",
         ));
     let other = Sandbox::new();
     other
         .init(&["--only", "none", "--models", "chapkit_ewars_model"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("&& varde up\n  varde status"));
+        .stdout(predicates::str::contains(
+            "&& varde up` to start the deployment\n",
+        ));
 }
 
 /// `init --force` is the way out of broken state, and it keeps the compose

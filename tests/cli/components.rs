@@ -22,13 +22,11 @@ fn init_with_ocs_writes_the_component_and_its_scaffold() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
     sandbox
-        .init(&["--models", "none", "--with", "ocs"])
+        .init(&["-v", "--models", "none", "--with", "ocs"])
         .assert()
         .success()
         .stdout(predicates::str::contains("components: chap-core, ocs"))
-        .stdout(predicates::str::contains(
-            "OCS:       http://localhost:8790",
-        ))
+        .stdout(predicates::str::contains("OCS: http://localhost:8790"))
         // The heads-up about the object store OCS will need, once.
         .stdout(predicates::str::contains("varde components enable s3"));
 
@@ -853,7 +851,13 @@ fn init_source_builds_chap_core_from_a_checkout() {
     )
     .unwrap();
     sandbox
-        .init(&["--source", checkout.to_str().unwrap(), "--models", "none"])
+        .init(&[
+            "-v",
+            "--source",
+            checkout.to_str().unwrap(),
+            "--models",
+            "none",
+        ])
         .assert()
         .success()
         .stdout(predicates::str::contains("the chap-core checkout at"));

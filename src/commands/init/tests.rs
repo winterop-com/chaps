@@ -15,12 +15,13 @@ use crate::registry::load_embedded;
 #[test]
 fn a_deployment_without_chap_core_is_told_its_models_run_on_their_own() {
     let mut components = Components::default();
-    assert_eq!(no_models_line(&components), Some(NO_MODELS));
+    assert_eq!(no_models_line(&components), Some((NO_MODELS, None)));
 
     components.set_enabled(Component::ChapCore, false);
-    let line = no_models_line(&components).expect("a models-only deployment gets the line");
+    let (line, hint) = no_models_line(&components).expect("a models-only deployment gets the line");
     assert!(line.contains("`varde models enable ID`"), "{line}");
-    assert!(line.contains("published host port"), "{line}");
+    let hint = hint.expect("and the hint about how they run");
+    assert!(hint.contains("published host port"), "{hint}");
 
     // A DHIS2 or an OCS on its own was not about models.
     components.set_enabled(Component::Dhis2, true);

@@ -109,10 +109,17 @@ varde sync
 ```
 
 ```text
-unchanged     compose.yml
-unchanged     compose.varde.yml
-unchanged     compose.chapkit-ewars-model.yml
-unchanged     compose.marketplace.yml
+in sync: 0 written, 4 unchanged, 0 removed
+```
+
+With `-v`, a hint line names each file:
+
+```text
+$ varde -v sync
+hint: compose.yml is unchanged
+hint: compose.varde.yml is unchanged
+hint: compose.chapkit-ewars-model.yml is unchanged
+hint: compose.marketplace.yml is unchanged
 in sync: 0 written, 4 unchanged, 0 removed
 ```
 
@@ -122,7 +129,8 @@ is compared before it is written, so a second sync reports everything as
 unchanged.
 
 - `varde sync --check` reports drift without writing, for CI or a pre-commit
-  hook, and exits non-zero when anything would change.
+  hook, and exits non-zero when anything would change. It names each file
+  that would change (`would write compose.yml`) without `-v`.
 - A plain `varde sync` re-creates a deleted overlay or picks up a hand edit of
   `models.yaml`.
 - Sync only ever removes overlays it wrote itself; `project.yaml` keeps the

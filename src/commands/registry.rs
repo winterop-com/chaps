@@ -34,25 +34,18 @@ pub fn run(ctx: &Ctx, cmd: &RegistryCmd) -> Result<()> {
 fn update(ctx: &Ctx) -> Result<()> {
     let registry = registry::update(&ctx.registry)?;
     let report = report(ctx, &registry, false);
-    ctx.out.emit(&report, || {
-        format!(
-            "{}\n{}",
-            ctx.out.ok("updated the registry"),
-            output::fields_with(
-                2,
-                &[
-                    ("url", report.url.clone()),
-                    ("source", report.provenance.describe()),
-                    ("models", report.models.to_string()),
-                    (
-                        "cache",
-                        ctx.out.dim(&report.cache_dir.display().to_string())
-                    ),
-                ],
-                &|label| ctx.out.key(label),
-            )
-        )
-    })
+    ctx.out.report(&report, |lines| updated(&report, lines))
+}
+
+/// The lines of `registry update`: the count, then where it came from.
+fn updated(report: &RegistryReport, lines: &mut output::Report) {
+    lines
+        .info(format!(
+            "updated the marketplace registry: {}",
+            models(report.models)
+        ))
+        .hint(format!("fetched from {}", report.url))
+        .hint(format!("cached in {}", report.cache_dir.display()));
 }
 
 /// Report the catalogue the rest of the CLI would use right now, without
@@ -60,7 +53,9 @@ fn update(ctx: &Ctx) -> Result<()> {
 fn show(ctx: &Ctx) -> Result<()> {
     let registry = registry::load(&ctx.registry)?;
     let report = report(ctx, &registry, true);
-    ctx.out.emit(&report, || {
+    // The fields and the ids are the table this command shows; the closing
+    // lines come after it.
+    if !ctx.out.json {
         let mut text = output::fields_with(
             2,
             &[
@@ -80,28 +75,30 @@ fn show(ctx: &Ctx) -> Result<()> {
             }
             text.push_str(&format!("  {}\n", ctx.out.dim(id)));
         }
-        // A list of ids is not a statement about the catalogue, and an empty
-        // one says nothing at all.
-        text.push_str(&format!("\n{}\n", ctx.out.cmd(&catalogue_line(&report))));
-        text
-    })
+        println!("{text}");
+    }
+    ctx.out.report(&report, |lines| shown(&report, lines))
 }
 
-/// The line `registry show` ends on: what the catalogue holds, where it came
-/// from, and how to move it on.
-fn catalogue_line(report: &RegistryReport) -> String {
+/// The lines `registry show` ends on: what the catalogue holds and where it
+/// came from.
+fn shown(report: &RegistryReport, lines: &mut output::Report) {
     let source = report.provenance.describe();
     match report.models {
-        0 => format!(
+        0 => lines.info(format!(
             "the catalogue ({source}) holds no models; \
              run `varde registry update` to fetch it again"
-        ),
-        1 => format!("1 model in the catalogue ({source}); `varde models info ID` describes one"),
-        count => {
-            format!(
-                "{count} models in the catalogue ({source}); `varde models info ID` describes one"
-            )
-        }
+        )),
+        count => lines
+            .info(format!("{} in the catalogue ({source})", models(count)))
+            .hint("`varde models info ID` describes one"),
+    };
+}
+
+fn models(count: usize) -> String {
+    match count {
+        1 => "1 model".to_string(),
+        n => format!("{n} models"),
     }
 }
 

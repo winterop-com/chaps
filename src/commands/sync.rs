@@ -4,7 +4,7 @@ use crate::cli::SyncArgs;
 use crate::commands::Ctx;
 use crate::compose::{SyncReport, sync};
 use crate::error::{ChapError, Result};
-use crate::output::Out;
+use crate::output::Report;
 use crate::project::Project;
 use std::path::Path;
 
@@ -16,7 +16,7 @@ pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
     let report = sync(&mut project, &registry, args.check)?;
 
     ctx.out
-        .emit(&report, || human(&report, &project.dir, &ctx.out))?;
+        .report(&report, |lines| say(&report, &project.dir, lines))?;
     if !(args.check && report.drift) {
         return Ok(());
     }
@@ -29,49 +29,35 @@ pub fn run(ctx: &Ctx, args: &SyncArgs) -> Result<()> {
     Err(ChapError::OutOfSync.into())
 }
 
-/// One line per file, then the totals.
+/// The closing lines: a line per file, then the totals.
 ///
-/// The verb carries the colour: written is a change that landed, removed is a
-/// file that is gone, unchanged is the part nobody has to read.
-pub fn human(report: &SyncReport, dir: &Path, out: &Out) -> String {
-    let mut text = String::new();
+/// Under `--check` the files that would change are what the reader asked
+/// about, so they are info; after a real run they are background.
+pub fn say(report: &SyncReport, dir: &Path, lines: &mut Report) {
     for warning in &report.warnings {
-        text.push_str(&format!("{} {warning}\n", out.warn("warning:")));
+        lines.warning(warning.as_str());
     }
-    let (write, remove) = if report.check {
-        ("would write ", "would remove")
-    } else {
-        ("written     ", "removed     ")
-    };
     for path in &report.written {
-        text.push_str(&format!(
-            "{}  {}\n",
-            out.ok(write),
-            out.dim(&relative(dir, path))
-        ));
+        let file = relative(dir, path);
+        match report.check {
+            true => lines.info(format!("would write {file}")),
+            false => lines.hint(format!("wrote {file}")),
+        };
     }
     for path in &report.removed {
-        text.push_str(&format!(
-            "{}  {}\n",
-            out.bad(remove),
-            out.dim(&relative(dir, path))
-        ));
+        let file = relative(dir, path);
+        match report.check {
+            true => lines.info(format!("would remove {file}")),
+            false => lines.hint(format!("removed {file}")),
+        };
     }
     for path in &report.unchanged {
-        text.push_str(&format!(
-            "{}     {}\n",
-            out.dim("unchanged"),
-            out.dim(&relative(dir, path))
-        ));
+        lines.hint(format!("{} is unchanged", relative(dir, path)));
     }
-    if report.drift {
-        text.push_str(&out.cmd(&report.summary()));
-    } else {
-        text.push_str(&out.ok("in sync: "));
-        text.push_str(&out.cmd(&report.summary()));
-    }
-    text.push('\n');
-    text
+    match report.drift {
+        true => lines.info(report.summary()),
+        false => lines.info(format!("in sync: {}", report.summary())),
+    };
 }
 
 fn relative(dir: &Path, path: &Path) -> String {

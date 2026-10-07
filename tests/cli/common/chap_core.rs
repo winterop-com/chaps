@@ -727,11 +727,11 @@ pub(crate) fn pinned_sandbox() -> (Sandbox, PathBuf, u16, TempDir, PathBuf) {
     let dir = sandbox.project();
     let port = Hub::new().start();
     sandbox
-        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .online_init(port, &["-v", "--models", "none", "--chap-tag", "v2.3.1"])
         .assert()
         .success()
         .stdout(predicates::str::contains(
-            "chap-core: v2.3.1 (chap-core compose.ghcr.yml at v2.3.1)",
+            "hint: chap-core v2.3.1 is from chap-core compose.ghcr.yml at v2.3.1",
         ));
     assert!(read(&dir.join("compose.yml")).contains("VARDE_TEST_REF: v2.3.1"));
     let (temp, bin, _) = quiet_docker();

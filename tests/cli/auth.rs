@@ -27,7 +27,7 @@ fn init_with_an_api_token_writes_both_secrets_and_the_overlay_line() {
     let sandbox = Sandbox::new();
     let dir = sandbox.project();
     let out = sandbox
-        .init(&["--models", "chapkit_ewars_model", "--api-token"])
+        .init(&["-v", "--models", "chapkit_ewars_model", "--api-token"])
         .assert()
         .success()
         .get_output()
@@ -47,7 +47,11 @@ fn init_with_an_api_token_writes_both_secrets_and_the_overlay_line() {
 
     // The summary shows no part of the token and says where to get it.
     assert!(
-        stdout.contains("API token: generated into .env (varde auth show --reveal prints it)"),
+        stdout.contains("API token: generated into .env\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("hint: `varde auth show --reveal` prints the API token\n"),
         "{stdout}"
     );
     assert!(!stdout.contains(&token[..6]), "{stdout}");

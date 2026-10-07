@@ -239,6 +239,8 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
     let env_path = dir.join(ENV_FILE);
     let env_exists = env_path.is_file();
     let env = env_action(env_exists, args.fresh_env, args.no_env);
+    // The warnings about `.env` belong to the result: they close the report.
+    let mut warnings = Vec::new();
     // Compose reads `.env` after the compose files, so a CHAP_API_PORT line in
     // a file this run is keeping wins over `--api-port`. Say so rather than
     // leaving the API on a port nothing in `.varde/` mentions.
@@ -246,7 +248,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
         && let Ok(body) = std::fs::read_to_string(&env_path)
         && let Some(pinned) = env_api_port(&body).filter(|p| *p != args.api_port)
     {
-        crate::output::warn(&format!(
+        warnings.push(format!(
             ".env already sets {API_PORT_ENV_VAR}={pinned}, and compose reads that after the \
              compose files, so the API stays on {pinned} rather than {}; edit that line to \
              move it",
@@ -263,7 +265,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
         EnvAction::Written => resolve_secrets(args.api_token.as_ref())?,
         _ => {
             if args.api_token.is_some() {
-                crate::output::warn(&format!(
+                warnings.push(format!(
                     "--api-token needs a .env to write to, and this run {}; \
                      run `varde auth enable` in the project instead",
                     match env {
@@ -435,20 +437,25 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
         "report": report,
     });
     if !report_it {
+        for warning in &warnings {
+            crate::output::warn(warning);
+        }
         return Ok(());
     }
-    ctx.out.emit(&value, || {
+    ctx.out.report(&value, |lines| {
+        for warning in &warnings {
+            lines.warning(warning.as_str());
+        }
         summary(
-            &ctx.out,
             &dir,
             &written,
             &report,
-            &registry,
             env,
             &chap_core,
             &project,
             secrets.as_ref(),
             &dropped_notes,
+            lines,
         )
     })
 }

@@ -39,8 +39,11 @@ Resolution order for every command that needs the catalogue:
   chapkit_minimalist_example_py
   chapkit_minimalist_example_r
 
-7 models in the catalogue (cache (56 minutes old)); `varde models info ID` describes one
+7 models in the catalogue (cache (56 minutes old))
 ```
+
+With `-v`, a hint names the next command: `varde models info ID` describes
+one model.
 
 `varde registry update` forces a fetch and refreshes the cache, as does
 `varde update`. `--offline` never touches the network, so a laptop on a plane

@@ -50,3 +50,51 @@ fn update_only_reports_the_ids_on_show() {
         registry.models.len()
     );
 }
+
+#[test]
+fn update_says_the_count_and_hints_where_it_came_from() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ctx = ctx(tmp.path());
+    let registry = registry::load_embedded().unwrap();
+    let report = report(&ctx, &registry, false);
+    let mut lines = output::Report::default();
+    updated(&report, &mut lines);
+    let text = lines.text();
+    assert!(
+        text.starts_with(&format!(
+            "updated the marketplace registry: {} models\n",
+            registry.models.len()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("hint: fetched from {}\n", registry.url)),
+        "{text}"
+    );
+}
+
+#[test]
+fn show_ends_on_the_catalogue_and_hints_the_next_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ctx = ctx(tmp.path());
+    let registry = registry::load_embedded().unwrap();
+    let mut report = report(&ctx, &registry, true);
+    let mut lines = output::Report::default();
+    shown(&report, &mut lines);
+    assert_eq!(
+        lines.text(),
+        format!(
+            "{} models in the catalogue (embedded)\n\
+             hint: `varde models info ID` describes one\n",
+            registry.models.len()
+        )
+    );
+
+    report.models = 0;
+    let mut lines = output::Report::default();
+    shown(&report, &mut lines);
+    assert!(
+        lines.text().contains("run `varde registry update`"),
+        "an empty catalogue names the way out at info level"
+    );
+}
