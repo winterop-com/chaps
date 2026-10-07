@@ -171,3 +171,32 @@ fn an_empty_ps_says_so() {
     );
     assert_eq!(ps::ps_table(&report, &crate::output::Out::default()), "");
 }
+
+/// `denied` is a registry that will not hand out the image: it does not exist
+/// or it is private. The error says that once, with both ways out.
+#[test]
+fn a_denied_image_says_what_denied_means_and_the_way_out() {
+    let line = start_failure(
+        "y",
+        "ghcr.io/x/y:tag",
+        Some("Error response from daemon: error from registry: denied"),
+        "varde run ghcr.io/x/y:tag",
+    );
+    assert_eq!(
+        line,
+        "y did not start: the registry answered `denied` for ghcr.io/x/y:tag, so the image does \
+         not exist or is private; check the reference, or run `docker login ghcr.io`, then \
+         `varde run ghcr.io/x/y:tag` tries again"
+    );
+    // The Docker socket is not the registry.
+    let socket = start_failure(
+        "y",
+        "ghcr.io/x/y:tag",
+        Some("permission denied while trying to connect to the Docker daemon socket"),
+        "varde run y",
+    );
+    assert!(
+        socket.starts_with("y did not start (permission denied"),
+        "{socket}"
+    );
+}

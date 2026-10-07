@@ -262,10 +262,9 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
     }
     if piped.code != 0 {
         let said = compose_said(&piped.stderr);
-        let mut err = anyhow::Error::from(ChapError::DockerFailed(piped.code));
-        if let Some(line) = &said {
-            err = err.context(line.clone());
-        }
+        // The line compose said is in the message below, so it is not a cause
+        // of its own as well: that would print it twice.
+        let err = anyhow::Error::from(ChapError::DockerFailed(piped.code));
         // A model this run enabled and could not start is taken back out, so
         // `varde ps` does not list it forever and the retry starts afresh; an
         // added definition stays.
@@ -276,10 +275,8 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
             Some(g) if g != DEFAULT_GROUP => format!("varde run {} --group {g}", args.source),
             _ => format!("varde run {}", args.source),
         };
-        return Err(err.context(format!(
-            "{service} did not start ({}); fix that, then `{again}` tries again",
-            said.as_deref().unwrap_or("docker compose failed")
-        )));
+        let image = crate::compose::image_ref(&model.image, &model.image_tag);
+        return Err(err.context(start_failure(&service, &image, said.as_deref(), &again)));
     }
     drop(up_lock);
 
@@ -533,6 +530,33 @@ fn compose_said(stderr: &str) -> Option<String> {
         .rfind(|line| line.to_ascii_lowercase().contains("error"))
         .map(str::to_string)
         .or_else(|| last_line(stderr))
+}
+
+/// The error for a model container that did not start.
+///
+/// A registry says `denied` both for an image that does not exist and for a
+/// private one, and the bare word gives no way out, so that case is said in
+/// full. `permission denied` is the Docker socket, not the registry.
+fn start_failure(service: &str, image: &str, said: Option<&str>, again: &str) -> String {
+    let lower = said.unwrap_or_default().to_ascii_lowercase();
+    if lower.contains("denied") && !lower.contains("permission denied") {
+        let login = match crate::compose::is_local_image(image) {
+            true => "docker login".to_string(),
+            false => format!(
+                "docker login {}",
+                image.split('/').next().unwrap_or_default()
+            ),
+        };
+        return format!(
+            "{service} did not start: the registry answered `denied` for {image}, so the image \
+             does not exist or is private; check the reference, or run `{login}`, then \
+             `{again}` tries again"
+        );
+    }
+    format!(
+        "{service} did not start ({}); fix that, then `{again}` tries again",
+        said.unwrap_or("docker compose failed")
+    )
 }
 
 /// The last line of `text` with anything on it.

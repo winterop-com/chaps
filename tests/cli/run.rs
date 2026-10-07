@@ -255,12 +255,19 @@ fn a_run_that_cannot_start_takes_its_model_back_out() {
         doc["error"]
             .as_str()
             .unwrap()
-            .contains("Error response from daemon: pull access denied"),
+            .contains("the registry answered `denied` for ghcr.io/"),
         "{doc}"
     );
     assert_eq!(
         doc["hint"],
-        "fix that, then `varde run chapkit_ewars_model --group trial` tries again"
+        "check the reference, or run `docker login ghcr.io`, then \
+         `varde run chapkit_ewars_model --group trial` tries again"
+    );
+    // The line compose said is in the message, and not a cause as well.
+    assert_eq!(
+        doc["causes"],
+        serde_json::json!(["docker compose exited with status 1"]),
+        "{doc}"
     );
     let dir = data(&sandbox).join("run").join("trial");
     let models = &state(&dir)["models"];
