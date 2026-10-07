@@ -242,10 +242,13 @@ fn up_value(
 
 /// `up --wait`: wait until chap-core and the models answer, or the deadline.
 fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> wait::Readiness {
-    note(
-        ctx,
-        &format!("waiting up to {timeout}s for chap-core and the models to answer"),
-    );
+    let has_api = project.state.components.has_chap_core_api();
+    if let Some(what) = wait::waited_for(has_api, project.state.models.len()) {
+        note(
+            ctx,
+            &format!("waiting up to {timeout}s for {what} to answer"),
+        );
+    }
     wait::wait_until_ready(ctx, project, std::time::Duration::from_secs(timeout), None)
 }
 

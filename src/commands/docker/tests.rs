@@ -897,3 +897,22 @@ fn a_removal_names_only_the_host_ports_that_were_published() {
         "stopped and removed 2 containers (ocs, s3); host ports 8790, 9000 are free again"
     );
 }
+
+/// `up --wait` names only what the deployment has: no chap-core in a
+/// deployment of models alone, and no models where there are none.
+#[test]
+fn the_wait_names_only_what_the_deployment_has() {
+    use super::wait::waited_for;
+    assert_eq!(
+        waited_for(true, 2).as_deref(),
+        Some("chap-core and the 2 models")
+    );
+    assert_eq!(
+        waited_for(true, 1).as_deref(),
+        Some("chap-core and the model")
+    );
+    assert_eq!(waited_for(true, 0).as_deref(), Some("chap-core"));
+    assert_eq!(waited_for(false, 1).as_deref(), Some("the model"));
+    assert_eq!(waited_for(false, 3).as_deref(), Some("the 3 models"));
+    assert_eq!(waited_for(false, 0), None);
+}

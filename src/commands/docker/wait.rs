@@ -134,6 +134,22 @@ pub fn mark_configured(readiness: &mut Readiness, outcomes: &[crate::configure::
     }
 }
 
+/// What `up --wait` waits for in this deployment, by name: chap-core only
+/// when it has one, and the models only when it has some. `None` when there
+/// is nothing to wait for.
+pub fn waited_for(has_api: bool, models: usize) -> Option<String> {
+    let models = match models {
+        0 => None,
+        1 => Some("the model".to_string()),
+        count => Some(format!("the {count} models")),
+    };
+    match (has_api, models) {
+        (true, Some(models)) => Some(format!("chap-core and {models}")),
+        (true, None) => Some("chap-core".to_string()),
+        (false, models) => models,
+    }
+}
+
 /// What is still not answering, by name.
 pub fn pending(readiness: &Readiness) -> Vec<String> {
     let mut out = Vec::new();
