@@ -311,10 +311,16 @@ install -m 0755 "$binary" "${INSTALL_DIR}/varde" ||
   die "could not install into ${INSTALL_DIR}"
 
 # vg is the short form of varde: a link, so `varde self update` updates both.
-# Not with --here, which installs the binary alone.
+# Not with --here, which installs the binary alone. A vg that is something else,
+# such as the genome tool that Debian and Ubuntu ship, is left alone.
 if [ "$HERE" -eq 0 ]; then
-  ln -sf varde "${INSTALL_DIR}/vg" ||
-    say "  note: could not add the short form ${INSTALL_DIR}/vg; varde works without it"
+  short="${INSTALL_DIR}/vg"
+  if [ -e "$short" ] && [ "$(readlink "$short" 2>/dev/null)" != "varde" ]; then
+    say "  note: ${short} is another program, so it was left alone; use varde"
+  else
+    ln -sf varde "$short" ||
+      say "  note: could not add the short form ${short}; varde works without it"
+  fi
 fi
 
 # --here is the whole job: the binary, verified, in this directory. Anything

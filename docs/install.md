@@ -29,6 +29,13 @@ is the same as `varde up`. `varde self update` replaces the binary, and the
 link then points at the new one. `--here` installs the binary alone, with no
 link.
 
+If the install folder already has a `vg` that is not this link, the script
+leaves it alone and says so. On Linux, the `vg` package of Debian and Ubuntu
+(a tool for genome data) installs `/usr/bin/vg`; the `vg` of varde in
+`/usr/local/bin` or `~/.local/bin` comes first in `PATH`. If you need the other
+`vg`, delete the link and use `varde`. LVM has no command named `vg`; its
+commands are `vgcreate`, `vgs` and the others.
+
 It goes into `/usr/local/bin` when that directory is writable and
 `~/.local/bin` otherwise, creating the directory and saying so if the result is
 not on your `PATH`. Pipe it through `sudo sh` to take the first branch on a
