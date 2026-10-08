@@ -52,7 +52,10 @@ pub fn service_images(project: &Project) -> BTreeMap<String, String> {
 }
 
 /// The `services.<name>.image` of a `docker compose config --format json`
-/// document. A service built from a Dockerfile has no image and is left out.
+/// document. A service built from a Dockerfile is left out, also when it
+/// names the image the build is tagged as (a chap-core checkout does): no
+/// pull fetches it, and a rebuild can give it a new id while compose sees
+/// nothing to recreate.
 pub fn parse_service_images(text: &str) -> BTreeMap<String, String> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
         return BTreeMap::new();
@@ -62,6 +65,7 @@ pub fn parse_service_images(text: &str) -> BTreeMap<String, String> {
     };
     services
         .iter()
+        .filter(|(_, service)| service.get("build").is_none())
         .filter_map(|(name, service)| {
             let image = service.get("image")?.as_str()?;
             (!image.is_empty()).then(|| (name.clone(), image.to_string()))

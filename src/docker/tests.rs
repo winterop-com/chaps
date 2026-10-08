@@ -409,11 +409,14 @@ fn the_service_images_come_from_the_merged_configuration() {
           "services": {
             "chap":   {"image": "ghcr.io/dhis2-chap/chap:v2.3.1"},
             "worker": {"image": "ghcr.io/dhis2-chap/chap:v2.3.1"},
-            "local":  {"build": {"context": "."}}
+            "local":  {"build": {"context": "."}},
+            "built":  {"build": {"context": "."}, "image": "x-chap:checkout",
+                       "pull_policy": "build"}
           }
         }"#;
     let images = parse_service_images(text);
     assert_eq!(images.len(), 2, "a built service pins no image");
+    assert!(!images.contains_key("built"), "{images:?}");
     assert_eq!(
         images.get("chap").map(String::as_str),
         Some("ghcr.io/dhis2-chap/chap:v2.3.1")
