@@ -222,3 +222,44 @@ fn models_test_backtest_fails_when_every_model_was_skipped() {
         "{stderr}"
     );
 }
+
+/// A model registered from outside the deployment is configured by its
+/// service id, with the one `default` a custom image gets, and the backtest
+/// skip names that command.
+#[test]
+fn configure_takes_a_model_registered_from_outside_the_deployment() {
+    let sandbox = Sandbox::new();
+    let dir = fresh_project(&sandbox, "none");
+
+    let output = chap_in(
+        &sandbox,
+        &dir,
+        &["models", "test", HOST_RUN_MODEL, "--backtest"],
+    )
+    .assert()
+    .failure()
+    .get_output()
+    .clone();
+    let text = stdout_of(&output);
+    assert!(
+        text.contains(&format!("run `varde models configure {HOST_RUN_MODEL}`")),
+        "{text}"
+    );
+    assert!(!text.contains("varde restart"), "{text}");
+
+    let output = chap_in(&sandbox, &dir, &["models", "configure", HOST_RUN_MODEL])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    assert_eq!(
+        stdout_of(&output),
+        format!("{HOST_RUN_MODEL}: created configured model default\n")
+    );
+    let seen = recorded(&sandbox, &dir);
+    assert_eq!(seen["templates"], serde_json::json!([HOST_RUN_MODEL]));
+    let posts = seen["configured_posts"].as_array().expect("a list");
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0]["name"], "default");
+    assert!(posts[0]["additional_continuous_covariates"].is_null());
+}

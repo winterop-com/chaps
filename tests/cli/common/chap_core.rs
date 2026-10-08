@@ -324,7 +324,14 @@ pub(crate) fn services_route(
         Some(parts) => parts,
         None => (rest, ""),
     };
-    if ![PASSING_MODEL, FAILING_MODEL, OLD_CHAPKIT_MODEL].contains(&service) {
+    if ![
+        PASSING_MODEL,
+        FAILING_MODEL,
+        OLD_CHAPKIT_MODEL,
+        HOST_RUN_MODEL,
+    ]
+    .contains(&service)
+    {
         return Some((
             404,
             json,

@@ -95,6 +95,11 @@ pub fn step(ctx: &Ctx, project: &Project, targets: &[Target]) -> Result<Vec<Mode
             registry = Some(super::registry_for(ctx, Some(project))?);
         }
         let registry = registry.as_ref().expect("loaded above");
+        // A model registered from outside runs no image of a marketplace
+        // entry that varde knows of, so it gets the one `default`.
+        if !project.state.models.contains_key(&target.id) {
+            return Ok(Source::Custom);
+        }
         Ok(source_of(registry, project, &target.id))
     };
     configure::configure(&api, targets, &mut source)
@@ -134,16 +139,29 @@ fn all_targets(project: &Project) -> Vec<Target> {
 
 /// The models named on the command line, or every enabled one.
 ///
-/// An id is resolved the way `models test` resolves it: a marketplace id or a
-/// service id. A model that is not enabled here is a mistake: nothing of this
-/// deployment registers it.
+/// An id is resolved the way `models test` resolves it: the service id of a
+/// model registered from outside this deployment, a marketplace id or a
+/// service id. Any other model that is not enabled here is a mistake:
+/// nothing registers it.
 fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Vec<Target>> {
     if ids.is_empty() {
         return Ok(all_targets(project));
     }
     let registry = super::registry_for(ctx, Some(project))?;
+    let token = crate::api::token_for(Some(&project.dir));
+    let api = Api::new(&project.api_url(), token, crate::api::DEFAULT_TIMEOUT);
+    let outside = super::modeltest::unmanaged_services(project, &api);
     let mut picked: Vec<Target> = Vec::new();
     for given in ids {
+        if outside.contains(given) {
+            if !picked.iter().any(|target| &target.id == given) {
+                picked.push(Target {
+                    id: given.clone(),
+                    service_id: given.clone(),
+                });
+            }
+            continue;
+        }
         let model = registry
             .get(given)
             .ok_or_else(|| ChapError::UnknownModel(given.clone()))?;

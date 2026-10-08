@@ -287,7 +287,7 @@ fn targets(
 /// The services chap-core has registered that this deployment does not
 /// enable: a model run from its checkout, typically. Empty without chap-core,
 /// or when it cannot be asked.
-fn unmanaged_services(project: &Project, api: &Api) -> Vec<String> {
+pub(super) fn unmanaged_services(project: &Project, api: &Api) -> Vec<String> {
     if !project.state.components.has_chap_core_api() {
         return Vec::new();
     }

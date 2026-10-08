@@ -40,10 +40,15 @@ pub(crate) fn configured_route(
             }
             recorded.templates.push(service.clone());
             let id = TEMPLATE_IDS
-                + [PASSING_MODEL, FAILING_MODEL, OLD_CHAPKIT_MODEL]
-                    .iter()
-                    .position(|known| *known == service)
-                    .unwrap_or(9) as i64;
+                + [
+                    PASSING_MODEL,
+                    FAILING_MODEL,
+                    OLD_CHAPKIT_MODEL,
+                    HOST_RUN_MODEL,
+                ]
+                .iter()
+                .position(|known| *known == service)
+                .unwrap_or(9) as i64;
             Some((
                 200,
                 json,
@@ -53,10 +58,15 @@ pub(crate) fn configured_route(
         ("POST", "/v1/crud/configured-models") => {
             let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
             let template = sent["model_template_id"].as_i64().unwrap_or_default();
-            let service = [PASSING_MODEL, FAILING_MODEL, OLD_CHAPKIT_MODEL]
-                .get((template - TEMPLATE_IDS) as usize)
-                .copied()
-                .unwrap_or_default();
+            let service = [
+                PASSING_MODEL,
+                FAILING_MODEL,
+                OLD_CHAPKIT_MODEL,
+                HOST_RUN_MODEL,
+            ]
+            .get((template - TEMPLATE_IDS) as usize)
+            .copied()
+            .unwrap_or_default();
             let name = match sent["name"].as_str().unwrap_or_default() {
                 "default" => service.to_string(),
                 config => format!("{service}:{config}"),
