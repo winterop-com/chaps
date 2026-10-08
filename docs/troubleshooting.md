@@ -264,11 +264,22 @@ template chap-core stored for its version.
 warning: my_model: could not create its configured models: ...; it reports no git revision, so running this again does not help; build its image again with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`
 ```
 
+For a model registered from outside the deployment, the line ends
+differently:
+
+```text
+warning: my-model: could not create its configured models: ...; it reports no git revision, so running this again does not help; set `GIT_REVISION` where it runs, then start it again
+```
+
 `varde models configs sync` (and the same step in `varde up --wait` and `varde
 models test --backtest`) asked chap-core for the model template, and chap-core
 refused it. The model reports no git revision, and chap-core 2.4 stores no
 template for such a model. In `--json`, the model has the state `no-revision`.
 `varde status` gives the same way out on the line under the table.
+
+A model reports no git revision when its registration has `git_revision:
+null`. On chap-core 2.4 and later, a registration with no `git_revision` key
+counts too. chapkit 2.1 leaves out the key when it has no revision.
 
 1. In the model's checkout, build the image again with
    `docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .`.

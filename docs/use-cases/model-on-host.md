@@ -50,13 +50,13 @@ and installs the dependencies of the model.
   containers on Linux too.
 - `GIT_REVISION` is the commit the model reports as its `git_revision`.
   chap-core v2.4.0 stores the model template only for a service that reports
-  a revision. Without it, the model registers and shows in `varde status` with
-  no warning, but chap-core has no template for it. The chap-core log
-  (`varde logs chap`) then says `is stored from revision None, but its source
-  now reports revision None`. `varde models configs sync` fails with
-  `answered HTTP 409 Conflict` and the same reason. Its warning tells you to
-  run it again, but that does not help: set `GIT_REVISION`, then start the
-  model again.
+  a revision. Without it, the model registers, but chap-core has no template
+  for it. `varde status` warns: `` SERVICE_ID: it reports no git revision, so
+  chap-core stores no model template for it; set `GIT_REVISION` where it
+  runs, then start it again ``. `varde models configs sync` fails with
+  `answered HTTP 409 Conflict` and gives the same way out. The chap-core log
+  (`varde logs chap`) says `is stored from revision None, but its source now
+  reports revision None`.
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 

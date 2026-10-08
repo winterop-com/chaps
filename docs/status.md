@@ -28,7 +28,8 @@ what the model answered itself: `up` when `GET /health` on its host port
 answered, `running, not answering` when its container is up and `/health` did
 not answer (still starting, or failed: read `varde logs <id>`), and
 `not running`. The closing line counts those instead of registrations, and the
-exit code is non-zero while any model is not `up`.
+exit code is non-zero while any model is not `up`. In `--json`, the list
+`missing` is empty, because no model is expected to register.
 
 There is one line per row that needs a fix. When no row needs one, a hint
 (shown with `-v`) names the one check `status` cannot do itself. A model whose
@@ -41,8 +42,10 @@ register gets one more line: if `varde logs <id>` shows `App never became
 ready`, enable the model again with a network. A hint says what the two log
 lines that matter mean.
 
-A model can get a warning when chap-core refuses its model template. For a
-model of this deployment, the warning is:
+A model can get a warning when chap-core cannot run it. A model reports no git
+revision when its registration has `git_revision: null`, or has no
+`git_revision` key on chap-core 2.4 or later. chapkit 2.1 leaves out the key.
+For a model of this deployment, the warning is:
 
 - `` ID: it reports no git revision, so chap-core stores no model template for
   it and `varde models configs sync` cannot configure it; build its image again
@@ -57,6 +60,13 @@ these:
   it; set `GIT_REVISION` where it runs, then start it again ``
 - `ID: chap-core stores its model template VERSION from another git revision
   and refuses to run it; set a new version in the model, then start it again`
+- `` ID: chap-core has configured models of it of other versions only, not of
+  VERSION; run `varde models configs sync ID` ``
+
+The last warning comes when the model registered with a new version. chap-core
+keeps the configured models of the old version, but it does not run them. So
+`varde models test --backtest` has nothing to run until `sync` creates
+configured models of the new version.
 
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.varde/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
