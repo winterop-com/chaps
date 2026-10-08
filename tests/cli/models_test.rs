@@ -314,7 +314,9 @@ fn models_test_needs_an_id_or_all_and_the_model_has_to_be_enabled() {
     chap_in(&sandbox, &dir, &["models", "test", "nope"])
         .assert()
         .failure()
-        .stderr(predicates::str::contains("unknown model `nope`"));
+        .stderr(predicates::str::contains(
+            "unknown model `nope`; run `varde models list` to see the model ids",
+        ));
 
     // An id that is a model, but not one this deployment enables.
     chap_in(&sandbox, &dir, &["models", "test", "auto_arima_chapkit"])

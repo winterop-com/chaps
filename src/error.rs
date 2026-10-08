@@ -21,7 +21,7 @@ pub enum ChapError {
     )]
     AlreadyInitialized(PathBuf),
 
-    #[error("unknown model `{0}`")]
+    #[error("unknown model `{0}`; run `varde models list` to see the model ids")]
     UnknownModel(String),
 
     #[error("unknown component `{0}`; the components are chap-core, ocs, s3 and dhis2")]
