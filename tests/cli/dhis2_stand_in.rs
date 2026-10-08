@@ -153,6 +153,9 @@ pub(crate) struct Dhis2State {
     pub(crate) analytics_started: bool,
     /// A run that is already going when the command arrives.
     pub(crate) analytics_running: bool,
+    /// A run that DHIS2 accepted and has not started: it is in the job list
+    /// and not yet in the notifier.
+    pub(crate) analytics_queued: bool,
     /// A `lastAnalyticsTableSuccess` that came with the seed dump: the setting
     /// is a database row, so a restored deployment inherits it while its
     /// notifier - which lives in the process - stays empty.
@@ -530,6 +533,19 @@ pub(crate) fn dhis2_answer(
                 .to_string(),
         );
     }
+    if path.starts_with("/api/jobConfigurations?") {
+        let mut jobs = Vec::new();
+        if state.analytics_queued {
+            jobs.push(serde_json::json!({
+                "id": "job-q", "jobStatus": "SCHEDULED", "schedulingType": "ONCE_ASAP",
+                "enabled": true,
+            }));
+        }
+        return (
+            200,
+            serde_json::json!({"jobConfigurations": jobs}).to_string(),
+        );
+    }
     if path == "/api/system/tasks/ANALYTICS_TABLE" {
         let mut tasks = serde_json::json!({});
         if state.analytics_running {
@@ -547,7 +563,7 @@ pub(crate) fn dhis2_answer(
         // A run that was already going finishes on the first poll, so the test
         // asserts the adoption rather than the sleeping.
         return match job {
-            "job-0" | "job-1" => (200, dhis2_finished_job().to_string()),
+            "job-0" | "job-1" | "job-q" => (200, dhis2_finished_job().to_string()),
             _ => (200, "[]".to_string()),
         };
     }

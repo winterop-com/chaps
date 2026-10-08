@@ -2,7 +2,7 @@
 //! the tables it made.
 
 use super::client::text_at;
-use super::{ANALYTICS_JOB_TYPE, Dhis2, TASKS_PATH};
+use super::{ANALYTICS_JOB_TYPE, Dhis2, JOB_CONFIGURATIONS_PATH, TASKS_PATH};
 use crate::error::Result;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -94,6 +94,40 @@ pub fn running_job(tasks: &serde_json::Value) -> Option<String> {
         .collect();
     running.sort();
     running.pop().map(|(_, job)| job)
+}
+
+/// The query for the analytics jobs DHIS2 has, with the fields that say
+/// whether one waits to run.
+pub fn queued_jobs_query() -> String {
+    format!(
+        "{JOB_CONFIGURATIONS_PATH}?fields=id,jobStatus,schedulingType,enabled,lastFinished\
+         &filter=jobType:eq:{ANALYTICS_JOB_TYPE}&paging=false"
+    )
+}
+
+/// The analytics job that DHIS2 accepted and has not finished, out of
+/// [`queued_jobs_query`].
+///
+/// The notifier lists a job only when it starts, about five seconds after
+/// the `POST` that asked for it. The job configuration is there at once: a
+/// run that was asked for is a `ONCE_ASAP` job, `SCHEDULED` until it starts
+/// and `RUNNING` after, and DHIS2 disables it and records `lastFinished`
+/// when it ends. So a second `varde dhis2 analytics` a moment after the
+/// first finds that job here and does not start another.
+pub fn queued_job(listing: &serde_json::Value) -> Option<String> {
+    let jobs = listing.get("jobConfigurations")?.as_array()?;
+    let waiting = |job: &&serde_json::Value| {
+        text_at(job, "schedulingType") == "ONCE_ASAP"
+            && matches!(text_at(job, "jobStatus").as_str(), "SCHEDULED" | "RUNNING")
+            && job.get("enabled").and_then(serde_json::Value::as_bool) != Some(false)
+            && text_at(job, "lastFinished").is_empty()
+    };
+    // A job that runs comes first: the others wait behind it.
+    jobs.iter()
+        .filter(waiting)
+        .max_by_key(|job| text_at(job, "jobStatus") == "RUNNING")
+        .map(|job| text_at(job, "id"))
+        .filter(|id| !id.trim().is_empty())
 }
 
 /// The newest `time` in a notification array, for ordering two of them.

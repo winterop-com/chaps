@@ -40,7 +40,8 @@ pub(super) fn run_analytics(
     // first and its notifier stays empty, so a wait on it would report nothing
     // for as long as the first one takes - which is why the one already going
     // is watched instead of a new one being asked for.
-    let running = dhis2::running_job(&client.get_json(&dhis2::jobs_path())?);
+    let running = dhis2::running_job(&client.get_json(&dhis2::jobs_path())?)
+        .or_else(|| queued_job(ctx, client));
     let (job, started) = match running {
         Some(job) => {
             ctx.out
@@ -126,6 +127,22 @@ pub(super) fn run_analytics(
                 .unwrap_or_default(),
         ),
     })
+}
+
+/// An analytics job that DHIS2 accepted and has not started yet, as its job
+/// list says. A list that cannot be read is a trace line: the run then
+/// starts as it did before.
+fn queued_job(ctx: &Ctx, client: &Dhis2) -> Option<String> {
+    match client.get_json(&dhis2::queued_jobs_query()) {
+        Ok(listing) => dhis2::queued_job(&listing),
+        Err(why) => {
+            ctx.out.verbose(&format!(
+                "{} could not be read ({why}), so no waiting analytics job is adopted",
+                dhis2::JOB_CONFIGURATIONS_PATH
+            ));
+            None
+        }
+    }
 }
 
 /// The message for an analytics run that failed, from the reason DHIS2 gave.

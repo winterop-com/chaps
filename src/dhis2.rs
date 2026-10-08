@@ -34,7 +34,7 @@ mod route;
 
 pub use analytics::{
     AnalyticsEvidence, Progress, analytics_evidence, finished_here, job_id_of, jobs_path,
-    recorded_success, running_job,
+    queued_job, queued_jobs_query, recorded_success, running_job,
 };
 pub use apps::{
     InstalledApp, OFFLINE_APPS, app_hub_base, fetch_hub_app, install_path, installed_app,
@@ -108,6 +108,9 @@ pub const ANALYTICS_JOB_TYPE: &str = "ANALYTICS_TABLE";
 
 /// Where a job's notifications are read from.
 pub const TASKS_PATH: &str = "/api/system/tasks";
+
+/// Where DHIS2 lists its jobs, the ones that wait to run included.
+pub const JOB_CONFIGURATIONS_PATH: &str = "/api/jobConfigurations";
 
 /// The installed apps of an instance.
 pub const APPS_PATH: &str = "/api/apps";

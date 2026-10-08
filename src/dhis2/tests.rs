@@ -1198,3 +1198,33 @@ fn the_seed_password_serves_every_user_of_a_seeded_dhis2() {
     });
     assert!(external.is_err());
 }
+
+/// A run that was asked for a moment ago is in the job list before the
+/// notifier lists it. Finished runs and the scheduled nightly job are not.
+#[test]
+fn a_queued_analytics_job_is_read_off_the_job_list() {
+    let listing = serde_json::json!({"jobConfigurations": [
+        {"id": "nightly", "jobStatus": "SCHEDULED", "schedulingType": "CRON",
+         "enabled": true},
+        {"id": "done", "jobStatus": "DISABLED", "schedulingType": "ONCE_ASAP",
+         "enabled": false, "lastFinished": "2026-10-08T09:00:00.000"},
+        {"id": "lwKM9gOUwzR", "jobStatus": "SCHEDULED", "schedulingType": "ONCE_ASAP",
+         "enabled": true},
+    ]});
+    assert_eq!(queued_job(&listing).as_deref(), Some("lwKM9gOUwzR"));
+
+    let running = serde_json::json!({"jobConfigurations": [
+        {"id": "second", "jobStatus": "SCHEDULED", "schedulingType": "ONCE_ASAP",
+         "enabled": true},
+        {"id": "first", "jobStatus": "RUNNING", "schedulingType": "ONCE_ASAP",
+         "enabled": true},
+    ]});
+    assert_eq!(queued_job(&running).as_deref(), Some("first"));
+
+    let none = serde_json::json!({"jobConfigurations": [
+        {"id": "nightly", "jobStatus": "SCHEDULED", "schedulingType": "CRON"},
+    ]});
+    assert_eq!(queued_job(&none), None);
+    assert_eq!(queued_job(&serde_json::json!({})), None);
+    assert!(queued_jobs_query().contains("filter=jobType:eq:ANALYTICS_TABLE"));
+}

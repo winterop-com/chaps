@@ -94,3 +94,31 @@ fn dhis2_show_without_chap_core_names_the_steps_that_work() {
         stand_in.asked()
     );
 }
+
+/// A run asked for a moment ago is in DHIS2's job list before the notifier
+/// lists it. A second `analytics` adopts it and does not start another.
+#[cfg(unix)]
+#[test]
+fn dhis2_analytics_adopts_a_run_that_is_accepted_and_not_started() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        analytics_queued: true,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["analytics"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "the analytics run that was already going finished",
+        ))
+        .stdout(predicates::str::contains("(job job-q)"));
+    assert!(
+        !stand_in
+            .asked()
+            .iter()
+            .any(|seen| seen.starts_with("POST /api/resourceTables/analytics")),
+        "{:?}",
+        stand_in.asked()
+    );
+}
