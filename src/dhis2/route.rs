@@ -249,7 +249,7 @@ pub fn allowlist_hint(target: &str, deployed: bool) -> String {
 /// always does (`/**`).
 ///
 /// `http://localhost:8700/**` -> `http://localhost:8700`.
-pub(super) fn route_origin(target: &str) -> &str {
+pub fn route_origin(target: &str) -> &str {
     let after_scheme = target.find("://").map_or(0, |at| at + 3);
     match target[after_scheme..].find('/') {
         Some(slash) => &target[..after_scheme + slash],

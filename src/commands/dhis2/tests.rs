@@ -61,6 +61,7 @@ fn route_report(outcome: RouteOutcome) -> RouteReport {
         verified: true,
         answered: "healthy".to_string(),
         token_refused: false,
+        way_out: String::new(),
     }
 }
 
@@ -341,6 +342,46 @@ fn an_unverified_route_does_not_claim_chap_core_answered() {
     assert!(!text.contains("chap-core answered through it"), "{text}");
 }
 
+/// A route that nothing answered through names the cause that varde checked:
+/// chap-core down, the allowlist for an empty 503, or the address that DHIS2
+/// uses for chap-core.
+#[test]
+fn an_unanswered_route_names_the_cause_varde_checked() {
+    let proof = |empty_503| RouteProof {
+        verified: false,
+        answered: "HTTP 503 Service Unavailable".to_string(),
+        token_refused: false,
+        empty_503,
+    };
+    let at = || Some("http://localhost:8700".to_string());
+    let local = "http://chap:8000/**";
+    let external = "http://localhost:8700/**";
+
+    assert_eq!(
+        way_out_for(&proof(true), None, None, local),
+        "run `varde status` to see whether chap-core is up"
+    );
+    assert_eq!(
+        way_out_for(&proof(true), at(), None, local),
+        "chap-core answers at http://localhost:8700, so the DHIS2 allowlist may refuse \
+         http://chap:8000; add it to `route.remote_servers_allowed` in `dhis2/dhis.conf` and \
+         run `varde restart dhis2`"
+    );
+    assert!(
+        way_out_for(&proof(true), at(), Some("http://localhost:8700"), external)
+            .ends_with("in the `dhis.conf` of the DHIS2 server")
+    );
+    assert_eq!(
+        way_out_for(&proof(false), at(), Some("http://localhost:8700"), external),
+        "chap-core answers at http://localhost:8700, so DHIS2 may not reach it at \
+         http://localhost:8700; give the address DHIS2 reaches chap-core at with \
+         `varde dhis2 use --chap-url URL`"
+    );
+    assert!(
+        way_out_for(&proof(false), at(), None, local).ends_with("`varde logs dhis2` may say why")
+    );
+}
+
 #[test]
 fn the_app_lines_say_which_of_the_four_happened() {
     let apps = AppsReport {
@@ -573,6 +614,7 @@ fn show_on_a_connected_instance_says_it_is_connected() {
             verified: true,
             answered: "healthy".to_string(),
             token_refused: false,
+            way_out: String::new(),
         }),
         last_analytics: "2026-09-25T10:01:00.000".to_string(),
         analytics: dhis2::AnalyticsEvidence::RanHere,
@@ -609,6 +651,7 @@ fn show_marks_a_route_that_points_at_another_chap_core() {
             verified: false,
             answered: "it points at another chap-core".to_string(),
             token_refused: false,
+            way_out: String::new(),
         }),
         last_analytics: "2026-09-25T10:01:00.000".to_string(),
         analytics: dhis2::AnalyticsEvidence::Recorded,

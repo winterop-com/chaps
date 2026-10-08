@@ -219,9 +219,8 @@ pub(super) fn route_lines(route: &RouteReport, lines: &mut Report) {
             route.answered
         )),
         (false, false) => lines.warning(format!(
-            "the `{code}` route is in place but nothing answered through it: {}; run \
-             `varde status` to see whether chap-core is up",
-            route.answered
+            "the `{code}` route is in place but nothing answered through it: {}; {}",
+            route.answered, route.way_out
         )),
     };
 }

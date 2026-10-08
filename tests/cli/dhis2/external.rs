@@ -364,3 +364,68 @@ fn connect_on_an_external_dhis2_records_a_proved_route_with_or_without_the_apps(
         );
     }
 }
+
+/// A route that nothing answered through, while chap-core answers on this
+/// machine, names the cause between DHIS2 and chap-core: the allowlist for an
+/// empty 503, and the `--chap-url` address for anything else. The warning
+/// comes after the first line of `connect`.
+#[cfg(unix)]
+#[test]
+fn an_unanswered_route_names_the_allowlist_or_the_chap_url() {
+    for (answer, cause) in [
+        (
+            (503, ""),
+            "add it to `route.remote_servers_allowed` in the `dhis.conf` of the DHIS2 server",
+        ),
+        (
+            (
+                500,
+                r#"{"message":"finishConnect(..) failed: Connection refused"}"#,
+            ),
+            "so DHIS2 may not reach it at https://chap.example.org; give the address DHIS2 \
+             reaches chap-core at with `varde dhis2 use --chap-url URL`",
+        ),
+    ] {
+        let stand_in = Dhis2StandIn::with(Dhis2State {
+            proxy_answer: Some(answer),
+            ..Dhis2State::default()
+        });
+        let chap = chap_core_server();
+        let sandbox = Sandbox::new();
+        let dir = sandbox.project();
+        sandbox
+            .init(&["--models", "none", "--api-port", &chap.to_string()])
+            .assert()
+            .success();
+        let empty = tempfile::tempdir().expect("an empty PATH entry");
+        let url = format!("http://127.0.0.1:{}", stand_in.port);
+        let env = dir.join(".env");
+        let body = read(&env);
+        std::fs::write(&env, format!("{body}DHIS2_API_TOKEN=d2p_sekret\n")).unwrap();
+        dhis2_chap(
+            &sandbox,
+            &dir,
+            empty.path(),
+            None,
+            &["use", &url, "--chap-url", EXTERNAL_CHAP_URL],
+        )
+        .assert()
+        .success();
+
+        dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
+            .assert()
+            .success()
+            .stderr(predicates::str::contains(format!(
+                "nothing answered through it: HTTP {}",
+                answer.0
+            )))
+            .stderr(predicates::str::contains(format!(
+                "chap-core answers at http://localhost:{chap}"
+            )))
+            .stderr(predicates::str::contains(cause));
+        dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(cause));
+    }
+}

@@ -64,7 +64,11 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
 
     // A chap-core that does not answer is a warning in the report, not an
     // error: the route is correct whatever chap-core did.
-    let (verified, answered, token_refused) = verify_route(&session.dhis2, token.is_some());
+    let proof = verify_route(&session.dhis2, token.is_some());
+    let way_out = match proof.verified || proof.token_refused {
+        true => String::new(),
+        false => unanswered_way_out(session, &proof, &target),
+    };
     // A create has just made an id nothing here has seen, so that one case
     // re-reads the listing; the other two already know it, and a second
     // request for something already in hand is a request not worth making.
@@ -84,9 +88,10 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
         url: target,
         reasons,
         id,
-        verified,
-        answered,
-        token_refused,
+        verified: proof.verified,
+        answered: proof.answered,
+        token_refused: proof.token_refused,
+        way_out,
     })
 }
 
@@ -125,24 +130,111 @@ fn send_route(
 /// proves the hostname and nothing about the token. `token_needed` adds a
 /// second request at [`crate::status::SERVICES_PATH`], which is behind the
 /// token, so a route that would hand the app a 401 is not reported as working.
-pub(super) fn verify_route(client: &Dhis2, token_needed: bool) -> (bool, String, bool) {
-    let (verified, answered) = verify_health(client);
-    if !verified || !token_needed {
-        return (verified, answered, false);
+pub(super) fn verify_route(client: &Dhis2, token_needed: bool) -> RouteProof {
+    let health = verify_health(client);
+    if !health.verified || !token_needed {
+        return health;
     }
     let path = dhis2::route_run_path(crate::status::SERVICES_PATH);
     match client.send("GET", &path, None) {
-        Ok(answer) if answer.is_success() => (true, answered, false),
-        Ok(answer) => (
-            false,
-            format!(
-                "{answered} on /health, but {} on {}",
+        Ok(answer) if answer.is_success() => health,
+        Ok(answer) => RouteProof {
+            answered: format!(
+                "{} on /health, but {} on {}",
+                health.answered,
                 answer.status_line(),
                 crate::status::SERVICES_PATH
             ),
-            matches!(answer.status, 401 | 403),
+            token_refused: matches!(answer.status, 401 | 403),
+            ..RouteProof::failed(String::new())
+        },
+        Err(err) => RouteProof::failed(err.to_string()),
+    }
+}
+
+/// What the request proxied through the route found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RouteProof {
+    /// Whether chap-core answered through the route.
+    pub verified: bool,
+    /// What chap-core said, or why nothing did.
+    pub answered: String,
+    /// Whether chap-core refused the API token the route carries.
+    pub token_refused: bool,
+    /// Whether DHIS2 itself answered 503 with an empty body. That is what
+    /// DHIS2 does for a route whose origin `route.remote_servers_allowed`
+    /// does not allow, at the time of the proxied request.
+    pub empty_503: bool,
+}
+
+impl RouteProof {
+    fn failed(answered: String) -> RouteProof {
+        RouteProof {
+            verified: false,
+            answered,
+            token_refused: false,
+            empty_503: false,
+        }
+    }
+}
+
+/// The way out for a route that nothing answered through, after the answer.
+///
+/// varde asks chap-core directly first, at the address this machine uses.
+/// If chap-core answers there, the problem is between DHIS2 and chap-core,
+/// and the clause names that: the allowlist for an empty 503, and otherwise
+/// the address DHIS2 uses for chap-core. If chap-core does not answer here
+/// either, `varde status` is the next step, as before.
+pub(super) fn unanswered_way_out(session: &Session, proof: &RouteProof, target: &str) -> String {
+    let project = &session.project;
+    let api = crate::api::Api::new(
+        &project.api_base(),
+        crate::api::token_for(Some(&project.dir)),
+        Duration::from_secs(5),
+    );
+    let chap_answers = api
+        .send("GET", crate::status::HEALTH_PATH, None)
+        .is_ok_and(|answer| answer.is_success());
+    way_out_for(
+        proof,
+        chap_answers.then(|| project.api_url()),
+        session
+            .external()
+            .map(|external| external.chap_url.as_str()),
+        target,
+    )
+}
+
+/// [`unanswered_way_out`] without the request: `answers_at` is where
+/// chap-core answered on this machine, `external_chap_url` the `--chap-url`
+/// of an external DHIS2.
+pub(super) fn way_out_for(
+    proof: &RouteProof,
+    answers_at: Option<String>,
+    external_chap_url: Option<&str>,
+    target: &str,
+) -> String {
+    let Some(at) = answers_at else {
+        return "run `varde status` to see whether chap-core is up".to_string();
+    };
+    let origin = dhis2::route_origin(target);
+    match (proof.empty_503, external_chap_url) {
+        (true, Some(_)) => format!(
+            "chap-core answers at {at}, so the DHIS2 allowlist may refuse {origin}; add it to \
+             `route.remote_servers_allowed` in the `dhis.conf` of the DHIS2 server"
         ),
-        Err(err) => (false, err.to_string(), false),
+        (true, None) => format!(
+            "chap-core answers at {at}, so the DHIS2 allowlist may refuse {origin}; add it to \
+             `route.remote_servers_allowed` in `dhis2/dhis.conf` and run `varde restart dhis2`"
+        ),
+        (false, Some(chap_url)) => format!(
+            "chap-core answers at {at}, so DHIS2 may not reach it at {chap_url}; give the \
+             address DHIS2 reaches chap-core at with `varde dhis2 use --chap-url URL`"
+        ),
+        (false, None) => format!(
+            "chap-core answers at {at}, so DHIS2 may not reach it at {origin}; \
+             `varde logs dhis2` may say why"
+        ),
     }
 }
 
@@ -158,19 +250,23 @@ fn token_refused(client: &Dhis2) -> bool {
 }
 
 /// The `/health` half of [`verify_route`].
-fn verify_health(client: &Dhis2) -> (bool, String) {
+fn verify_health(client: &Dhis2) -> RouteProof {
     let path = dhis2::route_run_path(crate::status::HEALTH_PATH);
     let answer = match client.send("GET", &path, None) {
         Ok(answer) => answer,
-        Err(err) => return (false, err.to_string()),
+        Err(err) => return RouteProof::failed(err.to_string()),
     };
     if !answer.is_success() {
         // The status line alone where DHIS2's message is the reason phrase
         // again: "HTTP 502 Bad Gateway: Bad Gateway" says it twice.
         let said = dhis2::said(&answer);
-        return match said.is_empty() || answer.status_line().ends_with(&said) {
-            true => (false, answer.status_line()),
-            false => (false, format!("{}: {said}", answer.status_line())),
+        let answered = match said.is_empty() || answer.status_line().ends_with(&said) {
+            true => answer.status_line(),
+            false => format!("{}: {said}", answer.status_line()),
+        };
+        return RouteProof {
+            empty_503: answer.status == 503 && answer.text().trim().is_empty(),
+            ..RouteProof::failed(answered)
         };
     }
     match answer.json().and_then(|body| {
@@ -179,15 +275,15 @@ fn verify_health(client: &Dhis2) -> (bool, String) {
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
     }) {
-        Some(message) => (true, message),
+        Some(message) => RouteProof {
+            verified: true,
+            ..RouteProof::failed(message)
+        },
         // A 200 that is not chap-core's health document is somebody else on
         // that hostname, which is exactly the thing this route gets wrong.
-        None => (
-            false,
-            format!(
-                "a {} that is not chap-core's health document",
-                answer.body_description()
-            ),
-        ),
+        None => RouteProof::failed(format!(
+            "a {} that is not chap-core's health document",
+            answer.body_description()
+        )),
     }
 }

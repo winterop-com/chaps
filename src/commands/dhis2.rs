@@ -141,6 +141,10 @@ pub struct RouteReport {
     /// the human lines; `verified` already says it to a script.
     #[serde(skip)]
     pub token_refused: bool,
+    /// What to do about a route that nothing answered through, empty when it
+    /// was answered. Only for the human lines.
+    #[serde(skip)]
+    pub way_out: String,
 }
 
 /// What became of the analytics tables.
@@ -248,6 +252,10 @@ pub struct ShownRoute {
     /// Whether chap-core answered `/health` through it and turned the next
     /// call away for want of its API token.
     pub token_refused: bool,
+    /// What to do about a route that nothing answered through, empty when it
+    /// was answered. Only for the human lines.
+    #[serde(skip)]
+    pub way_out: String,
 }
 
 /// One of the two apps varde installs, as `show` found it.

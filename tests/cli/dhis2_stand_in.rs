@@ -164,6 +164,10 @@ pub(crate) struct Dhis2State {
     /// Answer every request proxied through the route with a 502, the way
     /// DHIS2 does when chap-core is down behind a route that is right.
     pub(crate) proxy_fails: bool,
+    /// Answer every request proxied through the route with this status and
+    /// body: an empty 503 is what the allowlist does at proxy time, a 500 is
+    /// a route target that DHIS2 cannot connect to.
+    pub(crate) proxy_answer: Option<(u16, &'static str)>,
     /// chap-core's API token: when set, anything proxied past `/health`
     /// answers 401 unless the route's `auth` sends `Bearer` and this token.
     pub(crate) chap_token: Option<String>,
@@ -422,6 +426,9 @@ pub(crate) fn dhis2_answer(
         };
     }
     if path.starts_with("/api/routes/chap/run/") {
+        if let Some((status, body)) = state.proxy_answer {
+            return (status, body.to_string());
+        }
         // The proxy answers only when the route points at this deployment's
         // chap-core, which is what makes the verification worth making.
         // Either this deployment's compose alias, or the chap-core URL the

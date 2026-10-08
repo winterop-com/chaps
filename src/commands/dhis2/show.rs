@@ -9,12 +9,27 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let route = dhis2::route_in(&session.dhis2.get_json(&dhis2::routes_query())?);
     let token_needed = crate::api::token_for(Some(&session.project.dir)).is_some();
     let shown = route.as_ref().map(|route| {
-        let (verified, answered, token_refused) = match route.url == target {
+        let (proof, way_out) = match route.url == target {
             // Only worth proxying through a route that points here: one aimed
             // at somebody else's chap-core would answer, and the answer would
             // mean nothing about this deployment.
-            true => verify_route(&session.dhis2, token_needed),
-            false => (false, "it points at another chap-core".to_string(), false),
+            true => {
+                let proof = verify_route(&session.dhis2, token_needed);
+                let way_out = match proof.verified || proof.token_refused {
+                    true => String::new(),
+                    false => unanswered_way_out(&session, &proof, &target),
+                };
+                (proof, way_out)
+            }
+            false => (
+                RouteProof {
+                    verified: false,
+                    answered: "it points at another chap-core".to_string(),
+                    token_refused: false,
+                    empty_503: false,
+                },
+                String::new(),
+            ),
         };
         ShownRoute {
             url: route.url.clone(),
@@ -24,9 +39,10 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
                 .iter()
                 .any(|authority| authority == dhis2::ROUTE_AUTHORITY),
             ours: route.url == target,
-            verified,
-            answered,
-            token_refused,
+            verified: proof.verified,
+            answered: proof.answered,
+            token_refused: proof.token_refused,
+            way_out,
         }
     });
     let apps = chap_apps(&session)?;
@@ -56,9 +72,8 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         // is the one case the proxied request exists to catch: the app would
         // be told Chap is reachable and then fail on its first request.
         Some(route) if !route.verified => missing.push(format!(
-            "nothing answered through the `chap` route: {}; run `varde status` to see whether \
-             chap-core is up",
-            route.answered
+            "nothing answered through the `chap` route: {}; {}",
+            route.answered, route.way_out
         )),
         Some(_) => {}
     }

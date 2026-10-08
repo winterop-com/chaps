@@ -46,7 +46,7 @@ pub use credentials::{
 };
 pub use route::{
     RouteAction, allowlist_hint, external_route_target, is_allowlist_refusal, route_action,
-    route_in, route_payload, route_run_path, route_target, routes_query,
+    route_in, route_origin, route_payload, route_run_path, route_target, routes_query,
 };
 
 use std::time::Duration;
