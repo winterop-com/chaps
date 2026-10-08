@@ -953,7 +953,10 @@ chap-core-external:
   URL's port, and say so. `varde status` checks the way back through chap-core's
   proxy and shows a model it cannot reach as `registered, unreachable`.
 - **`varde status`, `jobs`, `api` and `models test` use that URL** in place of
-  `http://localhost:<API port>`.
+  `http://localhost:<API port>`. `varde status` shows only the version that
+  chap-core reports. If chap-core does not answer, the error line says that
+  this deployment does not run it, so start it there, or set another URL with
+  `varde components enable chap-core --url URL`.
 
 It is one or the other: `components enable chap-core --url` is refused while
 this deployment runs its own chap-core (disable that first, which stops it),

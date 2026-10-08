@@ -37,13 +37,28 @@ run `varde status` again in a minute, not to restart it. See
 [When everything registered](#when-everything-registered) below.
 
 With a chap-core that this deployment does not run, a model that does not
-register gets one more line: `varde logs <id>` says why. A hint says what the
-two log lines that matter mean.
+register gets one more line: if `varde logs <id>` shows `App never became
+ready`, enable the model again with a network. A hint says what the two log
+lines that matter mean.
+
+A model registered from outside the deployment can get a warning when
+chap-core refuses its model template:
+
+- `ID: it reports no git revision, so chap-core stores no model template for
+  it; set `GIT_REVISION` where it runs, then start it again`
+- `ID: chap-core stores its model template VERSION from another git revision
+  and refuses to run it; set a new version in the model, then start it again`
 
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.varde/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
 build. A moving tag such as `latest` is marked `(from the pin)` instead, because
 a moving tag pins nothing.
+
+With a chap-core elsewhere, the line shows only the version that chap-core
+reports, and nothing when it does not answer. There is no pin and no
+moving-tag cell. If it does not answer, the error line ends with `this
+deployment does not run it, so start it there, or set another URL with
+`varde components enable chap-core --url URL``.
 
 A deployment pinned to a moving tag (`latest`, `master`, `dev`) gets one more
 cell, because the tag alone does not say which build is behind it: the digest

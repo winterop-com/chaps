@@ -93,7 +93,8 @@ following the log of chapkit-ghr-model; Ctrl-C stops it
 
 It worked when the lines after the start say `registered with
 http://localhost:8000`. Ctrl-C stops the model, and `--rm` also removes its
-data: varde prints `stopped chapkit_ghr_model, and removed its data`. See
+data: varde prints `stopped chapkit_ghr_model, and removed its data`, then
+`removed group default` when the group has no other model. See
 [Running one model](../run.md#your-own-chap-core).
 
 To point an existing deployment at your chap-core, or back:
@@ -116,8 +117,8 @@ what `make restart` in chap-core's checkout starts), it cannot call the models
 at `localhost`. The models must register as `host.docker.internal`.
 `varde init --chap-core-url` and `varde components enable chap-core --url` find
 this themselves if a container publishes the port of the URL at that time.
-`varde init` tells it in a warning; `components enable` tells it only with
-`-v`. If varde did not find it, do these steps:
+`varde init` and `varde components enable` tell it in a warning. If varde did
+not find it, do these steps:
 
 1. Run `varde components enable chap-core --url URL --models-host host.docker.internal`.
 2. Run `varde up`.
@@ -139,10 +140,11 @@ If your chap-core requires a registration key or an API token, do these steps:
 `varde auth enable` writes an API token and a registration key to `.env`, and
 every overlay then passes `SERVICEKIT_REGISTRATION_KEY` from `.env`. varde
 sends the API token to your chap-core in `varde status`, `api`, `jobs` and
-`models test --backtest`. If authentication is already on, `varde auth enable`
-does not change the token, also with `--token`: it says `API authentication is
-already on`. To give a different token, run `varde auth disable`, then `varde
-auth enable --token TOKEN`. The registration key in `.env` stays. See
+`models test --backtest`. If authentication is already on, `varde auth enable
+--token` with another token stops with `--token was not used: API
+authentication is already on with another token`, and changes nothing. To give
+a different token, run `varde auth disable`, then `varde auth enable --token
+TOKEN`. The registration key in `.env` stays. See
 [Authentication](../auth.md).
 
 More: [A chap-core elsewhere](../components.md#a-chap-core-elsewhere).

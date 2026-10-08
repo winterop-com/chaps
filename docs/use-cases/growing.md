@@ -23,7 +23,9 @@ varde up
 varde status                 # the models now register with chap-core
 ```
 
-Model services read the orchestrator URL on that `varde up` and register.
+`varde components enable chap-core` prints `enabled chap-core on
+http://localhost:8700` and `run `varde up` to apply`. Model services read the
+orchestrator URL on that `varde up` and register.
 Registration takes up to a minute after the start, so the first `varde status`
 can show `running, not registered` and the line
 `started under two minutes ago and registers once it is ready`.
