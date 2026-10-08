@@ -504,3 +504,29 @@ fn every_message_keeps_its_level_for_json() {
     assert_eq!(json[1]["level"], "hint");
     assert_eq!(json[2]["level"], "warning");
 }
+
+/// A warning keeps its place in the report: it comes after the info line
+/// above it, on its own stream.
+#[test]
+fn a_report_keeps_the_order_of_its_lines_across_the_two_streams() {
+    use super::report::Stream;
+    let mut report = Report::default();
+    report
+        .info("external DHIS2 2.42.6 at http://localhost:8790")
+        .warning("nothing answered through the route")
+        .info("run `varde dhis2 show`");
+    assert_eq!(
+        report.lines(false, false),
+        vec![
+            (
+                Stream::Stdout,
+                "external DHIS2 2.42.6 at http://localhost:8790\n".to_string()
+            ),
+            (
+                Stream::Stderr,
+                "warning: nothing answered through the route\n".to_string()
+            ),
+            (Stream::Stdout, "run `varde dhis2 show`\n".to_string()),
+        ]
+    );
+}

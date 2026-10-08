@@ -77,37 +77,57 @@ impl Report {
     }
 
     /// The human rendering: the text for stdout and the text for stderr.
+    #[cfg(test)]
     pub(crate) fn render(&self, verbose: bool, color: bool) -> (String, String) {
-        let paint = |text: &str, style: Style| match color {
-            true => style.force_styling(true).apply_to(text).to_string(),
-            false => text.to_string(),
-        };
         let mut stdout = String::new();
         let mut stderr = String::new();
-        for message in &self.messages {
-            match message.level {
-                Level::Info => {
-                    stdout.push_str(&message.text);
-                    stdout.push('\n');
-                }
-                Level::Hint if verbose => {
-                    stdout.push_str(&paint(
-                        &format!("hint: {}", message.text),
-                        Style::new().dim(),
-                    ));
-                    stdout.push('\n');
-                }
-                Level::Hint => {}
-                Level::Warning => {
-                    stderr.push_str(&paint("warning:", Style::new().yellow().bold()));
-                    stderr.push(' ');
-                    stderr.push_str(&message.text);
-                    stderr.push('\n');
-                }
+        for (stream, line) in self.lines(verbose, color) {
+            match stream {
+                Stream::Stdout => stdout.push_str(&line),
+                Stream::Stderr => stderr.push_str(&line),
             }
         }
         (stdout, stderr)
     }
+
+    /// The human rendering, one line at a time and in the order the lines were
+    /// added, each with the stream it goes to. A warning is printed where it
+    /// stands, so it never comes before the line it is about.
+    pub(crate) fn lines(&self, verbose: bool, color: bool) -> Vec<(Stream, String)> {
+        let paint = |text: &str, style: Style| match color {
+            true => style.force_styling(true).apply_to(text).to_string(),
+            false => text.to_string(),
+        };
+        self.messages
+            .iter()
+            .filter_map(|message| match message.level {
+                Level::Info => Some((Stream::Stdout, format!("{}\n", message.text))),
+                Level::Hint if verbose => Some((
+                    Stream::Stdout,
+                    format!(
+                        "{}\n",
+                        paint(&format!("hint: {}", message.text), Style::new().dim())
+                    ),
+                )),
+                Level::Hint => None,
+                Level::Warning => Some((
+                    Stream::Stderr,
+                    format!(
+                        "{} {}\n",
+                        paint("warning:", Style::new().yellow().bold()),
+                        message.text
+                    ),
+                )),
+            })
+            .collect()
+    }
+}
+
+/// Where one line of a [`Report`] is printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stream {
+    Stdout,
+    Stderr,
 }
 
 impl Out {
@@ -150,14 +170,22 @@ impl Out {
             }
             return self.emit(&value, String::new);
         }
-        let (stdout, stderr) = report.render(self.shows_hints(), self.color);
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
+        // Each line is flushed before the next, so a terminal that shows both
+        // streams shows them in the order of the report.
+        for (stream, line) in report.lines(self.shows_hints(), self.color) {
+            match stream {
+                Stream::Stdout => {
+                    let mut w = std::io::stdout().lock();
+                    write!(w, "{line}")?;
+                    w.flush()?;
+                }
+                Stream::Stderr => {
+                    let mut w = std::io::stderr().lock();
+                    write!(w, "{line}")?;
+                    w.flush()?;
+                }
+            }
         }
-        let out = std::io::stdout();
-        let mut w = out.lock();
-        write!(w, "{stdout}")?;
-        w.flush()?;
         Ok(())
     }
 }
