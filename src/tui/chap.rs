@@ -32,11 +32,16 @@ pub fn load(project: &Project, registry: &Registry, model: &str, service: &str) 
         Ok(listed) => listed,
         Err(err) => return Load::Failed(failed(&api, &err)),
     };
+    let source = crate::commands::configs::sync::source_of(registry, project, model);
     let template = match configs::template_named(&api, service) {
-        Ok(template) => template,
+        Ok(mut template) => {
+            if let Some(template) = &mut template {
+                crate::commands::configs::allow_from(template, Some(&source));
+            }
+            template
+        }
         Err(err) => return Load::Failed(failed(&api, &err)),
     };
-    let source = crate::commands::configs::sync::source_of(registry, project, model);
     let configs = configs::configs_of(&listed, service)
         .into_iter()
         .filter(|config| !config.archived)
@@ -58,7 +63,7 @@ pub fn create(
     draft: &Draft,
 ) -> (String, Load) {
     let api = api_of(project);
-    let made = configs::template_of_service(&api, model, service).and_then(|template| {
+    let made = template(project, registry, &api, model, service).and_then(|template| {
         let listed = configs::listing(&api).map_err(|err| failed(&api, &err))?;
         let existing = configs::configs_of(&listed, &template.name);
         configs::check(draft, &template, &existing, model)?;
@@ -69,6 +74,43 @@ pub fn create(
         Err(why) => format!("could not create {}: {why}", draft.variant),
     };
     (message, load(project, registry, model, service))
+}
+
+/// Give the configured model `old` the values of `draft`, which the user has
+/// confirmed.
+pub fn update(
+    project: &Project,
+    registry: &Registry,
+    model: &str,
+    service: &str,
+    old: i64,
+    draft: &Draft,
+) -> (String, Load) {
+    let api = api_of(project);
+    let made = template(project, registry, &api, model, service).and_then(|template| {
+        configs::replace(&api, &template, old, draft).map_err(|err| failed(&api, &err))
+    });
+    let message = match made {
+        Ok((_, Ok(()))) => configs::updated_line(&draft.variant, model),
+        Ok((_, Err(err))) => configs::not_archived(old, &err),
+        Err(why) => format!("could not update {}: {why}", draft.variant),
+    };
+    (message, load(project, registry, model, service))
+}
+
+/// The template of the version `service` runs, with the covariates its
+/// marketplace entry allows.
+fn template(
+    project: &Project,
+    registry: &Registry,
+    api: &Api,
+    model: &str,
+    service: &str,
+) -> Result<configs::Template, String> {
+    let mut template = configs::template_of_service(api, model, service)?;
+    let source = crate::commands::configs::sync::source_of(registry, project, model);
+    crate::commands::configs::allow_from(&mut template, Some(&source));
+    Ok(template)
 }
 
 /// Archive the configured model `id`, which the user has confirmed.

@@ -1,12 +1,14 @@
-//! The configured models of one model, as chap-core has them: a list, a form
-//! that adds one, and a confirmation before anything is written.
+//! The configured models of one model, as chap-core has them: a list, the
+//! form ([`crate::tui::form`]) that adds or changes one, and a confirmation
+//! before anything is written.
 //!
 //! The reducer stays pure here too. What chap-core is asked, and when, is an
 //! [`Effect`] that [`crate::tui::run_tui`] carries out; it hands the answer
 //! back through [`App::configs_loaded`] and [`App::configs_done`].
 
 use super::{Action, App, Effect, Mode, Outcome, Page};
-use crate::configs::{self, Config, Draft, Template, options};
+use crate::configs::{Config, Draft, Template};
+use crate::tui::form::{self, Event, Form, draft_of, form_for, form_for_update};
 
 /// The footer note for `m` on a model this deployment does not run.
 pub const CONFIGS_NEED_ENABLED: &str =
@@ -31,42 +33,19 @@ pub enum Load {
     Failed(String),
 }
 
-/// What one field of the form is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    Name,
-    /// The user option at this index of the template's options.
-    Option(usize),
-    Covariates,
-}
-
-/// One field of the form.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Field {
-    pub role: Role,
-    pub label: String,
-    /// The kind of value, such as `integer`.
-    pub kind: String,
-    pub description: String,
-    /// What an empty field stands for.
-    pub default: String,
-    pub input: String,
-}
-
-/// The form `a` opens.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Form {
-    pub fields: Vec<Field>,
-    pub cursor: usize,
-    /// Why the last save was refused.
-    pub error: Option<String>,
-}
-
 /// What a confirmation is about.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pending {
     Create(Draft),
-    Archive { id: i64, variant: String },
+    /// New values for the configured model `old`, which is then archived.
+    Update {
+        old: i64,
+        draft: Draft,
+    },
+    Archive {
+        id: i64,
+        variant: String,
+    },
 }
 
 /// The configured models page of one model.
@@ -79,6 +58,8 @@ pub struct View {
     pub load: Load,
     pub cursor: usize,
     pub form: Option<Form>,
+    /// The configured model the form changes, when it is an update.
+    pub editing: Option<Config>,
     pub pending: Option<Pending>,
 }
 
@@ -118,87 +99,6 @@ fn configs_of(load: &Load) -> Vec<Config> {
     }
 }
 
-/// The fields of the form for `template`: the name, each option, the
-/// covariates when the template takes them.
-pub fn form_for(template: &Template) -> Form {
-    let mut fields = vec![Field {
-        role: Role::Name,
-        label: "name".to_string(),
-        kind: "text".to_string(),
-        description: "The variant name, which the Modeling App shows in brackets.".to_string(),
-        default: String::new(),
-        input: String::new(),
-    }];
-    for (at, option) in template.options.iter().enumerate() {
-        fields.push(Field {
-            role: Role::Option(at),
-            label: option.key.clone(),
-            kind: option.kind_name(),
-            description: option.description.clone().unwrap_or_default(),
-            default: option.default_text(),
-            input: String::new(),
-        });
-    }
-    if template.free_covariates {
-        let description = match template.required_covariates.is_empty() {
-            true => "Additional covariates, separated by commas.".to_string(),
-            false => format!(
-                "Additional covariates, separated by commas. Every run gets {}.",
-                template.required_covariates.join(", ")
-            ),
-        };
-        fields.push(Field {
-            role: Role::Covariates,
-            label: "covariates".to_string(),
-            kind: "list of names".to_string(),
-            description,
-            default: String::new(),
-            input: String::new(),
-        });
-    }
-    Form {
-        fields,
-        cursor: 0,
-        error: None,
-    }
-}
-
-/// The configured model the form describes, or why it cannot be one.
-///
-/// An empty field is the default, and an option at its default is left out,
-/// so the model keeps its own default.
-pub fn draft_of(
-    form: &Form,
-    template: &Template,
-    existing: &[Config],
-    model: &str,
-) -> Result<Draft, String> {
-    let mut draft = Draft {
-        variant: String::new(),
-        values: serde_json::Map::new(),
-        covariates: Vec::new(),
-    };
-    for field in &form.fields {
-        let text = field.input.trim();
-        match field.role {
-            Role::Name => draft.variant = text.to_string(),
-            Role::Covariates => draft.covariates = configs::parse_covariates(text),
-            Role::Option(at) => {
-                let option = &template.options[at];
-                if text.is_empty() {
-                    continue;
-                }
-                let value = options::parse_value(option, text)?;
-                if option.default.as_ref() != Some(&value) {
-                    draft.values.insert(option.key.clone(), value);
-                }
-            }
-        }
-    }
-    configs::check(&draft, template, existing, model)?;
-    Ok(draft)
-}
-
 impl App<'_> {
     /// `m` on a model row: open its configured models and ask chap-core.
     pub(super) fn open_configs(&mut self) {
@@ -224,6 +124,7 @@ impl App<'_> {
             load: Load::Loading,
             cursor: 0,
             form: None,
+            editing: None,
             pending: None,
         };
         self.effect = Some(view.reload());
@@ -265,9 +166,28 @@ impl App<'_> {
             Action::ConfigAdd => match (&view.load, view.template()) {
                 (Load::Ready { .. }, Some(template)) => {
                     view.form = Some(form_for(template));
+                    view.editing = None;
                     self.mode = Mode::ConfigForm;
                 }
                 (Load::Ready { .. }, None) => {
+                    self.message = Some(format!(
+                        "chap-core has no template of {} yet; when `varde status` shows it \
+                         registered, press r",
+                        view.model
+                    ));
+                }
+                _ => {}
+            },
+            Action::ConfigEdit => match (
+                view.template().cloned(),
+                view.configs().get(view.cursor).map(|(c, _)| c.clone()),
+            ) {
+                (Some(template), Some(config)) => {
+                    view.form = Some(form_for_update(&template, &config));
+                    view.editing = Some(config);
+                    self.mode = Mode::ConfigForm;
+                }
+                (None, Some(_)) => {
                     self.message = Some(format!(
                         "chap-core has no template of {} yet; when `varde status` shows it \
                          registered, press r",
@@ -304,34 +224,45 @@ impl App<'_> {
             self.mode = Mode::Configs;
             return None;
         };
-        let last = form.fields.len().saturating_sub(1);
-        match action {
-            Action::FormChar(c) => {
-                form.fields[form.cursor].input.push(c);
-                form.error = None;
-            }
-            Action::FormBackspace => {
-                form.fields[form.cursor].input.pop();
-                form.error = None;
-            }
-            Action::Down => form.cursor = (form.cursor + 1).min(last),
-            Action::Up => form.cursor = form.cursor.saturating_sub(1),
-            Action::FormSubmit => {
-                let existing = configs_of(&view.load);
+        match form.apply(action) {
+            Event::Edited => {}
+            Event::Submit => {
+                let editing = view.editing.clone();
+                let existing: Vec<Config> = configs_of(&view.load)
+                    .into_iter()
+                    .filter(|config| Some(config.id) != editing.as_ref().map(|c| c.id))
+                    .collect();
                 let template = template_of(&view.load)?;
-                match draft_of(form, template, &existing, &view.model) {
-                    Ok(draft) => {
+                match (draft_of(form, template, &existing, &view.model), editing) {
+                    (Ok(draft), Some(current))
+                        if draft.values == current.values
+                            && draft.covariates == current.covariates =>
+                    {
+                        form.error = Some(format!(
+                            "{} has these values already; change one, or press Esc",
+                            current.variant
+                        ));
+                    }
+                    (Ok(draft), Some(current)) => {
+                        view.pending = Some(Pending::Update {
+                            old: current.id,
+                            draft,
+                        });
+                        self.mode = Mode::ConfigConfirm;
+                    }
+                    (Ok(draft), None) => {
                         view.pending = Some(Pending::Create(draft));
                         self.mode = Mode::ConfigConfirm;
                     }
-                    Err(why) => form.error = Some(why),
+                    (Err(why), _) => form.error = Some(why),
                 }
             }
-            Action::FilterCancel | Action::Quit => {
+            Event::Cancel => {
                 view.form = None;
+                view.editing = None;
                 self.mode = Mode::Configs;
+                self.message = Some(form::LEFT.to_string());
             }
-            _ => {}
         }
         None
     }
@@ -354,6 +285,12 @@ impl App<'_> {
                         service: view.service.clone(),
                         draft,
                     },
+                    Some(Pending::Update { old, draft }) => Effect::UpdateConfig {
+                        model: view.model.clone(),
+                        service: view.service.clone(),
+                        old,
+                        draft,
+                    },
                     Some(Pending::Archive { id, variant }) => Effect::ArchiveConfig {
                         model: view.model.clone(),
                         service: view.service.clone(),
@@ -363,6 +300,7 @@ impl App<'_> {
                     None => return None,
                 };
                 view.form = None;
+                view.editing = None;
                 view.load = Load::Loading;
                 self.effect = Some(effect);
                 self.mode = Mode::Configs;

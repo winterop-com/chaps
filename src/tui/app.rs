@@ -149,6 +149,7 @@ pub enum Action {
     /// Open the configured models of the model under the cursor.
     Configs,
     ConfigAdd,
+    ConfigEdit,
     ConfigArchive,
     ConfigReload,
     FormChar(char),
@@ -193,6 +194,13 @@ pub enum Effect {
     CreateConfig {
         model: String,
         service: String,
+        draft: crate::configs::Draft,
+    },
+    /// Post new values under the name of `old`, then archive `old`.
+    UpdateConfig {
+        model: String,
+        service: String,
+        old: i64,
         draft: crate::configs::Draft,
     },
     /// Archive one, which the user has confirmed.

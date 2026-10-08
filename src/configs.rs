@@ -16,6 +16,7 @@
 //! Archived. A configured model posted again with the same name and the same
 //! values is shown again.
 
+pub mod export;
 pub mod options;
 pub mod sync;
 
@@ -48,6 +49,10 @@ pub struct Template {
     pub required_covariates: Vec<String>,
     /// Whether a configuration may add covariates of its own.
     pub free_covariates: bool,
+    /// The covariates a configuration may name when it may not add its own:
+    /// the marketplace entry's `covariates.defaults`. chap-core does not
+    /// know them, so the caller fills them in.
+    pub allowed_covariates: Vec<String>,
 }
 
 /// A template from chap-core's `ModelTemplateRead`, in either spelling.
@@ -81,6 +86,7 @@ pub fn parse_template(value: &Json) -> Option<Template> {
         )
         .and_then(Json::as_bool)
         .unwrap_or(false),
+        allowed_covariates: Vec::new(),
     })
 }
 
@@ -287,10 +293,21 @@ pub fn check(
             ));
         }
     }
-    if !draft.covariates.is_empty() && !template.free_covariates {
-        return Err(format!(
-            "{model} takes no additional covariates; remove --covariates"
-        ));
+    // Without free covariates, a configuration may only name the defaults
+    // of the marketplace entry (`models/README.md` of the marketplace).
+    if !template.free_covariates
+        && let Some(name) = draft
+            .covariates
+            .iter()
+            .find(|name| !template.allowed_covariates.contains(name))
+    {
+        return Err(match template.allowed_covariates.is_empty() {
+            true => format!("{model} takes no additional covariates; remove --covariates"),
+            false => format!(
+                "{model} takes only these additional covariates: {}; remove `{name}`",
+                template.allowed_covariates.join(", ")
+            ),
+        });
     }
     Ok(())
 }
@@ -332,6 +349,44 @@ pub fn create(api: &Api, template: &Template, draft: &Draft) -> Result<Json> {
         return Err(api.status_error(CONFIGURED_MODELS_PATH, &answer));
     }
     Ok(answer.json().unwrap_or(Json::Null))
+}
+
+/// Give the configured model `old` the values of `draft`, under its name.
+///
+/// chap-core 2.4 has no route that changes a configured model. A post with
+/// a name the template has makes the new row the live one, so this posts
+/// first and archives `old` after: when the archive fails, the name still
+/// has a live row. The error of the archive comes back beside the new row.
+/// chap-core gives back `old` itself for the values it had, and then there
+/// is nothing to archive.
+pub fn replace(
+    api: &Api,
+    template: &Template,
+    old: i64,
+    draft: &Draft,
+) -> Result<(Json, Result<()>)> {
+    let created = create(api, template, draft)?;
+    let archived = match created.get("id").and_then(Json::as_i64) == Some(old) {
+        true => Ok(()),
+        false => archive(api, old),
+    };
+    Ok((created, archived))
+}
+
+/// The warning for an old row that [`replace`] could not archive.
+pub fn not_archived(old: i64, err: &anyhow::Error) -> String {
+    format!(
+        "the new values are live, but the old row {old} was not archived: {err}; archive it \
+         with `varde api DELETE {CONFIGURED_MODELS_PATH}/{old}`"
+    )
+}
+
+/// The line an update reports.
+pub fn updated_line(variant: &str, model: &str) -> String {
+    format!(
+        "updated configured model {variant} of {model}; chap-core keeps the old values as an \
+         archived configured model"
+    )
 }
 
 /// Archive the configured model `id`.

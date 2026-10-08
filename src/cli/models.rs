@@ -130,8 +130,14 @@ pub enum ConfigsCmd {
     /// Add a configured model of a model to chap-core
     Add(ConfigsAddArgs),
 
+    /// Change the values of a configured model of a model
+    Update(ConfigsUpdateArgs),
+
     /// Archive a configured model of a model
     Archive(ConfigsArchiveArgs),
+
+    /// Write the configured models of a model in the marketplace format
+    Export(ConfigsExportArgs),
 
     /// Create the configured models that chap-core needs to run each model
     Sync(ConfigsSyncArgs),
@@ -168,9 +174,33 @@ pub struct ConfigsAddArgs {
     #[arg(long, value_name = "A,B")]
     pub covariates: Option<String>,
 
-    /// Ask for the name, each option and the covariates
-    #[arg(short, long)]
-    pub interactive: bool,
+    /// Add every configuration in a file of the marketplace format
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["name", "set", "covariates"])]
+    pub from: Option<std::path::PathBuf>,
+}
+
+/// Change the values of a configured model of a model
+#[derive(Debug, Clone, Args)]
+pub struct ConfigsUpdateArgs {
+    /// Marketplace id or service id
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Variant name of the configured model
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// New value of one user option; repeat for more than one
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub set: Vec<String>,
+
+    /// Remove the value of one option, so the model default applies
+    #[arg(long, value_name = "KEY")]
+    pub unset: Vec<String>,
+
+    /// Additional covariates, separated by commas, in place of the old ones
+    #[arg(long, value_name = "A,B")]
+    pub covariates: Option<String>,
 }
 
 /// Archive a configured model of a model
@@ -183,6 +213,18 @@ pub struct ConfigsArchiveArgs {
     /// Variant name of the configured model
     #[arg(value_name = "NAME")]
     pub name: String,
+}
+
+/// Write the configured models of a model in the marketplace format
+#[derive(Debug, Clone, Args)]
+pub struct ConfigsExportArgs {
+    /// Marketplace id or service id; may be left out with one enabled model
+    #[arg(value_name = "ID")]
+    pub id: Option<String>,
+
+    /// File to write instead of standard output
+    #[arg(long, value_name = "FILE")]
+    pub out: Option<std::path::PathBuf>,
 }
 
 /// Create the configured models that chap-core needs to run each model

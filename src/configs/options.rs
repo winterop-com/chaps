@@ -292,6 +292,25 @@ fn parse_kind(kind: &Kind, text: &str) -> Option<Json> {
     }
 }
 
+/// Whether a JSON value, as a file gives it, is a value of `option`.
+pub fn fits(option: &UserOption, value: &Json) -> bool {
+    (option.nullable && value.is_null()) || fits_kind(&option.kind, value)
+}
+
+fn fits_kind(kind: &Kind, value: &Json) -> bool {
+    match kind {
+        Kind::Integer => value.is_i64() || value.is_u64(),
+        Kind::Number => value.is_number(),
+        Kind::Boolean => value.is_boolean(),
+        Kind::String => value.is_string(),
+        Kind::Enum { values } => values.contains(value),
+        Kind::List { items } => value
+            .as_array()
+            .is_some_and(|list| list.iter().all(|item| fits_kind(items, item))),
+        Kind::Any => true,
+    }
+}
+
 /// The values of `sets` (each `(key, text)`), checked against `options`.
 ///
 /// `model` is the model id the messages name. A key twice is a mistake: the

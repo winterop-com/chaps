@@ -225,7 +225,7 @@ Usage: varde models configs [OPTIONS] [ID]
 | `<ID>` | Marketplace id or service id; all enabled models when none is given. |
 | `--all` | Show the archived configured models too. |
 
-Subcommands: [`varde models configs list`](#varde-models-configs-list), [`varde models configs add`](#varde-models-configs-add), [`varde models configs archive`](#varde-models-configs-archive), [`varde models configs sync`](#varde-models-configs-sync)
+Subcommands: [`varde models configs list`](#varde-models-configs-list), [`varde models configs add`](#varde-models-configs-add), [`varde models configs update`](#varde-models-configs-update), [`varde models configs archive`](#varde-models-configs-archive), [`varde models configs export`](#varde-models-configs-export), [`varde models configs sync`](#varde-models-configs-sync)
 
 ## varde models configs list
 
@@ -256,7 +256,25 @@ Usage: varde models configs add [OPTIONS] <ID>
 | `--name <NAME>` | Variant name, which the Modeling App shows in brackets. |
 | `--set <KEY=VALUE>` | Value of one user option; repeat for more than one. |
 | `--covariates <A,B>` | Additional covariates, separated by commas. |
-| `-i, --interactive` | Ask for the name, each option and the covariates. |
+| `--from <FILE>` | Add every configuration in a file of the marketplace format. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models configs update
+
+Change the values of a configured model of a model.
+
+```text
+Usage: varde models configs update [OPTIONS] <ID> <NAME>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id. |
+| `<NAME>` | Variant name of the configured model. |
+| `--set <KEY=VALUE>` | New value of one user option; repeat for more than one. |
+| `--unset <KEY>` | Remove the value of one option, so the model default applies. |
+| `--covariates <A,B>` | Additional covariates, separated by commas, in place of the old ones. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
@@ -272,6 +290,21 @@ Usage: varde models configs archive [OPTIONS] <ID> <NAME>
 | --- | --- |
 | `<ID>` | Marketplace id or service id. |
 | `<NAME>` | Variant name of the configured model. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models configs export
+
+Write the configured models of a model in the marketplace format.
+
+```text
+Usage: varde models configs export [OPTIONS] [ID]
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id; may be left out with one enabled model. |
+| `--out <FILE>` | File to write instead of standard output. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 

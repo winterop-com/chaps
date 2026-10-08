@@ -56,7 +56,7 @@ fn the_configs_page_maps_its_keys_and_names_them() {
     );
     assert_eq!(
         bar(Mode::Configs, 0, false),
-        "esc back   j/k move   a add   d archive   r reload"
+        "esc back   j/k move   a add   e edit   d archive   r reload"
     );
     assert_eq!(bar(Mode::ConfigConfirm, 0, false), "y yes   n no");
     assert!(help_entries().iter().any(|(key, _)| *key == "m"));

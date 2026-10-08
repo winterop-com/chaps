@@ -44,9 +44,9 @@ fn add_creates_a_configured_model_with_checked_values() {
             "--name",
             "short_lags",
             "--set",
-            "n_lags=2",
+            "max_lag=2",
             "--set",
-            "lags=1,2,3",
+            "n_lags=1,2,3",
             "--set",
             "method=exact",
             "--covariates",
@@ -68,7 +68,7 @@ fn add_creates_a_configured_model_with_checked_values() {
     assert_eq!(post["model_template_id"], TEMPLATE_IDS);
     assert_eq!(
         post["user_option_values"],
-        serde_json::json!({"n_lags": 2, "lags": [1, 2, 3], "method": "exact"})
+        serde_json::json!({"max_lag": 2, "n_lags": [1, 2, 3], "method": "exact"})
     );
     assert_eq!(
         post["additional_continuous_covariates"],
@@ -109,7 +109,10 @@ fn add_creates_a_configured_model_with_checked_values() {
         .find(|line| line.starts_with("short_lags"))
         .expect("a row");
     assert!(line.contains("rainfall,mean_temperature"), "{line}");
-    assert!(line.contains("lags=1,2,3 method=exact n_lags=2"), "{line}");
+    assert!(
+        line.contains("max_lag=2 method=exact n_lags=1,2,3"),
+        "{line}"
+    );
     assert!(line.ends_with("by hand"), "{line}");
     let line = text
         .lines()
@@ -130,7 +133,7 @@ fn add_creates_a_configured_model_with_checked_values() {
         .expect("the added one");
     assert_eq!(added["name"], format!("{PASSING_MODEL}:short_lags"));
     assert_eq!(added["source"], "by hand");
-    assert_eq!(added["values"]["n_lags"], 2);
+    assert_eq!(added["values"]["max_lag"], 2);
 }
 
 #[test]
@@ -154,15 +157,15 @@ fn add_refuses_an_unknown_key_a_bad_value_and_a_required_covariate() {
     let text = refused(&[EWARS, "--name", "x", "--set", "lag=2"]);
     assert!(
         text.contains(&format!(
-            "`lag` is not an option of {EWARS}; its options are label (text or null), lags \
-             (list of integers), method (one of fast, exact), n_lags (integer), precision \
-             (number), seasonal (true or false)"
+            "`lag` is not an option of {EWARS}; its options are label (text or null), max_lag \
+             (integer), method (one of fast, exact), n_lags (list of integers), precision \
+             (number), region_seasonal (true or false), seasonal (true or false)"
         )),
         "{text}"
     );
-    let text = refused(&[EWARS, "--name", "x", "--set", "n_lags=two"]);
+    let text = refused(&[EWARS, "--name", "x", "--set", "max_lag=two"]);
     assert!(
-        text.contains("`two` is not a value of `n_lags`, which takes an integer, such as `3`"),
+        text.contains("`two` is not a value of `max_lag`, which takes an integer, such as `3`"),
         "{text}"
     );
     let text = refused(&[EWARS, "--name", "x", "--set", "n_lags"]);
@@ -180,14 +183,17 @@ fn add_refuses_an_unknown_key_a_bad_value_and_a_required_covariate() {
         "rainfall",
     ]);
     assert!(text.contains("takes no additional covariates"), "{text}");
+    let text = refused(&[EWARS, "--set", "max_lag=2"]);
+    assert!(text.contains("give it with --name NAME"), "{text}");
+    // No options is the form, which needs a terminal, and a test has none.
     let text = refused(&[EWARS]);
     assert!(
-        text.contains("give it with --name NAME, or use -i"),
+        text.contains(
+            "there is no terminal here; name the configuration with --name and its values with \
+             --set KEY=VALUE, or run it at a terminal for the form"
+        ),
         "{text}"
     );
-    // -i needs a terminal, and a test has none.
-    let text = refused(&[EWARS, "-i"]);
-    assert!(text.contains("-i asks in a terminal"), "{text}");
 
     let seen = recorded(&sandbox, &dir);
     assert_eq!(seen["configured_posts"], Json::Array(Vec::new()));

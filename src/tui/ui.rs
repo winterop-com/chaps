@@ -36,6 +36,17 @@ use table::{
 };
 use text::{fit_soft, pane, width_of};
 
+/// Draw the configured model form alone, as `varde models configs add` and
+/// `update` show it at a terminal.
+pub fn draw_form(frame: &mut Frame, model: &str, form: &crate::tui::form::Form, theme: &Theme) {
+    let area = frame.area();
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let title = configs::form_title(form, model);
+    configs::draw_form_dialog(frame, area, &title, form, theme);
+}
+
 /// Draw one frame.
 pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();

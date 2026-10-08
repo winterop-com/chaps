@@ -8,6 +8,7 @@
 
 pub mod app;
 mod chap;
+pub mod form;
 pub mod keys;
 pub mod screenshot;
 pub mod theme;
@@ -72,6 +73,37 @@ pub fn run_tui(ctx: &Ctx, project: &Project, registry: &Registry) -> Result<Opti
     }
 }
 
+/// Run the configured model form alone, for `varde models configs add` and
+/// `update` at a terminal. Enter hands the form to `check`, which gives the
+/// draft or the reason the form shows; Esc and ctrl-c give `None`.
+pub fn run_form(
+    model: &str,
+    mut form: form::Form,
+    mut check: impl FnMut(&form::Form) -> std::result::Result<crate::configs::Draft, String>,
+) -> Result<Option<crate::configs::Draft>> {
+    let theme = theme::Theme::detect();
+    let mut terminal = TerminalGuard::open()?;
+    loop {
+        terminal
+            .inner
+            .draw(|frame| ui::draw_form(frame, model, &form, &theme))?;
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        match form.apply(keys::action_for(app::Mode::ConfigForm, &key)) {
+            form::Event::Edited => {}
+            form::Event::Cancel => return Ok(None),
+            form::Event::Submit => match check(&form) {
+                Ok(draft) => return Ok(Some(draft)),
+                Err(why) => form.error = Some(why),
+            },
+        }
+    }
+}
+
 /// How one pass over the browser ended.
 enum Exit {
     Save,
@@ -124,6 +156,17 @@ fn event_loop(
             }) => {
                 terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
                 let (message, load) = chap::create(project, registry, &model, &service, &draft);
+                app.configs_done(message, load);
+            }
+            Some(Effect::UpdateConfig {
+                model,
+                service,
+                old,
+                draft,
+            }) => {
+                terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
+                let (message, load) =
+                    chap::update(project, registry, &model, &service, old, &draft);
                 app.configs_done(message, load);
             }
             Some(Effect::ArchiveConfig {

@@ -2,7 +2,7 @@ use super::*;
 use crate::configs::{self, Draft};
 use crate::project::ProjectState;
 use crate::registry::{Registry, load_embedded};
-use crate::tui::app::configs::form_for;
+use crate::tui::form::form_for;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use serde_json::json;
@@ -53,6 +53,7 @@ fn view(load: Load) -> View {
         load,
         cursor: 0,
         form: None,
+        editing: None,
         pending: None,
     }
 }

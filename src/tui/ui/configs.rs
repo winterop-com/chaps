@@ -3,8 +3,9 @@
 use super::dialogs::draw_dialog;
 use super::text::{centered, fit, fit_soft, overlay, wrap};
 use crate::configs::options;
-use crate::tui::app::configs::{Form, Load, Pending, View};
+use crate::tui::app::configs::{Load, Pending, View};
 use crate::tui::app::{App, Mode, Page};
+use crate::tui::form::Form;
 use crate::tui::keys;
 use crate::tui::theme::Theme;
 use ratatui::Frame;
@@ -159,11 +160,23 @@ pub(super) fn form_lines<'a>(form: &Form, width: usize, theme: &Theme) -> Vec<Li
 }
 
 fn draw_form(frame: &mut Frame, area: Rect, view: &View, form: &Form, theme: &Theme) {
+    draw_form_dialog(frame, area, &form_title(form, &view.model), form, theme);
+}
+
+/// The title of the form: what it creates or changes.
+pub fn form_title(form: &Form, model: &str) -> String {
+    match &form.fixed_name {
+        Some(name) => format!("Configured model {name} of {model}"),
+        None => format!("New configured model of {model}"),
+    }
+}
+
+/// The form as a dialog in `area`, with its own key line.
+pub fn draw_form_dialog(frame: &mut Frame, area: Rect, title: &str, form: &Form, theme: &Theme) {
     let width = area.width.saturating_sub(8).clamp(1, 80) as usize;
     let lines = form_lines(form, width, theme);
-    let title = format!("New configured model of {}", view.model);
     let hints = keys::keybar(Page::Models, Mode::ConfigForm, 0, false);
-    draw_dialog(frame, area, &title, lines, &hints, theme);
+    draw_dialog(frame, area, title, lines, &hints, theme);
 }
 
 /// The question before chap-core is asked to write.
@@ -181,6 +194,26 @@ pub(super) fn question(view: &View) -> (String, Vec<String>) {
                 lines.push(format!("covariates: {}", draft.covariates.join(",")));
             }
             ("Create".to_string(), lines)
+        }
+        Some(Pending::Update { draft, .. }) => {
+            let mut lines = vec![
+                format!(
+                    "Update the configured model {} of {} in chap-core?",
+                    draft.variant, view.model
+                ),
+                "chap-core keeps the old values as an archived configured model.".to_string(),
+            ];
+            if !draft.values.is_empty() {
+                lines.push(format!("options: {}", options::short(&draft.values, 70)));
+            }
+            lines.push(format!(
+                "covariates: {}",
+                match draft.covariates.is_empty() {
+                    true => "-".to_string(),
+                    false => draft.covariates.join(","),
+                }
+            ));
+            ("Update".to_string(), lines)
         }
         Some(Pending::Archive { variant, .. }) => (
             "Archive".to_string(),

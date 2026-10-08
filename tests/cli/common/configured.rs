@@ -22,11 +22,12 @@ pub(crate) fn template_json(id: i64, service: &str) -> Json {
         "requiredCovariates": ["population"],
         "allowFreeAdditionalContinuousCovariates": service != FAILING_MODEL,
         "userOptions": {
-            "n_lags": {"type": "integer", "default": 3, "description": "Lags of the target."},
+            "max_lag": {"type": "integer", "default": 3, "description": "Lags of the target."},
+            "n_lags": {"type": "array", "items": {"type": "integer"}, "default": [3, 3]},
             "precision": {"type": "number", "default": 0.5},
+            "region_seasonal": {"type": "boolean", "default": false},
             "seasonal": {"type": "boolean", "default": true},
             "method": {"enum": ["fast", "exact"], "type": "string", "default": "fast"},
-            "lags": {"type": "array", "items": {"type": "integer"}, "default": [1, 2]},
             "label": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null}
         }
     })

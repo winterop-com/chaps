@@ -4,10 +4,13 @@
 //! chap-core and reports. `sync` is the step that other commands run too.
 
 mod add;
-mod prompt;
+mod export;
 pub mod sync;
+mod update;
 
 pub use add::add;
+pub use export::export;
+pub use update::update;
 
 use crate::api::Api;
 use crate::cli::{ConfigsArchiveArgs, ConfigsListArgs};
@@ -52,6 +55,111 @@ fn source_for(ctx: &Ctx, project: &Project, target: &Target) -> Option<Source> {
     }
     let registry = crate::commands::registry_for(ctx, Some(project)).ok()?;
     Some(sync::source_of(&registry, project, &target.id))
+}
+
+/// The covariates a template allows without free covariates: the defaults
+/// of the marketplace entry.
+pub(crate) fn allow_from(template: &mut configs::Template, source: Option<&Source>) {
+    if let Some(Source::Marketplace(entry)) = source {
+        template.allowed_covariates = entry.covariates.defaults.clone();
+    }
+}
+
+/// What `add` and `update` work on: one model, the template of the version
+/// it runs, and the configured models chap-core has of it.
+pub(crate) struct Session {
+    pub target: Target,
+    pub api: Api,
+    pub template: configs::Template,
+    pub listed: serde_json::Value,
+    pub existing: Vec<Config>,
+}
+
+impl Session {
+    pub(crate) fn open(ctx: &Ctx, id: &str) -> Result<Session> {
+        let project = project_of(ctx)?;
+        let target = one_target(ctx, &project, id)?;
+        let api = api_of(&project);
+        let mut template = configs::template_of_service(&api, &target.id, &target.service_id)
+            .map_err(|err| anyhow::anyhow!(err))?;
+        let source = source_for(ctx, &project, &target);
+        allow_from(&mut template, source.as_ref());
+        let listed = configs::listing(&api)?;
+        let existing = configs::configs_of(&listed, &template.name);
+        Ok(Session {
+            target,
+            api,
+            template,
+            listed,
+            existing,
+        })
+    }
+
+    /// The configured model `name` that is not archived, or the error that
+    /// names the ones there are.
+    pub(crate) fn live(&self, name: &str) -> Result<&Config> {
+        let id = &self.target.id;
+        let wanted = |config: &&Config| config.variant == name || config.name == name;
+        if let Some(config) = self.existing.iter().filter(wanted).find(|c| !c.archived) {
+            return Ok(config);
+        }
+        if self.existing.iter().any(|config| wanted(&config)) {
+            return Err(anyhow::anyhow!(
+                "the configured model {name} of {id} is archived; `varde models configs list \
+                 {id} --all` shows it"
+            ));
+        }
+        let live: Vec<&str> = self
+            .existing
+            .iter()
+            .filter(|config| !config.archived)
+            .map(|config| config.variant.as_str())
+            .collect();
+        Err(anyhow::anyhow!(match live.is_empty() {
+            true => format!(
+                "{id} has no configured model {name}, and no other one; `varde models configs \
+                 list {id} --all` shows the archived ones"
+            ),
+            false => format!(
+                "{id} has no configured model {name}; its configured models are {}",
+                live.join(", ")
+            ),
+        }))
+    }
+}
+
+/// The form needs a terminal; without one, the way out names the options.
+pub(crate) fn require_terminal(ctx: &Ctx, way_out: &str) -> Result<()> {
+    use std::io::IsTerminal;
+    if ctx.out.json || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(crate::error::ChapError::Usage(format!(
+            "there is no terminal here; {way_out}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// The form at the terminal, checked the way the options are.
+pub(crate) fn open_form(
+    model: &str,
+    form: crate::tui::form::Form,
+    template: &configs::Template,
+    existing: &[Config],
+) -> Result<Option<configs::Draft>> {
+    crate::tui::run_form(model, form, |form| {
+        crate::tui::form::draft_of(form, template, existing, model)
+    })
+}
+
+/// The report of a form that Esc left.
+pub(crate) fn left_form(ctx: &Ctx, model: &str) -> Result<()> {
+    ctx.out.report(
+        &serde_json::json!({ "model": model, "changed": false }),
+        |lines| {
+            lines.info(crate::tui::form::LEFT);
+        },
+    )
 }
 
 /// One configured model as `--json` gives it.

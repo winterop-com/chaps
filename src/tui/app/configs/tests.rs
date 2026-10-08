@@ -1,6 +1,8 @@
 use super::*;
+use crate::configs;
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Registry, load_embedded};
+use crate::tui::form::{draft_of, form_for};
 use serde_json::json;
 
 const EWARS: &str = "chapkit_ewars_model";
@@ -219,4 +221,53 @@ fn an_option_at_its_default_is_left_out_of_the_draft() {
     assert!(draft.values.is_empty());
     form.fields[1].input = "x".to_string();
     assert!(draft_of(&form, &template(), &[], EWARS).is_err());
+}
+
+#[test]
+fn e_edits_the_selected_one_and_refuses_no_change() {
+    let registry = registry();
+    let mut app = App::new(&registry, &state(&registry, true));
+    opened(&mut app);
+    app.reduce(Action::ConfigEdit);
+    assert_eq!(app.mode, Mode::ConfigForm);
+    let form = app
+        .configs
+        .as_ref()
+        .and_then(|v| v.form.clone())
+        .expect("a form");
+    assert_eq!(form.fixed_name.as_deref(), Some("monthly_climate"));
+    assert_eq!(form.fields[0].input, "6");
+
+    // Unchanged: the form says so and stays.
+    app.reduce(Action::FormSubmit);
+    assert_eq!(app.mode, Mode::ConfigForm);
+    let error = app
+        .configs
+        .as_ref()
+        .and_then(|v| v.form.as_ref()?.error.clone());
+    assert!(error.expect("a refusal").contains("has these values already"));
+
+    app.reduce(Action::FormBackspace);
+    app.reduce(Action::FormChar('8'));
+    app.reduce(Action::FormSubmit);
+    assert_eq!(app.mode, Mode::ConfigConfirm);
+    app.reduce(Action::ConfirmYes);
+    let Some(Effect::UpdateConfig { old, draft, .. }) = app.take_effect() else {
+        panic!("an update");
+    };
+    assert_eq!(old, 7);
+    assert_eq!(draft.variant, "monthly_climate");
+    assert_eq!(draft.values["n_lags"], json!(8));
+}
+
+#[test]
+fn esc_in_the_form_writes_nothing_and_says_so() {
+    let registry = registry();
+    let mut app = App::new(&registry, &state(&registry, true));
+    opened(&mut app);
+    app.reduce(Action::ConfigAdd);
+    app.reduce(Action::FilterCancel);
+    assert_eq!(app.mode, Mode::Configs);
+    assert_eq!(app.message.as_deref(), Some(crate::tui::form::LEFT));
+    assert_eq!(app.take_effect(), None);
 }
