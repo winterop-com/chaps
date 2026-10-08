@@ -163,13 +163,39 @@ fn registration_is_info_and_its_absence_a_warning() {
 #[test]
 fn an_empty_ps_says_so() {
     let report = ps::PsReport { models: Vec::new() };
-    let mut lines = Report::default();
-    ps::say(&report, &[], &mut lines);
+    let said = |scope: &[(Option<String>, PathBuf)], group: Option<&str>| {
+        let mut lines = Report::default();
+        ps::say(&report, scope, group, &mut lines);
+        lines.text()
+    };
     assert_eq!(
-        lines.text(),
+        said(&[], None),
         "nothing has been started with `varde run` yet\nhint: `varde run <model>` starts one\n"
     );
     assert_eq!(ps::ps_table(&report, &crate::output::Out::default()), "");
+}
+
+/// An empty `varde ps` claims only what it looked at: one deployment, one
+/// group, or every group.
+#[test]
+fn an_empty_ps_names_the_scope_it_looked_at() {
+    let report = ps::PsReport { models: Vec::new() };
+    let said = |scope: &[(Option<String>, PathBuf)], group: Option<&str>| {
+        let mut lines = Report::default();
+        ps::say(&report, scope, group, &mut lines);
+        lines.text()
+    };
+    let dir = PathBuf::from("d");
+    assert!(said(&[(None, dir.clone())], None).starts_with("no models are enabled here\n"));
+    assert_eq!(
+        said(&[], Some("nosuch")),
+        "there is no `varde run` group nosuch; `varde ps` lists every group\n\
+         hint: `varde run <model> --group nosuch` starts one\n"
+    );
+    let groups = [(Some("default".to_string()), dir.clone())];
+    assert!(said(&groups, None).starts_with("no model runs in a `varde run` group\n"));
+    let trial = [(Some("trial".to_string()), dir)];
+    assert!(said(&trial, Some("trial")).starts_with("no model runs in group trial\n"));
 }
 
 /// `denied` is a registry that will not hand out the image: it does not exist

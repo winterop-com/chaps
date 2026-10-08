@@ -97,7 +97,9 @@ pub fn ps(ctx: &Ctx, args: &ModelPsArgs) -> Result<()> {
     if !ctx.out.json {
         print!("{}", ps_table(&report, &ctx.out));
     }
-    ctx.out.report(&report, |lines| say(&report, &scope, lines))
+    ctx.out.report(&report, |lines| {
+        say(&report, &scope, args.group.as_deref(), lines)
+    })
 }
 
 /// The table of `varde ps`; empty when there is no model to list.
@@ -132,14 +134,30 @@ pub(super) fn ps_table(report: &PsReport, out: &Out) -> String {
     out.table(&headers, &rows)
 }
 
-/// The lines after the table of `varde ps`, or in place of it.
-pub(super) fn say(report: &PsReport, scope: &[(Option<String>, PathBuf)], lines: &mut Report) {
+/// The lines after the table of `varde ps`, or in place of it. `group` is
+/// the `--group` the command was given.
+pub(super) fn say(
+    report: &PsReport,
+    scope: &[(Option<String>, PathBuf)],
+    group: Option<&str>,
+    lines: &mut Report,
+) {
     if report.models.is_empty() {
-        match scope.is_empty() {
-            true => lines.info("nothing has been started with `varde run` yet"),
-            false => lines.info("no models are enabled here"),
+        match (scope, group) {
+            ([(None, _)], _) => lines.info("no models are enabled here"),
+            ([], Some(name)) => lines.info(format!(
+                "there is no `varde run` group {name}; `varde ps` lists every group"
+            )),
+            ([], None) => lines.info("nothing has been started with `varde run` yet"),
+            (_, Some(name)) => lines.info(format!("no model runs in group {name}")),
+            (_, None) => lines.info("no model runs in a `varde run` group"),
         };
-        lines.hint("`varde run <model>` starts one");
+        lines.hint(match group {
+            Some(name) if name != super::DEFAULT_GROUP => {
+                format!("`varde run <model> --group {name}` starts one")
+            }
+            _ => "`varde run <model>` starts one".to_string(),
+        });
         return;
     }
     if report.models.iter().any(|row| row.group.is_some()) {
