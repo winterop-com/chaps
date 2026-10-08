@@ -38,7 +38,10 @@ pub(super) fn follow(ctx: &Ctx, report: &RunReport, purge: bool) -> Result<()> {
         output::notice(&format!("{service} stopped by itself; its log is above"));
     }
     match stop_in(ctx, &report.project_dir, id, purge) {
-        Ok(_) if purge => output::notice(&format!("stopped {id}, and removed its data")),
+        Ok(_) if purge => {
+            output::notice(&format!("stopped {id}, and removed its data"));
+            remove_group(report);
+        }
         Ok(_) => output::notice(&format!(
             "stopped {id}; its data stays, and `varde run {id}` starts it again with it"
         )),
@@ -47,6 +50,23 @@ pub(super) fn follow(ctx: &Ctx, report: &RunReport, purge: bool) -> Result<()> {
         )),
     }
     Ok(())
+}
+
+/// After a `--rm` stop: take the group away when it holds no model now, the
+/// way `varde stop --purge` does, with its network and its directory.
+fn remove_group(report: &RunReport) {
+    let Some(group) = report.group.as_deref() else {
+        return;
+    };
+    match super::group::remove_if_empty(group, &report.project_dir) {
+        Ok(Some(_)) => output::notice(&format!("removed group {group}")),
+        Ok(None) => {}
+        // A volume docker would not remove names its own way out.
+        Err(err) if err.to_string().contains("`varde stop") => output::warn(&format!("{err:#}")),
+        Err(err) => output::warn(&format!(
+            "{err:#}; `varde stop --group {group} --purge` removes the group"
+        )),
+    }
 }
 
 /// After Ctrl-C part-way through a start: take back out what this start put

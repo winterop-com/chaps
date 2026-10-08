@@ -182,3 +182,39 @@ fn purging_one_model_leaves_another_empty_group_and_its_data_alone() {
         "{calls}"
     );
 }
+
+/// `varde run -a --rm` ends the way `varde stop --purge` does: a group that
+/// holds no model any more goes, with its directory.
+#[test]
+fn run_attached_with_rm_removes_the_group_it_emptied() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running_services(&[]);
+    let cwd = sandbox.home.path();
+    let dir = data(&sandbox).join("run").join("trial");
+
+    let output = chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "trial",
+            "--no-wait",
+            "-a",
+            "--rm",
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .clone();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("stopped chapkit_ewars_model, and removed its data"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("removed group trial"), "{stderr}");
+    assert!(!dir.exists(), "the emptied group is taken away");
+}
