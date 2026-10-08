@@ -336,7 +336,16 @@ error: --pin-chap-core pinned nothing, because the newest chap-core release coul
 ```
 
 A tag that is neither a release nor a moving one, a `sha-` build for instance,
-is never moved.
+is never moved. When `--chap-tag` moves the pin to such a tag, a warning says
+so:
+
+```text
+warning: sha-fa880a1 is neither a chap-core release nor a moving tag, so it is recorded as an exact pin and `varde update` will never move it
+```
+
+A dry run says `so it would be recorded as an exact pin`. The warning comes
+only when the pin moves. If ghcr refuses the tag, varde prints only the ghcr
+error.
 
 ## Switching chap-core's tag
 
@@ -416,6 +425,18 @@ a branch bring their own, and `latest` - which is an image tag rather than a
 ref - brings the one the newest release publishes. A ref that has no
 `compose.ghcr.yml` is a warning: the image pin moves and `compose.yml` keeps
 the layout it has.
+
+If the newest release cannot be looked up, `--chap-tag latest` still moves the
+pin, because you named the tag. Only the compose file of the newest release is
+missing:
+
+```text
+warning: could not resolve the newest chap-core release (...); the pin moves to `latest`, and compose.yml keeps the layout it has
+```
+
+A dry run says ``the pin would move to `latest` ``. Without `--chap-tag`, the
+warning ends in ``the chap-core pin stays at `v2.4.0` `` and the pin does not
+move.
 
 ### Moving backwards
 
