@@ -18,8 +18,8 @@ pub struct ExternalDhis2 {
     /// route points at. Not the compose network's `http://chap:8000`, which
     /// only a container of this deployment can resolve.
     pub chap_url: String,
-    /// When `varde dhis2 connect` last got as far as a verified route and both
-    /// apps there. The same record, with the same caveats, as
+    /// When `varde dhis2 connect` last got as far as a verified route, which
+    /// is all it sets here. The same record, with the same caveats, as
     /// [`Dhis2Component::connected_at`].
     #[serde(default)]
     pub connected_at: Option<String>,
