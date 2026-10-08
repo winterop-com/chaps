@@ -22,9 +22,13 @@ struct RegistryRefresh {
 /// Refresh the registry and say so.
 pub(super) fn refresh(ctx: &Ctx, args: &UpdateArgs) -> Result<()> {
     if let Some(flag) = deployment_flag(args) {
+        let does = match flag {
+            "--list-tags" => "lists the chap-core tags a deployment can move to",
+            _ => "moves the pins of a deployment",
+        };
         return Err(ChapError::Usage(format!(
-            "{flag} moves the pins of a deployment, and this directory is not one; run it in \
-             a deployment's directory or with `-C DIR`, or create one with `varde init`"
+            "{flag} {does}, and this directory is not one; run it in a deployment's directory \
+             or with `-C DIR`, or create one with `varde init`"
         ))
         .into());
     }

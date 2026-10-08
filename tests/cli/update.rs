@@ -424,6 +424,14 @@ fn update_without_a_deployment_refuses_the_flags_that_move_pins() {
     .stderr(predicates::str::contains(
         "--chap-tag moves the pins of a deployment",
     ));
+    // The listing moves nothing, and the refusal says what it does.
+    chap_in(&sandbox, sandbox.home.path(), &["update", "--list-tags"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains(
+            "--list-tags lists the chap-core tags a deployment can move to, and this directory \
+             is not one",
+        ));
 
     // Offline, a refresh cannot happen, and --dry-run reports the cached one.
     chap_in(&sandbox, sandbox.home.path(), &["update"])
