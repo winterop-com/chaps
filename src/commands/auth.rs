@@ -21,9 +21,36 @@ use crate::output::{self, Out, Report};
 use crate::project::{AuthState, ENV_FILE, Project};
 use std::path::Path;
 
-/// What every `varde up` reminder says, because neither chap-core nor a model
-/// re-reads `.env` while its container exists.
-const RESTART_HINT: &str = "run `varde up` to restart chap-core and the models with authentication";
+/// The `varde up` reminder for this deployment, `with` or `without`
+/// authentication: neither chap-core nor a model re-reads `.env` while its
+/// container exists.
+///
+/// A chap-core elsewhere is not one `varde up` restarts, so the line names
+/// only the models, and a second line says what that chap-core needs.
+fn restart_lines(project: &Project, with: bool, lines: &mut Report) {
+    let how = if with { "with" } else { "without" };
+    let Some(external) = &project.state.components.chap_core_external else {
+        lines.info(format!(
+            "run `varde up` to restart chap-core and the models {how} authentication"
+        ));
+        return;
+    };
+    lines.info(format!(
+        "run `varde up` to restart the models {how} authentication"
+    ));
+    if with {
+        lines.info(external_key_line(&external.url));
+    }
+}
+
+/// What a chap-core elsewhere needs once authentication is on: varde does not
+/// change it, so the key in `.env` has to be the one it checks.
+fn external_key_line(url: &str) -> String {
+    format!(
+        "varde does not change the chap-core at {url}; set `{REGISTRATION_KEY_ENV_VAR}` in \
+         `{ENV_FILE}` to its registration key"
+    )
+}
 
 /// `varde auth show`: what is protected, and by which token.
 pub fn show(ctx: &Ctx, args: &AuthShowArgs) -> Result<()> {
@@ -217,7 +244,7 @@ pub fn disable(ctx: &Ctx, _args: &AuthDisableArgs) -> Result<()> {
              recovers them"
         ));
         written_lines(&project.dir, &report, lines);
-        lines.info("run `varde up` to restart chap-core and the models without authentication");
+        restart_lines(&project, false, lines);
     })
 }
 
@@ -289,7 +316,7 @@ fn apply(
                 "wrote the registration key to `{ENV_FILE}`; every model overlay now sends it"
             ));
         written_lines(&dir, &report, lines);
-        lines.info(RESTART_HINT);
+        restart_lines(project, true, lines);
         match change {
             Change::Enabled => lines.hint(format!(
                 "{MODELING_APP_HINT}; any other client needs it from `varde auth show --reveal`"

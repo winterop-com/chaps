@@ -182,6 +182,10 @@ fn the_written_files_are_hints() {
 }
 
 #[test]
-fn the_restart_hint_names_the_command_that_applies_it() {
-    assert!(RESTART_HINT.contains("varde up"));
+fn the_key_line_of_a_chap_core_elsewhere_names_the_variable_and_the_file() {
+    assert_eq!(
+        external_key_line("http://localhost:8000"),
+        "varde does not change the chap-core at http://localhost:8000; set \
+         `SERVICEKIT_REGISTRATION_KEY` in `.env` to its registration key"
+    );
 }

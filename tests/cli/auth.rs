@@ -569,3 +569,42 @@ fn auth_token_prints_the_token_and_nothing_else() {
         .failure()
         .stderr(predicates::str::contains("not a varde deployment"));
 }
+
+/// A chap-core elsewhere is not one `varde up` restarts: the lines name only
+/// the models, and say what that chap-core needs.
+#[test]
+fn auth_enable_with_a_chap_core_elsewhere_restarts_only_the_models() {
+    let sandbox = Sandbox::new();
+    let url = format!("http://127.0.0.1:{}", free_port());
+    sandbox
+        .init(&["--models", "chapkit_ewars_model", "--chap-core-url", &url])
+        .assert()
+        .success();
+
+    let out = sandbox
+        .auth(&["enable"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("restart chap-core"), "{text}");
+    assert!(
+        text.contains("run `varde up` to restart the models with authentication"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "varde does not change the chap-core at {url}; set `SERVICEKIT_REGISTRATION_KEY`"
+        )),
+        "{text}"
+    );
+
+    sandbox
+        .auth(&["disable"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "run `varde up` to restart the models without authentication",
+        ));
+}
