@@ -832,3 +832,47 @@ fn connect_on_an_external_dhis2_names_the_apps_to_install() {
     assert!(external_next(true, None).contains("says which are there"));
     assert!(external_next(false, Some(&[])).contains("`varde dhis2 show`"));
 }
+
+/// `use` names the URL that moved: a change of `--chap-url` alone does not
+/// claim that the DHIS2 URL changed.
+#[test]
+fn use_names_the_url_that_moved() {
+    let external = |url: &str, chap_url: &str| crate::components::ExternalDhis2 {
+        url: url.to_string(),
+        chap_url: chap_url.to_string(),
+        connected_at: None,
+    };
+    let headline = |previous| {
+        let report = UseReport {
+            outcome: UseOutcome::Changed,
+            external: Some(external(
+                "http://localhost:8080",
+                "http://host.docker.internal:8700",
+            )),
+            previous: Some(previous),
+            target: None,
+            component: false,
+            probe: None,
+            notes: Vec::new(),
+            next: String::new(),
+            next_is_hint: true,
+        };
+        lines(|l| use_summary(&report, l))
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(
+        headline(external("http://localhost:8080", "http://localhost:8700")),
+        "changed the chap-url of the external DHIS2 at http://localhost:8080 to \
+         http://host.docker.internal:8700 in `.varde/components.yaml`"
+    );
+    assert_eq!(
+        headline(external(
+            "http://localhost:8090",
+            "http://host.docker.internal:8700"
+        )),
+        "changed the external DHIS2 to http://localhost:8080 in `.varde/components.yaml`"
+    );
+}

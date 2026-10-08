@@ -82,10 +82,22 @@ pub(super) fn use_summary(report: &UseReport, lines: &mut Report) {
             "recorded the external DHIS2 at {} in `.varde/components.yaml`",
             external.url
         ),
-        (UseOutcome::Changed, Some(external), _) => format!(
-            "changed the external DHIS2 to {} in `.varde/components.yaml`",
-            external.url
-        ),
+        (UseOutcome::Changed, Some(external), previous) => {
+            let url_moved = previous
+                .as_ref()
+                .is_none_or(|previous| previous.url != external.url);
+            match url_moved {
+                true => format!(
+                    "changed the external DHIS2 to {} in `.varde/components.yaml`",
+                    external.url
+                ),
+                false => format!(
+                    "changed the chap-url of the external DHIS2 at {} to {} in \
+                     `.varde/components.yaml`",
+                    external.url, external.chap_url
+                ),
+            }
+        }
         (UseOutcome::Unchanged, Some(external), _) => {
             format!("the external DHIS2 at {} is already recorded", external.url)
         }
