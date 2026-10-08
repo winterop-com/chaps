@@ -190,6 +190,26 @@ pub fn pull_summary(images: Option<usize>) -> String {
     }
 }
 
+/// The named services that have no container at all, running or not, in
+/// the order they were named.
+pub(super) fn absent_services(named: &[String], containers: &[docker::Container]) -> Vec<String> {
+    named
+        .iter()
+        .filter(|name| !containers.iter().any(|c| &c.service == *name))
+        .cloned()
+        .collect()
+}
+
+/// What `logs SERVICE` says about a service that has never started, and so
+/// has no log.
+pub(super) fn no_container_message(absent: &[String]) -> String {
+    let named: Vec<String> = absent.iter().map(|s| format!("`{s}`")).collect();
+    format!(
+        "this project has no container for {}, so there is no log; start it with `varde up`",
+        named.join(", ")
+    )
+}
+
 /// What `logs SERVICE` says about a name the project does not have.
 pub fn unknown_service_message(unknown: &[String], services: &[String]) -> String {
     let named: Vec<String> = unknown.iter().map(|s| format!("`{s}`")).collect();

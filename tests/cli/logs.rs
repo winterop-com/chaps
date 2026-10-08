@@ -12,6 +12,12 @@ use tempfile::TempDir;
 /// Every invocation is recorded, so a test can check the arguments compose
 /// was given.
 fn coloured_docker() -> (TempDir, PathBuf) {
+    fake_docker("chap", "chap")
+}
+
+/// A `docker` on PATH whose `ps` lists one running container of `running`,
+/// and whose project has the services in `services` (one per line).
+fn fake_docker(running: &str, services: &str) -> (TempDir, PathBuf) {
     let temp = tempfile::tempdir().expect("a directory for the fake docker");
     let bin = temp.path().join("bin");
     std::fs::create_dir_all(&bin).expect("a bin directory");
@@ -20,8 +26,8 @@ fn coloured_docker() -> (TempDir, PathBuf) {
         "#!/bin/sh\n\
          echo \"$*\" >> {log}\n\
          case \"$*\" in\n\
-         *' ps '*) printf '{{\"Service\":\"chap\",\"State\":\"running\"}}\\n'; exit 0;;\n\
-         *'--services'*) printf 'chap\\n'; exit 0;;\n\
+         *' ps '*) printf '{{\"Service\":\"{running}\",\"State\":\"running\"}}\\n'; exit 0;;\n\
+         *'--services'*) printf '{services}\\n'; exit 0;;\n\
          *' logs '*) printf 'chap-1  | \\033[32mINFO\\033[0m ready\\n'; exit 0;;\n\
          esac\n\
          exit 0\n",
@@ -71,4 +77,31 @@ fn logs_tail_reaches_compose_and_a_pipe_gets_no_colour_codes() {
         .find(|line| line.contains(" logs "))
         .expect("compose logs was run");
     assert!(call.ends_with("logs --tail 60 chap"), "{call}");
+}
+
+/// A service that has never started has no log. `logs` says so and names
+/// `varde up`, and does not ask compose for a log that is not there.
+#[test]
+fn logs_of_a_service_with_no_container_says_so() {
+    let sandbox = Sandbox::new();
+    let dir = project(&sandbox);
+    let (fake, calls) = fake_docker("dhis2", "chap\\ndhis2");
+    let bin = fake.path().join("bin");
+
+    chap_with_docker(&sandbox, &dir, &bin, &["logs", "chap"])
+        .assert()
+        .failure()
+        .stdout(predicates::str::contains(
+            "this project has no container for `chap`, so there is no log; start it with \
+             `varde up`",
+        ));
+    assert!(!read(&calls).contains(" logs "), "{}", read(&calls));
+
+    // A service with a container is still read, with a line for the other.
+    let text = logs(&sandbox, &dir, &bin, &["logs", "chap", "dhis2"]);
+    assert!(
+        text.starts_with("this project has no container for `chap`"),
+        "{text}"
+    );
+    assert!(read(&calls).contains(" logs "), "{}", read(&calls));
 }

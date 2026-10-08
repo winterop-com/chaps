@@ -26,7 +26,8 @@ use args::{Shell, args_for};
 use down::{confirm_volumes, misused_volumes_flag, volumes_flag_message};
 use preflight::preflight;
 use report::{
-    not_running, nothing_running, report_what_changed, unknown_service_message, up_lines,
+    absent_services, no_container_message, not_running, nothing_running, report_what_changed,
+    unknown_service_message, up_lines,
 };
 
 /// Run one docker compose wrapper against the project's explicit `-f` list.
@@ -415,6 +416,16 @@ fn prepare(ctx: &Ctx, project: &Project, cmd: &DockerCmd) -> Result<Pre> {
                 return Ok(Pre::Skip(1));
             }
             reject_unknown_services(project, &args.services)?;
+            // A service that has never started has no log, and compose then
+            // prints nothing and exits 0. Say it, and fail when no service
+            // that was named has a log to print.
+            let absent = absent_services(&args.services, &containers);
+            if !absent.is_empty() {
+                note(ctx, &ctx.out.backticks(&no_container_message(&absent)));
+                if absent.len() == args.services.len() {
+                    return Ok(Pre::Skip(1));
+                }
+            }
             Ok(Pre::run(Vec::new()))
         }
         // Nothing to recreate is not a failure of docker's to report: it is
