@@ -187,6 +187,51 @@ pub fn check_chap_tag(
     Ok(tag.to_string())
 }
 
+/// The two images a chap-core tag has to name on ghcr: the API and the
+/// worker, as `(image, repository)`.
+pub const CHAP_IMAGES: &[(&str, &str)] = &[
+    ("chap-core", "dhis2-chap/chap-core"),
+    ("chap-worker", "dhis2-chap/chap-worker"),
+];
+
+/// Check that ghcr has both chap-core images for `tag`, before the pin moves.
+///
+/// A tag can be a real name and still have no image: `dev` is a branch of
+/// chap-core, and ghcr has no `chap-worker:dev`. The pull would then fail after
+/// the pin moved, so this asks ghcr first, in the dry run too. A lookup that
+/// could not be made is a warning and the tag as typed.
+pub fn check_chap_images(
+    tag: &str,
+    ghcr: &str,
+    timeout: std::time::Duration,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let mut missing = Vec::new();
+    for (image, repository) in CHAP_IMAGES {
+        let found = crate::manual::ghcr::Client::anonymous(ghcr, repository, timeout)
+            .and_then(|client| client.tag_exists(tag));
+        match found {
+            Ok(true) => {}
+            Ok(false) => missing.push(format!("{image}:{tag}")),
+            Err(err) => {
+                warnings.push(format!(
+                    "whether ghcr.io has {image}:{tag} cannot be looked up ({err:#}); the tag \
+                     is taken as given"
+                ));
+                return Ok(());
+            }
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "ghcr.io has no image {}, so the pull would fail; nothing was changed; pick another \
+         tag, for example a release from `varde update --list-tags`",
+        missing.join(" and ")
+    ))
+}
+
 /// What a failed pull says when this run had just moved chap-core's pin.
 ///
 /// The pin is recorded before the pull, so a deployment whose images would not

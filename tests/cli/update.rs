@@ -167,6 +167,40 @@ fn update_refuses_a_chap_tag_that_was_never_released() {
     .stderr(predicates::str::contains("cannot be used with"));
 }
 
+/// `dev` is a branch of chap-core, but ghcr has no image for it. The tag is
+/// refused before the pin moves, and the dry run says the same.
+#[cfg(unix)]
+#[test]
+fn update_refuses_a_chap_tag_ghcr_has_no_image_for() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = Hub {
+        unbuilt: vec!["dev".to_string()],
+        ..Hub::new()
+    }
+    .start();
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success();
+    let (_temp, bin, _) = quiet_docker();
+    let before = (read(&dir.join(".varde/project.yaml")), sandbox.env());
+    for args in [
+        &["--dry-run", "--chap-tag", "dev"][..],
+        &["--chap-tag", "dev"][..],
+    ] {
+        online_update(&sandbox, port, &bin, args)
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(
+                "ghcr.io has no image chap-core:dev and chap-worker:dev, so the pull would fail",
+            ))
+            .stderr(predicates::str::contains("varde update --list-tags"));
+        assert_eq!(read(&dir.join(".varde/project.yaml")), before.0);
+        assert_eq!(sandbox.env(), before.1);
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_dry_run_switch_writes_nothing() {

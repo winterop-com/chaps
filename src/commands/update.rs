@@ -47,8 +47,8 @@ use crate::output;
 use crate::project::{ComposeSource, Project};
 use crate::registry::Provenance;
 use chap_core::{
-    ChapCoreUpdate, apply_chap_core, backwards_warning, check_chap_tag, confirm_backwards,
-    lookup_latest, plan_chap_core, pull_failed_after_switch,
+    ChapCoreUpdate, apply_chap_core, backwards_warning, check_chap_images, check_chap_tag,
+    confirm_backwards, lookup_latest, plan_chap_core, pull_failed_after_switch,
 };
 use components::{ComponentUpdate, dhis2_pull_note, plan_components};
 use models::{ModelUpdate, newest_published, plan, resolve_users};
@@ -163,6 +163,12 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
         )?),
         None => None,
     };
+    if let Some(tag) = &requested
+        && !ctx.registry.offline
+    {
+        let ghcr = manual::Endpoints::from_env(ctx.registry.offline).ghcr_url;
+        check_chap_images(tag, &ghcr, ctx.registry.timeout, warnings)?;
+    }
     let requested = requested.as_deref();
     // No fallback on purpose: an update from a stale catalogue is not an update.
     let registry = super::refreshed_registry_for(ctx, Some(&project))?;

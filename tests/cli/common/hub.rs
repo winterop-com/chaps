@@ -72,6 +72,9 @@ pub(crate) struct Hub {
     /// Whether ghcr refuses an anonymous pull token, which is what it answers
     /// for a repository that publishes no public image.
     pub(crate) denied: bool,
+    /// chap-core tags ghcr has no `chap-core` and `chap-worker` image for.
+    /// Every release and moving tag has both unless it is named here.
+    pub(crate) unbuilt: Vec<String>,
 }
 
 /// The chap-core releases the hub publishes by default: two of them, so a
@@ -129,6 +132,7 @@ impl Hub {
                 .collect(),
             pinned: MARKETPLACE_SHA.to_string(),
             denied: false,
+            unbuilt: Vec::new(),
         }
     }
 
@@ -357,6 +361,23 @@ impl Hub {
             )
         };
         let releases = format!("/repos/{REPO}/releases");
+
+        // ghcr: the API and the worker image of every release and moving tag.
+        for image in ["dhis2-chap/chap-core", "dhis2-chap/chap-worker"] {
+            if let Some(tag) = path.strip_prefix(&format!("/v2/{image}/manifests/")) {
+                let built = !self.unbuilt.iter().any(|t| t == tag)
+                    && (["dev", "master", "latest"].contains(&tag)
+                        || self.releases.iter().any(|(name, _)| name == tag));
+                return Some(match built {
+                    true => (200, json, index()),
+                    false => (
+                        404,
+                        json,
+                        r#"{"errors":[{"code":"MANIFEST_UNKNOWN"}]}"#.to_string(),
+                    ),
+                });
+            }
+        }
 
         if path.starts_with(&format!("{releases}/latest")) {
             return Some(match self.releases.first() {
