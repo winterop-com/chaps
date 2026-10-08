@@ -16,7 +16,8 @@ restore it by hand:
 varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz
   manifest.yaml              what this archive is: the varde version that wrote
                              it, the UTC timestamp, the project directory name,
-                             the chap-core image tag, the PostgreSQL server
+                             the chap-core image tag (no key for a deployment
+                             without chap-core), the PostgreSQL server
                              version, every enabled model with its service id,
                              version, image tag, host port (null when it
                              publishes none), data dir, uid:gid and volume, and
@@ -67,7 +68,9 @@ varde backup create [--out PATH] [--no-db] [--no-models] [--no-components]
 The archive is named `varde-backup-<project>-<YYYYMMDD-HHMMSS>.tar.gz` (UTC)
 and written to the current directory, unless `--out` names a file or a
 directory to put it in. A path that ends in `/` is a directory. varde makes the
-directories that do not exist yet.
+directories that do not exist yet. If an archive with that name is already
+there (two backups in the same second), varde adds `-2`, `-3`, ... before
+`.tar.gz`. A file that `--out` names is overwritten.
 
 PostgreSQL has to be running for the database part, because the dump goes
 through `docker compose exec`. When it is not, the command writes nothing and
@@ -197,12 +200,12 @@ run left behind is removed by the next `varde backup create`: each one holds a
 lock in `.varde/tmp/<kind>-<pid>.lock`, and a staging directory whose lock no
 run holds is a leftover.
 
-A Ctrl-C while varde reads a component volume can leave the `busybox`
-container of the read behind, in the state `Created`. It holds the volume, so
-`varde down --volumes` cannot remove that volume and warns `volume is in use`.
-To find the container, run
-`docker ps -a --filter status=created --filter ancestor=busybox:1.38`. If its
-mount is a volume of this deployment, remove it with `docker rm NAME`.
+varde reads and writes a component volume through a `busybox` container
+with the name `varde-volume-<pid>-<n>`. If Ctrl-C stops the run, varde removes
+that container with `docker rm -f`. If the run was killed and the container
+stays, it holds the volume, so `varde down --volumes` cannot remove that volume
+and warns `volume is in use`. To find the container, run
+`docker ps -a --filter name=varde-volume`. Remove it with `docker rm -f NAME`.
 
 ## Restoring
 
@@ -364,7 +367,10 @@ port included - the `.env` beside it sets that too, and the two have to agree.
 The DHIS2 port in `.varde/components.yaml` also comes from the archive.
 
 The labels of the plan are padded to one width: `files`, `database`, `models`,
-`components` and `identity`.
+`components` and `identity`. Above them, the `from` line names the deployment
+that the archive came from and its chap-core tag, for example
+`from   deployment chapx (chap-core v2.4.0)`. For a deployment without
+chap-core, it says `from   deployment chapx (no chap-core)`.
 
 ### A second deployment on the same machine
 
@@ -405,10 +411,9 @@ move them. A restore that stopped at the port check does the same: do steps 1
 to 4. A `--files-only` restore also writes the ports of the archive, so do the
 same steps after it.
 
-Do step 2 also when the error names only port 8700. If the `dhis2` of this
-deployment runs on another port, the port check does not see the conflict on
-8780. Then `docker compose up -d` fails with `Bind for 0.0.0.0:8780 failed: port
-is already allocated`.
+The port check also sees a port that the restore moves a running service to.
+If the `dhis2` of this deployment runs on 8781 and the archive sets 8780, the
+check looks at 8780, because `varde up` recreates `dhis2` on that port.
 
 ### Taking over the identity
 

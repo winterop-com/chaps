@@ -155,7 +155,7 @@ run `varde up` to apply
 
 A warning, because the listener is often something you are about to stop, and
 because nothing is started here: `varde up` is where a taken port becomes a
-refusal. A port one of this deployment's own running services already publishes
+refusal. A port one of this deployment's own running services publishes now
 is not a conflict at all. As at `init`, a port no one is listening on but
 another deployment on this machine claims gets the same line with that
 deployment named.
@@ -235,8 +235,10 @@ before it calls Docker, and refuses with one line per conflict:
 Docker finds the same conflict eventually, several seconds in and named after a
 container rather than a port.
 
-- Ports held by this deployment's own running containers are skipped, so
-  `varde up` on a running deployment stays a no-op.
+- A port that a running container of this deployment publishes now is
+  skipped, so `varde up` on a running deployment stays a no-op. If the
+  recreate moves a running service to another port, the check looks at the
+  new port.
 - `varde up --no-preflight` hands the question back to Docker.
 - A port that another running varde deployment publishes is named with that
   deployment and the command that stops it, and at a terminal `up` offers to

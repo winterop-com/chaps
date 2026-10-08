@@ -260,7 +260,9 @@ A tool that drives varde reads stdout and branches on one field:
   command or a flag to use instead (`pass \`--id auto\` ... to add this one
   beside it`), and `null` when the message has no way out to give. `error` is
   the message up to that clause, so the two never say the same thing; the
-  terminal shows them together after `error:`. A usage error - an unknown flag, a
+  terminal shows them together after `error:`. A message of several lines,
+  for example the port check with more than one busy port, stays whole in
+  `error`, with `hint: null`, because each line has its own way out. A usage error - an unknown flag, a
   missing argument - is the same document, with clap's message as `error` and
   the command's `--help` as `hint`, and exits 2.
 - `models enable` and `models add` list what they enabled under `models`, one

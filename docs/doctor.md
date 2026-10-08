@@ -56,7 +56,8 @@ Four words carry the verdict, and only one of them is a problem:
 
 A line that is not `ok` carries an indented line under it saying what to do
 about it, and that line is the same sentence the command it belongs to would
-have failed with. The exit code is non-zero **only when something failed**, so
+have failed with. In a deployment without chap-core, the `health` line says
+``run `varde up` to start the deployment``. The exit code is non-zero **only when something failed**, so
 `varde doctor` in a CI step goes red on the checks that would have stopped the
 deployment and stays green on the ones that are merely worth knowing.
 

@@ -93,10 +93,10 @@ Something else holds the port: a dev server, a proxy, an older deployment.
 deployment works and not that the port is taken. Find the listener, or point
 the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 
-## `` this project has no container for `chap`, so there is no log ``
+## `` this deployment has no container for `chap`, so there is no log ``
 
 ```text
-error: this project has no container for `chap`, so there is no log; start it with `varde up`
+error: this deployment has no container for `chap`, so there is no log; start it with `varde up`
 ```
 
 `varde logs chap` found no container for the service, so the service never
@@ -114,8 +114,7 @@ Run `varde up`.
 ## `this deployment's chap-core is not running`
 
 ```text
-Chap is not running; start it with `varde up`
-  this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `varde -C /srv/first down`, or run `varde up --replace` here
+this deployment's chap-core is not running; http://localhost:8700 is first (/srv/first) answering on the same port; stop it with `varde -C /srv/first down`, or run `varde up --replace` here
 ```
 
 Two deployments made with the same ports take turns on them, and the one that
