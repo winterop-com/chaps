@@ -401,7 +401,7 @@ pub fn other_deployments(dir: &Path, compose_ls: &dyn Fn() -> Option<String>) ->
 
 /// The directories next to `dir` that hold a `.varde/project.yaml`, in name
 /// order. `dir` itself is never one of them.
-fn sibling_dirs(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn sibling_dirs(dir: &Path) -> Vec<PathBuf> {
     let Some(parent) = dir.parent() else {
         return Vec::new();
     };

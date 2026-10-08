@@ -94,7 +94,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         docker::running_services(&project)
     };
     let archived_identity = archived_identity(&archive, &members);
-    let plan = plan(
+    let mut plan = plan(
         &project,
         &archive,
         manifest,
@@ -103,6 +103,18 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         archived_identity,
         args,
     );
+    // Asked before the restore writes this directory into the record, which
+    // keeps one directory per name.
+    if plan.adopt_identity
+        && plan.archived_compose_project.as_deref() == Some(plan.compose_project.as_str())
+        && project.compose_project_name().as_deref() != Some(plan.compose_project.as_str())
+    {
+        let files_only = args.files_only;
+        plan.shared_with =
+            crate::known::claimed_elsewhere(&plan.compose_project, &project.dir, &|| {
+                (!files_only).then(docker::compose_ls_json).flatten()
+            });
+    }
 
     if plan.is_empty() {
         return Err(anyhow::anyhow!(
@@ -286,6 +298,7 @@ fn plan(
         compose_project,
         archived_compose_project: archived_identity,
         adopt_identity: args.adopt_identity,
+        shared_with: Vec::new(),
         manifest,
     }
 }
@@ -434,6 +447,12 @@ fn say(report: &RestoreReport, lines: &mut output::Report) {
         (false, false) => {
             lines.hint(identity);
         }
+    }
+    for other in &report.plan.shared_with {
+        lines.warning(crate::known::shared_name_line(
+            &report.plan.compose_project,
+            other,
+        ));
     }
     match report.started {
         true => lines

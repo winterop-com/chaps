@@ -476,7 +476,7 @@ fn project_checks(
     });
 
     let mut checks = vec![
-        project_check(project),
+        project_check(project, daemon),
         files_check(&project.dir, &project.state.components),
         components_check(project, &running),
         sync_check(project, &catalogue),

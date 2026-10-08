@@ -120,7 +120,30 @@ pub fn files_check(dir: &Path, components: &Components) -> Check {
 /// the first one's database, with a password it has never seen. `varde init`
 /// records a name of its own; an empty one is a hand edit, and this warns
 /// about it.
-pub fn project_name_verdict(recorded: Option<&str>) -> (Status, String, Option<String>) {
+///
+/// `others` are the other directories that record the same name, as a
+/// restore with `--adopt-identity` on the same machine leaves them: they use
+/// the same containers and volumes.
+pub fn project_name_verdict(
+    recorded: Option<&str>,
+    others: &[PathBuf],
+) -> (Status, String, Option<String>) {
+    if let (Some(name), Some(first)) = (recorded, others.first()) {
+        let dirs: Vec<String> = others.iter().map(|d| d.display().to_string()).collect();
+        return (
+            Status::Warn,
+            format!(
+                "{name}, and {} {} the same name, so these directories use the same \
+                 containers and volumes",
+                dirs.join(", "),
+                if dirs.len() == 1 { "records" } else { "record" }
+            ),
+            Some(format!(
+                "use only one of these directories, or remove {}",
+                first.display()
+            )),
+        );
+    }
     if let Some(name) = recorded {
         return (
             Status::Ok,
@@ -140,12 +163,19 @@ pub fn project_name_verdict(recorded: Option<&str>) -> (Status, String, Option<S
     )
 }
 
-/// The `project` line.
-pub fn project_check(project: &Project) -> Check {
+/// The `project` line. `daemon` is whether docker may be asked which
+/// deployments it knows.
+pub fn project_check(project: &Project, daemon: bool) -> Check {
+    let others = match project.compose_project() {
+        Some(name) => crate::known::claimed_elsewhere(name, &project.dir, &|| {
+            daemon.then(docker::compose_ls_json).flatten()
+        }),
+        None => Vec::new(),
+    };
     Check::from_verdict(
         "compose-project",
         "compose project",
-        project_name_verdict(project.compose_project()),
+        project_name_verdict(project.compose_project(), &others),
     )
 }
 

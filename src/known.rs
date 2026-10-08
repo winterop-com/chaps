@@ -106,6 +106,52 @@ pub fn presence(name: &str, dir: &Path) -> Presence {
     }
 }
 
+/// The other directories that record the compose project name `name`: the
+/// recorded deployments, the directories beside `dir` and, when
+/// `compose_ls` answers, the deployments docker knows. Two such directories
+/// share every container and volume, so `varde down --volumes` in one of
+/// them deletes the data of both.
+pub fn claimed_elsewhere(
+    name: &str,
+    dir: &Path,
+    compose_ls: &dyn Fn() -> Option<String>,
+) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = load().into_values().collect();
+    candidates.extend(crate::ports::sibling_dirs(dir));
+    if let Some(text) = compose_ls() {
+        candidates.extend(crate::docker::compose_ls_dirs(&text));
+    }
+    same_name(name, dir, candidates)
+}
+
+/// The `candidates` other than `dir` whose `project.yaml` records `name`,
+/// each one once, in the resolved spelling.
+pub fn same_name(name: &str, dir: &Path, candidates: Vec<PathBuf>) -> Vec<PathBuf> {
+    let own = crate::ports::real_path(dir);
+    let mut found: Vec<PathBuf> = Vec::new();
+    for path in candidates {
+        let real = crate::ports::real_path(&path);
+        if real == own || found.contains(&real) {
+            continue;
+        }
+        if matches!(Project::recorded_name(&real), Ok(Some(recorded)) if recorded == name) {
+            found.push(real);
+        }
+    }
+    found
+}
+
+/// The warning for a directory that records the same compose project name
+/// as this deployment, with the way out.
+pub fn shared_name_line(name: &str, other: &Path) -> String {
+    format!(
+        "{} also records the compose project name {name}, so the two directories use the \
+         same containers and volumes; use only one of them, or remove {}",
+        other.display(),
+        other.display()
+    )
+}
+
 /// Write the record through a temporary file of this process's own, so two
 /// varde saving at once cannot rename each other's half-written file.
 fn write(path: &Path, known: &BTreeMap<String, PathBuf>) -> crate::error::Result<()> {

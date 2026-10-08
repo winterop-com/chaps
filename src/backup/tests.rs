@@ -560,6 +560,7 @@ fn plan(start: bool, stop: Vec<&str>) -> RestorePlan {
         compose_project: "e2e-ab12cd".into(),
         archived_compose_project: Some("e2e-ab12cd".into()),
         adopt_identity: false,
+        shared_with: Vec::new(),
     }
 }
 

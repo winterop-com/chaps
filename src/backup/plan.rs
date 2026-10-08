@@ -84,6 +84,9 @@ pub struct RestorePlan {
     pub archived_compose_project: Option<String>,
     /// Whether `--adopt-identity` was passed.
     pub adopt_identity: bool,
+    /// The other directories that record the compose project name this
+    /// restore takes over: they share its containers and volumes.
+    pub shared_with: Vec<PathBuf>,
 }
 
 impl RestorePlan {
@@ -191,6 +194,12 @@ pub fn plan_text(plan: &RestorePlan) -> String {
         }
     }
     text.push_str(&identity_line(plan));
+    for other in &plan.shared_with {
+        text.push_str(&format!(
+            "  shared      {}\n",
+            crate::known::shared_name_line(&plan.compose_project, other)
+        ));
+    }
 
     text.push('\n');
     text.push_str(&services_text(plan));

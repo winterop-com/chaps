@@ -78,3 +78,41 @@ fn an_unreadable_name_or_a_missing_parent_is_not_proof() {
         Presence::Unsure(_)
     ));
 }
+
+#[test]
+fn another_directory_with_the_same_name_is_found_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let write_name = |dir: &str, name: &str| {
+        let path = temp.path().join(dir).join(".varde");
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(
+            path.join("project.yaml"),
+            format!("compose_project: {name}\n"),
+        )
+        .unwrap();
+    };
+    write_name("chapx", "chapx-31ab52");
+    write_name("chapz", "chapx-31ab52");
+    write_name("chapy", "chapy-9f01bc");
+    let here = temp.path().join("chapz");
+    let candidates = vec![
+        temp.path().join("chapx"),
+        temp.path().join("chapx/../chapx"),
+        temp.path().join("chapy"),
+        here.clone(),
+        temp.path().join("gone"),
+    ];
+    let found = same_name("chapx-31ab52", &here, candidates);
+    assert_eq!(
+        found,
+        vec![crate::ports::real_path(&temp.path().join("chapx"))]
+    );
+    let line = shared_name_line("chapx-31ab52", &found[0]);
+    assert!(
+        line.ends_with(&format!(
+            "use only one of them, or remove {}",
+            found[0].display()
+        )),
+        "{line}"
+    );
+}

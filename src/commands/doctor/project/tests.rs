@@ -170,17 +170,35 @@ fn the_env_check_reads_the_two_things_that_bite_later() {
 
 #[test]
 fn the_project_line_warns_when_the_name_is_empty() {
-    let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"));
+    let (status, detail, fix) = project_name_verdict(Some("demo-1ab2c3"), &[]);
     assert_eq!(status, Status::Ok);
     assert_eq!(detail, "demo-1ab2c3 (recorded in .varde/project.yaml)");
     assert_eq!(fix, None);
 
     // An empty name is a hand edit: compose falls back to the directory.
-    let (status, detail, fix) = project_name_verdict(None);
+    let (status, detail, fix) = project_name_verdict(None, &[]);
     assert_eq!(status, Status::Warn);
     assert!(detail.contains("`compose_project` is empty"), "{detail}");
     let fix = fix.unwrap();
     assert!(fix.contains("varde sync"), "{fix}");
+}
+
+/// Two directories with one name, as `--adopt-identity` on the same machine
+/// leaves them, share every container and volume.
+#[test]
+fn the_project_line_warns_when_another_directory_has_the_same_name() {
+    let other = PathBuf::from("/srv/chapx");
+    let (status, detail, fix) = project_name_verdict(Some("chapx-31ab52"), &[other]);
+    assert_eq!(status, Status::Warn);
+    assert_eq!(
+        detail,
+        "chapx-31ab52, and /srv/chapx records the same name, so these directories use the same \
+         containers and volumes"
+    );
+    assert_eq!(
+        fix.as_deref(),
+        Some("use only one of these directories, or remove /srv/chapx")
+    );
 }
 
 /// When `.varde/project.yaml` was created, in these tests.

@@ -567,6 +567,18 @@ fn adopt_identity_takes_the_archives_name_over() {
         2,
         "the plan line and one closing line:\n{text}{stderr}"
     );
+    // chapx still records that name, so the two directories now share every
+    // container and volume, and both the plan and the closing lines say so.
+    let source_real = std::fs::canonicalize(&source).unwrap();
+    let shared = format!(
+        "{} also records the compose project name {taken_from}",
+        source_real.display()
+    );
+    assert!(text.contains(&format!("  shared      {shared}")), "{text}");
+    assert!(stderr.contains(&format!("warning: {shared}")), "{stderr}");
+    // The takeover is recorded, so `varde doctor` does not take the older
+    // volumes for an accident.
+    assert_eq!(state(&target)["adopted_identity"], Json::Bool(true));
     assert_eq!(identity(&target), taken_from);
     assert_eq!(compose_name(&target, "compose.varde.yml"), taken_from);
     // Adopting the name is adopting the archive's volumes, and with them the
