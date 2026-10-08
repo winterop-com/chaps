@@ -67,22 +67,22 @@ One container that listens on port 8000:
 
 ## Start a new model
 
-chapkit makes the project for you:
+varde makes the project for you. Docker builds it, so Python is not necessary:
 
 ```sh
-uvx chapkit init my-ml-service
-uvx chapkit init my-r-model --template shell-r
+varde models new my-model
+varde models new my-r-model --template shell-r
 ```
 
 | Template | What it gives you |
 | --- | --- |
-| `fn-py` | Python, the model in `main.py` (the default) |
-| `shell-py` | Python `train` and `predict` scripts in `scripts/` |
-| `shell-r` | R scripts on plain `chapkit-r` |
-| `shell-r-tidyverse` | R scripts with tidyverse and fable |
-| `shell-r-inla` | R scripts with INLA, amd64 only |
+| `fn-py` | chapkit service, Python, the model in `main.py` (the default) |
+| `shell-py`, `shell-r` | chapkit service, `train` and `predict` scripts in `scripts/` |
+| `shell-r-tidyverse`, `shell-r-inla` | the same, with tidyverse and fable, or INLA |
+| `mlproject-py`, `mlproject-r`, ... | an `MLproject` file and scripts, no chapkit code |
 
-It also makes a `Dockerfile` and a workflow that publishes the image.
+It also makes a `Dockerfile`, a `README.md` with the commands, and a workflow
+that publishes the image.
 
 ---
 
@@ -484,9 +484,10 @@ varde doctor                    # the machine and the deployment
 ## Start now
 
 ```sh
-uvx chapkit init my-ml-service
-cd my-ml-service && docker build --platform linux/amd64 -t my-ml-service:dev .
-varde run my-ml-service:dev
+varde models new my-model && cd my-model
+git init && git add . && git commit -m "feat: first version"
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .
+varde run my-model:dev
 ```
 
 Models and the marketplace: **https://winterop-com.github.io/varde/models.html**
