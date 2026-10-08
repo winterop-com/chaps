@@ -211,7 +211,7 @@ work anywhere, inside a deployment or not.
 | Command | What it does |
 | --- | --- |
 | `varde self update [--check] [--version TAG] [--yes]` | Replace this binary with the newest release: download the archive for this target, check it against the release's `SHA256SUMS`, rename it over the running one. `--check` only reports. |
-| `varde self version` | Version, git revision, target triple, binary path and whether it came from a release archive, `cargo install` or a `cargo build` in a checkout. |
+| `varde self version` | Version, git revision, target triple, binary path and whether it came from a release archive, `cargo install`, a `cargo build` in a checkout, or another local build. |
 | `varde completions SHELL` | Print a completion script for bash, zsh, fish, PowerShell or elvish. |
 
 `varde update` moves a deployment's pins; `varde self update` replaces the

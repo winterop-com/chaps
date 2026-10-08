@@ -78,7 +78,14 @@ curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh 
 
 The oldest release that has varde archives is `v0.100.0`. For an older tag,
 the script stops with `could not download ...`, and `varde self update
---version` stops with `... has no archive for ...`. Use `v0.100.0` or newer.
+--version` stops with an error that names the archive it did not find:
+
+```text
+error: v0.2.1 has no varde-universal-apple-darwin.tar.gz, so varde cannot install it on aarch64-apple-darwin; pick a newer tag with --version, or run `varde self update` for the newest
+```
+
+Use `v0.100.0` or newer. Without `--version`, the error ends in `download a
+build from https://github.com/winterop-com/varde/releases`.
 `--here` and `--dir` together are an error; use one of them.
 
 Without `--version` the newest release is looked up through the GitHub API, and
@@ -126,7 +133,8 @@ well; `varde self version` is what tells the two apart:
 shows `aarch64-apple-darwin`.
 
 `channel` is always printed, `stable` or `dev`, and is in `--json` under the
-same name. A binary built anywhere else, `cargo install` included, is stable.
+same name. `path` is the varde file itself, also when you run it through the
+link `vg`. A binary built anywhere else, `cargo install` included, is stable.
 
 Picking one with the installer:
 
@@ -293,12 +301,25 @@ A successful update prints:
 
 ```text
 updated varde: v0.100.0 -> v0.100.1
-  path  /usr/local/bin/varde
 ```
+
+With `-v`, a hint names the file: `hint: replaced /usr/local/bin/varde`.
 
 `--check` on a binary that is up to date prints
 `varde v0.100.1 is up to date`. With `--version dev` or another tag, `--check`
-reports that release; install it with the same `--version TAG`.
+reports that release:
+
+```text
+varde dev b95828a (2026-10-07) is available (you have v0.100.1)
+hint: the download is varde-universal-apple-darwin.tar.gz
+hint: `varde self update --version dev` installs it
+```
+
+The hints come with `-v`. They name the same `--version TAG` that was
+checked, because a plain `varde self update` follows the channel of this
+build. The day of a dev build is the day it was built, from the release notes
+or the newest asset. If varde finds no date, the line says `varde dev b95828a`
+with no day.
 
 Without `--version`, an update follows the channel this build is on: the
 newest tag for a stable build, the newest build of `main` for a dev one. See
@@ -333,13 +354,15 @@ under `--offline`, when stdout is not a terminal, and for `varde self` itself.
 A `varde` installed with `cargo install` is replaced the same way, but
 `cargo install --path .` from an updated checkout is the more honest way to
 move that one on. `installed by` in `varde self version` tells which one you
-have, from the path alone:
+have:
 
-- `cargo install` for a binary in a `.cargo/bin` directory.
-- `cargo build` for a binary in a `target/release` or `target/debug`
+- `release archive` for a binary that the release workflow built, wherever it
+  is now.
+- `cargo install` for a local build in a `.cargo/bin` directory.
+- `cargo build` for a local build in a `target/release` or `target/debug`
   directory.
-- `release archive` for every other path, also for `make install` and for
-  `cargo install --root DIR`.
+- `local build` for a local build at any other path, also for `make install`
+  and for `cargo install --root DIR`.
 
 ## Shell completions
 
@@ -353,10 +376,16 @@ reads already exists:
 - `~/.zsh/completions/_varde`
 - `~/.config/fish/completions/varde.fish` (or under `$XDG_CONFIG_HOME`)
 
+When the script adds the link `vg`, it also writes the bash and fish script a
+second time under the name `vg` (`completions/vg` and `vg.fish`). bash and fish
+load a completion file by the name of the command, so `vg` then completes
+before `varde` was completed once. zsh needs nothing more, because `_varde`
+starts with `#compdef varde vg`.
+
 `varde completions <shell>` prints one to stdout for the cases it does not
 cover: a checkout, a different directory, or a shell that reads its completions
 from somewhere else. The shells are `bash`, `zsh`, `fish`, `powershell` and
-`elvish`. The scripts complete `varde`; they do not complete the link `vg`.
+`elvish`. The scripts complete `varde` and the link `vg`.
 
 bash, with the `bash-completion` package installed (on macOS,
 `bash-completion@2` from Homebrew):
@@ -364,6 +393,7 @@ bash, with the `bash-completion` package installed (on macOS,
 ```sh
 mkdir -p ~/.local/share/bash-completion/completions
 varde completions bash > ~/.local/share/bash-completion/completions/varde
+varde completions bash > ~/.local/share/bash-completion/completions/vg
 ```
 
 zsh, into a directory that is on your `fpath`. If it is a new directory, add
@@ -379,6 +409,7 @@ fish:
 ```sh
 mkdir -p ~/.config/fish/completions
 varde completions fish > ~/.config/fish/completions/varde.fish
+varde completions fish > ~/.config/fish/completions/vg.fish
 ```
 
 PowerShell, appended to your profile:
