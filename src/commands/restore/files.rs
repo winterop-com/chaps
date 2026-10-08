@@ -108,18 +108,12 @@ pub(super) fn restore_files(
         &archived,
         args.adopt_identity,
     );
-    if args.adopt_identity {
-        if archived.trim().is_empty() {
-            output::warn(
-                "--adopt-identity was passed, but the archive records no compose project \
-                 name; this deployment keeps its own",
-            );
-        } else {
-            output::notice(&format!(
-                "compose project name {archived} taken over from the archive \
-                 (--adopt-identity)"
-            ));
-        }
+    // A takeover is said once, by the closing lines of the restore.
+    if args.adopt_identity && archived.trim().is_empty() {
+        output::warn(
+            "--adopt-identity was passed, but the archive records no compose project \
+             name; this deployment keeps its own",
+        );
     }
 
     let registry = crate::commands::registry_for(ctx, Some(&restored))?;

@@ -534,32 +534,36 @@ fn adopt_identity_takes_the_archives_name_over() {
     let target = sandbox.init("chapy", &[]);
     assert_ne!(identity(&target), taken_from);
 
-    let text = String::from_utf8(
-        sandbox
-            .chap(
-                &target,
-                &[
-                    "backup",
-                    "restore",
-                    archive.to_str().unwrap(),
-                    "--files-only",
-                    "--adopt-identity",
-                    "--yes",
-                ],
-            )
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone(),
-    )
-    .expect("the report is text");
+    let output = sandbox
+        .chap(
+            &target,
+            &[
+                "backup",
+                "restore",
+                archive.to_str().unwrap(),
+                "--files-only",
+                "--adopt-identity",
+                "--yes",
+            ],
+        )
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let text = String::from_utf8(output.stdout.clone()).expect("the report is text");
 
     assert!(
         text.contains(&format!(
             "identity    compose project {taken_from}, taken over from the archive"
         )),
         "{text}"
+    );
+    // Said once, in the closing lines; the plan line comes before them.
+    let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+    assert_eq!(
+        format!("{text}{stderr}").matches("taken over from the archive").count(),
+        2,
+        "the plan line and one closing line:\n{text}{stderr}"
     );
     assert_eq!(identity(&target), taken_from);
     assert_eq!(compose_name(&target, "compose.varde.yml"), taken_from);
