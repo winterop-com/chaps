@@ -59,7 +59,11 @@ struct UpdateReport {
 
 /// `varde self version`: everything that identifies one build.
 pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
-    let path = std::env::current_exe().ok();
+    // The file itself, not the `vg` link to it: the file `self update`
+    // replaces.
+    let path = std::env::current_exe()
+        .ok()
+        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe));
     let report = VersionReport {
         version: VERSION,
         revision: Some(GIT_REVISION).filter(|rev| !rev.is_empty()),

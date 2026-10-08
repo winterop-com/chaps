@@ -488,10 +488,41 @@ fn self_version_json_carries_the_fields_a_bug_report_needs() {
     );
     assert!(value["path"].as_str().is_some(), "{value}");
     assert!(
-        ["release archive", "cargo install", "cargo build"]
-            .contains(&value["install_method"].as_str().expect("a method")),
+        [
+            "release archive",
+            "cargo install",
+            "cargo build",
+            "local build"
+        ]
+        .contains(&value["install_method"].as_str().expect("a method")),
         "{value}"
     );
+}
+
+/// Through the `vg` link, `self version` names the `varde` file the link
+/// points at, which is the file `self update` replaces.
+#[cfg(unix)]
+#[test]
+fn self_version_through_the_short_form_names_the_real_binary() {
+    let (cache, _) = bare();
+    let real = std::fs::canonicalize(assert_cmd::cargo::cargo_bin("varde")).expect("the binary");
+    let link = cache.path().join("vg");
+    std::os::unix::fs::symlink(&real, &link).expect("a vg link");
+    let out = std::process::Command::new(&link)
+        .args(["--json", "self", "version"])
+        .env("VARDE_CACHE_DIR", cache.path())
+        .env("VARDE_NO_UPDATE_CHECK", "1")
+        .output()
+        .expect("vg runs");
+    assert!(out.status.success(), "{out:?}");
+    let value: Json = serde_json::from_slice(&out.stdout).expect("--json is JSON");
+    assert_eq!(
+        std::path::PathBuf::from(value["path"].as_str().expect("a path")),
+        real,
+        "{value}"
+    );
+    // A test binary is a local build in `target/`, never a release archive.
+    assert_eq!(value["install_method"], "cargo build", "{value}");
 }
 
 /// The whole point of `--offline` is that nothing touches the network, and an
