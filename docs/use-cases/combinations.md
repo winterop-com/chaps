@@ -143,7 +143,8 @@ ready in 16s
 created configured models in chap-core for chapkit_ewars_model (monthly_climate, monthly_population_only, monthly_region_seasonal)
 ```
 
-Then `varde status` shows:
+The 16 seconds count from the end of the compose step. Then `varde status`
+shows:
 
 ```text
 chap-core   up   http://localhost:8700   2.4.0   auth: off
@@ -158,9 +159,11 @@ chapkit-ewars-model  registered  via chap-core  11s ago
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
-If you use `varde up` without `--wait`, run `varde status` again until every
-line says `up`. The model line then says `registered, not configured`, because
-only `up --wait` and `varde dhis2 connect` make the configured models.
+If you use `varde up` without `--wait`, run `varde status` again until the
+component lines say `up`. The model line then says `registered, not
+configured`, because `varde up` without `--wait` makes no configured models.
+`varde dhis2 connect` makes them, and so does `varde models configs sync`.
+`varde models configs` lists them.
 
 `varde dhis2 connect` took about 35 seconds, most of it for analytics. It
 worked when `varde dhis2 connect` ends with
