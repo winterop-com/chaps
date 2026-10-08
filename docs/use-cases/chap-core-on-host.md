@@ -132,9 +132,15 @@ varde components enable chap-core                             # or run varde's o
 `varde components disable chap-core` stops and removes the containers of
 chap-core and of the models. The next `varde up` starts the models again.
 It also gives each model a host port, because your chap-core calls the models
-there. When varde runs its own chap-core again, the models keep that port. The
-`REACH` column of `varde status` then shows the port, not `via chap-core`. To
-remove the port, run `varde models unexpose ID`.
+there. When varde runs its own chap-core again, the models keep that port.
+`varde components enable chap-core` says so:
+
+```text
+the models keep their host ports (chapkit-ewars-model on http://localhost:5001); `varde models unexpose ID` removes one
+```
+
+The `REACH` column of `varde status` then shows the port, not `via chap-core`.
+To remove the port, run `varde models unexpose ID`.
 
 If your chap-core is itself a container (another compose project, which is
 what `make restart` in chap-core's checkout starts), it cannot call the models
