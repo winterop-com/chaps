@@ -210,3 +210,24 @@ fn a_failed_check_records_the_attempt_and_stays_quiet() {
         "and the next command does not try again straight away"
     );
 }
+
+/// The hint of `--check` names the command that installs what was checked:
+/// a plain `varde self update` on a stable build follows releases/latest and
+/// does not install `--version dev`.
+#[test]
+fn the_check_hint_keeps_the_version_it_checked() {
+    let args = |version: Option<&str>| SelfUpdateArgs {
+        check: true,
+        version: version.map(str::to_string),
+        yes: false,
+    };
+    assert_eq!(install_command(&args(None)), "varde self update");
+    assert_eq!(
+        install_command(&args(Some("dev"))),
+        "varde self update --version dev"
+    );
+    assert_eq!(
+        install_command(&args(Some("v0.100.0"))),
+        "varde self update --version v0.100.0"
+    );
+}

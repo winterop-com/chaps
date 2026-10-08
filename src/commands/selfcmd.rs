@@ -173,7 +173,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
                     describe_build()
                 ))
                 .hint(format!("the download is {asset}"))
-                .hint("`varde self update` installs it");
+                .hint(format!("`{}` installs it", install_command(args)));
         });
     }
 
@@ -228,6 +228,16 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
             ))
             .hint(format!("replaced {}", path.display()));
     })
+}
+
+/// The command that installs what `--check` found: the same `--version` it
+/// checked, because a plain `varde self update` follows this build's own
+/// channel and can install something else.
+fn install_command(args: &SelfUpdateArgs) -> String {
+    match &args.version {
+        Some(tag) => format!("varde self update --version {tag}"),
+        None => "varde self update".to_string(),
+    }
 }
 
 /// Whether the release that was looked up is the build already running, and
