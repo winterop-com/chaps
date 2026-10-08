@@ -59,6 +59,9 @@ pub(super) fn closing(report: &StatusReport, external: bool, lines: &mut Report)
     }
 
     lines.info(closing_line(&report.models));
+    for warning in &report.revision_warnings {
+        lines.warning(crate::status::revision_line(warning));
+    }
     let elsewhere = report
         .chap_core_elsewhere
         .then_some(report.api_url.as_str());

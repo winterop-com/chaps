@@ -222,6 +222,69 @@ pub struct RegisteredService {
     pub version: String,
     pub last_ping_at: String,
     pub expires_at: String,
+    /// The `git_revision` of its `info`: `Some(None)` when chap-core sent the
+    /// key with no value, and `None` when it sent no key at all, which a
+    /// chap-core before 2.4 does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_revision: Option<Option<String>>,
+}
+
+/// Why chap-core refuses the model template of a model registered from
+/// outside the deployment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RevisionProblem {
+    /// It reports no git revision, so chap-core stores no template for it.
+    NoRevision,
+    /// chap-core stores its template under this version from another git
+    /// revision.
+    RevisionMismatch,
+}
+
+/// One model with a [`RevisionProblem`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RevisionWarning {
+    pub id: String,
+    pub version: String,
+    pub problem: RevisionProblem,
+}
+
+/// The unmanaged rows whose template chap-core refuses, as far as varde can
+/// see it: a registration with an empty `git_revision`, or a configured model
+/// whose `healthStatus` is `revision_mismatch`.
+///
+/// Only the unmanaged rows: a model run from its checkout is the one whose
+/// revision its developer sets. A template stored from another revision with
+/// no configured model is not seen, because only the template listing says
+/// that, and that listing changes chap-core when it is read.
+pub fn revision_warnings(
+    rows: &[ModelStatus],
+    registered: &[RegisteredService],
+    configured: &[crate::modeltest::ConfiguredModel],
+) -> Vec<RevisionWarning> {
+    rows.iter()
+        .filter(|row| row.state == ModelState::Unmanaged)
+        .filter_map(|row| {
+            let service = registered.iter().find(|s| s.id == row.id)?;
+            let prefix = format!("{}:", row.id);
+            let problem = if matches!(service.git_revision, Some(None)) {
+                RevisionProblem::NoRevision
+            } else if configured.iter().any(|model| {
+                !model.archived
+                    && (model.name == row.id || model.name.starts_with(&prefix))
+                    && model.health.as_deref() == Some("revision_mismatch")
+            }) {
+                RevisionProblem::RevisionMismatch
+            } else {
+                return None;
+            };
+            Some(RevisionWarning {
+                id: row.id.clone(),
+                version: service.version.clone(),
+                problem,
+            })
+        })
+        .collect()
 }
 /// Every model this project enables, as `(service id, host port)`, in the
 /// order `models.yaml` records them.

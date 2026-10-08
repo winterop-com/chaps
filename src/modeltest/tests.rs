@@ -457,6 +457,7 @@ fn configured(id: i64, name: &str, archived: bool) -> ConfiguredModel {
         archived,
         covariates: Vec::new(),
         version: None,
+        health: None,
     }
 }
 

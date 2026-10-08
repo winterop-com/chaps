@@ -19,6 +19,7 @@ fn row(name: &str, archived: bool, version: Option<&str>) -> ConfiguredModel {
         archived,
         covariates: Vec::new(),
         version: version.map(str::to_string),
+        health: None,
     }
 }
 

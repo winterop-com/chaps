@@ -15,12 +15,13 @@ mod time;
 pub use components::{ComponentState, ComponentStatus, ocs_datasets};
 pub use lines::{
     EMPTY, EXTERNAL_REGISTRATION_LOG, NOTHING_RUNNING, TEST_HINT, closing_line,
-    external_registration_hints, hints, standalone_closing_lines, standalone_hints, test_hint,
+    external_registration_hints, hints, revision_line, standalone_closing_lines, standalone_hints,
+    test_hint,
 };
 pub use models::{
-    MODEL_HEALTH_PATH, ModelState, ModelStatus, RegisteredService, enabled_models, link_strays,
-    mark_unconfigured, mark_unreachable, missing_ids, model_rows, proxied_health_path, reach,
-    standalone_model_rows,
+    MODEL_HEALTH_PATH, ModelState, ModelStatus, RegisteredService, RevisionProblem,
+    RevisionWarning, enabled_models, link_strays, mark_unconfigured, mark_unreachable, missing_ids,
+    model_rows, proxied_health_path, reach, revision_warnings, standalone_model_rows,
 };
 pub use probe::{
     body_description, parse_health, parse_services, services_are_not_chap_core, token_rejected,
@@ -111,6 +112,9 @@ pub struct StatusReport {
     pub models: Vec<ModelStatus>,
     /// Registered service ids the project does not enable.
     pub unmanaged: Vec<String>,
+    /// The unmanaged models whose model template chap-core refuses.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub revision_warnings: Vec<RevisionWarning>,
     /// Whether `.env` sets an API token, which is also whether these requests
     /// carried one.
     pub auth: bool,
@@ -396,6 +400,7 @@ pub fn status(
             )
         })
         .collect();
+    let mut revisions = Vec::new();
     let models = if chap_core {
         let mut rows = model_rows(&enabled_models(project), &registered, running, now());
         mark_unreachable(&mut rows, &registered, &|id| match get(
@@ -412,19 +417,26 @@ pub fn status(
             _ => None,
         });
         // Read-only: the listing says which models nothing can run, and
-        // `varde models configure` is what changes that.
-        if rows.iter().any(|row| row.state == ModelState::Registered)
-            && let Ok(answer) = get(
+        // `varde models configure` is what changes that. It also says which
+        // template chap-core refuses.
+        let asked =
+            |row: &ModelStatus| matches!(row.state, ModelState::Registered | ModelState::Unmanaged);
+        let configured = match rows.iter().any(asked) {
+            true => get(
                 &agent,
                 &base,
                 crate::configure::CONFIGURED_MODELS_PATH,
                 token,
             )
-            && let Ok(listed) = serde_json::from_str::<serde_json::Value>(&answer.body)
-        {
-            let configured = crate::modeltest::configured_models(&listed);
-            mark_unconfigured(&mut rows, &registered, &configured);
+            .ok()
+            .and_then(|answer| serde_json::from_str::<serde_json::Value>(&answer.body).ok())
+            .map(|listed| crate::modeltest::configured_models(&listed)),
+            false => None,
+        };
+        if let Some(configured) = &configured {
+            mark_unconfigured(&mut rows, &registered, configured);
         }
+        revisions = revision_warnings(&rows, &registered, configured.as_deref().unwrap_or(&[]));
         rows
     } else {
         // Nothing registers anywhere, so each model is asked itself, on the
@@ -463,6 +475,7 @@ pub fn status(
         reach,
         models,
         unmanaged,
+        revision_warnings: revisions,
         auth: token.is_some(),
         components,
         dhis2_needs_connecting: project.state.components.dhis2_needs_connecting(),

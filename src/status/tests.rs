@@ -524,6 +524,7 @@ fn registered(id: &str, age: u64) -> RegisteredService {
         version: "1.0.0".to_string(),
         last_ping_at: crate::backup::timestamp(NOW - age),
         expires_at: crate::backup::timestamp(NOW + 300 - age),
+        git_revision: None,
     }
 }
 
@@ -683,6 +684,7 @@ fn report(api: ApiHealth, missing: &[&str], components: Vec<ComponentStatus>) ->
         reach: Default::default(),
         models: Vec::new(),
         unmanaged: Vec::new(),
+        revision_warnings: Vec::new(),
         auth: false,
         components,
         dhis2_needs_connecting: false,
@@ -1140,6 +1142,7 @@ fn report_helpers_describe_the_state() {
         reach: BTreeMap::new(),
         models: Vec::new(),
         unmanaged: Vec::new(),
+        revision_warnings: Vec::new(),
         auth: false,
         components: Vec::new(),
         dhis2_needs_connecting: false,

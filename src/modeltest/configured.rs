@@ -18,6 +18,10 @@ pub struct ConfiguredModel {
     /// The version of the model template it belongs to, which is the version
     /// the service registered with. `None` when chap-core sent none.
     pub version: Option<String>,
+    /// Its `healthStatus`: `live`, or `revision_mismatch` when the service
+    /// behind its template reports another git revision, or none. `None` when
+    /// chap-core sent none, which every chap-core before 2.4 does.
+    pub health: Option<String>,
 }
 
 /// The configured models of one listing, ignoring anything that is not a row.
@@ -46,6 +50,10 @@ pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
                     .unwrap_or_default(),
                 version: row
                     .get("version")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
+                health: row
+                    .get("healthStatus")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
             })

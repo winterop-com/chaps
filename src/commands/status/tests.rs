@@ -29,6 +29,7 @@ fn service(id: &str, version: &str) -> RegisteredService {
         version: version.to_string(),
         last_ping_at: crate::backup::timestamp(NOW - 12),
         expires_at: crate::backup::timestamp(NOW + 288),
+        git_revision: None,
     }
 }
 
@@ -75,6 +76,7 @@ fn up(
         reach: Default::default(),
         models,
         unmanaged,
+        revision_warnings: Vec::new(),
         auth: false,
         components: Vec::new(),
         dhis2_needs_connecting: false,

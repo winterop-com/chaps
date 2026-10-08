@@ -258,6 +258,23 @@ pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
         .collect()
 }
 
+/// The warning for a model registered from outside whose template chap-core
+/// refuses.
+pub fn revision_line(warning: &crate::status::RevisionWarning) -> String {
+    match warning.problem {
+        crate::status::RevisionProblem::NoRevision => format!(
+            "{}: it reports no git revision, so chap-core stores no model template for it; set \
+             `GIT_REVISION` where it runs, then start it again",
+            warning.id
+        ),
+        crate::status::RevisionProblem::RevisionMismatch => format!(
+            "{}: chap-core stores its model template {} from another git revision and refuses \
+             to run it; set a new version in the model, then start it again",
+            warning.id, warning.version
+        ),
+    }
+}
+
 /// The background to [`external_registration_hints`]: what the two log lines
 /// mean.
 pub const EXTERNAL_REGISTRATION_LOG: &str = "in the log of a model, \

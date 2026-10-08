@@ -361,6 +361,7 @@ fn status_report(api: ApiHealth, expected: &[&str], missing: &[&str]) -> StatusR
         reach: BTreeMap::new(),
         models: Vec::<ModelStatus>::new(),
         unmanaged: Vec::new(),
+        revision_warnings: Vec::new(),
         auth: false,
         components: Vec::new(),
         dhis2_needs_connecting: false,

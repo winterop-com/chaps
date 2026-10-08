@@ -241,6 +241,7 @@ fn flatten(w: WireService) -> RegisteredService {
         version: w.info.version,
         last_ping_at: w.last_ping_at,
         expires_at: w.expires_at,
+        git_revision: w.info.git_revision,
     }
 }
 
@@ -352,4 +353,15 @@ struct WireInfo {
     display_name: String,
     #[serde(default)]
     version: String,
+    #[serde(default, deserialize_with = "present")]
+    git_revision: Option<Option<String>>,
+}
+
+/// A key that is there, with its value or `null`, as `Some`: serde reads a
+/// `null` as a missing key otherwise.
+fn present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(Some(value.filter(|text| !text.trim().is_empty())))
 }
