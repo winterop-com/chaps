@@ -189,7 +189,12 @@ When it finds no model, `varde ps` says where it looked:
 
 `-C` on a group that `varde stop --purge` removed names the command that makes
 it again: `` the `varde run` group X does not exist, or `varde stop --purge`
-removed it; `varde run <model> --group X` makes it again ``.
+removed it; `varde run <model> --group X` makes it again ``. `varde ps`,
+`varde stop`, `varde run`, `varde chap`, `varde logs` and `varde status` all
+give this error. A `-C` to another directory that is not a deployment, or to
+one that does not exist, gives `DIR is not a varde deployment`. So `varde ps`
+does not list every group, and `varde stop --all` does not stop every model,
+because of a wrong `-C`.
 
 `varde stop ID` stops a model and takes its overlay away, in whichever group
 has it; when two groups do, it asks for `--group`. `varde stop --all` stops
