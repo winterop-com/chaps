@@ -26,7 +26,7 @@ fn init_still_runs_inside_a_project_where_the_help_hides_it() {
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "already contains a varde deployment; use --force to overwrite",
+            "already contains a varde deployment; choose another directory, or use --force to overwrite it",
         ));
 
     // `varde init --api-port N --force` rewrites the project, but the

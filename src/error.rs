@@ -15,7 +15,10 @@ pub enum ChapError {
     #[error("compose files are out of date with .varde/; run `varde sync`")]
     OutOfSync,
 
-    #[error("{0} already contains a varde deployment; use --force to overwrite")]
+    #[error(
+        "{0} already contains a varde deployment; choose another directory, or use --force to \
+         overwrite it"
+    )]
     AlreadyInitialized(PathBuf),
 
     #[error("unknown model `{0}`")]
