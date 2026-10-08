@@ -66,6 +66,37 @@ fn a_token_goes_out_as_apitoken_and_nowhere_else() {
     assert_eq!(credentials.describe(), "API token from `.env`");
 }
 
+/// A mistyped token is a 400 `Checksum validation failed`, not a 401, and
+/// it gets the same way out as a revoked one. A 400 about anything else is
+/// not a token problem.
+#[test]
+fn a_malformed_token_gets_the_token_message_and_its_way_out() {
+    let client = Dhis2::new(
+        "http://localhost:8780",
+        Credentials::token("d2p_notreal", CredentialSource::Environment),
+        DEFAULT_TIMEOUT,
+    );
+    let checksum = answer(
+        400,
+        r#"{"httpStatus":"Bad Request","httpStatusCode":400,"status":"ERROR","message":"Checksum validation failed"}"#,
+    );
+    let text = client.refusal(&checksum).expect("a token message");
+    assert!(text.contains("did not accept the API token"), "{text}");
+    assert!(text.contains("Checksum validation failed"), "{text}");
+    assert!(text.contains("`DHIS2_API_TOKEN` in `.env`"), "{text}");
+    assert!(text.contains("`VARDE_DHIS2_TOKEN`"), "{text}");
+    assert!(!text.contains("notreal"), "{text}");
+
+    let other = answer(400, r#"{"message":"Invalid filter"}"#);
+    assert_eq!(client.refusal(&other), None);
+    let password = Dhis2::new(
+        "http://localhost:8780",
+        Credentials::new("admin", "district", CredentialSource::Default),
+        DEFAULT_TIMEOUT,
+    );
+    assert_eq!(password.refusal(&checksum), None);
+}
+
 /// Only the environment half of the inputs, over `body`.
 fn inputs<'a>(body: &'a str) -> CredentialInputs<'a> {
     CredentialInputs {

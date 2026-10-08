@@ -222,6 +222,16 @@ impl Dhis2 {
                 self.base,
                 self.credentials.describe()
             )),
+            // A token that is not well formed is not a 401: DHIS2 checks the
+            // checksum in it first and answers 400 `Checksum validation
+            // failed`. The way out is the same as for a revoked token.
+            (400, AuthKind::Token) if is_malformed_token(&said(answer)) => Some(format!(
+                "DHIS2 at {} did not accept the API token ({}): {}; set a current one as \
+                 `{API_TOKEN_ENV_VAR}` in `.env`, or export `{TOKEN_ENV_VAR}`",
+                self.base,
+                self.credentials.describe(),
+                said(answer)
+            )),
             (403, _) => Some(format!(
                 "DHIS2 refused the request as {who} (HTTP 403{}): that user is authenticated but \
                  not allowed to do this, and a DHIS2 superuser is; name another with `--user NAME`",
@@ -370,4 +380,12 @@ pub fn said(answer: &Answer) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// Whether a 400 from DHIS2 is about the API token itself rather than about
+/// the request: DHIS2 says `Checksum validation failed` for a token with a
+/// wrong checksum, which is what a mistyped token has.
+fn is_malformed_token(said: &str) -> bool {
+    let said = said.to_lowercase();
+    said.contains("checksum") || said.contains("token")
 }
