@@ -48,8 +48,10 @@ const POSTGRES_DB: &str = "chap_core";
 /// release to pull; see [`checkout_source`].
 /// Read the DHIS2 version of a local seed dump and settle the tag with it:
 /// the tag of the dump when `--dhis2-tag` is not given, and a refusal for a
-/// tag older than the dump or a dump older than 2.41. A dump that is not on
-/// disk yet, or a URL, is checked by the dump step of the first `varde up`.
+/// tag older than the dump or a dump older than 2.41. The dump is read where
+/// the bind mount finds it, in the deployment directory. A dump that is not
+/// there yet is not read, and the note says so. A URL is checked by the dump
+/// step of the first `varde up`.
 fn settle_dump_version(
     components: &mut crate::components::Components,
     dir: &std::path::Path,
@@ -61,16 +63,22 @@ fn settle_dump_version(
     if !components.dhis2.enabled || components.dhis2.seed.is_url() {
         return Ok(None);
     }
-    let path = std::path::Path::new(source);
-    let candidates = [dir.join(path), path.to_path_buf()];
-    let Some(found) = candidates.iter().find(|p| p.is_file()) else {
-        return Ok(None);
-    };
+    // Only the file the bind mount uses: a path is relative to the deployment
+    // directory, and a file of the same name in the working directory is not
+    // the one the restore reads.
+    let found = dir.join(source);
+    if !found.is_file() {
+        return Ok(Some(format!(
+            "{source} is not in {}, so varde did not read its DHIS2 version, and DHIS2 runs {}",
+            dir.display(),
+            components.dhis2.image_tag
+        )));
+    }
     crate::output::notice(&format!(
         "reading the DHIS2 version of {source} from its Flyway table; a large dump takes \
          about a minute"
     ));
-    let Some(migration) = crate::components::dump_migration(found)? else {
+    let Some(migration) = crate::components::dump_migration(&found)? else {
         return Ok(None);
     };
     let Some(minor) = crate::components::migration_minor(&migration) else {

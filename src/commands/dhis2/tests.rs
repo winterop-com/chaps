@@ -921,6 +921,9 @@ fn show_without_chap_core_does_not_name_connect() {
         no_chap_core_next(false, false),
     ] {
         assert!(!next.contains("connect"), "{next}");
-        assert!(next.contains("`varde components enable chap-core`"), "{next}");
+        assert!(
+            next.contains("`varde components enable chap-core`"),
+            "{next}"
+        );
     }
 }

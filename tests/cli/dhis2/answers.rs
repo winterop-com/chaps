@@ -18,7 +18,9 @@ fn dhis2_show_reads_the_epoch_as_no_analytics_run() {
         .assert()
         .success()
         .stdout(predicates::str::contains("analytics  never run"))
-        .stdout(predicates::str::contains("missing: analytics has never run"))
+        .stdout(predicates::str::contains(
+            "missing: analytics has never run",
+        ))
         .stdout(predicates::str::contains("1970").not());
 
     let report = json_of(&mut dhis2_chap(

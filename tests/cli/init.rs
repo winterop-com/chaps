@@ -1451,3 +1451,46 @@ fn init_force_moves_the_image_pin_of_a_kept_env() {
         .success()
         .stdout(predicates::str::contains("moved CHAP_IMAGE_TAG").not());
 }
+
+/// A gzipped dump whose newest Flyway migration is `version`.
+fn dhis2_dump(path: &std::path::Path, version: &str) {
+    use std::io::Write;
+    let body = format!(
+        "COPY public.flyway_schema_history (installed_rank, version, description) FROM stdin;\n\
+         1\t{version}\tone\n\\.\n"
+    );
+    let file = std::fs::File::create(path).expect("the dump");
+    let mut gz = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+    gz.write_all(body.as_bytes()).expect("the dump body");
+    gz.finish().expect("the dump is written");
+}
+
+/// A seed path is relative to the deployment directory, which is where the
+/// bind mount reads it. A file of the same name in the working directory is
+/// not the one the restore reads, so init does not take its version.
+#[test]
+fn init_reads_the_dump_version_only_from_the_deployment_directory() {
+    let sandbox = Sandbox::new();
+    dhis2_dump(&sandbox.home.path().join("laos.sql.gz"), "2.43.2");
+    sandbox
+        .init(&["--only", "dhis2", "--dhis2-seed", "laos.sql.gz"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("is DHIS2 2.43").not())
+        .stderr(predicates::str::contains("laos.sql.gz is not in "))
+        .stderr(predicates::str::contains(
+            "so varde did not read its DHIS2 version, and DHIS2 runs 2.42",
+        ));
+
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.project()).unwrap();
+    dhis2_dump(&sandbox.project().join("laos.sql.gz"), "2.41.5");
+    dhis2_dump(&sandbox.home.path().join("laos.sql.gz"), "2.43.2");
+    sandbox
+        .init(&["--only", "dhis2", "--dhis2-seed", "laos.sql.gz"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "laos.sql.gz is DHIS2 2.41 (Flyway migration 2.41.5), so DHIS2 runs 2.41",
+        ));
+}
