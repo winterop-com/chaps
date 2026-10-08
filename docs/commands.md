@@ -75,7 +75,12 @@ that reaches the passthrough (`varde down -- -v`) is refused and told to use
 | `varde models search QUERY` | Search id, name and summary. |
 | `varde models info ID` | Everything known about one model. |
 | `varde models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--seed`, `--timeout`, `--keep`). |
-| `varde models configs sync [ID..]` | Create the configured models that chap-core needs to run each model: one for each configuration of its marketplace entry. A model that has one already is left alone. See [Configured models](./models.md#configured-models). |
+| `varde models configs [list] [ID] [--all]` | List the configured models that chap-core has of each enabled model: name, covariates, options and source; `--all` adds the archived ones. See [Configured models](./models.md#configured-models). |
+| `varde models configs add ID` | Add a configured model: `--name` and `--set KEY=VALUE` (`--covariates a,b`), or `--from FILE` for every configuration in a file of the marketplace format. With no options at a terminal, it opens the form. |
+| `varde models configs update ID NAME` | Give a configured model new values (`--set`, `--unset`, `--covariates`), or open the form with its current values. chap-core keeps the old values as an archived configured model. |
+| `varde models configs archive ID NAME` | Archive a configured model. chap-core keeps it, and the Modeling App shows it as Archived. |
+| `varde models configs export [ID] [--out FILE]` | Write the configured models of one model as the `configurations:` block of a marketplace entry. |
+| `varde models configs sync [ID..]` | Create the configured models that chap-core needs to run each model: one for each configuration of its marketplace entry. A model that has one of its version already is left alone. See [Sync](./models.md#sync). |
 | `varde models add SOURCE` | Add a model the marketplace does not list, from a GitHub repository URL or a ghcr image reference, and enable it (`--id`, `--service-id`, `--name`, `--port`, `--bind`, `--data-dir`, `--user`, `--runtime-amd64`). A source the marketplace lists is enabled as that marketplace model unless `--id` is given; `--id auto` picks a free id. |
 | `varde models remove ID [--purge]` | Disable such a model if it is on, then drop its definition from `.varde/models-manual.yaml`; `--purge` removes its data volume too. |
 | `varde models enable ID` | Record the model in `.varde/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--bind`, `--data-dir`, `--user`, `--allow-template`). |
@@ -85,7 +90,8 @@ that reaches the passthrough (`varde down -- -v`) is refused and told to use
 | `varde ui` | Open the browser: marketplace models and components, on two pages `Tab` moves between. One `s` saves both. |
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
-rest need a project; `test` is the only one of them that changes nothing.
+rest need a project; of them, only `test`, `configs list` and `configs export`
+change nothing.
 Registration is a heartbeat, so `varde status` and `varde doctor` can be green
 while a model cannot predict at all - `varde models test` is the check that
 settles it. See [Testing a model](./models.md#testing-a-model). `add` is the only one that needs the network for
@@ -279,6 +285,17 @@ A tool that drives varde reads stdout and branches on one field:
   with `id`, `service_id` and its `state`: `created` (with the names in
   `configured`), `already-configured`, `not-registered` or `failed` (with the
   reason in `error`).
+- `models configs list` prints `{"models": [...]}`, one object per model with
+  `id`, `service_id` and `configs`. Each configured model has `id`, `name`,
+  `variant`, `archived`, `version`, `covariates`, `values` and `source`.
+- `models configs add` prints `{"ok": true, "model": ..., "configured": [...]}`,
+  with the rows that chap-core created.
+- `models configs update` prints `model`, `changed`, `configured` (the new
+  row) and `archived` (the old row). If nothing changed, `changed` is `false`.
+- `models configs archive` prints `{"ok": true, "model": ..., "archived": ...}`.
+- `models configs export` prints `model`, `configurations` (the block, as
+  JSON) and `prediction_periods_from`, which says where each
+  `prediction_periods` comes from.
 
 The exit code agrees with `ok`: 0 for `true`, non-zero for `false`. Two
 commands print `"ok": false` rather than an error and still exit non-zero:

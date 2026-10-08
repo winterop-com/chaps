@@ -283,6 +283,222 @@ model**: a model template together with a set of option values and
 covariates. A backtest, a prediction and the model picker of the Modeling App
 all name a configured model.
 
+Each configured model has a name, the variant name. The Modeling App shows it
+in brackets after the model name: `<model name> [<variant name>]`. chap-core
+stores it after the template: `<service id>:<variant name>`, and the bare
+service id for the variant name `default`.
+
+`varde models configs` is the command group for the configured models:
+
+| Command | What it does |
+| --- | --- |
+| `varde models configs [list] [ID]` | Lists the configured models that chap-core has. |
+| `varde models configs add ID` | Adds a configured model. |
+| `varde models configs update ID NAME` | Gives a configured model new values. |
+| `varde models configs archive ID NAME` | Archives a configured model. |
+| `varde models configs export [ID]` | Writes the configured models in the marketplace format. |
+| `varde models configs sync [ID..]` | Creates the configured models of the marketplace entry. |
+
+In each command, `ID` is the marketplace id or the service id of an enabled
+model, and `NAME` is the variant name. Each command asks chap-core, so
+chap-core must run. If chap-core does not answer, the command stops and names
+`varde status`.
+
+### Listing
+
+```sh
+varde models configs                           # every enabled model
+varde models configs list chapkit_ewars_model  # one model
+varde models configs --all                     # with the archived ones
+```
+
+```text
+chapkit_ewars_model
+NAME                     COVARIATES                 OPTIONS                                          SOURCE
+monthly_climate          rainfall,mean_temperature  n_lags=3,3 precision=0.01 region_seasonal=false  marketplace
+monthly_population_only  -                          n_lags=3 precision=0.01 region_seasonal=false    marketplace
+monthly_region_seasonal  rainfall,mean_temperature  n_lags=3,3 precision=0.01 region_seasonal=true   marketplace
+short_lags               rainfall                   n_lags=2,2 precision=0.05                        by hand
+
+4 configured models of 1 model
+```
+
+Each model gets a table. NAME is the variant name. OPTIONS shows the option
+values that chap-core stores; an option without a value uses the model
+default. SOURCE says where the configured model comes from:
+
+- `marketplace`: a configuration of the marketplace entry.
+- `service default`: the configuration `default` of a model without a
+  marketplace entry.
+- `by hand`: a configured model that you added.
+- `models test`: a configured model that a test left.
+
+`--all` adds the archived configured models and the column ARCHIVED. `--json`
+gives every field, with the option values whole. If chap-core has no
+configured model of a model, the line names the way out:
+
+```text
+chapkit_ewars_model: chap-core has no configured model of it; `varde models configs sync chapkit_ewars_model` creates them
+```
+
+### Adding
+
+```sh
+varde models configs add chapkit_ewars_model --name short_lags \
+  --set n_lags=2,2 --set precision=0.05 --covariates rainfall
+```
+
+```text
+created configured model short_lags of chapkit_ewars_model
+```
+
+- `--name` is the variant name.
+- `--set KEY=VALUE` gives the value of one option. Repeat it for more than
+  one. Write a list with commas, or as a JSON list. The booleans are `true`
+  and `false`. `null` is a value only where the option allows it.
+- `--covariates` gives the additional covariates, separated by commas.
+
+varde checks each key against the options of the template, and each value
+against the kind of the option, before it asks chap-core. chap-core does not
+check the values of a chapkit model, and chapkit accepts keys that it does
+not know. So a mistake would otherwise show only when a run fails. A bad key
+or value stops the command with exit code 2:
+
+```text
+error: `lag` is not an option of chapkit_ewars_model; its options are label (text or null), max_lag (integer), method (one of fast, exact), n_lags (list of integers), precision (number), region_seasonal (true or false), seasonal (true or false)
+error: `two` is not a value of `max_lag`, which takes an integer, such as `3`
+```
+
+varde also checks the covariates. A required covariate is refused, because
+every run gets it. A model that does not allow free covariates takes only the
+defaults of its marketplace entry.
+
+varde refuses a variant name that a configured model has and that is not
+archived. chap-core would show the new configured model and hide the old one,
+and give no message.
+
+With no options at a terminal, `add` opens the form of `varde ui`: one field
+for the variant name, one field for each option with its kind, default and
+description, and one field for the covariates. An empty field uses the
+default. Esc closes the form and writes nothing:
+
+```text
+left the form; nothing was changed
+```
+
+Without a terminal (in a pipe or with `--json`), `add` with no options stops
+with exit code 2 and names `--name` and `--set`.
+
+`--from FILE` adds every configuration in a file of the marketplace format:
+an [export](#exporting), or a complete marketplace entry. varde checks all of
+them before it creates the first. chap-core sets `prediction_periods` for
+each run, so varde does not store the value in the file.
+
+### Changing
+
+```sh
+varde models configs update chapkit_ewars_model short_lags --set precision=0.1
+varde models configs update chapkit_ewars_model short_lags --unset precision
+varde models configs update chapkit_ewars_model short_lags   # the form
+```
+
+```text
+updated configured model short_lags of chapkit_ewars_model; chap-core keeps the old values as an archived configured model
+```
+
+chap-core has no request that changes a configured model. varde creates a
+configured model with the same variant name and the new values, then archives
+the old one. chap-core keeps the old row for the backtests and predictions
+that use it, but it does not list it again, so `list --all` does not show the
+old values.
+
+- `--set` gives a new value. The other values stay.
+- `--unset KEY` removes a value, so the model default applies.
+- `--covariates` replaces the old list.
+
+With no options at a terminal, `update` opens the form with the current
+values. If the new values are the same as the current values, varde writes
+nothing:
+
+```text
+configured model short_lags of chapkit_ewars_model has these values already; nothing changed
+```
+
+If the archive step fails, the new values are live, and a warning gives the
+`varde api DELETE` command that archives the old row.
+
+### Archiving
+
+```sh
+varde models configs archive chapkit_ewars_model short_lags
+```
+
+```text
+archived configured model short_lags of chapkit_ewars_model
+```
+
+chap-core does not delete a configured model. It archives it: chap-core
+keeps the row for the backtests and predictions that use it, `list --all`
+shows it, and the Modeling App shows it as Archived. If you add the same
+variant name with the same values again, chap-core makes the archived row
+live again.
+
+You can also archive a configuration of the marketplace entry. `varde models
+configs sync` creates the marketplace configurations of a model only when
+chap-core has no live configured model of the version the model runs. While
+another one is live, `sync` does not change the model. When you archive the
+last one, varde says so:
+
+```text
+chapkit_ewars_model has no other configured model now, so `varde models configs sync` and `varde up --wait` create its configured models again
+```
+
+### Exporting
+
+```sh
+varde models configs export chapkit_ewars_model > configurations.yaml
+varde models configs export chapkit_ewars_model --out configurations.yaml
+```
+
+The output is the `configurations:` block of a marketplace entry. For each
+configured model it has the variant name, a `description` and a `config`.
+`config` is the flat object that chapkit takes: the option values,
+`additional_continuous_covariates` and `prediction_periods`.
+
+```yaml
+configurations:
+  short_lags:
+    description: The configured model short_lags of chapkit_ewars_model.
+    config:
+      additional_continuous_covariates:
+      - rainfall
+      n_lags:
+      - 2
+      - 2
+      precision: 0.05
+      prediction_periods: 3
+```
+
+chap-core does not store `prediction_periods`. varde takes it from the
+marketplace configuration with the same name. If there is none, varde takes
+the default from the config schema of the service, and else the chapkit
+default of 3. `-v` says which source each value comes from. The keys of
+`config` are in alphabetical order.
+
+An export is for one model, because the block goes under one marketplace
+entry. If the deployment runs more than one model, give the ID. With `--out`,
+varde reports the file:
+
+```text
+wrote 4 configurations of chapkit_ewars_model to configurations.yaml
+```
+
+To use the configurations in another deployment, run `varde models configs
+add ID --from configurations.yaml` there. To publish them, put the block in
+the marketplace entry of the model.
+
+### Sync
+
 Up to chap-core 2.3, a registration made a configured model. chap-core 2.4
 and later makes none. A model that varde starts registers, and without a
 configured model nothing can run it.
@@ -313,9 +529,6 @@ chapkit_ewars_model: created configured model monthly_population_only
 chapkit_ewars_model: created configured model monthly_region_seasonal
 chapkit_ghr_model: chap-core has a configured model of it already
 ```
-
-chap-core names each configured model after its template:
-`<service id>:<configuration>`, and the bare service id for `default`.
 
 The command is idempotent for each registered version. A model that has a
 configured model of the version it registered with is left alone, so a second
@@ -793,7 +1006,7 @@ varde · models                                                registry: cache �
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │ CHAP-EWARS  ● limited data  1.0.4 (sha-964eea8)  enabled, via chap-core  requires population            i for details│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- [j/k] move  [tab] page  [space] toggle  [i] info  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
+ [j/k] move  [tab] page  [space] toggle  [i] info  [m] configs  [p] port  [s] save  [ctrl+k] commands  [?] help  [q] quit
 ```
 
 The summary line names the model, what the author's assessment means, what the
@@ -828,6 +1041,7 @@ q                  quit            Esc              clear the filter, or quit
 ?                  help            ctrl-k / ctrl-p  the command palette
 o                  open in a browser: the model's repository, or the component's web interface
 c                  the model's image reference, on the status line
+m                  the configured models of the model in chap-core
 y / n              answer the quit confirmation
 ```
 
@@ -842,6 +1056,44 @@ of its own, the port number for one that publishes one, and `auto` for a row
 that has asked for a port that is not picked until you save. A row you have
 switched on or off reads `will be enabled` or `will be disabled` until you
 save.
+
+### The configured models page
+
+`m` on a model row opens the [configured models](#configured-models) of the
+model in chap-core, with the columns NAME, COVARIATES, SOURCE and OPTIONS.
+The keys on this page:
+
+```text
+j / k / arrows     move
+a                  add a configured model
+e                  change the values of the configured model under the cursor
+d                  archive the configured model under the cursor
+r                  ask chap-core again
+Esc / q / m        go back to the models page
+```
+
+`a` and `e` open the form. It has one field for each user option of the
+model, with its kind, its default and its description, and one field for the
+covariates. The form of `a` also has a field for the variant name. The form
+of `e` starts with the current values. An empty field uses the default.
+
+- `Tab` and the arrows move between the fields.
+- `Enter` saves the form.
+- `Esc` closes the form and writes nothing.
+
+varde writes nothing to chap-core until you answer `y` to the question. For
+`d`, the question says that chap-core keeps the configured model, and that the
+Modeling App shows it as Archived.
+
+The page needs a chap-core that runs and a model that the deployment runs.
+If chap-core does not answer, the page says:
+
+```text
+chap-core at http://localhost:8700 is not running; start it with `varde up`, then press r
+```
+
+If the model is not enabled, or the deployment has no chap-core, the footer
+line gives the way out.
 
 ### Publishing a host port
 

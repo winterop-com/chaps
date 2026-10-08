@@ -184,7 +184,7 @@ taken from the registry and `docker compose ps` together.
 
 | State | Meaning |
 | --- | --- |
-| `registered` | The container is up, chap-core knows about it, and it has a configured model. |
+| `registered` | The container is up, chap-core knows about it, and it has a configured model. `varde models configs` lists the configured models. |
 | `registered, not configured` | chap-core knows it, but has no configured model of the version it registered with, so nothing can run it and the Modeling App does not list it. Run `varde models configs sync`. This state does not make `status` exit non-zero. |
 | `running, not registered` | The container is up but chap-core has never heard from it. |
 | `not running` | The project enables it, but no container exists or it is stopped. |

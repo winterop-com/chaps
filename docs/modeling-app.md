@@ -82,11 +82,13 @@ default`. It has three entries, one for each configuration in its marketplace
 entry: *Monthly climate* uses rainfall and temperature, *Monthly population
 only* uses no climate data, and *Monthly region seasonal* fits a season for
 each province. The list shows one entry for each configured model, as
-`<model name> [<configuration>]`. Each model enabled with `varde models
+`<model name> [<variant name>]`. Each model enabled with `varde models
 enable` adds its own entries. chap-core 2.4 and later does not make these
 entries itself: `varde up --wait`, `varde dhis2 connect` and `varde models
 configs sync` make them. If a model is not in the list, run `varde status`. If it
 shows the model as `registered, not configured`, run `varde models configs sync`.
+To add an entry of your own with other option values, run `varde models
+configs add`. See [Adding](./models.md#adding).
 `varde models test --all` makes each model train and predict. See
 [Configured models](./models.md#configured-models).
 

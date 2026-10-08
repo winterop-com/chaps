@@ -278,6 +278,89 @@ template for such a model. In `--json`, the model has the state `no-revision`.
 For a model that varde does not run, set `GIT_REVISION` where the model runs,
 then start it again.
 
+## `there is no terminal here; name the configuration with --name and its values with --set KEY=VALUE`
+
+```text
+error: there is no terminal here; name the configuration with --name and its values with --set KEY=VALUE, or run it at a terminal for the form
+```
+
+`varde models configs add ID` without options opens a form, and the form
+needs a terminal. In a pipe, in a script or with `--json`, there is no
+terminal, so the command exits with status 2. `update` gives the same error
+with `--set`, `--unset` and `--covariates` as the way out.
+
+1. Give the values as options:
+   `varde models configs add ID --name NAME --set KEY=VALUE`.
+2. Or run the command in a terminal to get the form.
+
+## `has a configured model NAME already; give another --name, or archive it first`
+
+```text
+error: chapkit_ewars_model has a configured model short_lags already; give another --name, or archive it first with `varde models configs archive chapkit_ewars_model short_lags`
+```
+
+A configured model with this variant name is live. If varde sent the new one,
+chap-core would show the new one and hide the old one, and give no message.
+So varde refuses the name and exits with status 2.
+
+- To keep both, give another `--name`.
+- To change the values of the existing one, use
+  `varde models configs update ID NAME`.
+- To replace it, archive it first with the command in the message.
+
+`add --from FILE` gives the same refusal, with "remove it from FILE" as the
+other way out.
+
+## `is not an option of ID; its options are`
+
+```text
+error: `lag` is not an option of chapkit_ewars_model; its options are label (text or null), max_lag (integer), method (one of fast, exact), n_lags (list of integers), precision (number), region_seasonal (true or false), seasonal (true or false)
+error: `two` is not a value of `max_lag`, which takes an integer, such as `3`
+```
+
+varde checks each `--set` against the options of the model template before it
+asks chap-core. chap-core does not check the values of a chapkit model, and
+chapkit accepts keys that it does not know. Without the check, a wrong key
+would have no effect, and a wrong value would show only when a run fails.
+
+1. Use a key from the list in the message.
+2. Give a value of the kind in the message. Write a list with commas, such as
+   `n_lags=2,2`.
+
+## `takes only these additional covariates`
+
+```text
+error: my_model takes only these additional covariates: rainfall, mean_temperature; remove `foo`
+error: my_model takes no additional covariates; remove --covariates
+error: `population` is a required covariate of chapkit_ewars_model, which every run gets; remove it from --covariates
+```
+
+The model template does not allow free covariates, so a configured model can
+use only the defaults of its marketplace entry. A required covariate is never
+in `--covariates`, because every run gets it. Remove the covariate that the
+message names.
+
+## `an export is the configurations of one model; name one of`
+
+```text
+error: an export is the configurations of one model; name one of chapkit_ewars_model, chapkit_simple_multistep_model
+```
+
+The deployment runs more than one model, and `varde models configs export`
+got no ID. An export goes under one marketplace entry, so it holds one model.
+Run the command again with one of the ids in the message.
+
+## `the new values are live, but the old row N was not archived`
+
+```text
+warning: the new values are live, but the old row 104 was not archived: ...; archive it with `varde api DELETE /v1/crud/configured-models/104`
+```
+
+`varde models configs update` creates a configured model with the new values,
+then archives the old one. The first step worked and the second did not. So
+chap-core may show two configured models with this variant name. Run the
+`varde api DELETE` command in the message to archive the old row.
+
 ## ``unknown model `X`; run `varde models list` to see the model ids``
 
 ```text
