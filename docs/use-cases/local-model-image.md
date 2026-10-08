@@ -7,8 +7,13 @@ publishing it anywhere first.
 In the model's checkout:
 
 ```sh
-docker build --platform linux/amd64 -t my-model:dev .
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .
 ```
+
+The `GIT_REVISION` build argument puts the commit in the image. The model
+reports it when it registers, and chap-core 2.4 refuses to store the model
+template of a service that reports no revision. Without it, the model stays
+`registered, not configured` and nothing can run it.
 
 The first build pulls the model's base image, such as
 `ghcr.io/dhis2-chap/chapkit-py` or `ghcr.io/dhis2-chap/chapkit-r-inla`. The
@@ -33,7 +38,7 @@ Add the image with that id as `--service-id`, and start it:
 
 ```sh
 varde models add my-model:dev --service-id chapkit-minimalist-example-py
-varde up
+varde up --wait
 varde status
 varde models test my_model
 ```
@@ -48,9 +53,11 @@ the service must register with chap-core as `chapkit-minimalist-example-py`; if 
 run `varde up` to apply
 ```
 
-`varde up` returns when the containers start. The model registers some
-seconds later. Until then, `varde status` says `running, not registered`
-and tells you to run it again in a minute. When the model has registered,
+`varde up --wait` returns when the model has registered, and it then
+creates the configured model that chap-core needs to run it. A plain
+`varde up` returns when the containers start; `varde status` then says
+`running, not registered` for some seconds, and `registered, not
+configured` until `varde models configure` runs. After `varde up --wait`,
 `varde status` shows:
 
 ```text
