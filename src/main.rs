@@ -11,7 +11,7 @@ mod cli;
 mod commands;
 mod components;
 mod compose;
-mod configure;
+mod configs;
 mod dhis2;
 mod diagnose;
 mod docker;
@@ -36,8 +36,8 @@ mod tui;
 
 use clap::FromArgMatches;
 use cli::{
-    AuthSub, BackupSub, Cli, Command, ComponentsCmd, Dhis2Sub, DockerCmd, JobsCmd, ModelsCmd,
-    SelfSub,
+    AuthSub, BackupSub, Cli, Command, ComponentsCmd, ConfigsCmd, Dhis2Sub, DockerCmd, JobsCmd,
+    ModelsCmd, SelfSub,
 };
 use commands::Ctx;
 use error::ChapError;
@@ -145,7 +145,9 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Search(args) => commands::models::search(ctx, args),
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
             ModelsCmd::Test(args) => commands::modeltest::run(ctx, args),
-            ModelsCmd::Configure(args) => commands::configure::run(ctx, args),
+            ModelsCmd::Configs(c) => match &c.command {
+                ConfigsCmd::Sync(args) => commands::configs::sync::run(ctx, args),
+            },
             ModelsCmd::Add(args) => commands::manual_models::add(ctx, args),
             ModelsCmd::Remove(args) => commands::manual_models::remove(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),

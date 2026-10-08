@@ -295,9 +295,9 @@ pub fn revision_line(warning: &crate::status::RevisionWarning) -> String {
     match warning.problem {
         crate::status::RevisionProblem::NoRevision if warning.managed => format!(
             "{}: it reports no git revision, so chap-core stores no model template for it and \
-             `varde models configure` cannot configure it; {}",
+             `varde models configs sync` cannot configure it; {}",
             warning.id,
-            crate::configure::NO_REVISION_WAY_OUT
+            crate::configs::sync::NO_REVISION_WAY_OUT
         ),
         crate::status::RevisionProblem::NoRevision => format!(
             "{}: it reports no git revision, so chap-core stores no model template for it; set \
@@ -322,7 +322,7 @@ pub const EXTERNAL_REGISTRATION_LOG: &str = "in the log of a model, \
 /// changes what an unreachable model most likely means.
 ///
 /// `revisions` are the [`revision_line`] warnings: a row one of them gives
-/// the way out for gets no `varde models configure` line, which cannot fix it.
+/// the way out for gets no `varde models configs sync` line, which cannot fix it.
 pub fn hints(
     rows: &[ModelStatus],
     auth: bool,
@@ -383,7 +383,7 @@ pub fn hints(
             ModelState::NotConfigured if revisions.iter().any(|w| w.id == row.id) => None,
             ModelState::NotConfigured => Some(format!(
                 "{}: chap-core has no configured model for it, so nothing can run it; run `varde \
-                 models configure`",
+                 models configs sync`",
                 row.id
             )),
             // The warning above the closing lines names `varde up` for it.

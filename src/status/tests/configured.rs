@@ -38,7 +38,7 @@ fn a_registered_model_without_a_configured_model_is_not_configured() {
         hints(&rows, false, None, &[]),
         [
             "chapkit-ewars-model: chap-core has no configured model for it, so nothing can run \
-             it; run `varde models configure`",
+             it; run `varde models configs sync`",
             "chapkit-rwanda-malaria-bym-model: start Chap with `varde up`, then `varde logs \
              chapkit-rwanda-malaria-bym-model`",
         ]
@@ -95,7 +95,7 @@ fn an_unmanaged_model_whose_template_chap_core_refuses_is_named() {
 
 /// A model of this deployment that registers with no git revision and has
 /// no configured model gets the no-revision line, and not the `varde models
-/// configure` line, which cannot fix it.
+/// configs sync` line, which cannot fix it.
 #[test]
 fn a_managed_model_with_no_revision_and_no_configured_model_is_told_to_rebuild() {
     let mut mine = registered("chapkit-ewars-model", 5);
@@ -109,14 +109,14 @@ fn a_managed_model_with_no_revision_and_no_configured_model_is_told_to_rebuild()
     assert_eq!(
         revision_line(&warnings[0]),
         "chapkit-ewars-model: it reports no git revision, so chap-core stores no model template \
-         for it and `varde models configure` cannot configure it; build its image again with \
+         for it and `varde models configs sync` cannot configure it; build its image again with \
          `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`"
     );
     let fixes = hints(&rows, false, None, &warnings);
     assert!(
         !fixes
             .iter()
-            .any(|fix| fix.contains("varde models configure")),
+            .any(|fix| fix.contains("varde models configs sync")),
         "{fixes:?}"
     );
     // Without the warning, the row still names the step.
@@ -124,7 +124,7 @@ fn a_managed_model_with_no_revision_and_no_configured_model_is_told_to_rebuild()
     assert!(
         fixes
             .iter()
-            .any(|fix| fix.ends_with("run `varde models configure`")),
+            .any(|fix| fix.ends_with("run `varde models configs sync`")),
         "{fixes:?}"
     );
 }

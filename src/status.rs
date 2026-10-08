@@ -422,7 +422,7 @@ pub fn status(
             _ => None,
         });
         // Read-only: the listing says which models nothing can run, and
-        // `varde models configure` is what changes that. It also says which
+        // `varde models configs sync` is what changes that. It also says which
         // template chap-core refuses.
         let asked =
             |row: &ModelStatus| matches!(row.state, ModelState::Registered | ModelState::Unmanaged);
@@ -430,7 +430,7 @@ pub fn status(
             true => get(
                 &agent,
                 &base,
-                crate::configure::CONFIGURED_MODELS_PATH,
+                crate::configs::sync::CONFIGURED_MODELS_PATH,
                 token,
             )
             .ok()

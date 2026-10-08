@@ -146,7 +146,7 @@ Usage: varde models [OPTIONS] <COMMAND>
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
-Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models configure`](#varde-models-configure), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
+Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models configs`](#varde-models-configs), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
 
 ## varde models list
 
@@ -211,12 +211,22 @@ Usage: varde models test [OPTIONS] [ID]...
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
-## varde models configure
+## varde models configs
+
+List, add, archive and sync the configured models of each model.
+
+```text
+Usage: varde models configs [OPTIONS] <COMMAND>
+```
+
+Subcommands: [`varde models configs sync`](#varde-models-configs-sync)
+
+## varde models configs sync
 
 Create the configured models that chap-core needs to run each model.
 
 ```text
-Usage: varde models configure [OPTIONS] [ID]...
+Usage: varde models configs sync [OPTIONS] [ID]...
 ```
 
 | Argument | Description |

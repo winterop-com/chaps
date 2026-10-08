@@ -26,8 +26,8 @@ pub enum ModelsCmd {
     /// Make a model train and predict, and say whether it could
     Test(ModelsTestArgs),
 
-    /// Create the configured models that chap-core needs to run each model
-    Configure(ModelsConfigureArgs),
+    /// List, add, archive and sync the configured models of each model
+    Configs(ConfigsArgs),
 
     /// Add a model the marketplace does not list
     Add(ModelsAddArgs),
@@ -108,9 +108,22 @@ pub struct ModelsTestArgs {
     pub keep: bool,
 }
 
+/// List, add, archive and sync the configured models of each model
+#[derive(Debug, Args)]
+pub struct ConfigsArgs {
+    #[command(subcommand)]
+    pub command: ConfigsCmd,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ConfigsCmd {
+    /// Create the configured models that chap-core needs to run each model
+    Sync(ConfigsSyncArgs),
+}
+
 /// Create the configured models that chap-core needs to run each model
 #[derive(Debug, Clone, Args)]
-pub struct ModelsConfigureArgs {
+pub struct ConfigsSyncArgs {
     /// Marketplace ids or service ids; all enabled models when none is given
     #[arg(value_name = "ID")]
     pub ids: Vec<String>,

@@ -124,7 +124,7 @@ const REGISTRY_USERS: &[(&str, &[&str])] = &[
     ("models search", REGISTRY_OPTIONS),
     ("models info", REGISTRY_OPTIONS),
     ("models test", REGISTRY_OPTIONS),
-    ("models configure", REGISTRY_OPTIONS),
+    ("models configs sync", REGISTRY_OPTIONS),
     ("models add", REGISTRY_OPTIONS),
     ("models remove", REGISTRY_OPTIONS),
     ("models enable", REGISTRY_OPTIONS),

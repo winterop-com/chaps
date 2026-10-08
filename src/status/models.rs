@@ -37,7 +37,7 @@ pub enum ModelState {
     /// chap-core knows it, and has no configured model of the version it
     /// registered with, so nothing can run it and the Modeling App does not
     /// list it. chap-core 2.4 and later makes none from a registration;
-    /// `varde models configure` makes them.
+    /// `varde models configs sync` makes them.
     NotConfigured,
 }
 
@@ -158,7 +158,7 @@ pub fn mark_unreachable(
 /// `configured` is chap-core's listing of configured models, which a
 /// chap-core that could not be asked does not have: the caller then does not
 /// call this, and the rows stay as they are. The rule is
-/// [`crate::configure::is_configured`], with the version the model
+/// [`crate::configs::sync::is_configured`], with the version the model
 /// registered with.
 pub fn mark_unconfigured(
     rows: &mut [ModelStatus],
@@ -173,7 +173,7 @@ pub fn mark_unconfigured(
             .iter()
             .find(|s| s.id == row.id)
             .map(|s| s.version.as_str());
-        if !crate::configure::is_configured(configured, &row.id, version) {
+        if !crate::configs::sync::is_configured(configured, &row.id, version) {
             row.state = ModelState::NotConfigured;
         }
     }
@@ -263,7 +263,7 @@ pub struct RevisionWarning {
 ///
 /// The unmanaged rows, and a model of this deployment that chap-core has no
 /// configured model for because it reports no revision: `varde models
-/// configure` cannot fix that one, so its row gets this way out instead. A
+/// configs sync` cannot fix that one, so its row gets this way out instead. A
 /// template stored from another revision with no configured model is not
 /// seen, because only the template listing says that, and that listing
 /// changes chap-core when it is read.

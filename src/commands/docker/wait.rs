@@ -173,11 +173,14 @@ fn readiness_of(
 
 /// Show the models the configure step just gave configured models to as
 /// registered, which is what `varde status` now says of them.
-pub fn mark_configured(readiness: &mut Readiness, outcomes: &[crate::configure::ModelOutcome]) {
+pub fn mark_configured(readiness: &mut Readiness, outcomes: &[crate::configs::sync::ModelOutcome]) {
     for model in readiness.models.iter_mut() {
         let created = outcomes.iter().any(|outcome| {
             outcome.service_id == model.service_id
-                && matches!(outcome.outcome, crate::configure::Outcome::Created { .. })
+                && matches!(
+                    outcome.outcome,
+                    crate::configs::sync::Outcome::Created { .. }
+                )
         });
         if created {
             model.state = ModelState::Registered.label();

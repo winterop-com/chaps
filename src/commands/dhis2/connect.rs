@@ -17,7 +17,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     // The Modeling App lists chap-core's configured models, and chap-core 2.4
     // and later makes none from a registration; the step gives each model
     // varde runs its own before the report says the app can use Chap.
-    let configured = crate::commands::configure::auto(ctx, &session.project);
+    let configured = crate::commands::configs::sync::auto(ctx, &session.project);
 
     // A DHIS2 someone else runs gets the route and nothing more. Installing
     // apps and generating analytics tables change a server varde does not own,

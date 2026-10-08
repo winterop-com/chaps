@@ -68,7 +68,7 @@ pub(super) fn backtest_level(
             ),
             Some(format!(
                 "it is registered, and chap-core has nothing to run it with; run `varde models \
-                 configure {id}`, then `varde models test {id} --backtest`"
+                 configs sync {id}`, then `varde models test {id} --backtest`"
             )),
         );
     };

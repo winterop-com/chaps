@@ -1,13 +1,13 @@
-//! `varde models configure`, and the same step inside `up --wait`,
+//! `varde models configs sync`, and the same step inside `up --wait`,
 //! `dhis2 connect` and `models test --backtest`.
 //!
-//! The rules are in [`crate::configure`]; this module picks the models, loads
+//! The rules are in [`crate::configs::sync`]; this module picks the models, loads
 //! the catalogue when a model needs it, and reports.
 
 use crate::api::Api;
-use crate::cli::ModelsConfigureArgs;
+use crate::cli::ConfigsSyncArgs;
 use crate::commands::Ctx;
-use crate::configure::{self, Folded, ModelOutcome, Source, Target};
+use crate::configs::sync::{self as rules, Folded, ModelOutcome, Source, Target};
 use crate::error::{ChapError, Result};
 use crate::project::Project;
 use crate::registry::Registry;
@@ -16,10 +16,10 @@ use crate::registry::Registry;
 /// warning lines have said why, so there is no `error:` line on top.
 const EXIT_FAILED: i32 = 1;
 
-/// `varde models configure [ID...]`.
-pub fn run(ctx: &Ctx, args: &ModelsConfigureArgs) -> Result<()> {
+/// `varde models configs sync [ID...]`.
+pub fn run(ctx: &Ctx, args: &ConfigsSyncArgs) -> Result<()> {
     let project = ctx.project()?;
-    crate::components::require_chap_core(&project.state.components, "`varde models configure`")?;
+    crate::components::require_chap_core(&project.state.components, "`varde models configs sync`")?;
     let targets = targets(ctx, &project, &args.ids)?;
     if targets.is_empty() {
         return ctx
@@ -31,10 +31,10 @@ pub fn run(ctx: &Ctx, args: &ModelsConfigureArgs) -> Result<()> {
             });
     }
     let outcomes = step(ctx, &project, &targets)?;
-    let failed = configure::any_failed(&outcomes);
+    let failed = rules::any_failed(&outcomes);
     ctx.out.report(
         &serde_json::json!({ "ok": !failed, "models": outcomes }),
-        |lines| configure::command_lines(&outcomes, lines),
+        |lines| rules::command_lines(&outcomes, lines),
     )?;
     if failed {
         std::process::exit(EXIT_FAILED);
@@ -72,11 +72,11 @@ pub fn fold(folded: &Option<Folded>, not_registered: bool, lines: &mut crate::ou
     let Some(folded) = folded else {
         return;
     };
-    configure::folded_lines(&folded.models, not_registered, lines);
+    rules::folded_lines(&folded.models, not_registered, lines);
     if let Some(error) = &folded.error {
         lines.warning(format!(
             "could not check the configured models in chap-core: {error}; run `varde models \
-             configure`"
+             configs sync`"
         ));
     }
 }
@@ -92,7 +92,7 @@ pub fn step(ctx: &Ctx, project: &Project, targets: &[Target]) -> Result<Vec<Mode
     let mut registry: Option<Registry> = None;
     let mut source = |target: &Target| -> Result<Source> {
         if registry.is_none() {
-            registry = Some(super::registry_for(ctx, Some(project))?);
+            registry = Some(crate::commands::registry_for(ctx, Some(project))?);
         }
         let registry = registry.as_ref().expect("loaded above");
         // A model registered from outside runs no image of a marketplace
@@ -102,7 +102,7 @@ pub fn step(ctx: &Ctx, project: &Project, targets: &[Target]) -> Result<Vec<Mode
         }
         Ok(source_of(registry, project, &target.id))
     };
-    configure::configure(&api, targets, &mut source)
+    rules::configure(&api, targets, &mut source)
 }
 
 /// What the configured models of the model `id` come from.
@@ -147,10 +147,10 @@ fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Vec<Target>> 
     if ids.is_empty() {
         return Ok(all_targets(project));
     }
-    let registry = super::registry_for(ctx, Some(project))?;
+    let registry = crate::commands::registry_for(ctx, Some(project))?;
     let token = crate::api::token_for(Some(&project.dir));
     let api = Api::new(&project.api_url(), token, crate::api::DEFAULT_TIMEOUT);
-    let outside = super::modeltest::unmanaged_services(project, &api);
+    let outside = crate::commands::modeltest::unmanaged_services(project, &api);
     let mut picked: Vec<Target> = Vec::new();
     for given in ids {
         if outside.contains(given) {

@@ -119,20 +119,20 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     // configure.
     let configured = match level {
         Level::Backtest => {
-            let mine: Vec<crate::configure::Target> = targets
+            let mine: Vec<crate::configs::sync::Target> = targets
                 .iter()
                 .filter(|(id, _)| project.state.models.contains_key(id))
-                .map(|(id, enabled)| crate::configure::Target {
+                .map(|(id, enabled)| crate::configs::sync::Target {
                     id: id.clone(),
                     service_id: enabled.service_id.clone(),
                 })
                 .collect();
-            (!mine.is_empty()).then(|| match super::configure::step(ctx, &project, &mine) {
-                Ok(models) => crate::configure::Folded {
+            (!mine.is_empty()).then(|| match super::configs::sync::step(ctx, &project, &mine) {
+                Ok(models) => crate::configs::sync::Folded {
                     models,
                     error: None,
                 },
-                Err(err) => crate::configure::Folded {
+                Err(err) => crate::configs::sync::Folded {
                     models: Vec::new(),
                     error: Some(first_line(&err.to_string())),
                 },
@@ -173,7 +173,7 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
         "configured": configured,
     });
     ctx.out.report(&value, |lines| {
-        super::configure::fold(&configured, false, lines);
+        super::configs::sync::fold(&configured, false, lines);
         closing(&runs, lines);
     })?;
     if failed {

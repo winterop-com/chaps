@@ -176,9 +176,9 @@ fn finish_up(
     let mut readiness = wait.then(|| wait_for(ctx, project, timeout));
     // Once every model has registered, chap-core 2.4 and later still has no
     // configured model to run it with; the step gives it one (see
-    // `crate::configure`).
+    // `crate::configs::sync`).
     let configured = match &readiness {
-        Some(readiness) if readiness.ready => super::configure::auto(ctx, project),
+        Some(readiness) if readiness.ready => super::configs::sync::auto(ctx, project),
         _ => None,
     };
     if let (Some(readiness), Some(configured)) = (readiness.as_mut(), &configured) {
@@ -195,7 +195,7 @@ fn finish_up(
         if let Some(readiness) = &readiness {
             ready_lines(readiness, lines);
         }
-        super::configure::fold(&configured, false, lines);
+        super::configs::sync::fold(&configured, false, lines);
     };
     match &readiness {
         Some(readiness) if !readiness.ready => {

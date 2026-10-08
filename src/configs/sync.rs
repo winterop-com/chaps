@@ -45,7 +45,7 @@ pub const DEFAULT_CONFIGURATION: &str = "default";
 
 /// The help line that a model not yet registered gets.
 pub const NOT_REGISTERED_WAY_OUT: &str =
-    "run `varde models configure` again once `varde status` shows it registered";
+    "run `varde models configs sync` again once `varde status` shows it registered";
 
 /// One `POST /v1/crud/configured-models` body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -331,7 +331,7 @@ fn post(api: &Api, path: &str, body: &str) -> std::result::Result<serde_json::Va
     Ok(answer.json().unwrap_or(serde_json::Value::Null))
 }
 
-/// The lines of `varde models configure`: one for each model.
+/// The lines of `varde models configs sync`: one for each model.
 pub fn command_lines(outcomes: &[ModelOutcome], lines: &mut Report) {
     for model in outcomes {
         let id = &model.id;
@@ -404,7 +404,7 @@ pub fn folded_lines(outcomes: &[ModelOutcome], not_registered: bool, lines: &mut
 /// The warning for a model the step could not configure.
 fn failed_line(id: &str, error: &str) -> String {
     format!(
-        "{id}: could not create its configured models: {error}; run `varde models configure {id}` again, and `varde logs chap` says why"
+        "{id}: could not create its configured models: {error}; run `varde models configs sync {id}` again, and `varde logs chap` says why"
     )
 }
 
