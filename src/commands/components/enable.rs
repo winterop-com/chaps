@@ -121,6 +121,11 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         )));
     }
     let after = project.state.components.clone();
+    if component == Component::Ocs
+        && let Some(line) = base_url_line(&before.ocs.base_url, &after.ocs.base_url)
+    {
+        notes.push(Note::info(line));
+    }
     if component == Component::Ocs && !after.s3.enabled {
         notes.push(Note::hint(S3_SOON_NOTE));
     }
@@ -446,6 +451,17 @@ pub(super) fn base_url(args: &ComponentsEnableArgs) -> Result<Option<Option<Stri
         ));
     }
     Ok(Some(Some(given.trim_end_matches('/').to_string())))
+}
+
+/// The line for a run that changed the OCS base URL, `None` when it did not.
+pub(super) fn base_url_line(before: &Option<String>, after: &Option<String>) -> Option<String> {
+    if before == after {
+        return None;
+    }
+    Some(match after {
+        Some(url) => format!("set the ocs base URL to {url}"),
+        None => "removed the ocs base URL".to_string(),
+    })
 }
 
 /// Apply `--read-only` or `--read-write` to `ocs/climate-service.yaml` and to

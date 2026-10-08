@@ -222,30 +222,42 @@ fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) 
         return read_mode_summary(report, mode, lines);
     }
     let name = &report.name;
+    // An enable that changed no setting and wrote no file leaves nothing for
+    // `varde up` to apply.
+    let nothing = report.enabled
+        && report.unchanged
+        && report.written.is_empty()
+        && report.removed.is_empty();
     let headline = match (report.enabled, report.unchanged) {
         (true, false) => format!("enabled {name}"),
         (true, true) => format!("{name} was already enabled"),
         (false, false) => format!("disabled {name}"),
         (false, true) => format!("{name} was already disabled"),
     };
+    let done = match nothing {
+        true => "; nothing changed",
+        false => "",
+    };
     match (report.enabled, report.port) {
-        (true, Some(port)) => lines.info(format!("{headline} on http://localhost:{port}")),
+        (true, Some(port)) => lines.info(format!("{headline} on http://localhost:{port}{done}")),
         // A component with no host port is reached somewhere else rather than
         // not at all, so the line names how it is reached.
         (true, None) if name == "chap-core" => match &project.state.components.chap_core_external {
             Some(external) => {
-                lines.info(format!("{headline} at {}", external.url));
+                lines.info(format!("{headline} at {}{done}", external.url));
                 lines.hint(format!(
                     "chap-core runs elsewhere; it calls the models back at {}:<port>",
                     external.models_host
                 ))
             }
-            None => lines.info(headline),
+            None => lines.info(format!("{headline}{done}")),
         },
         (true, None) => match &report.base_url {
-            Some(base) => lines.info(format!("{headline}, reached through the proxy at {base}")),
+            Some(base) => lines.info(format!(
+                "{headline}, reached through the proxy at {base}{done}"
+            )),
             None => {
-                lines.info(headline);
+                lines.info(format!("{headline}{done}"));
                 lines.hint(format!(
                     "{name} publishes no host port; it is reached inside the compose network"
                 ))
@@ -265,9 +277,10 @@ fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) 
     }
     // A disable has already stopped the containers; `up` has work only when
     // the sync changed a file that a running service reads.
-    match report.enabled || !report.written.is_empty() {
-        true => lines.info("run `varde up` to apply"),
-        false => lines.hint("`varde status` shows what runs now"),
+    match (nothing, report.enabled || !report.written.is_empty()) {
+        (true, _) => lines.hint("if it is not running, `varde up` starts it"),
+        (false, true) => lines.info("run `varde up` to apply"),
+        (false, false) => lines.hint("`varde status` shows what runs now"),
     };
 }
 

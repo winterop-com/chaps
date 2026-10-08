@@ -486,3 +486,61 @@ fn a_changed_read_mode_says_what_changed_and_names_the_restart() {
          hint: `varde status` shows what runs now\n"
     );
 }
+
+/// An enable that changes no setting and writes no file says so, and names
+/// no apply step.
+#[test]
+fn an_enable_that_changes_nothing_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = Project {
+        dir: dir.path().to_path_buf(),
+        state: crate::project::ProjectState::default(),
+    };
+    let report = ChangeReport {
+        name: "ocs".to_string(),
+        enabled: true,
+        port: Some(8791),
+        base_url: None,
+        read_only: Some(false),
+        unchanged: true,
+        written: Vec::new(),
+        removed: Vec::new(),
+        notes: Vec::new(),
+        purged: Vec::new(),
+        kept_volumes: Vec::new(),
+        read_mode: None,
+    };
+    let text = |report: &ChangeReport| {
+        let mut lines = Report::default();
+        change_summary(report, &project, &mut lines);
+        lines.text()
+    };
+    assert_eq!(
+        text(&report),
+        "ocs was already enabled on http://localhost:8791; nothing changed\n\
+         hint: if it is not running, `varde up` starts it\n"
+    );
+
+    // A file the sync wrote is a change for `varde up` to apply.
+    let written = ChangeReport {
+        written: vec![dir.path().join("compose.ocs.yml")],
+        ..report
+    };
+    let text = text(&written);
+    assert!(text.starts_with("ocs was already enabled on http://localhost:8791\n"));
+    assert!(text.ends_with("run `varde up` to apply\n"), "{text}");
+}
+
+#[test]
+fn a_changed_base_url_is_named() {
+    let url = Some("https://ocs.example.org".to_string());
+    assert_eq!(
+        base_url_line(&None, &url).as_deref(),
+        Some("set the ocs base URL to https://ocs.example.org")
+    );
+    assert_eq!(
+        base_url_line(&url, &None).as_deref(),
+        Some("removed the ocs base URL")
+    );
+    assert_eq!(base_url_line(&url, &url), None);
+}
