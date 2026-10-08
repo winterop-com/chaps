@@ -379,6 +379,21 @@ fn marketplace_match(
     }
 }
 
+/// The id of the enabled marketplace model that `source` names: its
+/// repository, or its image at the tag of the enabled version. `None` when
+/// the source names no marketplace model, or one that is not enabled here,
+/// or another version of it.
+pub(crate) fn enabled_twin(
+    marketplace: &Registry,
+    project: &Project,
+    source: &str,
+) -> Option<String> {
+    let source = crate::manual::source::Source::parse(source).ok()?;
+    let (id, version) = marketplace_match(marketplace, &source)?;
+    let enabled = project.state.models.get(&id)?;
+    version.is_none_or(|v| v == enabled.version).then_some(id)
+}
+
 /// The marketplace model whose repository or image `source` is, at any tag.
 /// `manual` tells the entries `models add` made, which are not marketplace
 /// models.

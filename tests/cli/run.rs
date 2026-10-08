@@ -53,6 +53,22 @@ fn run_outside_a_deployment_starts_the_model_in_a_group_on_loopback() {
     );
     assert_eq!(again["enabled"], false);
     assert_eq!(again["port"], port);
+
+    // So does a run by its repository: that is the same marketplace model,
+    // not a new enable on the next free port.
+    let by_url = run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &[
+            "run",
+            "https://github.com/chap-models/chapkit_ewars_model",
+            "--no-wait",
+        ],
+    );
+    assert_eq!(by_url["enabled"], false, "{by_url}");
+    assert_eq!(by_url["id"], "chapkit_ewars_model");
+    assert_eq!(by_url["port"], port);
 }
 
 #[test]

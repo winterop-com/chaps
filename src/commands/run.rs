@@ -212,8 +212,13 @@ fn start(ctx: &Ctx, args: &ModelRunArgs) -> Result<RunReport> {
         }
     }
     let registry = super::registry_for(ctx, Some(&project))?;
-    // A repository or image added before is that entry again, not a copy.
+    // A repository or image added before is that entry again, not a copy;
+    // so is the repository or image of a marketplace model enabled here.
     let source = super::manual_models::added_as(&project, &args.source, args.id.as_deref())
+        .or_else(|| match args.id {
+            None => super::manual_models::enabled_twin(&registry, &project, &args.source),
+            Some(_) => None,
+        })
         .unwrap_or_else(|| args.source.clone());
     let (id, enabled) = match enabled_id(&project, &source) {
         // Already there: started as it is, whatever port it has.
