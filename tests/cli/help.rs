@@ -300,7 +300,12 @@ fn backup_create_packs_the_files_without_touching_docker() {
         name.starts_with("chapx-") || name.starts_with("varde-backup-chapx-"),
         "the archive is named after the project: {name}"
     );
-    assert!(text.contains(&format!("wrote {}", archive.display())));
+    // Printed in its resolved form, which on macOS is the `/private` one.
+    let printed = std::fs::canonicalize(&archive).unwrap();
+    assert!(
+        text.contains(&format!("wrote {}", printed.display())),
+        "{text}"
+    );
     // What was left out is a hint, shown only with -v.
     assert!(!text.contains("not included (--no-db)"));
 
