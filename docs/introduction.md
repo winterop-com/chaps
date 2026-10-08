@@ -49,8 +49,8 @@ Both meanings fit the tool:
 - **A cairn shows the way.** `varde status`, `varde doctor` and the hints show
   the next step to the person who runs Chap.
 
-DHIS2 and HISP come from the University of Oslo, so the name also says where
-the tool comes from.
+The word is Norwegian because DHIS2 is Norwegian too: it started at the HISP
+Centre at the University of Oslo.
 
 The command has a short form: `vg` is the same command as `varde`. The install
 script puts it next to `varde`.
