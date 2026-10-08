@@ -29,7 +29,7 @@ use env::{
     EnvAction, KeptTag, env_action, env_api_port, env_auth, move_kept_tag, random_password,
     resolve_secrets,
 };
-use ports::warn_about_ports;
+use ports::{own_running_claims, warn_about_ports};
 use std::path::{Component as PathComponent, Path, PathBuf};
 use summary::summary;
 
@@ -202,7 +202,17 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
     // holding anything yet. So: a warning with a way out, not a refusal to
     // write the directory.
     let others = crate::ports::other_deployments(&dir, &crate::docker::compose_ls_json);
-    let ports = warn_about_ports(&components, args.api_port, &crate::ports::is_busy, &others);
+    let own = previous
+        .as_ref()
+        .map(own_running_claims)
+        .unwrap_or_default();
+    let ports = warn_about_ports(
+        &components,
+        args.api_port,
+        &crate::ports::is_busy,
+        &others,
+        &own,
+    );
     let api_port_busy = ports.busy.iter().any(|c| c.service == API_SERVICE);
     let mut project = Project {
         dir: dir.clone(),

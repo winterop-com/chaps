@@ -56,17 +56,25 @@ pub(super) fn wanted_claims(
 /// Neither is an error. The listener may be a stack this deployment is meant
 /// to replace, two deployments on one port is a perfectly good way to take
 /// turns, and the directory is worth writing either way.
+///
+/// `own` is what this deployment's running containers publish now, for an
+/// `init --force` over a deployment that is up: a port its own container
+/// holds for the same service is not in the way of the new files.
 pub(super) fn warn_about_ports(
     components: &Components,
     api_port: u16,
     busy: &dyn Fn(u16) -> bool,
     others: &[crate::ports::Deployment],
+    own: &[crate::ports::PortClaim],
 ) -> PortWarnings {
     // A port another deployment publishes is as good as taken when suggesting
     // one: moving onto it would trade one collision for another.
     let taken = |port: u16| busy(port) || others.iter().any(|other| other.holds(port));
     let mut found = PortWarnings::default();
     for claim in wanted_claims(components, api_port) {
+        if own.contains(&claim) {
+            continue;
+        }
         // Upwards from the requested port: the next free number is the one
         // least likely to collide with something else the operator has in
         // mind.
@@ -93,4 +101,21 @@ pub(super) fn warn_about_ports(
         found.claimed.push(claim);
     }
     found
+}
+
+/// The host ports the running containers of `project` publish, by service.
+///
+/// Best-effort like every docker question `init` asks: no docker is no
+/// running container, and every port is then checked as usual.
+pub(super) fn own_running_claims(
+    project: &crate::project::Project,
+) -> Vec<crate::ports::PortClaim> {
+    let running = crate::docker::running_services(project);
+    if running.is_empty() {
+        return Vec::new();
+    }
+    crate::ports::claims(project)
+        .into_iter()
+        .filter(|claim| running.contains(&claim.service))
+        .collect()
 }

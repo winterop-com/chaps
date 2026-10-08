@@ -408,7 +408,7 @@ fn a_moved_component_port_is_the_one_that_gets_probed() {
         ]
     );
 
-    let warned = warn_about_ports(&components, 18000, &|port| port == 18010, &[]);
+    let warned = warn_about_ports(&components, 18000, &|port| port == 18010, &[], &[]);
     assert_eq!(warned.busy.len(), 1);
     assert!(warned.lines[0].contains("(needed by ocs)"), "{warned:?}");
 
@@ -560,11 +560,11 @@ fn a_component_port_is_probed_alongside_the_api_port() {
     components.ocs.port = Some(9000);
 
     assert!(
-        warn_about_ports(&components, 8000, &|_| false, &[])
+        warn_about_ports(&components, 8000, &|_| false, &[], &[])
             .busy
             .is_empty()
     );
-    let busy = warn_about_ports(&components, 8000, &|port| port == 9000, &[]).busy;
+    let busy = warn_about_ports(&components, 8000, &|port| port == 9000, &[], &[]).busy;
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].service, "ocs");
     assert_eq!(busy[0].port, 9000);
@@ -572,7 +572,7 @@ fn a_component_port_is_probed_alongside_the_api_port() {
     // With chap-core off the API port is not one of this deployment's.
     components.chap_core.enabled = false;
     assert!(
-        warn_about_ports(&components, 8000, &|port| port == 8000, &[])
+        warn_about_ports(&components, 8000, &|port| port == 8000, &[], &[])
             .busy
             .is_empty(),
         "no chap-core, no API port"
@@ -706,7 +706,7 @@ fn an_active_api_port_line_is_read_out_of_an_env_file() {
 
 #[test]
 fn a_free_api_port_warns_about_nothing() {
-    let quiet = warn_about_ports(&Components::default(), 8000, &|_| false, &[]);
+    let quiet = warn_about_ports(&Components::default(), 8000, &|_| false, &[], &[]);
     assert!(quiet.busy.is_empty() && quiet.claimed.is_empty() && quiet.lines.is_empty());
 }
 
@@ -719,6 +719,7 @@ fn a_busy_api_port_is_a_warning_not_a_refusal() {
         8000,
         &|port| (8000..=8001).contains(&port),
         &[],
+        &[],
     );
     assert_eq!(warned.busy.len(), 1);
     assert_eq!(warned.lines.len(), 1);
@@ -728,7 +729,7 @@ fn a_busy_api_port_is_a_warning_not_a_refusal() {
         warned.lines
     );
     // Even with nothing free above it, the warning goes out.
-    let warned = warn_about_ports(&Components::default(), 8000, &|_| true, &[]);
+    let warned = warn_about_ports(&Components::default(), 8000, &|_| true, &[], &[]);
     assert_eq!(warned.busy.len(), 1);
     assert!(
         warned.lines[0].contains("CHAP_API_PORT=<free>"),
@@ -923,4 +924,21 @@ fn a_kept_env_moves_only_the_image_pin_varde_wrote() {
         move_kept_tag(dir.path(), Some("v2.4.0"), "latest").unwrap(),
         KeptTag::Same
     );
+}
+
+/// `init --force` over a deployment that is up: the port its own chap
+/// container publishes is not in the way, and a port it does not hold is.
+#[test]
+fn a_port_this_deployment_already_holds_is_not_warned_about() {
+    let own = vec![crate::ports::PortClaim {
+        service: API_SERVICE.to_string(),
+        port: 8000,
+    }];
+    let quiet = warn_about_ports(&Components::default(), 8000, &|_| true, &[], &own);
+    assert!(quiet.lines.is_empty(), "{:?}", quiet.lines);
+    assert!(quiet.busy.is_empty());
+
+    // Moved to another port, which something else is listening on.
+    let warned = warn_about_ports(&Components::default(), 8100, &|_| true, &[], &own);
+    assert_eq!(warned.busy.len(), 1, "{:?}", warned.lines);
 }
