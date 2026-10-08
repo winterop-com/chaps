@@ -142,7 +142,20 @@ pub(super) fn capture_models(
         // The model's own service is frozen for the read: a chapkit service
         // keeps a live SQLite database in its data directory, and a tar taken
         // while something writes to one is a tar of a torn database.
-        let mut quiesce = Quiesce::hold(project, &model.service_id, running.has(&model.service_id));
+        let is_running = running.has(&model.service_id);
+        // The same warning as for a component volume: a model that keeps a
+        // large data directory does not answer for as long as the copy takes.
+        if is_running
+            && let Some(prefix) = &prefix
+            && let Some(warning) = long_pause_warning(
+                &model.service_id,
+                &format!("{prefix}_{volume}"),
+                Omit::Models,
+            )
+        {
+            output::warn(&warning);
+        }
+        let mut quiesce = Quiesce::hold(project, &model.service_id, is_running);
         let piped = docker::run_compose_piped(project, &args, None, Some(&dest));
         entry.quiesce = quiesce.release();
         let piped = piped?;
@@ -238,7 +251,9 @@ pub(super) fn capture_components(
         let member = backup::component_member(part.member);
         let dest = stage.path(&member)?;
         let is_running = running.has(part.service);
-        if is_running && let Some(warning) = long_pause_warning(part.service, &volume) {
+        if is_running
+            && let Some(warning) = long_pause_warning(part.service, &volume, Omit::Components)
+        {
             output::warn(&warning);
         }
         let mut quiesce = Quiesce::hold(project, part.service, is_running);
@@ -302,21 +317,45 @@ fn dump_dhis2_db(
 /// From this size on, the pause of a service is long enough to say so first.
 pub(super) const LONG_PAUSE_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// What leaves a volume out of a backup, for the long-pause warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Omit {
+    /// `--no-models`, for a model data volume.
+    Models,
+    /// `--no-components`, for a component volume.
+    Components,
+}
+
+impl Omit {
+    fn way_out(self) -> &'static str {
+        match self {
+            Omit::Models => "use `--no-models` to omit the data of every model",
+            Omit::Components => "use `--no-components` to omit the volumes of every component",
+        }
+    }
+}
+
 /// The warning before a running service is paused for a large volume: it does
 /// not answer until the copy is done. `None` for a small volume, or when its
 /// size is not known.
-fn long_pause_warning(service: &str, volume: &str) -> Option<String> {
-    pause_warning_for(service, volume, docker::volume_size_bytes(volume)?)
+fn long_pause_warning(service: &str, volume: &str, omit: Omit) -> Option<String> {
+    pause_warning_for(service, volume, docker::volume_size_bytes(volume)?, omit)
 }
 
 /// [`long_pause_warning`] for a known size.
-pub(super) fn pause_warning_for(service: &str, volume: &str, bytes: u64) -> Option<String> {
+pub(super) fn pause_warning_for(
+    service: &str,
+    volume: &str,
+    bytes: u64,
+    omit: Omit,
+) -> Option<String> {
     (bytes >= LONG_PAUSE_BYTES).then(|| {
         format!(
             "{service} is paused while varde copies {} of `{volume}`, and it does not answer \
              until the copy is done; this can take minutes, so run the backup when nobody \
-             uses it, or use `--no-components` to omit the volumes of every component",
-            backup::human_size(bytes)
+             uses it, or {}",
+            backup::human_size(bytes),
+            omit.way_out()
         )
     })
 }

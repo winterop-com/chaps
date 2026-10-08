@@ -263,16 +263,43 @@ fn only_a_failed_read_fails_the_backup() {
 /// service does not answer until the copy is done.
 #[test]
 fn a_long_pause_is_said_before_it_starts() {
-    use super::capture::{LONG_PAUSE_BYTES, pause_warning_for};
+    use super::capture::{LONG_PAUSE_BYTES, Omit, pause_warning_for};
     assert_eq!(
-        pause_warning_for("dhis2-db", "x_dhis2_db", LONG_PAUSE_BYTES - 1),
+        pause_warning_for(
+            "dhis2",
+            "x_dhis2_home",
+            LONG_PAUSE_BYTES - 1,
+            Omit::Components
+        ),
         None
     );
-    let warning =
-        pause_warning_for("dhis2-db", "x_dhis2_db", 40 * LONG_PAUSE_BYTES).expect("a large volume");
+    let warning = pause_warning_for(
+        "dhis2",
+        "x_dhis2_home",
+        40 * LONG_PAUSE_BYTES,
+        Omit::Components,
+    )
+    .expect("a large volume");
     assert!(
-        warning.starts_with("dhis2-db is paused while varde copies 40.0 GB of `x_dhis2_db`"),
+        warning.starts_with("dhis2 is paused while varde copies 40.0 GB of `x_dhis2_home`"),
         "{warning}"
     );
     assert!(warning.contains("`--no-components`"), "{warning}");
+
+    // A model is paused the same way, and is left out by its own flag.
+    let warning = pause_warning_for(
+        "chapkit-ewars-model",
+        "x_ck_chapkit_ewars_model_data",
+        LONG_PAUSE_BYTES,
+        Omit::Models,
+    )
+    .expect("a large volume");
+    assert!(
+        warning.starts_with("chapkit-ewars-model is paused while varde copies 1.0 GB"),
+        "{warning}"
+    );
+    assert!(
+        warning.ends_with("use `--no-models` to omit the data of every model"),
+        "{warning}"
+    );
 }
