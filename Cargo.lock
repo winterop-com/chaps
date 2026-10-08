@@ -2257,7 +2257,7 @@ dependencies = [
 
 [[package]]
 name = "varde"
-version = "0.100.1"
+version = "0.101.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
