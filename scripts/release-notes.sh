@@ -154,6 +154,22 @@ bullets_for() {
     # Capitalise the first letter, the way a heading-less bullet list reads
     # best, without relying on bash 4's ${var^}. Not a name that is written in
     # lower case: "varde chap takes ..." stays as the command is typed.
+    # A subject that starts with a command name, "models test ..." or
+    # "ps, stop and run ...", is about that command: it gets `varde` in
+    # front and keeps its case.
+    word="${rest%% *}"
+    case "${word%,}" in
+      models | components | ps | status | dhis2 | backup | init | up | down | \
+        logs | jobs | api | doctor | cleanup | auth | self | completions | \
+        top | ui | registry)
+        rest="varde ${rest}"
+        ;;
+      # A verb that is also a command reads as the command only at the head
+      # of a list: "run, ps, stop and open ...".
+      run | stop | open | update | sync | restart | pull | logs)
+        [ "${word%,}" != "$word" ] && rest="varde ${rest}"
+        ;;
+    esac
     case "${rest%% *}" in
       varde | vg | chap | chap-core | chapkit | docker | compose) ;;
       *)
