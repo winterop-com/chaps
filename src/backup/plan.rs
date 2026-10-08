@@ -50,6 +50,9 @@ pub struct PlannedComponent {
     pub service: String,
     pub data_dir: String,
     pub volume: String,
+    /// Whether the archive holds a `pg_dump` of this database rather than a
+    /// tar of its volume. See [`super::is_dhis2_db_dump`].
+    pub dump: bool,
 }
 
 /// What `varde backup restore` is about to do, printed before it asks.
@@ -68,8 +71,11 @@ pub struct RestorePlan {
     pub components: Vec<PlannedComponent>,
     /// Running services that will be stopped first.
     pub stop: Vec<String>,
-    /// Whether Chap is brought back up at the end.
+    /// Whether the services are started at the end.
     pub start: bool,
+    /// Whether `--files-only` was passed: no service is asked about, stopped
+    /// or started.
+    pub files_only: bool,
     /// The compose project name the deployment is left with. See
     /// [`restored_compose_project`].
     pub compose_project: String,
@@ -104,7 +110,7 @@ pub fn identity_line(plan: &RestorePlan) -> String {
     let kept = &plan.compose_project;
     if plan.adopt_identity {
         return format!(
-            "  identity  compose project {archived}, taken over from the archive \
+            "  identity    compose project {archived}, taken over from the archive \
              (--adopt-identity)\n"
         );
     }
@@ -112,7 +118,7 @@ pub fn identity_line(plan: &RestorePlan) -> String {
         return String::new();
     }
     format!(
-        "  identity  {kept} is kept; the archive's own ({archived}) is not adopted, so this \
+        "  identity    {kept} is kept; the archive's own ({archived}) is not adopted, so this \
          deployment keeps its containers and volumes\n"
     )
 }
@@ -142,26 +148,30 @@ pub fn plan_text(plan: &RestorePlan) -> String {
 
     text.push_str("\nthis overwrites\n");
     if plan.files.is_empty() {
-        text.push_str("  files     nothing\n");
+        text.push_str("  files       nothing\n");
     } else {
         text.push_str(&format!(
-            "  files     {} file(s) in the deployment directory: {}\n",
+            "  files       {} file(s) in the deployment directory: {}\n",
             plan.files.len(),
             plan.files.join(", ")
         ));
     }
     match (&plan.database, &manifest.database) {
         (true, Some(db)) => text.push_str(&format!(
-            "  database  {} on postgres, dropped and reloaded (pg_restore --clean --if-exists)\n",
+            "  database    {} on postgres, dropped and reloaded (pg_restore --clean --if-exists)\n",
             db.name
         )),
-        _ => text.push_str("  database  nothing\n"),
+        _ => text.push_str("  database    nothing\n"),
     }
     if plan.models.is_empty() {
-        text.push_str("  models    nothing\n");
+        text.push_str("  models      nothing\n");
     } else {
         for (i, model) in plan.models.iter().enumerate() {
-            let label = if i == 0 { "  models  " } else { "          " };
+            let label = if i == 0 {
+                "  models    "
+            } else {
+                "            "
+            };
             text.push_str(&format!(
                 "{label}  {} {} emptied and refilled (volume {})\n",
                 model.service_id, model.data_dir, model.volume
@@ -169,28 +179,56 @@ pub fn plan_text(plan: &RestorePlan) -> String {
         }
     }
     if plan.components.is_empty() {
-        text.push_str("  parts     nothing\n");
+        text.push_str("  components  nothing\n");
     } else {
         for (i, part) in plan.components.iter().enumerate() {
-            let label = if i == 0 { "  parts   " } else { "          " };
-            text.push_str(&format!(
-                "{label}  {} {} emptied and refilled (volume {})\n",
-                part.service, part.data_dir, part.volume
-            ));
+            let label = if i == 0 {
+                "  components"
+            } else {
+                "            "
+            };
+            text.push_str(&format!("{label}  {}\n", component_line(part)));
         }
     }
     text.push_str(&identity_line(plan));
 
     text.push('\n');
+    text.push_str(&services_text(plan));
+    text
+}
+
+/// What the plan says a restore does to one component volume.
+fn component_line(part: &PlannedComponent) -> String {
+    match part.dump {
+        true => format!(
+            "{} database dropped and reloaded from the pg_dump (pg_restore -j {})",
+            part.service,
+            super::DHIS2_RESTORE_JOBS
+        ),
+        false => format!(
+            "{} {} emptied and refilled (volume {})",
+            part.service, part.data_dir, part.volume
+        ),
+    }
+}
+
+/// What the plan says about the services: which are stopped first, and
+/// whether they are started at the end.
+fn services_text(plan: &RestorePlan) -> String {
+    // Files only: nothing asked docker what runs, so nothing is said about it.
+    if plan.files_only {
+        return "files only (--files-only): no service is stopped or started\n".to_string();
+    }
+    let mut text = String::new();
     if plan.stop.is_empty() {
         text.push_str("nothing is running, so nothing is stopped first\n");
     } else {
         text.push_str(&format!("stops first  {}\n", plan.stop.join(", ")));
     }
     if plan.start {
-        text.push_str("then runs    docker compose up -d\n");
+        text.push_str("then runs    the port check of `varde up`, then docker compose up -d\n");
     } else {
-        text.push_str("then leaves  Chap as it is (--no-start)\n");
+        text.push_str("then leaves  the services as they are (--no-start)\n");
     }
     text
 }

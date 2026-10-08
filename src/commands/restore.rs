@@ -230,6 +230,7 @@ fn plan(
                 service: c.service.clone(),
                 data_dir: c.data_dir.clone(),
                 volume: c.volume.clone(),
+                dump: c.path.as_deref().is_some_and(backup::is_dhis2_db_dump),
             })
             .collect()
     } else {
@@ -281,6 +282,7 @@ fn plan(
         components,
         stop,
         start: !args.files_only && !args.no_start,
+        files_only: args.files_only,
         compose_project,
         archived_compose_project: archived_identity,
         adopt_identity: args.adopt_identity,

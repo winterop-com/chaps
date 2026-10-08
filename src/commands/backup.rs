@@ -240,10 +240,13 @@ fn say(report: &BackupReport, lines: &mut output::Report) {
         ));
     }
     for part in manifest.captured_components() {
+        let what = match part.path.as_deref().is_some_and(backup::is_dhis2_db_dump) {
+            true => format!("the database as a {}", backup::DHIS2_DB_DUMP_SOURCE),
+            false => part.data_dir.clone(),
+        };
         lines.hint(format!(
-            "component {}: {} {}",
+            "component {}: {what} {}",
             part.name,
-            part.data_dir,
             size_note(part.size_bytes, part.quiesce.as_deref())
         ));
     }

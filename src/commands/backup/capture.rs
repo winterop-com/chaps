@@ -271,7 +271,6 @@ fn dump_dhis2_db(
     running: bool,
     entry: &mut ManifestComponent,
 ) -> Result<()> {
-    entry.data_dir = backup::DHIS2_DB_DUMP_SOURCE.to_string();
     if !running {
         entry.skipped = Some(
             "dhis2-db is not running, so its database cannot be dumped; start it with \

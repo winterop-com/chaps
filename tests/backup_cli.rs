@@ -557,7 +557,7 @@ fn adopt_identity_takes_the_archives_name_over() {
 
     assert!(
         text.contains(&format!(
-            "identity  compose project {taken_from}, taken over from the archive"
+            "identity    compose project {taken_from}, taken over from the archive"
         )),
         "{text}"
     );

@@ -552,9 +552,11 @@ fn plan(start: bool, stop: Vec<&str>) -> RestorePlan {
             service: "ocs".into(),
             data_dir: "/app/data".into(),
             volume: "ocs_data".into(),
+            dump: false,
         }],
         stop: stop.into_iter().map(str::to_string).collect(),
         start,
+        files_only: false,
         compose_project: "e2e-ab12cd".into(),
         archived_compose_project: Some("e2e-ab12cd".into()),
         adopt_identity: false,
@@ -568,13 +570,15 @@ fn the_plan_says_what_it_overwrites_and_what_it_stops() {
     assert!(text.contains("taken  2026-09-23T07:10:00Z by varde 0.1.0"));
     assert!(text.contains("into   /srv/e2e"));
     assert!(
-        text.contains("files     2 file(s) in the deployment directory: .env, .varde/models.yaml")
+        text.contains(
+            "files       2 file(s) in the deployment directory: .env, .varde/models.yaml"
+        )
     );
-    assert!(text.contains("database  chap_core on postgres, dropped and reloaded"));
+    assert!(text.contains("database    chap_core on postgres, dropped and reloaded"));
     assert!(text.contains("chapkit-ewars-model /app/data emptied and refilled"));
-    assert!(text.contains("parts     ocs /app/data emptied and refilled (volume ocs_data)"));
+    assert!(text.contains("components  ocs /app/data emptied and refilled (volume ocs_data)"));
     assert!(text.contains("stops first  chap, worker"));
-    assert!(text.contains("then runs    docker compose up -d"));
+    assert!(text.contains("then runs    the port check of `varde up`, then docker compose up -d"));
     // The archive was taken from this same deployment, so there is nothing
     // to say about its identity.
     assert!(!text.contains("identity"), "{text}");
@@ -588,7 +592,7 @@ fn the_plan_says_whose_identity_the_deployment_keeps() {
     let text = plan_text(&restore);
     assert!(
         text.contains(
-            "identity  e2e-ab12cd is kept; the archive's own (chapx-9f01bc) is not adopted"
+            "identity    e2e-ab12cd is kept; the archive's own (chapx-9f01bc) is not adopted"
         ),
         "{text}"
     );
@@ -597,7 +601,7 @@ fn the_plan_says_whose_identity_the_deployment_keeps() {
     restore.compose_project = "chapx-9f01bc".into();
     let text = plan_text(&restore);
     assert!(
-        text.contains("identity  compose project chapx-9f01bc, taken over from the archive"),
+        text.contains("identity    compose project chapx-9f01bc, taken over from the archive"),
         "{text}"
     );
 
@@ -610,7 +614,39 @@ fn the_plan_says_whose_identity_the_deployment_keeps() {
 fn the_plan_of_a_stopped_stack_says_there_is_nothing_to_stop() {
     let text = plan_text(&plan(false, vec![]));
     assert!(text.contains("nothing is running, so nothing is stopped first"));
-    assert!(text.contains("then leaves  Chap as it is (--no-start)"));
+    assert!(text.contains("then leaves  the services as they are (--no-start)"));
+}
+
+#[test]
+fn a_files_only_plan_claims_nothing_about_the_services() {
+    let mut restore = plan(false, vec![]);
+    restore.files_only = true;
+    let text = plan_text(&restore);
+    assert!(
+        text.contains("files only (--files-only): no service is stopped or started"),
+        "{text}"
+    );
+    assert!(!text.contains("nothing is running"), "{text}");
+    assert!(!text.contains("--no-start"), "{text}");
+}
+
+#[test]
+fn the_plan_names_a_dhis2_database_dump_as_a_reload() {
+    let mut restore = plan(true, vec![]);
+    restore.components = vec![PlannedComponent {
+        name: "dhis2".into(),
+        service: "dhis2-db".into(),
+        data_dir: "/var/lib/postgresql/data".into(),
+        volume: "dhis2_db".into(),
+        dump: true,
+    }];
+    let text = plan_text(&restore);
+    assert!(
+        text.contains(
+            "components  dhis2-db database dropped and reloaded from the pg_dump (pg_restore -j 4)"
+        ),
+        "{text}"
+    );
 }
 
 #[test]
@@ -622,10 +658,10 @@ fn a_plan_that_restores_nothing_says_so() {
     plan.components.clear();
     assert!(plan.is_empty());
     let text = plan_text(&plan);
-    assert!(text.contains("files     nothing"));
-    assert!(text.contains("database  nothing"));
-    assert!(text.contains("models    nothing"));
-    assert!(text.contains("parts     nothing"));
+    assert!(text.contains("files       nothing"));
+    assert!(text.contains("database    nothing"));
+    assert!(text.contains("models      nothing"));
+    assert!(text.contains("components  nothing"));
 }
 
 #[test]

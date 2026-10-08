@@ -10,8 +10,7 @@
 /// The archive member that holds the dump.
 pub const DHIS2_DB_DUMP_MEMBER: &str = "components/dhis2-db.dump";
 
-/// What the manifest says about where the data came from, in place of the
-/// data directory of a volume.
+/// What `varde backup create -v` says the dump holds.
 pub const DHIS2_DB_DUMP_SOURCE: &str =
     "pg_dump without analytics_*, aggregated_*, completeness_*, _* and the data of audit";
 
