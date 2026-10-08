@@ -1,0 +1,94 @@
+# {{ name }}
+
+{% if is_mlproject %}
+{{ name }} is a Chap model in the MLproject format. The image runs it with
+`chapkit mlproject run`, which serves it with the chapkit REST API that
+chap-core calls.
+{% elif is_shell %}
+{{ name }} is a chapkit model service. The model is in {{ language }} scripts,
+which the service runs for each training and prediction.
+{% else %}
+{{ name }} is a chapkit model service. The model is in Python, in `main.py`.
+{% endif %}
+
+The example model predicts, for each location, the mean of `disease_cases` in
+the last `window` periods. Replace it with your model.
+
+## Files
+
+| File | What it holds |
+|---|---|
+{% if is_mlproject %}
+| `MLproject` | The name, the options (`user_options`) and the train and predict commands |
+{% else %}
+| `main.py` | The options (`{{ class_name }}Config`), the service id and the metadata{% if not is_shell %}, and the model{% endif %} |
+{% endif %}
+{% if is_shell or is_mlproject %}
+| `scripts/{{ train_script }}` | Training: it reads the data and writes the model file |
+| `scripts/{{ predict_script }}` | Prediction: it reads the model file and writes `sample_0` for each future row |
+{% endif %}
+| `Dockerfile` | The image, from `{{ base_image }}` |
+{% if has_pyproject %}
+| `pyproject.toml` | The Python dependencies |
+{% endif %}
+| `.github/workflows/publish.yml` | Publishes the image to GHCR on a push to `main` and on a `v*.*.*` tag |
+
+## Build the image
+
+```sh
+git init && git add . && git commit -m "feat: first version"
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t {{ service_id }}:dev .
+```
+
+chap-core stores a model only if its image has a git revision, so build from a
+commit with `GIT_REVISION`.
+{% if amd64_only %}
+
+The base image is about 2 GB, and the first pull can take ten minutes or more.
+{% endif %}
+{% if not is_mlproject %}
+
+The build installs the dependencies from `uv.lock` if the file is there. Run
+`uv lock` to make one, and commit it, so that every build gets the same
+versions.
+{% endif %}
+
+## Run it
+
+To run the model service alone:
+
+```sh
+varde run {{ service_id }}:dev
+```
+
+To run it with chap-core, and train and predict through it:
+
+```sh
+varde init lab --models none
+cd lab
+varde models add {{ service_id }}:dev
+varde up --wait
+varde models test {{ model_id }} --backtest
+```
+
+The model registers with chap-core as `{{ service_id }}`. This id is the
+{% if is_mlproject %}`name` in `MLproject`{% else %}`id` in `main.py`{% endif %}. If you change it, add the image with
+`--service-id` and the new id.
+
+## Options
+
+{% if is_mlproject %}
+The options are under `user_options` in `MLproject`. The scripts read them
+from the file that `--config` names, under `user_option_values`.
+{% else %}
+The options are the fields of `{{ class_name }}Config` in `main.py`.
+{% if is_shell %}
+The scripts read them from `config.yml`.
+{% endif %}
+{% endif %}
+
+A configured model in chap-core gives each option a value:
+
+```sh
+varde models configs add {{ model_id }} --name long --set window=6
+```

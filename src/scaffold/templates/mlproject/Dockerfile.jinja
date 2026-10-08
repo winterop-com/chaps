@@ -1,0 +1,47 @@
+{% if amd64_only %}
+# The INLA base image is amd64-only, because INLA has x86_64 builds only.
+# On an Apple Silicon Mac, the build runs under emulation.
+ARG BASE_PLATFORM=linux/amd64
+FROM --platform=${BASE_PLATFORM} {{ base_image }}
+{% else %}
+FROM {{ base_image }}
+{% endif %}
+
+# The base image has chapkit. `chapkit mlproject run` reads MLproject and
+# serves the model with the chapkit REST API, which chap-core calls.
+USER root
+WORKDIR /work
+{% if is_r %}
+
+# R packages that the scripts need and the base image does not have:
+# RUN Rscript -e 'install.packages(c("forecast"), repos = "https://cloud.r-project.org")'
+{% else %}
+
+# The Python packages of the scripts, from pyproject.toml.
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /app/.venv/bin/python -r pyproject.toml
+{% endif %}
+
+# The commit the image is built from. The service reports it as git_revision,
+# and chap-core stores the model only if it has one:
+#   docker build --build-arg GIT_REVISION=$(git rev-parse HEAD) .
+ARG GIT_REVISION=""
+ENV GIT_REVISION=${GIT_REVISION}
+
+COPY MLproject ./
+COPY scripts/ ./scripts/
+
+# The service keeps its state in memory and writes only to /tmp (the job
+# workspaces), so the root file system can be read-only.
+ENV HOME=/tmp \
+    MPLCONFIGDIR=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache
+USER chapkit
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl --fail http://localhost:8000/health || exit 1
+
+CMD ["chapkit", "mlproject", "run", ".", "--host", "0.0.0.0", "--port", "8000"]

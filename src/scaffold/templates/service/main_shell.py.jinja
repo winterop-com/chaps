@@ -1,0 +1,137 @@
+"""{{ name }}: a chapkit model service that runs scripts."""
+
+# main.py makes the scripts in scripts/ a model service. The parts to change are:
+#   1. {{ class_name }}Config: the options of the model. The scripts read them
+#      from config.yml.
+#   2. info: the name, the author and the description of the model.
+#
+# The model itself is in scripts/{{ train_script }} and scripts/{{ predict_script }}.
+
+import os
+from pathlib import Path
+
+from chapkit import BaseConfig
+from chapkit.api import AssessedStatus, MLServiceBuilder, MLServiceInfo, ModelMetadata, PeriodType
+from chapkit.artifact import ArtifactHierarchy
+{% if with_validation %}
+from chapkit.data import DataFrame
+from chapkit.ml import ShellModelRunner, ValidationDiagnostic
+from geojson_pydantic import FeatureCollection
+{% else %}
+from chapkit.ml import ShellModelRunner
+{% endif %}
+
+
+class {{ class_name }}Config(BaseConfig):
+    """Options of {{ name }}."""
+
+    # The forecast horizon if the request gives none. chapkit sets it from
+    # the request, so the value the scripts read is the one for that request.
+    prediction_periods: int = 3
+
+    # The number of last periods the example model takes the mean of.
+    window: int = 3
+
+
+# The runner copies this directory to a workspace for each job, and runs the
+# command there. It replaces {data_file}, {historic_file}, {future_file} and
+# {output_file} with the paths of the CSV files. The workspace also has
+# config.yml, with the options above. The model the train script writes stays
+# in the workspace, and the predict script reads it there.
+train_command = "{{ run }} scripts/{{ train_script }} --data {data_file} --model {{ model_file }} --config config.yml"
+predict_command = (
+    "{{ run }} scripts/{{ predict_script }} --model {{ model_file }} --historic {historic_file} "
+    "--future {future_file} --output {output_file} --config config.yml"
+)
+
+{% if with_validation %}
+# The $validate hooks answer POST /api/v1/ml/$validate. They check a train or
+# predict request in Python, without a job and without the scripts, and return
+# a list of diagnostics. An empty list means that the request is correct.
+
+
+async def on_validate_train(
+    config: {{ class_name }}Config,
+    data: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> list[ValidationDiagnostic]:
+    """Return the problems of a train request."""
+    diagnostics: list[ValidationDiagnostic] = []
+    if config.window < 1:
+        diagnostics.append(
+            ValidationDiagnostic.error(
+                code="window_too_small",
+                message=f"window is {config.window}; it must be 1 or more",
+                field="config.window",
+            )
+        )
+    return diagnostics
+
+
+async def on_validate_predict(
+    config: {{ class_name }}Config,
+    historic: DataFrame,
+    future: DataFrame,
+    geo: FeatureCollection | None = None,
+) -> list[ValidationDiagnostic]:
+    """Return the problems of a predict request."""
+    return []
+
+
+{% endif %}
+runner: ShellModelRunner[{{ class_name }}Config] = ShellModelRunner(
+    train_command=train_command,
+    predict_command=predict_command,
+{% if with_validation %}
+    on_validate_train=on_validate_train,
+    on_validate_predict=on_validate_predict,
+{% endif %}
+)
+
+info = MLServiceInfo(
+    id="{{ service_id }}",
+    display_name="{{ name }}",
+    version="0.1.0",
+    description="Predicts the mean of the last periods of each location.",
+    model_metadata=ModelMetadata(
+        author="Your Name",
+        # The maturity that the Modeling App shows: green (validated), yellow
+        # (ready for testing), orange (promising), red (experimental), gray
+        # (deprecated).
+        author_assessed_status=AssessedStatus.red,
+        contact_email="your.email@example.com",
+    ),
+    period_type=PeriodType.monthly,
+    min_prediction_periods=0,
+    max_prediction_periods=100,
+)
+
+HIERARCHY = ArtifactHierarchy(
+    name="{{ slug }}",
+    level_labels={0: "ml_training_workspace", 1: "ml_prediction"},
+)
+
+# The service keeps its database in data/. In the image, data/ is a volume.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/chapkit.db")
+if DATABASE_URL.startswith("sqlite") and ":///" in DATABASE_URL:
+    Path(DATABASE_URL.split("///")[1]).parent.mkdir(parents=True, exist_ok=True)
+
+app = (
+    MLServiceBuilder(
+        info=info,
+        config_schema={{ class_name }}Config,
+        hierarchy=HIERARCHY,
+        runner=runner,
+        database_url=DATABASE_URL,
+    )
+    .with_monitoring()
+    # Registers with chap-core when SERVICEKIT_ORCHESTRATOR_URL is set.
+    .with_registration()
+    .build()
+)
+
+
+if __name__ == "__main__":
+    from chapkit.api import run_app
+
+    run_app("main:app", reload=False, port=int(os.getenv("PORT", "9090")))

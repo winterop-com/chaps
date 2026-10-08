@@ -220,6 +220,24 @@ worth it:
 A `--seed N` makes the generated data the same on every run, which is what to
 add when a failure only happens sometimes.
 
+## ``an MLproject service has no `chapkit test` ``
+
+```text
+rain-model    skip    1s   an MLproject service has no `chapkit test`
+  go through chap-core with `varde models test rain_model --backtest`
+```
+
+The image serves an `MLproject` file with `chapkit mlproject run`, as the
+`mlproject-*` types of `varde models new` do. The image has chapkit, but
+chapkit has `chapkit test` only in a chapkit service project. A newer image
+does not change this. Test the model through chap-core with `--backtest`.
+
+## `already exists and is not empty; give a new directory`
+
+`varde models new DIR` writes a project only into a directory that is not
+there, or that is empty. It writes no file when the directory has files.
+Give another directory, or remove the files in it first.
+
 ## `chap-core has no configured model for`
 
 ```text

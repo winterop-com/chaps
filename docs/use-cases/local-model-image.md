@@ -4,6 +4,10 @@ For testing a model the way it will really run: build its image on this
 machine and run it in a varde deployment, registered with chap-core, without
 publishing it anywhere first.
 
+For a new model, `varde models new` creates a project that builds in this
+way, and its `README.md` has these commands with the names filled in. See
+[A new model project](../models.md#a-new-model-project).
+
 In the model's checkout:
 
 ```sh

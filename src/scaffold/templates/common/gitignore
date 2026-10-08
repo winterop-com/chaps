@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+data/
+*.db
+*.db-journal
+model
+model.pickle
+model.rds
+.Rhistory
+.RData
+.DS_Store

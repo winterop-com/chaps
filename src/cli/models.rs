@@ -29,6 +29,9 @@ pub enum ModelsCmd {
     /// List, add, archive and sync the configured models of each model
     Configs(ConfigsArgs),
 
+    /// Create a model project from a template
+    New(ModelsNewArgs),
+
     /// Add a model the marketplace does not list
     Add(ModelsAddArgs),
 
@@ -277,6 +280,22 @@ pub struct ModelsAddArgs {
     /// Record the image as published for amd64 only
     #[arg(long)]
     pub runtime_amd64: bool,
+}
+
+/// Create a model project from a template
+#[derive(Debug, Clone, Args)]
+pub struct ModelsNewArgs {
+    /// Directory to create; its name becomes the model name
+    #[arg(value_name = "DIR")]
+    pub dir: std::path::PathBuf,
+
+    /// The kind of project and its base image
+    #[arg(long, value_name = "TYPE", default_value = "fn-py")]
+    pub template: crate::scaffold::Template,
+
+    /// Add $validate hooks to main.py (chapkit service types only)
+    #[arg(long)]
+    pub with_validation: bool,
 }
 
 /// Remove a model that was added with models add

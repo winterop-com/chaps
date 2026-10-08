@@ -1,0 +1,30 @@
+name: {{ service_id }}
+version: 0.1.0
+meta_data:
+  display_name: "{{ name }}"
+  description: Predicts the mean of the last periods of each location.
+  author: Your Name
+  author_assessed_status: red
+  contact_email: your.email@example.com
+supported_period_type: month
+user_options:
+  window:
+    type: integer
+    default: 3
+    minimum: 1
+    description: The number of last periods the model takes the mean of.
+entry_points:
+  train:
+    parameters:
+      train_data: path
+      model: str
+      model_config: str
+    command: "{{ run }} scripts/{{ train_script }} --data {train_data} --model {model} --config {model_config}"
+  predict:
+    parameters:
+      model: str
+      historic_data: path
+      future_data: path
+      out_file: path
+      model_config: str
+    command: "{{ run }} scripts/{{ predict_script }} --model {model} --historic {historic_data} --future {future_data} --output {out_file} --config {model_config}"

@@ -95,7 +95,9 @@ browser by default, `--templates` and `--all` show them, and enabling one needs
 
 These are chapkit templates: the same word as in `chapkit init --template`,
 which starts a new model from one of them. They are not the "model templates"
-of chap-core, which is what a model service registers as.
+of chap-core, which is what a model service registers as. The `--template` of
+`varde models new` is a third meaning: the type of a new model project, as in
+[A new model project](#a-new-model-project).
 
 ## Looking at the catalogue
 
@@ -689,6 +691,7 @@ warning: no model was tested, because every one was skipped; the line under each
 | --- | --- |
 | `its container is not running` | `varde up`. |
 | ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `varde update` moves the pin; `--backtest` tests it through chap-core instead. |
+| ``an MLproject service has no `chapkit test` `` | The image serves an `MLproject` file with `chapkit mlproject run`, and chapkit has `chapkit test` only in a chapkit service project. Use `--backtest`. |
 | `chap-core has no configured model for <service> <version>` | `--backtest` only. Run `varde models configs sync ID`, then the test again. |
 | `chap-core has no configured model NAME for <service> <version>; it has ...` | `--config` only. Use one of the names, or add the configured model with `varde models configs add ID`. |
 | `chap-core did not list its configured models, so varde cannot find --config NAME` | `--config` only. Run `varde status`. |
@@ -845,6 +848,115 @@ chap-core's, not the test's, so it is left alone.
 | `--keep` | Do not delete what the run created. |
 | `-vv` | Stream `chapkit test`'s whole output as it runs, and narrate every request. This is what to add to a failure. |
 | `--json` | One object per model: `id`, `service_id`, `level`, `result`, `seconds`, `summary`, `detail`, and - for a backtest - `job_id`, `backtest_id`, `configured_model` and the whole `metrics` object. |
+
+## A new model project
+
+`varde models new DIR` creates a model project in a new directory. The project
+builds into an image that `varde models add` and `varde run` take. Python, uv
+and the chapkit CLI are not necessary on the machine: the templates are in
+varde, and the build runs in Docker.
+
+```sh
+varde models new dengue-lags
+varde models new rain-model --template mlproject-r
+```
+
+```text
+created dengue-lags in dengue-lags (fn-py template, service id dengue-lags)
+next: build the image as `dengue-lags/README.md` says, then run `varde run dengue-lags:dev`
+```
+
+With `-v`, two hints follow: the files it wrote, and the base image.
+
+### The types
+
+There are two kinds of project. A chapkit service has a `main.py` that builds
+the service with chapkit. An MLproject has an `MLproject` file and scripts, and
+no chapkit code: the image serves it with `chapkit mlproject run`.
+
+| `--template` | Kind | The model is in | Base image |
+| --- | --- | --- | --- |
+| `fn-py` (the default) | chapkit service | Python, in `main.py` | `chapkit-py` |
+| `shell-py` | chapkit service | Python scripts | `chapkit-py` |
+| `shell-r` | chapkit service | R scripts | `chapkit-r` |
+| `shell-r-tidyverse` | chapkit service | R scripts, with tidyverse and fable | `chapkit-r-tidyverse` |
+| `shell-r-inla` | chapkit service | R scripts, with INLA | `chapkit-r-inla` |
+| `mlproject-py` | MLproject | Python scripts | `chapkit-py-cli` |
+| `mlproject-r` | MLproject | R scripts | `chapkit-r-cli` |
+| `mlproject-r-tidyverse` | MLproject | R scripts, with tidyverse and fable | `chapkit-r-tidyverse-cli` |
+| `mlproject-r-inla` | MLproject | R scripts, with INLA | `chapkit-r-inla-cli` |
+
+The base images are `ghcr.io/dhis2-chap/<name>:latest`. A `-cli` image has
+chapkit in it, which `chapkit mlproject run` needs. A chapkit service installs
+its own chapkit with `uv sync` in the build, from the range in its
+`pyproject.toml` (`chapkit>=2.3.1,<3`). The INLA images are amd64 only, so
+those Dockerfiles pin `linux/amd64`.
+
+`--with-validation` adds the `$validate` hooks (`on_validate_train` and
+`on_validate_predict`) to `main.py`. An MLproject has no `main.py`, so
+`models new` refuses the option for the `mlproject-*` types.
+
+### What the project holds
+
+| File | Types | What it holds |
+| --- | --- | --- |
+| `main.py` | chapkit service | The options (the `Config` class), the service id and the metadata; for `fn-py`, also the model |
+| `MLproject` | MLproject | The name, the options (`user_options`), and the train and predict commands |
+| `scripts/train.py`, `scripts/predict.py` | `shell-py`, `mlproject-py` | The model |
+| `scripts/train.R`, `scripts/predict.R` | the R types | The model |
+| `pyproject.toml`, `.python-version` | all but the R MLproject types | The Python dependencies |
+| `Dockerfile` | all | The image |
+| `README.md` | all | The build, run and test commands for this project |
+| `.github/workflows/publish.yml` | all | Publishes the image to GHCR on a push to `main` and on a `v*.*.*` tag |
+| `.gitignore`, `.dockerignore` | all | |
+
+Every type has the same example model: for each location, it predicts the
+mean of `disease_cases` in the last `window` periods. `window` is an option,
+with 3 as the default. With the same `--seed`, every type gives the same
+backtest scores, so a change of type does not change the result.
+
+The names come from the directory name:
+
+- The **service id** is the name in lowercase, with `-` between the words, such
+  as `dengue-lags`. The model registers with chap-core under this id. It is
+  the `id` in `main.py`, or the `name` in `MLproject`. The README uses it as
+  the image name too, so `varde models add` needs no `--service-id`.
+- The **model id** is the same with `_`, such as `dengue_lags`. This is the id
+  that `varde models add` gives the image.
+
+A name can have letters, digits, spaces, `-`, `_` and `.`. A name that starts
+with a digit gets `model-` in front of its service id.
+
+### From the project to a backtest
+
+In the project:
+
+```sh
+cd dengue-lags
+git init && git add . && git commit -m "feat: first version"
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t dengue-lags:dev .
+```
+
+chap-core stores a model only if the image has a git revision, so the build
+needs a commit and `GIT_REVISION`. Without `uv.lock`, the build resolves the
+Python dependencies itself. Run `uv lock` and commit the file to make every
+build get the same versions.
+
+Then, in a deployment with chap-core:
+
+```sh
+varde models add dengue-lags:dev
+varde up --wait
+varde models test dengue_lags --backtest
+varde models configs add dengue_lags --name long --set window=6
+varde models test dengue_lags --backtest --config long
+```
+
+A model-level test (`varde models test` without `--backtest`) runs
+`chapkit test` in the container. An MLproject image does not have it, and the
+row says `skip` with ``an MLproject service has no `chapkit test` ``.
+
+To run the model service alone, with no deployment: `varde run dengue-lags:dev`.
 
 ## Models outside the marketplace
 

@@ -45,9 +45,9 @@ A few words the person will see:
      8 GB of memory, option 2 instead (6 GB).
    - *Run Chap for a DHIS2 that already exists*: option 5.
    - *One piece on its own* (climate data, one model, a DHIS2): options 6 to 10.
-   - *Develop a model, chap-core or DHIS2*: options 11 to 17.
-   - *Two deployments at once*: option 18.
-   - *Evaluate a model on their own data file, without DHIS2*: option 19.
+   - *Develop a model, chap-core or DHIS2*: options 11 to 18.
+   - *Two deployments at once*: option 19.
+   - *Evaluate a model on their own data file, without DHIS2*: option 20.
 
    If they are unsure, recommend option 1.
 2. **Check the machine** with [Before any option](#before-any-option).
@@ -172,17 +172,18 @@ old one first as shown in [Every option: stop, start, remove](#every-option-stop
 | 9 | [A particular DHIS2 version](#9-a-particular-dhis2-version) | run DHIS2 2.41, 2.43 or the next, unreleased one |
 | 10 | [Climate data and DHIS2, no Chap](#10-climate-data-and-dhis2-no-chap) | have OCS and a DHIS2 together, without Chap |
 | | **Develop** | |
-| 11 | [My own model](#11-my-own-model) | run a model they wrote themselves |
-| 12 | [My own model, while I work on it](#12-my-own-model-while-i-work-on-it) | develop a model in its folder and have Chap use it |
-| 13 | [A model image I built](#13-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
-| 14 | [My own chap-core, with the models](#14-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
-| 15 | [chap-core built from my checkout](#15-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
-| 16 | [My own DHIS2, with Chap](#16-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to Chap from varde |
-| 17 | [A DHIS2, with my own chap-core](#17-a-dhis2-with-my-own-chap-core) | have varde run DHIS2 in front of the chap-core they are developing |
+| 11 | [A new model of my own](#11-a-new-model-of-my-own) | start a new model, in Python or R, from a template |
+| 12 | [My own model](#12-my-own-model) | run a model they wrote themselves |
+| 13 | [My own model, while I work on it](#13-my-own-model-while-i-work-on-it) | develop a model in its folder and have Chap use it |
+| 14 | [A model image I built](#14-a-model-image-i-built) | run a model image they built with `docker build`, without publishing it |
+| 15 | [My own chap-core, with the models](#15-my-own-chap-core-with-the-models) | develop chap-core itself and have the models register with it |
+| 16 | [chap-core built from my checkout](#16-chap-core-built-from-my-checkout) | test their chap-core changes with everything else around them |
+| 17 | [My own DHIS2, with Chap](#17-my-own-dhis2-with-chap) | connect a DHIS2 they run themselves to Chap from varde |
+| 18 | [A DHIS2, with my own chap-core](#18-a-dhis2-with-my-own-chap-core) | have varde run DHIS2 in front of the chap-core they are developing |
 | | **More than one** | |
-| 18 | [Two of these at the same time](#18-two-of-these-at-the-same-time) | keep one option running while starting another |
+| 19 | [Two of these at the same time](#19-two-of-these-at-the-same-time) | keep one option running while starting another |
 | | **The chap CLI** | |
-| 19 | [Evaluate a model on my own data](#19-evaluate-a-model-on-my-own-data) | run `chap eval` on their CSV without installing Python or uv |
+| 20 | [Evaluate a model on my own data](#20-evaluate-a-model-on-my-own-data) | run `chap eval` on their CSV without installing Python or uv |
 
 ### 1. Chap in DHIS2, with the Modeling App
 
@@ -466,11 +467,52 @@ DHIS2 login `admin` / `district` works.
 
 More: [Combinations](./use-cases/combinations.md#climate-data-and-a-dhis2-no-chap).
 
-### 11. My own model
+### 11. A new model of my own
+
+For someone who wants to write a new model. Ask which language they use: Python
+or R. `varde models new` makes the project. Docker builds it, so Python, uv
+and R are not necessary on their machine.
+
+```sh
+varde models new my-model
+```
+
+For R, add `--template shell-r`. For a model in the MLproject format, use
+`--template mlproject-py` or `--template mlproject-r`.
+
+It worked when the first line says `created my-model in my-model`. Then build
+the image in the new folder:
+
+```sh
+cd my-model
+git init && git add . && git commit -m "feat: first version"
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .
+```
+
+It worked when the build ends with no error. The first build pulls the base
+image, which takes some minutes. Then run it with chap-core:
+
+```sh
+cd ..
+varde init mychap --models none
+cd mychap
+varde models add my-model:dev
+varde up --wait
+varde models test my_model --backtest
+```
+
+It worked when the last line says `1 of 1 model passes`. The model is in
+`main.py` (the default type) or in the `scripts/` folder. The `README.md` of
+the project lists the files. After a change, build the image again with the
+same `docker build` line, then run `varde restart` in the `mychap` folder.
+
+More: [A new model project](./models.md#a-new-model-project).
+
+### 12. My own model
 
 The model has to be a chapkit model whose GitHub repository publishes a public
 image on ghcr.io (most do, through their publish workflow). If `varde models
-add` says the repository `publishes no public image`, use option 13 instead:
+add` says the repository `publishes no public image`, use option 14 instead:
 build the image from their checkout and add that.
 
 To try it, with no folder:
@@ -497,7 +539,7 @@ model ...; enabling that` says so.
 
 More: [Models outside the marketplace](./models.md#models-outside-the-marketplace).
 
-### 12. My own model, while I work on it
+### 13. My own model, while I work on it
 
 For someone developing a chapkit model in its folder. varde runs chap-core;
 they run the model from the folder.
@@ -527,7 +569,7 @@ did not start it, which is expected).
 
 More: [Your model from its checkout, with Chap](./use-cases/model-on-host.md).
 
-### 13. A model image I built
+### 14. A model image I built
 
 In the model's folder, which must be a git checkout:
 
@@ -568,7 +610,7 @@ run `varde restart` and `varde models configs sync`.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 
-### 14. My own chap-core, with the models
+### 15. My own chap-core, with the models
 
 For someone developing chap-core itself. They run chap-core from its folder,
 listening on `0.0.0.0:8000`; varde runs the models. Have them start their
@@ -600,7 +642,7 @@ it: `varde components enable chap-core` with
 
 More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
 
-### 15. chap-core built from my checkout
+### 16. chap-core built from my checkout
 
 For someone changing chap-core who wants to run their version with models.
 Replace the path with where they cloned chap-core:
@@ -618,7 +660,7 @@ models registered. After changing the code, `varde up` again rebuilds it.
 
 More: [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md).
 
-### 16. My own DHIS2, with Chap
+### 17. My own DHIS2, with Chap
 
 For someone who already runs DHIS2 on this machine (for DHIS2 or app work).
 Ask whether their DHIS2 runs in Docker. If it does not:
@@ -658,7 +700,7 @@ starting at all.
 
 More: [A DHIS2 you run yourself, with Chap from varde](./use-cases/dhis2-dev-with-chap.md).
 
-### 17. A DHIS2, with my own chap-core
+### 18. A DHIS2, with my own chap-core
 
 For someone developing chap-core who wants DHIS2 and the Modeling App in front
 of it. Their chap-core must listen on `0.0.0.0:8000`. Needs 8 GB of
@@ -684,7 +726,7 @@ It worked when `varde dhis2 connect` finishes without `error:` and the login
 
 More: [A DHIS2 from varde, with a chap-core elsewhere](./use-cases/dhis2-with-chap-core-elsewhere.md).
 
-### 18. Two of these at the same time
+### 19. Two of these at the same time
 
 Every option uses the same ports, so a second one needs its own. Create the
 second one with these added to its `varde init` line, one flag per piece it
@@ -707,7 +749,7 @@ this; see the note below.
 
 More: [Several deployments on one machine](./use-cases/several-deployments.md).
 
-### 19. Evaluate a model on my own data
+### 20. Evaluate a model on my own data
 
 They have a dataset as a CSV, with a GeoJSON of the same name beside it. Do
 not install Python or uv for them. In the directory with the data:
@@ -790,7 +832,7 @@ varde down --volumes --yes    # stop and delete all the data
 After `varde down --volumes --yes` the folder can be deleted.
 
 All the options use the same ports, so only one of them runs at a time
-(option 18 is the exception). While another deployment is up, `varde init`
+(option 19 is the exception). While another deployment is up, `varde init`
 warns that a port `is already in use on this machine`. You can ignore that
 warning if you stop the other one before `varde up`.
 

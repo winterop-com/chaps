@@ -100,6 +100,18 @@ pub(super) fn model_level(
 
     let Some(summary) = modeltest::parse_summary(&text) else {
         if modeltest::chapkit_missing(outcome.code, &text) {
+            // `chapkit mlproject run` serves an MLproject with the chapkit of
+            // the image, but chapkit offers `chapkit test` only in a chapkit
+            // service project, so an update cannot help there.
+            if serves_mlproject(project, &enabled.service_id, ctx.out.is_verbose()) {
+                return run.end(
+                    Verdict::Skip,
+                    "an MLproject service has no `chapkit test`",
+                    Some(format!(
+                        "go through chap-core with `varde models test {id} --backtest`"
+                    )),
+                );
+            }
             return run.end(
                 Verdict::Skip,
                 format!("the image has no `chapkit test`{}", reported(info.as_ref())),
@@ -148,4 +160,16 @@ fn reported(info: Option<&serde_json::Value>) -> String {
         ),
         _ => String::new(),
     }
+}
+
+/// Whether the service's container holds an `MLproject` file in its working
+/// directory, which is what `chapkit mlproject run` serves. A docker error
+/// reads as no.
+fn serves_mlproject(project: &Project, service_id: &str, echo: bool) -> bool {
+    let exec: Vec<String> = ["exec", "-T", service_id, "test", "-f", "MLproject"]
+        .iter()
+        .map(|part| part.to_string())
+        .collect();
+    docker::compose_captured(project, &exec, echo, Duration::from_secs(30))
+        .is_ok_and(|outcome| outcome.code == 0 && !outcome.timed_out)
 }

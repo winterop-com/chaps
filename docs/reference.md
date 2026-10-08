@@ -146,7 +146,7 @@ Usage: varde models [OPTIONS] <COMMAND>
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
-Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models configs`](#varde-models-configs), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
+Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models configs`](#varde-models-configs), [`varde models new`](#varde-models-new), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
 
 ## varde models list
 
@@ -322,6 +322,20 @@ Usage: varde models configs sync [OPTIONS] [ID]...
 | `<ID>...` | Marketplace ids or service ids; all enabled models when none is given. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models new
+
+Create a model project from a template.
+
+```text
+Usage: varde models new [OPTIONS] <DIR>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<DIR>` | Directory to create; its name becomes the model name. |
+| `--template <TYPE>` | The kind of project and its base image. Values: `fn-py`, `shell-py`, `shell-r`, `shell-r-tidyverse`, `shell-r-inla`, `mlproject-py`, `mlproject-r`, `mlproject-r-tidyverse`, `mlproject-r-inla`. Default: `fn-py`. |
+| `--with-validation` | Add $validate hooks to main.py (chapkit service types only). |
 
 ## varde models add
 

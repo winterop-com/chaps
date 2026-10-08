@@ -1,0 +1,55 @@
+{% if amd64_only %}
+# The INLA base image is amd64-only, because INLA has x86_64 builds only.
+# On an Apple Silicon Mac, the build runs under emulation.
+ARG BASE_PLATFORM=linux/amd64
+FROM --platform=${BASE_PLATFORM} {{ base_image }}
+{% else %}
+FROM {{ base_image }}
+{% endif %}
+
+# The build runs as root. The service runs as the user `chapkit` (uid 1000),
+# which the base image has.
+USER root
+WORKDIR /work
+
+# The dependencies first, so that a change to the code does not install them
+# again. With a uv.lock, the build installs exactly the locked versions.
+# Without one, uv resolves them in the build.
+COPY pyproject.toml uv.lock* ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -f uv.lock ]; then \
+        UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --frozen --no-dev --no-install-project; \
+    else \
+        UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --no-install-project; \
+    fi
+{% if is_r %}
+
+# R packages that the scripts need and the base image does not have:
+# RUN Rscript -e 'install.packages(c("forecast"), repos = "https://cloud.r-project.org")'
+{% endif %}
+
+# The commit the image is built from. The service reports it as git_revision,
+# and chap-core stores the model only if it has one:
+#   docker build --build-arg GIT_REVISION=$(git rev-parse HEAD) .
+ARG GIT_REVISION=""
+ENV GIT_REVISION=${GIT_REVISION}
+
+COPY main.py ./
+{% if is_shell %}
+COPY scripts/ ./scripts/
+{% endif %}
+
+# The service writes only to /work/data (its database) and /tmp (the job
+# workspaces), so the root file system can be read-only.
+RUN mkdir -p /work/data && chown -R chapkit:chapkit /work/data
+ENV HOME=/tmp \
+    MPLCONFIGDIR=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache
+USER chapkit
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl --fail http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -29,6 +29,7 @@ mod paths;
 mod ports;
 mod project;
 mod registry;
+mod scaffold;
 mod selfupdate;
 mod status;
 mod top;
@@ -155,6 +156,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
                 Some(ConfigsCmd::Export(args)) => commands::configs::export(ctx, args),
                 Some(ConfigsCmd::Sync(args)) => commands::configs::sync::run(ctx, args),
             },
+            ModelsCmd::New(args) => commands::models_new::run(ctx, args),
             ModelsCmd::Add(args) => commands::manual_models::add(ctx, args),
             ModelsCmd::Remove(args) => commands::manual_models::remove(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),

@@ -1,0 +1,19 @@
+[project]
+name = "{{ slug }}"
+version = "0.1.0"
+description = "{{ name }}: a Chap model service"
+requires-python = ">=3.13"
+dependencies = [
+    "{{ chapkit_requirement }}",
+{% if not is_r %}
+    "pandas>=2.3.3",
+{% endif %}
+{% if is_shell and not is_r %}
+    "pyyaml>=6.0",
+{% endif %}
+]
+
+[dependency-groups]
+dev = [
+    "uvicorn[standard]>=0.30.0",
+]

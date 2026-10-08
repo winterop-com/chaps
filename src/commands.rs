@@ -17,6 +17,7 @@ pub mod init;
 pub mod jobs;
 pub mod manual_models;
 pub mod models;
+pub mod models_new;
 pub mod modeltest;
 pub mod open;
 pub mod registry;
