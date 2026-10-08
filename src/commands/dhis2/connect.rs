@@ -29,7 +29,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         // App can reach Chap now rather than once it is installed.
         let listed = match chap_apps(&session) {
             Ok(apps) => {
-                left.extend(missing_apps(&apps));
+                left.extend(missing_labels(&apps));
                 true
             }
             Err(err) => {
@@ -37,29 +37,20 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
                 false
             }
         };
-        let installed = listed && left.is_empty();
         let notes = external_left_alone(&left);
-        // Connected means what it means for a local DHIS2: the route works
-        // and the apps are there. An app listing that failed proves neither.
-        let judgement = match (route.verified, listed, installed) {
-            (false, _, _) => Judgement::Broken,
-            (true, false, _) => Judgement::Unknown,
-            (true, true, true) => Judgement::Connected,
-            (true, true, false) => Judgement::Broken,
+        // On a DHIS2 someone else runs, the route is all that `connect` does,
+        // so a proved route is a connect that got through: the record stops
+        // `varde up` and `varde status` asking for a command that cannot do
+        // more. The apps are its admin's step, and `varde dhis2 show` names
+        // them for as long as they are missing.
+        let judgement = match route.verified {
+            true => Judgement::Connected,
+            false => Judgement::Broken,
         };
         let record = record_connect(ctx, &mut session.project, judgement)?;
         let report = Dhis2Report {
             instance: session.instance(),
-            next: match (route.verified, installed) {
-                (true, true) => {
-                    "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`"
-                        .to_string()
-                }
-                (true, false) => "the Modeling App can reach Chap once it is installed; open \
-                                  DHIS2 with `varde open dhis2`"
-                    .to_string(),
-                (false, _) => "run `varde dhis2 show` to see what is still missing".to_string(),
-            },
+            next: external_next(route.verified, listed.then_some(left.as_slice())),
             route: Some(route),
             apps: None,
             analytics: None,
@@ -113,15 +104,38 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     }
 }
 
+/// The last line of `connect` on an external DHIS2. `missing` is the apps
+/// the listing did not find, or `None` when the apps could not be listed.
+pub(super) fn external_next(verified: bool, missing: Option<&[&str]>) -> String {
+    match (verified, missing) {
+        (false, _) => "run `varde dhis2 show` to see what is still missing".to_string(),
+        (true, Some([])) => {
+            "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string()
+        }
+        (true, Some(missing)) => format!(
+            "the Modeling App can reach Chap after the admin of this DHIS2 installs {}; \
+             `varde dhis2 show` says when they are there",
+            missing.join(" and ")
+        ),
+        (true, None) => "the Modeling App can reach Chap after the Modeling App and the Climate \
+                         App are installed; `varde dhis2 show` says which are there"
+            .to_string(),
+    }
+}
+
 /// The two steps `connect` leaves to the admin of an external DHIS2, with
 /// the apps it found missing named, as the `skipped:` lines of its report.
-fn external_left_alone(missing: &[String]) -> Vec<String> {
+fn external_left_alone(missing: &[&str]) -> Vec<String> {
     let apps = match missing.is_empty() {
         true => "installing apps: both are there already".to_string(),
         false => format!(
             "installing apps on a DHIS2 varde does not run ({}); `varde dhis2 apps` installs \
              them if its admin agrees",
-            missing.join(", ")
+            missing
+                .iter()
+                .map(|label| format!("{label} is not installed"))
+                .collect::<Vec<String>>()
+                .join(", ")
         ),
     };
     vec![
@@ -141,7 +155,8 @@ fn external_left_alone(missing: &[String]) -> Vec<String> {
 /// a reported skip everywhere else in varde rather than a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Judgement {
-    /// The route was proved and both apps are in place. Stamp the time.
+    /// The route was proved and both apps are in place, or, on an external
+    /// DHIS2, the route was proved. Stamp the time.
     Connected,
     /// This run found something wrong - a route nothing answered through, or an
     /// app missing or failed. Forget any earlier record, so the hint comes

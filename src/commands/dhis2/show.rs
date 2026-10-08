@@ -33,6 +33,9 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let analytics = analytics_evidence(ctx, &session);
 
     let mut missing = Vec::new();
+    let route_ok = shown
+        .as_ref()
+        .is_some_and(|route| route.ours && !route.disabled && route.authorised && route.verified);
     match &shown {
         None => missing.push("there is no `chap` route".to_string()),
         Some(route) if !route.ours => missing.push(format!(
@@ -72,7 +75,17 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         ),
         dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded => {}
     }
+    let analytics_ok = matches!(
+        analytics,
+        dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded
+    );
     missing.extend(missing_apps(&apps));
+    let next = show_next(
+        session.external().is_some(),
+        route_ok,
+        !missing_labels(&apps).is_empty(),
+        analytics_ok,
+    );
 
     let report = ShowReport {
         instance: session.instance(),
@@ -81,23 +94,48 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         last_analytics: session.ready.last_analytics.clone(),
         analytics,
         apps,
-        next: String::new(),
+        next,
         missing,
-    };
-    let report = ShowReport {
-        next: match report.missing.is_empty() {
-            true => {
-                "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string()
-            }
-            false => "run `varde dhis2 connect` to do the rest".to_string(),
-        },
-        ..report
     };
     if !ctx.out.json {
         print!("{}", show_table(&report, &ctx.out));
     }
     ctx.out
         .report(&report, |lines| show_summary(&report, lines))
+}
+
+/// The last line of `show`: the command that does what is still missing.
+///
+/// On the `dhis2` component, `varde dhis2 connect` does all three steps. On
+/// an external DHIS2 it sets only the route, so the apps and analytics are
+/// named by their own commands, which its admin runs.
+pub(super) fn show_next(
+    external: bool,
+    route_ok: bool,
+    apps_missing: bool,
+    analytics_ok: bool,
+) -> String {
+    if route_ok && !apps_missing && analytics_ok {
+        return "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`".to_string();
+    }
+    if !external {
+        return "run `varde dhis2 connect` to do the rest".to_string();
+    }
+    let mut steps = Vec::new();
+    if !route_ok {
+        steps.push("`varde dhis2 connect` for the route");
+    }
+    if apps_missing {
+        steps.push("`varde dhis2 apps` for the apps");
+    }
+    if !analytics_ok {
+        steps.push("`varde dhis2 analytics` for the analytics tables");
+    }
+    let admin = match apps_missing || !analytics_ok {
+        true => "; the apps and analytics change this DHIS2, so ask its admin first",
+        false => "",
+    };
+    format!("run {}{admin}", steps.join(", then "))
 }
 
 /// The two apps varde installs, as this instance has them.
@@ -133,6 +171,14 @@ pub(super) fn shown_app(app: &HubAppRef, found: Option<dhis2::InstalledApp>) -> 
 
 /// Which of the two apps this instance does not have.
 pub(super) fn missing_apps(apps: &[ShownApp]) -> Vec<String> {
+    missing_labels(apps)
+        .into_iter()
+        .map(|label| format!("{label} is not installed"))
+        .collect()
+}
+
+/// The prose names of the two apps this instance does not have.
+pub(super) fn missing_labels(apps: &[ShownApp]) -> Vec<&'static str> {
     dhis2::HUB_APPS
         .iter()
         .filter(|app| {
@@ -140,7 +186,7 @@ pub(super) fn missing_apps(apps: &[ShownApp]) -> Vec<String> {
                 .iter()
                 .any(|shown| shown.installed && shown.name == app.name)
         })
-        .map(|app| format!("{} is not installed", app.label))
+        .map(|app| app.label)
         .collect()
 }
 

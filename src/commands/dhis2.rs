@@ -200,7 +200,8 @@ pub struct AppsReport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConnectRecord {
-    /// Written now: the route is verified and both apps are in place.
+    /// Written now: the route is verified and both apps are in place, or, on
+    /// an external DHIS2, where `connect` sets only the route, it is verified.
     Recorded,
     /// An earlier record was cleared, because this run found something broken.
     /// The hint comes back, which is the answer that errs the safe way.

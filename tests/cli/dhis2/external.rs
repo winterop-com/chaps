@@ -98,7 +98,8 @@ fn dhis2_use_records_an_external_dhis2_and_every_verb_talks_to_it() {
             "`varde dhis2 apps` installs them",
         ))
         .stdout(predicates::str::contains(
-            "the Modeling App can reach Chap once it is installed",
+            "the Modeling App can reach Chap after the admin of this DHIS2 installs the \
+             Modeling App and the Climate App",
         ));
     assert!(
         !stand_in.asked().iter().any(
@@ -188,7 +189,7 @@ fn connect_on_an_external_dhis2_with_both_apps_says_it_is_ready() {
             "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`",
         ));
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
-    assert!(!stdout.contains("once it is installed"), "{stdout}");
+    assert!(!stdout.contains("after the admin"), "{stdout}");
 }
 
 #[cfg(unix)]
@@ -299,28 +300,27 @@ fn dhis2_use_refuses_what_it_cannot_record() {
         ));
 }
 
-/// An external DHIS2 is recorded as connected only when the route works and
-/// both apps are there, as a local one is: without the apps, `varde up` and
-/// `varde status` keep the connect hint.
+/// On an external DHIS2, `connect` sets only the route, so a proved route is
+/// a connect that got through: it is recorded with or without the apps, and
+/// `varde dhis2 show` then names the commands for the apps and analytics, not
+/// `varde dhis2 connect` again.
 #[cfg(unix)]
 #[test]
-fn connect_on_an_external_dhis2_without_the_apps_records_nothing() {
+fn connect_on_an_external_dhis2_records_a_proved_route_with_or_without_the_apps() {
     // An external DHIS2 records it under `dhis2_external`.
     let recorded = |dir: &std::path::Path| {
         read(&dir.join(".varde").join("components.yaml"))
             .lines()
             .any(|line| line.trim_start().starts_with("connected_at: 20"))
     };
-    for (apps, connected) in [
-        (Vec::new(), false),
-        (
-            vec![
-                serde_json::json!({"name": "Modeling", "key": "modeling", "version": "7.1.0"}),
-                serde_json::json!({"name": "DHIS2 Climate App", "key": "dhis2-climate-app", "version": "1.16.2"}),
-            ],
-            true,
-        ),
+    for apps in [
+        Vec::new(),
+        vec![
+            serde_json::json!({"name": "Modeling", "key": "modeling", "version": "7.1.0"}),
+            serde_json::json!({"name": "DHIS2 Climate App", "key": "dhis2-climate-app", "version": "1.16.2"}),
+        ],
     ] {
+        let without_apps = apps.is_empty();
         let stand_in = Dhis2StandIn::with(Dhis2State {
             apps,
             ..Dhis2State::default()
@@ -342,6 +342,25 @@ fn connect_on_an_external_dhis2_without_the_apps_records_nothing() {
         dhis2_chap(&sandbox, &dir, empty.path(), None, &["connect"])
             .assert()
             .success();
-        assert_eq!(recorded(&dir), connected);
+        assert!(
+            recorded(&dir),
+            "{}",
+            read(&dir.join(".varde").join("components.yaml"))
+        );
+
+        let show = dhis2_chap(&sandbox, &dir, empty.path(), None, &["show"])
+            .assert()
+            .success();
+        let stdout = String::from_utf8_lossy(&show.get_output().stdout).into_owned();
+        assert!(!stdout.contains("`varde dhis2 connect`"), "{stdout}");
+        assert_eq!(
+            stdout.contains("`varde dhis2 apps` for the apps"),
+            without_apps,
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains("`varde dhis2 analytics` for the analytics tables"),
+            "{stdout}"
+        );
     }
 }

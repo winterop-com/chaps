@@ -745,3 +745,47 @@ fn a_failed_analytics_run_says_the_cause_and_not_the_statement() {
         "{other}"
     );
 }
+
+/// On an external DHIS2 the last line of `show` names the command for each
+/// missing step, because `connect` sets only the route there.
+#[test]
+fn show_names_the_command_for_each_missing_step_on_an_external_dhis2() {
+    let ready = "the Modeling App can reach Chap; open DHIS2 with `varde open dhis2`";
+    assert_eq!(show_next(true, true, false, true), ready);
+    assert_eq!(show_next(false, true, false, true), ready);
+    assert_eq!(
+        show_next(false, true, true, false),
+        "run `varde dhis2 connect` to do the rest"
+    );
+    assert_eq!(
+        show_next(true, true, true, true),
+        "run `varde dhis2 apps` for the apps; the apps and analytics change this DHIS2, so ask \
+         its admin first"
+    );
+    assert_eq!(
+        show_next(true, false, false, true),
+        "run `varde dhis2 connect` for the route"
+    );
+    let all = show_next(true, false, true, false);
+    assert!(
+        all.starts_with(
+            "run `varde dhis2 connect` for the route, then `varde dhis2 apps` for the apps, \
+             then `varde dhis2 analytics`"
+        ),
+        "{all}"
+    );
+}
+
+/// The last line of `connect` on an external DHIS2 names the apps its admin
+/// still has to install.
+#[test]
+fn connect_on_an_external_dhis2_names_the_apps_to_install() {
+    assert_eq!(
+        external_next(true, Some(&["the Climate App"])),
+        "the Modeling App can reach Chap after the admin of this DHIS2 installs the Climate \
+         App; `varde dhis2 show` says when they are there"
+    );
+    assert!(external_next(true, Some(&[])).contains("`varde open dhis2`"));
+    assert!(external_next(true, None).contains("says which are there"));
+    assert!(external_next(false, Some(&[])).contains("`varde dhis2 show`"));
+}
