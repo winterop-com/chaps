@@ -117,10 +117,13 @@ fn the_asset_is_the_version_less_name() {
         "varde-x86_64-unknown-linux-musl.tar.gz"
     );
 
-    // A release that really has nothing for this target says what it has.
+    // A release that really has nothing for this target names the archive
+    // it looked for, not the long list of what it has.
     let err = pick_asset(&full, WINDOWS).expect_err("no windows archive");
-    assert!(err.to_string().contains("no archive for"), "{err}");
-    assert!(err.to_string().contains(SUMS_FILE), "{err}");
+    assert_eq!(
+        err.to_string(),
+        format!("v0.2.0 has no varde-{WINDOWS}.zip, so varde cannot install it on {WINDOWS}")
+    );
 }
 
 #[test]

@@ -153,7 +153,17 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
         });
     }
 
-    let asset = asset?;
+    // The way out depends on how the release was picked: a tag asked for by
+    // name has a newer one, and the newest release has nowhere else to go.
+    let asset = asset.map_err(|err| match &args.version {
+        Some(_) => anyhow::anyhow!(
+            "{err}; pick a newer tag with --version, or run `varde self update` for the newest"
+        ),
+        None => anyhow::anyhow!(
+            "{err}; download a build from https://github.com/{}/releases",
+            selfupdate::REPO
+        ),
+    })?;
 
     if args.check {
         let report = UpdateReport {

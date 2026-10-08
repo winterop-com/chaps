@@ -149,16 +149,16 @@ pub fn dev_update_available(release: &Release, revision: &str) -> bool {
 ///
 /// The asset name holds no version. A payload that lists no assets is taken
 /// at its word rather than refused, because varde can derive the name
-/// without the list.
+/// without the list. The error names the asset it looked for; the caller
+/// adds the way out, which depends on how the release was picked.
 pub fn pick_asset(release: &Release, target: &str) -> Result<String> {
     let name = asset_name(target);
     if release.assets.is_empty() || release.has_asset(&name) {
         return Ok(name);
     }
     Err(anyhow::anyhow!(
-        "{} has no archive for {target}; it carries {}",
-        release.tag,
-        release.assets.join(", ")
+        "{} has no {name}, so varde cannot install it on {target}",
+        release.tag
     ))
 }
 
