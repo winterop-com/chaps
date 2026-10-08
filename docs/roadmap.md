@@ -31,12 +31,6 @@ as [Status and output](./status.md#levels) describes. `varde api` and
 `varde chap` still print their closing lines on stderr with no level. They
 change to the levels next.
 
-### Registry options only where they apply
-
-`--registry-url`, `--offline` and `--cache-dir` are global options today. They
-move to the commands that read the marketplace registry, under a "Registry
-options" heading.
-
 ### Templates for the compose files
 
 The large compose files are templates in `src/compose/templates/`, but the
