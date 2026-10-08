@@ -163,11 +163,25 @@ pub enum AnalyticsEvidence {
 /// knows whether it restored a dump into this database, and DHIS2 does not know
 /// where its rows came from.
 pub fn analytics_evidence(last_success: &str, ran_here: bool, seeded: bool) -> AnalyticsEvidence {
-    match (ran_here, last_success.trim().is_empty(), seeded) {
+    match (ran_here, recorded_success(last_success).is_empty(), seeded) {
         (true, _, _) => AnalyticsEvidence::RanHere,
         (false, true, _) => AnalyticsEvidence::Never,
         (false, false, true) => AnalyticsEvidence::Unconfirmed,
         (false, false, false) => AnalyticsEvidence::Recorded,
+    }
+}
+
+/// `lastAnalyticsTableSuccess` as a record of a run, or empty for none.
+///
+/// A DHIS2 that has never run analytics does not always leave the setting
+/// out: 2.42.6 on an empty database sends `1970-01-01T00:00:00.000`, the
+/// epoch, which is the default of the setting and not a run. So a date in
+/// 1970 counts as no run, the same as an empty value.
+pub fn recorded_success(raw: &str) -> String {
+    let raw = raw.trim();
+    match raw.is_empty() || raw.starts_with("1970-01-01") {
+        true => String::new(),
+        false => raw.to_string(),
     }
 }
 

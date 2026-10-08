@@ -959,6 +959,25 @@ fn an_inherited_analytics_timestamp_is_not_evidence_of_analytics() {
     );
 }
 
+/// DHIS2 2.42.6 on an empty database sends the epoch as its last analytics
+/// success. That is the default of the setting, not a run.
+#[test]
+fn the_epoch_as_the_last_analytics_success_is_no_run() {
+    assert_eq!(recorded_success("1970-01-01T00:00:00.000"), "");
+    assert_eq!(recorded_success(" 1970-01-01T00:00:00.000 "), "");
+    assert_eq!(recorded_success(""), "");
+    assert_eq!(
+        recorded_success("2026-09-27T10:10:40.043"),
+        "2026-09-27T10:10:40.043"
+    );
+    for seeded in [true, false] {
+        assert_eq!(
+            analytics_evidence("1970-01-01T00:00:00.000", false, seeded),
+            AnalyticsEvidence::Never
+        );
+    }
+}
+
 #[test]
 fn an_installed_app_is_matched_on_its_name_or_its_key() {
     let apps = serde_json::json!([

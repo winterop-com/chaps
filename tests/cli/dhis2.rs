@@ -6,6 +6,7 @@ use serde_json::Value as Json;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+mod answers;
 mod external;
 
 /// The `dhis2` row, out of a `varde status --json` document.

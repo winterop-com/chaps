@@ -116,14 +116,15 @@ pub(super) fn run_analytics(
         message: progress.message().to_string(),
         // Re-read, because this is the fact that says the run landed: DHIS2
         // records the time of its last successful analytics generation.
-        last_success: client
-            .get_json(dhis2::SYSTEM_INFO_PATH)
-            .ok()
-            .as_ref()
-            .and_then(|info| info.get("lastAnalyticsTableSuccess"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        last_success: dhis2::recorded_success(
+            client
+                .get_json(dhis2::SYSTEM_INFO_PATH)
+                .ok()
+                .as_ref()
+                .and_then(|info| info.get("lastAnalyticsTableSuccess"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+        ),
     })
 }
 

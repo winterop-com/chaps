@@ -34,7 +34,7 @@ mod route;
 
 pub use analytics::{
     AnalyticsEvidence, Progress, analytics_evidence, finished_here, job_id_of, jobs_path,
-    running_job,
+    recorded_success, running_job,
 };
 pub use apps::{
     InstalledApp, OFFLINE_APPS, app_hub_base, fetch_hub_app, install_path, installed_app,

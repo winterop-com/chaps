@@ -157,6 +157,9 @@ pub(crate) struct Dhis2State {
     /// is a database row, so a restored deployment inherits it while its
     /// notifier - which lives in the process - stays empty.
     pub(crate) inherited_analytics: bool,
+    /// The epoch as the last analytics success, which is what DHIS2 2.42.6
+    /// sends on an empty database that has never run analytics.
+    pub(crate) epoch_analytics: bool,
     /// Answer every authenticated request with a 401.
     pub(crate) unauthorized: bool,
     /// Refuse every route write the way `route.remote_servers_allowed` does.
@@ -391,6 +394,9 @@ pub(crate) fn dhis2_answer(
     }
     if path == "/api/system/info" {
         let mut info = serde_json::json!({"version": "2.42.6"});
+        if state.epoch_analytics {
+            info["lastAnalyticsTableSuccess"] = serde_json::json!("1970-01-01T00:00:00.000");
+        }
         if state.inherited_analytics {
             info["lastAnalyticsTableSuccess"] = serde_json::json!("2026-06-16T07:51:00.093");
         }

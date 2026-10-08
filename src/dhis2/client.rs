@@ -288,7 +288,7 @@ impl Dhis2 {
         let info = answer.json().unwrap_or(serde_json::Value::Null);
         Ok(Ready {
             version: text_at(&info, "version"),
-            last_analytics: text_at(&info, "lastAnalyticsTableSuccess"),
+            last_analytics: super::recorded_success(&text_at(&info, "lastAnalyticsTableSuccess")),
             user: self.whoami(),
             waited: started.elapsed(),
         })
