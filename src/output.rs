@@ -275,7 +275,13 @@ impl Out {
 /// The way out an error message names, for a `--json` reader: the clause after
 /// its last `; ` when that clause holds a command in backticks, which is how
 /// every message here ends that has one (`...; run \`varde up\``).
+///
+/// A message of several lines has a way out on each line, so no single clause
+/// is its hint: it stays whole in the error.
 pub fn hint_of(message: &str) -> Option<String> {
+    if message.trim_end().contains('\n') {
+        return None;
+    }
     let (_, tail) = message.rsplit_once("; ")?;
     tail.contains('`').then(|| tail.trim().to_string())
 }

@@ -446,6 +446,15 @@ fn hint_of_takes_the_last_clause_that_names_a_command() {
 }
 
 #[test]
+fn a_message_of_several_lines_stays_whole_in_the_error() {
+    let message = "2 host ports this deployment needs are already in use:\n  \
+                   port 8700 ...; stop it with `varde -C /a down`\n  \
+                   port 8780 ...; run `varde components enable dhis2 --port 8781`";
+    assert_eq!(hint_of(message), None);
+    assert_eq!(split_hint(message), (message.to_string(), None));
+}
+
+#[test]
 fn a_json_error_says_ok_false_and_carries_the_hint_once() {
     let out = Out {
         json: true,
