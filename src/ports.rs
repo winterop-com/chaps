@@ -377,12 +377,12 @@ pub fn other_deployments(dir: &Path, compose_ls: &dyn Fn() -> Option<String>) ->
     // The deployment being written is not another deployment - `--force` over
     // one that is already there included, where its own old files are on disk
     // and docker may well remember it.
-    let mut seen = BTreeSet::from([identity(dir)]);
+    let mut seen = BTreeSet::from([real_path(dir)]);
     let mut found = Vec::new();
     for path in dirs {
         // A sibling can be docker-known as well, and is one deployment either
         // way.
-        if !seen.insert(identity(&path)) {
+        if !seen.insert(real_path(&path)) {
             continue;
         }
         let Ok(project) = Project::load(&path) else {
@@ -426,7 +426,11 @@ fn sibling_dirs(dir: &Path) -> Vec<PathBuf> {
 /// name put back on, which is enough for the two searches and the new
 /// deployment to agree on which directory is which. What it answers is put
 /// back in the spelling the fallback uses, so all three branches agree too.
-fn identity(path: &Path) -> PathBuf {
+///
+/// It is also the spelling a path is printed in: `chapx/../archives` reads
+/// as `archives`. The fallback removes `.` and `..` by their text, because
+/// there is nothing on disk to resolve them against.
+pub(crate) fn real_path(path: &Path) -> PathBuf {
     if let Ok(real) = path.canonicalize() {
         return plain(real);
     }
@@ -435,7 +439,25 @@ fn identity(path: &Path) -> PathBuf {
     {
         return plain(real).join(name);
     }
-    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+    lexical(&std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+/// `path` without its `.` parts, and with each `..` taking the part before it.
+pub(crate) fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(part);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// A canonical path without the verbatim prefix Windows gives one.

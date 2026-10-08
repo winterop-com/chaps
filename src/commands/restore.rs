@@ -79,7 +79,7 @@ pub struct RestoreReport {
 /// Read the archive, confirm, then restore.
 pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
-    let archive = std::path::absolute(&args.archive).unwrap_or_else(|_| args.archive.clone());
+    let archive = crate::ports::real_path(&args.archive);
     if !archive.is_file() {
         return Err(anyhow::anyhow!("{} is not a file", archive.display()));
     }

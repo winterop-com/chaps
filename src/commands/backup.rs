@@ -199,7 +199,9 @@ fn destination(project: &Project, out: Option<&Path>) -> Result<PathBuf> {
         .map_err(|e| anyhow::anyhow!("reading the working directory: {e}"))?;
     let name = backup::archive_name(&project_name(&project.dir), &backup::stamp(backup::now()));
     let path = backup::resolve_out_path(out, out.is_some_and(Path::is_dir), &cwd, &name);
-    Ok(std::path::absolute(&path).unwrap_or(path))
+    // Absolute and without `..`: the path is printed, and `chapx/../archives`
+    // is not how anyone names that directory.
+    Ok(crate::ports::real_path(&path))
 }
 
 /// The project directory's own name, which names the archive and identifies

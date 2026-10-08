@@ -743,3 +743,25 @@ fn a_component_on_a_port_its_own_model_publishes_is_warned_about() {
     assert!(line.contains("also published by loud"), "{line}");
     assert!(line.contains("--port 5002"), "{line}");
 }
+
+#[test]
+fn a_printed_path_has_no_dot_dot_in_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = plain(dir.path().canonicalize().unwrap());
+    std::fs::create_dir_all(dir.path().join("chapx")).unwrap();
+    std::fs::create_dir_all(dir.path().join("archives")).unwrap();
+    // A parent that exists is resolved, and the name is put back on.
+    assert_eq!(
+        real_path(&dir.path().join("chapx/../archives/a.tar.gz")),
+        real.join("archives").join("a.tar.gz")
+    );
+    // Nothing on disk to resolve against: the text decides.
+    assert_eq!(
+        real_path(&dir.path().join("chapx/../gone/./new/a.tar.gz")),
+        lexical(&dir.path().join("gone/new/a.tar.gz"))
+    );
+    assert_eq!(
+        lexical(Path::new("/srv/chapx/../archives/./a")),
+        PathBuf::from("/srv/archives/a")
+    );
+}

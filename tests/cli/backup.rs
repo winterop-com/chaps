@@ -39,6 +39,59 @@ fn backup_create_json_reports_the_path_the_size_and_the_manifest() {
 }
 
 #[test]
+fn the_archive_path_is_printed_without_dot_dot() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    std::fs::create_dir_all(sandbox.home.path().join("archives")).unwrap();
+
+    let out = chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--no-models",
+            "--out",
+            "../archives",
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.starts_with("wrote "), "{text}");
+    assert!(!text.contains(".."), "{text}");
+    let archive = only_archive(&sandbox.home.path().join("archives"));
+
+    let plan = chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "backup",
+            "restore",
+            &format!(
+                "../archives/{}",
+                archive.file_name().unwrap().to_string_lossy()
+            ),
+            "--files-only",
+            "--yes",
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let plan = String::from_utf8(plan).unwrap();
+    assert!(plan.starts_with("restore "), "{plan}");
+    assert!(!plan.contains(".."), "{plan}");
+}
+
+#[test]
 fn backup_restore_files_only_rebuilds_a_second_deployment() {
     let sandbox = Sandbox::new();
     let source = sandbox.project();
