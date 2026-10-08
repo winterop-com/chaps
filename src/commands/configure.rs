@@ -167,7 +167,7 @@ fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Vec<Target>> 
             .ok_or_else(|| ChapError::UnknownModel(given.clone()))?;
         let enabled = project.state.models.get(&model.id).ok_or_else(|| {
             anyhow::anyhow!(
-                "{} is not enabled in this project; enable it with `varde models enable {}`",
+                "{} is not enabled in this deployment; enable it with `varde models enable {}`",
                 model.id,
                 model.id
             )

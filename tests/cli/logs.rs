@@ -92,7 +92,7 @@ fn logs_of_a_service_with_no_container_says_so() {
         .assert()
         .failure()
         .stdout(predicates::str::contains(
-            "this project has no container for `chap`, so there is no log; start it with \
+            "this deployment has no container for `chap`, so there is no log; start it with \
              `varde up`",
         ));
     assert!(!read(&calls).contains(" logs "), "{}", read(&calls));
@@ -100,7 +100,7 @@ fn logs_of_a_service_with_no_container_says_so() {
     // A service with a container is still read, with a line for the other.
     let text = logs(&sandbox, &dir, &bin, &["logs", "chap", "dhis2"]);
     assert!(
-        text.starts_with("this project has no container for `chap`"),
+        text.starts_with("this deployment has no container for `chap`"),
         "{text}"
     );
     assert!(read(&calls).contains(" logs "), "{}", read(&calls));

@@ -323,7 +323,7 @@ fn models_test_needs_an_id_or_all_and_the_model_has_to_be_enabled() {
         .assert()
         .failure()
         .stderr(
-            predicates::str::contains("auto_arima_chapkit is not enabled in this project").and(
+            predicates::str::contains("auto_arima_chapkit is not enabled in this deployment").and(
                 predicates::str::contains("varde models enable auto_arima_chapkit"),
             ),
         );

@@ -230,7 +230,7 @@ pub(super) fn absent_services(named: &[String], containers: &[docker::Container]
 pub(super) fn no_container_message(absent: &[String]) -> String {
     let named: Vec<String> = absent.iter().map(|s| format!("`{s}`")).collect();
     format!(
-        "this project has no container for {}, so there is no log; start it with `varde up`",
+        "this deployment has no container for {}, so there is no log; start it with `varde up`",
         named.join(", ")
     )
 }
