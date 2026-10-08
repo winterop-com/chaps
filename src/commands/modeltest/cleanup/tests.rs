@@ -79,3 +79,38 @@ fn an_entry_without_an_id_is_skipped_and_a_non_list_is_no_answer() {
     assert_eq!(entries_of(&json!({"detail": "Not Found"})), None);
     assert_eq!(entries_of(&json!("text")), None);
 }
+
+#[test]
+fn the_kept_line_names_the_config_delete_or_else_each_artifact() {
+    let url = "http://127.0.0.1:8000";
+    let line = kept_line(
+        "ewars",
+        url,
+        &["test_config_01J".to_string()],
+        &[("c2".to_string(), "test_config_01J".to_string())],
+        &["a2".to_string()],
+    );
+    assert_eq!(
+        line,
+        "ewars: kept test_config_01J and 1 artifact in its database; remove it with \
+         `varde docker exec ewars curl -fsS -X DELETE http://127.0.0.1:8000/api/v1/configs/c2`"
+    );
+    let line = kept_line(
+        "ewars",
+        url,
+        &[],
+        &[],
+        &["a2".to_string(), "a3".to_string()],
+    );
+    assert!(
+        line.starts_with("ewars: kept no config and 2 artifacts"),
+        "{line}"
+    );
+    assert!(
+        line.ends_with(
+            "/api/v1/artifacts/a2` then `varde docker exec ewars curl -fsS -X DELETE \
+             http://127.0.0.1:8000/api/v1/artifacts/a3`"
+        ),
+        "{line}"
+    );
+}

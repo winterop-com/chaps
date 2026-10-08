@@ -235,17 +235,17 @@ fn models_test_keep_leaves_the_dataset_and_says_so() {
     .get_output()
     .clone();
     let text = String::from_utf8(out.stdout).expect("text");
-    let notes = String::from_utf8(out.stderr).expect("text");
     assert!(text.contains("1 of 1 model passes"), "{text}");
     // A single row is not padded past its own name.
     assert!(text.contains("chapkit-ewars-model    pass"), "{text}");
+    // What was kept is a closing line, on stdout like the count.
     assert!(
-        notes.contains(&format!(
+        text.contains(&format!(
             "kept backtest {TEST_BACKTEST} and dataset {TEST_DATASET}; remove them with \
              `varde api DELETE /v1/crud/backtests/{TEST_BACKTEST}` then \
              `varde api DELETE /v1/crud/datasets/{TEST_DATASET}`"
         )),
-        "{notes}"
+        "{text}"
     );
 
     let recorded = recorded(&sandbox, &dir);
@@ -451,6 +451,59 @@ Result: ALL TESTS PASSED
     );
     // The artifact went with it - chapkit cascades - so nothing asked for it.
     assert!(!calls.contains(TEST_ARTIFACT), "{calls}");
+}
+
+/// `--keep` at the model level: the kept config is a closing line, so
+/// `--json` has it in `messages`, and it names the command that removes it.
+#[cfg(unix)]
+#[test]
+fn models_test_keep_at_the_model_level_is_in_the_json_messages() {
+    let sandbox = Sandbox::new();
+    let (dir, _) = tested_project(&sandbox);
+    let passed = "\
+TEST SUMMARY
+Trainings completed:   1
+Trainings failed:      0
+Predictions completed: 1
+Predictions failed:    0
+
+Result: ALL TESTS PASSED
+";
+    let (fake, log) = fake_docker(passed, 0);
+    let bin = fake.path().join("bin");
+
+    let out = chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["--json", "models", "test", "chapkit_ewars_model", "--keep"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .clone();
+    let doc: Json = serde_json::from_slice(&out.stdout).expect("one JSON document");
+    let kept = doc["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .find(|m| m["text"].as_str().unwrap_or_default().contains("kept"))
+        .unwrap_or_else(|| panic!("no kept line in {doc}"));
+    assert_eq!(kept["level"], "info", "{kept}");
+    let text = kept["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains(&format!(
+            "remove it with `varde docker exec {PASSING_MODEL} curl -fsS -X DELETE \
+             http://127.0.0.1:8000/api/v1/configs/{TEST_CONFIG}`"
+        )),
+        "{text}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("kept"),
+        "the line is not printed twice"
+    );
+    // Nothing was deleted.
+    assert!(!read(&log).contains("-X DELETE"));
 }
 
 #[cfg(unix)]

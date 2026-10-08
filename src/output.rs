@@ -10,7 +10,7 @@ mod clock;
 mod report;
 
 pub use clock::{ago, human_age, local_clock, local_clock_seconds};
-pub use report::Report;
+pub use report::{Level, Message, Report};
 
 use crate::error::Result;
 use console::{Style, measure_text_width};

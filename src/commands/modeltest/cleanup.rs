@@ -5,6 +5,7 @@ use super::{first_line, service_url};
 use crate::api::Api;
 use crate::commands::Ctx;
 use crate::docker;
+use crate::output::Message;
 use crate::project::Project;
 use std::time::Duration;
 
@@ -100,7 +101,8 @@ fn entries_of(value: &serde_json::Value) -> Option<Vec<(String, String)>> {
     )
 }
 
-/// Delete whatever appeared in the service's database while the test ran.
+/// Delete whatever appeared in the service's database while the test ran,
+/// and return what was kept or left behind, for the closing lines.
 ///
 /// Configs first: chapkit cascades a config delete to the artifact trees
 /// linked to it, so the artifacts a training and a prediction left behind
@@ -112,19 +114,19 @@ pub(super) fn clean(
     service_id: &str,
     before: &Option<Held>,
     keep: bool,
-) {
+) -> Vec<Message> {
+    let shows =
+        format!("`varde api GET /v2/services/{service_id}/run/api/v1/configs` shows what it holds");
     let Some(before) = before else {
-        crate::output::notice(&format!(
-            "{service_id}: could not list its configs, so nothing was cleaned up; \
-             `varde api GET /v2/services/{service_id}/run/api/v1/configs` shows what it holds"
-        ));
-        return;
+        return vec![Message::warning(format!(
+            "{service_id}: could not list its configs, so nothing was cleaned up; {shows}"
+        ))];
     };
     let Some(after) = held(ctx, project, api, service_id) else {
-        crate::output::notice(&format!(
-            "{service_id}: could not list its configs afterwards, so nothing was cleaned up"
-        ));
-        return;
+        return vec![Message::warning(format!(
+            "{service_id}: could not list its configs afterwards, so nothing was cleaned up; \
+             {shows}"
+        ))];
     };
 
     let Held {
@@ -132,7 +134,7 @@ pub(super) fn clean(
         artifacts: new_artifacts,
     } = created(before, &after);
     if new_configs.is_empty() && new_artifacts.is_empty() {
-        return;
+        return Vec::new();
     }
 
     if keep {
@@ -146,17 +148,13 @@ pub(super) fn clean(
                 }
             })
             .collect();
-        crate::output::notice(&format!(
-            "{service_id}: kept {} and {} artifact{} in its database",
-            if named.is_empty() {
-                "no config".to_string()
-            } else {
-                named.join(", ")
-            },
-            new_artifacts.len(),
-            if new_artifacts.len() == 1 { "" } else { "s" }
-        ));
-        return;
+        return vec![Message::info(kept_line(
+            service_id,
+            &service_url(project, service_id),
+            &named,
+            &new_configs,
+            &new_artifacts,
+        ))];
     }
 
     let mut left: Vec<String> = Vec::new();
@@ -178,12 +176,51 @@ pub(super) fn clean(
             }
         }
     }
-    if !left.is_empty() {
-        crate::output::notice(&format!(
-            "{service_id}: could not clean up {}; \
-             delete it from the service's own API or restart the model",
-            left.join(", ")
-        ));
+    if left.is_empty() {
+        return Vec::new();
+    }
+    vec![Message::warning(format!(
+        "{service_id}: could not clean up {}; \
+         delete it from the service's own API or restart the model",
+        left.join(", ")
+    ))]
+}
+
+/// What `--keep` left in the service's database, and the commands that
+/// remove it. A config delete takes its artifacts with it, so only a run
+/// that kept artifacts and no config names the artifacts one by one.
+pub(super) fn kept_line(
+    service_id: &str,
+    url: &str,
+    named: &[String],
+    configs: &[(String, String)],
+    artifacts: &[String],
+) -> String {
+    let what = format!(
+        "{service_id}: kept {} and {} artifact{} in its database",
+        if named.is_empty() {
+            "no config".to_string()
+        } else {
+            named.join(", ")
+        },
+        artifacts.len(),
+        if artifacts.len() == 1 { "" } else { "s" }
+    );
+    let remove =
+        |path: String| format!("`varde docker exec {service_id} curl -fsS -X DELETE {url}{path}`");
+    let commands: Vec<String> = match configs.is_empty() {
+        false => configs
+            .iter()
+            .map(|(id, _)| remove(format!("/api/v1/configs/{id}")))
+            .collect(),
+        true => artifacts
+            .iter()
+            .map(|id| remove(format!("/api/v1/artifacts/{id}")))
+            .collect(),
+    };
+    match commands.is_empty() {
+        true => what,
+        false => format!("{what}; remove it with {}", commands.join(" then ")),
     }
 }
 

@@ -87,8 +87,8 @@ pub(super) fn model_level(
     let text = outcome.text();
 
     if outcome.timed_out {
-        clean(ctx, project, api, &enabled.service_id, &before, args.keep);
-        return run.end(
+        let cleanup = clean(ctx, project, api, &enabled.service_id, &before, args.keep);
+        return run.with_cleanup(cleanup).end(
             Verdict::Skip,
             format!("no answer in {}", modeltest::took(timeout.as_secs())),
             Some(format!(
@@ -109,8 +109,8 @@ pub(super) fn model_level(
                 )),
             );
         }
-        clean(ctx, project, api, &enabled.service_id, &before, args.keep);
-        return run.end(
+        let cleanup = clean(ctx, project, api, &enabled.service_id, &before, args.keep);
+        return run.with_cleanup(cleanup).end(
             Verdict::Fail,
             format!(
                 "chapkit test printed no {} block",
@@ -122,7 +122,8 @@ pub(super) fn model_level(
         );
     };
 
-    clean(ctx, project, api, &enabled.service_id, &before, args.keep);
+    let cleanup = clean(ctx, project, api, &enabled.service_id, &before, args.keep);
+    let run = run.with_cleanup(cleanup);
     if summary.passed {
         run.end(Verdict::Pass, summary.did(), None)
     } else {

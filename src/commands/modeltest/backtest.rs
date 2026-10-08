@@ -7,6 +7,7 @@ use crate::commands::Ctx;
 use crate::error::Result;
 use crate::jobs;
 use crate::modeltest::{self, Level, Run, Verdict};
+use crate::output::Message;
 use crate::project::EnabledModel;
 use std::time::{Duration, Instant};
 
@@ -225,8 +226,8 @@ pub(super) fn backtest_level(
     let started = match post(api, "/v1/analytics/create-backtest", &body) {
         Ok(started) => started,
         Err(err) => {
-            drop_rows(ctx, api, None, Some(dataset), args.keep);
-            return run.end(
+            let cleanup = drop_rows(ctx, api, None, Some(dataset), args.keep);
+            return run.with_cleanup(cleanup).end(
                 Verdict::Skip,
                 "chap-core would not start the backtest",
                 Some(first_line(&err.to_string())),
@@ -238,8 +239,8 @@ pub(super) fn backtest_level(
         .and_then(|id| id.as_str())
         .map(str::to_string)
     else {
-        drop_rows(ctx, api, None, Some(dataset), args.keep);
-        return run.end(
+        let cleanup = drop_rows(ctx, api, None, Some(dataset), args.keep);
+        return run.with_cleanup(cleanup).end(
             Verdict::Skip,
             "chap-core answered create-backtest without a job id",
             Some("run `varde models test --backtest -v` to see the answer".to_string()),
@@ -251,8 +252,10 @@ pub(super) fn backtest_level(
         Ok(Some(status)) if jobs::Outcome::of(&status) == jobs::Outcome::Done => {}
         Ok(Some(_)) => {
             let (why, next) = job_failure(api, &backtest_job);
-            drop_rows(ctx, api, None, Some(dataset), args.keep);
-            return run.end(Verdict::Fail, why, Some(next));
+            let cleanup = drop_rows(ctx, api, None, Some(dataset), args.keep);
+            return run
+                .with_cleanup(cleanup)
+                .end(Verdict::Fail, why, Some(next));
         }
         Ok(None) => {
             // Nothing is deleted: the job is still running, and its dataset
@@ -297,8 +300,8 @@ pub(super) fn backtest_level(
         None => "it finished, but chap-core reported no scores".to_string(),
     };
     run.metrics = metrics;
-    drop_rows(ctx, api, backtest, Some(dataset), args.keep);
-    run.end(Verdict::Pass, summary, None)
+    let cleanup = drop_rows(ctx, api, backtest, Some(dataset), args.keep);
+    run.with_cleanup(cleanup).end(Verdict::Pass, summary, None)
 }
 
 /// What `create-backtest` is given as its `modelId` for this service.
@@ -501,8 +504,16 @@ fn job_failure(api: &Api, job: &str) -> (String, String) {
     }
 }
 
-/// Delete the rows this run created, and nothing else.
-fn drop_rows(ctx: &Ctx, api: &Api, backtest: Option<i64>, dataset: Option<i64>, keep: bool) {
+/// Delete the rows this run created, and nothing else. Returns what was kept
+/// or left behind, for the closing lines.
+fn drop_rows(
+    ctx: &Ctx,
+    api: &Api,
+    backtest: Option<i64>,
+    dataset: Option<i64>,
+    keep: bool,
+) -> Vec<Message> {
+    let mut lines = Vec::new();
     if keep {
         let kept: Vec<(&str, i64)> = [("backtests", backtest), ("datasets", dataset)]
             .into_iter()
@@ -519,13 +530,13 @@ fn drop_rows(ctx: &Ctx, api: &Api, backtest: Option<i64>, dataset: Option<i64>, 
                 .collect();
             // The backtest first, because chap-core will not forget a dataset
             // something still points at.
-            crate::output::notice(&format!(
+            lines.push(Message::info(format!(
                 "kept {}; remove them with {}",
                 named.join(" and "),
                 commands.join(" then ")
-            ));
+            )));
         }
-        return;
+        return lines;
     }
     // The backtest first: it points at the dataset, and chap-core refuses to
     // forget a dataset something still references.
@@ -534,14 +545,15 @@ fn drop_rows(ctx: &Ctx, api: &Api, backtest: Option<i64>, dataset: Option<i64>, 
         let path = format!("/v1/crud/{collection}/{row}");
         match api.send("DELETE", &path, None) {
             Ok(answer) if answer.is_success() => ctx.out.verbose(&format!("deleted {path}")),
-            Ok(answer) => crate::output::notice(&format!(
+            Ok(answer) => lines.push(Message::warning(format!(
                 "could not delete {path} ({}); remove it with `varde api DELETE {path}`",
                 answer.status_line()
-            )),
-            Err(err) => crate::output::notice(&format!(
+            ))),
+            Err(err) => lines.push(Message::warning(format!(
                 "could not delete {path} ({}); remove it with `varde api DELETE {path}`",
                 first_line(&err.to_string())
-            )),
+            ))),
         }
     }
+    lines
 }

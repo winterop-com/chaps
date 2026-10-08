@@ -155,6 +155,10 @@ pub struct Run {
     /// chap-core's `aggregateMetrics`, whole, for a backtest that finished.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<serde_json::Value>,
+    /// What the cleanup kept or could not remove. The closing lines carry
+    /// them, so `--json` has them in `messages`.
+    #[serde(skip)]
+    pub cleanup: Vec<crate::output::Message>,
 }
 
 impl Run {
@@ -171,7 +175,14 @@ impl Run {
             job_id: None,
             backtest_id: None,
             metrics: None,
+            cleanup: Vec::new(),
         }
+    }
+
+    /// The same run, with the lines its cleanup reported.
+    pub fn with_cleanup(mut self, cleanup: Vec<crate::output::Message>) -> Run {
+        self.cleanup.extend(cleanup);
+        self
     }
 
     /// Record a verdict, its one-clause summary and the way out.

@@ -186,6 +186,13 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
 /// of a failure is already under its row, so here it is a hint. A run that
 /// tested no model at all says so as a warning, because it proved nothing.
 fn closing(runs: &[Run], lines: &mut Report) {
+    for message in runs.iter().flat_map(|run| &run.cleanup) {
+        match message.level {
+            output::Level::Info => lines.info(message.text.as_str()),
+            output::Level::Hint => lines.hint(message.text.as_str()),
+            output::Level::Warning => lines.warning(message.text.as_str()),
+        };
+    }
     let (count, more) = output::split_hint(&modeltest::closing(runs));
     lines.info(count);
     if let Some(more) = more {

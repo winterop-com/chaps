@@ -28,6 +28,24 @@ pub struct Message {
     pub text: String,
 }
 
+impl Message {
+    /// A line of [`Level::Info`].
+    pub fn info(text: impl Into<String>) -> Message {
+        Message {
+            level: Level::Info,
+            text: text.into(),
+        }
+    }
+
+    /// A line of [`Level::Warning`].
+    pub fn warning(text: impl Into<String>) -> Message {
+        Message {
+            level: Level::Warning,
+            text: text.into(),
+        }
+    }
+}
+
 /// The lines a command prints when it is done.
 #[derive(Debug, Default)]
 pub struct Report {
