@@ -89,9 +89,11 @@ model, then start it again`. To continue:
 2. Start the model again.
 3. Run `varde models configs sync SERVICE_ID` again.
 
-The configured model from before belongs to the old version. Without step 3,
-the `varde status` warning goes away, but the backtest still fails with the
-same reason.
+The configured model from before belongs to the old version, and chap-core
+does not run it. Without step 3, `varde status` warns: `` SERVICE_ID: chap-core
+has configured models of it of other versions only, not of VERSION; run
+`varde models configs sync SERVICE_ID` ``. The backtest skips with `chap-core
+has no configured model for SERVICE_ID VERSION`.
 
 ## Test it through chap-core
 
@@ -137,13 +139,15 @@ chap-core names that configured model `SERVICE_ID:dev`. Add the options as
 `"userOptionValues"`. If the template id is empty, chap-core has no template
 for the model; make sure that `GIT_REVISION` was set when the model started.
 The backtest uses the configured model `SERVICE_ID` if there is one, and else
-`SERVICE_ID:dev`.
+`SERVICE_ID:dev`. To test `dev` when both exist, add `--config dev`. The line
+under the backtest row names the configured model that the backtest used.
 
 It worked when the backtest passes and prints its scores:
 
 ```text
 testing 1 model (through chap-core: a dataset, a backtest and its scores)
 chapkit-minimalist-example-py    pass      13s   crps 16.7  mae 16.7  rmse 18.0
+  configured model: default (id 15)
 
 1 of 1 model passes
 ```
@@ -152,7 +156,9 @@ The scores change from run to run, because the sample data is random. Add
 `--seed N` to get the same data each time.
 
 Without the configured model, the backtest skips with `chap-core has no
-configured model for SERVICE_ID`, and names `varde models configs sync`.
+configured model for SERVICE_ID VERSION`, and names `varde models configs
+sync`. The backtest uses only a configured model of the version that the model
+registered with.
 
 ## A registration key
 

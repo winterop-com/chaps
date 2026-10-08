@@ -223,7 +223,7 @@ add when a failure only happens sometimes.
 ## `chap-core has no configured model for`
 
 ```text
-chapkit-ewars-model    skip    0s   chap-core has no configured model for chapkit-ewars-model
+chapkit-ewars-model    skip    0s   chap-core has no configured model for chapkit-ewars-model 1.0.1
   it is registered, and chap-core has nothing to run it with; run `varde models configs sync chapkit_ewars_model`, then `varde models test chapkit_ewars_model --backtest`
 ```
 
@@ -231,6 +231,13 @@ The model is registered, but chap-core has no configured model for it. chap-core
 2.4 and later makes no configured model from a registration, so a model without
 one cannot run, and the Modeling App does not list it. `varde status` shows such
 a model as `registered, not configured`.
+
+The version at the end of the line is the version that the model registered
+with. A backtest uses only a configured model of that version that chap-core
+has not archived. If the model registered with a new version, the configured
+models of the old version do not count, because chap-core does not run them.
+For a model registered from outside the deployment, `varde status` then warns
+`chap-core has configured models of it of other versions only`.
 
 `varde models test --backtest` makes the configured models itself before it
 starts. So this skip comes only when that step failed, and the lines above the
@@ -257,6 +264,44 @@ template chap-core stored for its version.
 3. If the model image changed, run `varde update` to move the pin, or run
    `varde restart --all <service>` to make the model register again.
 4. Run `varde models configs sync` again.
+
+## `chap-core has no configured model NAME for`
+
+```text
+chapkit-ewars-model    skip    0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.1; it has default, monthly_climate
+  run `varde models configs list chapkit_ewars_model` to see its configured models
+```
+
+`varde models test --backtest --config weekly` asked for the configured model
+`weekly`, and the model has no such configured model of the version it
+registered with. The line names the variant names that it has.
+
+1. Run `varde models configs list ID` to see the configured models.
+2. Run the test again with one of the names after `--config`.
+3. To test a new configuration, add it with `varde models configs add ID`.
+
+With `--all`, `--config` applies to each model. A model without that
+configured model is a skip, and the other models are tested.
+
+## `chap-core did not list its configured models, so varde cannot find --config`
+
+```text
+chapkit-ewars-model    skip    0s   chap-core did not list its configured models, so varde cannot find --config weekly
+  run `varde status` to see why
+```
+
+varde asked chap-core for its configured models
+(`GET /v1/crud/configured-models`), and chap-core did not answer with a list.
+Without the list, varde cannot find the configured model that `--config`
+names.
+
+1. Run `varde status`.
+2. If chap-core is not `up`, read `varde logs chap`.
+3. Add `-vv` to the test. The trace on stderr then shows what chap-core
+   answered.
+
+Without `--config`, the backtest does not skip. It sends the service id, and
+the line under the row says `(by name, as chap-core could not list them)`.
 
 ## `it reports no git revision, so running this again does not help`
 

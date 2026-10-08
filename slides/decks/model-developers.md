@@ -367,8 +367,10 @@ declared covariates and period type, then validates, trains and predicts.
 
 ```text
 chapkit-ewars-model                 pass   33s   crps 4.6  mae 6.6  rmse 9.7
+  configured model: monthly_climate (id 4)
 ```
 
+The line under the row names the configured model that the backtest used.
 Scores on generated data say that the pipeline works, not that the model is
 good.
 
@@ -380,6 +382,7 @@ good.
 | --- | --- |
 | `--all` | every model in `.varde/models.yaml` |
 | `--backtest` | the backtest level, through chap-core |
+| `--config NAME` | the configured model to backtest, by its variant name |
 | `--seed N` | the same generated data on each run, so two runs compare |
 | `--timeout SECONDS` | 300 at the model level, 900 with `--backtest` |
 | `--keep` | keep what the test made, and say how to delete it |

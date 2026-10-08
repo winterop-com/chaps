@@ -458,6 +458,8 @@ created configured model short_lags of chapkit_ewars_model
 - varde checks each key and each value against the options of the model.
 - With no options at a terminal, `add` opens a form: one field for each
   option, with its default.
+- `varde models test chapkit_ewars_model --backtest --config short_lags`
+  runs a backtest of it.
 
 ---
 

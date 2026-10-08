@@ -74,7 +74,7 @@ that reaches the passthrough (`varde down -- -v`) is refused and told to use
 | `varde models list` | List marketplace models (`--all`, `--templates`, `--enabled`). |
 | `varde models search QUERY` | Search id, name and summary. |
 | `varde models info ID` | Everything known about one model. |
-| `varde models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--seed`, `--timeout`, `--keep`). |
+| `varde models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--config NAME`, `--seed`, `--timeout`, `--keep`). With `--backtest`, the line under each row names the configured model it used. |
 | `varde models configs [list] [ID] [--all]` | List the configured models that chap-core has of each enabled model: name, covariates, options and source; `--all` adds the archived ones. See [Configured models](./models.md#configured-models). |
 | `varde models configs add ID` | Add a configured model: `--name` and `--set KEY=VALUE` (`--covariates a,b`), or `--from FILE` for every configuration in a file of the marketplace format. With no options at a terminal, it opens the form. |
 | `varde models configs update ID NAME` | Give a configured model new values (`--set`, `--unset`, `--covariates`), or open the form with its current values. chap-core keeps the old values as an archived configured model. |

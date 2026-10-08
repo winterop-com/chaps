@@ -558,6 +558,43 @@ configured`, and adds a line with the way out:
 auto-arima-chapkit: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
+### Testing a configuration
+
+`varde models test --backtest` runs a backtest of one configured model of each
+model. To test a configured model that you added, give its variant name with
+`--config`:
+
+```sh
+varde models configs add chapkit_ewars_model --name short_lags --set n_lags=2,2
+varde models test chapkit_ewars_model --backtest --config short_lags
+```
+
+```text
+testing 1 model (through chap-core: a dataset, a backtest and its scores)
+chapkit-ewars-model    pass   31s   crps 4.9  mae 7.0  rmse 10.2
+  configured model: short_lags (id 9)
+
+1 of 1 model passes
+```
+
+Without `--config`, the backtest takes the configured model `default`, or else
+the lowest-numbered one. See [The backtest level](#the-backtest-level). The
+line under the row always names the configured model that it used.
+
+`--config` counts only a configured model of the version that the model
+registered with, and not an archived one. If the model has no configured model
+of that name, the test skips it and names the ones that it has:
+
+```text
+chapkit-ewars-model    skip    0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.1; it has monthly_climate, monthly_population_only, monthly_region_seasonal, short_lags
+  run `varde models configs list chapkit_ewars_model` to see its configured models
+```
+
+With `--all` or more than one id, `--config` applies to each model. A model
+that has a configured model of that name is tested with it. Each other model
+is a skip with the names that it has. `--config` without `--backtest` stops
+with exit code 2.
+
 ## Testing a model
 
 `varde status` and `varde doctor` can both be entirely green while a model
@@ -640,7 +677,9 @@ warning: no model was tested, because every one was skipped; the line under each
 | --- | --- |
 | `its container is not running` | `varde up`. |
 | ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `varde update` moves the pin; `--backtest` tests it through chap-core instead. |
-| `chap-core has no configured model for <service>` | `--backtest` only. Run `varde models configs sync ID`, then the test again. |
+| `chap-core has no configured model for <service> <version>` | `--backtest` only. Run `varde models configs sync ID`, then the test again. |
+| `chap-core has no configured model NAME for <service> <version>; it has ...` | `--config` only. Use one of the names, or add the configured model with `varde models configs add ID`. |
+| `chap-core did not list its configured models, so varde cannot find --config NAME` | `--config` only. Run `varde status`. |
 | `no answer in 5m` | The model is wedged or genuinely slow. The line under the row names `--timeout` with twice the limit. The same number is handed to chapkit as its per-job deadline. |
 
 ### The backtest level
@@ -659,10 +698,28 @@ configs sync`](#configured-models) does. A model registered from outside the
 deployment is not configured by this step.
 
 The backtest names one of chap-core's configured models by its id, chosen from
-`GET /v1/crud/configured-models`: the one named after the service where there
-is one, and otherwise the lowest-numbered `<service>:<configuration>` - a
-`test_config_` that an earlier test left behind comes last of all. A service
-that chap-core has no configured model for is skipped, not backtested.
+`GET /v1/crud/configured-models`. Only a configured model of the version that
+the service registered with counts, and only one that chap-core has not
+archived. A service that registers with a new version keeps the configured
+models of the old version, but chap-core does not run them. Without
+`--config`, the backtest takes the first of these that exists:
+
+1. The configured model named after the service: the variant name `default`.
+2. The lowest-numbered `<service>:<variant>`.
+3. A `<service>:test_config_...` that an earlier test left behind.
+
+`--config NAME` names the configured model to backtest. NAME is the variant
+name, as `varde models configs` shows it, or the full name `<service>:<variant>`.
+See [Testing a configuration](#testing-a-configuration).
+
+A service that has no configured model of its version is skipped, not
+backtested. The skip names the version, and the line under it names `varde
+models configs sync`:
+
+```text
+chapkit-ewars-model    skip    0s   chap-core has no configured model for chapkit-ewars-model 1.0.1
+  it is registered, and chap-core has nothing to run it with; run `varde models configs sync chapkit_ewars_model`, then `varde models test chapkit_ewars_model --backtest`
+```
 
 That configured model's `additionalContinuousCovariates` are the columns the
 backtest hands the model, and the sample data does not always carry them:
@@ -688,10 +745,19 @@ it cannot match, so `varde` sets it before posting.
 ```text
 testing 2 models (through chap-core: a dataset, a backtest and its scores)
 chapkit-rwanda-malaria-bym-model    pass   38s   crps 15.5  mae 23.8  rmse 26.9
+  configured model: monthly (id 7)
 chapkit-ewars-model                 pass   33s   crps 4.6  mae 6.6  rmse 9.7
+  configured model: monthly_climate (id 4)
 
 2 of 2 models pass
 ```
+
+The line under each row names the configured model that the backtest used:
+its variant name and its id in chap-core. So the scores are always of a
+configured model that you can see. `--json` has the same as `configured_model`,
+with `id`, `name` and `variant`. If chap-core did not list its configured
+models, the backtest sends the service id, and the line says `(by name, as
+chap-core could not list them)`. `id` is then `null`.
 
 **What it proves:** everything the model level does, plus that chap-core can
 reach the model, that the covariates and period type the model declares are the
@@ -761,11 +827,12 @@ chap-core's, not the test's, so it is left alone.
 | --- | --- |
 | `--all` | Test every model in `.varde/models.yaml`. Cannot be combined with an id. |
 | `--backtest` | Run the backtest level instead of the model level. |
+| `--config NAME` | Backtest the configured model with this variant name. Needs `--backtest`. With more than one model, it applies to each model. |
 | `--seed N` | Seed the generated data, so two runs compare. Without it every run is fresh data. |
 | `--timeout SECONDS` | How long one model gets: 300 at the model level, 900 with `--backtest`. At the model level the same number is chapkit's per-job deadline. |
 | `--keep` | Do not delete what the run created. |
 | `-vv` | Stream `chapkit test`'s whole output as it runs, and narrate every request. This is what to add to a failure. |
-| `--json` | One object per model: `id`, `service_id`, `level`, `result`, `seconds`, `summary`, `detail`, and - for a backtest - `job_id`, `backtest_id` and the whole `metrics` object. |
+| `--json` | One object per model: `id`, `service_id`, `level`, `result`, `seconds`, `summary`, `detail`, and - for a backtest - `job_id`, `backtest_id`, `configured_model` and the whole `metrics` object. |
 
 ## Models outside the marketplace
 

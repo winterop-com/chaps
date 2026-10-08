@@ -745,7 +745,9 @@ varde jobs
 
 The first line creates the configured models that chap-core needs, then makes
 every enabled model train, forecast and run an evaluation through chap-core on
-sample data the model generates itself, and prints the scores. For CHAP-EWARS
+sample data the model generates itself, and prints the scores. Under each
+row, the line `configured model: NAME (id N)` names the configured model that
+the backtest used. For CHAP-EWARS
 it takes under a minute. If every model was skipped, it says `warning: no model
 was tested` and exits non-zero; the line under each row says why. `varde jobs` lists what
 chap-core did. To see it in the Modeling App instead, add DHIS2 to the same
