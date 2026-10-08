@@ -408,6 +408,74 @@ varde up
 
 ---
 
+## What the Modeling App lists
+
+The model list shows **configured models**, not model services:
+
+```text
+<model name> [<variant name>]
+```
+
+- A configured model is a model with a set of option values and covariates.
+- One model service can give several entries: the EWARS model gives three.
+- `varde models configs` shows the same list in the terminal, with the
+  option values and covariates of each entry.
+
+---
+
+## Where the entries come from
+
+chap-core 2.4 and later makes no configured model when a model registers.
+varde makes them, one for each configuration of the marketplace entry:
+
+```sh
+varde models configs sync
+```
+
+```text
+chapkit_ewars_model: created configured model monthly_climate
+chapkit_ewars_model: created configured model monthly_population_only
+chapkit_ewars_model: created configured model monthly_region_seasonal
+```
+
+`varde up --wait` and `varde dhis2 connect` do the same step. A model without
+entries shows in `varde status` as `registered, not configured`.
+
+---
+
+## A variant of your own
+
+```sh
+varde models configs add chapkit_ewars_model --name short_lags \
+  --set n_lags=2,2 --set precision=0.05 --covariates rainfall
+```
+
+```text
+created configured model short_lags of chapkit_ewars_model
+```
+
+- `--name` is the variant name: the Modeling App shows it in brackets.
+- varde checks each key and each value against the options of the model.
+- With no options at a terminal, `add` opens a form: one field for each
+  option, with its default.
+
+---
+
+## Change, archive, export
+
+| Command | What it does |
+| --- | --- |
+| `varde models configs update ID NAME` | gives the variant new values |
+| `varde models configs archive ID NAME` | archives the variant |
+| `varde models configs export ID` | writes the variants in the marketplace format |
+
+- chap-core never deletes a configured model. It **archives** it, and keeps
+  it for the backtests and predictions that use it.
+- An update makes a new configured model and archives the old one.
+- The Modeling App shows an archived configured model as Archived.
+
+---
+
 ## A 401 from the Modeling App
 
 ```text

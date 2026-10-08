@@ -426,6 +426,24 @@ One row for each model: `crps`, `mae`, `rmse`, the interval coverage and more.
 
 ---
 
+## Configurations for the marketplace entry
+
+```sh
+varde models configs add my_model --name short_lags --set n_lags=2,2
+varde models configs export my_model --out configurations.yaml
+```
+
+- The file is the `configurations:` block of a marketplace entry. Put it in
+  the entry of your model.
+- Each configuration has its variant name, a `description` and a `config`.
+- In another deployment, this adds all of them:
+
+```sh
+varde models configs add my_model --from configurations.yaml
+```
+
+---
+
 ## The whole loop, after a code change
 
 ```sh

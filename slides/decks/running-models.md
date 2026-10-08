@@ -279,6 +279,8 @@ them.
   `varde stop` work on that deployment.
 - `--group` is then refused: the deployment is the group.
 - `varde run` publishes the model as the deployment does.
+- With chap-core in the deployment, `varde models configs` lists what
+  chap-core can run.
 
 So a tool that only wants "start this model and give me its URL" has one
 code path, with or without `varde init`.
