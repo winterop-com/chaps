@@ -270,9 +270,11 @@ varde models test SERVICE_ID --backtest  # a model registered from outside, such
 The model level needs no chap-core, so it also tests a model in a deployment
 without one; `--backtest` needs one.
 
-Models are tested one after another, and the exit code is non-zero only when
-one of them **failed**: a model that could not be tested at all is a skip, and
-a skip is counted rather than treated as a bad answer.
+Models are tested one after another. A model that could not be tested at all
+is a skip, and a skip is counted rather than treated as a bad answer. The exit
+code is non-zero when one of the models **failed**, or when every model was
+skipped: a run that tested no model proved nothing, and it says so in a
+warning.
 
 ### The model level
 

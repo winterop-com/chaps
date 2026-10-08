@@ -188,3 +188,37 @@ fn models_test_backtest_configures_the_model_first() {
     // The first one it made, by its integer id.
     assert_eq!(seen["backtests"][0]["modelId"], CREATED_IDS);
 }
+
+/// A model that cannot be configured is a skip with the command that shows
+/// why, and a run that tested nothing fails.
+#[test]
+fn models_test_backtest_fails_when_every_model_was_skipped() {
+    let sandbox = Sandbox::new();
+    let dir = fresh_project(&sandbox, "auto_arima_chapkit");
+
+    let output = chap_in(&sandbox, &dir, &["models", "test", "--all", "--backtest"])
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let text = stdout_of(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        text.contains("chap-core has no configured model for auto-arima-chapkit"),
+        "{text}"
+    );
+    assert!(
+        text.contains("run `varde models configure auto_arima_chapkit`"),
+        "{text}"
+    );
+    assert!(!text.contains("varde restart"), "{text}");
+    assert!(text.contains("0 pass, 1 skipped"), "{text}");
+    assert!(
+        stderr.contains("warning: auto_arima_chapkit: could not create its configured models"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("warning: no model was tested, because every one was skipped"),
+        "{stderr}"
+    );
+}

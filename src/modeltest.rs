@@ -284,6 +284,15 @@ pub fn any_failed(runs: &[Run]) -> bool {
     runs.iter().any(|r| r.verdict == Verdict::Fail)
 }
 
+/// Whether the run tested no model at all: every one was skipped.
+pub fn none_tested(runs: &[Run]) -> bool {
+    !runs.is_empty() && runs.iter().all(|r| r.verdict == Verdict::Skip)
+}
+
+/// The warning for a run in which every model was skipped.
+pub const NONE_TESTED: &str =
+    "no model was tested, because every one was skipped; the line under each row says why";
+
 /// `1 model`, `2 models`.
 fn plural(n: usize, word: &str) -> String {
     if n == 1 {

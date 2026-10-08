@@ -66,9 +66,8 @@ pub(super) fn backtest_level(
                 enabled.service_id
             ),
             Some(format!(
-                "it is registered but nothing runs it, run `varde restart --all {}` and try \
-                 again",
-                enabled.service_id
+                "it is registered, and chap-core has nothing to run it with; run `varde models \
+                 configure {id}`, then `varde models test {id} --backtest`"
             )),
         );
     };

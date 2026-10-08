@@ -166,7 +166,7 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     if !ctx.out.json {
         println!();
     }
-    let failed = modeltest::any_failed(&runs);
+    let failed = modeltest::any_failed(&runs) || modeltest::none_tested(&runs);
     let value = serde_json::json!({
         "ok": !failed,
         "models": runs,
@@ -183,12 +183,16 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
 }
 
 /// The line the run ends on: how many passed. The way to see the full output
-/// of a failure is already under its row, so here it is a hint.
+/// of a failure is already under its row, so here it is a hint. A run that
+/// tested no model at all says so as a warning, because it proved nothing.
 fn closing(runs: &[Run], lines: &mut Report) {
     let (count, more) = output::split_hint(&modeltest::closing(runs));
     lines.info(count);
     if let Some(more) = more {
         lines.hint(more);
+    }
+    if modeltest::none_tested(runs) {
+        lines.warning(modeltest::NONE_TESTED);
     }
 }
 

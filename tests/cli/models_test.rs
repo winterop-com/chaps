@@ -470,7 +470,11 @@ fn models_test_skips_an_image_that_has_no_chapkit_test() {
         &["models", "test", "chapkit_ewars_model"],
     )
     .assert()
-    .success()
+    // A run that tested nothing proved nothing, and says so.
+    .failure()
+    .stderr(predicates::str::contains(
+        "warning: no model was tested, because every one was skipped",
+    ))
     .get_output()
     .stdout
     .clone();
