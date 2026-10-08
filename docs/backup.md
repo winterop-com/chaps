@@ -137,14 +137,19 @@ its storage, so nothing writes into a half-read tar - a chapkit model keeps a
 live SQLite database in its data directory, and a tar of a file that is being
 written to is a tar of a torn database. The service is always let go again,
 including when the read fails. A Ctrl-C while the backup holds a service lets
-it go at the next step, and says so:
+it go at the next step, and says so. The line names every service that the
+backup paused until then. For the deployment above, a Ctrl-C while `dhis2` was
+paused gave:
 
 ```text
-error: stopped by Ctrl-C; no archive was written; dhis2 was paused for the backup and runs again
+error: stopped by Ctrl-C; no archive was written; chapkit-ewars-model, dhis2 were paused for the backup and run again
 ```
 
-Only a second Ctrl-C, or a kill, leaves the service paused. `varde status` then
-shows it as `paused`, with a warning:
+The command exits with code 130 and removes its staging directory.
+
+Only a second Ctrl-C, or a kill, leaves the service paused. A second Ctrl-C
+stops varde at once, with no message. `varde status` then shows the service as
+`paused`, with a warning:
 
 ```text
 warning: dhis2 is paused, so it does not answer; run `varde up` to resume it
@@ -191,6 +196,13 @@ Ctrl-C removes the staging directory too. A staging directory that a killed
 run left behind is removed by the next `varde backup create`: each one holds a
 lock in `.varde/tmp/<kind>-<pid>.lock`, and a staging directory whose lock no
 run holds is a leftover.
+
+A Ctrl-C while varde reads a component volume can leave the `busybox`
+container of the read behind, in the state `Created`. It holds the volume, so
+`varde down --volumes` cannot remove that volume and warns `volume is in use`.
+To find the container, run
+`docker ps -a --filter status=created --filter ancestor=busybox:1.38`. If its
+mount is a volume of this deployment, remove it with `docker rm NAME`.
 
 ## Restoring
 
@@ -257,14 +269,15 @@ Then, in order:
    holds. The DHIS2 database is the exception: varde starts `dhis2-db` alone,
    makes the database new (`dropdb`, `createdb`), loads the dump with
    `pg_restore -j 4`, and sets the mark of a complete restore,
-6. `docker compose up -d`, unless `--no-start`.
+6. the port check of `varde up`, then `docker compose up -d`, unless
+   `--no-start`.
 
 If the archive holds the DHIS2 database, run `varde dhis2 analytics` after the
 restore, when the `dhis2` line of `varde status` says `up`. The dump has no
 analytics tables, so DHIS2 has no data for its dashboards and the Modeling App
 until then. The restore ends with a line that says so. On the Laos demo
-database, DHIS2 said `up` about 40 seconds after the restore, and
-`varde dhis2 analytics` took 36 seconds.
+database, DHIS2 said `up` less than 10 seconds after the restore, and
+`varde dhis2 analytics` took 30 seconds.
 
 The order is the whole design: nothing writes to the database or a data volume
 while its storage is being swapped underneath it.
@@ -302,8 +315,9 @@ volumes (`docker volume create --label com.docker.compose.project=...
 --label com.docker.compose.volume=...`). So a later `docker compose up` gives no
 warning about it, and `varde down --volumes` removes it.
 
-Under `--no-start` or `--files-only`, the last line is ``run `varde up` to
-apply``.
+Under `--no-start` or `--files-only`, ``run `varde up` to apply`` replaces
+`the deployment is starting`. The line about the DHIS2 analytics tables still
+comes after it.
 
 ### When the database restore fails
 
@@ -355,18 +369,24 @@ The labels of the plan are padded to one width: `files`, `database`, `models`,
 ### A second deployment on the same machine
 
 A staging copy on the machine of the deployment it copies gets that
-deployment's ports from the archive (8700 and 8780 by default). Before the
-restore starts the deployment, it does the port check of `varde up`. If the
-other deployment is up, the restore puts the data back and then stops:
+deployment's ports from the archive (by default 8700, 8780 for DHIS2 and 8790
+for OCS). Before the restore starts the deployment, it does the port check of
+`varde up`. If the other deployment is up, the restore puts the data back and
+then stops. For the chap-core, model and DHIS2 archive above:
 
 ```text
-error: restored 11 files, the chap_core database, the data of chapkit-ewars-model, dhis2, dhis2-db, and did not start the deployment: 1 host port this deployment needs is already in use
-  port 8700 (needed by chap) is in use, and chapx (/srv/chapx) publishes it too; ...
+error: restored 11 files, the chap_core database, the data of chapkit-ewars-model, dhis2, dhis2-db, and did not start the deployment: 2 host ports this deployment needs are already in use
+  port 8700 (needed by chap) is in use, and chapx (/srv/chapx) publishes it too; stop it with `varde -C /srv/chapx down`, or move this one: set CHAP_API_PORT=8701 in `.env`
+  port 8780 (needed by dhis2) is in use, and chapx (/srv/chapx) publishes it too; stop it with `varde -C /srv/chapx down`, or move this one: run `varde components enable dhis2 --port 8781`
+  or run `varde up --no-preflight` to hand the conflict to Docker
+  or run `varde up --replace` to stop chapx first
   if you move the port, run `varde up` to start it
 ```
 
-The data is restored at that point. To prevent this, restore without the start
-and move the ports before `varde up`:
+The data is restored at that point, and the command exits with code 1. The
+ports that you set at `varde init` do not prevent this, because the restore
+writes the ports of the archive. To prevent it, restore without the start and
+move the ports before `varde up`:
 
 ```sh
 cd chapy
@@ -374,12 +394,21 @@ varde backup restore ../chapx/varde-backup-chapx-20261008-002753.tar.gz --no-sta
 ```
 
 1. Set `CHAP_API_PORT=8701` in `.env`.
-2. Run `varde components enable dhis2 --port 8781`.
+2. If the archive enables DHIS2, run `varde components enable dhis2 --port 8781`.
+   If it enables OCS, run `varde components enable ocs --port 8791`.
 3. Run `varde up`.
+4. If the archive holds the DHIS2 database, run `varde dhis2 analytics` when
+   DHIS2 answers.
 
 If you skip the steps, `varde up` names the ports in use and the commands that
-move them. A `--files-only` restore also writes the ports of the archive, so do
-the same steps after it.
+move them. A restore that stopped at the port check does the same: do steps 1
+to 4. A `--files-only` restore also writes the ports of the archive, so do the
+same steps after it.
+
+Do step 2 also when the error names only port 8700. If the `dhis2` of this
+deployment runs on another port, the port check does not see the conflict on
+8780. Then `docker compose up -d` fails with `Bind for 0.0.0.0:8780 failed: port
+is already allocated`.
 
 ### Taking over the identity
 
@@ -423,6 +452,23 @@ predates the deployment: the volume is the one from the old directory.
 `--no-components` or `--no-start`, `--db-only` cannot be combined with
 `--no-models` or `--no-components`, and `--adopt-identity` cannot be combined
 with `--db-only`.
+
+## JSON output
+
+With `--json`, both commands print one JSON object. Its `messages` hold the
+lines of the human output, each with its `level`, the hints included.
+
+- `varde backup create` gives `path`, `size_bytes` and the `manifest` of the
+  archive.
+- `varde backup restore` gives `files`, `database`, `database_warnings`,
+  `models`, `components`, `stopped`, `started`, `env_backup`,
+  `kept_credentials`, `removed_state` and the `plan` it followed, with the
+  manifest of the archive in it.
+
+Under `--json`, the restore prints its plan and its question to stderr, so
+stdout holds only the JSON object. Without a terminal, pass `--yes`, or the
+restore stops with `pass --yes`. A command that fails gives `"ok": false` and
+the message in `error`, as every varde command does.
 
 ## The same thing without varde
 

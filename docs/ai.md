@@ -268,8 +268,9 @@ More: [Chap with climate data from OCS](./use-cases/chap-with-ocs.md).
 
 ### 4. Chap with every model
 
-Like option 2, with every marketplace model. The first start pulls large
-images and the checks take several minutes.
+Like option 2, with every marketplace model. The model images are 1 to 7 GB
+each. `varde init` pulls one of them to read its user, and the first
+`varde up` pulls the others. Both can take many minutes on a slow connection.
 
 ```sh
 varde init mychap --models all
@@ -279,11 +280,20 @@ varde status
 varde models test --all
 ```
 
-It worked when the `varde status` table shows every model as `registered`
-and `varde models test --all` says every model passes. If a model is
-`registered, not configured`, run `varde models configure`. Add
-`--with dhis2` to the `varde init` line to compare them in the Modeling App
-(8 GB of memory, then as in option 1 from `varde dhis2 connect`).
+It worked when `varde status` ends with `all 5 models registered` (one per
+marketplace model) and `varde models test --all` ends with `5 of 5 models pass`.
+The tests take one to two minutes. If some models say `not registered`, wait
+a minute and run `varde status` again.
+
+After a plain `varde up`, the table shows each model as
+`registered, not configured`, and that is normal. `varde models test --all`
+does not need a configured model, but a backtest and the Modeling App do.
+Run `varde models configure` to create them. Then `varde status` shows each
+model as `registered`.
+
+Add `--with dhis2` to the `varde init` line to compare them in the Modeling
+App (8 GB of memory, then as in option 1 from `varde dhis2 connect`, which
+also creates the configured models).
 
 More: [Chap with forecasting models](./use-cases/chap-with-models.md#every-model-in-the-marketplace).
 
@@ -303,10 +313,11 @@ varde dhis2 connect
 It worked when `varde dhis2 connect` finishes without `error:`. It only sets
 the route on their DHIS2: its `skipped:` lines name the apps to install and
 the analytics run, which are for whoever runs that DHIS2 to decide (`varde dhis2
-apps`, `varde dhis2 analytics`). The first time, it usually stops and says it
-has no credentials for that DHIS2: the fix is to
-put `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
-the `.env` file in the folder, then run `varde dhis2 connect` again. If
+apps`, `varde dhis2 analytics`). The first time, `varde dhis2 use` warns and
+`varde dhis2 connect` stops with ``error: varde has no credentials for this
+DHIS2``. Then ask the person to put `DHIS2_ADMIN_USERNAME` and
+`DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in the `.env` file in the
+folder, and run `varde dhis2 connect` again. If
 `--chap-url` is an `http://` address and the DHIS2 is 2.42 or later, it may say
 `DHIS2 refused the route`: whoever runs that DHIS2 has to add the `--chap-url`
 address, with no path, to `route.remote_servers_allowed` in its `dhis.conf`
@@ -401,7 +412,9 @@ More: [A DHIS2 on its own](./use-cases/dhis2-alone.md).
 ### 9. A particular DHIS2 version
 
 Needs 8 GB of memory for Docker. Each version starts with an empty DHIS2
-(only 2.42 has demo data, see option 8). Run one of these, not all three:
+(only 2.42 has demo data, see option 8). `varde init` says so in a
+`warning: varde knows no DHIS2 demo dump` line: that is expected. Run one of
+these, not all three:
 2.43,
 
 ```sh
@@ -516,13 +529,15 @@ More: [Your model from its checkout, with Chap](./use-cases/model-on-host.md).
 
 ### 13. A model image I built
 
-In the model's folder:
+In the model's folder, which must be a git checkout:
 
 ```sh
-docker build --platform linux/amd64 -t my-model:dev .
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .
 ```
 
-Then:
+`GIT_REVISION` gives the image the commit it was built from. chap-core needs
+it to store the model template. Without it, `varde models configure` stops
+with `answered HTTP 409 Conflict` and `is stored from revision None`. Then:
 
 ```sh
 varde init mychap --models none
@@ -533,12 +548,23 @@ varde status
 ```
 
 It worked when `varde status` lists the model as `registered`. Usually it does
-not the first time: the image registers under its own name, so `varde status`
-shows it `unmanaged` next to `my-model` not registered, and the line under the
-table gives the two commands that fix it (`varde models remove my_model`, then
-`varde models add my-model:dev --service-id` with the name from the
-`unmanaged` row). Run them, then `varde up` again. If the model is
-`registered, not configured`, run `varde models configure`.
+not the first time:
+
+1. Right after `varde up`, the model is `running, not registered`. Wait a
+   minute and run `varde status` again.
+2. The model registers under the `id` in its `MLServiceInfo` (in `main.py`),
+   not as `my-model`. Then `varde status` shows that id as `unmanaged`, next
+   to `my-model` as `running, not registered`.
+3. The line under the table gives the two commands that fix it:
+   `varde models remove my_model`, then `varde models add my-model:dev
+   --service-id` with the id from the `unmanaged` row. Run them, then run
+   `varde up` again.
+4. When the model is `registered, not configured`, run
+   `varde models configure`.
+
+If `varde models configure` says `is stored from revision None`, build the
+image again with the `GIT_REVISION` line above. Then run `varde restart` and
+`varde models configure`.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 
@@ -557,11 +583,20 @@ varde status
 ```
 
 It worked when `varde status` shows chap-core `up` and the model `registered`.
-If chap-core was started after `varde up`, wait a few seconds and run
-`varde status` again. `registered, unreachable` means chap-core cannot call the
-model back, usually because chap-core was not running during `varde init`: the
-line under the table gives the command that fixes it. If the model is
+Right after `varde up`, the model is `running, not registered`; run
+`varde status` again after some seconds. If the model is
 `registered, not configured`, run `varde models configure`.
+
+If chap-core was started after `varde up`, the model stays
+`running, not registered`: it tries to register for about ten seconds only.
+Two minutes after `varde up`, the line under the table gives
+`varde restart --all chapkit-simple-multistep-model`. Run it.
+
+`registered, unreachable` means chap-core cannot call the model back, usually
+because chap-core was not running during `varde init`. If their chap-core
+runs in a container, the line under the table gives the two commands that fix
+it: `varde components enable chap-core` with
+`--models-host host.docker.internal`, then `varde up`.
 
 More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
 
@@ -752,9 +787,17 @@ varde down --volumes --yes    # stop and delete all the data
 
 After `varde down --volumes --yes` the folder can be deleted.
 
-Two options use the same ports, so only one runs at a time. When `varde up`
-says a port is used by another deployment and asks whether to stop it, answer
-`y`: the other one keeps its data, and `varde up` in its folder starts it
-again; `varde up --replace` is the same `y` given in advance. While the other one is
-up, `varde status` in this folder says this deployment's chap-core is not
-running and names the one that is.
+All the options use the same ports, so only one of them runs at a time
+(option 18 is the exception). While another deployment is up, `varde init`
+warns that a port `is already in use on this machine`. You can ignore that
+warning if you stop the other one before `varde up`.
+
+When `varde up` says a port is used by another deployment and asks whether to
+stop it, answer `y`. The other one keeps its data, and `varde up` in its
+folder starts it again. `varde up --replace` is the same `y` given in advance.
+Without a terminal, `varde up` does not ask. It stops with
+`error: 1 host port this deployment needs is already in use; nothing was started`
+and names `varde up --replace`; ask the person before you run it.
+
+While the other one is up, `varde status` in this folder says this
+deployment's chap-core is not running and names the one that is.

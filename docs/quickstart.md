@@ -104,8 +104,8 @@ recreated container counts as started. With `-v`, a hint also names the
 services it left alone.
 
 `up` returns when compose has started the containers, not when chap-core
-answers. `varde up --wait` returns only once chap-core, every model, OCS and DHIS2
-answer.
+answers. `varde up --wait` returns only once chap-core, every model, OCS and
+DHIS2 answer. It also gives the models their configured models (step 3).
 
 Every command that operates on a deployment finds its directory the way git
 finds `.git`: from the current directory (or `-C DIR`) upwards to the nearest
@@ -120,8 +120,36 @@ varde status
 ```text
 chap-core   up   http://localhost:8700   2.4.0   auth: off
 
+MODEL                STATE                       REACH          LAST PING
+chapkit-ewars-model  registered, not configured  via chap-core  2s ago
+
+1 model registered
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+```
+
+`registered, not configured` is the normal state after a plain `varde up`.
+chap-core v2.4.0 makes no configured model when a model registers. A backtest
+and the Modeling App need one. Make them:
+
+```sh
+varde models configure
+```
+
+```text
+chapkit_ewars_model: created configured model monthly_climate
+chapkit_ewars_model: created configured model monthly_population_only
+chapkit_ewars_model: created configured model monthly_region_seasonal
+```
+
+`varde up --wait` does the same step for you. See
+[Configured models](./models.md#configured-models). Now `varde status` shows
+the model as `registered`:
+
+```text
+chap-core   up   http://localhost:8700   2.4.0   auth: off
+
 MODEL                STATE       REACH          LAST PING
-chapkit-ewars-model  registered  via chap-core  11s ago
+chapkit-ewars-model  registered  via chap-core  0s ago
 
 1 model registered
 ```
@@ -165,20 +193,71 @@ The same thing without the browser:
 varde models search multistep
 varde models info chapkit_simple_multistep_model
 varde models enable chapkit_simple_multistep_model --channel stable
-varde up                                     # apply it
 ```
+
+`enable` changes only the files:
 
 ```text
 enabled chapkit_simple_multistep_model v0.1.2 at http://localhost:8700/v2/services/chapkit-simple-multistep-model/run/
 run `varde up` to apply
 ```
 
-The STATUS column tells you how ready a model is. No model in the marketplace
-is `production` yet. This model and CHAP-EWARS are `limited data`: they show
-promise, but need careful evaluation. Read `varde models info` before you
-enable a model for real work.
+The STATUS column of `search` tells you how ready a model is. No model in the
+marketplace is `production` yet. This model and CHAP-EWARS are `limited data`:
+they show promise, but need careful evaluation. Read `varde models info` before
+you enable a model for real work.
 
-`varde models list` shows the whole catalogue and what this project enabled:
+Start the model:
+
+```sh
+varde up
+varde status
+```
+
+`up` says `started chapkit-simple-multistep-model`. Right after it, the new
+model is not registered yet, and `status` exits with 1:
+
+```text
+chap-core   up   http://localhost:8700   2.4.0   auth: off
+
+MODEL                           STATE                    REACH          LAST PING
+chapkit-ewars-model             registered               via chap-core  9s ago
+chapkit-simple-multistep-model  running, not registered  via chap-core  -
+
+1 of 2 models is not registered.
+chapkit-simple-multistep-model: started under two minutes ago and registers once it is ready; run `varde status` again in a minute
+```
+
+In the test run, the model registered within 30 seconds. Then it is
+`registered, not configured`, as in step 3. Give it its configured models:
+
+```sh
+varde models configure
+```
+
+```text
+chapkit_ewars_model: chap-core has a configured model of it already
+chapkit_simple_multistep_model: created configured model monthly_climate
+chapkit_simple_multistep_model: created configured model monthly_selfhistory
+```
+
+`varde status` now shows both models as `registered`:
+
+```text
+chap-core   up   http://localhost:8700   2.4.0   auth: off
+
+MODEL                           STATE       REACH          LAST PING
+chapkit-ewars-model             registered  via chap-core  5s ago
+chapkit-simple-multistep-model  registered  via chap-core  8s ago
+
+all 2 models registered
+```
+
+If you run `varde models configure` before the model registers, it says so
+and tells you to run it again later.
+
+`varde models list` shows the whole catalogue and what this deployment
+enabled:
 
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
@@ -233,7 +312,7 @@ varde backup create
 ```
 
 ```text
-wrote /srv/mychap/varde-backup-mychap-20261007-201611.tar.gz (18.6 KB gzipped, 195.3 KB of data)
+wrote /srv/mychap/varde-backup-mychap-20261008-024106.tar.gz (19.2 KB gzipped, 195.7 KB of data)
 ```
 
 One `tar.gz` in the deployment directory holds the deployment files, a `pg_dump`
@@ -259,8 +338,8 @@ When nothing is newer, `update` gives one row per pin and one closing line:
 already up to date
 ```
 
-`restart` then says `nothing needed a restart: every container matches its
-files`.
+`restart` then shows the compose progress, and its last line is
+`nothing needed a restart: every container matches its files`.
 
 `varde update` never touches a container. When a pin moved, its closing line
 says what moved and which running services are now behind it, and

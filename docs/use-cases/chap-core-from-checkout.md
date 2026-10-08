@@ -26,23 +26,31 @@ started chap, chapkit-ewars-model, postgres, redis, worker
 ```text
 chap-core   up   http://localhost:8700   2.5.0.dev0   auth: off
 
-MODEL                STATE       REACH          LAST PING
-chapkit-ewars-model  registered  via chap-core  14s ago
+MODEL                STATE                       REACH          LAST PING
+chapkit-ewars-model  registered, not configured  via chap-core  6s ago
 
 1 model registered
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
 ```
 
-It worked when `varde status` shows chap-core `up` and the model `registered`.
+It worked when `varde status` shows chap-core `up` and the model registered.
 The version is the one that your checkout reports.
+
+`registered, not configured` is the normal state after a plain `varde up`.
+chap-core makes no configured model when a model registers. A backtest and the
+Modeling App need one. To make them, run `varde models configure`. After that,
+`varde status` shows the model as `registered`. See
+[Configured models](../models.md#configured-models).
 
 - **`compose.yml` comes from the checkout's own `compose.ghcr.yml`**, re-read on
   every `varde sync`, so the services match the code you are building.
 - **Every `varde up` builds the checkout as it is now.** `compose.varde.yml`
   gives `chap` and `worker` a `build:` from the checkout and
   `pull_policy: build`. Docker's layer cache makes a build with nothing changed
-  take some seconds. After a change in the code, the build installs the
-  dependencies again (about a minute on an Apple Silicon Mac), and `varde up`
-  recreates only what moved: `started chap, worker`.
+  take some seconds, and `varde up` then says `already running: ...`. After a
+  change in the code, the build installs the dependencies again (about a minute
+  on an Apple Silicon Mac), and `varde up` recreates only what moved:
+  `started chap, worker`.
 - **The images are `<project>-chap:checkout` and `<project>-worker:checkout`**,
   named after the deployment's compose project (such as
   `mychap-77c0c2-chap:checkout`), so a build never overwrites a released
@@ -81,6 +89,8 @@ before a file is written (see
    moved CHAP_IMAGE_TAG in the kept .env from checkout to v2.4.0
    components: chap-core
    chap-core: v2.4.0, API on http://localhost:8700
+   enabled chapkit_ewars_model v1.0.4 at http://localhost:8700/v2/services/chapkit-ewars-model/run/
+   run `cd /home/me/mychap && varde up` to start the deployment
    ```
 
 3. Start the deployment:
@@ -89,13 +99,16 @@ before a file is written (see
    varde up
    ```
 
-It worked when `varde status` shows the released version, such as `2.4.0`. If
-the checkout added a database migration, the released chap-core may not start
-on that data.
+It worked when `varde status` shows the released version, such as `2.4.0`.
+Some seconds after `varde up`, `varde status` can show the model as
+`running, not registered` and exit with 1. If it does, run `varde status` again
+in a minute. If the checkout added a database migration, the released chap-core
+may not start on that data.
 
 The images built from the checkout stay on this machine. To get the disk space
 back, remove them with `docker image rm <project>-chap:checkout
-<project>-worker:checkout`.
+<project>-worker:checkout`. `<project>` is the `name:` line in
+`compose.varde.yml`, such as `mychap-77c0c2`.
 
 More: [chap-core from its checkout, with the models](./chap-core-on-host.md)
 runs chap-core as a process instead, without building images.

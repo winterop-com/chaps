@@ -15,10 +15,25 @@ Or, to get the binary and nothing else - into this directory as `./varde`, no
 curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh -s -- --here
 ```
 
-Then run `varde doctor`: it checks in one pass that this machine has everything
-a deployment needs - Docker, Compose 2.24.4 or newer, disk, and a route to the
-hosts Chap pulls from - and says what to do about anything it did not find. See
-[Doctor](./doctor.md).
+If the script printed `... is not on your PATH`, add the `export PATH=...`
+line it printed to your shell profile and open a new shell.
+
+Then run `varde doctor` (`./varde doctor` after `--here`): it checks in one
+pass that this machine has everything a deployment needs - Docker, Compose
+2.24.4 or newer, disk, and a route to the hosts Chap pulls from - and says what
+to do about anything it did not find. See [Doctor](./doctor.md).
+
+The script prints the release, the platform, the archive URL and the install
+path, then the steps. On macOS with `--here` it ends like this:
+
+```text
+downloading varde-universal-apple-darwin.tar.gz
+verifying the checksum
+unpacking
+
+installed /Users/you/varde-test/varde
+varde 0.100.1
+```
 
 The script works out the platform from `uname`, downloads the release archive
 for it, checks the download against the release's `SHA256SUMS` and installs the
@@ -37,22 +52,34 @@ leaves it alone and says so. On Linux, the `vg` package of Debian and Ubuntu
 commands are `vgcreate`, `vgs` and the others.
 
 It goes into `/usr/local/bin` when that directory is writable and
-`~/.local/bin` otherwise, creating the directory and saying so if the result is
-not on your `PATH`. Pipe it through `sudo sh` to take the first branch on a
+`~/.local/bin` otherwise. It makes the directory if it is not there. If the
+directory is not on your `PATH`, it prints the `export PATH=...` line to add to
+your shell profile. Pipe it through `sudo sh` to take the first branch on a
 machine where `/usr/local/bin` needs root.
+
+Without `--here`, the script also copies the completion scripts into the
+directories of bash, zsh and fish that already exist in your home (see
+[Shell completions](#shell-completions)). This is also true with `--dir`. It
+prints a `completions` line for each file it wrote. Only `--here` writes
+nothing outside the current directory.
 
 | Option | Environment variable | What it does |
 | --- | --- | --- |
 | `--version TAG` | `VARDE_VERSION` | Install that release instead of the newest. `dev` is the rolling build of `main` |
-| `--dir DIR` | `VARDE_INSTALL_DIR` | Install into that directory |
+| `--dir DIR` | `VARDE_INSTALL_DIR` | Install `varde` and `vg` into that directory |
 | `--here` | `VARDE_INSTALL_DIR=.` | Put `./varde` in the current directory and do nothing else |
-| `--dry-run` | | Print what would happen and change nothing |
+| `--dry-run` | | Print the release, the archive and the install path, and change nothing |
 | `--help` | | Print the options |
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh |
-  VARDE_INSTALL_DIR="$HOME/bin" VARDE_VERSION=v0.1.0 sh
+  VARDE_INSTALL_DIR="$HOME/bin" VARDE_VERSION=v0.100.0 sh
 ```
+
+The oldest release that has varde archives is `v0.100.0`. For an older tag,
+the script stops with `could not download ...`, and `varde self update
+--version` stops with `... has no archive for ...`. Use `v0.100.0` or newer.
+`--here` and `--dir` together are an error; use one of them.
 
 Without `--version` the newest release is looked up through the GitHub API, and
 through the redirect of the `releases/latest` page when the API rate limit has
@@ -83,14 +110,20 @@ and it never changes once published. It is what the one-liner installs, what
 tag `dev` on every push. It is the same seven archives, built and signed the
 same way, from a commit that has passed CI and nothing more: no release notes
 worth the name, no promise that anything in it stays. It reports the version
-of the last tag, so `varde --version` says `v0.2.1` on a dev build as well;
-`varde self version` is what tells the two apart:
+of the last tag, so `varde --version` says `varde 0.100.1` on a dev build as
+well; `varde self version` is what tells the two apart:
 
 ```text
-  version       v0.2.1
-  revision      bff294c
+  version       v0.100.1
+  revision      b95828a
   channel       dev
+  target        aarch64-apple-darwin
+  path          /usr/local/bin/varde
+  installed by  release archive
 ```
+
+`target` is the slice that runs. A universal macOS binary on Apple silicon
+shows `aarch64-apple-darwin`.
 
 `channel` is always printed, `stable` or `dev`, and is in `--json` under the
 same name. A binary built anywhere else, `cargo install` included, is stable.
@@ -98,9 +131,12 @@ same name. A binary built anywhere else, `cargo install` included, is stable.
 Picking one with the installer:
 
 ```sh
-curl -fsSL .../install.sh | sh                        # the newest stable release
-curl -fsSL .../install.sh | sh -s -- --version dev    # the rolling build of main
-curl -fsSL .../install.sh | sh -s -- --version v0.2.0 # one named release
+# the newest stable release
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh
+# the rolling build of main
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh -s -- --version dev
+# one named release
+curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh | sh -s -- --version v0.100.0
 ```
 
 and with an installed `varde`:
@@ -108,7 +144,7 @@ and with an installed `varde`:
 ```sh
 varde self update                      # the newest build of the channel this one is on
 varde self update --version dev        # cross over to the rolling build
-varde self update --version v0.2.1     # go back to a stable release
+varde self update --version v0.100.1   # go back to a stable release
 ```
 
 `varde self update` on a stable build follows `releases/latest`, which
@@ -175,13 +211,33 @@ tar -xzf varde-x86_64-unknown-linux-musl.tar.gz
 sudo install -m 0755 varde-*-x86_64-unknown-linux-musl/varde /usr/local/bin/varde
 ```
 
+On an arm64 server, write `aarch64` in place of `x86_64` in the three lines.
+The commands do not add the link `vg`. To add it, run
+`sudo ln -s varde /usr/local/bin/vg`.
+
 ## Verifying a download
 
 Every release carries a `SHA256SUMS` file covering every archive:
 
+Download it into the directory that has the archive, then check:
+
 ```sh
 curl -fsSLO https://github.com/winterop-com/varde/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+It prints one line for the archive that is there:
+
+```text
+varde-universal-apple-darwin.tar.gz: OK
+```
+
+On Linux, use `sha256sum -c SHA256SUMS --ignore-missing`; many distributions
+have no `shasum`. The `sha256sum` of BusyBox (Alpine, small containers) has no
+`--ignore-missing`. There, check the one line of your archive:
+
+```sh
+grep ' varde-x86_64-unknown-linux-musl.tar.gz$' SHA256SUMS | sha256sum -c -
 ```
 
 The macOS binaries are signed with an Apple Developer ID certificate and
@@ -191,6 +247,15 @@ notarized by Apple, so Gatekeeper lets them run: no right-click to open, no
 ```sh
 codesign -dv --verbose=4 /usr/local/bin/varde
 ```
+
+The `Authority=Developer ID Application: ...` line names the signer. To see
+that Apple notarized it:
+
+```sh
+spctl -a -vvv -t install /usr/local/bin/varde
+```
+
+It prints `accepted` and `source=Notarized Developer ID`.
 
 Apple serves the notarization ticket online rather than it being stapled to
 the file, because a bare executable has nowhere to carry a ticket. The first
@@ -217,10 +282,23 @@ installed file is never written through, so a download that fails or does not
 verify leaves what you have exactly as it was.
 
 `--version TAG` installs a named release, going backwards included, and `dev`
-is a tag like any other. `--yes` skips the confirmation, and `--json` reports
-the result as a document, with `channel` alongside `current` and `latest`. If
-the binary lives somewhere you cannot write, `varde` says so and suggests
-`sudo` or an install directory of your own rather than half-replacing itself.
+is a tag like any other. `--yes` skips the question
+`replace ... with varde vX.Y.Z? [y/N]`. varde does not ask under `--json`, or
+when stdin or stdout is not a terminal. `--json` reports the result as a
+document, with `channel` alongside `current` and `latest`. If the binary lives
+somewhere you cannot write, `varde` says so and suggests `sudo` or an install
+directory of your own rather than half-replacing itself.
+
+A successful update prints:
+
+```text
+updated varde: v0.100.0 -> v0.100.1
+  path  /usr/local/bin/varde
+```
+
+`--check` on a binary that is up to date prints
+`varde v0.100.1 is up to date`. With `--version dev` or another tag, `--check`
+reports that release; install it with the same `--version TAG`.
 
 Without `--version`, an update follows the channel this build is on: the
 newest tag for a stable build, the newest build of `main` for a dev one. See
@@ -231,7 +309,7 @@ whether there is a newer version and prints one dimmed line on stderr if there
 is:
 
 ```text
-varde v0.2.0 is available (you have v0.1.0): run `varde self update`
+varde v0.100.1 is available (you have v0.100.0): run `varde self update`
 ```
 
 On a dev build the same notice compares commits, because the version number
@@ -245,38 +323,61 @@ It stays quiet unless it can see that the commit moved, so a build with no
 recorded revision is never nagged about nothing.
 
 The check has a two-second timeout, its answer is cached in
-`<cache dir>/self-update-check.json`, and any failure is ignored: it can never
+`self-update-check.json` in the cache directory (`$VARDE_CACHE_DIR`, else
+`$XDG_CACHE_HOME/varde`, else `~/.cache/varde`, also on macOS), and any failure
+is ignored: it can never
 change what a command did or what it exited with. It is skipped under `--json`,
 under `--offline`, when stdout is not a terminal, and for `varde self` itself.
 `VARDE_NO_UPDATE_CHECK=1` turns it off entirely.
 
 A `varde` installed with `cargo install` is replaced the same way, but
 `cargo install --path .` from an updated checkout is the more honest way to
-move that one on. `varde self version` says which of the two you have.
+move that one on. `installed by` in `varde self version` tells which one you
+have, from the path alone:
+
+- `cargo install` for a binary in a `.cargo/bin` directory.
+- `cargo build` for a binary in a `target/release` or `target/debug`
+  directory.
+- `release archive` for every other path, also for `make install` and for
+  `cargo install --root DIR`.
 
 ## Shell completions
 
-Every release archive ships the scripts under `completions/`, and the install
-script copies them into place when the directory a shell reads already exists.
+Every release archive ships the scripts for bash, zsh, fish and PowerShell
+under `completions/` (`varde.bash`, `_varde`, `varde.fish`, `_varde.ps1`). The
+install script copies the first three into place when the directory a shell
+reads already exists:
+
+- `~/.local/share/bash-completion/completions/varde` (or under
+  `$XDG_DATA_HOME`)
+- `~/.zsh/completions/_varde`
+- `~/.config/fish/completions/varde.fish` (or under `$XDG_CONFIG_HOME`)
+
 `varde completions <shell>` prints one to stdout for the cases it does not
 cover: a checkout, a different directory, or a shell that reads its completions
-from somewhere else.
+from somewhere else. The shells are `bash`, `zsh`, `fish`, `powershell` and
+`elvish`. The scripts complete `varde`; they do not complete the link `vg`.
 
-bash:
+bash, with the `bash-completion` package installed (on macOS,
+`bash-completion@2` from Homebrew):
 
 ```sh
+mkdir -p ~/.local/share/bash-completion/completions
 varde completions bash > ~/.local/share/bash-completion/completions/varde
 ```
 
-zsh, into a directory that is on your `fpath`:
+zsh, into a directory that is on your `fpath`. If it is a new directory, add
+`fpath=(~/.zsh/completions $fpath)` before `compinit` in `~/.zshrc`:
 
 ```sh
+mkdir -p ~/.zsh/completions
 varde completions zsh > ~/.zsh/completions/_varde
 ```
 
 fish:
 
 ```sh
+mkdir -p ~/.config/fish/completions
 varde completions fish > ~/.config/fish/completions/varde.fish
 ```
 
@@ -289,8 +390,11 @@ varde completions powershell | Out-String | Invoke-Expression
 elvish:
 
 ```sh
+mkdir -p ~/.config/elvish/lib
 varde completions elvish > ~/.config/elvish/lib/varde.elv
 ```
+
+Then add `use varde` to `~/.config/elvish/rc.elv`.
 
 The scripts are generated from the same command tree `--help` is rendered
 from, so they are current for the binary that printed them. Regenerate them
@@ -298,9 +402,15 @@ after an update.
 
 ## From a checkout
 
+A checkout needs Rust 1.91 or newer. In the root of the checkout, run:
+
 ```sh
 cargo install --path .
 ```
+
+This builds the binary and puts it in `~/.cargo/bin` (or `$CARGO_HOME/bin`).
+`cargo build --release` builds it into `target/release/varde` and installs
+nothing.
 
 Or build and install through the Makefile, which puts the binary in
 `$PREFIX/bin` with `PREFIX` defaulting to `~/.local`:
@@ -309,9 +419,14 @@ Or build and install through the Makefile, which puts the binary in
 make install
 ```
 
+To install into another directory, set `PREFIX`, for example
+`make install PREFIX=/usr/local`.
+
 On macOS `make release` builds a universal (arm64 plus x86_64) binary at
-`bin/varde` first, and `make install` copies that; on Linux it builds the host
-binary. `make install` also adds the link `vg`, as the install script does;
+`bin/varde` first, and `make install` copies that. It needs the two Rust
+targets; if one is missing, it stops and prints the command to add it:
+`rustup target add aarch64-apple-darwin x86_64-apple-darwin`. On Linux it
+builds the host binary. `make install` also adds the link `vg`, as the install script does;
 `cargo install` installs `varde` alone. See [Development](./development.md) for
 the rest of the targets.
 

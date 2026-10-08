@@ -72,9 +72,9 @@ error: `varde update` refreshes the marketplace registry, which needs the networ
 
 A run is four steps, printed in that order:
 
-1. **The plan.** One row per enabled model, one for chap-core and one per
-   optional component, saying what each is pinned to and what it would move
-   to. The names are padded to one width, so that the versions line up. For
+1. **The plan.** One row per enabled model, one for chap-core when the
+   deployment has it, and one per optional component, saying what each is
+   pinned to and what it would move to. The names are padded to one width, so that the versions line up. For
    every model that follows a channel the channel is re-resolved; a
    pin that moved is recorded in `.varde/models.yaml` and its
    `# <ID>_IMAGE_TAG=` comment in `.env` is updated. Models enabled with
@@ -166,6 +166,14 @@ run `varde restart` to apply
 `varde restart` then recreates that service alone, and a second `varde update`
 says `already up to date`.
 
+If you run `varde update` again before `varde restart`, nothing moves, but the
+services are still behind. The line then starts with `already up to date`:
+
+```text
+already up to date; restart needed: chap, worker
+run `varde restart` to apply
+```
+
 The first clause names what actually moved: the model pins, chap-core's tag,
 and the services the pull brought a genuinely different image for. A moving
 tag that pulled the same image this machine already had is not a change and is
@@ -175,6 +183,14 @@ a tag with other images names both clauses:
 
 ```text
 updated chap-core latest -> master and pulled new images for chap, worker; restart needed: chap, worker
+run `varde restart` to apply
+```
+
+If this machine already has the images at the new tag, the pull brings
+nothing new, and the line has no `pulled` clause:
+
+```text
+updated chap-core latest -> master; restart needed: chap, worker
 run `varde restart` to apply
 ```
 
@@ -429,6 +445,9 @@ terminal on stdin, or `--json` - is refused rather than assumed:
 error: moving chap-core backwards needs an answer and this is not a terminal; run `varde update --chap-tag v2.3.1 --yes` to confirm it
 ```
 
+With `--json`, the `error` field says `--json has nobody to ask`, and the
+`hint` field holds the same `--yes` command.
+
 The same refusal comes from `varde update --pin-chap-core` from `dev` or
 `master`; it ends with `` run `varde update --pin-chap-core --yes` to confirm
 it ``. A `--dry-run` prints the warning and stops there, because it writes
@@ -444,7 +463,7 @@ chap-core   up   http://localhost:8700   2.5.0.dev0   master: running ad5aec7dc7
 ```
 
 ```text
-ok    chap-core pin    master (moving tag, running ad5aec7dc76f); `varde update` re-pulls it, `varde update --pin-chap-core` pins a release
+ok    chap-core pin                                master (moving tag, running ad5aec7dc76f); `varde update` re-pulls it, `varde update --pin-chap-core` pins a release
 ```
 
 The digest is the one the image was pulled at (`docker inspect`), shortened to

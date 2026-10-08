@@ -228,6 +228,18 @@ mount, and compose refuses to start a service whose bind source does not exist,
 so `varde sync` warns when the file is not there, before `varde up` fails. A
 relative path keeps the deployment directory self-contained: copy the dump into
 it.
+
+`varde init` makes the deployment directory, so a relative path names a file
+that is not there yet. `varde init` then reads the version of the dump from the
+same path in the working directory, and warns that the file is not in the
+deployment directory. Copy the dump there before the first `varde up`:
+
+```sh
+varde init laos --only dhis2 --dhis2-seed laos.sql.gz
+cp laos.sql.gz laos/
+cd laos && varde up
+```
+
 A URL seed under `--offline` is refused outright: the two ask for opposite
 things.
 
@@ -258,13 +270,25 @@ So the restore leaves a mark as its last init script, `zzz-varde-seeded.sql`:
 the comment `varde: seed restored` on the database. On a seeded deployment, the
 health check of `dhis2-db` asks for that mark. A restore that stopped has no
 mark, so `dhis2-db` stays unhealthy, DHIS2 does not start, and `varde up`
-prints the lines of the log that say why:
+prints the lines of the log that say why. Here the dump had a statement that
+PostgreSQL could not run:
 
 ```text
+dependency failed to start: container mychap-1ab2c3-dhis2-db-1 is unhealthy
+
 why dhis2-db is unhealthy:
-  psql:<stdin>:5: invalid command \restrict
+  2026-10-08 04:44:18.888 UTC [71] ERROR:  function this_is_not_a_function() does not exist at character 8
+  ERROR:  function this_is_not_a_function() does not exist
+  the database has no mark `varde: seed restored`, so its seed restore did not finish
   the restore of the DHIS2 seed stopped before the end, so `dhis2_db` is incomplete; fix the cause above, then run `varde components disable dhis2 --purge`, `varde components enable dhis2` and `varde up`
+error: docker compose exited with status 1
 ```
+
+**This takes about 15 minutes.** The health check of `dhis2-db` has a start
+period of 600 seconds and then 30 checks 10 seconds apart, and `varde up`
+prints nothing new until compose gives up. While it waits, `varde status`
+says `dhis2 not running`. To see the error sooner, run `varde logs dhis2-db`
+in a second shell. The error is there seconds after the restore stops.
 
 `varde backup restore` sets the mark again after it loads the `pg_dump` of the
 database, so a database that it puts back is healthy too. See
@@ -278,20 +302,34 @@ is in its Flyway table: each migration that DHIS2 ran is a row of
 `flyway_schema_history`, and the newest one says the version. `2.42.54` is
 migration 54 of DHIS2 2.42. The last number is not the patch release.
 
-- For a dump on disk, `varde init` reads the version. A dump of 3.9 GB takes
-  about 20 seconds, because the table comes after `datavalue`.
+- For a dump on disk, `varde init` reads the version. It looks for the path in
+  the deployment directory first, then in the working directory. A dump of
+  3.9 GB takes about 20 seconds, because the table comes after `datavalue`.
+  `varde components enable dhis2 --seed PATH` does not read it.
   - Without `--dhis2-tag`, DHIS2 runs the version of the dump.
   - A `--dhis2-tag` older than the dump is refused.
   - A dump older than 2.41 is refused.
 - For a URL, the dump step reads the version after the download, before the
-  rewrite, and stops with the same messages. `varde logs dhis2-dump` shows
-  them.
+  rewrite, and stops with the same messages. `varde up` then says only
+  `service "dhis2-dump" didn't complete successfully: exit 1`.
+  `varde logs dhis2-dump` shows the reason.
 
 ```text
 $ varde init laos --only dhis2 --dhis2-seed laos.sql.gz
 reading the DHIS2 version of laos.sql.gz from its Flyway table; a large dump takes about a minute
 laos.sql.gz is DHIS2 2.42 (Flyway migration 2.42.54), so DHIS2 runs 2.42
 ```
+
+A URL dump that is newer than the tag stops in the dump step:
+
+```text
+$ varde logs dhis2-dump
+dhis2-dump-1  | the dump is DHIS2 2.42 (its newest Flyway migration)
+dhis2-dump-1  | error: DHIS2 2.41 is older than the dump (DHIS2 2.42), and DHIS2 does not run a newer database; set image_tag: 2.42 or newer under dhis2: in .varde/components.yaml, then run varde sync
+```
+
+To set the tag, run `varde components enable dhis2 --tag 2.42`, then `varde
+up`.
 
 ### Values that analytics cannot read
 
@@ -328,6 +366,7 @@ of them, give every user one password at the restore:
 
 ```sh
 varde init laos --only dhis2 --dhis2-tag 2.42 --dhis2-seed laos.sql.gz --dhis2-seed-password
+cp laos.sql.gz laos/
 ```
 
 Without a value, the password is `district`. The option writes
@@ -395,7 +434,7 @@ explanation.
 A minor line the table does not list starts empty and says so, on every sync:
 
 ```text
-warning: varde knows no DHIS2 demo dump for 2.40, so a new `dhis2_db` starts empty; name one with `varde components enable dhis2 --seed URL` (a URL or a path)
+warning: varde knows no DHIS2 demo dump for 2.41, so a new `dhis2_db` starts empty; name one with `varde components enable dhis2 --seed URL` (a URL or a path)
 ```
 
 ### What the one-shot does to the dump
@@ -443,8 +482,8 @@ to the place where a download goes, and everything after that is the same.
 **Minutes, not seconds.** DHIS2 migrates its whole schema before it serves a
 request, and a seeded deployment restores the dump before that. Every other
 service in a Chap deployment answers in seconds, so an operator who does not know
-this reads the first `varde status` as a broken deployment. Both `varde init
---with dhis2` and `varde components enable dhis2` say so, and
+this reads the first `varde status` as a broken deployment. With `-v`, both
+`varde init --with dhis2` and `varde components enable dhis2` say so, and
 
 ```sh
 varde logs dhis2
@@ -458,7 +497,7 @@ The honest budget, measured:
 | --- | --- |
 | Native arm64, empty database | 40 seconds |
 | Under emulation (an amd64 image on arm64, or the other way round) | 8 to 15 minutes |
-| Seeded | the above, plus the restore, which is most of it on the climate demo |
+| Seeded | the above, plus the restore: about 10 seconds for the climate demo (7 MB), much longer for a national dump |
 
 The health check allows for that: `/api/ping` - the one route that answers
 unauthenticated - with a `start_period` of 240 s and 60 retries, and 600 s on
@@ -569,11 +608,12 @@ varde dhis2 connect     # the route, the apps, then analytics
 | `varde dhis2 route` | Creates the `chap` route, or **repoints** one that is there, then proxies a request through it to prove the whole path. |
 | `varde dhis2 analytics` | Generates the analytics tables and waits for them; `--no-wait` starts the run and leaves it going. |
 | `varde dhis2 apps` | Installs the Modeling App and the Climate App from the App Hub, at the newest version this DHIS2 can run. |
-| `varde dhis2 connect` | All three, in that order. |
+| `varde dhis2 connect` | All three: the route, then the apps, then analytics. It also creates the configured models in chap-core, which the Modeling App lists. |
 | `varde dhis2 use` | Points all of the above at a DHIS2 that runs elsewhere. See [A DHIS2 that runs elsewhere](#a-dhis2-that-runs-elsewhere). |
 
 Every one of them is idempotent and meant to be re-run: a second `varde dhis2
-connect` repoints nothing, reinstalls nothing and says so. A step that found
+connect` repoints nothing, reinstalls nothing and says so. It runs analytics
+again, which takes about 20 seconds on the climate demo. A step that found
 nothing to do still reports it.
 
 ### `varde up` does none of this, on purpose
@@ -589,8 +629,8 @@ this the wrong work to hang off it:
   longer on real data. An `up` that waited for that would be an `up` that takes
   an hour.
 
-So `varde init --with dhis2` and `varde components enable dhis2` each end with the
-line that names the command instead:
+So `varde components enable dhis2` prints the line that names the command
+instead, and `varde init --with dhis2` prints it with `-v`:
 
 ```text
 the Modeling App reaches chap-core through a DHIS2 route, and this deployment has none yet; once DHIS2 answers, `varde dhis2 connect` adds it, generates analytics and installs the apps
@@ -609,18 +649,22 @@ saying it until a connect has been recorded. `varde up` closes with it, under
 the line it always ends on:
 
 ```text
-already running: chap, dhis2
+already running: chap, chapkit-ewars-model, dhis2, dhis2-db, postgres, redis, worker
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
 ```
 
 and `varde status` puts it under its verdict, with the model hints:
 
 ```text
-chap-core   up   http://localhost:8700   2.42.6   auth: off
+chap-core   up   http://localhost:8700   2.4.0   auth: off
 dhis2       up   http://localhost:8780
 
-no models enabled; run `varde models enable ID` to add one
-  varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
+MODEL                STATE                       REACH          LAST PING
+chapkit-ewars-model  registered, not configured  via chap-core  13s ago
+
+1 model registered
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 
 Both lines come off `.varde/components.yaml` and nothing else. Neither asks
@@ -651,7 +695,8 @@ dhis2:
 ```
 
 **It is a note that the command ran, and it is not evidence.** Nothing decides
-anything by it except whether those two lines are printed. The route can be
+anything by it except whether those two lines are printed. `varde doctor`
+also shows the time, as ``last `varde dhis2 connect`: TIME``. The route can be
 deleted, repointed at another server or disabled in DHIS2's own Route
 administration a minute later, and this timestamp will not move, because nothing
 reads DHIS2 to check it.
@@ -714,9 +759,9 @@ has not connected a DHIS2 that varde connected.
 
 | When | What happens |
 | --- | --- |
-| `varde components disable dhis2`, with or without `--purge` | Forgotten with the component, and the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
+| `varde components disable dhis2`, with or without `--purge` | Forgotten with the component. With `-v`, the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
 | `varde down --volumes`, when `dhis2_db` was actually removed | Forgotten with the database, and the line says why. |
-| A `varde dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through clears it. An app that is missing or failed clears it only for the `dhis2` component, not for an external DHIS2. The hint comes back, which is the answer that errs the safe way. |
+| A `varde dhis2 connect` that found something wrong | Cleared. With `-v`, the report says ``cleared the earlier `varde dhis2 connect` ``. A route nothing answered through clears it. An app that is missing or failed clears it only for the `dhis2` component, not for an external DHIS2. The hint comes back, which is the answer that errs the safe way. |
 | A `varde dhis2 connect` that could not look | Nothing. `--offline` skips the apps, so the run has nothing to say about them and the timestamp stays where it was. |
 
 The `varde down --volumes` row is the one worth understanding. `dhis2_db` going
@@ -809,7 +854,7 @@ VARDE_DHIS2_PASSWORD=theirs varde dhis2 show --user alice
 There is deliberately **no `--password` or `--token` flag**, because a secret on
 a command line ends up in the shell history and in `ps`. Nothing ever prints the
 secret. A report names the user and says what the credential is and where it was
-found (`password from .env`, `API token from VARDE_DHIS2_TOKEN`, `the DHIS2
+found (``password from `.env` ``, `API token from VARDE_DHIS2_TOKEN`, `the DHIS2
 default password`). For a token, the user is whoever DHIS2 says owns it
 (`GET /api/me`). `-vv` traces the header as `Authorization: Basic <admin and its
 password>` or `Authorization: ApiToken <the token>`.
@@ -849,7 +894,9 @@ The route is the only reason for `--chap-url`, and varde cannot work it out. The
 compose alias `http://chap:8000` resolves only inside this deployment, and
 `localhost` on the DHIS2 server is that server. So the route becomes
 `<chap-url>/**` (`https://chap.example.org/**`), and a `--chap-url` that names
-`localhost` or `127.x` is recorded with a note that it will not work. A
+`localhost` or `127.x` is recorded with a note that it will not work. When the
+DHIS2 URL is on this machine too, the note says that a DHIS2 in Docker reaches
+chap-core at `http://host.docker.internal:PORT` instead. A
 DHIS2 URL that is plain `http://` on another machine - not this one, not a
 private address - is recorded with a note too: every request carries the
 password or the token, and over `http://` they cross the network unencrypted. A
@@ -1020,6 +1067,10 @@ already going instead of asking for another:
 the analytics run that was already going finished in 4 minutes (job jFxL1tE0pAy)
 ```
 
+DHIS2 lists a run about five seconds after it accepts it. A second `varde dhis2
+analytics` in those seconds does not see the first run, so it starts another,
+which waits behind the first.
+
 A job left `RUNNING` by a hard stop blocks every future run for good;
 [`dhis2-prep`](#four-services-and-three-volumes) resets those on every start,
 which is why that is not a state you have to get out of by hand.
@@ -1044,7 +1095,7 @@ what it checked and labels the timestamp with what it is worth:
 
 | Row | What varde checked |
 | --- | --- |
-| `analytics  never run` | DHIS2 records no successful run at all. |
+| `analytics  never run` | DHIS2 records no successful run at all. DHIS2 2.42 with an empty database reports `1970-01-01T00:00:00.000` instead, and `show` prints that time as it is; it also means that no run has finished. |
 | `analytics  2026-09-27T10:10:40.043 (a run finished on this deployment)` | An analytics run has finished on this DHIS2 since it started, which `GET /api/system/tasks/ANALYTICS_TABLE` says. That notifier lives in the running process, so nothing a dump carries can put an entry in it. |
 | `analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)` | DHIS2 records a success, this deployment was seeded, and no run has finished here since DHIS2 started. The timestamp proves nothing either way. |
 | `analytics  2026-09-27T10:10:40.043` | DHIS2 records a success and this deployment has no seed, so its database was migrated from empty and the record was made against it. |
@@ -1104,7 +1155,7 @@ bundled apps of its own, identical on every DHIS2, and they are not what this
 command answers for:
 
 ```text
-apps       Modeling App 7.1.0, DHIS2 Climate App not installed
+apps       Modeling App 7.2.0, DHIS2 Climate App not installed
 missing: the Climate App is not installed
 ```
 
@@ -1139,6 +1190,10 @@ already answering says nothing at all; one that is not says so once:
 ```text
 DHIS2 at http://localhost:8780 is not answering /api/ping yet; waiting up to 20 minutes, and `varde logs dhis2` is where the migration shows
 ```
+
+Right after `varde restart dhis2`, DHIS2 can hold the `/api/ping` request
+until it is ready, which took about 15 seconds on the climate demo. The command
+then waits without this line.
 
 `/api/ping` is the only route DHIS2 answers without credentials, so it is the
 honest probe for "the API layer is up"; the authenticated `/api/system/info` right
@@ -1191,10 +1246,12 @@ leaves `dhis2/` alone:
 ```text
 $ varde -v components disable dhis2
 disabled dhis2
+stopped and removed 4 containers (dhis2, dhis2-db, dhis2-dump, dhis2-prep); host port 8780 is free again
 kept volume mychap-1ab2c3_dhis2_home; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_home`
 kept volume mychap-1ab2c3_dhis2_db; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_db`
 kept volume mychap-1ab2c3_dhis2_dump; remove it with `varde components disable dhis2 --purge` or `docker volume rm mychap-1ab2c3_dhis2_dump`
 hint: the dhis2/ directory is left alone; it is yours
+hint: the record of `varde dhis2 connect` is forgotten with the component; a DHIS2 enabled here again is asked to connect afresh
 hint: removed compose.dhis2.yml
 hint: `varde status` shows what runs now
 ```

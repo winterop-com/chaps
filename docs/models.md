@@ -29,7 +29,7 @@ Resolution order for every command that needs the catalogue:
   url     https://raw.githubusercontent.com/dhis2-chap/model-marketplace/main/registry.yaml
   source  cache (56 minutes old)
   models  7
-  cache   ~/.cache/varde/registries/https_raw_githubusercontent_com_dhis2_chap_model_marketplace_mai-f6e5270ab795f1bd
+  cache   /home/me/.cache/varde/registries/https_raw_githubusercontent_com_dhis2_chap_model_marketplace_mai-f6e5270ab795f1bd
 
   chapkit_ewars_model
   chapkit_rwanda_malaria_bym_model
@@ -42,8 +42,11 @@ Resolution order for every command that needs the catalogue:
 7 models in the catalogue (cache (56 minutes old))
 ```
 
-With `-v`, a hint names the next command: `varde models info ID` describes
-one model.
+With `-v`, a hint names the next command:
+
+```text
+hint: `varde models info ID` describes one
+```
 
 `varde registry update` forces a fetch and refreshes the cache, as does
 `varde update`. `--offline` never touches the network, so a laptop on a plane
@@ -107,10 +110,10 @@ varde models info chapkit_ewars_model
 ```text
 ID                                SERVICE                           NAME                STATUS        STABLE  LATEST  PORT
 chapkit_ewars_model               chapkit-ewars-model               CHAP-EWARS          limited data  1.0.4   1.0.4   via chap-core
-chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.1   0.1.1   -
-auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.1   1.0.1   -
-chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.2   0.1.2   -
-chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.2   0.1.2   -
+chapkit_simple_multistep_model    chapkit-simple-multistep-model    Simple Multistep    limited data  0.1.2   0.1.2   -
+auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA          experimental  1.0.2   1.0.2   -
+chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.3   0.1.3   -
+chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.3   0.1.3   -
 
 5 listed, 1 enabled in this deployment
 ```
@@ -188,14 +191,15 @@ before the definition goes away, and says so:
 
 ```text
 disabled chapkit_ewars_model
-removed compose.chapkit-ewars-model.yml
-note: stopped and removed the chapkit-ewars-model container; host port 5001 is free again
-note: kept volume mychap-1ab2c3_ck_chapkit_ewars_model_data; remove it with `varde models disable chapkit_ewars_model --purge` or `docker volume rm mychap-1ab2c3_ck_chapkit_ewars_model_data`
-run `varde up` to apply
+stopped and removed 2 containers (chapkit-ewars-model, chapkit-ewars-model-init); host port 5001 is free again
+kept volume mychap-1ab2c3_ck_chapkit_ewars_model_data; remove it with `varde models disable chapkit_ewars_model --purge` or `docker volume rm mychap-1ab2c3_ck_chapkit_ewars_model_data`
 ```
 
 The port is therefore free straight away, rather than at the next `varde up`,
 which would have removed the container as an orphan but only once it was run.
+There is nothing left for `varde up` to apply. With `-v`, two hints follow:
+the overlay that was removed (`removed compose.chapkit-ewars-model.yml`) and
+`` `varde status` shows what runs now ``.
 
 ### The data volume
 
@@ -216,9 +220,8 @@ varde models disable chapkit_ewars_model --purge
 
 ```text
 disabled chapkit_ewars_model
-removed compose.chapkit-ewars-model.yml
-note: removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
-run `varde up` to apply
+stopped and removed 2 containers (chapkit-ewars-model, chapkit-ewars-model-init)
+removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
 ```
 
 The volume is removed after the container, which is the only order docker
@@ -232,14 +235,16 @@ answer as two lists, `purged` and `kept_volumes`.
 state the kept-volume line leaves you in:
 
 ```text
-note: chapkit_ewars_model is not enabled here, so only its data volume was looked for
-note: removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
+chapkit_ewars_model is not enabled here, so only its data volume was looked for
+removed volume mychap-1ab2c3_ck_chapkit_ewars_model_data
 ```
 
 `varde doctor`'s `volumes` line finds the ones that were forgotten: a volume
 under this deployment's name that belongs to no enabled model and no enabled
 component is reported as a leftover, with the same two ways to remove it. See
 [Doctor](./doctor.md).
+
+`expose` and `unexpose` say what changed:
 
 ```text
 exposed chapkit-ewars-model on http://localhost:5001
@@ -284,8 +289,8 @@ varde models configure chapkit_ewars_model  # one model, by marketplace id or se
 
 ```text
 chapkit_ewars_model: created configured model monthly_climate
-chapkit_ewars_model: created configured model monthly_region_seasonal
 chapkit_ewars_model: created configured model monthly_population_only
+chapkit_ewars_model: created configured model monthly_region_seasonal
 chapkit_ghr_model: chap-core has a configured model of it already
 ```
 
@@ -296,7 +301,7 @@ The command is idempotent for each registered version. A model that has a
 configured model of the version it registered with is left alone, so a second
 run adds nothing. An older chap-core that still makes configured models itself
 gets no second set. A model that chap-core has not registered yet gets a line
-that says so:
+that says so. Directly after `varde up`, expect this line for a few seconds:
 
 ```text
 chapkit_ewars_model: not registered with chap-core; run `varde models configure` again once `varde status` shows it registered
@@ -307,8 +312,18 @@ command exits non-zero.
 
 You do not usually run the command yourself. `varde up --wait`, `varde dhis2
 connect` and `varde models test --backtest` do the same step, and say which
-configured models they created. `varde status` shows a model without a
-configured model as `registered, not configured`.
+configured models they created:
+
+```text
+created configured models in chap-core for chapkit_simple_multistep_model (monthly_climate, monthly_selfhistory)
+```
+
+`varde status` shows a model without a configured model as `registered, not
+configured`, and adds a line with the way out:
+
+```text
+auto-arima-chapkit: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+```
 
 ## Testing a model
 
@@ -374,14 +389,27 @@ chapkit-rwanda-malaria-bym-model    FAIL   14s   predict: Error in file(file, "r
   run `varde models test chapkit_rwanda_malaria_bym_model -v` for the full output, and `varde logs chapkit-rwanda-malaria-bym-model` for the service's own
 ```
 
-A model that could not be tested is skipped, with the reason and the way out:
+The hint names `-v`, but `-v` shows only the hints. The whole output of
+`chapkit test` needs `-vv`.
+
+A model that could not be tested is skipped. The line under the row gives the
+way out:
+
+```text
+testing 1 model (model level; add --backtest to go through chap-core)
+auto-arima-chapkit    skip    0s   its container is not running
+  run `varde up`
+
+0 pass, 1 skipped
+warning: no model was tested, because every one was skipped; the line under each row says why
+```
 
 | Skip | What to do |
 | --- | --- |
 | `its container is not running` | `varde up`. |
 | ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `varde update` moves the pin; `--backtest` tests it through chap-core instead. |
 | `chap-core has no configured model for <service>` | `--backtest` only. Run `varde models configure ID`, then the test again. |
-| `no answer in 5m` | The model is wedged or genuinely slow. `--timeout SECONDS` raises the limit; the same number is handed to chapkit as its per-job deadline. |
+| `no answer in 5m` | The model is wedged or genuinely slow. The line under the row names `--timeout` with twice the limit. The same number is handed to chapkit as its per-job deadline. |
 
 ### The backtest level
 
@@ -467,7 +495,15 @@ chapkit image carries for its healthcheck (`docker compose exec -T <service>
 curl -X DELETE ...`). If a delete does not work, the command says so and names
 what was left, so it can be removed by hand.
 
-`--keep` keeps it, and says what was kept:
+`--keep` keeps it, and says what was kept. At the model level the line names
+the config; it goes away with the volume of the model
+(`varde models disable ID --purge`):
+
+```text
+chapkit-simple-multistep-model: kept test_config_01M4CVD3GTBZGX2GGQS7131PXQ and 3 artifacts in its database
+```
+
+With `--backtest`, the line names the two deletes:
 
 ```text
 kept backtest 8 and dataset 7; remove them with `varde api DELETE /v1/crud/backtests/8` then `varde api DELETE /v1/crud/datasets/7`
@@ -576,23 +612,46 @@ enabled as the marketplace model, with the catalogue's reviewed pin:
 
 ```sh
 varde models add https://github.com/chap-models/chapkit_ewars_model
-# note: ... is the marketplace model chapkit_ewars_model; enabling that
-#       (pass `--id <other>` to add it beside it instead)
-varde models add ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0
-# the same, pinned to 1.0.3, the version that tag is
+varde models add ghcr.io/chap-models/chapkit_ewars_model:sha-24d58c0   # the same, pinned to 1.0.3
+```
+
+```text
+https://github.com/chap-models/chapkit_ewars_model is the marketplace model chapkit_ewars_model; enabling that (pass `--id <other>` to add it beside it instead)
+enabled chapkit_ewars_model v1.0.4 at http://localhost:8700/v2/services/chapkit-ewars-model/run/
+run `varde up` to apply
 ```
 
 A repository URL matches the entry with that `repository` (case, a trailing
 slash and `.git` aside) and follows its stable channel; an image matches only
 when its tag is one the entry's versions publish, and pins that version. Any
 other tag of the same image is a build the catalogue has not reviewed, so it is
-refused with the hint below. A local image (`my-model:dev`) is never matched:
+refused:
+
+```text
+error: the marketplace already lists chapkit_ewars_model (CHAP-EWARS); run `varde models enable chapkit_ewars_model`, or pass `--id auto` (or `--id <other>`) to add this one beside it
+```
+
+A local image (`my-model:dev`) is never matched:
 running your own build of a listed model is what `models add` is for.
 
 To keep a separate entry anyway - a fork's builds, a branch the catalogue does
 not follow - pass `--id`. `--id auto` takes the source's own id, or that id
 with the lowest free `_2`, `_3`, ... suffix when the marketplace or an earlier
 `models add` already uses it.
+
+```text
+$ varde models add https://github.com/chap-models/chapkit_ewars_model --id auto
+added chapkit_ewars_model_2 (chapkit-ewars-model-2)
+enabled chapkit_ewars_model_2 sha-964eea8 at http://localhost:8700/v2/services/chapkit-ewars-model-2/run/
+the service must register with chap-core as `chapkit-ewars-model-2`; if its own MLServiceInfo.id differs, `varde status` shows it as unmanaged - run `varde models remove chapkit_ewars_model_2`, then add it again with `--service-id <that id>`
+run `varde up` to apply
+```
+
+`--id auto` changes the id and the service id here, not the code in the
+image. The image above still registers as `chapkit-ewars-model`, so `varde
+status` never shows `chapkit-ewars-model-2` as registered. `--service-id chapkit-ewars-model` is
+refused, because the marketplace model uses that name. Use `--id` for a fork
+that sets its own `MLServiceInfo.id`.
 
 The **service id has to match the id the service registers with chap-core**
 (chapkit's `MLServiceInfo.id`). It is the Compose service name, the DNS name
@@ -612,6 +671,7 @@ it. Pass `--user <uid>:<gid>` to skip that.
 The definition goes in `.varde/models-manual.yaml`, beside the enabled set:
 
 ```yaml
+# Managed by varde; change it with the varde commands, not by hand.
 chapkit_dengue_model:
   service_id: chapkit-dengue-model
   display_name: chapkit_dengue_model
@@ -629,7 +689,8 @@ chapkit_dengue_model:
 That file is the definition; `.varde/models.yaml` still says which models are
 on. So `varde models disable chapkit_dengue_model` keeps the definition and
 `varde models enable chapkit_dengue_model` brings the model back at the recorded
-tag, data directory and user, without asking the network anything. It is
+tag, data directory and user, without asking the network anything. The host
+port is not in the definition: if the model had one, give `--port` again. It is
 carried over by `varde init --force` and included in `varde backup create`.
 A deployment that has added nothing has no such file.
 
@@ -648,7 +709,7 @@ was added, and a `follows` line naming the branch or reading
 `nothing (pinned)` - and leaves out every field a
 marketplace entry would have filled in (the horizon, the covariates, the
 period types, the assessment) rather than reporting them as zeroes. The
-browser marks the row `[manual]`.
+browser shows `manual` in its `KIND` column.
 
 ### Removing one
 
@@ -692,8 +753,8 @@ it is removed or renamed.
 
 `varde ui` opens two pages: **models**, the marketplace catalogue, and
 **components**, what this deployment is made of. `Tab` goes to the next page
-and `shift-Tab` back; one `s` saves both, so the two are a single sitting
-rather than two commands.
+and `shift-Tab` back; one `s` saves both and leaves the browser, so the two
+are a single sitting rather than two commands.
 
 The models page is the catalogue as one table across the width of the terminal,
 with a one-line summary of the row under the cursor under it:
@@ -755,7 +816,9 @@ from the least useful end when the terminal is too narrow for all of them.
 
 The `PORT` column reads `via chap-core` for an enabled model with no host port
 of its own, the port number for one that publishes one, and `auto` for a row
-that has asked for a port that is not picked until you save.
+that has asked for a port that is not picked until you save. A row you have
+switched on or off reads `will be enabled` or `will be disabled` until you
+save.
 
 ### Publishing a host port
 
@@ -799,6 +862,10 @@ one resolves to and a `✓` on the one the row follows today:
 `j` and `k` move between them, `s` and `l` jump straight to one, `Enter` takes
 it and `Esc` leaves the row alone. Changing the channel re-resolves the
 version when the selection is saved; changing only the port does not.
+
+A row pinned with `--version` follows no channel, but the dialog puts the `✓`
+on `stable`, and the `VERSION` column shows what `stable` resolves to. The
+summary strip shows the pin. A save keeps the pin unless you pick a channel.
 
 ### The components page
 
@@ -969,7 +1036,8 @@ only then how this deployment runs it.
 │ with lagged climate covariates, fitted with R-INLA. Built for one country's data — │
 │ it needs geometry and the full climate covariate set.                              │
 │                                                                                    │
-│ version     0.1.2 (sha-a7b2892) · verified · channels stable, latest               │
+│ version     0.1.3 (sha-1ee5ea1) · verified · channels stable, latest               │
+│             0.1.2 (sha-a7b2892) · verified                                         │
 │ author      Similien NDAGIJIMANA · HISP Centre, University of Oslo ·               │
 │             knut.rand@dhis2.org                                                    │
 │ status      ● gray, not intended for use, deprecated or kept for backwards         │
@@ -980,11 +1048,13 @@ only then how this deployment runs it.
 │             · free extras allowed · geometry required                              │
 │                                                                                    │
 │ reach       via chap-core (through chap-core's /run/ proxy)                        │
-│ image       ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-a7b2892       │
+│ image       ghcr.io/chap-models/chapkit_rwanda_malaria_bym_model:sha-1ee5ea1       │
 │ runtime     ghcr.io/dhis2-chap/chapkit-r-inla (amd64 only)                         │
 │                                                                                    │
 │ maintainers mortenoh, edvinstava                                                   │
 │ repository  https://github.com/chap-models/chapkit_rwanda_malaria_bym_model        │
+│ citation    Climate Health Analytics Platform. 2025. "Kigali Malaria BYM Model".   │
+│             HISP Centre, University of Oslo.                                       │
 ╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1034,9 +1104,22 @@ With something unsaved, the summary strip lists what saving would write, one
 line per change, and the key bar grows a filled `[s] save N changes` and a
 `[u] discard` next to it. Both pages are in that count and in that one save:
 `s` writes the model changes through the same path as `varde models enable` and
-the component changes through the same path as `varde components enable`, then
-prints what changed. Nothing is written until you save, and quitting with
-unsaved changes asks first, on either page and for either kind of change.
+the component changes through the same path as `varde components enable`. Then
+the browser closes and prints what changed:
+
+```text
+updated chapkit_ewars_model v1.0.4 on http://localhost:5001
+enabled the s3 component
+run `varde up` to apply
+```
+
+A save writes the files and starts nothing: run `varde up` to apply it. The
+palette entry `Save the changes and apply them` and the help line `save and
+apply the changes` mean the same save. With nothing pending, `s` prints `no
+changes to save` and closes the browser.
+
+Nothing is written until you save, and quitting with unsaved changes asks
+first, on either page and for either kind of change: `Quit anyway? y / n`.
 `varde ui` owns the terminal, so it rejects `--json`.
 
 `varde init --interactive` opens the same browser to pick the initial model

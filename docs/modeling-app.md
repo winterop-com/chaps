@@ -14,8 +14,10 @@ varde dhis2 connect
 varde open dhis2
 ```
 
-`varde dhis2 connect` installs the Modeling App and runs the DHIS2 analytics
-tables; it took less than a minute. Its last line is
+`varde dhis2 connect` points the DHIS2 route `chap` at chap-core, installs the
+Modeling App and the DHIS2 Climate App, and runs the DHIS2 analytics tables.
+It also makes the configured models that the Modeling App lists. It took about
+30 seconds. Its last line is
 `` the Modeling App can reach Chap; open DHIS2 with `varde open dhis2` ``.
 
 Tested with Modeling App 7.2.0, DHIS2 2.42.6 with the Laos demo database,
@@ -61,9 +63,13 @@ tab **Use saved dataset**, which needs a dataset saved before. Choose the tab
 | --- | --- |
 | Name | anything, for example `EWARS Laos dengue` |
 | Period type | Monthly |
-| From period / To period | 2019 January to 2024 December |
+| From period / To period | 2019 January to 2024 December: pick the year in the box at the top of the picker, then the month |
 | Organisation units | tick **Lao PDR**, pick the level **Province** below the tree, then **Confirm Selection** |
-| Model | **CHAP-EWARS Model (chapkit) [Monthly climate]**, then **Use this model** |
+| Model | **Select model**, click **CHAP-EWARS Model (chapkit) [Monthly climate]** in the list, then **Use this model** |
+
+The list cuts long names short, for example `CHAP-EWARS Model (chapkit)
+[Monthly…`. The panel on the right shows the full name of the entry you
+clicked, and **Use this model** picks that entry.
 
 Leave the **Backtest parameters** as they are: 3 forecast periods, 7 splits, a
 step of 1, 1 training run, and the future-weather provider *Seasonal
@@ -81,13 +87,13 @@ enable` adds its own entries. chap-core 2.4 and later does not make these
 entries itself: `varde up --wait`, `varde dhis2 connect` and `varde models
 configure` make them. If a model is not in the list, run `varde status`. If it
 shows the model as `registered, not configured`, run `varde models configure`.
-`varde models test` checks the models. See
+`varde models test --all` makes each model train and predict. See
 [Configured models](./models.md#configured-models).
 
 The list also holds models that chap-core ships configured on its own and runs
 inside its worker. Some of them have the status *Deprecated*. One of those is
 **CHAP-EWARS Model** without `(chapkit)`: it is the older EWARS, not the model
-`varde` started.
+`varde` started. The three `(chapkit)` entries have the status *Limited*.
 
 ![Organisation units: Lao PDR at the Province level](images/modeling-app/03-org-units.png)
 
@@ -104,8 +110,9 @@ Search by name in each box:
 | Mean temperature | `CCH - Air temperature (ERA5-Land)` |
 
 A search for the dengue cases also finds the items
-`CHAP Dengue Cases (Any) - Weekly Quantile ...`. Those hold forecasts, not
-cases; pick the item without `CHAP` in front.
+`CHAP Dengue Cases (Any) - Weekly Quantile ...` and
+`NCLE: 7. Dengue cases (any)`. The `CHAP` items hold forecasts, not cases.
+Pick `Dengue Cases (Any) - Weekly` exactly.
 
 ![Mapping the model inputs to DHIS2 data](images/modeling-app/04-map-data.png)
 
@@ -146,11 +153,11 @@ To compare two models, run a second evaluation on the same data:
 4. In **Evaluate**, **Compare**, pick the first evaluation in the left box and
    the copy in the box beside it.
 
-The *Monthly CHAP-EWARS model* that chap-core ships took about two minutes as
-well. The comparison shows the two side by side, province by province; the box
-**Location(s)** starts with ten provinces selected. More marketplace models
-come with `varde models enable ID` and `varde up` (`varde models list` shows
-the ids).
+The *Monthly CHAP-EWARS model* that chap-core ships (status *Deprecated*) took
+about two minutes as well. The comparison shows the two side by side, province
+by province; the box **Location(s)** starts with ten provinces selected. More
+marketplace models come with `varde models enable ID` and `varde up`
+(`varde models list` shows the ids).
 
 ![Two evaluations side by side](images/modeling-app/08-compare.png)
 
@@ -166,30 +173,33 @@ Once the evaluation has a setup, the same button says **Predict**.
 On the setup, choose **Run prediction**. The page fills in a name for the
 run. In **Training period**, set the last training period to the last month
 with case data: **2024 December** for the demo data. Then choose **Run
-prediction** again. The forecast covers the three months after that month.
+prediction** again. The app goes back to the setup, where the run shows as
+*Running*. The forecast covers the three months after that month.
 
 ![Running a prediction](images/modeling-app/10-run-prediction.png)
 
-It took about twenty seconds. **Go to last run** shows one chart per province:
+It took about twenty seconds; the row then says *Success* without a reload.
+**Go to last run** shows one chart per province:
 the real cases up to December 2024 and the forecast for January to March 2025.
 
 ![A forecast per province](images/modeling-app/11-forecast.png)
 
 **Import**, on the right of the forecast, writes the forecast back into DHIS2
 as data, where dashboards and maps can use it. It needs five data elements for
-the forecast's quantiles. The page suggests the ones the demo database has,
-`CHAP Dengue Cases (Any) - Weekly Quantile High` to `... Quantile Low`, and
-**Clear and import** asks once more before it writes. DHIS2 2.42.6 accepted
-the monthly values into those elements, but their data set is weekly. For a
-monthly forecast, create monthly data elements in DHIS2's Maintenance app and
-pick those.
+the forecast's quantiles. Each box is empty at first; open it, and it lists
+the elements of the demo database under **Suggested**. Pick
+`CHAP Dengue Cases (Any) - Weekly Quantile High` to `... Quantile Low`.
+**Clear and import** asks once more before it writes, then the app goes back
+to the setup. DHIS2 2.42.6 accepted the monthly values into those elements,
+but their data set is weekly. For a monthly forecast, create monthly data
+elements in DHIS2's Maintenance app and pick those.
 
 ## When something goes wrong
 
 | What you see | What to do |
 | --- | --- |
 | Typing `Modeling` in the app menu finds nothing | `varde dhis2 connect` has not run, or failed; run it and read its last line. |
-| The model list does not have the model `varde` enabled | `varde status`: the model must be `registered`. If it is not, the line under the table says why. |
+| The model list does not have the model `varde` enabled | `varde status`: the model must be `registered`. If it says `registered, not configured`, run `varde models configure`. Otherwise the line under the table says why. |
 | `Oops! Sorry, an unexpected error`, or `Unnamed evaluation` rows, after the deployment was recreated | The browser holds a login to the DHIS2 that was removed: open DHIS2 again and log in. See [Troubleshooting](./troubleshooting.md#oops-sorry-an-unexpected-error-or-unnamed-evaluation-in-the-modeling-app). |
 | A job in **Jobs** says it failed | `varde jobs`, then `varde jobs logs ID` with the id it prints: the model's own error is at the end. |
 

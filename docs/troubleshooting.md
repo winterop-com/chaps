@@ -243,14 +243,17 @@ varde models test chapkit_ewars_model --backtest
 See [Configured models](./models.md#configured-models).
 
 If `varde models configure` says that it could not create the configured
-models and the reason is `answered 409 Conflict`, chap-core refused the
+models and the reason is `answered HTTP 409 Conflict`, chap-core refused the
 template. The model reports no git revision, or another revision than the
 template chap-core stored for its version.
 
 1. Read the reason in `varde logs chap`.
-2. If the model image changed, run `varde update` to move the pin, or run
+2. If the reason says `is stored from revision None`, the model image reports
+   no git revision. Build it again in the model's checkout with
+   `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`.
+3. If the model image changed, run `varde update` to move the pin, or run
    `varde restart --all <service>` to make the model register again.
-3. Run `varde models configure` again.
+4. Run `varde models configure` again.
 
 ## 401 from the Modeling App
 
@@ -1222,8 +1225,9 @@ what the files say, and
 varde restart
 ```
 
-recreates exactly those, leaving the rest running. If the line says Chap is not
-running instead, `varde up` starts it with the new versions. See
+recreates exactly those, leaving the rest running. If Chap is not running, the
+line names no service, and `varde up` starts it with the new versions (with
+`-v`, a hint says so). See
 [Updating](./updating.md).
 
 ## `varde update` fails offline
@@ -1301,7 +1305,7 @@ Alembic revision it was stamped with does not exist in this build. It is what
 it asks for an answer:
 
 ```text
-warning: moving chap-core from dev to v2.3.1 can run an older schema against a
+warning: moving chap-core from master to v2.3.1 can run an older schema against a
 database migrated by the newer one; run `varde backup create` first
 ```
 

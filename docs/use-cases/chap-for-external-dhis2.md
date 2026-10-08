@@ -58,40 +58,57 @@ else. The admin of that DHIS2 decides about the other two steps:
 - `varde dhis2 analytics` generates the analytics tables. On a large instance
   this can take hours.
 
-For a DHIS2 2.42 that has a `chap` route already and none of the apps,
-`connect` printed this:
+For a DHIS2 2.42 that has a `chap` route already and none of the apps, the
+first `connect` printed this:
 
 ```text
 external DHIS2 2.42.6 at https://dhis2.example.org, as `admin`
 repointed the `chap` route at https://chap.example.org/**; chap-core answered through it
 skipped: installing apps on a DHIS2 varde does not run (the Modeling App is not installed, the Climate App is not installed); `varde dhis2 apps` installs them if its admin agrees
 skipped: generating analytics tables on a DHIS2 varde does not run; `varde dhis2 analytics` starts a run if its admin agrees
-the Modeling App can reach Chap once it is installed; open DHIS2 with `varde open dhis2`
+created configured models in chap-core for chapkit_ewars_model (monthly_climate, monthly_population_only, monthly_region_seasonal)
+the Modeling App can reach Chap after the admin of this DHIS2 installs the Modeling App and the Climate App; `varde dhis2 show` says when they are there
 ```
 
-On a DHIS2 with no `chap` route, the second line starts with `created`.
+On a DHIS2 with no `chap` route, the second line starts with `created`. Only
+the first `connect` prints the `created configured models` line. It makes the
+configured models that the Modeling App lists.
 
 It worked when:
 
 - `varde dhis2 connect` says `chap-core answered through it`.
 - `varde dhis2 show` lists the route as `(healthy)`.
-- When the two apps are installed, the **Models** page of the Modeling App
-  lists the models.
+- When the two apps are installed, the last line of `varde dhis2 show` and
+  `varde dhis2 connect` is
+  ``the Modeling App can reach Chap; open DHIS2 with `varde open dhis2` ``.
+- The **Models** page of the Modeling App lists the models.
 
-If `connect` warns `nothing answered through it`, run `varde status`. If
-chap-core is up, the DHIS2 server cannot reach the `--chap-url` address. Set
-the correct address with `varde dhis2 use --chap-url URL`. Then run
-`varde dhis2 connect` again.
+Until the admin installs the apps, `varde dhis2 show` names each missing app
+on a `missing:` line.
 
-Until the route works and both apps are installed, `varde up` ends with this
-line:
+If `connect` warns `nothing answered through it`, read the rest of the
+warning:
+
+- If it says `chap-core answers at`, chap-core is up, but the DHIS2 server may
+  not reach the `--chap-url` address. Set the correct address with
+  `varde dhis2 use --chap-url URL`. Then run `varde dhis2 connect` again.
+- If it says `` run `varde status` ``, chap-core did not answer on this
+  machine. Run `varde status`.
+
+See [The route is there but nothing answers through
+it](../troubleshooting.md#the-route-is-there-but-nothing-answers-through-it).
+
+Until `connect` gets an answer from chap-core through the route, `varde up`
+ends with this line:
 
 ```text
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
 ```
 
-When the admin has installed the apps, run `varde dhis2 connect` again. It
-records the connect in `.varde/components.yaml`, and the line stops.
+On a DHIS2 that varde does not run, the route is all that `connect` changes.
+So when chap-core answers through the route, `connect` records the connect in
+`.varde/components.yaml`, and the line stops. The apps do not have to be
+installed for this.
 
 ## The address of chap-core
 
@@ -110,7 +127,8 @@ must add that origin, with no path, to `route.remote_servers_allowed` in the
 ## Try it on one machine
 
 A second varde deployment can be the external DHIS2. It uses port 8790, so it
-does not conflict with chap-core:
+does not conflict with chap-core. Start it before `varde dhis2 use`. Run these
+commands in the directory that holds `mychap`, not in `mychap`:
 
 ```sh
 varde init ext-dhis2 --only dhis2 --dhis2-port 8790
@@ -119,9 +137,16 @@ varde up
 varde status                 # run it again until the dhis2 line says up
 ```
 
+DHIS2 answers after about a minute on a fast machine, and after some minutes
+on a slow one.
+
 In `mychap`, use `varde dhis2 use http://localhost:8790 --chap-url
 http://host.docker.internal:8700`. In [The credentials](#the-credentials), use
-the demo login `admin` / `district`.
+the demo login `admin` / `district`. The demo database has a `chap` route
+already, so `connect` says `repointed`.
+
+This DHIS2 is yours, so you are its admin. In `mychap`, `varde dhis2 apps`
+installs the two apps in about ten seconds.
 
 To remove the two deployments and their data, run `varde down --volumes --yes`
 in `mychap` and in `ext-dhis2`.
