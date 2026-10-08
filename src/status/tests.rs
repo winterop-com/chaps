@@ -442,6 +442,15 @@ fn the_version_label_marks_the_pin() {
         .label(),
         "v2.3.1 (pinned)"
     );
+    assert_eq!(
+        ApiVersion {
+            value: "latest".into(),
+            pinned: true,
+            revision: None,
+        }
+        .label(),
+        "latest (from the pin)"
+    );
     assert!(
         ApiVersion {
             value: String::new(),

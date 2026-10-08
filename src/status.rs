@@ -226,9 +226,14 @@ pub struct ApiVersion {
 
 impl ApiVersion {
     /// The cell for the chap-core line, empty when nothing is known at all.
+    /// A moving tag such as `latest` is not called pinned: it is only where
+    /// the value came from.
     pub fn label(&self) -> String {
         match (self.value.is_empty(), self.pinned) {
             (true, _) => String::new(),
+            (false, true) if crate::chapcore::is_moving_tag(&self.value) => {
+                format!("{} (from the pin)", self.value)
+            }
             (false, true) => format!("{} (pinned)", self.value),
             (false, false) => self.value.clone(),
         }
