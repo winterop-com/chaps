@@ -720,23 +720,46 @@ fn the_compose_file_of_latest_is_the_one_the_newest_release_publishes() {
     );
     assert_eq!(plan.new_tag, "latest");
     assert_eq!(plan.compose_ref.as_deref(), Some("v2.3.1"));
-    // And the row says the compose file came with it, at that ref.
-    let mut fetched = plan;
-    fetched.compose_source = ComposeSource::Fetched {
-        url: chapcore::compose_url("v2.3.1"),
-        tag: "v2.3.1".into(),
-        sha256: "a".repeat(64),
+    // The deployment has the compose file of v2.3.0, so this run brings
+    // the one of v2.3.1 and the row says so.
+    let fetched = |plan: &ChapCoreUpdate, tag: &str| ChapCoreUpdate {
+        compose_source: ComposeSource::Fetched {
+            url: chapcore::compose_url(tag),
+            tag: tag.into(),
+            sha256: "a".repeat(64),
+        },
+        ..plan.clone()
     };
     assert_eq!(
-        chap_core_line(&fetched),
+        chap_core_line(&fetched(&plan, "v2.3.0")),
         "chap-core  v2.3.0 -> latest  (compose.ghcr.yml too)"
+    );
+    // From v2.3.1 to `latest`, which is v2.3.1: the compose file stays.
+    let same = plan_chap_core(
+        &pinned_to("v2.3.1"),
+        Some("v2.3.1".into()),
+        false,
+        Some("latest"),
+    );
+    assert_eq!(
+        chap_core_line(&fetched(&same, "v2.3.1")),
+        "chap-core  v2.3.1 -> latest"
+    );
+    // From `latest` to a branch: the branch brings its own compose file.
+    let branch = plan_chap_core(&pinned_to("latest"), None, false, Some("master"));
+    assert_eq!(
+        chap_core_line(&fetched(&branch, "v2.3.1")),
+        "chap-core  latest -> master  (compose.ghcr.yml too)"
     );
 }
 
 #[test]
 fn a_switch_reports_the_way_the_rest_of_the_update_does() {
     let plan = plan_chap_core(&pinned_to("v2.3.1"), None, false, Some("dev"));
-    assert_eq!(chap_core_line(&plan), "chap-core  v2.3.1 -> dev");
+    assert_eq!(
+        chap_core_line(&plan),
+        "chap-core  v2.3.1 -> dev  (compose.ghcr.yml too)"
+    );
     assert_eq!(
         updated_phrase(0, Some(("v2.3.1", "dev")), &[]).as_deref(),
         Some("chap-core v2.3.1 -> dev")
@@ -989,17 +1012,18 @@ fn a_pin_the_listing_does_not_hold_gets_a_row_of_its_own() {
 #[test]
 fn the_chap_core_line_says_what_happened() {
     let mut moved = chap_core("v2.3.0", "v2.3.1", Some("v2.3.1"));
-    // A plan, so the compose file has not moved with the pin yet.
-    assert_eq!(chap_core_line(&moved), "chap-core  v2.3.0 -> v2.3.1");
+    // The run fetches the compose file of v2.3.1, which the deployment does
+    // not have yet.
+    assert_eq!(
+        chap_core_line(&moved),
+        "chap-core  v2.3.0 -> v2.3.1  (compose.ghcr.yml too)"
+    );
     moved.compose_source = ComposeSource::Fetched {
         url: chapcore::compose_url("v2.3.1"),
         tag: "v2.3.1".into(),
         sha256: "a".repeat(64),
     };
-    assert_eq!(
-        chap_core_line(&moved),
-        "chap-core  v2.3.0 -> v2.3.1  (compose.ghcr.yml too)"
-    );
+    assert_eq!(chap_core_line(&moved), "chap-core  v2.3.0 -> v2.3.1");
     let current = chap_core("v2.3.1", "v2.3.1", Some("v2.3.1"));
     assert_eq!(
         chap_core_line(&current),

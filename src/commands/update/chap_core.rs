@@ -369,13 +369,19 @@ pub(super) fn apply_chap_core(
 /// The chap-core row of the list, in the same shape as a model's.
 pub fn chap_core_line(c: &ChapCoreUpdate) -> String {
     if c.changed {
-        // The compose file only follows the pin once the run has actually
-        // fetched it, and the plan is printed before that happens, so the
-        // note is there for a report built after the fetch and nowhere else.
-        let fetched = c.compose_ref.as_deref().unwrap_or(&c.new_tag);
-        let compose = match &c.compose_source {
-            ComposeSource::Fetched { tag, .. } if tag == fetched => "  (compose.ghcr.yml too)",
-            _ => "",
+        // The plan is printed before the fetch, so the note says what this
+        // run is going to fetch: a compose file at another ref than the one
+        // the deployment has. `latest` after the release it points at keeps
+        // the file it has, and a branch brings its own.
+        let brings_new = match (&c.compose_ref, &c.compose_source) {
+            (None, _) => false,
+            (Some(reference), ComposeSource::Fetched { tag, .. }) => reference != tag,
+            (Some(_), _) => true,
+        };
+        let compose = if brings_new {
+            "  (compose.ghcr.yml too)"
+        } else {
+            ""
         };
         return format!("chap-core  {} -> {}{compose}", c.old_tag, c.new_tag);
     }
