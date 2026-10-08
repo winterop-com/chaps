@@ -75,6 +75,15 @@ The model registers with chap-core as `{{ service_id }}`. This id is the
 {% if is_mlproject %}`name` in `MLproject`{% else %}`id` in `main.py`{% endif %}. If you change it, add the image with
 `--service-id` and the new id.
 
+## After a change
+
+chap-core stores each version of a model only once. Before you build again,
+raise the version: {% if is_mlproject %}`version` in `MLproject`{% else %}`version` in `main.py`{% endif %}. Then commit, build
+with the same `docker build` line, and run `varde restart` in the deployment.
+`varde models test {{ model_id }} --backtest` creates the configured model
+`default` of the new version, or `varde models configs sync` does it without a
+test.
+
 ## Options
 
 {% if is_mlproject %}
@@ -87,7 +96,8 @@ The scripts read them from `config.yml`.
 {% endif %}
 {% endif %}
 
-A configured model in chap-core gives each option a value:
+A configured model in chap-core gives each option a value. It belongs to one
+version of the model, so add it again after a new version:
 
 ```sh
 varde models configs add {{ model_id }} --name long --set window=6
