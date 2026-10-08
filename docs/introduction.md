@@ -80,6 +80,12 @@ varde init mychap --with ocs         # Chap with Open Climate Service beside it
 varde init climate --only ocs,s3     # OCS alone, with no Chap
 ```
 
+A new model:
+
+```sh
+varde models new my-model            # a model project, from a template
+```
+
 After `init`, `varde` is two things at once: a thin wrapper around
 `docker compose` that always passes the explicit `-f` list, and a model manager
 that can add or remove models without you hand-editing YAML.

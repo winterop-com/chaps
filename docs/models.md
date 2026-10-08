@@ -956,6 +956,12 @@ A model-level test (`varde models test` without `--backtest`) runs
 `chapkit test` in the container. An MLproject image does not have it, and the
 row says `skip` with ``an MLproject service has no `chapkit test` ``.
 
+After a change, raise the version (`version` in `main.py`, or in `MLproject`)
+before you build again. chap-core stores each version of a model only once,
+and refuses a new git revision under a version it has. Then build, run
+`varde restart`, and test again. See
+[`is stored from revision ..., but its source now reports revision ...`](./troubleshooting.md#is-stored-from-revision--but-its-source-now-reports-revision-).
+
 To run the model service alone, with no deployment: `varde run dengue-lags:dev`.
 
 ## Models outside the marketplace

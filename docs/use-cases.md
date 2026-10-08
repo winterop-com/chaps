@@ -46,6 +46,7 @@ enable` / `disable`. See [Growing a deployment](./use-cases/growing.md).
 
 ## Developing Chap, a model or DHIS2
 
+- [A new model of your own](./use-cases/new-model.md): `varde models new` makes a model project in Python or R, and Docker builds it.
 - [Your model from its checkout, with Chap](./use-cases/model-on-host.md): varde runs chap-core; you run your model with `uv run` and it registers.
 - [A model image you built yourself](./use-cases/local-model-image.md): `docker build` a model and run it in Chap without publishing it.
 - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md): you run chap-core; varde runs the models and registers them with it.

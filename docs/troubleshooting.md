@@ -232,6 +232,24 @@ The image serves an `MLproject` file with `chapkit mlproject run`, as the
 chapkit has `chapkit test` only in a chapkit service project. A newer image
 does not change this. Test the model through chap-core with `--backtest`.
 
+## `is stored from revision ..., but its source now reports revision ...`
+
+```text
+dengue-lags    FAIL       8s   ValueError: Model template 'dengue-lags' version '0.1.0' is stored from revision 'db139b6b09185e0be0971d31cafb39f126c910...
+```
+
+chap-core stores each version of a model template only once, with the git
+revision of the image that first registered it. A new image under the same
+version reports another revision, and chap-core refuses to run it. The model
+still registers, so `varde status` shows it as `registered`.
+
+1. Raise the version of the model: `version` in `main.py`, or `version` in
+   `MLproject`.
+2. Commit, and build the image again with `GIT_REVISION`.
+3. Run `varde restart`.
+4. Run `varde models test ID --backtest`, or `varde models configs sync ID`.
+   This creates the configured models of the new version.
+
 ## `already exists and is not empty; give a new directory`
 
 `varde models new DIR` writes a project only into a directory that is not

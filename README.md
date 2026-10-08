@@ -54,6 +54,7 @@ an evaluation and a three-month dengue forecast on demo data from Laos.
 - [chap-core built from its checkout](https://winterop-com.github.io/varde/use-cases/chap-core-from-checkout.html): varde builds chap-core from your clone and runs it with everything else.
 - [A DHIS2 you run yourself, with Chap from varde](https://winterop-com.github.io/varde/use-cases/dhis2-dev-with-chap.html): your DHIS2 and a chap-core from varde, connected.
 - [A DHIS2 from varde, with a chap-core elsewhere](https://winterop-com.github.io/varde/use-cases/dhis2-with-chap-core-elsewhere.html): a DHIS2 from varde and your chap-core, connected.
+- [A new model of your own](https://winterop-com.github.io/varde/use-cases/new-model.html): `varde models new` makes a model project in Python or R, and Docker builds it.
 - [A model image you built yourself](https://winterop-com.github.io/varde/use-cases/local-model-image.html): `docker build` a model and run it in Chap without publishing it.
 - [Evaluating a model on your own data](https://winterop-com.github.io/varde/use-cases/evaluate-with-chap-cli.html): `chap eval` on your CSV through `varde chap`, with no Python or uv.
 - [Combinations](https://winterop-com.github.io/varde/use-cases/combinations.html): OCS and DHIS2 without Chap, a model beside OCS, everything at once.

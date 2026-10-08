@@ -503,8 +503,13 @@ varde models test my_model --backtest
 
 It worked when the last line says `1 of 1 model passes`. The model is in
 `main.py` (the default type) or in the `scripts/` folder. The `README.md` of
-the project lists the files. After a change, build the image again with the
-same `docker build` line, then run `varde restart` in the `mychap` folder.
+the project lists the files.
+
+After a change, raise `version` in `main.py` (or in `MLproject`) first:
+chap-core stores each version only once. Then commit, build the image again
+with the same `docker build` line, and run `varde restart` and the
+`varde models test` line in the `mychap` folder. If the test says
+`is stored from revision`, the version was not raised.
 
 More: [A new model project](./models.md#a-new-model-project).
 

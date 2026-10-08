@@ -18,6 +18,7 @@
   - [A chapkit model service on its own](./use-cases/model-alone.md)
   - [Several model services side by side](./use-cases/models-alone.md)
   - [Any number of model services, no folder](./use-cases/models-with-run.md)
+  - [A new model of your own](./use-cases/new-model.md)
   - [Your model from its checkout, with Chap](./use-cases/model-on-host.md)
   - [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md)
   - [chap-core built from its checkout](./use-cases/chap-core-from-checkout.md)
