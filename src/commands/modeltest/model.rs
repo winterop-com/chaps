@@ -117,7 +117,7 @@ pub(super) fn model_level(
                 modeltest::SUMMARY_MARKER
             ),
             Some(format!(
-                "run `varde models test {id} -v` for the full output"
+                "run `varde models test {id} -vv` for the full output"
             )),
         );
     };
@@ -130,7 +130,7 @@ pub(super) fn model_level(
             Verdict::Fail,
             summary.why(),
             Some(format!(
-                "run `varde models test {id} -v` for the full output, \
+                "run `varde models test {id} -vv` for the full output, \
                  and `varde logs {}` for the service's own",
                 enabled.service_id
             )),

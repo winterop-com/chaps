@@ -272,7 +272,7 @@ pub fn closing(runs: &[Run]) -> String {
             _ => "<id>".to_string(),
         };
         line.push_str(&format!(
-            "; run `varde models test {which} -v` for the full output"
+            "; run `varde models test {which} -vv` for the full output"
         ));
     }
     line

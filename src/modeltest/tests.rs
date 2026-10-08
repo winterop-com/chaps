@@ -344,7 +344,7 @@ fn the_closing_line_counts_what_happened_and_only_a_failure_is_a_failure() {
     );
     assert_eq!(
         closing(&one_bad),
-        "4 of 5 models pass; run `varde models test ewars -v` for the full output"
+        "4 of 5 models pass; run `varde models test ewars -vv` for the full output"
     );
     assert!(any_failed(&one_bad));
 
@@ -370,7 +370,7 @@ fn the_closing_line_counts_what_happened_and_only_a_failure_is_a_failure() {
     );
     assert_eq!(
         closing(&skipped),
-        "3 pass, 1 fail, 1 skipped; run `varde models test ghr -v` for the full output"
+        "3 pass, 1 fail, 1 skipped; run `varde models test ghr -vv` for the full output"
     );
     // A skip on its own is not a failure and the run still exits zero.
     let only_skip = vec![run(
