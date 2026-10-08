@@ -292,7 +292,7 @@ fn describe_release(release: &selfupdate::Release) -> String {
         return release.tag.clone();
     }
     let commit = selfupdate::release_commit(release);
-    match (commit, release.published_day()) {
+    match (commit, release.built_day()) {
         (Some(commit), "") => format!("dev {}", &commit[..7]),
         (Some(commit), day) => format!("dev {} ({day})", &commit[..7]),
         (None, "") => "dev".to_string(),

@@ -135,13 +135,30 @@ fn a_release_is_named_by_its_tag_and_the_rolling_one_by_its_commit() {
     };
     assert_eq!(describe_release(&rolling), "dev 0b1c2d3 (2026-09-23)");
 
+    // The day is the day of the build, not the day the release was made:
+    // the rolling release keeps its first publish day for every build.
+    let rebuilt = selfupdate::Release {
+        built_at: "2026-10-07T06:20:00Z".to_string(),
+        body: "built from commit `0b1c2d3e4f50617283940a1b2c3d4e5f60718293`".to_string(),
+        ..rolling.clone()
+    };
+    assert_eq!(describe_release(&rebuilt), "dev 0b1c2d3 (2026-10-07)");
+
     // Notes that name no commit still say which day the build is from.
     let vague = selfupdate::Release {
         tag: selfupdate::DEV_TAG.to_string(),
         published_at: "2026-09-23T17:08:44Z".to_string(),
+        built_at: "2026-10-07T06:20:00Z".to_string(),
         ..Default::default()
     };
-    assert_eq!(describe_release(&vague), "dev (2026-09-23)");
+    assert_eq!(describe_release(&vague), "dev (2026-10-07)");
+
+    // And with nothing that says when it was built, no day at all.
+    let undated = selfupdate::Release {
+        built_at: String::new(),
+        ..vague
+    };
+    assert_eq!(describe_release(&undated), "dev");
 }
 
 /// Crossing channels is never "already up to date", in either direction:

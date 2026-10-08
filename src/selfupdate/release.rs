@@ -18,8 +18,13 @@ pub struct Release {
     /// one; every `vX.Y.Z` release is not.
     pub prerelease: bool,
     /// When the release was published, as GitHub's ISO-8601 string, empty
-    /// when the payload did not carry one.
+    /// when the payload did not carry one. For the rolling `dev` release this
+    /// is the day the release was first made, not the day of the build.
     pub published_at: String,
+    /// The newest `updated_at` of the assets, as GitHub's ISO-8601 string,
+    /// empty when the payload lists none. Every rolling build replaces the
+    /// assets, so this is the time of the build.
+    pub built_at: String,
     /// The release notes, which is where a dev build records the commit it
     /// was built from. See [`release_commit`].
     pub body: String,
@@ -34,11 +39,47 @@ impl Release {
     /// The day the release was published, `YYYY-MM-DD`, or the whole
     /// timestamp when it is not the shape GitHub documents.
     pub fn published_day(&self) -> &str {
-        match self.published_at.split_once('T') {
-            Some((day, _)) => day,
-            None => &self.published_at,
+        day_of(&self.published_at)
+    }
+
+    /// The day the release was built, `YYYY-MM-DD`, or empty when nothing
+    /// says.
+    ///
+    /// The notes of a rolling build say `built from commit <sha> on <day>`,
+    /// and that comes first; the newest asset is the fallback. The publish
+    /// day is not used: the `dev` release keeps the day it was first made.
+    pub fn built_day(&self) -> &str {
+        match notes_day(&self.body) {
+            Some(day) => day,
+            None => day_of(&self.built_at),
         }
     }
+}
+
+/// The day of an ISO-8601 timestamp, or the whole string when it is not
+/// that shape.
+fn day_of(timestamp: &str) -> &str {
+    match timestamp.split_once('T') {
+        Some((day, _)) => day,
+        None => timestamp,
+    }
+}
+
+/// The `YYYY-MM-DD` after `commit <sha> on` in release notes.
+fn notes_day(body: &str) -> Option<&str> {
+    let at = body.to_ascii_lowercase().find("commit ")?;
+    let rest = &body[at..];
+    let on = rest.find(" on ")?;
+    // The day follows the sha on the same line, not somewhere later.
+    if rest[..on].contains('\n') {
+        return None;
+    }
+    let day = rest[on + 4..].get(..10)?;
+    let shaped = day.char_indices().all(|(i, c)| match i {
+        4 | 7 => c == '-',
+        _ => c.is_ascii_digit(),
+    });
+    shaped.then_some(day)
 }
 
 /// Parse a GitHub release payload into [`Release`].
@@ -60,6 +101,8 @@ pub fn parse_release(body: &str) -> Result<Release> {
     struct Asset {
         #[serde(default)]
         name: String,
+        #[serde(default)]
+        updated_at: Option<String>,
     }
 
     let payload: Payload =
@@ -67,8 +110,18 @@ pub fn parse_release(body: &str) -> Result<Release> {
     if payload.tag_name.trim().is_empty() {
         return Err(anyhow::anyhow!("the release carries no tag_name"));
     }
+    // ISO-8601 timestamps in one zone sort as strings.
+    let built_at = payload
+        .assets
+        .iter()
+        .filter_map(|asset| asset.updated_at.as_deref())
+        .map(str::trim)
+        .max()
+        .unwrap_or_default()
+        .to_string();
     Ok(Release {
         tag: payload.tag_name.trim().to_string(),
+        built_at,
         assets: payload
             .assets
             .into_iter()

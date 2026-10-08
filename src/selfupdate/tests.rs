@@ -419,6 +419,7 @@ fn dev_release(commit: &str) -> Release {
         ],
         prerelease: true,
         published_at: "2026-09-23T17:08:44Z".to_string(),
+        built_at: String::new(),
         body: format!(
             "### Unstable\n\nThis is a rolling build of `main`, \
                  built from commit `{commit}` on 2026-09-23.\n"
@@ -909,4 +910,36 @@ fn set_mode(path: &Path, mode: u32) {
 fn mode_of(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+}
+
+/// The rolling release keeps the day it was first published; the day of the
+/// build is in its notes, and in the assets each build replaces.
+#[test]
+fn the_build_day_is_the_day_of_the_build_not_of_the_release() {
+    let parsed = parse_release(
+        r#"{"tag_name":"dev","prerelease":true,"published_at":"2026-09-23T17:08:44Z",
+                "body":"Built from commit `b95828a0` on 2026-10-07 06:12 UTC.",
+                "assets":[{"name":"SHA256SUMS","updated_at":"2026-10-07T06:20:00Z"},
+                          {"name":"varde-x86_64-unknown-linux-musl.tar.gz",
+                           "updated_at":"2026-10-07T06:19:00Z"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(parsed.built_at, "2026-10-07T06:20:00Z");
+    assert_eq!(parsed.built_day(), "2026-10-07");
+
+    // Notes without a day: the newest asset says when the build was.
+    let assets_only = Release {
+        body: "Built from commit `b95828a0`.".to_string(),
+        built_at: "2026-10-06T06:20:00Z".to_string(),
+        ..parsed.clone()
+    };
+    assert_eq!(assets_only.built_day(), "2026-10-06");
+
+    // Nothing at all: no day, rather than the day the release was made.
+    let bare = Release {
+        body: String::new(),
+        built_at: String::new(),
+        ..parsed
+    };
+    assert_eq!(bare.built_day(), "");
 }
