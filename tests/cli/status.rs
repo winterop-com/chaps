@@ -289,3 +289,55 @@ fn init_without_the_flag_leaves_both_secrets_commented() {
             .contains("      # SERVICEKIT_REGISTRATION_KEY:")
     );
 }
+
+/// A chap-core elsewhere runs no image this deployment pins: the line shows
+/// only the version it reports, and a chap-core that does not answer gets a
+/// way out that names no `chap` service.
+#[test]
+fn status_of_a_chap_core_elsewhere_shows_no_pin_and_no_chap_service() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let url = format!("http://127.0.0.1:{}", free_port());
+    sandbox
+        .init(&["--models", "none", "--chap-core-url", &url])
+        .assert()
+        .success();
+
+    // `--url`: with no container of this deployment running, a plain
+    // `status` only says that Chap is not running.
+    let out = chap_in(&sandbox, &dir, &["status", "--url", &url])
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stdout.contains("pinned"), "{stdout}");
+    assert!(!stdout.contains("latest"), "{stdout}");
+    assert!(!stderr.contains("varde logs"), "{stderr}");
+    assert!(
+        stderr.contains("this deployment does not run it, so start it there"),
+        "{stderr}"
+    );
+
+    let port = chap_core_server();
+    let url = format!("http://127.0.0.1:{port}");
+    chap_in(
+        &sandbox,
+        &dir,
+        &["components", "enable", "chap-core", "--url", &url],
+    )
+    .assert()
+    .success();
+    let out = chap_in(&sandbox, &dir, &["status", "--url", &url])
+        .output()
+        .expect("varde runs")
+        .stdout;
+    let stdout = String::from_utf8_lossy(&out);
+    let line = stdout
+        .lines()
+        .find(|line| line.starts_with("chap-core"))
+        .expect("a chap-core line");
+    assert!(line.contains(CHAP_CORE_VERSION), "{line}");
+    assert!(!line.contains("latest"), "{line}");
+}

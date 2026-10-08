@@ -376,7 +376,14 @@ pub fn status(
         }
     }
 
-    let version = version_of(&agent, &base, &api, &project.state.chap_image_tag, token);
+    // A chap-core elsewhere runs no image this deployment pins, so the only
+    // version there is to show is the one it reports.
+    let elsewhere = project.state.components.chap_core_external.is_some();
+    let pin = match elsewhere {
+        true => "",
+        false => project.state.chap_image_tag.as_str(),
+    };
+    let version = version_of(&agent, &base, &api, pin, token);
     let missing = missing_ids(&expected, &registered);
     let reach = project
         .state
@@ -446,7 +453,8 @@ pub fn status(
         api_port_source,
         api,
         version,
-        chap_tag_moving: crate::chapcore::is_moving_tag(&project.state.chap_image_tag),
+        chap_tag_moving: !elsewhere
+            && crate::chapcore::is_moving_tag(&project.state.chap_image_tag),
         chap_tag: project.state.chap_image_tag.clone(),
         chap_build: None,
         registered,
@@ -458,7 +466,7 @@ pub fn status(
         auth: token.is_some(),
         components,
         dhis2_needs_connecting: project.state.components.dhis2_needs_connecting(),
-        chap_core_elsewhere: project.state.components.chap_core_external.is_some(),
+        chap_core_elsewhere: elsewhere,
         api_starting: false,
         dhis2_external: project
             .state
