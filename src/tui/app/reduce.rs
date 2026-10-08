@@ -5,7 +5,7 @@ use super::{
     PortWant,
 };
 use crate::components::Component;
-use crate::registry::{Channel, Model};
+use crate::registry::Model;
 
 impl App<'_> {
     /// The port prompt: one line of text, taken by Enter and dropped by Esc.
@@ -263,7 +263,7 @@ impl App<'_> {
         for row in &mut self.rows {
             let recorded = self.initial.get(&self.registry.models[row.model_idx].id);
             row.enabled = recorded.is_some();
-            row.channel = recorded.and_then(|e| e.channel).unwrap_or(Channel::Stable);
+            row.channel = super::recorded_channel(recorded);
             row.port = recorded.and_then(|e| e.host_port);
             row.want = row.port.map(PortWant::Exact).unwrap_or_default();
         }

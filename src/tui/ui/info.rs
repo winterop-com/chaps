@@ -376,10 +376,15 @@ pub(super) fn info_lines<'a>(app: &App, row: &Row, width: usize, theme: &Theme) 
         None => lines.push(field(
             theme,
             "version",
-            &format!(
-                "unresolved: channel {} has no version",
-                channel_label(row.channel)
-            ),
+            &match row.channel {
+                Some(channel) => {
+                    format!(
+                        "unresolved: channel {} has no version",
+                        channel_label(channel)
+                    )
+                }
+                None => "unresolved: the pinned version is not in the registry".to_string(),
+            },
         )),
     }
 

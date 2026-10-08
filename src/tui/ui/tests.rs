@@ -444,6 +444,39 @@ fn the_channel_dialog_lists_both_channels_and_marks_the_one_in_force() {
     );
 }
 
+/// A model pinned with `--version` follows neither channel: the table shows
+/// the pin, and the dialog ticks `pinned`, not `stable`.
+#[test]
+fn a_pinned_row_shows_its_pin_and_the_dialog_ticks_no_channel() {
+    let registry = registry();
+    let mut state = state_with_ewars(&registry, None);
+    let model = registry.get(EWARS).unwrap();
+    let older = model
+        .versions
+        .iter()
+        .find(|v| v.version != model.channels.stable)
+        .expect("ewars has an older version");
+    let entry = state.models.get_mut(EWARS).unwrap();
+    entry.channel = None;
+    entry.version = older.version.clone();
+    entry.image_tag = older.image_tag.clone();
+    let mut app = App::new(&registry, &state);
+    let screen = render(&app, 120, 40);
+    let row = line_with(&screen, "CHAP-EWARS");
+    assert!(row.contains(&older.version), "{row}");
+    assert!(!row.contains(&model.channels.stable), "{row}");
+
+    app.reduce(Action::ChannelPrompt);
+    let screen = render(&app, 120, 40);
+    assert!(!line_with(&screen, "stable").contains('✓'), "{screen}");
+    assert!(!line_with(&screen, "latest").contains('✓'), "{screen}");
+    let pinned = line_with(&screen, "pinned");
+    assert!(
+        pinned.contains('✓') && pinned.contains(&older.version),
+        "{pinned}"
+    );
+}
+
 #[test]
 fn the_details_overlay_opens_closes_and_scrolls() {
     let registry = registry();

@@ -119,7 +119,7 @@ pub(super) fn draw_channel_dialog(frame: &mut Frame, area: Rect, app: &App, them
         let line = Line::from(vec![
             Span::styled(if selected { " ▸ " } else { "   " }, theme.accent_style()),
             Span::styled(
-                if *channel == row.channel {
+                if Some(*channel) == row.channel {
                     "✓ "
                 } else {
                     "  "
@@ -133,6 +133,16 @@ pub(super) fn draw_channel_dialog(frame: &mut Frame, area: Rect, app: &App, them
             true => line.style(theme.selection_style()),
             false => line,
         });
+    }
+    // A row pinned with `--version` follows neither channel: say what it
+    // runs, on a line the cursor cannot reach.
+    if let Some(version) = app.pinned(row) {
+        lines.push(Line::from(vec![
+            Span::raw("   "),
+            Span::styled("✓ ", theme.ok_style()),
+            Span::raw(fit("pinned", 8)),
+            Span::styled(version.to_string(), theme.dim_style()),
+        ]));
     }
     lines.push(Line::raw(""));
     let title = format!("Channel for {}", model.display_name);

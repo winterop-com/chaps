@@ -142,7 +142,7 @@ impl Carry {
                 recorded.is_some() != row.enabled
                     || recorded.is_some_and(|r| {
                         r.host_port.map(app::PortWant::Exact).unwrap_or_default() != row.want
-                            || r.channel.unwrap_or(crate::registry::Channel::Stable) != row.channel
+                            || r.channel != row.channel
                     })
             })
             .map(|row| (app.model(row).id.clone(), row.clone()))

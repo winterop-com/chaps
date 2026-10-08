@@ -473,7 +473,7 @@ fn picking_a_channel_for_an_enabled_row_re_pins_it() {
     focus(&mut app, EWARS);
 
     pick_channel(&mut app, Channel::Latest);
-    assert_eq!(app.selected().unwrap().channel, Channel::Latest);
+    assert_eq!(app.selected().unwrap().channel, Some(Channel::Latest));
     let selection = app.selection();
     assert!(selection.disable.is_empty());
     assert_eq!(selection.enable.len(), 1);
@@ -485,7 +485,7 @@ fn picking_a_channel_for_an_enabled_row_re_pins_it() {
 
     // Picking the one it started on is once again a no-op.
     pick_channel(&mut app, Channel::Stable);
-    assert_eq!(app.selected().unwrap().channel, Channel::Stable);
+    assert_eq!(app.selected().unwrap().channel, Some(Channel::Stable));
     assert!(!app.has_changes());
 
     // And Esc takes nothing.
@@ -498,7 +498,7 @@ fn picking_a_channel_for_an_enabled_row_re_pins_it() {
     assert_eq!(app.channel_cursor, 1, "there are only two");
     app.reduce(Action::FilterCancel);
     assert_eq!(app.mode, Mode::Browse);
-    assert_eq!(app.selected().unwrap().channel, Channel::Stable);
+    assert_eq!(app.selected().unwrap().channel, Some(Channel::Stable));
     assert!(!app.has_changes());
 }
 
@@ -508,7 +508,7 @@ fn a_row_nobody_enabled_takes_a_channel_but_changes_nothing() {
     let mut app = App::new(&registry, &empty_state());
     focus(&mut app, ARIMA);
     pick_channel(&mut app, Channel::Latest);
-    assert_eq!(app.selected().unwrap().channel, Channel::Latest);
+    assert_eq!(app.selected().unwrap().channel, Some(Channel::Latest));
     assert!(!app.has_changes(), "a disabled row has nothing to apply");
 }
 
@@ -530,6 +530,37 @@ fn an_exact_pin_survives_a_save_that_does_not_touch_it() {
     assert!(
         !app.has_changes(),
         "opening and saving must not convert a pin into a channel"
+    );
+}
+
+/// A pin to a version no channel points at stays that version until a
+/// channel is picked, and picking stable is then a change.
+#[test]
+fn a_pin_off_the_channels_resolves_to_the_pin_until_a_channel_is_picked() {
+    let registry = registry();
+    let mut state = state_with(&registry, EWARS, None);
+    let model = registry.get(EWARS).unwrap();
+    let older = model
+        .versions
+        .iter()
+        .find(|v| v.version != model.channels.stable)
+        .expect("ewars has an older version");
+    state.models.get_mut(EWARS).unwrap().version = older.version.clone();
+    let mut app = App::new(&registry, &state);
+    app.filter = EWARS.to_string();
+    app.refilter();
+    let row = app.selected().unwrap().clone();
+    assert_eq!(row.channel, None);
+    assert_eq!(app.resolved(&row).unwrap().version, older.version);
+    assert_eq!(app.pinned(&row), Some(older.version.as_str()));
+    assert!(!app.has_changes());
+
+    pick_channel(&mut app, Channel::Stable);
+    let selection = app.selection();
+    assert_eq!(selection.enable.len(), 1, "stable moves the pin");
+    assert_eq!(
+        selection.enable[0].selector,
+        VersionSelector::Channel(Channel::Stable)
     );
 }
 
@@ -925,7 +956,7 @@ fn discarding_puts_every_row_back_where_the_project_had_it() {
     assert_eq!(app.selected().unwrap().want, PortWant::Exact(5001));
     focus(&mut app, ARIMA);
     assert!(!app.selected().unwrap().enabled);
-    assert_eq!(app.selected().unwrap().channel, Channel::Stable);
+    assert_eq!(app.selected().unwrap().channel, Some(Channel::Stable));
 
     // With nothing pending it says so rather than doing nothing quietly.
     app.reduce(Action::Discard);

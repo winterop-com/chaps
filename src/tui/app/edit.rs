@@ -226,7 +226,7 @@ impl App<'_> {
         };
         self.channel_cursor = CHANNELS
             .iter()
-            .position(|c| *c == row.channel)
+            .position(|c| Some(*c) == row.channel)
             .unwrap_or_default();
         self.mode = Mode::Channel;
     }
@@ -263,7 +263,7 @@ impl App<'_> {
         let Some(&row_idx) = self.visible.get(self.cursor) else {
             return;
         };
-        self.rows[row_idx].channel = channel;
+        self.rows[row_idx].channel = Some(channel);
         self.dirty = self.has_changes();
     }
 }

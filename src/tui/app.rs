@@ -219,8 +219,10 @@ pub struct Row {
     /// Index into [`Registry::models`].
     pub model_idx: usize,
     pub enabled: bool,
-    /// Channel the row would be pinned to when enabled.
-    pub channel: Channel,
+    /// Channel the row follows when enabled. `None` is a row the project
+    /// pinned to one exact version (`models enable --version`): it keeps that
+    /// version until the channel dialog picks a channel.
+    pub channel: Option<Channel>,
     /// Host port from `.varde/models.yaml`, for rows that are already enabled
     /// and publish one.
     pub port: Option<u16>,
@@ -413,7 +415,7 @@ impl<'a> App<'a> {
                 Row {
                     model_idx,
                     enabled: enabled.is_some(),
-                    channel: enabled.and_then(|e| e.channel).unwrap_or(Channel::Stable),
+                    channel: recorded_channel(enabled),
                     port,
                     want: port.map(PortWant::Exact).unwrap_or_default(),
                 }
@@ -547,15 +549,40 @@ impl<'a> App<'a> {
     }
 
     /// The version a row's channel currently points at, when it resolves.
+    /// A pinned row resolves to its pin, yanked or not: that is what runs.
     pub fn resolved(&self, row: &Row) -> Option<&'a Version> {
-        self.model(row)
-            .resolve(&VersionSelector::Channel(row.channel))
-            .ok()
+        match row.channel {
+            Some(channel) => self
+                .model(row)
+                .resolve(&VersionSelector::Channel(channel))
+                .ok(),
+            None => self
+                .recorded(row)
+                .and_then(|e| self.model(row).version(&e.version)),
+        }
+    }
+
+    /// The version a pinned row is pinned to, or `None` when it follows a
+    /// channel.
+    pub fn pinned(&self, row: &Row) -> Option<&str> {
+        match row.channel {
+            Some(_) => None,
+            None => self.recorded(row).map(|e| e.version.as_str()),
+        }
     }
 
     /// What the project recorded for a row when the browser opened.
     pub fn recorded(&self, row: &Row) -> Option<&EnabledModel> {
         self.initial.get(&self.model(row).id)
+    }
+}
+
+/// The channel a row starts on: the one the project recorded, `None` for an
+/// exact pin, and stable for a model the project does not run.
+pub(super) fn recorded_channel(recorded: Option<&EnabledModel>) -> Option<Channel> {
+    match recorded {
+        Some(e) => e.channel,
+        None => Some(Channel::Stable),
     }
 }
 

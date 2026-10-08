@@ -48,12 +48,12 @@ impl App<'_> {
                         continue;
                     }
                     let mut moved: Vec<String> = Vec::new();
-                    if row.channel != previous.channel.unwrap_or(Channel::Stable) {
+                    if let Some(channel) = row.channel.filter(|_| row.channel != previous.channel) {
                         let version = self
                             .resolved(row)
                             .map(|v| format!(" ({})", v.version))
                             .unwrap_or_default();
-                        moved.push(format!("follow {}{version}", row.channel.as_str()));
+                        moved.push(format!("follow {}{version}", channel.as_str()));
                     }
                     match port_change(row.want, previous.host_port) {
                         Some(PortRequest::None) => moved.push("remove the host port".into()),
@@ -158,7 +158,9 @@ impl App<'_> {
                             PortWant::Auto => Some(PortRequest::Auto),
                             PortWant::Exact(port) => Some(PortRequest::Fixed(port)),
                         };
-                        selection.enable.push(request(model, row, port));
+                        selection
+                            .enable
+                            .push(request(model, self.selector(row), port));
                     }
                 }
                 Some(previous) => {
@@ -166,7 +168,7 @@ impl App<'_> {
                         selection.disable.push(model.id.clone());
                         continue;
                     }
-                    let channel_moved = row.channel != previous.channel.unwrap_or(Channel::Stable);
+                    let channel_moved = row.channel != previous.channel;
                     let port = port_change(row.want, previous.host_port);
                     if channel_moved || port.is_some() {
                         // Pressing `p` asks for a host port, not for a new
@@ -175,7 +177,7 @@ impl App<'_> {
                         // would move a model that follows `latest` onto
                         // whatever that points at today, and take an exact pin
                         // off its version altogether.
-                        let mut req = request(model, row, port);
+                        let mut req = request(model, self.selector(row), port);
                         req.keep_version = !channel_moved;
                         selection.enable.push(req);
                     }
@@ -192,6 +194,14 @@ impl App<'_> {
         selection
     }
 
+    /// What a row asks the registry for: its channel, or its exact pin.
+    fn selector(&self, row: &Row) -> VersionSelector {
+        match self.pinned(row) {
+            Some(version) => VersionSelector::Exact(version.to_string()),
+            None => VersionSelector::Channel(row.channel.unwrap_or(Channel::Stable)),
+        }
+    }
+
     /// Whether the selection would change anything, on either page.
     pub fn has_changes(&self) -> bool {
         let selection = self.selection();
@@ -201,10 +211,10 @@ impl App<'_> {
     }
 }
 
-fn request(model: &Model, row: &Row, port: Option<PortRequest>) -> EnableRequest {
+fn request(model: &Model, selector: VersionSelector, port: Option<PortRequest>) -> EnableRequest {
     EnableRequest {
         id: model.id.clone(),
-        selector: VersionSelector::Channel(row.channel),
+        selector,
         port,
         bind: None,
         // Data dirs and users keep whatever the project already has; the
