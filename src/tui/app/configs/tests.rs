@@ -245,7 +245,11 @@ fn e_edits_the_selected_one_and_refuses_no_change() {
         .configs
         .as_ref()
         .and_then(|v| v.form.as_ref()?.error.clone());
-    assert!(error.expect("a refusal").contains("has these values already"));
+    assert!(
+        error
+            .expect("a refusal")
+            .contains("has these values already")
+    );
 
     app.reduce(Action::FormBackspace);
     app.reduce(Action::FormChar('8'));
