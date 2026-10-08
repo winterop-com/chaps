@@ -576,14 +576,15 @@ model. To test a configured model that you added, give its variant name with
 `--config`:
 
 ```sh
-varde models configs add chapkit_ewars_model --name short_lags --set n_lags=2,2
+varde models configs add chapkit_ewars_model --name short_lags \
+  --set n_lags=2,2 --set precision=0.05 --covariates rainfall,mean_temperature
 varde models test chapkit_ewars_model --backtest --config short_lags
 ```
 
 ```text
 testing 1 model (through chap-core: a dataset, a backtest and its scores)
-chapkit-ewars-model    pass   31s   crps 4.9  mae 7.0  rmse 10.2
-  configured model: short_lags (id 9)
+chapkit-ewars-model    pass      33s   crps 4.5  mae 6.0  rmse 8.1
+  configured model: short_lags (id 17)
 
 1 of 1 model passes
 ```
@@ -597,7 +598,7 @@ registered with, and not an archived one. If the model has no configured model
 of that name, the test skips it and names the ones that it has:
 
 ```text
-chapkit-ewars-model    skip    0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.1; it has monthly_climate, monthly_population_only, monthly_region_seasonal, short_lags
+chapkit-ewars-model    skip       0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.4; it has monthly_climate, monthly_population_only, monthly_region_seasonal, short_lags
   run `varde models configs list chapkit_ewars_model` to see its configured models
 ```
 
@@ -755,10 +756,10 @@ it cannot match, so `varde` sets it before posting.
 
 ```text
 testing 2 models (through chap-core: a dataset, a backtest and its scores)
-chapkit-rwanda-malaria-bym-model    pass   38s   crps 15.5  mae 23.8  rmse 26.9
-  configured model: monthly (id 7)
-chapkit-ewars-model                 pass   33s   crps 4.6  mae 6.6  rmse 9.7
-  configured model: monthly_climate (id 4)
+chapkit-rwanda-malaria-bym-model    pass      38s   crps 17.2  mae 25.5  rmse 28.9
+  configured model: monthly (id 18)
+chapkit-ewars-model                 pass      33s   crps 23.4  mae 33.1  rmse 52.6
+  configured model: monthly_climate (id 14)
 
 2 of 2 models pass
 ```

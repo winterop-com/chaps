@@ -268,7 +268,7 @@ template chap-core stored for its version.
 ## `chap-core has no configured model NAME for`
 
 ```text
-chapkit-ewars-model    skip    0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.1; it has default, monthly_climate
+chapkit-ewars-model    skip       0s   chap-core has no configured model weekly for chapkit-ewars-model 1.0.4; it has monthly_climate, monthly_population_only, monthly_region_seasonal
   run `varde models configs list chapkit_ewars_model` to see its configured models
 ```
 

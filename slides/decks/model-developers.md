@@ -366,8 +366,8 @@ declared covariates and period type, then validates, trains and predicts.
 4. The scores from the backtest's `aggregateMetrics`.
 
 ```text
-chapkit-ewars-model                 pass   33s   crps 4.6  mae 6.6  rmse 9.7
-  configured model: monthly_climate (id 4)
+chapkit-ewars-model    pass      33s   crps 9.6  mae 10.9  rmse 15.8
+  configured model: monthly_climate (id 14)
 ```
 
 The line under the row names the configured model that the backtest used.
