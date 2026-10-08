@@ -184,7 +184,7 @@ const VERSION_CHECK: &str = r#"        # DHIS2 runs a database of its own minor 
             exit 1
           fi
           if [ -n "$$tag_n" ] && [ "$$tag_n" -lt "$$dump_n" ]; then
-            echo "error: DHIS2 $${@TAG_VAR@} is older than the dump (DHIS2 $$dump_minor), and DHIS2 does not run a newer database; set image_tag: $$dump_minor or newer under dhis2: in .varde/components.yaml, then run varde sync"
+            echo "error: DHIS2 $${@TAG_VAR@} is older than the dump (DHIS2 $$dump_minor), and DHIS2 does not run a newer database; run varde components enable dhis2 --tag $$dump_minor, then varde up"
             exit 1
           fi
         fi

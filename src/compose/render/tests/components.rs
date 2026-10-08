@@ -1114,6 +1114,13 @@ fn only_a_downloaded_dump_is_checked_for_its_version() {
         script.find("dump_minor=") < script.find(&format!("mv raw.part {DHIS2_SEED_FILE}")),
         "before the dump is kept: {script}"
     );
+    // The way out is a command: the header of `.varde/components.yaml` says
+    // not to edit it by hand.
+    assert!(
+        script.contains("run varde components enable dhis2 --tag $$dump_minor, then varde up"),
+        "{script}"
+    );
+    assert!(!script.contains("components.yaml"), "{script}");
 
     let file = render_dhis2(&Dhis2Spec {
         seed: Some(Dhis2SeedSource::File("dumps/laos.sql.gz".to_string())),
