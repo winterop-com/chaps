@@ -309,5 +309,46 @@ fn a_failed_dhis2_migration_says_to_go_up_one_version_at_a_time() {
     let entry = Unhealthy::of("dhis2", logs);
     let hint = entry.hint.expect("a hint");
     assert!(hint.contains("one version at a time"), "{hint}");
-    assert!(hint.contains("`image_tag:`"), "{hint}");
+    assert!(
+        hint.contains("`varde components enable dhis2 --tag VERSION`"),
+        "{hint}"
+    );
+    assert!(!hint.contains("components.yaml"), "{hint}");
+}
+
+/// What compose prints when the dump step of the DHIS2 seed exits with an
+/// error, and what the step printed.
+const DUMP_FAILED_STDERR: &str = concat!(
+    " Container urltag-dhis2-dump-1  Exited\n",
+    "service \"dhis2-dump\" didn't complete successfully: exit 1\n",
+);
+const DUMP_LOG: &str = concat!(
+    "dhis2-dump-1  | downloading https://databases.dhis2.org/climate/laos/2.42/laos.sql.gz\n",
+    "dhis2-dump-1  | the dump is DHIS2 2.42 (its newest Flyway migration)\n",
+    "dhis2-dump-1  | error: DHIS2 2.41 is older than the dump (DHIS2 2.42), and DHIS2 does not \
+     run a newer database; run varde components enable dhis2 --tag 2.42, then varde up\n",
+);
+
+/// A one-shot that exits with an error is a failure `varde up` explains: its
+/// log lines under `why dhis2-dump failed:`, and the command that fixes it.
+#[test]
+fn a_failed_dump_step_is_explained_with_the_command_that_fixes_it() {
+    assert!(is_health_failure(DUMP_FAILED_STDERR));
+    assert_eq!(failed_one_shots(DUMP_FAILED_STDERR), vec!["dhis2-dump"]);
+    assert!(failed_one_shots("dependency failed to start").is_empty());
+
+    let entry = Unhealthy::of_failed("dhis2-dump", DUMP_LOG);
+    assert_eq!(entry.heading(), "why dhis2-dump failed:");
+    assert_eq!(entry.why.len(), 1, "{:?}", entry.why);
+    assert!(
+        entry.why[0].starts_with("error: DHIS2 2.41 is older"),
+        "{:?}",
+        entry.why
+    );
+    let hint = entry.hint.expect("a hint");
+    assert_eq!(
+        hint,
+        "the dump is DHIS2 2.42, and DHIS2 does not run a newer database; run \
+         `varde components enable dhis2 --tag 2.42`, then `varde up`"
+    );
 }

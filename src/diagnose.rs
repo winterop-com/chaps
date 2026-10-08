@@ -69,6 +69,10 @@ pub struct Unhealthy {
     pub why: Vec<String>,
     /// What to do about it, when the lines name a cause this CLI knows.
     pub hint: Option<String>,
+    /// Whether this is a one-shot service that exited with an error, such as
+    /// `dhis2-dump`, rather than a service that stays up.
+    #[serde(skip)]
+    pub exited: bool,
 }
 
 impl Unhealthy {
@@ -85,6 +89,7 @@ impl Unhealthy {
             unhealthy: true,
             hint: hint_for(&why),
             why,
+            exited: false,
         }
     }
 
@@ -97,11 +102,21 @@ impl Unhealthy {
         }
     }
 
+    /// The same, for a one-shot service that exited with an error.
+    pub fn of_failed(service: &str, logs: &str) -> Unhealthy {
+        Unhealthy {
+            unhealthy: false,
+            exited: true,
+            ..Unhealthy::of(service, logs)
+        }
+    }
+
     /// The line the lines below it are printed under.
     pub fn heading(&self) -> String {
-        match self.unhealthy {
-            true => format!("why {} is unhealthy:", self.service),
-            false => format!("why {} is down:", self.service),
+        match (self.exited, self.unhealthy) {
+            (true, _) => format!("why {} failed:", self.service),
+            (false, true) => format!("why {} is unhealthy:", self.service),
+            (false, false) => format!("why {} is down:", self.service),
         }
     }
 
@@ -145,7 +160,32 @@ pub fn blamed_services(
 /// containers themselves say which.
 pub fn is_health_failure(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
-    lower.contains("is unhealthy") || lower.contains("dependency failed to start")
+    lower.contains("is unhealthy")
+        || lower.contains("dependency failed to start")
+        || !failed_one_shots(stderr).is_empty()
+}
+
+/// The services in `service "<name>" didn't complete successfully` lines:
+/// one-shots such as `dhis2-dump` that exited with an error, which compose
+/// names and stops on.
+pub fn failed_one_shots(stderr: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in stderr.lines() {
+        let Some(at) = line.find("didn't complete successfully") else {
+            continue;
+        };
+        let head = &line[..at];
+        let Some(open) = head.find("service \"") else {
+            continue;
+        };
+        let name = head[open + "service \"".len()..]
+            .trim()
+            .trim_end_matches('"');
+        if !name.is_empty() && !out.contains(&name.to_string()) {
+            out.push(name.to_string());
+        }
+    }
+    out
 }
 
 /// The container names in `container <name> is unhealthy` lines.
@@ -287,11 +327,23 @@ pub fn hint_for(lines: &[String]) -> Option<String> {
     if text.contains("migration of schema") && text.contains("failed") {
         return Some(
             "DHIS2 could not migrate the database to its version; a database from an older \
-             DHIS2 must go up one version at a time, so set `image_tag:` under `dhis2:` in \
-             `.varde/components.yaml` to the next version, run `varde sync` and `varde up`, \
-             and repeat"
+             DHIS2 must go up one version at a time, so run `varde components enable dhis2 \
+             --tag VERSION` with the next version, then `varde up`, and repeat"
                 .to_string(),
         );
+    }
+    // The dump step of the DHIS2 seed refuses an image older than the dump.
+    // Its own line names the command, but the end of a long line is cut.
+    if let Some(version) = text
+        .split("older than the dump (dhis2 ")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .filter(|version| !version.is_empty())
+    {
+        return Some(format!(
+            "the dump is DHIS2 {version}, and DHIS2 does not run a newer database; run \
+             `varde components enable dhis2 --tag {version}`, then `varde up`"
+        ));
     }
     if text.contains("/docker-entrypoint-initdb.d/") {
         return Some(SEED_RESTORE_HINT.to_string());
@@ -424,17 +476,24 @@ pub fn from_stderr(project: &Project, stderr: &str) -> Vec<Unhealthy> {
     }
     let containers = docker::all_containers(project).unwrap_or_default();
     let project_name = project.compose_project_name();
+    let mut out: Vec<Unhealthy> = Vec::new();
+    for service in failed_one_shots(stderr) {
+        let entry = docker::service_logs(project, &service, TAIL)
+            .map(|logs| Unhealthy::of_failed(&service, &logs));
+        push(&mut out, entry);
+    }
     let mut services = blamed_services(stderr, &containers, project_name.as_deref());
     // `dependency failed to start` without a container name of its own: the
     // containers themselves say which one is failing.
-    if services.is_empty() {
+    if services.is_empty() && out.is_empty() {
         services = containers
             .iter()
             .filter(|c| c.is_running() && c.is_unhealthy())
             .map(|c| c.service.clone())
             .collect();
     }
-    diagnose(project, &services)
+    out.extend(diagnose(project, &services));
+    out
 }
 
 /// Read each service's log and turn it into a verdict.
