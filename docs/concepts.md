@@ -268,6 +268,11 @@ running. See [Updating](./updating.md).
 it when the directory has none, and never rewrites it afterwards: a second
 `init` keeps the file it finds, `--force` included, `sync` only appends missing
 pin comments and `update` only moves the pin comments of models it changed.
+One line is the exception. When `init --force` keeps the file, it moves the
+active `CHAP_IMAGE_TAG` line to the new tag if that line holds the tag that the
+deployment recorded (or `checkout`), as `varde update --chap-tag` does. It says
+`moved CHAP_IMAGE_TAG in the kept .env from checkout to v2.4.0`. A line with
+another value is kept, with a warning that names the line to set.
 
 That is deliberate. The file holds the database password the PostgreSQL volume
 was created with, plus the API token and the registration key, and a rotated

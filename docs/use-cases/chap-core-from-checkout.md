@@ -73,13 +73,17 @@ before a file is written (see
    varde init . --force --models default
    ```
 
-   It prints the released tag, such as `chap-core: v2.4.0, API on
-   http://localhost:8700`.
-3. In `.env`, change the line `CHAP_IMAGE_TAG=checkout` to that tag, such as
-   `CHAP_IMAGE_TAG=v2.4.0`. `init` never rewrites `.env`. Without this change,
-   compose looks for `ghcr.io/dhis2-chap/chap-core:checkout`, and `varde up`
-   fails with `not found`.
-4. Start the deployment:
+   `init` keeps `.env`, and moves its `CHAP_IMAGE_TAG` line from `checkout`
+   to the released tag. It says so, and prints that tag:
+
+   ```text
+   created a deployment in /home/me/mychap
+   moved CHAP_IMAGE_TAG in the kept .env from checkout to v2.4.0
+   components: chap-core
+   chap-core: v2.4.0, API on http://localhost:8700
+   ```
+
+3. Start the deployment:
 
    ```sh
    varde up

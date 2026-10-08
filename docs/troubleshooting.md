@@ -1165,6 +1165,10 @@ running instead, `varde up` starts it with the new versions. See
 
 ## `varde update` fails offline
 
+```text
+error: `varde update` refreshes the marketplace registry, which needs the network; drop --offline, or run `varde update --list-tags` to see the chap-core tags offline
+```
+
 By design. Inside a deployment, `varde update` fetches the registry from the
 network with no cache and no fallback, `--dry-run` included, because a plan
 made from a stale catalogue is not a plan. Outside a deployment, `--dry-run`
@@ -1250,21 +1254,32 @@ or restore the backup taken before the move (`varde backup restore`) and start
 again from there. See
 [Switching chap-core's tag](./updating.md#switching-chap-cores-tag).
 
-## `the pull failed after the pins moved`
+## `ghcr.io has no image`
 
 ```text
-Error response from daemon: failed to resolve reference
-"ghcr.io/dhis2-chap/chap-worker:dev": ghcr.io/dhis2-chap/chap-worker:dev: not found
-error: the pull failed after the pins moved; chap-core is now pinned to dev, and
-`varde update --chap-tag v2.3.1 --yes` puts it back
+error: ghcr.io has no image chap-worker:dev, so the pull would fail; nothing was changed; pick another tag, for example a release from `varde update --list-tags`
 ```
 
 chap-core is two images, `chap-core` and `chap-worker`, and a tag that exists
 for one of them does not have to exist for the other: at the time of writing
-ghcr serves `chap-core:dev` and has no `chap-worker:dev` at all. The pin has
-already moved when the pull runs, so the deployment is left describing images
-Docker cannot fetch - the containers keep running what they had. The line names
-the way back; `varde update --list-tags` shows what else there is to move to.
+ghcr serves `chap-core:dev` and has no `chap-worker:dev` at all. `varde update
+--chap-tag` asks ghcr for both images before it moves the pin, in the dry run
+too, so nothing was changed. Run `varde update --list-tags`, and pick a tag
+from that list. See
+[Switching chap-core's tag](./updating.md#switching-chap-cores-tag).
+
+## `the pull failed after the pins moved`
+
+```text
+error: the pull failed after the pins moved; chap-core is now pinned to v2.4.0, and
+`varde update --chap-tag v2.3.1 --yes` puts it back
+```
+
+The pin moved, and then the pull failed for another reason, such as a network
+error or a full disk. The deployment now describes images that Docker could not
+fetch; the containers keep running what they had. The lines above the error
+give the reason. Fix it and run `varde docker pull`, or use the command in the
+line to put the pin back.
 
 ## `gives ... the compose file ..., which is not a file in this deployment's directory`
 

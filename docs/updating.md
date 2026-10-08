@@ -64,10 +64,10 @@ varde update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes
 
 `varde update` fetches the registry from the network: no cache, no fallback. It
 fails under `--offline`, `--dry-run` included, because a plan made from a stale
-catalogue is not a plan:
+catalogue is not a plan. It exits with status 2:
 
 ```text
-error: model registry unavailable: --offline was given, so the registry cannot be refreshed
+error: `varde update` refreshes the marketplace registry, which needs the network; drop --offline, or run `varde update --list-tags` to see the chap-core tags offline
 ```
 
 A run is four steps, printed in that order:
@@ -307,9 +307,17 @@ varde update --pin-chap-core
 ```
 
 converts such a tag into the newest release pin, the way `init` does by
-default. A move from a moving tag to a release counts as a move backwards
+default. From `latest`, it pins the release that `latest` points at, so there
+is no warning and no question. From `dev` or `master`, it is a move backwards
 (see [Moving backwards](#moving-backwards)), so it shows the warning and asks.
 In a script, give `--yes`: `varde update --pin-chap-core --yes`.
+
+If the newest release cannot be looked up, for example because the GitHub rate
+limit is used up, the command pins nothing and fails:
+
+```text
+error: --pin-chap-core pinned nothing, because the newest chap-core release could not be looked up; try again later, or run `varde update --chap-tag <TAG>` with a release from `varde update --list-tags`
+```
 
 A tag that is neither a release nor a moving one, a `sha-` build for instance,
 is never moved.
@@ -326,10 +334,15 @@ varde update --chap-tag v2.4.0     # pin that release
 varde update --chap-tag latest     # follow whatever the newest release is
 ```
 
-`dev` is accepted too, but at the time of writing ghcr has a `chap-core:dev`
-image and no `chap-worker:dev` image, and chap-core has no `dev` branch. The
-pull then fails after the pin moved; see
-[the pull failed after the pins moved](./troubleshooting.md#the-pull-failed-after-the-pins-moved).
+Before the pin moves, varde asks ghcr whether it has both images, the
+`chap-core` and the `chap-worker` image, at that tag. The dry run asks too. At
+the time of writing, ghcr has a `chap-core:dev` image and no
+`chap-worker:dev` image, so `--chap-tag dev` is refused:
+
+```text
+error: ghcr.io has no image chap-worker:dev, so the pull would fail; nothing was changed; pick another tag, for example a release from `varde update --list-tags`
+```
+
 Use `varde update --list-tags` to see the tags you can move to.
 
 It is the same run as any other update: the tag is checked, the
@@ -342,14 +355,16 @@ what needs restarting:
 ```text
   chapkit_ewars_model             v1.0.4 (sha-964eea8)  unchanged
   chapkit_simple_multistep_model  v0.1.2 (sha-10b2bc7)  unchanged
-  chap-core                       latest -> master
+  chap-core                       latest -> master  (compose.ghcr.yml too)
 updated chap-core latest -> master and pulled new images for chap, worker; restart needed: chap, worker
 run `varde restart` to apply
 ```
 
-When the plan is printed, the new `compose.ghcr.yml` is not fetched yet. A
-chap-core row can end in `(compose.ghcr.yml too)` when the compose file the
-deployment has already is the one the new tag brings.
+When the plan is printed, the new `compose.ghcr.yml` is not fetched yet. The
+chap-core row ends in `(compose.ghcr.yml too)` when this run fetches
+`compose.ghcr.yml` at a ref that the deployment does not have yet. A move from
+`latest` to `master` shows it. A move from `v2.4.0` to `latest`, where `latest`
+is `v2.4.0`, does not.
 
 `--chap-tag` cannot be combined with `--pin-chap-core`: both decide where
 chap-core's pin goes, and one command does not get to do it twice. clap
@@ -404,17 +419,19 @@ An answer other than `y` stops the run with
 Two moves count as backwards: a release to an older release, and a moving tag
 to any release, since `dev` and `master` are ahead of every release and
 `latest` is the newest of them. Going forward, and moving between moving tags,
-needs no answer.
+needs no answer. `varde update --pin-chap-core` from `latest` needs no answer
+either: it pins the release that `latest` points at.
 
 `--yes` is how a script says it meant it. A run with nothing to ask - no
 terminal on stdin, or `--json` - is refused rather than assumed:
 
 ```text
-error: moving chap-core backwards needs an answer and this is not a terminal; pass `--yes` to `varde update --chap-tag` to confirm it
+error: moving chap-core backwards needs an answer and this is not a terminal; run `varde update --chap-tag v2.3.1 --yes` to confirm it
 ```
 
-The same refusal comes from `varde update --pin-chap-core`; there too, add
-`--yes`. A `--dry-run` prints the warning and stops there, because it writes
+The same refusal comes from `varde update --pin-chap-core` from `dev` or
+`master`; it ends with `run `varde update --pin-chap-core --yes` to confirm
+it`. A `--dry-run` prints the warning and stops there, because it writes
 nothing to confirm.
 
 ### What a moving tag shows afterwards
