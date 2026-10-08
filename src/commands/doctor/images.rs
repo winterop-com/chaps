@@ -502,6 +502,15 @@ pub fn stack_verdict(report: &StatusReport) -> (Status, String, Option<String>) 
     }
 }
 
+/// The way out when nothing runs: "Chap" only where this deployment has a
+/// chap-core of its own to start.
+fn start_fix(own_chap_core: bool) -> &'static str {
+    match own_chap_core {
+        true => "run `varde up` to start Chap",
+        false => "run `varde up` to start the deployment",
+    }
+}
+
 /// The `stack` line, which has nothing to check when nothing is up.
 pub(super) fn stack_check(
     project: &Project,
@@ -515,7 +524,7 @@ pub(super) fn stack_check(
             ID,
             NAME,
             "no container of this deployment is running",
-            "run `varde up` to start Chap",
+            start_fix(project.state.components.chap_core.enabled),
         );
     }
     let url = project.api_url();

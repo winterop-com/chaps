@@ -252,6 +252,12 @@ fn the_stack_line_judges_a_deployment_without_chap_core_by_its_components() {
 }
 
 #[test]
+fn the_nothing_running_fix_names_chap_only_with_a_chap_core_of_its_own() {
+    assert_eq!(start_fix(true), "run `varde up` to start Chap");
+    assert_eq!(start_fix(false), "run `varde up` to start the deployment");
+}
+
+#[test]
 fn the_stack_line_says_when_the_container_itself_is_unhealthy() {
     let mut report = status_report(
         ApiHealth::Down {
