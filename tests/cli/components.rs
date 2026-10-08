@@ -1153,3 +1153,34 @@ fn enable_chap_core_url_warns_when_the_chap_core_is_a_container() {
         "warning: chap-core at {url} is the container `own-68575e-chap-1`"
     )));
 }
+
+/// chap-core publishes the API port, so its enable line names it the way the
+/// line of every other component names its own.
+#[test]
+fn enable_chap_core_names_the_api_port() {
+    let sandbox = Sandbox::new();
+    let port = free_port();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--only",
+            "none",
+            "--api-port",
+            &port.to_string(),
+        ])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let output = chap_in(&sandbox, &dir, &["-v", "components", "enable", "chap-core"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.starts_with(&format!("enabled chap-core on http://localhost:{port}\n")),
+        "{text}"
+    );
+    assert!(!text.contains("publishes no host port"), "{text}");
+}

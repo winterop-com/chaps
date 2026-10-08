@@ -232,21 +232,16 @@ fn change_summary(report: &ChangeReport, project: &Project, lines: &mut Report) 
         (true, Some(port)) => lines.info(format!("{headline} on http://localhost:{port}")),
         // A component with no host port is reached somewhere else rather than
         // not at all, so the line names how it is reached.
-        (true, None) if name == "chap-core" => {
-            match &project.state.components.chap_core_external {
-                Some(external) => {
-                    lines.info(format!("{headline} at {}", external.url));
-                    lines.hint(format!(
-                        "chap-core runs elsewhere; it calls the models back at {}:<port>",
-                        external.models_host
-                    ))
-                }
-                None => {
-                    lines.info(headline);
-                    lines.hint("chap-core publishes no host port; it is reached inside the compose network")
-                }
+        (true, None) if name == "chap-core" => match &project.state.components.chap_core_external {
+            Some(external) => {
+                lines.info(format!("{headline} at {}", external.url));
+                lines.hint(format!(
+                    "chap-core runs elsewhere; it calls the models back at {}:<port>",
+                    external.models_host
+                ))
             }
-        }
+            None => lines.info(headline),
+        },
         (true, None) => match &report.base_url {
             Some(base) => lines.info(format!("{headline}, reached through the proxy at {base}")),
             None => {

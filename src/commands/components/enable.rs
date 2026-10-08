@@ -181,7 +181,11 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     let report = ChangeReport {
         name: component.name().to_string(),
         enabled: true,
-        port: after.port_of(component),
+        port: match component {
+            // chap-core's host port is the API port, which `.env` can move.
+            Component::ChapCore => Some(project.api_port_in_effect().0),
+            _ => after.port_of(component),
+        },
         base_url: ocs_only(component, after.ocs.base_url.clone()),
         read_only: ocs_only(component, Some(after.ocs.read_only)),
         unchanged: before == after,
