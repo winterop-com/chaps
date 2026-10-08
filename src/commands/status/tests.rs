@@ -116,7 +116,7 @@ fn a_chap_core_that_is_not_answering_names_the_way_out() {
 fn a_chap_core_elsewhere_that_is_not_answering_names_no_service() {
     let mut report = up(Vec::new(), &[], &[]);
     report.chap_core_elsewhere = true;
-    let down = down_message(&report, "io: Connection refused", false);
+    let down = down_message(&report, "io: Connection refused", false, false);
     assert!(!down.contains("varde logs"), "{down}");
     assert!(
         down.ends_with(
