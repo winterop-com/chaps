@@ -119,6 +119,25 @@ fn send_route(
     Err(session.dhis2.status_error(path, &answer))
 }
 
+/// What a request through the route that got no answer at all says.
+///
+/// DHIS2 answered the route write a moment ago, so a proxied request that
+/// gets no answer is about chap-core behind the route, not about DHIS2. The
+/// client's own sentence for an unreachable DHIS2 names `varde status` for
+/// the DHIS2 container, which sends the reader to the wrong service.
+pub(super) fn proxied_failure(err: &anyhow::Error) -> String {
+    match err.downcast_ref::<crate::error::ChapError>() {
+        Some(crate::error::ChapError::Dhis2Unreachable { reason, .. }) => {
+            let lower = reason.to_lowercase();
+            match lower.contains("timeout") || lower.contains("timed out") {
+                true => "the request through DHIS2 timed out".to_string(),
+                false => format!("the request through DHIS2 failed: {reason}"),
+            }
+        }
+        _ => err.to_string(),
+    }
+}
+
 /// Ask chap-core for its health through the route, the way the app would.
 ///
 /// The check worth making: a row in DHIS2's database proves nothing, and this
@@ -148,7 +167,7 @@ pub(super) fn verify_route(client: &Dhis2, token_needed: bool) -> RouteProof {
             token_refused: matches!(answer.status, 401 | 403),
             ..RouteProof::failed(String::new())
         },
-        Err(err) => RouteProof::failed(err.to_string()),
+        Err(err) => RouteProof::failed(proxied_failure(&err)),
     }
 }
 
@@ -254,7 +273,7 @@ fn verify_health(client: &Dhis2) -> RouteProof {
     let path = dhis2::route_run_path(crate::status::HEALTH_PATH);
     let answer = match client.send("GET", &path, None) {
         Ok(answer) => answer,
-        Err(err) => return RouteProof::failed(err.to_string()),
+        Err(err) => return RouteProof::failed(proxied_failure(&err)),
     };
     if !answer.is_success() {
         // The status line alone where DHIS2's message is the reason phrase

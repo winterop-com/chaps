@@ -876,3 +876,29 @@ fn use_names_the_url_that_moved() {
         "changed the external DHIS2 to http://localhost:8080 in `.varde/components.yaml`"
     );
 }
+
+/// A proxied request that gets no answer is about chap-core behind the
+/// route: the sentence does not blame DHIS2 or name its container.
+#[test]
+fn a_request_through_the_route_that_got_no_answer_is_not_blamed_on_dhis2() {
+    let unreachable = |reason: &str| {
+        anyhow::Error::from(crate::error::ChapError::Dhis2Unreachable {
+            url: "http://localhost:8780".to_string(),
+            reason: reason.to_string(),
+            next: "run `varde status` to see whether its container is up",
+        })
+    };
+    let timeout = proxied_failure(&unreachable("timeout: global"));
+    assert_eq!(timeout, "the request through DHIS2 timed out");
+    let refused = proxied_failure(&unreachable("io: Connection refused"));
+    assert_eq!(
+        refused,
+        "the request through DHIS2 failed: io: Connection refused"
+    );
+    for text in [timeout, refused] {
+        assert!(!text.contains("is not responding"), "{text}");
+        assert!(!text.contains("varde status"), "{text}");
+    }
+    let other = proxied_failure(&anyhow::anyhow!("something else"));
+    assert_eq!(other, "something else");
+}
