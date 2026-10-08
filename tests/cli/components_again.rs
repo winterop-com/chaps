@@ -61,6 +61,45 @@ fn up_after_a_read_mode_change_names_the_restart() {
         ));
 }
 
+/// chap-core back after a disable: the models keep the host ports the
+/// disable gave them, and the enable says so with the way out.
+#[test]
+fn chap_core_back_names_the_host_ports_the_models_keep() {
+    let sandbox = Sandbox::new();
+    let base = port_base();
+    sandbox
+        .init(&[
+            "--models",
+            "chapkit_ewars_model",
+            "--port-base",
+            &base.to_string(),
+        ])
+        .assert()
+        .success();
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "chapkit_ewars_model now registers nowhere and is published on \
+             http://localhost:{base}"
+        )));
+    sandbox
+        .components(&["enable", "chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "the models keep their host ports (chapkit_ewars_model on \
+             http://localhost:{base}); `varde models unexpose ID` removes one"
+        )));
+    // Once chap-core runs, an enable again does not repeat it.
+    sandbox
+        .components(&["enable", "chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("host ports").not());
+}
+
 /// `--base-url` says what it set; the same value again changes nothing.
 #[test]
 fn a_new_base_url_is_named_and_the_same_one_changes_nothing() {

@@ -151,6 +151,14 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
     if component == Component::S3 && !after.ocs.enabled {
         notes.push(Note::hint(S3_WITHOUT_OCS_NOTE));
     }
+    // `components disable chap-core` gave each model a host port, and this
+    // enable does not take it away: the reader may use it.
+    if component == Component::ChapCore
+        && !before.chap_core.enabled
+        && let Some(line) = kept_ports_line(&project)
+    {
+        notes.push(Note::info(line));
+    }
     // A deployment that started without chap-core never asked GitHub for a
     // release, so compose.yml comes from the copy built into this binary.
     if component == Component::ChapCore
@@ -452,6 +460,28 @@ pub(super) fn base_url(args: &ComponentsEnableArgs) -> Result<Option<Option<Stri
         ));
     }
     Ok(Some(Some(given.trim_end_matches('/').to_string())))
+}
+
+/// The line for the models that keep a host port when chap-core comes back,
+/// `None` when no model has one.
+pub(super) fn kept_ports_line(project: &Project) -> Option<String> {
+    let kept: Vec<String> = project
+        .state
+        .models
+        .iter()
+        .filter_map(|(id, model)| {
+            model
+                .host_port
+                .map(|port| format!("{id} on http://localhost:{port}"))
+        })
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "the models keep their host ports ({}); `varde models unexpose ID` removes one",
+        kept.join(", ")
+    ))
 }
 
 /// The line for a run that changed the OCS base URL, `None` when it did not.
