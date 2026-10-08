@@ -53,7 +53,7 @@ and installs the dependencies of the model.
   a revision. Without it, the model registers and shows in `varde status` with
   no warning, but chap-core has no template for it. The chap-core log
   (`varde logs chap`) then says `is stored from revision None, but its source
-  now reports revision None`. `varde models configure` fails with
+  now reports revision None`. `varde models configs sync` fails with
   `answered HTTP 409 Conflict` and the same reason. Its warning tells you to
   run it again, but that does not help: set `GIT_REVISION`, then start the
   model again.
@@ -87,7 +87,7 @@ model, then start it again`. To continue:
 
 1. Set a new `version` in the `MLServiceInfo` in `main.py`.
 2. Start the model again.
-3. Run `varde models configure SERVICE_ID` again.
+3. Run `varde models configs sync SERVICE_ID` again.
 
 The configured model from before belongs to the old version. Without step 3,
 the `varde status` warning goes away, but the backtest still fails with the
@@ -113,11 +113,11 @@ chap-core v2.4.0 makes no configured model from a registered service, so make
 one. Replace `SERVICE_ID` with the id that `varde status` shows:
 
 ```sh
-varde models configure SERVICE_ID
+varde models configs sync SERVICE_ID
 varde models test SERVICE_ID --backtest
 ```
 
-`varde models configure` stores the template of the service and makes one
+`varde models configs sync` stores the template of the service and makes one
 configured model, `default`, with the defaults of the service. chap-core names
 it `SERVICE_ID`:
 
@@ -152,7 +152,7 @@ The scores change from run to run, because the sample data is random. Add
 `--seed N` to get the same data each time.
 
 Without the configured model, the backtest skips with `chap-core has no
-configured model for SERVICE_ID`, and names `varde models configure`.
+configured model for SERVICE_ID`, and names `varde models configs sync`.
 
 ## A registration key
 

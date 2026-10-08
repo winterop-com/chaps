@@ -689,7 +689,7 @@ MODEL                STATE                       REACH          LAST PING
 chapkit-ewars-model  registered, not configured  via chap-core  13s ago
 
 1 model registered
-chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
 

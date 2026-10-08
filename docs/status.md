@@ -45,12 +45,12 @@ A model can get a warning when chap-core refuses its model template. For a
 model of this deployment, the warning is:
 
 - `` ID: it reports no git revision, so chap-core stores no model template for
-  it and `varde models configure` cannot configure it; build its image again
+  it and `varde models configs sync` cannot configure it; build its image again
   with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde
   restart` ``
 
 For that row, `status` does not also print the ``run `varde models
-configure` `` line. A model registered from outside the deployment gets one of
+configs sync` `` line. A model registered from outside the deployment gets one of
 these:
 
 - `` ID: it reports no git revision, so chap-core stores no model template for
@@ -185,7 +185,7 @@ taken from the registry and `docker compose ps` together.
 | State | Meaning |
 | --- | --- |
 | `registered` | The container is up, chap-core knows about it, and it has a configured model. |
-| `registered, not configured` | chap-core knows it, but has no configured model of the version it registered with, so nothing can run it and the Modeling App does not list it. Run `varde models configure`. This state does not make `status` exit non-zero. |
+| `registered, not configured` | chap-core knows it, but has no configured model of the version it registered with, so nothing can run it and the Modeling App does not list it. Run `varde models configs sync`. This state does not make `status` exit non-zero. |
 | `running, not registered` | The container is up but chap-core has never heard from it. |
 | `not running` | The project enables it, but no container exists or it is stopped. |
 | `paused` | Its container is paused, as an interrupted `varde backup create` can leave it, so it does not answer. `varde up` resumes it. |

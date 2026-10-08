@@ -124,7 +124,7 @@ MODEL                STATE                       REACH          LAST PING
 chapkit-ewars-model  registered, not configured  via chap-core  2s ago
 
 1 model registered
-chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 `registered, not configured` is the normal state after a plain `varde up`.
@@ -132,7 +132,7 @@ chap-core v2.4.0 makes no configured model when a model registers. A backtest
 and the Modeling App need one. Make them:
 
 ```sh
-varde models configure
+varde models configs sync
 ```
 
 ```text
@@ -232,7 +232,7 @@ In the test run, the model registered within 30 seconds. Then it is
 `registered, not configured`, as in step 3. Give it its configured models:
 
 ```sh
-varde models configure
+varde models configs sync
 ```
 
 ```text
@@ -253,7 +253,7 @@ chapkit-simple-multistep-model  registered  via chap-core  8s ago
 all 2 models registered
 ```
 
-If you run `varde models configure` before the model registers, it says so
+If you run `varde models configs sync` before the model registers, it says so
 and tells you to run it again later.
 
 `varde models list` shows the whole catalogue and what this deployment

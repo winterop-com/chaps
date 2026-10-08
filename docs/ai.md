@@ -217,7 +217,7 @@ top right) finds **Modeling**.
 
 If `varde dhis2 connect` says that a model is `not registered with chap-core`,
 wait a minute. Then run `varde status`. When it shows the model as
-`registered`, run `varde models configure`.
+`registered`, run `varde models configs sync`.
 
 Next: [Your first forecast in the Modeling App](./modeling-app.md), which takes
 them from here to an evaluation and a forecast in about fifteen minutes.
@@ -288,7 +288,7 @@ a minute and run `varde status` again.
 After a plain `varde up`, the table shows each model as
 `registered, not configured`, and that is normal. `varde models test --all`
 does not need a configured model, but a backtest and the Modeling App do.
-Run `varde models configure` to create them. Then `varde status` shows each
+Run `varde models configs sync` to create them. Then `varde status` shows each
 model as `registered`.
 
 Add `--with dhis2` to the `varde init` line to compare them in the Modeling
@@ -325,7 +325,7 @@ and restart it; the error line names the exact value.
 
 If `varde dhis2 connect` says that a model is `not registered with chap-core`,
 wait a minute. Then run `varde status`. When it shows the model as
-`registered`, run `varde models configure`.
+`registered`, run `varde models configs sync`.
 
 More: [Chap for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md).
 
@@ -536,7 +536,7 @@ docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEA
 ```
 
 `GIT_REVISION` gives the image the commit it was built from. chap-core needs
-it to store the model template. Without it, `varde models configure` stops
+it to store the model template. Without it, `varde models configs sync` stops
 with `answered HTTP 409 Conflict` and `is stored from revision None`. Then:
 
 ```sh
@@ -560,11 +560,11 @@ not the first time:
    --service-id` with the id from the `unmanaged` row. Run them, then run
    `varde up` again.
 4. When the model is `registered, not configured`, run
-   `varde models configure`.
+   `varde models configs sync`.
 
-If `varde status` or `varde models configure` says that the model reports no
+If `varde status` or `varde models configs sync` says that the model reports no
 git revision, build the image again with the `GIT_REVISION` line above. Then
-run `varde restart` and `varde models configure`.
+run `varde restart` and `varde models configs sync`.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 
@@ -585,7 +585,7 @@ varde status
 It worked when `varde status` shows chap-core `up` and the model `registered`.
 Right after `varde up`, the model is `running, not registered`; run
 `varde status` again after some seconds. If the model is
-`registered, not configured`, run `varde models configure`.
+`registered, not configured`, run `varde models configs sync`.
 
 If chap-core was started after `varde up`, the model stays
 `running, not registered`: it tries to register for about ten seconds only.

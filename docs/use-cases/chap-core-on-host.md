@@ -44,7 +44,7 @@ MODEL                           STATE                       REACH      LAST PING
 chapkit-simple-multistep-model  registered, not configured  port 5001  6s ago
 
 1 model registered
-chapkit-simple-multistep-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-simple-multistep-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 It worked when `varde status` shows chap-core `up` at your URL and the models
@@ -56,10 +56,10 @@ registers some seconds after `varde up`. Until then, `varde status` shows it
 `registered, not configured` is the normal state after a plain `varde up`.
 chap-core makes no configured model when a model registers. A backtest and the
 Modeling App need one. To make them in your chap-core, run `varde models
-configure`:
+configs sync`:
 
 ```sh
-varde models configure
+varde models configs sync
 varde models test --all
 ```
 

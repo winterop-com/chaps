@@ -20,7 +20,7 @@ MODEL                STATE                       REACH          LAST PING
 chapkit-ewars-model  registered, not configured  via chap-core  1s ago
 
 1 model registered
-chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 and `varde models test --all` says every model passes:
@@ -36,7 +36,7 @@ chapkit-ewars-model    pass   16s   1 training, 1 prediction
 chap-core v2.4.0 makes no configured model when a model registers, and the
 model level of `varde models test` does not need one. A backtest and the
 Modeling App need one. The [backtest](#test-through-chap-core) below creates
-them, and so do `varde models configure` and `varde up --wait`. After that,
+them, and so do `varde models configs sync` and `varde up --wait`. After that,
 `varde status` shows the model as `registered`. See
 [Configured models](../models.md#configured-models).
 

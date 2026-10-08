@@ -224,7 +224,7 @@ add when a failure only happens sometimes.
 
 ```text
 chapkit-ewars-model    skip    0s   chap-core has no configured model for chapkit-ewars-model
-  it is registered, and chap-core has nothing to run it with; run `varde models configure chapkit_ewars_model`, then `varde models test chapkit_ewars_model --backtest`
+  it is registered, and chap-core has nothing to run it with; run `varde models configs sync chapkit_ewars_model`, then `varde models test chapkit_ewars_model --backtest`
 ```
 
 The model is registered, but chap-core has no configured model for it. chap-core
@@ -239,13 +239,13 @@ table say why.
 Make the configured models, then test again:
 
 ```sh
-varde models configure chapkit_ewars_model
+varde models configs sync chapkit_ewars_model
 varde models test chapkit_ewars_model --backtest
 ```
 
 See [Configured models](./models.md#configured-models).
 
-If `varde models configure` says that it could not create the configured
+If `varde models configs sync` says that it could not create the configured
 models and the reason is `answered HTTP 409 Conflict`, chap-core refused the
 template. The model reports no git revision, or another revision than the
 template chap-core stored for its version.
@@ -256,7 +256,7 @@ template chap-core stored for its version.
    [`it reports no git revision`](#it-reports-no-git-revision-so-running-this-again-does-not-help).
 3. If the model image changed, run `varde update` to move the pin, or run
    `varde restart --all <service>` to make the model register again.
-4. Run `varde models configure` again.
+4. Run `varde models configs sync` again.
 
 ## `it reports no git revision, so running this again does not help`
 
@@ -264,7 +264,7 @@ template chap-core stored for its version.
 warning: my_model: could not create its configured models: ...; it reports no git revision, so running this again does not help; build its image again with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`
 ```
 
-`varde models configure` (and the same step in `varde up --wait` and `varde
+`varde models configs sync` (and the same step in `varde up --wait` and `varde
 models test --backtest`) asked chap-core for the model template, and chap-core
 refused it. The model reports no git revision, and chap-core 2.4 stores no
 template for such a model. In `--json`, the model has the state `no-revision`.
@@ -273,7 +273,7 @@ template for such a model. In `--json`, the model has the state `no-revision`.
 1. In the model's checkout, build the image again with
    `docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .`.
 2. Run `varde restart`.
-3. Run `varde models configure`.
+3. Run `varde models configs sync`.
 
 For a model that varde does not run, set `GIT_REVISION` where the model runs,
 then start it again.
@@ -923,7 +923,7 @@ With `-v`, a hint says where it pointed:
 `varde dhis2 show` is the one to run first: it names each piece that is missing
 and changes nothing. If the app shows Chap but a model is missing from its
 model picker, run `varde status`. If the model is `registered, not configured`,
-run `varde models configure`. If the route is right and the app still shows no figures,
+run `varde models configs sync`. If the route is right and the app still shows no figures,
 analytics has not been generated - `varde dhis2 analytics`. If there is no Chap
 entry in DHIS2's apps menu at all, the app is not installed -
 `varde dhis2 apps`. See

@@ -85,8 +85,8 @@ each province. The list shows one entry for each configured model, as
 `<model name> [<configuration>]`. Each model enabled with `varde models
 enable` adds its own entries. chap-core 2.4 and later does not make these
 entries itself: `varde up --wait`, `varde dhis2 connect` and `varde models
-configure` make them. If a model is not in the list, run `varde status`. If it
-shows the model as `registered, not configured`, run `varde models configure`.
+configs sync` make them. If a model is not in the list, run `varde status`. If it
+shows the model as `registered, not configured`, run `varde models configs sync`.
 `varde models test --all` makes each model train and predict. See
 [Configured models](./models.md#configured-models).
 
@@ -199,7 +199,7 @@ elements in DHIS2's Maintenance app and pick those.
 | What you see | What to do |
 | --- | --- |
 | Typing `Modeling` in the app menu finds nothing | `varde dhis2 connect` has not run, or failed; run it and read its last line. |
-| The model list does not have the model `varde` enabled | `varde status`: the model must be `registered`. If it says `registered, not configured`, run `varde models configure`. Otherwise the line under the table says why. |
+| The model list does not have the model `varde` enabled | `varde status`: the model must be `registered`. If it says `registered, not configured`, run `varde models configs sync`. Otherwise the line under the table says why. |
 | `Oops! Sorry, an unexpected error`, or `Unnamed evaluation` rows, after the deployment was recreated | The browser holds a login to the DHIS2 that was removed: open DHIS2 again and log in. See [Troubleshooting](./troubleshooting.md#oops-sorry-an-unexpected-error-or-unnamed-evaluation-in-the-modeling-app). |
 | A job in **Jobs** says it failed | `varde jobs`, then `varde jobs logs ID` with the id it prints: the model's own error is at the end. |
 

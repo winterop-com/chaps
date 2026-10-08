@@ -30,7 +30,7 @@ MODEL                STATE                       REACH          LAST PING
 chapkit-ewars-model  registered, not configured  via chap-core  6s ago
 
 1 model registered
-chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 It worked when `varde status` shows chap-core `up` and the model registered.
@@ -38,7 +38,7 @@ The version is the one that your checkout reports.
 
 `registered, not configured` is the normal state after a plain `varde up`.
 chap-core makes no configured model when a model registers. A backtest and the
-Modeling App need one. To make them, run `varde models configure`. After that,
+Modeling App need one. To make them, run `varde models configs sync`. After that,
 `varde status` shows the model as `registered`. See
 [Configured models](../models.md#configured-models).
 

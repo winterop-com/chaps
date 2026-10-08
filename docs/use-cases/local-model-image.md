@@ -57,7 +57,7 @@ run `varde up` to apply
 creates the configured model that chap-core needs to run it. A plain
 `varde up` returns when the containers start; `varde status` then says
 `running, not registered` for some seconds, and `registered, not
-configured` until `varde models configure` runs. After `varde up --wait`,
+configured` until `varde models configs sync` runs. After `varde up --wait`,
 `varde status` shows:
 
 ```text

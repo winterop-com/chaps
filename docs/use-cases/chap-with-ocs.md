@@ -30,14 +30,14 @@ MODEL                STATE                       REACH          LAST PING
 chapkit-ewars-model  registered, not configured  via chap-core  2s ago
 
 1 model registered
-chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+chapkit-ewars-model: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 `registered, not configured` is the normal state after a plain `varde up`.
 A backtest and the Modeling App need a configured model. Make them:
 
 ```sh
-varde models configure
+varde models configs sync
 ```
 
 ```text

@@ -287,7 +287,7 @@ Up to chap-core 2.3, a registration made a configured model. chap-core 2.4
 and later makes none. A model that varde starts registers, and without a
 configured model nothing can run it.
 
-`varde models configure` does what `chap-admin install` does after a model
+`varde models configs sync` does what `chap-admin install` does after a model
 service has registered:
 
 1. It stores the model template from the service
@@ -303,8 +303,8 @@ service has registered:
    defaults of the service.
 
 ```sh
-varde models configure                      # every model this deployment enables
-varde models configure chapkit_ewars_model  # one model, by marketplace id or service id
+varde models configs sync                      # every model this deployment enables
+varde models configs sync chapkit_ewars_model  # one model, by marketplace id or service id
 ```
 
 ```text
@@ -324,7 +324,7 @@ gets no second set. A model that chap-core has not registered yet gets a line
 that says so. Directly after `varde up`, expect this line for a few seconds:
 
 ```text
-chapkit_ewars_model: not registered with chap-core; run `varde models configure` again once `varde status` shows it registered
+chapkit_ewars_model: not registered with chap-core; run `varde models configs sync` again once `varde status` shows it registered
 ```
 
 A model that could not be configured gets a warning with the reason, and the
@@ -342,7 +342,7 @@ created configured models in chap-core for chapkit_simple_multistep_model (month
 configured`, and adds a line with the way out:
 
 ```text
-auto-arima-chapkit: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+auto-arima-chapkit: chap-core has no configured model for it, so nothing can run it; run `varde models configs sync`
 ```
 
 ## Testing a model
@@ -427,7 +427,7 @@ warning: no model was tested, because every one was skipped; the line under each
 | --- | --- |
 | `its container is not running` | `varde up`. |
 | ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `varde update` moves the pin; `--backtest` tests it through chap-core instead. |
-| `chap-core has no configured model for <service>` | `--backtest` only. Run `varde models configure ID`, then the test again. |
+| `chap-core has no configured model for <service>` | `--backtest` only. Run `varde models configs sync ID`, then the test again. |
 | `no answer in 5m` | The model is wedged or genuinely slow. The line under the row names `--timeout` with twice the limit. The same number is handed to chapkit as its per-job deadline. |
 
 ### The backtest level
@@ -442,7 +442,7 @@ splits, stride 1) and reads the scores off the result.
 
 Before the first model, `--backtest` creates the configured models that the
 models of this deployment do not have yet, as [`varde models
-configure`](#configured-models) does. A model registered from outside the
+configs sync`](#configured-models) does. A model registered from outside the
 deployment is not configured by this step.
 
 The backtest names one of chap-core's configured models by its id, chosen from
