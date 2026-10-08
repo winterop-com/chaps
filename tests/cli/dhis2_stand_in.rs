@@ -167,6 +167,9 @@ pub(crate) struct Dhis2State {
     /// Answer every request proxied through the route with a 502, the way
     /// DHIS2 does when chap-core is down behind a route that is right.
     pub(crate) proxy_fails: bool,
+    /// How many requests through the route answer 500 before it works, the
+    /// way a real DHIS2 can fail the first request after a repoint.
+    pub(crate) proxy_failures: u32,
     /// Answer every request proxied through the route with this status and
     /// body: an empty 503 is what the allowlist does at proxy time, a 500 is
     /// a route target that DHIS2 cannot connect to.
@@ -249,6 +252,7 @@ impl Dhis2StandIn {
                     201 => "Created",
                     401 => "Unauthorized",
                     409 => "Conflict",
+                    500 => "Internal Server Error",
                     502 => "Bad Gateway",
                     _ => "Not Found",
                 };
@@ -432,6 +436,14 @@ pub(crate) fn dhis2_answer(
         };
     }
     if path.starts_with("/api/routes/chap/run/") {
+        if state.proxy_failures > 0 {
+            state.proxy_failures -= 1;
+            return (
+                500,
+                serde_json::json!({"message": "Connection prematurely closed BEFORE response"})
+                    .to_string(),
+            );
+        }
         if let Some((status, body)) = state.proxy_answer {
             return (status, body.to_string());
         }

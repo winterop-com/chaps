@@ -31,3 +31,30 @@ fn dhis2_show_reads_the_epoch_as_no_analytics_run() {
     assert_eq!(report["analytics"], "never", "{report}");
     assert_eq!(report["last_analytics"], "", "{report}");
 }
+
+/// The first request through a route that was just repointed can fail once on
+/// a real DHIS2. `route` asks a second time before it warns.
+#[cfg(unix)]
+#[test]
+fn dhis2_route_asks_twice_through_a_route_it_has_just_repointed() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(external_chap_route()),
+        proxy_failures: 1,
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["route"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "repointed the `chap` route at http://chap:8000/**; chap-core answered through it",
+        ))
+        .stderr(predicates::str::contains("nothing answered").not());
+    let health = stand_in
+        .asked()
+        .iter()
+        .filter(|seen| *seen == "GET /api/routes/chap/run/health")
+        .count();
+    assert_eq!(health, 2, "{:?}", stand_in.asked());
+}

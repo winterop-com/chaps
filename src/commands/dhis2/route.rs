@@ -64,7 +64,18 @@ pub(super) fn write_route(ctx: &Ctx, session: &Session) -> Result<RouteReport> {
 
     // A chap-core that does not answer is a warning in the report, not an
     // error: the route is correct whatever chap-core did.
-    let proof = verify_route(&session.dhis2, token.is_some());
+    let mut proof = verify_route(&session.dhis2, token.is_some());
+    // The first request through a route that was just written can fail once
+    // while DHIS2 still holds a connection to the old target, so a new or
+    // repointed route that nothing answered gets one more try.
+    if outcome != RouteOutcome::Unchanged && !proof.verified && !proof.token_refused {
+        ctx.out.verbose(&format!(
+            "nothing answered through the new route ({}); asking once more",
+            proof.answered
+        ));
+        std::thread::sleep(ROUTE_RETRY_DELAY);
+        proof = verify_route(&session.dhis2, token.is_some());
+    }
     let way_out = match proof.verified || proof.token_refused {
         true => String::new(),
         false => unanswered_way_out(session, &proof, &target),
@@ -118,6 +129,10 @@ fn send_route(
     }
     Err(session.dhis2.status_error(path, &answer))
 }
+
+/// How long `route` waits before it asks a second time through a route it
+/// has just written.
+const ROUTE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 /// What a request through the route that got no answer at all says.
 ///
