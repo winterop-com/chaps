@@ -190,6 +190,7 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         url: "http://localhost:5001".into(),
         written: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
         applied: false,
+        running: false,
     };
     let text = render(|lines| port_summary(&exposed, &project, &[], lines));
     assert!(text.starts_with("exposed chapkit-ewars-model on http://localhost:5001\n"));
@@ -237,6 +238,7 @@ fn an_applied_port_with_no_change_names_no_apply_step() {
         url: "http://localhost:5001".into(),
         written: Vec::new(),
         applied: true,
+        running: false,
     };
     let text = render(|lines| port_summary(&change, &project, &[], lines));
     assert_eq!(
@@ -247,6 +249,7 @@ fn an_applied_port_with_no_change_names_no_apply_step() {
     // made: `up` is a hint, not a step.
     let pending = PortChange {
         applied: false,
+        running: false,
         ..change
     };
     let text = render(|lines| port_summary(&pending, &project, &[], lines));
@@ -255,5 +258,83 @@ fn an_applied_port_with_no_change_names_no_apply_step() {
             "nothing changed\nhint: if its container is not running, `varde up` starts it\n"
         ),
         "{text}"
+    );
+}
+
+/// A no-op expose on a running container that does not publish the port yet
+/// names `varde up` as the step that applies it.
+#[test]
+fn a_port_not_applied_on_a_running_container_names_varde_up() {
+    let project = project_with_ewars(Some(5001));
+    let change = PortChange {
+        id: "chapkit_ewars_model".into(),
+        service_id: "chapkit-ewars-model".into(),
+        host_port: Some(5001),
+        previous: Some(5001),
+        url: "http://localhost:5001".into(),
+        written: Vec::new(),
+        applied: false,
+        running: true,
+    };
+    let text = render(|lines| port_summary(&change, &project, &[], lines));
+    assert_eq!(
+        text,
+        "chapkit-ewars-model is already exposed on http://localhost:5001; nothing changed\n\
+         its running container does not publish this port yet; run `varde up` to apply it\n"
+    );
+}
+
+fn allocator(_: &BTreeSet<u16>) -> Result<PortAllocator> {
+    Ok(PortAllocator::new((18100, 18110), [18100]))
+}
+
+/// The model's own container on its port does not make the port busy for it.
+#[test]
+fn the_own_live_port_is_not_busy_for_the_model() {
+    let every_port_is_live = |_: u16| true;
+    let own = |port: u16| port == 18105;
+    let kept = choose_port(
+        PortRequest::Fixed(18105),
+        Some(18105),
+        &own,
+        &allocator,
+        &every_port_is_live,
+    )
+    .expect("the own port is free for the model");
+    assert_eq!(kept, Some(18105));
+
+    // `--port auto` keeps it too, and does not move to the next free port.
+    let kept = choose_port(PortRequest::Auto, Some(18105), &own, &allocator, &|port| {
+        port != 18101
+    })
+    .expect("the own port is free for the model");
+    assert_eq!(kept, Some(18105));
+
+    // A port that something else holds is still refused.
+    let held = choose_port(
+        PortRequest::Fixed(18106),
+        Some(18105),
+        &own,
+        &allocator,
+        &every_port_is_live,
+    );
+    assert!(held.is_err(), "{held:?}");
+}
+
+/// `--port auto` on a model without a port, or one whose port something else
+/// holds, takes the first free port.
+#[test]
+fn auto_moves_only_off_a_port_that_is_not_free() {
+    let busy = |port: u16| port == 18101 || port == 18105;
+    let no_own = |_: u16| false;
+    let first = choose_port(PortRequest::Auto, None, &no_own, &allocator, &busy).unwrap();
+    assert_eq!(first, Some(18102));
+    let moved = choose_port(PortRequest::Auto, Some(18105), &no_own, &allocator, &busy).unwrap();
+    assert_eq!(moved, Some(18102));
+    let kept = choose_port(PortRequest::Auto, Some(18107), &no_own, &allocator, &busy).unwrap();
+    assert_eq!(kept, Some(18107));
+    assert_eq!(
+        choose_port(PortRequest::None, Some(18107), &no_own, &allocator, &busy).unwrap(),
+        None
     );
 }

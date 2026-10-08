@@ -5,11 +5,12 @@
 
 use crate::cli::{ModelsDisableArgs, ModelsEnableArgs, ModelsExposeArgs, ModelsUnexposeArgs};
 use crate::commands::Ctx;
-use crate::compose::ports::allocator_for;
+use crate::compose::ports::{PortAllocator, allocator_for};
 use crate::compose::sync::sync;
 use crate::compose::{ApplyReport, EnableRequest, PortRequest, Selection, apply};
 use crate::error::{ChapError, Result};
 use crate::output::Report;
+use crate::ports::OwnPorts;
 use crate::project::Project;
 use crate::registry::{Channel, Registry, VersionSelector};
 use std::collections::BTreeSet;
@@ -328,6 +329,43 @@ struct PortChange {
     /// the port, so `varde up` has nothing to apply.
     #[serde(skip)]
     applied: bool,
+    /// Whether the model's container runs, when it does not publish the port
+    /// yet.
+    #[serde(skip)]
+    running: bool,
+}
+
+/// The host port a `models expose` or `unexpose` gives the model.
+///
+/// `own` says whether the model's own container publishes a port now; that
+/// port is not busy for the model. `--port auto` keeps the port the model has
+/// while it is free for the model, so a working port is not changed for a new
+/// one.
+fn choose_port(
+    request: PortRequest,
+    previous: Option<u16>,
+    own: &dyn Fn(u16) -> bool,
+    allocator: &dyn Fn(&BTreeSet<u16>) -> Result<PortAllocator>,
+    is_busy: &dyn Fn(u16) -> bool,
+) -> Result<Option<u16>> {
+    // The previous port is out of the claims: it is about to be replaced,
+    // and a claim of it again has to succeed.
+    let freed: BTreeSet<u16> = previous.into_iter().collect();
+    let busy = |port: u16| !(previous == Some(port) && own(port)) && is_busy(port);
+    Ok(match request {
+        PortRequest::None => None,
+        PortRequest::Auto => {
+            let mut allocator = allocator(&freed)?;
+            match previous.filter(|port| allocator.claim(*port, &busy).is_ok()) {
+                Some(port) => Some(port),
+                None => Some(allocator.allocate(&busy)?),
+            }
+        }
+        PortRequest::Fixed(port) => {
+            allocator(&freed)?.claim(port, &busy)?;
+            Some(port)
+        }
+    })
 }
 
 /// Move one enabled model's host port, then re-render the compose files.
@@ -348,22 +386,21 @@ fn set_host_port(
     let id = enabled_id(&project, wanted).ok_or_else(|| ChapError::UnknownModel(wanted.into()))?;
     let previous = project.state.models[&id].host_port;
     let previous_bind = project.state.models[&id].bind;
+    let service_id = project.state.models[&id].service_id.clone();
 
-    // The model's own port is not a conflict with itself: it is about to be
-    // replaced, and re-claiming it has to succeed.
-    let freed: BTreeSet<u16> = previous.into_iter().collect();
-    let host_port = match request {
-        PortRequest::None => None,
-        PortRequest::Auto => {
-            let mut allocator = allocator_for(&project, &freed)?;
-            Some(allocator.allocate(&crate::ports::is_busy)?)
-        }
-        PortRequest::Fixed(port) => {
-            let mut allocator = allocator_for(&project, &freed)?;
-            allocator.claim(port, &crate::ports::is_busy)?;
-            Some(port)
-        }
+    // What this deployment's own containers publish now. The model's own
+    // container on its port is not a reason to move it.
+    let own = match request {
+        PortRequest::None => OwnPorts::default(),
+        _ => OwnPorts::of_project(&project),
     };
+    let host_port = choose_port(
+        request,
+        previous,
+        &|port| own.publishes(&service_id, port),
+        &|freed| allocator_for(&project, freed),
+        &crate::ports::is_busy,
+    )?;
 
     let entry = project
         .state
@@ -374,16 +411,21 @@ fn set_host_port(
     if bind.is_some() {
         entry.bind = bind;
     }
-    let service_id = entry.service_id.clone();
     let same = host_port == previous && entry.bind == previous_bind;
 
     let synced = sync(&mut project, &registry, false)?;
     let applied = match (same && synced.written.is_empty(), host_port) {
-        (true, Some(port)) => publishes(&project, &service_id, port),
+        (true, Some(port)) => own.publishes(&service_id, port),
         _ => false,
     };
+    // A port that a running container does not publish yet is a step for
+    // `varde up`; a stopped container gets it when `varde up` starts it.
+    let running = !applied
+        && host_port.is_some()
+        && crate::docker::running_services(&project).contains(&service_id);
     let change = PortChange {
         applied,
+        running,
         id,
         url: match host_port {
             Some(port) => format!("http://localhost:{port}"),
@@ -417,8 +459,17 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lin
         for warning in warnings {
             lines.warning(warning.as_str());
         }
-        if !change.applied {
-            lines.hint("if its container is not running, `varde up` starts it");
+        match (change.applied, change.running) {
+            (true, _) => {}
+            (false, true) => {
+                lines.info(
+                    "its running container does not publish this port yet; run `varde up` to \
+                     apply it",
+                );
+            }
+            (false, false) => {
+                lines.hint("if its container is not running, `varde up` starts it");
+            }
         }
         return;
     }
@@ -445,16 +496,6 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lin
     if !change.applied {
         lines.info("run `varde up` to apply");
     }
-}
-
-/// Whether the container of `service` in this deployment publishes `port`
-/// now. Compose names the container `<project>-<service>-<n>`.
-fn publishes(project: &Project, service: &str, port: u16) -> bool {
-    let Some(name) = project.compose_project_name() else {
-        return false;
-    };
-    crate::docker::container_publishing(port)
-        .is_some_and(|container| container.starts_with(&format!("{name}-{service}-")))
 }
 
 /// A path in the deployment, relative to its directory when it is inside it.

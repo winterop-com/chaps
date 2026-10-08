@@ -13,6 +13,7 @@ mod components;
 mod dhis2;
 mod dhis2_stand_in;
 mod doctor;
+mod expose;
 mod help;
 mod init;
 mod jobs_api;

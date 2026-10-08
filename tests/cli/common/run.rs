@@ -9,12 +9,24 @@ use tempfile::TempDir;
 /// A `docker` whose compose commands succeed and whose `ps` reports the
 /// listed services running in every project.
 pub(crate) fn docker_running_services(services: &[&str]) -> (TempDir, PathBuf) {
+    let rows: Vec<(&str, Option<u16>)> = services.iter().map(|s| (*s, None)).collect();
+    docker_publishing(&rows)
+}
+
+/// A `docker` like [`docker_running_services`], where each service can also
+/// publish one host port.
+pub(crate) fn docker_publishing(services: &[(&str, Option<u16>)]) -> (TempDir, PathBuf) {
     let temp = tempfile::tempdir().expect("a directory for the fake docker");
     let bin = temp.path().join("bin");
     std::fs::create_dir_all(&bin).expect("a bin directory");
     let rows: String = services
         .iter()
-        .map(|s| format!("{{\"Service\":\"{s}\",\"State\":\"running\"}}\\n"))
+        .map(|(s, port)| {
+            let publishers = port
+                .map(|p| format!(",\"Publishers\":[{{\"PublishedPort\":{p}}}]"))
+                .unwrap_or_default();
+            format!("{{\"Service\":\"{s}\",\"State\":\"running\"{publishers}}}\\n")
+        })
         .collect();
     let script = format!(
         "#!/bin/sh\n\
