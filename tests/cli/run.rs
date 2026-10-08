@@ -479,6 +479,30 @@ fn ctrl_c_in_the_foreground_stops_the_model_and_keeps_its_data() {
         .stdout(predicates::str::contains("chapkit_ewars_model").not());
 }
 
+/// `--rm` cleans up as `varde stop --purge` does: the group the model leaves
+/// empty goes too, with its network and its directory.
+#[test]
+fn ctrl_c_in_the_foreground_with_rm_removes_the_emptied_group() {
+    let sandbox = Sandbox::new();
+    let (_temp, bin, log) = docker_pressing_ctrl_c_at("logs");
+
+    chap_with_docker(
+        &sandbox,
+        sandbox.home.path(),
+        &bin,
+        &["run", "chapkit_ewars_model", "--no-wait", "--attach", "--rm"],
+    )
+    .assert()
+    .success()
+    .stderr(predicates::str::contains(
+        "stopped chapkit_ewars_model, and removed its data",
+    ))
+    .stderr(predicates::str::contains("removed group default"));
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(calls.contains("down --remove-orphans --volumes"), "{calls}");
+    assert!(!data(&sandbox).join("run").join("default").exists());
+}
+
 #[test]
 fn ctrl_c_while_the_model_starts_takes_it_back_out() {
     let sandbox = Sandbox::new();
