@@ -125,6 +125,7 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
                 .map(|(id, enabled)| crate::configs::sync::Target {
                     id: id.clone(),
                     service_id: enabled.service_id.clone(),
+                    managed: true,
                 })
                 .collect();
             (!mine.is_empty()).then(|| match super::configs::sync::step(ctx, &project, &mine) {

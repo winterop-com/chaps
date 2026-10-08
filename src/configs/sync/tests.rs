@@ -213,3 +213,60 @@ fn the_command_says_one_line_for_each_configured_model() {
         ]
     );
 }
+
+fn service(revision: Option<Option<&str>>) -> crate::status::RegisteredService {
+    crate::status::RegisteredService {
+        id: "minimalist-norev".to_string(),
+        url: "http://host.docker.internal:9090".to_string(),
+        display_name: "minimalist-norev".to_string(),
+        version: "1.0.1".to_string(),
+        last_ping_at: String::new(),
+        expires_at: String::new(),
+        git_revision: revision.map(|r| r.map(str::to_string)),
+    }
+}
+
+/// chapkit 2.1 sends no `git_revision` key when it has no revision. The
+/// refusal of chap-core 2.4 says so, and so does the key that chap-core
+/// sent for another service.
+#[test]
+fn a_registration_without_the_revision_key_is_a_model_that_reports_none() {
+    let refusal = "http://localhost:8700/v1/crud/model-templates/from-service answered HTTP \
+                   409 Conflict: Model template 'minimalist-norev' version '1.0.1' is stored \
+                   from revision None, but its source now reports revision None";
+    let other = "http://localhost:8700/v1/crud/model-templates/from-service answered HTTP 500";
+    assert!(is_no_revision(&service(None), false, refusal));
+    assert!(is_no_revision(&service(None), true, other));
+    assert!(is_no_revision(&service(Some(None)), false, other));
+    assert!(!is_no_revision(&service(None), false, other));
+    assert!(!is_no_revision(&service(Some(Some("abc"))), true, other));
+}
+
+/// The way out of a model without a revision depends on where it runs.
+#[test]
+fn a_model_without_a_revision_gets_the_way_out_of_where_it_runs() {
+    let outcome = |id: &str, managed: bool| ModelOutcome {
+        id: id.to_string(),
+        service_id: id.to_string(),
+        outcome: Outcome::NoRevision {
+            error: "HTTP 409 Conflict".to_string(),
+            managed,
+        },
+    };
+    let mut lines = Report::default();
+    command_lines(
+        &[
+            outcome("auto_arima_chapkit", true),
+            outcome("minimalist-norev", false),
+        ],
+        &mut lines,
+    );
+    let texts: Vec<&str> = lines.messages().iter().map(|m| m.text.as_str()).collect();
+    assert!(texts[0].ends_with(NO_REVISION_WAY_OUT), "{texts:?}");
+    assert_eq!(
+        texts[1],
+        "minimalist-norev: could not create its configured models: HTTP 409 Conflict; it \
+         reports no git revision, so running this again does not help; set `GIT_REVISION` \
+         where it runs, then start it again"
+    );
+}

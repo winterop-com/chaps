@@ -21,7 +21,8 @@ pub use lines::{
 pub use models::{
     MODEL_HEALTH_PATH, ModelState, ModelStatus, RegisteredService, RevisionProblem,
     RevisionWarning, enabled_models, link_strays, mark_unconfigured, mark_unreachable, missing_ids,
-    model_rows, proxied_health_path, reach, revision_warnings, standalone_model_rows,
+    model_rows, proxied_health_path, reach, revision_warnings, sends_revision,
+    standalone_model_rows,
 };
 pub use probe::{
     body_description, parse_health, parse_services, services_are_not_chap_core, token_rejected,
@@ -446,7 +447,13 @@ pub fn status(
         if let Some(configured) = &configured {
             mark_unconfigured(&mut rows, &registered, configured);
         }
-        revisions = revision_warnings(&rows, &registered, configured.as_deref().unwrap_or(&[]));
+        let sends = sends_revision(&registered, Some(&version.value));
+        revisions = revision_warnings(
+            &rows,
+            &registered,
+            configured.as_deref().unwrap_or(&[]),
+            sends,
+        );
         rows
     } else {
         // Nothing registers anywhere, so each model is asked itself, on the

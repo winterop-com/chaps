@@ -133,6 +133,7 @@ pub(super) fn all_targets(project: &Project) -> Vec<Target> {
         .map(|(id, enabled)| Target {
             id: id.clone(),
             service_id: enabled.service_id.clone(),
+            managed: true,
         })
         .collect()
 }
@@ -158,6 +159,7 @@ pub(super) fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Ve
                 picked.push(Target {
                     id: given.clone(),
                     service_id: given.clone(),
+                    managed: false,
                 });
             }
             continue;
@@ -178,6 +180,7 @@ pub(super) fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Ve
         picked.push(Target {
             id: model.id.clone(),
             service_id: enabled.service_id.clone(),
+            managed: true,
         });
     }
     Ok(picked)

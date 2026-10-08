@@ -162,6 +162,9 @@ pub fn is_configured(models: &[ConfiguredModel], name: &str, version: Option<&st
 pub struct Target {
     pub id: String,
     pub service_id: String,
+    /// Whether this deployment runs it, which changes the way out when it
+    /// reports no git revision.
+    pub managed: bool,
 }
 
 /// What the step did for one model.
@@ -180,12 +183,38 @@ pub enum Outcome {
     /// The template request failed, and the service reports no git revision,
     /// which is the reason chap-core gives no template: running the step
     /// again cannot fix it.
-    NoRevision { error: String },
+    NoRevision {
+        error: String,
+        /// Whether this deployment runs it: its image is built again, not
+        /// started again somewhere else.
+        #[serde(skip)]
+        managed: bool,
+    },
 }
 
 /// The way out for a model of this deployment that reports no git revision.
 pub const NO_REVISION_WAY_OUT: &str = "build its image again with `--build-arg \
      GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`";
+
+/// The way out for a model registered from outside this deployment that
+/// reports no git revision.
+pub const UNMANAGED_NO_REVISION_WAY_OUT: &str =
+    "set `GIT_REVISION` where it runs, then start it again";
+
+/// The words of chap-core's 409 for a template whose service reports no
+/// revision: `... its source now reports revision None`.
+const NO_REVISION_REFUSAL: &str = "reports revision None";
+
+/// Whether a failed step for `service` failed because it reports no git
+/// revision: its registration says so, or chap-core's refusal does.
+/// `sends_revision` is [`crate::status::sends_revision`].
+pub fn is_no_revision(
+    service: &crate::status::RegisteredService,
+    sends_revision: bool,
+    error: &str,
+) -> bool {
+    service.reports_no_revision(sends_revision) || error.contains(NO_REVISION_REFUSAL)
+}
 
 /// One model and what the step did for it.
 #[derive(Debug, Clone, Serialize)]
@@ -217,6 +246,7 @@ pub fn configure(
     source: &mut dyn FnMut(&Target) -> Result<Source>,
 ) -> Result<Vec<ModelOutcome>> {
     let registered = registered_services(api)?;
+    let sends_revision = crate::status::sends_revision(&registered, None);
     let listed = api.get_json(CONFIGURED_MODELS_PATH)?;
     let models = configured_models(&listed);
     Ok(targets
@@ -231,8 +261,13 @@ pub fn configure(
                     match configure_one(api, target, &service.version, &models, source) {
                         // A failed template request for a service that reports
                         // no revision is that, whatever the status code says.
-                        Outcome::Failed { error } if matches!(service.git_revision, Some(None)) => {
-                            Outcome::NoRevision { error }
+                        Outcome::Failed { error }
+                            if is_no_revision(service, sends_revision, &error) =>
+                        {
+                            Outcome::NoRevision {
+                                error,
+                                managed: target.managed,
+                            }
                         }
                         outcome => outcome,
                     }
@@ -354,8 +389,8 @@ pub fn command_lines(outcomes: &[ModelOutcome], lines: &mut Report) {
             Outcome::Failed { error } => {
                 lines.warning(failed_line(id, error));
             }
-            Outcome::NoRevision { error } => {
-                lines.warning(no_revision_line(id, error));
+            Outcome::NoRevision { error, managed } => {
+                lines.warning(no_revision_line(id, error, *managed));
             }
         }
     }
@@ -386,8 +421,8 @@ pub fn folded_lines(outcomes: &[ModelOutcome], not_registered: bool, lines: &mut
             Outcome::Failed { error } => {
                 lines.warning(failed_line(&model.id, error));
             }
-            Outcome::NoRevision { error } => {
-                lines.warning(no_revision_line(&model.id, error));
+            Outcome::NoRevision { error, managed } => {
+                lines.warning(no_revision_line(&model.id, error, *managed));
             }
             Outcome::NotRegistered if not_registered => {
                 lines.info(format!(
@@ -409,10 +444,14 @@ fn failed_line(id: &str, error: &str) -> String {
 }
 
 /// The warning for a model that reports no git revision.
-fn no_revision_line(id: &str, error: &str) -> String {
+fn no_revision_line(id: &str, error: &str, managed: bool) -> String {
+    let way_out = match managed {
+        true => NO_REVISION_WAY_OUT,
+        false => UNMANAGED_NO_REVISION_WAY_OUT,
+    };
     format!(
         "{id}: could not create its configured models: {error}; it reports no git revision, so \
-         running this again does not help; {NO_REVISION_WAY_OUT}"
+         running this again does not help; {way_out}"
     )
 }
 

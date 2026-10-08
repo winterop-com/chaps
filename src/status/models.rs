@@ -228,10 +228,35 @@ pub struct RegisteredService {
     pub last_ping_at: String,
     pub expires_at: String,
     /// The `git_revision` of its `info`: `Some(None)` when chap-core sent the
-    /// key with no value, and `None` when it sent no key at all, which a
-    /// chap-core before 2.4 does.
+    /// key with no value, and `None` when it sent no key at all. A chap-core
+    /// before 2.4 sends no key. chap-core 2.4 sends what the service sent,
+    /// and chapkit 2.1 sends no key when it has no revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_revision: Option<Option<String>>,
+}
+
+impl RegisteredService {
+    /// Whether it reports no git revision: a `null`, or no key from a
+    /// chap-core that passes the key on (see [`sends_revision`]).
+    pub fn reports_no_revision(&self, sends_revision: bool) -> bool {
+        match &self.git_revision {
+            Some(None) => true,
+            Some(Some(_)) => false,
+            None => sends_revision,
+        }
+    }
+}
+
+/// Whether this chap-core passes on the `git_revision` that a service sends,
+/// so that a missing key means the service sent none.
+///
+/// chap-core 2.4 does, and so does a chap-core that sent the key for another
+/// service. `version` is what chap-core reports, when it is known.
+pub fn sends_revision(registered: &[RegisteredService], version: Option<&str>) -> bool {
+    registered.iter().any(|s| s.git_revision.is_some())
+        || version
+            .and_then(crate::chapcore::release_version)
+            .is_some_and(|version| version >= (2, 4, 0))
 }
 
 /// Why chap-core refuses the model template of a model registered from
@@ -267,10 +292,14 @@ pub struct RevisionWarning {
 /// template stored from another revision with no configured model is not
 /// seen, because only the template listing says that, and that listing
 /// changes chap-core when it is read.
+///
+/// `sends_revision` is [`sends_revision`]: whether a missing `git_revision`
+/// key is a model that reports none.
 pub fn revision_warnings(
     rows: &[ModelStatus],
     registered: &[RegisteredService],
     configured: &[crate::modeltest::ConfiguredModel],
+    sends_revision: bool,
 ) -> Vec<RevisionWarning> {
     rows.iter()
         .filter(|row| matches!(row.state, ModelState::Unmanaged | ModelState::NotConfigured))
@@ -278,7 +307,7 @@ pub fn revision_warnings(
             let service = registered.iter().find(|s| s.id == row.id)?;
             let prefix = format!("{}:", row.id);
             let managed = row.state == ModelState::NotConfigured;
-            let problem = if matches!(service.git_revision, Some(None)) {
+            let problem = if service.reports_no_revision(sends_revision) {
                 RevisionProblem::NoRevision
             } else if managed {
                 return None;

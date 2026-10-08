@@ -300,9 +300,9 @@ pub fn revision_line(warning: &crate::status::RevisionWarning) -> String {
             crate::configs::sync::NO_REVISION_WAY_OUT
         ),
         crate::status::RevisionProblem::NoRevision => format!(
-            "{}: it reports no git revision, so chap-core stores no model template for it; set \
-             `GIT_REVISION` where it runs, then start it again",
-            warning.id
+            "{}: it reports no git revision, so chap-core stores no model template for it; {}",
+            warning.id,
+            crate::configs::sync::UNMANAGED_NO_REVISION_WAY_OUT
         ),
         crate::status::RevisionProblem::RevisionMismatch => format!(
             "{}: chap-core stores its model template {} from another git revision and refuses \

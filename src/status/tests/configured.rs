@@ -80,7 +80,7 @@ fn an_unmanaged_model_whose_template_chap_core_refuses_is_named() {
     mismatch.health = Some("revision_mismatch".to_string());
     let mut live = row("fine-model:dev", Some("1.0.0"));
     live.health = Some("live".to_string());
-    let warnings = revision_warnings(&rows, &services, &[mismatch, live]);
+    let warnings = revision_warnings(&rows, &services, &[mismatch, live], false);
     let lines: Vec<String> = warnings.iter().map(revision_line).collect();
     assert_eq!(
         lines,
@@ -103,7 +103,7 @@ fn a_managed_model_with_no_revision_and_no_configured_model_is_told_to_rebuild()
     let services = [mine];
     let mut rows = model_rows(&enabled(), &services, &BTreeSet::new(), NOW);
     mark_unconfigured(&mut rows, &services, &[]);
-    let warnings = revision_warnings(&rows, &services, &[]);
+    let warnings = revision_warnings(&rows, &services, &[], false);
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].managed);
     assert_eq!(
@@ -126,5 +126,38 @@ fn a_managed_model_with_no_revision_and_no_configured_model_is_told_to_rebuild()
             .iter()
             .any(|fix| fix.ends_with("run `varde models configs sync`")),
         "{fixes:?}"
+    );
+}
+
+/// chapkit 2.1 sends no `git_revision` key when it has no revision, and
+/// chap-core 2.4 passes on what it sent. A missing key is then no revision.
+#[test]
+fn a_missing_git_revision_is_no_revision_on_a_chap_core_that_passes_the_key_on() {
+    let services = [registered("host-model", 5)];
+    assert_eq!(services[0].git_revision, None);
+    let rows = model_rows(&enabled(), &services, &BTreeSet::new(), NOW);
+
+    // An older chap-core, or one that cannot say: no warning.
+    assert!(!sends_revision(&services, None));
+    assert!(!sends_revision(&services, Some("2.3.1")));
+    assert!(!sends_revision(&services, Some("latest")));
+    assert!(revision_warnings(&rows, &services, &[], false).is_empty());
+
+    // chap-core 2.4 or later, by its version or by the key it sent for
+    // another service.
+    assert!(sends_revision(&services, Some("2.4.0")));
+    assert!(sends_revision(&services, Some("v2.5.1-rc.1")));
+    let mut other = registered("fine-model", 5);
+    other.git_revision = Some(Some("abc".to_string()));
+    assert!(sends_revision(&[registered("host-model", 5), other], None));
+
+    let warnings = revision_warnings(&rows, &services, &[], true);
+    let lines: Vec<String> = warnings.iter().map(revision_line).collect();
+    assert_eq!(
+        lines,
+        [
+            "host-model: it reports no git revision, so chap-core stores no model template for \
+          it; set `GIT_REVISION` where it runs, then start it again"
+        ]
     );
 }
