@@ -587,7 +587,8 @@ fn an_external_chap_core_names_the_log_and_hints_what_it_means() {
     let text = lines.text();
     assert!(
         text.contains(
-            "\nchapkit-ewars-model: `varde logs chapkit-ewars-model` says why it does not register"
+            "\nchapkit-ewars-model: if `varde logs chapkit-ewars-model` shows `App never became \
+             ready`, enable it again with a network: `varde models enable chapkit-ewars-model`"
         ),
         "{text}"
     );
@@ -602,7 +603,7 @@ fn an_external_chap_core_names_the_log_and_hints_what_it_means() {
     // Its own chap-core has no such lines.
     let mut lines = Report::default();
     closing(&report, false, &mut lines);
-    assert!(!lines.text().contains("says why it does not register"));
+    assert!(!lines.text().contains("App never became ready"));
 }
 
 /// The read-only mark comes from the file, so a file newer than its running

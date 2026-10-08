@@ -894,9 +894,18 @@ fn a_model_that_never_registers_elsewhere_is_told_how_to_find_why() {
         state: ModelState::RunningNotRegistered,
         ..rows[0].clone()
     };
-    let hints = external_registration_hints(&[row]);
+    let hints = external_registration_hints(std::slice::from_ref(&row));
     assert_eq!(hints.len(), 1);
-    assert!(hints[0].contains("`varde logs m`"), "{hints:?}");
+    // A row that registered under another id has its own fix.
+    let renamed = ModelStatus {
+        registered_as: Some("other".to_string()),
+        ..row.clone()
+    };
+    assert!(external_registration_hints(&[renamed]).is_empty());
+    assert!(
+        hints[0].contains("if `varde logs m` shows `App never became ready`"),
+        "{hints:?}"
+    );
     assert!(hints[0].contains("`varde models enable m`"), "{hints:?}");
     // What the log lines mean is the background, in a hint of its own.
     assert!(EXTERNAL_REGISTRATION_LOG.contains("App never became ready"));

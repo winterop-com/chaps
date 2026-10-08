@@ -235,17 +235,23 @@ pub const TEST_HINT: &str = "run `varde models test --all` to check they can run
 /// [`TEST_HINT`] for a deployment with one model.
 pub const TEST_HINT_ONE: &str = "run `varde models test --all` to check it can run";
 
-/// The extra hint for a model that has not registered with a chap-core
+/// The extra line for a model that has not registered with a chap-core
 /// elsewhere. Its log says which of the two causes it is: it cannot reach
-/// chap-core, or servicekit found no app on the port it checks before it
-/// registers, which is a port varde read wrong off the image's command.
+/// chap-core, which the restart line from [`hints`] is for, or servicekit
+/// found no app on the port it checks before it registers, which is a port
+/// varde read wrong off the image's command. Only the second is fixed by an
+/// enable with a network, so the line names the log line it is for.
 pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
     rows.iter()
-        .filter(|row| row.state == ModelState::RunningNotRegistered && !row.young)
+        .filter(|row| {
+            row.state == ModelState::RunningNotRegistered
+                && !row.young
+                && row.registered_as.is_none()
+        })
         .map(|row| {
             format!(
-                "{id}: `varde logs {id}` says why it does not register; then enable it again \
-                 with a network (`varde models enable {id}`)",
+                "{id}: if `varde logs {id}` shows `App never became ready`, enable it again \
+                 with a network: `varde models enable {id}`",
                 id = row.id
             )
         })
