@@ -263,6 +263,17 @@ is no `varde up` line:
 chapkit-ewars-model is already exposed on http://localhost:5001; nothing changed
 ```
 
+The port that the running container of the model publishes is not a port in
+use for this check. So `--port 5001` or `--port auto` on the port of the model
+itself keeps the port, and does not fail or move the model. If the record has
+the port and the running container does not publish it yet, a second line
+names the step:
+
+```text
+chapkit-ewars-model is already exposed on http://localhost:5001; nothing changed
+its running container does not publish this port yet; run `varde up` to apply it
+```
+
 ```text
 chapkit-ewars-model was already unexposed; nothing changed, and it is reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/
 ```

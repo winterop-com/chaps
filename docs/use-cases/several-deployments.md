@@ -115,6 +115,18 @@ On a deployment that already exists:
 | DHIS2 | `varde components enable dhis2 --port 8781`, then `varde up` |
 | a model | `varde models expose ID --port 5101`, or `varde models unexpose ID` |
 
+If the deployment has the port already, the command changes nothing, says so,
+and gives no `varde up` line:
+
+```text
+ocs was already enabled on http://localhost:8791; nothing changed
+chapkit-ewars-model is already exposed on http://localhost:5101; nothing changed
+```
+
+The two lines come from two commands. With `-v`, the `ocs` line has the hint
+``if it is not running, `varde up` starts it``. A model keeps its own port: the
+port that its running container publishes does not count as a port in use.
+
 You do not have to find a free port. When a port is in use, the warnings of
 `varde init` and the refusal of `varde up` name the next free port in the line
 to copy.
