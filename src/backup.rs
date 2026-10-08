@@ -94,7 +94,9 @@ pub struct Manifest {
     pub created_at: String,
     /// Name of the project directory this was taken from.
     pub project: String,
-    pub chap_image_tag: String,
+    /// The chap-core tag, or none for a deployment without chap-core.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chap_image_tag: Option<String>,
     /// Project files in the archive, relative to the project directory.
     #[serde(default)]
     pub files: Vec<String>,

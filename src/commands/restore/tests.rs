@@ -14,7 +14,7 @@ fn manifest() -> Manifest {
         created_by: "varde 0.1.0".into(),
         created_at: "2026-09-23T07:10:00Z".into(),
         project: "e2e".into(),
-        chap_image_tag: "latest".into(),
+        chap_image_tag: Some("latest".into()),
         files: vec![
             ".env".into(),
             ".varde/models.yaml".into(),

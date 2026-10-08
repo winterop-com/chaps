@@ -145,7 +145,7 @@ fn create(
         created_by: format!("varde {}", ctx.cli_version),
         created_at: backup::timestamp(backup::now()),
         project: project_name(&project.dir),
-        chap_image_tag: project.state.chap_image_tag.clone(),
+        chap_image_tag: (!no_chap_core).then(|| project.state.chap_image_tag.clone()),
         files: files.clone(),
         database,
         models,

@@ -81,7 +81,7 @@ fn manifest() -> Manifest {
         created_by: "varde 0.1.0".into(),
         created_at: "2026-09-23T07:10:00Z".into(),
         project: "e2e".into(),
-        chap_image_tag: "latest".into(),
+        chap_image_tag: Some("latest".into()),
         files: vec![".env".into(), ".varde/models.yaml".into()],
         database: Some(ManifestDatabase {
             path: DB_MEMBER.into(),
@@ -584,6 +584,23 @@ fn the_plan_says_what_it_overwrites_and_what_it_stops() {
     // to say about its identity.
     assert!(!text.contains("identity"), "{text}");
     assert!(!plan(true, vec![]).is_empty());
+}
+
+#[test]
+fn a_deployment_without_chap_core_has_no_chap_core_tag() {
+    let mut restore = plan(true, vec![]);
+    assert!(plan_text(&restore).contains("from   deployment e2e (chap-core latest)"));
+    restore.manifest.chap_image_tag = None;
+    let text = plan_text(&restore);
+    assert!(
+        text.contains("from   deployment e2e (no chap-core)"),
+        "{text}"
+    );
+
+    let body = render_manifest(&restore.manifest).unwrap();
+    assert!(!body.contains("chap_image_tag"), "{body}");
+    let back = parse_manifest(&body, Path::new("/tmp/a.tar.gz")).unwrap();
+    assert_eq!(back.chap_image_tag, None);
 }
 
 #[test]

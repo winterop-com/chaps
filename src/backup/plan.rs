@@ -140,10 +140,10 @@ pub fn plan_text(plan: &RestorePlan) -> String {
             ),
             (
                 "from",
-                format!(
-                    "deployment {} (chap-core {})",
-                    manifest.project, manifest.chap_image_tag
-                ),
+                match &manifest.chap_image_tag {
+                    Some(tag) => format!("deployment {} (chap-core {tag})", manifest.project),
+                    None => format!("deployment {} (no chap-core)", manifest.project),
+                },
             ),
             ("into", plan.project_dir.display().to_string()),
         ],
