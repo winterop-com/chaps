@@ -16,18 +16,26 @@ pub(crate) fn docker_running_services(services: &[&str]) -> (TempDir, PathBuf) {
 /// A `docker` like [`docker_running_services`], where each service can also
 /// publish one host port.
 pub(crate) fn docker_publishing(services: &[(&str, Option<u16>)]) -> (TempDir, PathBuf) {
-    let temp = tempfile::tempdir().expect("a directory for the fake docker");
-    let bin = temp.path().join("bin");
-    std::fs::create_dir_all(&bin).expect("a bin directory");
-    let rows: String = services
+    let rows: Vec<String> = services
         .iter()
         .map(|(s, port)| {
             let publishers = port
                 .map(|p| format!(",\"Publishers\":[{{\"PublishedPort\":{p}}}]"))
                 .unwrap_or_default();
-            format!("{{\"Service\":\"{s}\",\"State\":\"running\"{publishers}}}\\n")
+            format!("{{\"Service\":\"{s}\",\"State\":\"running\"{publishers}}}")
         })
         .collect();
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    docker_with_ps_rows(&rows)
+}
+
+/// A `docker` whose compose commands succeed and whose `ps` prints these
+/// JSON rows, one a line, in every project.
+pub(crate) fn docker_with_ps_rows(rows: &[&str]) -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let rows: String = rows.iter().map(|row| format!("{row}\\n")).collect();
     let script = format!(
         "#!/bin/sh\n\
          case \"$*\" in\n\

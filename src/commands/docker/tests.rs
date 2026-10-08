@@ -565,6 +565,16 @@ fn a_config_edited_after_its_container_started_is_recreated() {
     assert!(edited_configs(&project, &new, &[]).is_empty());
     // Not running: nothing to recreate.
     assert!(edited_configs(&project, &[], &[]).is_empty());
+
+    // `varde up` and `varde status` give the same line with the way out.
+    let lines = edited_config_warnings(&project, &old);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with("`dhis2/dhis.conf` changed after the dhis2 container started")
+            && lines[0].ends_with("run `varde restart dhis2` to apply it"),
+        "{lines:?}"
+    );
+    assert!(edited_config_warnings(&project, &new).is_empty());
 }
 
 /// `down --volumes` takes `dhis2_db` with it, and the next `varde up`

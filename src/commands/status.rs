@@ -65,9 +65,9 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
             .filter(|c| c.is_running())
             .cloned()
             .collect();
-        for service in crate::commands::docker::edited_configs(&project, &up, &[]) {
-            warnings.push(edited_config_line(&service));
-        }
+        warnings.extend(crate::commands::docker::edited_config_warnings(
+            &project, &up,
+        ));
     }
     // A protected deployment needs the token for `/v2/services`; `.env` is
     // where it lives, `CHAP_API_TOKEN` the fallback every request to chap-core
@@ -245,7 +245,7 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
 
 /// The warning for a running service whose instance config changed after its
 /// container started. The service may still run on the old settings.
-fn edited_config_line(service: &str) -> String {
+pub(crate) fn edited_config_line(service: &str) -> String {
     let file = crate::commands::docker::MOUNTED_CONFIGS
         .iter()
         .find(|(name, ..)| *name == service)

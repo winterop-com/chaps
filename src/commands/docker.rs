@@ -173,6 +173,9 @@ fn finish_up(
     timeout: u64,
 ) -> Result<()> {
     let after = docker::running_containers(project).unwrap_or_default();
+    // Compose does not compare a bind-mounted config, so `up` left a service
+    // whose config changed after its start as it was.
+    let edited = edited_config_warnings(project, &after);
     let mut readiness = wait.then(|| wait_for(ctx, project, timeout));
     // Once every model has registered, chap-core 2.4 and later still has no
     // configured model to run it with; the step gives it one (see
@@ -192,6 +195,9 @@ fn finish_up(
             readiness.is_some(),
             lines,
         );
+        for line in &edited {
+            lines.warning(line.as_str());
+        }
         if let Some(readiness) = &readiness {
             ready_lines(readiness, lines);
         }
@@ -539,6 +545,16 @@ pub fn edited_configs(
                 .as_secs();
             (written > created).then(|| service.to_string())
         })
+        .collect()
+}
+
+/// The warning lines for the running services among `running` whose mounted
+/// config changed after their container started: the same lines `varde
+/// status` gives.
+pub fn edited_config_warnings(project: &Project, running: &[docker::Container]) -> Vec<String> {
+    edited_configs(project, running, &[])
+        .iter()
+        .map(|service| super::status::edited_config_line(service))
         .collect()
 }
 
