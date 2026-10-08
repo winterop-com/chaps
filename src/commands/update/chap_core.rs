@@ -165,8 +165,8 @@ pub(super) fn plan_chap_core(
 ///
 /// A release tag has to be one chap-core has actually released, because a tag
 /// nobody published is a deployment that will not start; a moving tag is one
-/// of the three by definition; anything else is taken as an exact pin, with
-/// the note that nothing will ever move it again. A lookup that could not be
+/// of the three by definition; anything else is taken as an exact pin (see
+/// [`exact_pin_warning`] for the note that goes with it). A lookup that could not be
 /// made - `--offline`, a rate limit, a network that is not there - is a
 /// warning and the tag as typed: not being able to check is not the same as
 /// having checked.
@@ -182,11 +182,7 @@ pub fn check_chap_tag(
         ));
     }
     match chapcore::tag_kind(tag) {
-        chapcore::TagKind::Moving => {}
-        chapcore::TagKind::Other => warnings.push(format!(
-            "{tag} is neither a chap-core release nor a moving tag, so it is recorded as an exact \
-             pin and `varde update` will never move it"
-        )),
+        chapcore::TagKind::Moving | chapcore::TagKind::Other => {}
         chapcore::TagKind::Release => {
             if offline {
                 warnings.push(format!(
@@ -211,6 +207,22 @@ pub fn check_chap_tag(
         }
     }
     Ok(tag.to_string())
+}
+
+/// The note for a `--chap-tag` that is neither a release nor a moving tag.
+///
+/// It is given only once the pin moves (or would move, in a dry run), so it
+/// never stands next to an error that says nothing was changed.
+pub fn exact_pin_warning(tag: &str, dry_run: bool) -> String {
+    format!(
+        "{tag} is neither a chap-core release nor a moving tag, so it {} as an exact pin \
+         and `varde update` will never move it",
+        if dry_run {
+            "would be recorded"
+        } else {
+            "is recorded"
+        }
+    )
 }
 
 /// The two images a chap-core tag has to name on ghcr: the API and the

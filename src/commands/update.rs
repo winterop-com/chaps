@@ -48,7 +48,7 @@ use crate::project::{ComposeSource, Project};
 use crate::registry::Provenance;
 use chap_core::{
     ChapCoreUpdate, apply_chap_core, backwards_warning, check_chap_images, check_chap_tag,
-    confirm_backwards, lookup_latest, plan_chap_core, pull_failed_after_switch,
+    confirm_backwards, exact_pin_warning, lookup_latest, plan_chap_core, pull_failed_after_switch,
 };
 use components::{ComponentUpdate, dhis2_pull_note, plan_components};
 use models::{ModelUpdate, newest_published, plan, resolve_users};
@@ -264,7 +264,15 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
     // above would show it. In the dry run too, where it is the only thing this
     // run has to say about that.
     warnings.extend(dhis2_pull_note(&project, &report.components));
+    // A tag nothing will move again is named once the pin moves to it.
+    let exact_pin = report
+        .chap_core
+        .as_ref()
+        .filter(|c| c.changed && c.requested.is_some())
+        .filter(|c| crate::chapcore::tag_kind(&c.new_tag) == crate::chapcore::TagKind::Other)
+        .map(|c| c.new_tag.clone());
     if args.dry_run {
+        warnings.extend(exact_pin.map(|tag| exact_pin_warning(&tag, true)));
         let warnings = std::mem::take(warnings);
         return ctx.out.report(&report, |lines| {
             dry_run(lines, updated(&report).as_deref());
@@ -284,6 +292,7 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
     if let Some(core) = report.chap_core.as_mut().filter(|c| c.changed) {
         apply_chap_core(&mut project, core, ctx.registry.timeout, warnings)?;
     }
+    warnings.extend(exact_pin.map(|tag| exact_pin_warning(&tag, false)));
     for change in report.models.iter().filter(|m| m.changed) {
         // A manual entry's definition carries the pin as well: the recorded
         // model says what runs, and `models-manual.yaml` says what the next

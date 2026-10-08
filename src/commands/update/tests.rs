@@ -898,9 +898,11 @@ fn a_requested_tag_is_checked_before_anything_happens() {
         check_chap_tag("sha-fa880a1", false, offline, &mut warnings).unwrap(),
         "sha-fa880a1"
     );
-    // The warning that it will never move goes with the closing lines.
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(warnings[0].contains("exact pin"), "{warnings:?}");
+    // The warning that it will never move comes only once the pin moves, so
+    // the check itself says nothing: the ghcr check after it can still fail.
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(exact_pin_warning("sha-fa880a1", false).contains("it is recorded as an exact pin"));
+    assert!(exact_pin_warning("sha-fa880a1", true).contains("it would be recorded as an exact"));
     // An empty tag is the one thing this refuses without asking anyone.
     let err = check_chap_tag("", false, offline, &mut Vec::new()).expect_err("nothing to move to");
     assert!(err.to_string().contains("--chap-tag needs a tag"), "{err}");

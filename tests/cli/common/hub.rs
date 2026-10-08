@@ -75,6 +75,9 @@ pub(crate) struct Hub {
     /// chap-core tags ghcr has no `chap-core` and `chap-worker` image for.
     /// Every release and moving tag has both unless it is named here.
     pub(crate) unbuilt: Vec<String>,
+    /// chap-core tags other than releases and moving tags that ghcr has both
+    /// images for.
+    pub(crate) built: Vec<String>,
 }
 
 /// The chap-core releases the hub publishes by default: two of them, so a
@@ -133,6 +136,7 @@ impl Hub {
             pinned: MARKETPLACE_SHA.to_string(),
             denied: false,
             unbuilt: Vec::new(),
+            built: Vec::new(),
         }
     }
 
@@ -367,6 +371,7 @@ impl Hub {
             if let Some(tag) = path.strip_prefix(&format!("/v2/{image}/manifests/")) {
                 let built = !self.unbuilt.iter().any(|t| t == tag)
                     && (["dev", "master", "latest"].contains(&tag)
+                        || self.built.iter().any(|t| t == tag)
                         || self.releases.iter().any(|(name, _)| name == tag));
                 return Some(match built {
                     true => (200, json, index()),

@@ -265,6 +265,52 @@ fn chap_tag_latest_without_the_release_lookup_says_the_pin_moves() {
     assert_eq!(state(&dir)["chap_image_tag"], "latest");
 }
 
+/// A tag that is neither a release nor a moving tag is named as an exact pin
+/// only when the pin moves to it, never next to the error that refuses it.
+#[cfg(unix)]
+#[test]
+fn the_exact_pin_warning_comes_only_with_a_move() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    let port = Hub {
+        built: vec!["sha-fa880a1".to_string()],
+        ..Hub::new()
+    }
+    .start();
+    sandbox
+        .online_init(port, &["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success();
+    let (_temp, bin, _) = quiet_docker();
+    online_update(&sandbox, port, &bin, &["--chap-tag", "nonsense"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "ghcr.io has no image chap-core:nonsense",
+        ))
+        .stderr(predicates::str::contains("exact pin").not());
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+
+    online_update(
+        &sandbox,
+        port,
+        &bin,
+        &["--dry-run", "--chap-tag", "sha-fa880a1"],
+    )
+    .assert()
+    .success()
+    .stderr(predicates::str::contains(
+        "so it would be recorded as an exact pin",
+    ));
+    online_update(&sandbox, port, &bin, &["--chap-tag", "sha-fa880a1"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "so it is recorded as an exact pin",
+        ));
+    assert_eq!(state(&dir)["chap_image_tag"], "sha-fa880a1");
+}
+
 /// `dev` is a branch of chap-core, but ghcr has no image for it. The tag is
 /// refused before the pin moves, and the dry run says the same.
 #[cfg(unix)]
