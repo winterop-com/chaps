@@ -93,6 +93,24 @@ Something else holds the port: a dev server, a proxy, an older deployment.
 deployment works and not that the port is taken. Find the listener, or point
 the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 
+## `this project has no container for `chap`, so there is no log`
+
+```text
+error: this project has no container for `chap`, so there is no log; start it with `varde up`
+```
+
+`varde logs chap` found no container for the service, so the service never
+started and has no log. The command exits with status 1. Run `varde up`, then
+`varde logs chap` again.
+
+`varde status` says the same thing about chap-core:
+
+```text
+error: chap-core at http://localhost:8700 is not responding: ...; this deployment has no `chap` container yet, so start it with `varde up`
+```
+
+Run `varde up`.
+
 ## `this deployment's chap-core is not running`
 
 ```text
@@ -905,7 +923,7 @@ It keeps coming back in three cases, all of them deliberate:
 - **`varde down --volumes` removed `dhis2_db`.** Same hazard, said on the spot:
   the record of `varde dhis2 connect` went with `dhis2_db`.
 - **the last `connect` found something wrong.** A route nothing answered on, or
-  an app that would not install, clears the record, and with `-v` the report says
+  an app that would not install on the `dhis2` component, clears the record, and with `-v` the report says
   `cleared` - `varde dhis2 show` names which of the two it was. A run that could
   not look is not one of these: `varde dhis2 connect --offline` skips the apps,
   judges nothing and leaves the record exactly as it found it.
@@ -936,6 +954,42 @@ order worth checking:
    `varde restart dhis2` applies it.
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
+
+The `run `varde status`` clause is there only when chap-core does not answer on
+this machine either. When chap-core answers, the line names the more probable
+cause in its place. `varde dhis2 show` adds the same clause after `missing:
+nothing answered through the `chap` route: ...`.
+
+### `chap-core answers at ..., so the DHIS2 allowlist may refuse`
+
+```text
+warning: the `chap` route is in place but nothing answered through it: HTTP 503 Service Unavailable; chap-core answers at http://localhost:8700, so the DHIS2 allowlist may refuse http://chap:8000; add it to `route.remote_servers_allowed` in `dhis2/dhis.conf` and run `varde restart dhis2`
+```
+
+chap-core is up, and DHIS2 answered 503 for the route. The usual cause is
+`route.remote_servers_allowed`, which does not list the origin of the route.
+
+1. Add the origin that the line names to `route.remote_servers_allowed` in
+   `dhis2/dhis.conf`.
+2. Run `varde restart dhis2`.
+3. Run `varde dhis2 connect` again.
+
+On an external DHIS2, the line names `the `dhis.conf` of the DHIS2 server`.
+That file belongs to the admin of the DHIS2, so ask that admin to add the
+origin.
+
+### `chap-core answers at ..., so DHIS2 may not reach it at`
+
+```text
+warning: the `chap` route is in place but nothing answered through it: ...; chap-core answers at http://localhost:8700, so DHIS2 may not reach it at http://localhost:8700; give the address DHIS2 reaches chap-core at with `varde dhis2 use --chap-url URL`
+```
+
+chap-core is up on this machine, but the external DHIS2 cannot reach the
+chap-url. A `localhost` address is the DHIS2 server itself, not this machine.
+
+1. Run `varde dhis2 use --chap-url URL` with an address that the DHIS2 server
+   reaches this machine at.
+2. Run `varde dhis2 connect` again.
 
 ## `Allowed route URL must not have a path`
 

@@ -97,7 +97,7 @@ was given. See [Models and the marketplace](./models.md).
 | Command | What it does |
 | --- | --- |
 | `varde components list` | Every component, whether this deployment has it and where it is reached. |
-| `varde components enable NAME [--port N]` | Enable a component, or change the settings of an enabled one, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds, plus `--base-url` and `--read-only`/`--read-write`. A port already in use is a warning, not a refusal. |
+| `varde components enable NAME [--port N]` | Enable a component, or change the settings of an enabled one, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds, plus `--base-url` and `--read-only`/`--read-write`. `dhis2` also takes `--tag`, `--image` and `--seed`. A port already in use is a warning, not a refusal. |
 | `varde components disable NAME [--purge]` | Turn it off, remove its compose file and sync, keeping its data volumes and naming each one; `--purge` removes them too, and is refused for chap-core. |
 
 A component is a service (or a small group) that `varde sync` renders one

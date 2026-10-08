@@ -339,6 +339,9 @@ Each line that a command prints when it is done has a level:
 | `warning` | Something that needs attention. The command still worked. | stderr, after `warning:` | always |
 | `hint` | Background and optional next commands: the files that were written, where a value came from, a command that shows more. | stdout, after `hint:` | with `-v` |
 
+The lines print in the order of the report, so a warning comes after the lines
+above it, not first.
+
 Errors are not a level. A command that fails prints the error on stderr and
 exits with a code that is not 0.
 

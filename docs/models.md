@@ -932,7 +932,7 @@ most that cannot be seen from its row:
 │             `varde logs dhis2` is where that shows                                 │
 │                                                                                    │
 │ not on this page:                                                                  │
-│   `seed:` in .varde/components.yaml, then `varde sync`                             │
+│   `varde components enable dhis2 --seed SPEC`                                      │
 │     the dump a database being created is restored from: default, none, a URL, or a │
 │     path in the deployment directory                                               │
 │   `v` on this row, or `varde components enable dhis2 --tag TAG`                    │

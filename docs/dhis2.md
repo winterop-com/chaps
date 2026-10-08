@@ -219,8 +219,9 @@ varde init mychap --with dhis2 --dhis2-seed dumps/laos.sql.gz
 varde init mychap --with dhis2 --dhis2-seed https://example.org/mine.sql.gz
 ```
 
-There is no flag for it after `init`. Change `seed:` in
-`.varde/components.yaml` and run `varde sync`.
+After `init`, `varde components enable dhis2 --seed SPEC` changes it. SPEC
+takes the same values as `--dhis2-seed`. The seed applies only when `dhis2_db`
+is created.
 
 A path is relative to the deployment directory, or absolute. It becomes a bind
 mount, and compose refuses to start a service whose bind source does not exist,
@@ -394,7 +395,7 @@ explanation.
 A minor line the table does not list starts empty and says so, on every sync:
 
 ```text
-warning: varde knows no DHIS2 demo dump for 2.40, so `dhis2_db` starts empty; name one with `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`
+warning: varde knows no DHIS2 demo dump for 2.40, so a new `dhis2_db` starts empty; name one with `varde components enable dhis2 --seed URL` (a URL or a path)
 ```
 
 ### What the one-shot does to the dump
@@ -537,8 +538,8 @@ warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there
 
 Moving the seed does not need this care and moving the tag does. So the browser
 edits the tag only through the `v` prompt, which states the forward-only rule.
-It does not edit the seed: its `i` overlay sends you to `seed:` in
-`.varde/components.yaml`.
+It does not edit the seed: its `i` overlay sends you to `varde components
+enable dhis2 --seed SPEC`.
 
 ## Connecting the Modeling App to Chap
 
@@ -672,7 +673,9 @@ hint: the record says that this ran, not that the route is still right; `varde d
 #### What sets it
 
 A run of `varde dhis2 connect` that ended with a **verified route and both apps
-in place**. Two of the three steps, and deliberately so: the hint exists because
+in place**. On an external DHIS2, where `connect` sets only the route, a
+verified route is enough: the apps are the step of its admin, and `varde dhis2
+show` names them. Two of the three steps, and deliberately so: the hint exists because
 a DHIS2 beside a Chap cannot be used at all without them - the app redirects to
 `/get-started` with no route, and there is no Chap user interface in DHIS2 with
 no apps. Analytics is not part of it. The Modeling App reaches chap-core and
@@ -713,7 +716,7 @@ has not connected a DHIS2 that varde connected.
 | --- | --- |
 | `varde components disable dhis2`, with or without `--purge` | Forgotten with the component, and the disable says so. The record is about a DHIS2 instance this deployment no longer has. |
 | `varde down --volumes`, when `dhis2_db` was actually removed | Forgotten with the database, and the line says why. |
-| A `varde dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through, or an app missing or failed: the hint comes back, which is the answer that errs the safe way. |
+| A `varde dhis2 connect` that found something wrong | Cleared, and the report says `cleared`. A route nothing answered through clears it. An app that is missing or failed clears it only for the `dhis2` component, not for an external DHIS2. The hint comes back, which is the answer that errs the safe way. |
 | A `varde dhis2 connect` that could not look | Nothing. `--offline` skips the apps, so the run has nothing to say about them and the timestamp stays where it was. |
 
 The `varde down --volumes` row is the one worth understanding. `dhis2_db` going
@@ -882,7 +885,7 @@ run `varde dhis2 connect` to point its route at this Chap
 | Form | What it does |
 | --- | --- |
 | `varde dhis2 use URL --chap-url URL` | Record one, or replace the one recorded. |
-| `varde dhis2 use URL` / `varde dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. |
+| `varde dhis2 use URL` / `varde dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. With `--chap-url` alone, the headline says `changed the chap-url of the external DHIS2 at URL to CHAP_URL in `.varde/components.yaml``. |
 | `varde dhis2 use` | Say which DHIS2 `varde dhis2` talks to, and ask it. Writes nothing. |
 | `varde dhis2 use --clear` | Forget it; `varde dhis2` talks to the `dhis2` component again. |
 
@@ -893,7 +896,12 @@ What changes against an external DHIS2:
   national instance takes hours of its CPU. `connect` says which of the two
   apps are missing and ends with a `skipped:` line for each step it left; its
   admin runs `varde dhis2 apps` and `varde dhis2 analytics` when they agree.
-  `connected_at` is recorded once the route is proved.
+  `connected_at` is recorded once the route is proved. If an app is missing,
+  `connect` then ends with `the Modeling App can reach Chap after the admin of
+  this DHIS2 installs the Modeling App and the Climate App; `varde dhis2 show`
+  says when they are there`. `varde dhis2 show` ends with `run `varde dhis2
+  apps` for the apps, then `varde dhis2 analytics` for the analytics tables;
+  the apps and analytics change this DHIS2, so ask its admin first`.
 - **Credentials have no default.** See
   [the credentials](#the-credentials-and-where-they-come-from). A token is the
   natural choice for a server you do not own the admin password of.
@@ -958,6 +966,13 @@ warning and `--json` carries `"verified": false`:
 ```text
 warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `varde status` to see whether chap-core is up
 ```
+
+The `varde status` clause is there only when chap-core does not answer on this
+machine either. When chap-core answers, the line names the more probable
+cause: the allowlist of DHIS2, or a chap-url that DHIS2 cannot reach. `varde
+dhis2 show` adds the same clause after `missing: nothing answered through the
+`chap` route: ...`. See [The route is there but nothing answers through
+it](./troubleshooting.md#the-route-is-there-but-nothing-answers-through-it).
 
 `route.remote_servers_allowed` in
 [`dhis2/dhis.conf`](#routeremote_servers_allowed) already permits every http and

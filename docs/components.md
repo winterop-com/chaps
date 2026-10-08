@@ -73,9 +73,9 @@ is touched. `--port none` reads the same on every component that takes a port, s
 there is one flag to remember rather than a verb per component. `dhis2` has two
 settings that are not `--port`: the seed and the image. `--tag` and `--image`
 change the image (see
-[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version)). No flag
-changes the seed after `init`: edit `seed:` in `.varde/components.yaml` and run
-`varde sync` (see [The seed](./dhis2.md#the-seed)).
+[Changing the DHIS2 version](./dhis2.md#changing-the-dhis2-version)). `--seed SPEC`
+changes the seed (`default`, `none`, a URL or a path); it applies only to a
+new `dhis2_db` (see [The seed](./dhis2.md#the-seed)).
 
 ### What `enable` tells you
 
@@ -1034,7 +1034,7 @@ varde's own again, and `components disable chap-core` forgets it too.
   is none. One `s` saves both pages. The settings it deliberately does not edit are named in each
   component's `i` overlay rather than hidden: OCS's `--base-url` and
   `--read-only`, because they write to `ocs/climate-service.yaml`, which is
-  yours; and DHIS2's `seed:`, because no flag changes it after `init` and it is
-  an edit to `.varde/components.yaml` and a `varde sync`. `v` on the `dhis2` row
+  yours; and DHIS2's seed, which `varde components enable dhis2 --seed SPEC`
+  changes. `v` on the `dhis2` row
   picks the DHIS2 version. See
   [The components page](./models.md#the-components-page).
