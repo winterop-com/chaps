@@ -7,16 +7,29 @@ that speaks STAC or openEO.
 varde init climate --only ocs,s3
 cd climate
 varde up
-varde status                 # ocs up, with its dataset count and data size
+varde status
 varde open ocs
 ```
 
-You get OCS on `http://localhost:8790`, keeping its objects in the S3-compatible
-store beside it. Nothing Chap-specific is created: no `compose.yml`, and no
-chap-core release is looked up. It worked when `varde status` shows `ocs` as
-`up` and `varde open ocs` opens its web interface.
+The first `varde up` pulls the OCS image, about 3 GB. After that, a start takes
+some seconds. `varde status` then shows:
 
-Without the object store, OCS keeps its data on its own volume:
+```text
+ocs   up   http://localhost:8790   0 datasets   32.0 KB data
+s3    up   internal
+
+both components are up
+```
+
+You get OCS on `http://localhost:8790`, with the S3-compatible store beside it.
+OCS does not read the store yet: it keeps its data on its own `ocs_data` volume
+([The object store](../components.md#the-object-store) says why the store is
+there). Nothing Chap-specific is created: no `compose.yml`, and no chap-core
+release is looked up. It worked when `varde status` shows `ocs` as `up` and
+`varde open ocs` opens its web interface.
+
+To leave out the object store, use this `init` instead of the first one. OCS
+works the same, on the same volume:
 
 ```sh
 varde init climate --only ocs
@@ -34,8 +47,13 @@ curl -X POST http://localhost:8790/ingestions \
 curl http://localhost:8790/stac/collections/chirps3_precipitation_daily
 ```
 
-It worked when the first command answers with `"status":"completed"` and the
-second returns the collection; `varde status` then counts one dataset.
+The first command waits until the data is in, about 20 seconds. It worked when
+it answers with `"status":"completed"` and the second returns the collection;
+`varde status` then counts one dataset:
+
+```text
+ocs   up   http://localhost:8790   1 dataset   432.0 KB data
+```
 
 The extent is Laos until you change it, the country of the DHIS2 demo database
 varde seeds, so data ingested here covers the provinces that DHIS2 holds case
@@ -74,11 +92,12 @@ curl -X POST http://localhost:8790/ingestions \
   -d '{"dataset_id": "chirps3_precipitation_monthly", "start": "2019-01", "end": "2024-12"}'
 ```
 
-That took about three minutes for Laos, and the request waits for it. With
-`-H 'Prefer: respond-async'` it answers `202` at once instead, with a
-`Location` of `/ingestions/jobs/ID` to poll. Leaving out `end` ingests up to
-the current period, and sending the same request again answers at once with
-the earlier ingestion rather than downloading it twice.
+The request waits until the ingestion is complete. For Laos that took between
+three and eleven minutes, as the download speed changes, and `curl` shows
+nothing in that time. With `-H 'Prefer: respond-async'` it answers `202` at
+once instead, with a `Location` of `/ingestions/jobs/ID` to poll. Leaving out
+`end` ingests up to the current period, and sending the same request again
+answers at once with the earlier ingestion rather than downloading it twice.
 `curl 'http://localhost:8790/datasets?f=json'` lists what has been ingested.
 
 ## Getting it out
@@ -88,7 +107,9 @@ dataset over each area in a GeoJSON `FeatureCollection` whose feature ids
 become the `location` column. A DHIS2 hands out its org units in that shape,
 so with the demo DHIS2 beside OCS (`varde components enable dhis2`, then
 `varde up`; or `--only ocs,s3,dhis2` at `init`, option 10 on the
-[AI page](../ai.md#10-climate-data-and-dhis2-no-chap)):
+[AI page](../ai.md#10-climate-data-and-dhis2-no-chap)). `varde up` returns
+while DHIS2 still starts. Run `varde status` again until `dhis2` shows `up`,
+then run:
 
 ```sh
 curl -u admin:district -o provinces.geojson \
@@ -135,7 +156,17 @@ Two settings matter once other people use it:
 
 ```sh
 varde components enable ocs --read-only                          # refuse writes over HTTP
+varde restart ocs                                                # apply read-only
 varde components enable ocs --base-url https://ocs.example.org   # behind a proxy
+varde up                                                         # apply the base URL
+```
+
+`--read-only` changes `ocs/climate-service.yaml`, and only `varde restart ocs`
+makes OCS read that file again. `varde up` does not apply it, although the
+command says ``run `varde up` to apply``. It worked when this answers `403`:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8790/ingestions -d '{}'
 ```
 
 Both have `init` spellings too, `--ocs-read-only` and `--ocs-base-url`. A

@@ -8,9 +8,21 @@ has to be built into an image.
 ```sh
 varde init mychap --models none
 cd mychap
-varde up
-varde status                 # chap-core up, no models yet
+varde up --wait
+varde status
 ```
+
+`varde up --wait` returns once chap-core answers. Without `--wait`, `varde up`
+returns when the containers start, and for some seconds `varde status` says
+`starting`. Then `varde status` shows chap-core up and no models yet:
+
+```text
+chap-core   up   http://localhost:8700   2.4.0   auth: off
+
+no models enabled; run `varde models enable ID` to add one
+```
+
+## Start the model
 
 Then, in the model's checkout, start it on a port of its own and tell it where
 chap-core is and where chap-core can call it back:
@@ -19,12 +31,14 @@ chap-core is and where chap-core can call it back:
 export SERVICEKIT_ORCHESTRATOR_URL='http://localhost:8700/v2/services/$register'
 export SERVICEKIT_HOST=host.docker.internal
 export SERVICEKIT_PORT=8001
+export GIT_REVISION=$(git rev-parse HEAD)
 uv run uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 
 `main:app` is the app in a `main.py` at the top of the checkout, which is the
 layout chapkit models use; a model whose `main.py` is inside a package runs as
-`PACKAGE.main:app` instead.
+`PACKAGE.main:app` instead. The first `uv run` in a checkout makes its `.venv`
+and installs the dependencies of the model.
 
 - `SERVICEKIT_ORCHESTRATOR_URL` is where the model registers. It runs on this
   machine, so `localhost` and the API port reach chap-core. The single quotes
@@ -32,25 +46,105 @@ layout chapkit models use; a model whose `main.py` is inside a package runs as
 - `SERVICEKIT_HOST` and `SERVICEKIT_PORT` are the address the model registers
   itself under, which is where chap-core calls it. chap-core runs in a
   container, where `localhost` is the container itself; `host.docker.internal`
-  is this machine, and varde maps that name for the chap-core containers on
-  Linux too.
+  is this machine. The chap-core compose file maps that name for the chap-core
+  containers on Linux too.
+- `GIT_REVISION` is the commit the model reports as its `git_revision`.
+  chap-core v2.4.0 stores the model template only for a service that reports
+  a revision. Without it, the model registers and shows in `varde status`, but
+  chap-core has no template for it. The chap-core log (`varde logs chap`) then
+  says `is stored from revision None, but its source now reports revision None`.
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 
 It worked when `varde status` lists the model's service id with a recent LAST
-PING. Its state is `unmanaged`, because this deployment did not start it; that
-is expected. From there chap-core uses it like any other model, and
-`varde models test SERVICE_ID --backtest` runs it through chap-core; the model
-level (`chapkit test` in a container) is for models varde runs, so for this one
-it says to use `--backtest`.
+PING. For the minimalist example in `~/dev/chap-models`, the status is:
+
+```text
+chap-core   up   http://localhost:8700   2.4.0   auth: off
+
+MODEL                          STATE      REACH                             LAST PING
+chapkit-minimalist-example-py  unmanaged  http://host.docker.internal:8001  7s ago
+
+no models enabled here; the unmanaged one above registered from outside this deployment
+```
+
+Its state is `unmanaged`, because this deployment did not start it; that is
+expected.
+
+chap-core stores one template for each model version, with the revision it
+had at the first registration. Changes you do not commit keep the revision, so
+hot reload needs nothing more. If you commit and export `GIT_REVISION` again,
+the revision changes. chap-core then refuses the backtest with `is stored from
+revision '...', but its source now reports revision '...'`. To continue, set a
+new `version` in the `MLServiceInfo` in `main.py`.
+
+## Test it through chap-core
+
+The model level of `varde models test` (`chapkit test` in a container) is for
+models that varde runs. For this model it skips and names `--backtest`:
+
+```text
+testing 1 model (model level; add --backtest to go through chap-core)
+chapkit-minimalist-example-py    skip    0s   varde does not run it, so there is no container to test it in
+  run `varde models test chapkit-minimalist-example-py --backtest` to test it through chap-core
+
+0 pass, 1 skipped
+```
+
+A backtest uses a configured model: a template with a set of option values.
+chap-core v2.4.0 makes no configured model from a registered service, so make
+one. Replace `SERVICE_ID` with the id that `varde status` shows (this example
+uses `jq`):
+
+```sh
+TEMPLATE_ID=$(varde api GET /v1/crud/model-templates | jq '.[] | select(.name == "SERVICE_ID") | .id')
+varde api POST /v1/crud/configured-models --data "{\"name\": \"dev\", \"modelTemplateId\": $TEMPLATE_ID}"
+varde models test SERVICE_ID --backtest
+```
+
+chap-core names the configured model `SERVICE_ID:dev`. If the model has
+options, add them as `"userOptionValues"`. If it reads covariates that it does
+not declare, add them as `"additionalContinuousCovariates"`, for example
+`["rainfall", "mean_temperature"]`. If the template id is empty, chap-core has
+no template for the model; make sure that `GIT_REVISION` was set when the
+model started.
+
+It worked when the backtest passes and prints its scores:
+
+```text
+testing 1 model (through chap-core: a dataset, a backtest and its scores)
+chapkit-minimalist-example-py    pass      13s   crps 16.7  mae 16.7  rmse 18.0
+
+1 of 1 model passes
+```
+
+The scores change from run to run, because the sample data is random. Add
+`--seed N` to get the same data each time.
+
+Without the configured model, the backtest skips with `chap-core has no
+configured model for SERVICE_ID`. The `varde restart --all SERVICE_ID` that the
+skip names does not apply to a model that varde does not run.
+
+## A registration key
 
 If the deployment has a registration key (`varde auth show` says
-`Registration key  on`), export `SERVICEKIT_REGISTRATION_KEY` with the value of
-that line in the deployment's `.env`, for example
-`export $(grep '^SERVICEKIT_REGISTRATION_KEY=' /path/to/mychap/.env)`.
+`Registration key    on`), export `SERVICEKIT_REGISTRATION_KEY` before you
+start the model. Its value is the line of that name in the deployment's `.env`:
 
-The model keeps re-registering while it runs, so restarting it (or chap-core)
-needs nothing else. When you are done with it, the image route is
+```sh
+export $(grep '^SERVICEKIT_REGISTRATION_KEY=' /path/to/mychap/.env)
+```
+
+Without the key, chap-core answers `401 Unauthorized`. The model log shows
+`registration.attempt_failed` five times, then `registration.failed`, and the
+model does not try again until you start it again.
+
+## Restarts
+
+The model keeps its registration alive with a ping every 10 seconds. If
+chap-core restarts and loses the registration, the next ping gets no answer.
+The model then registers again, within about 30 seconds, with nothing to do on
+your side. When you are done with the model, the image route is
 [Models outside the marketplace](../models.md#models-outside-the-marketplace).
 
 All shapes: [Use cases](../use-cases.md).

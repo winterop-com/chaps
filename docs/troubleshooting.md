@@ -115,7 +115,7 @@ is given and skips this check. See
 ## A model is running but not registered
 
 ```text
-chapkit-rwanda-malaria-bym-model  running, not registered  internal  -
+chapkit-rwanda-malaria-bym-model  running, not registered  via chap-core  -
 ```
 
 A model that started under two minutes ago is still starting, and registering
@@ -246,7 +246,7 @@ Either way `varde up` is what hands a changed `.env` to the containers. See
 ## The models stopped registering after I turned authentication on
 
 ```text
-chapkit-ewars-model  running, not registered  internal  -
+chapkit-ewars-model  running, not registered  via chap-core  -
 ```
 
 A protected chap-core rejects an unauthenticated registration like any other

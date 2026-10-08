@@ -137,11 +137,16 @@ On Windows, run those two lines in the WSL shell, which installs the Linux
 binary; do not use the native Windows zip, which is published untested. See
 [Install](./install.md#windows).
 
-It worked when `varde doctor` shows no `fail` lines, and its `disk space` and
-`memory` lines show at least the numbers in the table above. `varde doctor`
-passes with less, so compare the numbers yourself. On an Apple Silicon Mac a
-`warn` line about `linux/amd64` and emulation is normal and can be ignored:
-the models run, only slower.
+It worked when `varde doctor` shows no `fail` lines, and its `disk space`
+line shows at least the number in the table above. `varde doctor` passes with
+less, so compare the number yourself. On an Apple Silicon Mac a `warn` line
+about `linux/amd64` and emulation is normal and can be ignored: the models
+run, only slower.
+
+`varde doctor` shows the `memory` line only in a folder with DHIS2. For an
+option with DHIS2, run `varde doctor` again in the new folder after
+`varde init`. Its `memory` line, for example `31.3 GB available to docker`,
+must show at least 8 GB.
 
 Every option below creates a new folder. Tell the person to run the commands
 from the folder where they want it created, and then to `cd` into it as shown.
@@ -188,10 +193,12 @@ temperature and population.
 ```sh
 varde init mychap --models default --with dhis2
 cd mychap
+varde doctor
 varde up
 varde status
 ```
 
+Before `varde up`, check the `memory` line of `varde doctor`: 8 GB or more.
 The first time, DHIS2 takes several minutes to start; the `dhis2` line of
 `varde status` says `starting` until DHIS2 answers, then `up`. Then:
 
@@ -203,7 +210,8 @@ varde open dhis2
 `varde dhis2 connect` waits for DHIS2 to finish starting, then takes about a
 minute: it connects DHIS2 to Chap, installs
 the Modeling App and the Climate App, and prepares the data the Modeling App
-reads. It worked when DHIS2 opens in the browser, the login `admin` /
+reads. Its last line is ``the Modeling App can reach Chap; open DHIS2 with
+`varde open dhis2` ``. It worked when DHIS2 opens in the browser, the login `admin` /
 `district` works, and typing `Modeling` in the app menu (the grid icon at the
 top right) finds **Modeling**.
 
