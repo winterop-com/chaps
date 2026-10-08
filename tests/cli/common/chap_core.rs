@@ -349,8 +349,9 @@ pub(crate) fn services_route(
         return Some((502, json, r#"{"detail":"Bad Gateway"}"#.to_string()));
     }
     if tail.is_empty() {
-        // The `info` block a chapkit service registers with, cut to the three
-        // fields `models test` reads off it.
+        // The `info` block a chapkit service registers with, cut to the
+        // fields `models test` reads off it. The version is the one of every
+        // configured model in the listing.
         let chapkit = if service == OLD_CHAPKIT_MODEL {
             "1.0.0"
         } else {
@@ -362,7 +363,7 @@ pub(crate) fn services_route(
             json,
             format!(
                 r#"{{"id":"{service}","url":"http://{service}:8000","info":{{"id":"{service}",
-                   "period_type":"monthly","required_covariates":["population"],
+                   "version":"1.0.1","period_type":"monthly","required_covariates":["population"],
                    "requires_geo":{geo},"chapkit_version":"{chapkit}"}}}}"#
             ),
         ));

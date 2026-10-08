@@ -1,5 +1,6 @@
 //! The backtest level: through chap-core, the way the Modeling App goes.
 
+use super::configured::{self, Choice};
 use super::{first_line, period_type, service_info};
 use crate::api::Api;
 use crate::cli::ModelsTestArgs;
@@ -27,7 +28,7 @@ pub(super) fn backtest_level(
     args: &ModelsTestArgs,
     timeout: Duration,
 ) -> Run {
-    let run = Run::new(id, &enabled.service_id, Level::Backtest);
+    let mut run = Run::new(id, &enabled.service_id, Level::Backtest);
     let until = Instant::now() + timeout;
 
     let Some(info) = service_info(ctx, api, &enabled.service_id) else {
@@ -59,19 +60,61 @@ pub(super) fn backtest_level(
     // Before anything is built: a service chap-core has nothing configured
     // for cannot be backtested, and finding that out after a dataset has been
     // imported would be a dataset created and deleted for nothing.
-    let Some((model_id, covariates)) = configured_model(ctx, api, &enabled.service_id) else {
-        return run.end(
-            Verdict::Skip,
-            format!(
-                "chap-core has no configured model for {}",
-                enabled.service_id
-            ),
-            Some(format!(
-                "it is registered, and chap-core has nothing to run it with; run `varde models \
-                 configs sync {id}`, then `varde models test {id} --backtest`"
-            )),
-        );
+    let version = info
+        .get("version")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let of = match &version {
+        Some(version) => format!("{} {version}", enabled.service_id),
+        None => enabled.service_id.clone(),
     };
+    let wanted = args.config.as_deref();
+    let (model_id, covariates) =
+        match configured::choose(ctx, api, &enabled.service_id, version.as_deref(), wanted) {
+            Choice::Chosen {
+                model_id,
+                covariates,
+                used,
+            } => {
+                run.configured_model = Some(used);
+                (model_id, covariates)
+            }
+            Choice::NoneLive => {
+                return run.end(
+                    Verdict::Skip,
+                    format!("chap-core has no configured model for {of}"),
+                    Some(format!(
+                        "it is registered, and chap-core has nothing to run it with; run `varde \
+                         models configs sync {id}`, then `varde models test {id} --backtest`"
+                    )),
+                );
+            }
+            Choice::NoVariant(names) => {
+                return run.end(
+                    Verdict::Skip,
+                    format!(
+                        "chap-core has no configured model {} for {of}; it has {}",
+                        wanted.unwrap_or_default(),
+                        names.join(", ")
+                    ),
+                    Some(format!(
+                        "run `varde models configs list {id}` to see its configured models"
+                    )),
+                );
+            }
+            Choice::Unlisted => {
+                return run.end(
+                    Verdict::Skip,
+                    format!(
+                        "chap-core did not list its configured models, so varde cannot find \
+                         --config {}",
+                        wanted.unwrap_or_default()
+                    ),
+                    Some("run `varde status` to see why".to_string()),
+                );
+            }
+        };
 
     let sample = match sample_data(
         api,
@@ -176,7 +219,6 @@ pub(super) fn backtest_level(
             Some("run `varde models test --backtest -v` to see the answer".to_string()),
         );
     };
-    let mut run = run;
     run.job_id = Some(dataset_job.to_string());
     match wait(ctx, api, dataset_job, DATASET_POLL, until) {
         Ok(Some(status)) if jobs::Outcome::of(&status) == jobs::Outcome::Done => {}
@@ -302,60 +344,6 @@ pub(super) fn backtest_level(
     run.metrics = metrics;
     let cleanup = drop_rows(ctx, api, backtest, Some(dataset), args.keep);
     run.with_cleanup(cleanup).end(Verdict::Pass, summary, None)
-}
-
-/// What `create-backtest` is given as its `modelId` for this service.
-///
-/// chap-core takes either the integer key of a configured model or a string it
-/// resolves against their names, and the string only works while the service
-/// has a configured model named plainly after it. That is true of a service
-/// chap-core has just met and stops being true the moment it re-registers with
-/// a new version: chap-core then syncs the configs the service itself holds as
-/// `<service id>:<config name>` and the bare name is gone, so the old spelling
-/// comes back as `ValueError: Configured model with name ... not found` from
-/// inside the job. The row is therefore chosen here, by
-/// [`modeltest::configured_model_for`], and its id is what goes out, with the
-/// covariates the backtest will hand the model.
-///
-/// `None` is a chap-core that listed its configured models and had none for
-/// this service, which is a skip. A chap-core that could not be asked at all
-/// is not: the service id is the spelling that worked before this, and a
-/// listing that failed is no reason to refuse to backtest.
-fn configured_model(
-    ctx: &Ctx,
-    api: &Api,
-    service_id: &str,
-) -> Option<(serde_json::Value, Vec<String>)> {
-    const PATH: &str = "/v1/crud/configured-models";
-    let listed = match api.send("GET", PATH, None) {
-        Ok(answer) if answer.is_success() => answer.json(),
-        Ok(answer) => {
-            ctx.out.verbose(&format!(
-                "{service_id}: {} answered {}",
-                api.url(PATH),
-                answer.status_line()
-            ));
-            None
-        }
-        Err(err) => {
-            ctx.out
-                .verbose(&format!("{service_id}: {}", first_line(&err.to_string())));
-            None
-        }
-    };
-    let Some(listed) = listed else {
-        ctx.out.verbose(&format!(
-            "{service_id}: could not read chap-core's configured models, sending the service id"
-        ));
-        return Some((serde_json::json!(service_id), Vec::new()));
-    };
-    let models = modeltest::configured_models(&listed);
-    let chosen = modeltest::configured_model_for(&models, service_id)?;
-    ctx.out.verbose(&format!(
-        "{service_id}: configured model {} {}",
-        chosen.id, chosen.name
-    ));
-    Some((serde_json::json!(chosen.id), chosen.covariates.clone()))
 }
 
 /// The chapkit release the service says it was built with.

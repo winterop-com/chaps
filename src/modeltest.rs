@@ -17,7 +17,9 @@ mod configured;
 mod dataset;
 mod summary;
 
-pub use configured::{ConfiguredModel, configured_model_for, configured_models};
+pub use configured::{
+    ConfiguredModel, configured_model_for, configured_models, configured_variant,
+};
 pub use dataset::{feature_collection, fill_covariates, metrics_cell, observations};
 pub use summary::{SUMMARY_MARKER, chapkit_missing, log_hint, parse_summary};
 
@@ -155,6 +157,10 @@ pub struct Run {
     /// chap-core's `aggregateMetrics`, whole, for a backtest that finished.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<serde_json::Value>,
+    /// The configured model the backtest is of, so that the scores never
+    /// come from a configuration that the reader does not see.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_model: Option<UsedModel>,
     /// What the cleanup kept or could not remove. The closing lines carry
     /// them, so `--json` has them in `messages`.
     #[serde(skip)]
@@ -175,6 +181,7 @@ impl Run {
             job_id: None,
             backtest_id: None,
             metrics: None,
+            configured_model: None,
             cleanup: Vec::new(),
         }
     }
@@ -196,6 +203,31 @@ impl Run {
         self.summary = summary.into();
         self.detail = detail;
         self
+    }
+}
+
+/// The configured model a backtest names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UsedModel {
+    /// chap-core's key for it. `None` when chap-core could not list its
+    /// configured models, and the backtest names the service id instead.
+    pub id: Option<i64>,
+    /// chap-core's name for it: `<service id>:<variant>`, or the service id.
+    pub name: String,
+    /// The variant name, as `varde models configs` shows it.
+    pub variant: String,
+}
+
+impl UsedModel {
+    /// The line under the row.
+    pub fn line(&self) -> String {
+        match self.id {
+            Some(id) => format!("configured model: {} (id {id})", self.variant),
+            None => format!(
+                "configured model: {} (by name, as chap-core could not list them)",
+                self.variant
+            ),
+        }
     }
 }
 

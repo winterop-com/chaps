@@ -95,6 +95,10 @@ pub struct ModelsTestArgs {
     #[arg(long)]
     pub backtest: bool,
 
+    /// Variant name of the configured model to backtest, as in `models configs`
+    #[arg(long, value_name = "NAME", requires = "backtest")]
+    pub config: Option<String>,
+
     /// Seed for the generated data, so a run can be repeated
     #[arg(long, value_name = "N")]
     pub seed: Option<i64>,

@@ -23,6 +23,7 @@
 
 mod backtest;
 mod cleanup;
+mod configured;
 mod model;
 
 use crate::api::Api;
@@ -212,6 +213,11 @@ fn print_run(out: &Out, run: &Run, width: usize) {
         Verdict::Skip => out.warn(run.verdict.label()),
     };
     println!("{}", modeltest::row(run, &verdict, width));
+    // Which configuration the scores are of, so that they are never read as
+    // the scores of another one.
+    if let Some(used) = &run.configured_model {
+        println!("  {}", used.line());
+    }
     if let Some(detail) = &run.detail {
         println!("  {detail}");
     }

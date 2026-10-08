@@ -205,6 +205,7 @@ Usage: varde models test [OPTIONS] [ID]...
 | `<ID>...` | Marketplace ids or service ids of the models to test. |
 | `--all` | Test every model this deployment has enabled. |
 | `--backtest` | Run a backtest through chap-core instead of the model's own test. |
+| `--config <NAME>` | Variant name of the configured model to backtest, as in `models configs`. |
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
 | `--timeout <SECONDS>` | Time limit for the test of one model, in seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |

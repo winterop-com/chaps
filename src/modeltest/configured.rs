@@ -76,15 +76,19 @@ pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
 /// is what a previous `varde models test` or `chapkit test` left behind and
 /// not a configuration anybody made. Ties go to the lowest id, so two runs of
 /// the same command backtest the same model.
+///
+/// Only a live row of `version` counts, which is the version the service
+/// registered with: a service that registers with a new version keeps the
+/// rows of the old one, and chap-core refuses to run those. When either side
+/// has no version, the name is the whole answer.
 pub fn configured_model_for<'a>(
     models: &'a [ConfiguredModel],
     service_id: &str,
+    version: Option<&str>,
 ) -> Option<&'a ConfiguredModel> {
     let prefix = format!("{service_id}:");
     let left_behind = format!("{prefix}test_config_");
-    models
-        .iter()
-        .filter(|model| !model.archived)
+    live_of_version(models, version)
         .filter_map(|model| {
             let rank = if model.name == service_id {
                 0
@@ -99,4 +103,70 @@ pub fn configured_model_for<'a>(
         })
         .min_by_key(|(rank, id, _)| (*rank, *id))
         .map(|(_, _, model)| model)
+}
+
+impl ConfiguredModel {
+    /// Its variant name as a configured model of `service_id`, the name that
+    /// `varde models configs` shows: `default` for the bare service id, and
+    /// `None` for a configured model of another service.
+    pub fn variant(&self, service_id: &str) -> Option<String> {
+        if self.name == service_id {
+            return Some(crate::configs::sync::DEFAULT_CONFIGURATION.to_string());
+        }
+        self.name
+            .strip_prefix(service_id)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .map(str::to_string)
+    }
+}
+
+/// The configured model `wanted` of `service_id`, by its variant name or by
+/// its full name, among the live rows of `version` (the same rule as
+/// [`configured_model_for`]).
+///
+/// The error is the variant names of the live rows of that version, so the
+/// message can name the ones there are. Ties go to the lowest id.
+pub fn configured_variant<'a>(
+    models: &'a [ConfiguredModel],
+    service_id: &str,
+    version: Option<&str>,
+    wanted: &str,
+) -> Result<&'a ConfiguredModel, Vec<String>> {
+    let mut found: Vec<(&ConfiguredModel, String)> = live_of_version(models, version)
+        .filter_map(|model| Some((model, model.variant(service_id)?)))
+        .collect();
+    found.sort_by_key(|(model, _)| model.id);
+    if let Some((model, _)) = found
+        .iter()
+        .find(|(model, variant)| variant == wanted || model.name == wanted)
+    {
+        return Ok(model);
+    }
+    let mut names: Vec<String> = Vec::new();
+    for (_, variant) in found {
+        if !names.contains(&variant) {
+            names.push(variant);
+        }
+    }
+    Err(names)
+}
+
+/// The rows that are not archived and are of `version`, or of any version
+/// when either side has none.
+fn live_of_version<'a>(
+    models: &'a [ConfiguredModel],
+    version: Option<&str>,
+) -> std::vec::IntoIter<&'a ConfiguredModel> {
+    let version = version.filter(|v| !v.is_empty());
+    models
+        .iter()
+        .filter(|model| {
+            !model.archived
+                && match (version, model.version.as_deref()) {
+                    (Some(wanted), Some(has)) if !has.is_empty() => wanted == has,
+                    _ => true,
+                }
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
 }
