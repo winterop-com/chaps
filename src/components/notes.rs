@@ -189,12 +189,25 @@ pub const DHIS2_CONNECT_FORGOTTEN_UNSEEDED: &str = "the record of `varde dhis2 c
 /// while every API request answers 404, which is the worst shape a deployment
 /// can be in: up, and wrong. So the line names `varde backup` before anything
 /// else.
+///
+/// A move to a newer version is the other direction: the next `varde up`
+/// migrates the database, and that cannot be undone. So that line names the
+/// backup too, and does not talk about an older image.
 pub fn dhis2_tag_change_note(from: &str, to: &str) -> String {
-    format!(
-        "the DHIS2 image moves from {from} to {to} and `dhis2_db` is already there: DHIS2 \
-         migrates a schema forward only, so run `varde backup create` first - an older image on a \
-         migrated database answers healthy while every API request 404s"
-    )
+    let parts = |tag: &str| crate::dhis2::version_parts(super::dhis2_minor(tag));
+    let (old, new) = (parts(from), parts(to));
+    match !old.is_empty() && !new.is_empty() && new > old {
+        true => format!(
+            "the DHIS2 image moves from {from} to {to} and `dhis2_db` is already there: the next \
+             `varde up` migrates the database to {to}, and DHIS2 migrates a schema forward only, \
+             so run `varde backup create` first - the migration cannot be undone"
+        ),
+        false => format!(
+            "the DHIS2 image moves from {from} to {to} and `dhis2_db` is already there: DHIS2 \
+             migrates a schema forward only, so run `varde backup create` first - an older image \
+             on a migrated database answers healthy while every API request 404s"
+        ),
+    }
 }
 
 /// The refusal of a command that only chap-core can answer, on a deployment

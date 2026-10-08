@@ -585,6 +585,18 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
 
     // A downgrade is the one case that has to be stopped before `varde up`,
     // so the line leads with the command that makes it recoverable.
+    // A move forward warns that the migration cannot be undone, and does not
+    // talk about an older image.
+    let forward = dhis2_tag_change_note("2.41", "2.42");
+    assert!(forward.contains("from 2.41 to 2.42"), "{forward}");
+    assert!(forward.contains("migrates the database to 2.42"), "{forward}");
+    assert!(forward.contains("cannot be undone"), "{forward}");
+    assert!(forward.contains("`varde backup create`"), "{forward}");
+    assert!(!forward.contains("older image"), "{forward}");
+    assert!(!forward.contains('\n'), "{forward}");
+    // A tag that is not a version is not judged a move forward.
+    assert!(dhis2_tag_change_note("2.42", "master").contains("older image"));
+
     let moved = dhis2_tag_change_note("2.42", "2.41");
     assert!(moved.contains("from 2.42 to 2.41"), "{moved}");
     assert!(moved.contains("`varde backup create`"), "{moved}");
@@ -772,3 +784,4 @@ fn the_tag_follows_the_dump_and_never_goes_below_it() {
         "{old_dump}"
     );
 }
+
