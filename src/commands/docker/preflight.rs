@@ -16,10 +16,10 @@ use std::io::{BufRead, IsTerminal, Write};
 /// running containers are ours, so they are skipped: `varde up` on a running
 /// stack has to stay a no-op.
 ///
-/// When every taken port is published by another varde deployment, that is
-/// almost always the one to put away, so `up` offers to: at a terminal it asks,
-/// with `--replace` it does it without asking, and otherwise it refuses and
-/// names both ways.
+/// When every taken port is published by another varde deployment that runs,
+/// that is almost always the one to put away, so `up` offers to: at a terminal
+/// it asks, with `--replace` it does it without asking, and otherwise it
+/// refuses and names both ways.
 pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<()> {
     let claims = ports::claims(project);
     if claims.is_empty() {
@@ -34,6 +34,17 @@ pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
     // way `init` finds them: a port another deployment publishes is as good
     // as taken when suggesting one.
     let others = ports::other_deployments(&project.dir, &docker::compose_ls_json);
+    // Only a deployment that runs holds a port; one that is stopped is not
+    // named, and `--replace` does not stop it.
+    let running_of: Vec<_> = others
+        .iter()
+        .map(|other| match busy.iter().any(|claim| other.holds(claim.port)) {
+            true => Project::load(&other.dir)
+                .map(|p| docker::running_services(&p))
+                .unwrap_or_default(),
+            false => Default::default(),
+        })
+        .collect();
     let taken = |port: u16| ports::is_busy(port) || others.iter().any(|other| other.holds(port));
     let conflicts: Vec<ports::Conflict> = busy
         .into_iter()
@@ -41,7 +52,9 @@ pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
             suggestion: ports::first_free(claim.port.saturating_add(1), u16::MAX, &taken),
             holders: others
                 .iter()
-                .filter(|other| other.holds(claim.port))
+                .zip(&running_of)
+                .filter(|(other, running)| other.holds_now(claim.port, running))
+                .map(|(other, _)| other)
                 .collect(),
             claim,
         })

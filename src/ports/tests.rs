@@ -499,6 +499,37 @@ fn a_port_held_by_another_deployment_names_it_and_a_free_port() {
     assert!(!text.contains("<free>"), "{text}");
 }
 
+/// Only a deployment whose service runs holds the port, and the line about
+/// several of them agrees with the number.
+#[test]
+fn a_stopped_deployment_does_not_hold_a_port_and_several_publish_it() {
+    let at = |name: &str| Deployment {
+        dir: PathBuf::from(format!("/srv/{name}")),
+        claims: vec![PortClaim {
+            service: "dhis2".into(),
+            port: 8780,
+        }],
+    };
+    let a = at("a");
+    let running = BTreeSet::from(["dhis2".to_string()]);
+    assert!(a.holds_now(8780, &running));
+    assert!(!a.holds_now(8780, &BTreeSet::new()));
+    assert!(!a.holds_now(8781, &running));
+
+    let claim = PortClaim {
+        service: "dhis2".into(),
+        port: 8780,
+    };
+    let one = held_line(&claim, &[&a], None);
+    assert!(one.contains("a (/srv/a) publishes it too; stop it with"), "{one}");
+    let b = at("b");
+    let two = held_line(&claim, &[&a, &b], None);
+    assert!(
+        two.contains("a (/srv/a), b (/srv/b) publish it too; stop it with"),
+        "{two}"
+    );
+}
+
 /// A deployment directory with nothing in it but the state files that
 /// make it one: `api_port` recorded, and an optional `.env` line over it.
 fn deployment(parent: &Path, name: &str, recorded: u16, env: Option<u16>) -> PathBuf {

@@ -351,6 +351,14 @@ impl Deployment {
     pub fn holds(&self, port: u16) -> bool {
         self.claims.iter().any(|claim| claim.port == port)
     }
+
+    /// Whether this deployment holds `port` now: a service that publishes it
+    /// is in `running`, the services of this deployment that run.
+    pub fn holds_now(&self, port: u16, running: &BTreeSet<String>) -> bool {
+        self.claims
+            .iter()
+            .any(|claim| claim.port == port && running.contains(&claim.service))
+    }
 }
 
 /// Every other varde deployment on this machine that can be found without
@@ -508,8 +516,8 @@ pub struct Conflict<'a> {
     pub holders: Vec<&'a Deployment>,
 }
 
-/// The line for a busy port another varde deployment publishes: most likely
-/// that deployment is up, so it is named with the command that stops it.
+/// The line for a busy port that another running varde deployment
+/// publishes, named with the command that stops it.
 pub fn held_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Option<u16>) -> String {
     let named: Vec<String> = holders
         .iter()
@@ -520,9 +528,14 @@ pub fn held_line(claim: &PortClaim, holders: &[&Deployment], suggestion: Option<
         .first()
         .map(|held| format!("stop it with `varde -C {} down`", held.dir.display()))
         .unwrap_or_default();
+    let verb = if holders.len() == 1 {
+        "publishes"
+    } else {
+        "publish"
+    };
     format!(
-        "port {port} (needed by {service}) is in use, and {who} publishes it too; if that is \
-         what is up, {stop}, or move this one: {}",
+        "port {port} (needed by {service}) is in use, and {who} {verb} it too; {stop}, or move \
+         this one: {}",
         ways_out(claim, suggestion),
         port = claim.port,
         service = claim.service,

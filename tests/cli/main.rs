@@ -22,6 +22,7 @@ mod models;
 mod models_add;
 mod models_configure;
 mod models_test;
+mod preflight;
 mod run;
 mod run_stop;
 mod status;
