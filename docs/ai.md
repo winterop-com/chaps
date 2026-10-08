@@ -562,9 +562,9 @@ not the first time:
 4. When the model is `registered, not configured`, run
    `varde models configure`.
 
-If `varde models configure` says `is stored from revision None`, build the
-image again with the `GIT_REVISION` line above. Then run `varde restart` and
-`varde models configure`.
+If `varde status` or `varde models configure` says that the model reports no
+git revision, build the image again with the `GIT_REVISION` line above. Then
+run `varde restart` and `varde models configure`.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 

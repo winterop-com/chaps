@@ -41,8 +41,17 @@ register gets one more line: if `varde logs <id>` shows `App never became
 ready`, enable the model again with a network. A hint says what the two log
 lines that matter mean.
 
-A model registered from outside the deployment can get a warning when
-chap-core refuses its model template:
+A model can get a warning when chap-core refuses its model template. For a
+model of this deployment, the warning is:
+
+- `` ID: it reports no git revision, so chap-core stores no model template for
+  it and `varde models configure` cannot configure it; build its image again
+  with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde
+  restart` ``
+
+For that row, `status` does not also print the ``run `varde models
+configure` `` line. A model registered from outside the deployment gets one of
+these:
 
 - `` ID: it reports no git revision, so chap-core stores no model template for
   it; set `GIT_REVISION` where it runs, then start it again ``

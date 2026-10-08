@@ -256,6 +256,26 @@ unexposed chapkit-ewars-model; it stays registered with chap-core and reachable 
 run `varde up` to apply
 ```
 
+If the model is already where the command puts it, nothing changes, and there
+is no `varde up` line:
+
+```text
+chapkit-ewars-model is already exposed on http://localhost:5001; nothing changed
+```
+
+```text
+chapkit-ewars-model was already unexposed; nothing changed, and it is reachable at http://localhost:8700/v2/services/chapkit-ewars-model/run/
+```
+
+An `enable` of a model that is already enabled at the same version and port
+also changes nothing:
+
+```text
+chapkit_ewars_model v1.0.4 is already enabled at http://localhost:8700/v2/services/chapkit-ewars-model/run/; nothing changed
+```
+
+With `--json`, such a model is in the `unchanged` list, not in `enabled`.
+
 ## Configured models
 
 chap-core does not run a model service directly. It runs a **configured
@@ -386,11 +406,10 @@ of the stderr chapkit quotes back:
 
 ```text
 chapkit-rwanda-malaria-bym-model    FAIL   14s   predict: Error in file(file, "rb") : cannot open file 'model.rds': Permission denied
-  run `varde models test chapkit_rwanda_malaria_bym_model -v` for the full output, and `varde logs chapkit-rwanda-malaria-bym-model` for the service's own
+  run `varde models test chapkit_rwanda_malaria_bym_model -vv` for the full output, and `varde logs chapkit-rwanda-malaria-bym-model` for the service's own
 ```
 
-The hint names `-v`, but `-v` shows only the hints. The whole output of
-`chapkit test` needs `-vv`.
+`-vv` prints the whole output of `chapkit test`. `-v` shows only the hints.
 
 A model that could not be tested is skipped. The line under the row gives the
 way out:
@@ -500,7 +519,7 @@ the config; it goes away with the volume of the model
 (`varde models disable ID --purge`):
 
 ```text
-chapkit-simple-multistep-model: kept test_config_01M4CVD3GTBZGX2GGQS7131PXQ and 3 artifacts in its database
+chapkit-simple-multistep-model: kept test_config_01M4CVD3GTBZGX2GGQS7131PXQ and 3 artifacts in its database; remove it with `varde docker exec chapkit-simple-multistep-model curl -fsS -X DELETE http://127.0.0.1:8000/api/v1/configs/01M4CVD3GTBZGX2GGQS7131PXQ`
 ```
 
 With `--backtest`, the line names the two deletes:
@@ -508,6 +527,9 @@ With `--backtest`, the line names the two deletes:
 ```text
 kept backtest 8 and dataset 7; remove them with `varde api DELETE /v1/crud/backtests/8` then `varde api DELETE /v1/crud/datasets/7`
 ```
+
+Both lines are closing lines of the command. They go to stdout, and `--json`
+carries them in `messages`.
 
 A backtest chap-core ran also leaves a configuration in the model service's own
 database, the way any backtest started from the Modeling App does. That one is
@@ -643,13 +665,14 @@ with the lowest free `_2`, `_3`, ... suffix when the marketplace or an earlier
 $ varde models add https://github.com/chap-models/chapkit_ewars_model --id auto
 added chapkit_ewars_model_2 (chapkit-ewars-model-2)
 enabled chapkit_ewars_model_2 sha-964eea8 at http://localhost:8700/v2/services/chapkit-ewars-model-2/run/
-the service must register with chap-core as `chapkit-ewars-model-2`; if its own MLServiceInfo.id differs, `varde status` shows it as unmanaged - run `varde models remove chapkit_ewars_model_2`, then add it again with `--service-id <that id>`
 run `varde up` to apply
+warning: this is the image of the marketplace model chapkit_ewars_model, which registers with chap-core as `chapkit-ewars-model`, so `chapkit-ewars-model-2` may never register; to run chapkit_ewars_model, run `varde models remove chapkit_ewars_model_2`, then `varde models enable chapkit_ewars_model`
 ```
 
 `--id auto` changes the id and the service id here, not the code in the
 image. The image above still registers as `chapkit-ewars-model`, so `varde
-status` never shows `chapkit-ewars-model-2` as registered. `--service-id chapkit-ewars-model` is
+status` never shows `chapkit-ewars-model-2` as registered. Any `--id` on the
+repository or an image of a marketplace model gives the same warning. `--service-id chapkit-ewars-model` is
 refused, because the marketplace model uses that name. Use `--id` for a fork
 that sets its own `MLServiceInfo.id`.
 
@@ -863,9 +886,16 @@ one resolves to and a `✓` on the one the row follows today:
 it and `Esc` leaves the row alone. Changing the channel re-resolves the
 version when the selection is saved; changing only the port does not.
 
-A row pinned with `--version` follows no channel, but the dialog puts the `✓`
-on `stable`, and the `VERSION` column shows what `stable` resolves to. The
-summary strip shows the pin. A save keeps the pin unless you pick a channel.
+A row pinned with `--version` follows no channel. The `VERSION` column shows
+the pin, and the dialog puts no `✓` on `stable` or `latest`. A third line,
+which the cursor cannot reach, shows the pin:
+
+```text
+│   ✓ pinned  1.0.3                                       │
+```
+
+The summary strip shows the pin too. A save keeps the pin unless you pick a
+channel.
 
 ### The components page
 
@@ -1114,8 +1144,8 @@ run `varde up` to apply
 ```
 
 A save writes the files and starts nothing: run `varde up` to apply it. The
-palette entry `Save the changes and apply them` and the help line `save and
-apply the changes` mean the same save. With nothing pending, `s` prints `no
+help line of `s` says `` save the changes; `varde up` applies them ``, and the
+palette entry says `` Save the changes; `varde up` applies them ``. With nothing pending, `s` prints `no
 changes to save` and closes the browser.
 
 Nothing is written until you save, and quitting with unsaved changes asks

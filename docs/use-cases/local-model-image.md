@@ -114,7 +114,7 @@ under the name chap-core expects. Build the image in the model's checkout,
 for example `chapkit_ewars_model`:
 
 ```sh
-docker build --platform linux/amd64 -t ewars:dev .
+docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t ewars:dev .
 ```
 
 Then, in the deployment:

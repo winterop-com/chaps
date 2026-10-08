@@ -232,6 +232,10 @@ The model is registered, but chap-core has no configured model for it. chap-core
 one cannot run, and the Modeling App does not list it. `varde status` shows such
 a model as `registered, not configured`.
 
+`varde models test --backtest` makes the configured models itself before it
+starts. So this skip comes only when that step failed, and the lines above the
+table say why.
+
 Make the configured models, then test again:
 
 ```sh
@@ -248,11 +252,42 @@ template chap-core stored for its version.
 
 1. Read the reason in `varde logs chap`.
 2. If the reason says `is stored from revision None`, the model image reports
-   no git revision. Build it again in the model's checkout with
-   `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`.
+   no git revision. See
+   [`it reports no git revision`](#it-reports-no-git-revision-so-running-this-again-does-not-help).
 3. If the model image changed, run `varde update` to move the pin, or run
    `varde restart --all <service>` to make the model register again.
 4. Run `varde models configure` again.
+
+## `it reports no git revision, so running this again does not help`
+
+```text
+warning: my_model: could not create its configured models: ...; it reports no git revision, so running this again does not help; build its image again with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`
+```
+
+`varde models configure` (and the same step in `varde up --wait` and `varde
+models test --backtest`) asked chap-core for the model template, and chap-core
+refused it. The model reports no git revision, and chap-core 2.4 stores no
+template for such a model. In `--json`, the model has the state `no-revision`.
+`varde status` gives the same way out on the line under the table.
+
+1. In the model's checkout, build the image again with
+   `docker build --platform linux/amd64 --build-arg GIT_REVISION=$(git rev-parse HEAD) -t my-model:dev .`.
+2. Run `varde restart`.
+3. Run `varde models configure`.
+
+For a model that varde does not run, set `GIT_REVISION` where the model runs,
+then start it again.
+
+## ``unknown model `X`; run `varde models list` to see the model ids``
+
+```text
+error: unknown model `nosuch`; run `varde models list` to see the model ids
+```
+
+The marketplace has no model with that id, and no model added with `varde
+models add` has it. The command exits with status 1. Run `varde models list`
+and use an id from the `ID` column. Both the marketplace id
+(`chapkit_ewars_model`) and the service id (`chapkit-ewars-model`) work.
 
 ## 401 from the Modeling App
 
@@ -1240,6 +1275,27 @@ network with no cache and no fallback, `--dry-run` included, because a plan
 made from a stale catalogue is not a plan. Outside a deployment, `--dry-run`
 shows the cached registry instead. Every other command falls back to the cache
 and then to the snapshot compiled into the binary.
+
+## `` `varde registry update` refreshes the marketplace registry, which needs the network; drop --offline ``
+
+```text
+error: `varde registry update` refreshes the marketplace registry, which needs the network; drop --offline
+```
+
+`varde registry update` only fetches the registry, so `--offline` leaves it
+nothing to do. It is a usage error, and the exit code is 2. Run it again
+without `--offline`.
+
+## `ignoring the registry cache in DIR: meta.json is corrupt`
+
+```text
+warning: ignoring the registry cache in /home/me/.cache/varde/registries/...: meta.json is corrupt: ...; run `varde registry update` to write it again
+```
+
+A file of the cached registry cannot be read, so varde does not use the cache
+and the command goes on without it. The same warning names `registry.yaml`
+when that file is the broken one. Run `varde registry update` to write the
+cache again.
 
 ## `GitHub's rate limit is used up`
 
