@@ -45,3 +45,23 @@ fn each_script_is_written_for_its_own_shell() {
     assert!(script(Shell::PowerShell).contains("Register-ArgumentCompleter"));
     assert!(script(Shell::Elvish).contains("edit:completion:arg-completer"));
 }
+
+/// `vg` is the link `install.sh` and `make install` add, so every script
+/// registers it next to `varde`.
+#[test]
+fn every_script_also_completes_the_short_form() {
+    let bash = script(Shell::Bash);
+    assert!(
+        bash.contains("-o nosort -o bashdefault -o default varde vg\n"),
+        "{bash}"
+    );
+    assert!(bash.contains("complete -F _varde -o bashdefault -o default varde vg\n"));
+    let zsh = script(Shell::Zsh);
+    assert!(zsh.starts_with("#compdef varde vg\n"));
+    assert!(zsh.contains("compdef _varde varde vg\n"));
+    assert!(script(Shell::Fish).ends_with("complete -c vg -w varde\n"));
+    assert!(script(Shell::PowerShell).contains("-CommandName 'varde', 'vg'"));
+    assert!(
+        script(Shell::Elvish).contains("arg-completer[vg] = $edit:completion:arg-completer[varde]")
+    );
+}
