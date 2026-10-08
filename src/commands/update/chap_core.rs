@@ -119,9 +119,12 @@ pub(super) fn plan_chap_core(
         },
     };
     let changed = new_tag != current;
+    // `latest` is the newest release under another name, so a pin to that
+    // release is the same image and not a move backwards.
+    let same_release = current == chapcore::LATEST_TAG && latest.as_deref() == Some(&new_tag);
     ChapCoreUpdate {
         changed,
-        backwards: changed && chapcore::is_backwards(&current, &new_tag),
+        backwards: changed && !same_release && chapcore::is_backwards(&current, &new_tag),
         compose_ref: changed
             .then(|| compose_ref(&new_tag, latest.as_deref()))
             .flatten(),
@@ -265,7 +268,13 @@ pub fn backwards_warning(old: &str, new: &str) -> String {
 pub(super) fn confirm_backwards(ctx: &Ctx, chap_core: &ChapCoreUpdate) -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
 
-    let how = "pass `--yes` to `varde update --chap-tag` to confirm it";
+    let how = match chap_core.requested {
+        Some(_) => format!(
+            "run `varde update --chap-tag {} --yes` to confirm it",
+            chap_core.new_tag
+        ),
+        None => "run `varde update --pin-chap-core --yes` to confirm it".to_string(),
+    };
     if ctx.out.json {
         return Err(anyhow::anyhow!(
             "moving chap-core backwards needs an answer and --json has nobody to ask; {how}"

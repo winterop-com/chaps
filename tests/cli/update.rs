@@ -167,6 +167,36 @@ fn update_refuses_a_chap_tag_that_was_never_released() {
     .stderr(predicates::str::contains("cannot be used with"));
 }
 
+/// `latest` is the newest release, so `--pin-chap-core` from it pins the same
+/// image and asks nothing. From `dev`, the refusal names the flag it came from.
+#[cfg(unix)]
+#[test]
+fn pin_chap_core_from_latest_is_not_a_move_backwards() {
+    let (sandbox, dir, port, _temp, bin) = pinned_sandbox();
+    online_update(&sandbox, port, &bin, &["--chap-tag", "latest"])
+        .assert()
+        .success();
+    online_update(&sandbox, port, &bin, &["--pin-chap-core"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "updated chap-core latest -> v2.3.1",
+        ))
+        .stderr(predicates::str::contains("backup").not());
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+
+    online_update(&sandbox, port, &bin, &["--chap-tag", "dev"])
+        .assert()
+        .success();
+    online_update(&sandbox, port, &bin, &["--pin-chap-core"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "run `varde update --pin-chap-core --yes` to confirm it",
+        ));
+    assert_eq!(state(&dir)["chap_image_tag"], "dev");
+}
+
 /// `dev` is a branch of chap-core, but ghcr has no image for it. The tag is
 /// refused before the pin moves, and the dry run says the same.
 #[cfg(unix)]

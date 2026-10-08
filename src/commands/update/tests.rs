@@ -628,6 +628,9 @@ fn a_moving_tag_only_moves_when_asked_to() {
         assert!(plan.changed, "--pin-chap-core pins {tag}");
         assert_eq!(plan.new_tag, "v2.3.1");
         assert!(plan.moving, "the tag it came from was a moving one");
+        // `latest` is the newest release, so pinning it is the same image;
+        // `dev` and `master` are ahead of every release.
+        assert_eq!(plan.backwards, tag != "latest", "{tag}");
     }
 
     // Nothing to pin it to: the flag cannot invent a release.
