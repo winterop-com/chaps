@@ -14,11 +14,10 @@ fn update_needs_the_network_even_for_a_dry_run() {
 
     let mut update = sandbox.chap();
     update.arg("-C").arg(&dir).args(["update", "--dry-run"]);
-    update
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("--offline"))
-        .stderr(predicates::str::contains("registry"));
+    update.assert().failure().stderr(predicates::str::contains(
+        "`varde update` refreshes the marketplace registry, which needs the network; drop \
+             --offline",
+    ));
     assert_eq!(read(&dir.join(".varde/models.yaml")), before);
 }
 

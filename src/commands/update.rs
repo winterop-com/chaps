@@ -152,6 +152,16 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
             }
         ));
     }
+    // A run in a deployment refreshes the registry, which needs the network;
+    // the listing above is the one part that works without it.
+    if ctx.registry.offline {
+        return Err(ChapError::Usage(
+            "`varde update` refreshes the marketplace registry, which needs the network; drop \
+             --offline, or run `varde update --list-tags` to see the chap-core tags offline"
+                .to_string(),
+        )
+        .into());
+    }
     // The tag `--chap-tag` names is checked before anything else happens: a
     // typo should cost one lookup, not a marketplace refresh and a pull.
     let requested = match &args.chap_tag {
