@@ -141,7 +141,7 @@ enable` refuses a taken port; both warn, name a free one, and put the way out
 on the same line:
 
 ```text
-warning: port 8780 is also used by demo (/home/me/demo), which is not running; both cannot be up at once. Keep it, or run `varde components enable dhis2 --port 8781`
+warning: port 8780 is also used by demo (/home/me/demo), which is not running; run only one of them at a time, or run `varde components enable dhis2 --port 8781`
 ```
 
 `varde components enable` probes the port it is given the same way `init` does,
@@ -235,7 +235,7 @@ before it calls Docker, and refuses with one line per conflict:
 Docker finds the same conflict eventually, several seconds in and named after a
 container rather than a port.
 
-- Ports held by this project's own running containers are skipped, so
+- Ports held by this deployment's own running containers are skipped, so
   `varde up` on a running deployment stays a no-op.
 - `varde up --no-preflight` hands the question back to Docker.
 - A port another varde deployment publishes is named with that deployment and

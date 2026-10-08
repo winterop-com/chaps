@@ -213,7 +213,7 @@ made, `varde restart` first recreates that service and says
 everything anyway, so it skips this step.
 
 ```sh
-varde restart                       # the whole project; compose decides
+varde restart                       # the whole deployment; compose decides
 varde restart chap worker           # only these, without their dependencies
 varde restart --all                 # recreate everything, changed or not
 varde restart --all my-model        # recreate this one, changed or not

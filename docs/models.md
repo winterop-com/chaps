@@ -97,8 +97,8 @@ of chap-core, which is what a model service registers as.
 ## Looking at the catalogue
 
 ```sh
-varde models list                 # models enabled in this project are marked
-varde models list --enabled       # only this project's
+varde models list                 # models enabled in this deployment are marked
+varde models list --enabled       # only this deployment's
 varde models list --all           # templates too
 varde models search malaria
 varde models info chapkit_ewars_model
@@ -112,7 +112,7 @@ auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA  
 chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.2   0.1.2   -
 chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.2   0.1.2   -
 
-5 listed, 1 enabled in this project
+5 listed, 1 enabled in this deployment
 ```
 
 Every listing is in the same order: by `STATUS`, from the models that have
@@ -189,7 +189,7 @@ before the definition goes away, and says so:
 ```text
 disabled chapkit_ewars_model
 removed compose.chapkit-ewars-model.yml
-note: stopped and removed the chapkit-ewars-model container; the host port it published is free again
+note: stopped and removed the chapkit-ewars-model container; host port 5001 is free again
 note: kept volume mychap-1ab2c3_ck_chapkit_ewars_model_data; remove it with `varde models disable chapkit_ewars_model --purge` or `docker volume rm mychap-1ab2c3_ck_chapkit_ewars_model_data`
 run `varde up` to apply
 ```
@@ -766,7 +766,7 @@ with `auto`:
 ╭ Host port for CHAP-EWARS ──────────────────────────────────────────────╮
 │ port  › 80_                                                            │
 │ now: via chap-core · range 5001-5999 · api port 8140 is taken          │
-│ port 80 is outside this project's range 5001-5999                      │
+│ port 80 is outside this deployment's range 5001-5999                   │
 │                                                                        │
 │ [enter] apply  [esc] cancel  [auto] any free port  [none] no host port │
 ╰────────────────────────────────────────────────────────────────────────╯

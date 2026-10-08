@@ -187,7 +187,7 @@ auto_arima_chapkit                auto-arima-chapkit                Auto-ARIMA  
 chapkit_ghr_model                 chapkit-ghr-model                 GHRmodel            experimental  0.1.3   0.1.3   -
 chapkit_rwanda_malaria_bym_model  chapkit-rwanda-malaria-bym-model  Rwanda Malaria BYM  not for use   0.1.3   0.1.3   -
 
-5 listed, 2 enabled in this project
+5 listed, 2 enabled in this deployment
 ```
 
 ## 5. Reach a model from your own machine
@@ -235,7 +235,7 @@ varde backup create
 wrote /srv/mychap/varde-backup-mychap-20261007-201611.tar.gz (18.6 KB gzipped, 195.3 KB of data)
 ```
 
-One `tar.gz` in the deployment directory holds the project files, a `pg_dump`
+One `tar.gz` in the deployment directory holds the deployment files, a `pg_dump`
 of the chap-core database and one tar per model data volume. The time in the
 file name is UTC. The archive holds `.env` with the database password, so keep
 it private. `varde backup restore ARCHIVE` puts it back. See

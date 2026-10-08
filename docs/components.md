@@ -330,16 +330,20 @@ also gets a line that says that `/docs` is behind it, and that
 button; see [Authentication](./auth.md).
 
 With no name it lists every component and what each one opens, which is both the
-answer to "what is there" and a reminder of the addresses:
+answer to "what is there" and a reminder of the addresses. A second table lists
+each enabled model that publishes a host port:
 
 ```text
-COMPONENT  OPENS                        WHAT IT IS
-chap-core  http://localhost:18000/docs  chap-core's API documentation
-ocs        -                            not a component of this deployment
-s3         -                            an S3 API; no web interface to open
-dhis2      http://localhost:18080       the DHIS2 user interface
+COMPONENT  OPENS                       WHAT IT IS
+chap-core  http://localhost:8700/docs  chap-core's API documentation
+ocs        http://localhost:8790       the OCS web interface
+s3         -                           an S3 API; no web interface to open
+dhis2      -                           not a component of this deployment
 
-2 of them can be opened: run `varde open NAME`
+MODEL                OPENS                       WHAT IT IS
+chapkit_ewars_model  http://localhost:5001/docs  the model's API documentation
+
+3 of them can be opened: run `varde open NAME`
 ```
 
 ### What it refuses, and what it only warns about
@@ -646,7 +650,21 @@ OCS reads the file and not the record, and it reads it once at startup, so the
 instance has to be recreated. The instance config is a bind mount, which compose
 does not compare, so `varde restart` checks the file itself: written after the
 `ocs` container was created, it recreates that one service and leaves chap-core
-and the models alone. The note `varde components enable` prints says as much.
+and the models alone. When `ocs` is already on, `varde components enable` says
+so in its closing lines:
+
+```text
+ocs is now read-only
+run `varde restart ocs` to apply
+```
+
+A second run with the same flag says `ocs is already read-only` and changes
+nothing. Until the restart, `varde status` warns while
+`ocs/climate-service.yaml` is newer than the `ocs` container:
+
+```text
+warning: `ocs/climate-service.yaml` changed after the ocs container started, so ocs may still use the old settings; run `varde restart ocs` to apply it
+```
 
 Check it after every deploy. `read_only` is an ordinary config key, so a build
 of open-climate-service that predates read-only mode ignores it silently and
@@ -982,7 +1000,7 @@ varde's own again, and `components disable chap-core` forgets it too.
   minor line, which is the one to read before a first `varde up` brings up an
   empty DHIS2. A deployment with `dhis2` enabled also gets a `memory` line among
   the machine checks, measured as what docker says it can give a container
-  rather than as the host's memory. The `project files` line names the component
+  rather than as the host's memory. The `deployment files` line names the component
   directories it does not count, since these facts are what covers them.
 - **`varde auth show`** adds an `OCS data sources` block, set or unset, never the values. The two DHIS2
   secrets are not in it: they are this deployment's own, in `.env`, and

@@ -14,7 +14,7 @@ lists every command, every flag and every default.
 | --- | --- |
 | `varde run MODEL [--port N\|auto] [--bind ADDR] [--group NAME] [--allow-template] [--no-wait] [--timeout S] [-a [--rm]] [--chap-core URL]` | Start one model - a marketplace id, a GitHub repository URL, a ghcr image or a local image - and print where it answers, once it does. Outside a deployment it runs in a `varde run` group under the data directory, on `127.0.0.1`; inside one, in that deployment. `-a` keeps it in the foreground with its log, and Ctrl-C then stops the model and keeps its data (`--rm` removes it). `--chap-core URL` makes the group's models register with a chap-core that runs elsewhere. |
 | `varde ps [--group NAME]` | Every model in every group (or in the deployment the command is inside), with its state and URL. |
-| `varde stop ID\|--all\|--group NAME [--purge]` | Stop a model, in whichever group has it, or every model in a group, and take its overlay away; the data stays unless `--purge`, which also removes a group left empty. |
+| `varde stop ID\|--all\|--group NAME [--purge]` | Stop a model, in whichever group has it, or every model in a group, and remove its compose overlay; the data stays unless `--purge`, which also removes a group left empty. |
 | `varde top [--interval S]` | Every varde deployment on the machine as a live tree - `init` deployments and `run` groups, every service with its state, CPU, memory and URL - with logs and stop on a key. One snapshot off a terminal. See [varde top](./top.md). |
 
 See [Running one model](./run.md).
@@ -34,7 +34,7 @@ See [Running one model](./run.md).
 | `varde jobs [list] [--status S].. [--type T] [--limit N]` | The backtests, predictions and datasets chap-core has run, newest first, with what each one cost and which of them failed. `show`, `logs`, `cancel` and `delete` take one job id, or enough of its start to name one. |
 | `varde api METHOD PATH [--data JSON\|@FILE\|-] [--url URL] [--raw]` | One authenticated request to chap-core's API, with this deployment's base URL and token filled in. JSON comes back pretty-printed; the exit code is 0 for a 2xx, 1 for a 4xx/5xx and 2 when chap-core is not answering. |
 | `varde update [--dry-run] [--pin-chap-core] [--chap-tag TAG] [--list-tags] [--yes]` | Move the pins to what upstream publishes now, pull the images, and end with one line saying what moved and what needs restarting. Never touches a container. `--chap-tag` moves chap-core to another tag (a release, `latest`, `master` or `dev`) instead, asking first when the move goes backwards, which `--yes` answers; `--list-tags` lists where it can go and writes nothing. Outside a deployment it refreshes the marketplace registry instead. |
-| `varde doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts Chap pulls from, and - inside a project - the files, the ports, the pins, the images and whether Chap is up. Works anywhere. |
+| `varde doctor` | Run a checklist over this machine and this deployment: Docker, Compose, architecture, disk, the hosts Chap pulls from, and - inside a deployment - the files, the ports, the pins, the images and whether Chap is up. Works anywhere. |
 | `varde cleanup [--dry-run] [--yes]` | Delete the volumes and network that deployments whose directory is gone left in docker, after listing them and asking. `--dry-run` (`-n`) only lists; `--yes` deletes without asking. Only deployments varde recorded are considered, and nothing a container still uses. Works anywhere. See [Cleaning up after removed deployments](./doctor.md#cleaning-up-after-removed-deployments). |
 | `varde dhis2 connect` | Let the DHIS2 Modeling App reach this deployment's Chap: the `chap` route, the apps, then analytics. `show`, `route`, `analytics` and `apps` are the same work one step at a time; `varde dhis2 use` points them at a DHIS2 that runs elsewhere. |
 
@@ -81,7 +81,7 @@ that reaches the passthrough (`varde down -- -v`) is refused and told to use
 | `varde models enable ID` | Record the model in `.varde/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--bind`, `--data-dir`, `--user`, `--allow-template`). |
 | `varde models disable ID [--purge]` | Drop the model from `.varde/models.yaml` and remove its overlay, keeping its data volume and naming it; `--purge` removes that volume too. |
 | `varde models expose ID [--port N\|auto] [--bind ADDR]` | Publish a host port for an enabled model, without touching the version it is pinned to; `--bind 127.0.0.1` keeps it on this machine. See [Ports](./ports.md#which-address-a-model-port-is-published-on). |
-| `varde models unexpose ID` | Take that host port away again. |
+| `varde models unexpose ID` | Remove the host port of an enabled model. |
 | `varde ui` | Open the browser: marketplace models and components, on two pages `Tab` moves between. One `s` saves both. |
 
 `list`, `search` and `info` read the catalogue and work outside a project. The
@@ -97,7 +97,7 @@ was given. See [Models and the marketplace](./models.md).
 | Command | What it does |
 | --- | --- |
 | `varde components list` | Every component, whether this deployment has it and where it is reached. |
-| `varde components enable NAME [--port N]` | Turn a component on, or change the settings of one that already is, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds, plus `--base-url` and `--read-only`/`--read-write`. A port already in use is a warning, not a refusal. |
+| `varde components enable NAME [--port N]` | Enable a component, or change the settings of an enabled one, then sync. `ocs` also takes `--ocs-name`, `--ocs-country` and `--ocs-bbox` for the instance config it scaffolds, plus `--base-url` and `--read-only`/`--read-write`. A port already in use is a warning, not a refusal. |
 | `varde components disable NAME [--purge]` | Turn it off, remove its compose file and sync, keeping its data volumes and naming each one; `--purge` removes them too, and is refused for chap-core. |
 
 A component is a service (or a small group) that `varde sync` renders one
@@ -154,7 +154,7 @@ what it is not](./dhis2.md#connected_at-and-what-it-is-not).
 | `varde auth token` | The token alone on stdout, for `TOKEN=$(varde auth token)`; nothing on stdout and exit 1 when authentication is off. |
 | `varde auth enable [--token VALUE]` | Write both secrets to `.env`, record them in `.varde/project.yaml` and re-render the overlays. |
 | `varde auth disable` | Comment both `.env` lines out, keeping their values, and re-render. |
-| `varde auth rotate` | Replace both secrets with freshly generated ones. |
+| `varde auth rotate` | Replace both secrets with new generated ones. |
 
 All four touch only those two `.env` lines, and none of them restarts anything:
 chap-core and the models read `.env` when Compose creates them, so `varde up`
@@ -198,7 +198,7 @@ way to find out why a setting is not taking effect.
 
 | Command | What it does |
 | --- | --- |
-| `varde backup create [--out PATH] [--no-db] [--no-models] [--no-components]` | Write the chap-core database (pg_dump), the model data, the component data (the DHIS2 database as a pg_dump) and the project files to one `tar.gz`. |
+| `varde backup create [--out PATH] [--no-db] [--no-models] [--no-components]` | Write the chap-core database (pg_dump), the model data, the component data (the DHIS2 database as a pg_dump) and the deployment files to one `tar.gz`. |
 | `varde backup restore ARCHIVE [--yes] [--files-only] [--db-only] [--no-models] [--no-components] [--adopt-identity] [--no-start]` | Put a deployment back from such an archive, after printing what it overwrites. |
 
 See [Backup and restore](./backup.md).
@@ -206,7 +206,7 @@ See [Backup and restore](./backup.md).
 ## varde itself
 
 The two commands that are about the CLI rather than about a deployment. Both
-work anywhere, inside a project or not.
+work anywhere, inside a deployment or not.
 
 | Command | What it does |
 | --- | --- |

@@ -368,7 +368,7 @@ Commands:
   init         Create a deployment directory: compose files, .env and .varde/
   run          Start one model and print where it answers
   ps           List the models that run, and where each one answers
-  stop         Stop a model and take its overlay away; its data stays
+  stop         Stop a model and remove its compose overlay; its data stays
   top          Watch every varde deployment on this machine as a live tree
   models       Browse and manage marketplace models
   registry     Inspect and refresh the marketplace registry

@@ -151,7 +151,7 @@ must show at least 8 GB.
 Every option below creates a new folder. Tell the person to run the commands
 from the folder where they want it created, and then to `cd` into it as shown.
 Several options use the same folder name (`mychap`): if one from an earlier
-option is still there, `varde init` says it `already contains a varde project`.
+option is still there, `varde init` says it `already contains a varde deployment`.
 Either pick another name in the `varde init` line (and the `cd`), or remove the
 old one first as shown in [Every option: stop, start, remove](#every-option-stop-start-remove).
 

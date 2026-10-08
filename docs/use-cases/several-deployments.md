@@ -21,7 +21,7 @@ cd ../d243 && varde up
 The second `init` gives two warnings:
 
 ```text
-warning: port 8780 is also used by d242 (/home/me/d242), which is not running; both cannot be up at once. Keep it, or run `varde components enable dhis2 --port 8781`
+warning: port 8780 is also used by d242 (/home/me/d242), which is not running; run only one of them at a time, or run `varde components enable dhis2 --port 8781`
 warning: varde knows no DHIS2 demo dump for 2.43, so `dhis2_db` starts empty; name one with `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`
 ```
 

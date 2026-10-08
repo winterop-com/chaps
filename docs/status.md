@@ -293,8 +293,9 @@ when there is one; empty output is a bug.
 - `varde up` ends with which services it started or recreated and which it left
   alone.
 - `varde docker pull` says how many images it pulled.
-- `varde docker ps` on a project with no containers says
-  `nothing is running for this project` rather than printing a bare header.
+- `varde docker ps` on a deployment with no containers says
+  `nothing is running for this deployment; start Chap with `varde up`` rather
+  than printing a bare header.
 
 - `varde models test` prints a header saying which level is being run, one row
   per model with the verdict, the time and what happened, and a closing line
@@ -357,7 +358,7 @@ script reads:
 
 ```text
 $ varde -vv status
-project: /srv/chapx (state in /srv/chapx/.varde/project.yaml)
+deployment: /srv/chapx (state in /srv/chapx/.varde/project.yaml)
 registry: https://raw.githubusercontent.com/... from the cache (2 hours old) (7 models)
 asking chap-core at http://localhost:8700
 GET http://localhost:8700/health -> 200 in 12ms

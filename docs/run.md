@@ -187,7 +187,7 @@ what became of the container and the volume, and how to start the model again:
 ```text
 $ varde -v stop chapkit_ewars_model
 stopped chapkit_ewars_model
-hint: stopped and removed the chapkit-ewars-model container; the host port it published is free again
+hint: stopped and removed the chapkit-ewars-model container; host port 5001 is free again
 hint: kept volume default-1ab2c3_ck_chapkit_ewars_model_data; remove it with `varde -C /home/me/.local/share/varde/run/default models disable chapkit_ewars_model --purge` or `docker volume rm default-1ab2c3_ck_chapkit_ewars_model_data`
 hint: `varde run chapkit_ewars_model` starts it again
 ```

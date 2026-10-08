@@ -155,7 +155,7 @@ The DHIS2 database is not paused at all: it is a `pg_dump` without the
 analytics tables, see [DHIS2](./dhis2.md#backing-it-up).
 
 ```text
-warning: ocs is paused while varde copies 3.1 GB of `mychap_ocs_data`, and it does not answer until the copy is done; this can take minutes, so run the backup when nobody uses it, or use `--no-components` to leave out the volumes of every component
+warning: ocs is paused while varde copies 3.1 GB of `mychap_ocs_data`, and it does not answer until the copy is done; this can take minutes, so run the backup when nobody uses it, or use `--no-components` to omit the volumes of every component
 ```
 
 Two things to know about the pause. Docker cannot run a health check on a

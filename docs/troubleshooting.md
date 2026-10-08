@@ -53,7 +53,7 @@ it also removes the chap-core database. See
 ```
 
 Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
-`.env`, or move (or drop) the model's port. Ports held by this project's own
+`.env`, or move (or drop) the model's port. Ports held by this deployment's own
 running containers are not conflicts, so `varde up` on a running deployment is still
 a no-op. `varde up --no-preflight` hands the question back to Docker.
 
@@ -616,12 +616,26 @@ until it exits. It is usually a `varde up` rendering its files or an
 find the command still running against this directory (`ps aux | grep varde`)
 and let it finish or stop it; the lock goes with the process.
 
+## `did not start: the registry answered denied for IMAGE, so the image does not exist or is private`
+
+```text
+error: my-model did not start: the registry answered `denied` for ghcr.io/my-org/my-model:dev, so the image does not exist or is private; check the reference, or run `docker login ghcr.io`, then `varde run ghcr.io/my-org/my-model:dev` tries again
+```
+
+`varde run` asked compose to start the model, and the registry refused the
+pull. A registry gives the same answer for an image that does not exist and for
+a private image.
+
+1. Check the reference. For a marketplace id, use `varde models search`.
+2. If the image is private, run `docker login <registry>` with an account that
+   can read it.
+3. Run the `varde run` command that the message names.
+
 ## `did not start (...)` from `varde run`
 
 `varde run` asked compose to start the model and compose refused; the
-parentheses hold the line compose said it with. `pull access denied` or
-`denied` is an image that does not exist or is private: check the reference
-(`varde models search` for a marketplace id). `port is already allocated` is a
+parentheses hold the line compose said it with. A `denied` from the registry
+has its own message; see the entry above. `port is already allocated` is a
 host port something else took between the pick and the start; run again. The
 model was taken back out, so the `varde run` the message names starts afresh.
 
