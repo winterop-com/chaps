@@ -100,7 +100,8 @@ pub struct StatusReport {
     pub registered: Vec<RegisteredService>,
     /// Service ids the project expects to be registered.
     pub expected: Vec<String>,
-    /// Expected ids that are not registered.
+    /// Expected ids that are not registered. Empty without chap-core,
+    /// where no registration is expected.
     pub missing: Vec<String>,
     /// How a human reaches each service this project enabled, by service id:
     /// its own host port, or chap-core's proxy for a service that publishes
@@ -393,7 +394,11 @@ pub fn status(
         false => project.state.chap_image_tag.as_str(),
     };
     let version = version_of(&agent, &base, &api, pin, token);
-    let missing = missing_ids(&expected, &registered);
+    // Without chap-core, no model registers anywhere, so none is missing.
+    let missing = match chap_core {
+        true => missing_ids(&expected, &registered),
+        false => Vec::new(),
+    };
     let reach = project
         .state
         .models

@@ -341,3 +341,22 @@ fn status_of_a_chap_core_elsewhere_shows_no_pin_and_no_chap_service() {
     assert!(line.contains(CHAP_CORE_VERSION), "{line}");
     assert!(!line.contains("latest"), "{line}");
 }
+
+/// Without chap-core, no model registers, so `--json` names no model as
+/// missing: a script that reads `missing` sees no false failure.
+#[test]
+fn status_without_chap_core_names_no_model_as_missing() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--only", "none", "--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let report = json_of(
+        chap_in(&sandbox, &dir, &["--json", "status"])
+            .arg("--timeout")
+            .arg("1"),
+    );
+    assert_eq!(report["missing"], serde_json::json!([]), "{report}");
+    assert_eq!(report["models"][0]["id"], "chapkit-ewars-model", "{report}");
+}
