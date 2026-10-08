@@ -419,3 +419,72 @@ fn backup_and_restore_bring_the_database_back() {
     .success();
     assert_eq!(probe_rows(&sandbox, &dir), ["before"]);
 }
+
+/// The start at the end of a restore runs the port check of `varde up`, and a
+/// conflict there still says what was restored and how to start.
+#[cfg(unix)]
+#[test]
+fn restore_says_what_it_restored_when_the_start_finds_a_port_in_use() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+    let busy = listener.local_addr().unwrap().port();
+    let sandbox = Sandbox::new();
+    let source = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &busy.to_string()])
+        .assert()
+        .success();
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    chap_in(
+        &sandbox,
+        &source,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--no-models",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .assert()
+    .success();
+    let archive = only_archive(&out);
+
+    let target = sandbox.home.path().join("chapy");
+    let mut init = sandbox.chap();
+    init.arg("init").arg(&target).args([
+        "--models",
+        "none",
+        "--api-port",
+        &free_port().to_string(),
+    ]);
+    init.assert().success();
+
+    let (_fake, bin, log) = quiet_docker();
+    let stderr = String::from_utf8(
+        chap_with_docker(
+            &sandbox,
+            &target,
+            &bin,
+            &["backup", "restore", archive.to_str().unwrap(), "--yes"],
+        )
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone(),
+    )
+    .unwrap();
+    assert!(stderr.contains("error: restored "), "{stderr}");
+    assert!(
+        stderr.contains("and did not start the deployment"),
+        "{stderr}"
+    );
+    assert!(stderr.contains(&format!("port {busy}")), "{stderr}");
+    assert!(stderr.contains("`varde up`"), "{stderr}");
+    assert!(!stderr.contains("nothing was started"), "{stderr}");
+    let calls = read(&log);
+    assert!(!calls.contains(" up -d"), "{calls}");
+    drop(listener);
+}

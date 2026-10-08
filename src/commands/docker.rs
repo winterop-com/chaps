@@ -24,7 +24,7 @@ use crate::output::Report;
 use crate::project::Project;
 use args::{Shell, args_for};
 use down::{confirm_volumes, misused_volumes_flag, volumes_flag_message};
-use preflight::preflight;
+pub(crate) use preflight::preflight;
 use report::{
     absent_services, no_container_message, not_running, nothing_running, report_what_changed,
     unknown_service_message, up_lines,

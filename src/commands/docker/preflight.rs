@@ -20,7 +20,7 @@ use std::io::{BufRead, IsTerminal, Write};
 /// almost always the one to put away, so `up` offers to: at a terminal it asks,
 /// with `--replace` it does it without asking, and otherwise it refuses and
 /// names both ways.
-pub(super) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<()> {
+pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<()> {
     let claims = ports::claims(project);
     if claims.is_empty() {
         return Ok(());

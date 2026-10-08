@@ -151,7 +151,7 @@ pub fn run(ctx: &Ctx, args: &RestoreArgs) -> Result<()> {
         restore_components(&project, &archive, &stage, &mut report)?;
     }
     if report.plan.start {
-        compose(&project, &["up".to_string(), "-d".to_string()])?;
+        start(ctx, &project, &report)?;
         report.started = true;
     }
 
@@ -329,8 +329,34 @@ fn compose(project: &Project, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// What was restored in one line, the details under `-v`, and the next step.
-fn say(report: &RestoreReport, lines: &mut output::Report) {
+/// Start the deployment the way `varde up` does: the port check first, then
+/// `docker compose up -d`.
+///
+/// The data is back whether or not the start works, so a failure says what
+/// was restored before it says why the start failed.
+fn start(ctx: &Ctx, project: &Project, report: &RestoreReport) -> Result<()> {
+    let restored = restored_line(report);
+    if let Err(why) = crate::commands::docker::preflight(ctx, project, false) {
+        // The data steps may have started postgres or dhis2-db, so "nothing
+        // was started" is true of the start alone and is left out.
+        let why = why.to_string().replacen("; nothing was started", "", 1);
+        return Err(anyhow::anyhow!(
+            "{restored}, and did not start the deployment: {why}\n  if you move the port, run `varde up` to start it"
+        ));
+    }
+    let code = docker::run_compose(project, &["up".to_string(), "-d".to_string()])?;
+    if code != 0 {
+        return Err(anyhow::anyhow!(
+            "{restored}, and `docker compose up -d` exited {code}; fix what the lines above say, \
+             then run `varde up`"
+        ));
+    }
+    Ok(())
+}
+
+/// What was restored, in one line: `restored 12 files, the chap_core
+/// database, the data of chapkit-ewars-model`.
+fn restored_line(report: &RestoreReport) -> String {
     let mut parts = Vec::new();
     match report.files.len() {
         0 => {}
@@ -357,9 +383,14 @@ fn say(report: &RestoreReport, lines: &mut output::Report) {
         parts.push(format!("the data of {}", volumes.join(", ")));
     }
     match parts.is_empty() {
-        true => lines.info("restored nothing"),
-        false => lines.info(format!("restored {}", parts.join(", "))),
-    };
+        true => "restored nothing".to_string(),
+        false => format!("restored {}", parts.join(", ")),
+    }
+}
+
+/// What was restored in one line, the details under `-v`, and the next step.
+fn say(report: &RestoreReport, lines: &mut output::Report) {
+    lines.info(restored_line(report));
 
     if !report.stopped.is_empty() {
         lines.hint(format!("stopped {} first", report.stopped.join(", ")));
