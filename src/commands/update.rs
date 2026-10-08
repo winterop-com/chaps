@@ -201,6 +201,20 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
             )
         })
         .flatten();
+    // `--pin-chap-core` asked for a pin, and a moving tag without the newest
+    // release has nothing to be pinned to. Ending on "already up to date"
+    // would claim a pin this run did not make.
+    if args.pin_chap_core
+        && has_chap_core
+        && latest.is_none()
+        && crate::chapcore::is_moving_tag(&project.state.chap_image_tag)
+    {
+        return Err(anyhow::anyhow!(
+            "--pin-chap-core pinned nothing, because the newest chap-core release could not be \
+             looked up; try again later, or run `varde update --chap-tag <TAG>` with a release \
+             from `varde update --list-tags`"
+        ));
+    }
     // Nothing here starts or stops a container, so this answer holds for the
     // whole run and the dry run answers the same question.
     let running = docker::running_containers(&project);

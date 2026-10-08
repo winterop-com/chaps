@@ -197,6 +197,39 @@ fn pin_chap_core_from_latest_is_not_a_move_backwards() {
     assert_eq!(state(&dir)["chap_image_tag"], "dev");
 }
 
+/// `--pin-chap-core` without the newest release has nothing to pin to: the
+/// run fails and says so, rather than ending on "already up to date".
+#[cfg(unix)]
+#[test]
+fn pin_chap_core_fails_when_the_release_lookup_fails() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--chap-tag", "latest"])
+        .assert()
+        .success();
+    let port = Hub {
+        releases: Vec::new(),
+        ..Hub::new()
+    }
+    .start();
+    let (_temp, bin, _) = quiet_docker();
+    for args in [
+        &["--pin-chap-core"][..],
+        &["--pin-chap-core", "--dry-run"][..],
+    ] {
+        online_update(&sandbox, port, &bin, args)
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(
+                "could not resolve the newest chap-core release",
+            ))
+            .stderr(predicates::str::contains("--pin-chap-core pinned nothing"))
+            .stdout(predicates::str::contains("already up to date").not());
+    }
+    assert_eq!(state(&dir)["chap_image_tag"], "latest");
+}
+
 /// `dev` is a branch of chap-core, but ghcr has no image for it. The tag is
 /// refused before the pin moves, and the dry run says the same.
 #[cfg(unix)]
