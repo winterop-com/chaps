@@ -1407,3 +1407,47 @@ fn init_writes_env_readable_by_its_owner_only() {
         & 0o777;
     assert_eq!(mode, 0o600);
 }
+
+/// `init --force` keeps `.env` for its secrets, but the image pin in it is the
+/// line `init` wrote. A deployment built from a checkout and then moved back
+/// to a release must not keep `CHAP_IMAGE_TAG=checkout`, which no registry
+/// publishes.
+#[test]
+fn init_force_moves_the_image_pin_of_a_kept_env() {
+    let sandbox = Sandbox::new();
+    let checkout = sandbox.home.path().join("chap-core");
+    std::fs::create_dir_all(&checkout).unwrap();
+    std::fs::write(checkout.join("Dockerfile"), "FROM scratch\n").unwrap();
+    std::fs::write(checkout.join("Dockerfile.worker"), "FROM scratch\n").unwrap();
+    std::fs::write(
+        checkout.join("compose.ghcr.yml"),
+        "services:\n  chap:\n    image: ghcr.io/dhis2-chap/chap-core:${CHAP_IMAGE_TAG:-latest}\n  \
+         worker:\n    image: ghcr.io/dhis2-chap/chap-worker:${CHAP_IMAGE_TAG:-latest}\n",
+    )
+    .unwrap();
+    sandbox
+        .init(&["--source", checkout.to_str().unwrap(), "--models", "none"])
+        .assert()
+        .success();
+    let env = sandbox.env();
+    assert_eq!(env_value(&env, "CHAP_IMAGE_TAG"), Some("checkout"));
+    let password = password_line(&env).to_string();
+
+    sandbox
+        .init(&["--force", "--models", "none", "--chap-tag", "v1.2.3"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "moved CHAP_IMAGE_TAG in the kept .env from checkout to v1.2.3",
+        ));
+    let env = sandbox.env();
+    assert_eq!(env_value(&env, "CHAP_IMAGE_TAG"), Some("v1.2.3"));
+    assert_eq!(password_line(&env), password, "the secrets are kept");
+
+    // The same tag again: nothing to move, and nothing said about it.
+    sandbox
+        .init(&["--force", "--models", "none", "--chap-tag", "v1.2.3"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("moved CHAP_IMAGE_TAG").not());
+}

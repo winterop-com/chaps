@@ -5,7 +5,7 @@ use super::env::{EnvAction, Secrets};
 use crate::components::{Components, DHIS2_FIRST_START_NOTE, S3_SOON_NOTE, S3_WITHOUT_OCS_NOTE};
 use crate::compose::ApplyReport;
 use crate::output::Report;
-use crate::project::Project;
+use crate::project::{CHAP_TAG_ENV_VAR, Project};
 use std::path::{Path, PathBuf};
 
 /// What the summary says for a deployment that enables no models.
@@ -53,6 +53,7 @@ pub(super) fn summary(
     project: &Project,
     secrets: Option<&Secrets>,
     dropped_notes: &[String],
+    tag_moved: Option<&(String, String)>,
     lines: &mut Report,
 ) {
     lines.info(format!("created a deployment in {}", dir.display()));
@@ -64,6 +65,11 @@ pub(super) fn summary(
     }
     if env == EnvAction::Kept {
         lines.hint("kept .env (already present)");
+    }
+    if let Some((from, to)) = tag_moved {
+        lines.info(format!(
+            "moved {CHAP_TAG_ENV_VAR} in the kept .env from {from} to {to}"
+        ));
     }
     let components = &project.state.components;
     lines.info(format!("components: {}", components.label()));

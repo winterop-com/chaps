@@ -25,7 +25,10 @@ use dropped::{
     component_dropped, dropped_components, remove_dropped_component_files, remove_stale_overlays,
     stop_dropped,
 };
-use env::{EnvAction, env_action, env_api_port, env_auth, random_password, resolve_secrets};
+use env::{
+    EnvAction, KeptTag, env_action, env_api_port, env_auth, move_kept_tag, random_password,
+    resolve_secrets,
+};
 use ports::warn_about_ports;
 use std::path::{Component as PathComponent, Path, PathBuf};
 use summary::summary;
@@ -355,6 +358,17 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
         )?;
         written.push(env_path.clone());
     }
+    // A kept `.env` keeps its secrets, but its image pin follows the tag this
+    // run records, or compose keeps pulling the previous one.
+    let mut tag_moved = None;
+    if env == EnvAction::Kept {
+        let previous_tag = previous.as_ref().map(|p| p.state.chap_image_tag.as_str());
+        match move_kept_tag(&dir, previous_tag, &chap_core.tag)? {
+            KeptTag::Same => {}
+            KeptTag::Moved { from, to } => tag_moved = Some((from, to)),
+            KeptTag::Warning(text) => warnings.push(text),
+        }
+    }
 
     // `.env` decides: a kept file that already carries the secrets keeps the
     // deployment authenticated, and a rendered one says so itself. The state
@@ -419,6 +433,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
         "written": written,
         "env": env,
         "chap_image_tag": chap_core.tag,
+        "env_tag_moved": tag_moved.is_some(),
         "chap_compose_source": chap_core.source,
         "api_port": args.api_port,
         "api_url": project.api_url(),
@@ -455,6 +470,7 @@ pub(crate) fn create(ctx: &Ctx, args: &InitArgs, report_it: bool) -> Result<()> 
             &project,
             secrets.as_ref(),
             &dropped_notes,
+            tag_moved.as_ref(),
             lines,
         )
     })

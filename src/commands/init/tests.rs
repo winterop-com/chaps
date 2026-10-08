@@ -867,3 +867,60 @@ fn a_seed_password_needs_a_seed_and_a_value() {
     .unwrap_err();
     assert!(err.to_string().contains("needs a password"), "{err}");
 }
+
+#[test]
+fn a_kept_env_moves_only_the_image_pin_varde_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join(ENV_FILE);
+    let read = || std::fs::read_to_string(&env).unwrap();
+
+    // The tag the previous deployment recorded moves to the new one.
+    std::fs::write(&env, "POSTGRES_PASSWORD=x\nCHAP_IMAGE_TAG=v2.3.0\n").unwrap();
+    assert_eq!(
+        move_kept_tag(dir.path(), Some("v2.3.0"), "v2.4.0").unwrap(),
+        KeptTag::Moved {
+            from: "v2.3.0".into(),
+            to: "v2.4.0".into()
+        }
+    );
+    assert_eq!(read(), "POSTGRES_PASSWORD=x\nCHAP_IMAGE_TAG=v2.4.0\n");
+    assert_eq!(
+        move_kept_tag(dir.path(), Some("v2.3.0"), "v2.4.0").unwrap(),
+        KeptTag::Same
+    );
+
+    // `checkout` is only ever written by varde, so it moves without a
+    // previous deployment to vouch for it.
+    std::fs::write(&env, "CHAP_IMAGE_TAG=checkout\n").unwrap();
+    assert!(matches!(
+        move_kept_tag(dir.path(), None, "latest").unwrap(),
+        KeptTag::Moved { .. }
+    ));
+    assert_eq!(read(), "CHAP_IMAGE_TAG=latest\n");
+
+    // A value of the operator's own is left alone, with the way out.
+    std::fs::write(&env, "CHAP_IMAGE_TAG=v1.0.0\n").unwrap();
+    let KeptTag::Warning(text) = move_kept_tag(dir.path(), Some("v2.3.0"), "v2.4.0").unwrap()
+    else {
+        panic!("a warning");
+    };
+    assert!(text.contains("CHAP_IMAGE_TAG=v1.0.0"), "{text}");
+    assert!(text.contains("`CHAP_IMAGE_TAG=v2.4.0`"), "{text}");
+    assert_eq!(read(), "CHAP_IMAGE_TAG=v1.0.0\n");
+    // A checkout build names its own images, so it does not read the line.
+    assert_eq!(
+        move_kept_tag(dir.path(), Some("v2.3.0"), "checkout").unwrap(),
+        KeptTag::Same
+    );
+
+    // The commented placeholder means `latest`, which a release pin is not.
+    std::fs::write(&env, "# CHAP_IMAGE_TAG=latest\n").unwrap();
+    assert!(matches!(
+        move_kept_tag(dir.path(), Some("latest"), "v2.4.0").unwrap(),
+        KeptTag::Warning(_)
+    ));
+    assert_eq!(
+        move_kept_tag(dir.path(), Some("v2.4.0"), "latest").unwrap(),
+        KeptTag::Same
+    );
+}
