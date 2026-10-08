@@ -5,11 +5,17 @@ use super::*;
 /// `varde dhis2 show` — what this DHIS2 has, changing nothing.
 pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
     let session = open_session(ctx, &args.common)?;
-    let target = session.target();
+    // Without chap-core the route has nothing to point at: `connect` and
+    // `route` refuse, so `show` names no target and judges no route.
+    let chap_core = session.project.state.components.has_chap_core_api();
+    let target = match chap_core {
+        true => session.target(),
+        false => String::new(),
+    };
     let route = dhis2::route_in(&session.dhis2.get_json(&dhis2::routes_query())?);
     let token_needed = crate::api::token_for(Some(&session.project.dir)).is_some();
     let shown = route.as_ref().map(|route| {
-        let (proof, way_out) = match route.url == target {
+        let (proof, way_out) = match chap_core && route.url == target {
             // Only worth proxying through a route that points here: one aimed
             // at somebody else's chap-core would answer, and the answer would
             // mean nothing about this deployment.
@@ -24,7 +30,11 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
             false => (
                 RouteProof {
                     verified: false,
-                    answered: "it points at another chap-core".to_string(),
+                    answered: match chap_core {
+                        true => "it points at another chap-core",
+                        false => "this deployment has no chap-core",
+                    }
+                    .to_string(),
                     token_refused: false,
                     empty_503: false,
                 },
@@ -38,7 +48,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
                 .authorities
                 .iter()
                 .any(|authority| authority == dhis2::ROUTE_AUTHORITY),
-            ours: route.url == target,
+            ours: chap_core && route.url == target,
             verified: proof.verified,
             answered: proof.answered,
             token_refused: proof.token_refused,
@@ -53,6 +63,7 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         .as_ref()
         .is_some_and(|route| route.ours && !route.disabled && route.authorised && route.verified);
     match &shown {
+        _ if !chap_core => {}
         None => missing.push("there is no `chap` route".to_string()),
         Some(route) if !route.ours => missing.push(format!(
             "the `chap` route points at {}, not at this deployment",
@@ -95,12 +106,15 @@ pub fn show(ctx: &Ctx, args: &Dhis2ShowArgs) -> Result<()> {
         dhis2::AnalyticsEvidence::RanHere | dhis2::AnalyticsEvidence::Recorded
     );
     missing.extend(missing_apps(&apps));
-    let next = show_next(
-        session.external().is_some(),
-        route_ok,
-        !missing_labels(&apps).is_empty(),
-        analytics_ok,
-    );
+    let next = match chap_core {
+        true => show_next(
+            session.external().is_some(),
+            route_ok,
+            !missing_labels(&apps).is_empty(),
+            analytics_ok,
+        ),
+        false => no_chap_core_next(!missing_labels(&apps).is_empty(), analytics_ok),
+    };
 
     let report = ShowReport {
         instance: session.instance(),
@@ -151,6 +165,26 @@ pub(super) fn show_next(
         false => "",
     };
     format!("run {}{admin}", steps.join(", then "))
+}
+
+/// The last line of `show` on a deployment without chap-core.
+///
+/// The route needs chap-core, so `varde dhis2 connect` is not named: it
+/// refuses there. The apps and analytics have commands of their own that
+/// work without it.
+pub(super) fn no_chap_core_next(apps_missing: bool, analytics_ok: bool) -> String {
+    let route = "the `chap` route needs chap-core; `varde components enable chap-core` adds it";
+    let mut steps = Vec::new();
+    if apps_missing {
+        steps.push("`varde dhis2 apps` for the apps");
+    }
+    if !analytics_ok {
+        steps.push("`varde dhis2 analytics` for the analytics tables");
+    }
+    match steps.is_empty() {
+        true => route.to_string(),
+        false => format!("run {}; {route}", steps.join(", then ")),
+    }
 }
 
 /// The two apps varde installs, as this instance has them.

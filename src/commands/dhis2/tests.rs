@@ -902,3 +902,25 @@ fn a_request_through_the_route_that_got_no_answer_is_not_blamed_on_dhis2() {
     let other = proxied_failure(&anyhow::anyhow!("something else"));
     assert_eq!(other, "something else");
 }
+
+/// Without chap-core, `show` names the commands that work there and the one
+/// that adds chap-core, never `varde dhis2 connect`, which refuses.
+#[test]
+fn show_without_chap_core_does_not_name_connect() {
+    let route = "the `chap` route needs chap-core; `varde components enable chap-core` adds it";
+    assert_eq!(no_chap_core_next(false, true), route);
+    assert_eq!(
+        no_chap_core_next(true, false),
+        format!(
+            "run `varde dhis2 apps` for the apps, then `varde dhis2 analytics` for the \
+             analytics tables; {route}"
+        )
+    );
+    for next in [
+        no_chap_core_next(true, true),
+        no_chap_core_next(false, false),
+    ] {
+        assert!(!next.contains("connect"), "{next}");
+        assert!(next.contains("`varde components enable chap-core`"), "{next}");
+    }
+}

@@ -58,3 +58,39 @@ fn dhis2_route_asks_twice_through_a_route_it_has_just_repointed() {
         .count();
     assert_eq!(health, 2, "{:?}", stand_in.asked());
 }
+
+/// A seeded DHIS2 without chap-core has a `chap` route aimed at a stranger.
+/// `show` does not name a target for it or send the reader to
+/// `varde dhis2 connect`, which refuses there.
+#[cfg(unix)]
+#[test]
+fn dhis2_show_without_chap_core_names_the_steps_that_work() {
+    let stand_in = Dhis2StandIn::with(Dhis2State {
+        route: Some(external_chap_route()),
+        ..Dhis2State::default()
+    });
+    let (sandbox, dir, _temp, bin) = dhis2_connected(&stand_in);
+    sandbox
+        .components(&["disable", "chap-core"])
+        .assert()
+        .success();
+
+    dhis2_chap(&sandbox, &dir, &bin, None, &["show"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "target     none (this deployment has no chap-core)",
+        ))
+        .stdout(predicates::str::contains("http://chap:8000").not())
+        .stdout(predicates::str::contains("not at this deployment").not())
+        .stdout(predicates::str::contains("varde dhis2 connect").not())
+        .stdout(predicates::str::contains(
+            "`varde components enable chap-core` adds it",
+        ))
+        .stdout(predicates::str::contains("`varde dhis2 apps` for the apps"));
+    assert!(
+        !stand_in.was_asked("GET /api/routes/chap/run/health"),
+        "{:?}",
+        stand_in.asked()
+    );
+}

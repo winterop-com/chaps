@@ -295,7 +295,7 @@ pub(super) fn show_table(report: &ShowReport, out: &Out) -> String {
         None => out.warn("none"),
         Some(route) => {
             let mut cell = out.value(&route.url);
-            if !route.ours {
+            if !route.ours && !report.target.is_empty() {
                 cell = format!("{cell} {}", out.warn("(another chap-core)"));
             }
             if route.disabled {
@@ -328,7 +328,13 @@ pub(super) fn show_table(report: &ShowReport, out: &Out) -> String {
         0,
         &[
             ("route", route),
-            ("target", out.dim(&report.target)),
+            (
+                "target",
+                match report.target.is_empty() {
+                    true => out.dim("none (this deployment has no chap-core)"),
+                    false => out.dim(&report.target),
+                },
+            ),
             (
                 "analytics",
                 analytics_cell(report.analytics, &report.last_analytics, out),
