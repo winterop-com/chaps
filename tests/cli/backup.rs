@@ -648,3 +648,63 @@ fn ctrl_c_during_a_backup_unpauses_the_model_and_removes_the_stage() {
     assert!(!dir.join(".varde/tmp").exists());
     assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
 }
+
+/// A `docker` whose plain `docker run` of a volume reader sends Ctrl-C to
+/// varde (its parent), as a terminal does to the whole process group. Every
+/// call goes to `calls.log`.
+#[cfg(unix)]
+fn docker_pressing_ctrl_c_in_the_volume_read() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{log}'\n\
+         case \"$*\" in\n\
+         'run --rm --name '*) kill -INT $PPID; sleep 1; exit 130;;\n\
+         esac\n\
+         exit 0\n",
+        log = log.display()
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin, log)
+}
+
+/// Ctrl-C can stop `docker run` before its container starts, and `--rm` then
+/// never applies. The reader has a known name, and varde removes it, so no
+/// container in state `Created` holds the volume.
+#[cfg(unix)]
+#[test]
+fn ctrl_c_during_a_component_read_removes_the_reader_container() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--only", "ocs"]).assert().success();
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    let (_fake, bin, log) = docker_pressing_ctrl_c_in_the_volume_read();
+
+    chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["backup", "create", "--out", out.to_str().unwrap()],
+    )
+    .assert()
+    .code(130);
+    let calls = read(&log);
+    let name = calls
+        .lines()
+        .find_map(|line| line.strip_prefix("run --rm --name "))
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or_else(|| panic!("a named reader: {calls}"));
+    assert!(name.starts_with("varde-volume-"), "{calls}");
+    assert!(calls.contains(&format!("rm -f {name}")), "{calls}");
+    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+}

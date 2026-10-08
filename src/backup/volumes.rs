@@ -4,6 +4,7 @@
 use super::BUSYBOX_IMAGE;
 use super::tar::read_all;
 use crate::error::Result;
+use crate::interrupt::Throwaway;
 use std::fs::File;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -110,8 +111,8 @@ pub fn component_volumes(
 /// itself mounts a volume in [`COMPONENT_VOLUMES`], and a container of their
 /// own is the only way in. The volume is mounted at `/v` and nothing else is,
 /// so an operator can run the same line by hand.
-pub fn volume_read_args(volume: &str) -> Vec<String> {
-    let mut args = docker_run_args(volume, false);
+pub fn volume_read_args(volume: &str, name: &str) -> Vec<String> {
+    let mut args = docker_run_args(volume, name, false);
     args.extend(
         ["tar", "-C", "/v", "-cf", "-", "."]
             .iter()
@@ -129,8 +130,8 @@ pub fn volume_read_args(volume: &str) -> Vec<String> {
 /// or `..` themselves. `rm` complains about the patterns that match nothing,
 /// which is why only its stderr is dropped; tar's is the exit code that
 /// counts.
-pub fn volume_write_args(volume: &str) -> Vec<String> {
-    let mut args = docker_run_args(volume, true);
+pub fn volume_write_args(volume: &str, name: &str) -> Vec<String> {
+    let mut args = docker_run_args(volume, name, true);
     args.extend(["sh".to_string(), "-c".to_string(), refill_script("/v")]);
     args
 }
@@ -145,8 +146,15 @@ pub fn refill_script(dir: &str) -> String {
     format!("rm -rf {dir}/* {dir}/.[!.]* {dir}/..?* 2>/dev/null; tar -C {dir} -xf -")
 }
 
-fn docker_run_args(volume: &str, stdin: bool) -> Vec<String> {
-    let mut args = vec!["run".to_string(), "--rm".to_string()];
+/// `name` is the container's name, so a run that Ctrl-C stops before the
+/// container starts can remove it (see [`crate::interrupt::Throwaway`]).
+fn docker_run_args(volume: &str, name: &str, stdin: bool) -> Vec<String> {
+    let mut args = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "--name".to_string(),
+        name.to_string(),
+    ];
     if stdin {
         args.push("-i".to_string());
     }
@@ -214,13 +222,34 @@ pub fn ensure_volume(project: &str, volume: &str) -> Result<()> {
 
 /// Read the named volume `volume` into the file `dest`.
 pub fn read_volume(volume: &str, dest: &Path) -> Result<crate::docker::Piped> {
-    run_docker(&volume_read_args(volume), None, Some(dest))
+    let mut throwaway = Throwaway::new(THROWAWAY_PREFIX);
+    let piped = run_docker(
+        &volume_read_args(volume, throwaway.name()),
+        None,
+        Some(dest),
+    )?;
+    if piped.code == 0 {
+        throwaway.finished();
+    }
+    Ok(piped)
 }
 
 /// Empty the named volume `volume` and unpack the tar `src` into it.
 pub fn write_volume(volume: &str, src: &Path) -> Result<crate::docker::Piped> {
-    run_docker(&volume_write_args(volume), Some(src), None)
+    let mut throwaway = Throwaway::new(THROWAWAY_PREFIX);
+    let piped = run_docker(
+        &volume_write_args(volume, throwaway.name()),
+        Some(src),
+        None,
+    )?;
+    if piped.code == 0 {
+        throwaway.finished();
+    }
+    Ok(piped)
 }
+
+/// The start of the name of every container that reads or refills a volume.
+const THROWAWAY_PREFIX: &str = "varde-volume";
 
 /// Run `docker <args>` with its payload streams wired to files.
 ///

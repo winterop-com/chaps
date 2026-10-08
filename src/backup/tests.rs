@@ -975,10 +975,12 @@ fn every_component_volume_has_an_archive_member_of_its_own() {
 #[test]
 fn a_component_volume_is_read_and_written_through_one_busybox_mount() {
     assert_eq!(
-        volume_read_args("chapx-ab12cd_ocs_data"),
+        volume_read_args("chapx-ab12cd_ocs_data", "varde-volume-1-0"),
         vec![
             "run",
             "--rm",
+            "--name",
+            "varde-volume-1-0",
             "-v",
             "chapx-ab12cd_ocs_data:/v",
             BUSYBOX_IMAGE,
@@ -990,12 +992,15 @@ fn a_component_volume_is_read_and_written_through_one_busybox_mount() {
             "."
         ]
     );
-    let write = volume_write_args("chapx-ab12cd_s3_data");
+    let write = volume_write_args("chapx-ab12cd_s3_data", "varde-volume-1-1");
     // Only the writing side keeps stdin open; the reading side would
     // otherwise wait on a terminal that is not there.
-    assert_eq!(write[..3], ["run", "--rm", "-i"]);
-    assert_eq!(write[3..5], ["-v", "chapx-ab12cd_s3_data:/v"]);
-    assert_eq!(write[5], BUSYBOX_IMAGE);
+    assert_eq!(
+        write[..5],
+        ["run", "--rm", "--name", "varde-volume-1-1", "-i"]
+    );
+    assert_eq!(write[5..7], ["-v", "chapx-ab12cd_s3_data:/v"]);
+    assert_eq!(write[7], BUSYBOX_IMAGE);
     let script = write.last().expect("the shell script");
     assert!(script.contains("rm -rf /v/* /v/.[!.]* /v/..?*"));
     assert!(script.ends_with("tar -C /v -xf -"));
