@@ -1464,4 +1464,20 @@ fn enabling_dhis2_names_the_command_that_connects_it_to_chap() {
     assert!(env.contains("# DHIS2_ADMIN_USERNAME=admin"), "{env}");
     assert!(env.contains("# DHIS2_ADMIN_PASSWORD=district"), "{env}");
     assert_eq!(env_value(&env, "DHIS2_ADMIN_PASSWORD"), None, "{env}");
+
+    // A new port on a DHIS2 that a connect is recorded for leaves the route
+    // as it is, so the note does not come back.
+    let components = sandbox.project().join(".varde").join("components.yaml");
+    let body = read(&components);
+    std::fs::write(
+        &components,
+        body.replace("connected_at: null", "connected_at: 2026-09-27T09:12:33Z"),
+    )
+    .expect("the record");
+    let assert = sandbox
+        .components(&["enable", "dhis2", "--port", &free_port().to_string()])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(!stdout.contains("through a DHIS2 route"), "{stdout}");
 }

@@ -131,7 +131,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
             notes.push(Note::hint(dhis2_seed_note(after.dhis2_seed_source())));
         }
         notes.push(Note::hint(DHIS2_FIRST_START_NOTE));
-        if after.has_chap_core_api() {
+        // Not for a DHIS2 that a connect is recorded for: a new port or tag
+        // leaves its route as it is.
+        if after.dhis2_needs_connecting() {
             notes.push(Note::info(DHIS2_CONNECT_NOTE));
         }
     }
