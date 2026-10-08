@@ -894,6 +894,22 @@ fn a_manually_added_model_is_marked_and_named() {
     );
 }
 
+/// The key help is as wide as its longest line: every line is whole in a
+/// 120-column terminal, and a narrow one marks the cut with `~`.
+#[test]
+fn the_key_help_is_never_cut_without_a_mark() {
+    let registry = registry();
+    let mut app = App::new(&registry, &ProjectState::default());
+    app.reduce(Action::Help);
+    let screen = render(&app, 120, 40);
+    for (_, what) in crate::tui::keys::help_entries() {
+        assert!(screen.contains(what), "{what} is cut:\n{screen}");
+    }
+    let screen = render(&app, 50, 40);
+    let line = line_with(&screen, "publish a host port");
+    assert!(line.contains('~'), "{line}");
+}
+
 #[test]
 fn the_overlays_render_on_top_in_rounded_boxes() {
     let registry = registry();

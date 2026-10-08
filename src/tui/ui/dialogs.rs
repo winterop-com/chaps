@@ -2,7 +2,9 @@
 //! DHIS2 version dialogs, the command palette, the key help and the quit
 //! confirmation.
 
-use super::text::{centered, channel_label, fit, overlay, width_of_line, with_tail, wrap};
+use super::text::{
+    centered, channel_label, fit, overlay, truncate, width_of_line, with_tail, wrap,
+};
 use super::{bar_width, keybar};
 use crate::registry::Channel;
 use crate::tui::app::{App, Command, Page, PortWant};
@@ -330,10 +332,6 @@ fn rule_line<'a>(width: usize, theme: &Theme) -> Line<'a> {
 
 pub(super) fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
     let entries = keys::help_entries();
-    let width = 56u16;
-    let height = entries.len() as u16 + 2;
-    let popup = centered(area, width, height);
-
     let lines: Vec<Line> = entries
         .iter()
         .map(|&(key, what)| {
@@ -341,6 +339,21 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
                 Span::styled(format!(" {}", fit(key, 20)), theme.accent_style()),
                 Span::styled(what.to_string(), theme.dim_style()),
             ])
+        })
+        .collect();
+    // As wide as the longest line and its borders, so nothing is cut in a
+    // normal terminal; a terminal narrower than that gets a `~` at the cut.
+    let widest = lines.iter().map(width_of_line).max().unwrap_or_default();
+    let width = (widest + 3) as u16;
+    let height = entries.len() as u16 + 2;
+    let popup = centered(area, width, height);
+    let inner = usize::from(popup.width.saturating_sub(2));
+    let lines: Vec<Line> = lines
+        .into_iter()
+        .map(|line| {
+            let mut spans = line.spans;
+            truncate(&mut spans, inner);
+            Line::from(spans)
         })
         .collect();
 
