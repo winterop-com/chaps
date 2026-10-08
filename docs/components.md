@@ -88,7 +88,7 @@ the first time is the noisiest of them:
 $ varde -v components enable ocs
 enabled ocs on http://localhost:8790
 warning: port 8790 is already in use on this machine (needed by ocs); free it, or run `varde components enable ocs --port 8791`
-hint: wrote ocs/climate-service.yaml; it is yours to edit, and varde never rewrites it
+hint: wrote ocs/climate-service.yaml; it is yours to edit, and varde changes only its `read_only` and `plugins_dir` keys
 hint: OCS will soon need an S3-compatible object store; `varde components enable s3` adds one, and the OCS service then gets the S3_* variables it will read
 hint: the OCS data source variables are now in `.env`, commented out: ERA5-Land needs one or both of ECMWF_DATASTORES_* and EDH_API_KEY, per dataset; WorldPop and CHIRPS3 need none. `varde auth show` reports which are set
 hint: wrote compose.ocs.yml
@@ -453,8 +453,10 @@ services and either one is useful without the other.
 ### `ocs/climate-service.yaml`
 
 Each OCS instance is configured for one country or region. `varde` scaffolds
-that file when the component is first enabled and **never rewrites it**: it is
-yours from that moment on. It is mounted read-only at
+that file when the component is first enabled. From that moment it is yours:
+varde changes only its `read_only` and `plugins_dir` keys, and leaves every
+other line as you wrote it. The first line of the file says the same. It is
+mounted read-only at
 `/app/climate-service.yaml`, which is where `CLIMATE_SERVICE_CONFIG` points.
 
 Without any flags it holds example values for Laos, the country of the DHIS2

@@ -1317,7 +1317,7 @@ the whole dump to every backup of the deployment for nothing. See
 [Backup and restore](./backup.md).
 
 `dhis2/` is in the archive's `files/`, on the same terms
-`ocs/climate-service.yaml` is: it is scaffolded once and never rewritten, so an
+`ocs/climate-service.yaml` is: it is scaffolded once and is yours from then on, so an
 edit made to `dhis.conf` exists nowhere else, and `varde sync` can only write a
 fresh one. The whole directory goes in rather than the one file, because whatever
 you keep beside it is yours on the same grounds, and anything nested under

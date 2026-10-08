@@ -1302,21 +1302,21 @@ volume are, and - for OCS - which of its settings this page deliberately does
 not edit:
 
 ```text
-╭ ocs                                                                   enabled here ╮
-│ Open Climate Service: climate data, reachable at http://ocs:9000                   │
-│                                                                                    │
-│ state       enabled                                                                │
-│ reach       http://localhost:8790                                                  │
-│ compose     compose.ocs.yml · rendered from .varde/components.yaml by `varde sync` │
-│ volume      ocs_data · kept when the component is disabled                         │
-│ config      ocs/climate-service.yaml · yours to edit, and varde never rewrites it  │
-│                                                                                    │
-│ not on this page:                                                                  │
-│   `varde components enable ocs --base-url URL`                                     │
-│     the public origin OCS builds its STAC and openEO links from                    │
-│   `varde components enable ocs --read-only`                                        │
-│     refuse ingestion over HTTP (--read-write allows it again)                      │
-╰────────────────────────────────────────────────────────────────────────────────────╯
+╭ ocs ────────────────────────────────────────────────────────────────────────────────────────── enabled here ╮
+│ Open Climate Service: climate data, reachable at http://ocs:9000                                            │
+│                                                                                                             │
+│ state       enabled                                                                                         │
+│ reach       http://localhost:8790                                                                           │
+│ compose     compose.ocs.yml · rendered from .varde/components.yaml by `varde sync`                          │
+│ volume      ocs_data · kept when the component is disabled                                                  │
+│ config      ocs/climate-service.yaml · yours to edit; varde changes only its read_only and plugins_dir keys │
+│                                                                                                             │
+│ not on this page:                                                                                           │
+│   `varde components enable ocs --base-url URL`                                                              │
+│     the public origin OCS builds its STAC and openEO links from                                             │
+│   `varde components enable ocs --read-only`                                                                 │
+│     refuse ingestion over HTTP (--read-write allows it again)                                               │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 Those two are one-way settings on a file rather than a field on a row:

@@ -62,8 +62,8 @@ reach it at `http://localhost:8790`. varde does not configure chap-core to
 fetch from OCS. chap-core has no setting for it: the two run side by side, and
 you connect them. See [OCS](../components.md#ocs).
 
-`init` writes `ocs/climate-service.yaml`, which is yours to edit and is never
-rewritten. It also puts the data source credentials into `.env`, commented
+`init` writes `ocs/climate-service.yaml`, which is yours to edit. varde changes
+only its `read_only` and `plugins_dir` keys. It also puts the data source credentials into `.env`, commented
 out. ERA5-Land needs one or both of a Copernicus Climate Data Store account
 and an Earth Data Hub account. WorldPop and CHIRPS3 need no account.
 

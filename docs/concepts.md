@@ -33,7 +33,7 @@ mychap/
   compose.marketplace.yml      artifact: include: list, one line per enabled model
   compose.<service_id>.yml     artifact: one overlay per enabled model
   ocs/climate-service.yaml     the OCS instance configuration; scaffolded once by
-                               varde and never rewritten
+                               varde, which changes only two keys in it
   dhis2/dhis.conf              the DHIS2 instance configuration; likewise, and DHIS2
                                does not start without it
   .env                         written once by init; only pins, the two auth
@@ -47,7 +47,7 @@ mychap/
 | `.varde/compose.chap-core.<tag>.yml` | That upstream file as downloaded, one per tag the project has used. Deleting it does not break Chap; it only means `sync` can no longer re-render `compose.yml`. |
 | `.env` | PostgreSQL credentials (the password is 32 random hex characters generated once), the chap-core image tag, `CHAP_API_PORT` (an active line even at the default 8700, so chap-core's published port is discoverable by reading the file), the two authentication secrets (`CHAP_API_TOKEN` and `SERVICEKIT_REGISTRATION_KEY`, active lines when the deployment is protected and commented placeholders when it is not), and commented placeholders for `CHAP_DATABASE_URL` and the per-model image pins. |
 | `compose.ocs.yml`, `compose.s3.yml`, `compose.dhis2.yml` | One per enabled component other than chap-core, rendered from `.varde/components.yaml`. They sit in the `-f` list between `compose.varde.yml` and the umbrella, and are removed again when the component is disabled. See [Components](./components.md). |
-| `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `varde` never rewrites it, and only re-creates it if it goes missing. |
+| `ocs/climate-service.yaml` | The Open Climate Service instance configuration, scaffolded when the `ocs` component is first enabled. It is yours from that moment: `varde` changes only its `read_only` and `plugins_dir` keys, and re-creates it only if it goes missing. |
 | `dhis2/dhis.conf` | The DHIS2 instance configuration, on exactly the same terms - scaffolded once when `dhis2` is first enabled, never rewritten, re-created only if it goes missing. That last part matters more here: DHIS2 does not start without it. See [DHIS2](./dhis2.md#dhis2dhisconf). |
 | `compose.marketplace.yml` | An umbrella file whose `include:` list names one overlay per enabled model. With no models enabled it holds `services: {}` instead of an empty `include`. It carries the project `name:` as well, because it is the one file that is always in the `-f` list. |
 | `compose.<service_id>.yml` | One model service, rendered from its `models.yaml` entry. |
