@@ -420,11 +420,7 @@ pub fn disk_path(root: Option<&str>) -> PathBuf {
 /// this run is in a position to claim.
 pub fn varde_check(latest: ReleaseList<'_>) -> Check {
     const ID: &str = "varde";
-    let path = std::env::current_exe().ok();
-    let method = path
-        .as_deref()
-        .map(selfupdate::install_method)
-        .unwrap_or("release archive");
+    let method = selfupdate::install_method(selfupdate::running_binary().as_deref());
     let detail = format!("v{VERSION}, {TARGET}, {method}");
     match latest {
         ReleaseList::Newest(tag) if selfupdate::is_newer_than_current(tag) => Check::warn(

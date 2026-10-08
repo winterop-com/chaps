@@ -256,13 +256,37 @@ pub fn is_newer_than_current(tag: &str) -> bool {
     crate::chapcore::is_newer(tag, VERSION)
 }
 
-/// Whether `path` looks like `cargo install` put it there, or a `cargo build`
-/// left it in a checkout's `target/`.
-pub fn install_method(path: &Path) -> &'static str {
+/// The running executable with links resolved: the file `self update`
+/// replaces, not the `vg` link to it.
+pub fn running_binary() -> Option<std::path::PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe))
+}
+
+/// How this binary was installed, for `varde self version` and `varde doctor`.
+pub fn install_method(path: Option<&Path>) -> &'static str {
+    install_method_of(path, super::RELEASE_BUILD)
+}
+
+/// How a binary at `path` was installed.
+///
+/// `release_build` is a build-time fact: the release workflow built it, so it
+/// came from a release archive wherever it is now. Otherwise it is a local
+/// build, and the path can tell more: `cargo install` puts it in
+/// `.cargo/bin`, and a `cargo build` leaves it in a checkout's `target/`.
+/// Any other path is a `local build`, because varde cannot tell more.
+pub fn install_method_of(path: Option<&Path>, release_build: bool) -> &'static str {
+    if release_build {
+        return "release archive";
+    }
     let parts: Vec<String> = path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect();
+        .map(|path| {
+            path.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
     let from_cargo = parts
         .windows(2)
         .any(|pair| pair[0] == ".cargo" && pair[1] == "bin");
@@ -274,6 +298,6 @@ pub fn install_method(path: &Path) -> &'static str {
     } else if from_build {
         "cargo build"
     } else {
-        "release archive"
+        "local build"
     }
 }

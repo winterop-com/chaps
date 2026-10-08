@@ -15,6 +15,9 @@
 //! 4. `VARDE_BUILD_CHANNEL` is `stable` or `dev`, taken from the environment
 //!    variable of the same name, which `varde self version` reports and
 //!    `varde self update` uses to decide which release it follows.
+//! 5. `VARDE_RELEASE_BUILD` is `1` when the release workflow built this
+//!    binary and empty otherwise, which `varde self version` reports as
+//!    `installed by`.
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +27,8 @@ const VENDOR_DIR: &str = "vendor/marketplace";
 const INDEX_FILE: &str = "registry.yaml";
 /// The environment variable the release workflow sets for a rolling build.
 const CHANNEL_ENV: &str = "VARDE_BUILD_CHANNEL";
+/// The environment variable the release workflow sets for every build.
+const RELEASE_ENV: &str = "VARDE_RELEASE_BUILD";
 
 fn main() {
     let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -32,6 +37,7 @@ fn main() {
     emit_target();
     emit_git_revision(&root);
     emit_build_channel();
+    emit_release_build();
     emit_embedded_files(&root, &out_dir);
 }
 
@@ -49,6 +55,23 @@ fn emit_build_channel() {
         .unwrap_or(false);
     let channel = if is_dev { "dev" } else { "stable" };
     println!("cargo:rustc-env={CHANNEL_ENV}={channel}");
+}
+
+/// Whether the release workflow built this binary.
+///
+/// `.github/workflows/release.yml` sets `VARDE_RELEASE_BUILD=1` for every
+/// archive it publishes. A local build, `cargo install` and `make install`
+/// included, does not, so `varde self version` does not claim a release
+/// archive for them. Only the value `1` counts.
+fn emit_release_build() {
+    println!("cargo:rerun-if-env-changed={RELEASE_ENV}");
+    let release = std::env::var(RELEASE_ENV)
+        .map(|value| value.trim() == "1")
+        .unwrap_or(false);
+    println!(
+        "cargo:rustc-env={RELEASE_ENV}={}",
+        if release { "1" } else { "" }
+    );
 }
 
 /// The triple being built for, so the running binary can name its own release

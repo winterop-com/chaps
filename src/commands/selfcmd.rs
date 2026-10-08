@@ -29,10 +29,12 @@ struct VersionReport {
     /// say what a build is without anyone having to know that.
     channel: &'static str,
     target: &'static str,
-    /// The running executable, as the OS reports it.
+    /// The running executable with links resolved, so a run through `vg`
+    /// names the `varde` file that `self update` replaces.
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<PathBuf>,
-    /// `release archive`, `cargo install` or `cargo build`, guessed from the path.
+    /// `release archive` when the release workflow built this binary;
+    /// otherwise `cargo install`, `cargo build` or `local build`, from the path.
     install_method: &'static str,
 }
 
@@ -59,21 +61,14 @@ struct UpdateReport {
 
 /// `varde self version`: everything that identifies one build.
 pub fn version(ctx: &Ctx, _args: &SelfVersionArgs) -> Result<()> {
-    // The file itself, not the `vg` link to it: the file `self update`
-    // replaces.
-    let path = std::env::current_exe()
-        .ok()
-        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe));
+    let path = selfupdate::running_binary();
     let report = VersionReport {
         version: VERSION,
         revision: Some(GIT_REVISION).filter(|rev| !rev.is_empty()),
         channel: selfupdate::channel().as_str(),
         target: TARGET,
-        path: path.clone(),
-        install_method: path
-            .as_deref()
-            .map(selfupdate::install_method)
-            .unwrap_or("release archive"),
+        install_method: selfupdate::install_method(path.as_deref()),
+        path,
     };
     ctx.out.emit(&report, || {
         let mut fields = vec![
@@ -138,9 +133,7 @@ pub fn update(ctx: &Ctx, args: &SelfUpdateArgs) -> Result<()> {
     let asset = selfupdate::pick_asset(&release, TARGET);
     // The file itself, not the `vg` link to it: an update through the short
     // form must replace `varde`, which the link then still points at.
-    let path = std::env::current_exe()
-        .ok()
-        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe));
+    let path = selfupdate::running_binary();
 
     if (!wanted && !newer) || same {
         let report = UpdateReport {

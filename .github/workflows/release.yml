@@ -67,6 +67,10 @@ env:
   # and a dispatch alike, is a dev build, so a binary from a dispatch run is
   # never mistaken for a release build.
   VARDE_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
+  # Every binary this workflow builds is a release archive. `build.rs` compiles
+  # it in, and `varde self version` prints it as `installed by`; a local build
+  # does not have it, so it is not reported as a release archive.
+  VARDE_RELEASE_BUILD: "1"
 
 jobs:
   build:

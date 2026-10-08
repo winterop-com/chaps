@@ -137,18 +137,17 @@ fn newer_is_compared_against_this_build() {
 
 #[test]
 fn the_install_method_is_guessed_from_the_path() {
+    let method = |path: &Path| install_method_of(Some(path), false);
     let cargo: PathBuf = [r"/home/u", ".cargo", "bin", "varde"].iter().collect();
-    assert_eq!(install_method(&cargo), "cargo install");
+    assert_eq!(method(&cargo), "cargo install");
     let cargo_win: PathBuf = [r"C:\Users\u", ".cargo", "bin", "varde.exe"]
         .iter()
         .collect();
-    assert_eq!(install_method(&cargo_win), "cargo install");
+    assert_eq!(method(&cargo_win), "cargo install");
+    // A local build anywhere else is not a release archive: `cargo install
+    // --root` and `make install` put it in a plain `bin/`.
     for other in ["/usr/local/bin/varde", "/home/u/.local/bin/varde"] {
-        assert_eq!(
-            install_method(Path::new(other)),
-            "release archive",
-            "{other}"
-        );
+        assert_eq!(method(Path::new(other)), "local build", "{other}");
     }
     // A checkout's own build, in either profile and on Windows too.
     for built in [
@@ -156,12 +155,28 @@ fn the_install_method_is_guessed_from_the_path() {
         &[r"C:\src\varde", "target", "debug", "varde.exe"][..],
     ] {
         let built: PathBuf = built.iter().collect();
-        assert_eq!(install_method(&built), "cargo build", "{built:?}");
+        assert_eq!(method(&built), "cargo build", "{built:?}");
     }
     // `.cargo` without `bin` under it is not a cargo install.
+    assert_eq!(method(Path::new("/home/u/.cargo/varde")), "local build");
+    assert_eq!(install_method_of(None, false), "local build");
+}
+
+/// A binary the release workflow built is a release archive wherever it is,
+/// and this test binary is not one.
+#[test]
+fn a_release_build_is_a_release_archive_wherever_it_is() {
+    for path in ["/usr/local/bin/varde", "/home/u/.cargo/bin/varde"] {
+        assert_eq!(
+            install_method_of(Some(Path::new(path)), true),
+            "release archive"
+        );
+    }
+    assert_eq!(install_method_of(None, true), "release archive");
+    // This test binary is a local build, so it is not reported as one.
     assert_eq!(
-        install_method(Path::new("/home/u/.cargo/varde")),
-        "release archive"
+        install_method(Some(Path::new("/usr/local/bin/varde"))),
+        "local build"
     );
 }
 

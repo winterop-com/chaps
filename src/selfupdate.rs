@@ -21,9 +21,11 @@ pub use install::clean_backup;
 pub use install::{
     download, download_text, extract, find_binary, is_replaceable, replace_executable, verify,
 };
+#[cfg(test)]
+pub use release::install_method_of;
 pub use release::{
     Release, dev_update_available, install_method, is_newer_than_current, latest_release,
-    pick_asset, release_by_tag, release_commit,
+    pick_asset, release_by_tag, release_commit, running_binary,
 };
 
 use std::time::Duration;
@@ -61,6 +63,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The channel this build follows, from the build script: `stable` or `dev`.
 pub const BUILD_CHANNEL: &str = env!("VARDE_BUILD_CHANNEL");
+
+/// Whether the release workflow built this binary, from the build script.
+pub const RELEASE_BUILD: bool = !env!("VARDE_RELEASE_BUILD").is_empty();
 
 /// The tag the rolling pre-release of `main` is published under.
 ///

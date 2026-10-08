@@ -30,17 +30,14 @@ fn the_version_report_carries_the_build_facts() {
     version(&ctx, &SelfVersionArgs {}).expect("version never fails");
 
     // The report is what --json serialises, so assert on that shape.
-    let path = std::env::current_exe().ok();
+    let path = selfupdate::running_binary();
     let report = VersionReport {
         version: VERSION,
         revision: Some(GIT_REVISION).filter(|r| !r.is_empty()),
         channel: selfupdate::channel().as_str(),
         target: TARGET,
-        path: path.clone(),
-        install_method: path
-            .as_deref()
-            .map(selfupdate::install_method)
-            .unwrap_or("release archive"),
+        install_method: selfupdate::install_method(path.as_deref()),
+        path,
     };
     let value = serde_json::to_value(&report).unwrap();
     assert_eq!(value["version"], VERSION);
