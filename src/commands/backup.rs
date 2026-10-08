@@ -44,10 +44,59 @@ pub struct BackupReport {
 }
 
 /// Stage, capture and pack.
+///
+/// Ctrl-C stops the run at the next step: the service held still is let go,
+/// no archive is written and the stage is removed. A second Ctrl-C exits at
+/// once, and `varde up` then resumes what is still paused.
 pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     let project = ctx.project()?;
     let out = destination(&project, args.out.as_deref())?;
+    crate::interrupt::install();
+    let mut running = Running::new(&project);
+    let result = create(ctx, &project, &out, &mut running, args);
+    match result {
+        Err(_) if crate::interrupt::requested() => {
+            Err(interrupted(&running.resumed, &running.stuck))
+        }
+        result => result,
+    }
+}
 
+/// The error of a run that Ctrl-C stopped: what it leaves behind. `resumed`
+/// are the services it paused and let go again, `stuck` the ones it could
+/// not let go.
+fn interrupted(resumed: &[String], stuck: &[String]) -> anyhow::Error {
+    let mut said = vec!["no archive was written".to_string()];
+    match resumed.len() {
+        0 => {}
+        1 => said.push(format!(
+            "{} was paused for the backup and runs again",
+            resumed.join(", ")
+        )),
+        _ => said.push(format!(
+            "{} were paused for the backup and run again",
+            resumed.join(", ")
+        )),
+    }
+    if !stuck.is_empty() {
+        said.push(format!(
+            "{} could not be started again; run `varde up` to resume {}",
+            stuck.join(", "),
+            if stuck.len() == 1 { "it" } else { "them" }
+        ));
+    }
+    crate::error::ChapError::Interrupted(said.join("; ")).into()
+}
+
+/// [`run`] up to the report, with the stage that is removed when it returns.
+fn create(
+    ctx: &Ctx,
+    project: &Project,
+    out: &Path,
+    running: &mut Running,
+    args: &BackupCreateArgs,
+) -> Result<()> {
+    let out = out.to_path_buf();
     let stage = Stage::new(&project.varde_dir(), "backup")?;
     let mut members = vec![MANIFEST_MEMBER.to_string()];
 
@@ -63,7 +112,6 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
         members.push(FILES_MEMBER.to_string());
     }
 
-    let mut running = Running::new(&project);
     let no_chap_core = !project
         .state
         .components
@@ -71,20 +119,25 @@ pub fn run(ctx: &Ctx, args: &BackupCreateArgs) -> Result<()> {
     let database = if args.no_db || no_chap_core {
         None
     } else {
-        let dumped = dump_database(&project, &stage, &mut running)?;
+        let dumped = dump_database(project, &stage, running)?;
         // The dump is `db/chap_core.dump`; the directory is what tar is given.
         members.push("db".to_string());
         Some(dumped)
     };
 
-    let models = capture_models(&project, &stage, &mut running, args.no_models)?;
+    let models = capture_models(project, &stage, running, args.no_models)?;
     if models.iter().any(|m| m.path.is_some()) {
         members.push(MODELS_MEMBER.to_string());
     }
 
-    let components = capture_components(&project, &stage, &mut running, args.no_components)?;
+    let components = capture_components(project, &stage, running, args.no_components)?;
     if components.iter().any(|c| c.path.is_some()) {
         members.push(COMPONENTS_MEMBER.to_string());
+    }
+
+    // Stopped part-way: the archive would not hold what was asked for.
+    if crate::interrupt::requested() {
+        return Err(anyhow::anyhow!("stopped by Ctrl-C"));
     }
 
     let manifest = Manifest {

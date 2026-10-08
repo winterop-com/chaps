@@ -18,6 +18,11 @@ use std::time::{Duration, Instant};
 pub(super) struct Running<'a> {
     project: &'a Project,
     asked: Option<BTreeSet<String>>,
+    /// The services this run held still and let go again.
+    pub(super) resumed: Vec<String>,
+    /// The services this run held still and could not let go: each one has
+    /// had a warning that names the command that does it.
+    pub(super) stuck: Vec<String>,
 }
 
 impl<'a> Running<'a> {
@@ -25,6 +30,8 @@ impl<'a> Running<'a> {
         Running {
             project,
             asked: None,
+            resumed: Vec::new(),
+            stuck: Vec::new(),
         }
     }
 
@@ -78,6 +85,8 @@ pub(super) struct Quiesce<'a> {
     service: String,
     held: Option<Held>,
     since: Instant,
+    /// Whether the release failed, so the service is still held.
+    stuck: bool,
 }
 
 impl<'a> Quiesce<'a> {
@@ -110,7 +119,19 @@ impl<'a> Quiesce<'a> {
             service: service.to_string(),
             held,
             since: Instant::now(),
+            stuck: false,
         }
+    }
+
+    /// [`Quiesce::release`], and a note in `running` of whether the service
+    /// runs again: what a run that Ctrl-C stopped reports.
+    pub(super) fn let_go(&mut self, running: &mut Running) -> Option<String> {
+        let note = self.release()?;
+        match self.stuck {
+            true => running.stuck.push(self.service.clone()),
+            false => running.resumed.push(self.service.clone()),
+        }
+        Some(note)
     }
 
     /// Let the service go, and say how long it was held: `paused for 1.4 s`.
@@ -118,6 +139,7 @@ impl<'a> Quiesce<'a> {
         let held = self.held.take()?;
         let note = quiesce_note(held.verb(), self.since.elapsed());
         if let Err(why) = compose_step(self.project, &[held.release(), &self.service]) {
+            self.stuck = true;
             output::warn(&format!(
                 "{} was {} for the backup and could not be started again: {why}; \
                  run `varde docker run -- {} {}`",

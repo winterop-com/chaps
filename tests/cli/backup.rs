@@ -541,3 +541,71 @@ fn restore_says_what_it_restored_when_the_start_finds_a_port_in_use() {
     assert!(!calls.contains(" up -d"), "{calls}");
     drop(listener);
 }
+
+/// A `docker` in which the model runs, and whose read of the model volume
+/// sends Ctrl-C to varde (its parent). Every call goes to `calls.log`.
+#[cfg(unix)]
+fn docker_pressing_ctrl_c_in_the_read() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let log = temp.path().join("calls.log");
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{log}'\n\
+         case \"$*\" in\n\
+         *' ps --format json'*) echo '{{\"Service\":\"chapkit-ewars-model\",\"State\":\"running\"}}';;\n\
+         compose*' run --rm '*) kill -INT $PPID; sleep 1; exit 130;;\n\
+         esac\n\
+         exit 0\n",
+        log = log.display()
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin, log)
+}
+
+/// Ctrl-C while a model volume is read lets the model go, says so, and
+/// leaves neither an archive nor the stage behind.
+#[cfg(unix)]
+#[test]
+fn ctrl_c_during_a_backup_unpauses_the_model_and_removes_the_stage() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let out = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&out).unwrap();
+    let (_fake, bin, log) = docker_pressing_ctrl_c_in_the_read();
+
+    chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &[
+            "backup",
+            "create",
+            "--no-db",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .assert()
+    .code(130)
+    .stderr(predicates::str::contains(
+        "stopped by Ctrl-C; no archive was written; chapkit-ewars-model was paused for the \
+         backup and runs again",
+    ));
+    let calls = read(&log);
+    assert!(calls.contains(" pause chapkit-ewars-model"), "{calls}");
+    assert!(calls.contains("unpause chapkit-ewars-model"), "{calls}");
+    assert!(!dir.join(".varde/tmp").exists());
+    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+}

@@ -98,6 +98,10 @@ pub(super) fn capture_models(
     };
 
     for (id, model) in &project.state.models {
+        // Ctrl-C: nothing more is paused or read.
+        if crate::interrupt::requested() {
+            break;
+        }
         let volume = volume_name(id);
         let mut entry = ManifestModel {
             id: id.clone(),
@@ -157,7 +161,7 @@ pub(super) fn capture_models(
         }
         let mut quiesce = Quiesce::hold(project, &model.service_id, is_running);
         let piped = docker::run_compose_piped(project, &args, None, Some(&dest));
-        entry.quiesce = quiesce.release();
+        entry.quiesce = quiesce.let_go(running);
         let piped = piped?;
         if piped.code != 0 {
             let _ = std::fs::remove_file(&dest);
@@ -204,6 +208,9 @@ pub(super) fn capture_components(
     };
 
     for part in parts {
+        if crate::interrupt::requested() {
+            break;
+        }
         let mut entry = ManifestComponent {
             name: part.name.to_string(),
             service: part.service.to_string(),
@@ -258,7 +265,7 @@ pub(super) fn capture_components(
         }
         let mut quiesce = Quiesce::hold(project, part.service, is_running);
         let read = backup::read_volume(&volume, &dest);
-        entry.quiesce = quiesce.release();
+        entry.quiesce = quiesce.let_go(running);
         let piped = read?;
         if piped.code != 0 {
             let _ = std::fs::remove_file(&dest);

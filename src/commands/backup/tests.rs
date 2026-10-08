@@ -303,3 +303,23 @@ fn a_long_pause_is_said_before_it_starts() {
         "{warning}"
     );
 }
+
+/// Ctrl-C says what the run leaves behind: no archive, and which services it
+/// paused.
+#[test]
+fn a_stopped_backup_names_what_it_paused() {
+    let owned = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        interrupted(&[], &[]).to_string(),
+        "stopped by Ctrl-C; no archive was written"
+    );
+    assert_eq!(
+        interrupted(&owned(&["dhis2"]), &[]).to_string(),
+        "stopped by Ctrl-C; no archive was written; dhis2 was paused for the backup and runs again"
+    );
+    assert_eq!(
+        interrupted(&owned(&["ocs"]), &owned(&["dhis2"])).to_string(),
+        "stopped by Ctrl-C; no archive was written; ocs was paused for the backup and runs \
+         again; dhis2 could not be started again; run `varde up` to resume it"
+    );
+}
