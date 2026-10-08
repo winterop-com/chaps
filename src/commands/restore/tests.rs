@@ -331,6 +331,30 @@ fn rendered(report: &RestoreReport) -> String {
 }
 
 #[test]
+fn a_loaded_dhis2_dump_names_the_analytics_run() {
+    let mut restored = report(true, vec![]);
+    assert!(!rendered(&restored).contains("varde dhis2 analytics"));
+    restored.plan.components.push(PlannedComponent {
+        name: "dhis2".into(),
+        service: "dhis2-db".into(),
+        data_dir: "/var/lib/postgresql/data".into(),
+        volume: "dhis2_db".into(),
+        dump: true,
+    });
+    // Planned and not restored: nothing to say yet.
+    assert!(!rendered(&restored).contains("varde dhis2 analytics"));
+    restored.components.push("dhis2-db".into());
+    let text = rendered(&restored);
+    assert!(
+        text.contains(
+            "the DHIS2 dump has no analytics tables; when DHIS2 answers, run `varde dhis2 \
+             analytics` to make them again\n"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
 fn the_summary_is_one_line_with_the_details_as_hints() {
     let text = rendered(&report(true, vec![]));
     assert!(

@@ -561,7 +561,9 @@ fn adopt_identity_takes_the_archives_name_over() {
     // Said once, in the closing lines; the plan line comes before them.
     let stderr = String::from_utf8(output.stderr.clone()).unwrap();
     assert_eq!(
-        format!("{text}{stderr}").matches("taken over from the archive").count(),
+        format!("{text}{stderr}")
+            .matches("taken over from the archive")
+            .count(),
         2,
         "the plan line and one closing line:\n{text}{stderr}"
     );

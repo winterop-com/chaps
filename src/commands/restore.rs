@@ -441,6 +441,23 @@ fn say(report: &RestoreReport, lines: &mut output::Report) {
             .hint("`varde status` shows when it answers"),
         false => lines.info("run `varde up` to apply"),
     };
+    if loaded_dhis2_dump(report) {
+        lines.info(DHIS2_ANALYTICS_LINE);
+    }
+}
+
+/// The next step after a DHIS2 database came back from its dump, which has
+/// no analytics tables.
+const DHIS2_ANALYTICS_LINE: &str = "the DHIS2 dump has no analytics tables; when DHIS2 \
+     answers, run `varde dhis2 analytics` to make them again";
+
+/// Whether this restore loaded a DHIS2 database from a `pg_dump`.
+fn loaded_dhis2_dump(report: &RestoreReport) -> bool {
+    report
+        .plan
+        .components
+        .iter()
+        .any(|part| part.dump && report.components.contains(&part.service))
 }
 
 #[cfg(test)]
