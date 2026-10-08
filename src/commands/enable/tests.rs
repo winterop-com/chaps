@@ -145,6 +145,7 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         previous: None,
         url: "http://localhost:5001".into(),
         written: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
+        applied: false,
     };
     let text = render(|lines| port_summary(&exposed, &project, &[], lines));
     assert!(text.starts_with("exposed chapkit-ewars-model on http://localhost:5001\n"));
@@ -173,4 +174,30 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         ..internal
     };
     assert!(render(|lines| port_summary(&again, &project, &[], lines)).contains("(no change)"));
+}
+
+/// A port that is already there and already published has no apply step.
+#[test]
+fn an_applied_port_with_no_change_names_no_apply_step() {
+    let project = project_with_ewars(Some(5001));
+    let change = PortChange {
+        id: "chapkit_ewars_model".into(),
+        service_id: "chapkit-ewars-model".into(),
+        host_port: Some(5001),
+        previous: Some(5001),
+        url: "http://localhost:5001".into(),
+        written: Vec::new(),
+        applied: true,
+    };
+    let text = render(|lines| port_summary(&change, &project, &[], lines));
+    assert_eq!(
+        text,
+        "exposed chapkit-ewars-model on http://localhost:5001 (no change)\n"
+    );
+    let pending = PortChange {
+        applied: false,
+        ..change
+    };
+    let text = render(|lines| port_summary(&pending, &project, &[], lines));
+    assert!(text.ends_with("(no change)\nrun `varde up` to apply\n"), "{text}");
 }

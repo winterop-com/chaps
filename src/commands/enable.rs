@@ -323,6 +323,10 @@ struct PortChange {
     /// How to reach it from this machine now.
     url: String,
     written: Vec<PathBuf>,
+    /// Whether nothing changed and the model's container already publishes
+    /// the port, so `varde up` has nothing to apply.
+    #[serde(skip)]
+    applied: bool,
 }
 
 /// Move one enabled model's host port, then re-render the compose files.
@@ -342,6 +346,7 @@ fn set_host_port(
     let registry = super::registry_for(ctx, Some(&project))?;
     let id = enabled_id(&project, wanted).ok_or_else(|| ChapError::UnknownModel(wanted.into()))?;
     let previous = project.state.models[&id].host_port;
+    let previous_bind = project.state.models[&id].bind;
 
     // The model's own port is not a conflict with itself: it is about to be
     // replaced, and re-claiming it has to succeed.
@@ -369,9 +374,15 @@ fn set_host_port(
         entry.bind = bind;
     }
     let service_id = entry.service_id.clone();
+    let same = host_port == previous && entry.bind == previous_bind;
 
     let synced = sync(&mut project, &registry, false)?;
+    let applied = match (same && synced.written.is_empty(), host_port) {
+        (true, Some(port)) => publishes(&project, &service_id, port),
+        _ => false,
+    };
     let change = PortChange {
+        applied,
         id,
         url: match host_port {
             Some(port) => format!("http://localhost:{port}"),
@@ -409,7 +420,19 @@ fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lin
     for warning in warnings {
         lines.warning(warning.as_str());
     }
-    lines.info("run `varde up` to apply");
+    if !change.applied {
+        lines.info("run `varde up` to apply");
+    }
+}
+
+/// Whether the container of `service` in this deployment publishes `port`
+/// now. Compose names the container `<project>-<service>-<n>`.
+fn publishes(project: &Project, service: &str, port: u16) -> bool {
+    let Some(name) = project.compose_project_name() else {
+        return false;
+    };
+    crate::docker::container_publishing(port)
+        .is_some_and(|container| container.starts_with(&format!("{name}-{service}-")))
 }
 
 /// A path in the deployment, relative to its directory when it is inside it.
