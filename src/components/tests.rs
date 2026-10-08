@@ -549,6 +549,12 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
         "{unknown}"
     );
     assert!(!unknown.contains("components.yaml"), "{unknown}");
+    // The seed applies only when the database is created, so a tag moved on
+    // a `dhis2_db` that is already there does not empty it.
+    assert!(
+        unknown.contains("so a new `dhis2_db` starts empty"),
+        "{unknown}"
+    );
     let master = dhis2_unknown_seed("master");
     assert!(
         master.contains("no DHIS2 demo dump for the image tag `master`"),

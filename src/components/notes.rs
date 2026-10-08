@@ -87,8 +87,8 @@ pub fn dhis2_unknown_seed(tag: &str) -> String {
         false => format!("the image tag `{}`", tag.trim()),
     };
     format!(
-        "varde knows no DHIS2 demo dump for {what}, so `dhis2_db` starts empty; name one with \
-         `varde components enable dhis2 --seed URL` (a URL or a path)"
+        "varde knows no DHIS2 demo dump for {what}, so a new `dhis2_db` starts empty; name one \
+         with `varde components enable dhis2 --seed URL` (a URL or a path)"
     )
 }
 
