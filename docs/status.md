@@ -42,7 +42,8 @@ two log lines that matter mean.
 
 The version is chap-core's own when it publishes one, and otherwise the tag
 `.varde/project.yaml` pins, marked `(pinned)` so nobody reads it as the running
-build.
+build. A moving tag such as `latest` is marked `(from the pin)` instead, because
+a moving tag pins nothing.
 
 A deployment pinned to a moving tag (`latest`, `master`, `dev`) gets one more
 cell, because the tag alone does not say which build is behind it: the digest

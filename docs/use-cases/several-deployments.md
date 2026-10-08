@@ -57,7 +57,7 @@ and names each way out:
 
 ```text
 error: 1 host port this deployment needs is already in use; nothing was started
-  port 8780 (needed by dhis2) is in use, and d242 (/home/me/d242) publishes it too; if that is what is up, stop it with `varde -C /home/me/d242 down`, or move this one: run `varde components enable dhis2 --port 8781`
+  port 8780 (needed by dhis2) is in use, and d242 (/home/me/d242) publishes it too; stop it with `varde -C /home/me/d242 down`, or move this one: run `varde components enable dhis2 --port 8781`
   or run `varde up --no-preflight` to hand the conflict to Docker
   or run `varde up --replace` to stop d242 first
 ```
@@ -67,6 +67,12 @@ error: 1 host port this deployment needs is already in use; nothing was started
 ```sh
 varde up --replace
 ```
+
+Only a running deployment is named, and only a running one is stopped by
+`--replace`. A stopped deployment that publishes the same port holds nothing,
+so `varde up` starts this one. If the port is in use for another reason, the
+line is the plain `port 8780 (needed by dhis2) is already in use on this
+machine` line.
 
 When a program that is not a varde deployment holds the port, varde only
 reports it and does not stop that program. `varde up` names the port and the

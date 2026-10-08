@@ -40,6 +40,9 @@ dhis2   up   http://localhost:8780
 all 3 components are up
 ```
 
+`varde up --wait --timeout 1200` returns only once OCS and DHIS2 answer, so no
+second `varde status` is necessary.
+
 It worked when `varde status` shows `ocs`, `s3` and `dhis2` as `up`. OCS is on
 `http://localhost:8790` and DHIS2 on `http://localhost:8780` (login `admin` /
 `district`). Inside the deployment, DHIS2 reaches OCS at `http://ocs:9000`.
@@ -77,7 +80,8 @@ varde status
 
 The first `varde up` pulls the model image (about 7 GB on disk) and the OCS
 image (about 3 GB) if they are not on the machine. `varde up --wait` returns
-once the model answers on its own host port. It does not wait for OCS. Then
+once the model answers on its own host port and OCS answers its health check.
+Then
 `varde status` shows:
 
 ```text
@@ -124,6 +128,11 @@ chapkit-ewars-model  registered  via chap-core  11s ago
 1 model registered
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
 ```
+
+To wait in one command instead of a second `varde status`, run
+`varde up --wait --timeout 1200`. `--wait` also waits for DHIS2 to answer
+`/api/ping`, and a first start of DHIS2 can take longer than the default 300
+seconds.
 
 `varde dhis2 connect` took about 50 seconds, most of it for analytics. It
 worked when `varde dhis2 connect` ends with

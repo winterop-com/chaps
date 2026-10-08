@@ -57,12 +57,12 @@ Pick one of the three: free the port, move the API with `CHAP_API_PORT` in
 running containers are not conflicts, so `varde up` on a running deployment is still
 a no-op. `varde up --no-preflight` hands the question back to Docker.
 
-When the port belongs to another varde deployment, that one is named, with the
-command that stops it:
+When the port belongs to another varde deployment that is running, that one is
+named, with the command that stops it. A stopped deployment is not named:
 
 ```text
 1 host port this deployment needs is already in use; nothing was started
-  port 8790 (needed by ocs) is in use, and climate (/srv/climate) publishes it too; if that is what is up, stop it with `varde -C /srv/climate down`, or move this one: run `varde components enable ocs --port 8791`
+  port 8790 (needed by ocs) is in use, and climate (/srv/climate) publishes it too; stop it with `varde -C /srv/climate down`, or move this one: run `varde components enable ocs --port 8791`
   or run `varde up --no-preflight` to hand the conflict to Docker
   or run `varde up --replace` to stop climate first
 ```
@@ -653,6 +653,15 @@ See [Cleaning up after removed deployments](./doctor.md#cleaning-up-after-remove
 `varde cleanup` deletes data and asks first, and a `--json` run (or one with
 no terminal) has nobody to ask. `varde cleanup --dry-run` lists what would go;
 `varde cleanup --yes` deletes it without asking.
+
+## `volume X is still there; remove it with `docker volume rm X``
+
+`varde down --volumes` removed the volumes that compose declares and the
+leftover volumes that docker labels with this deployment's compose project.
+A volume with the deployment prefix that has no such label, or that a
+container still uses, stays. The warning names each one, with the reason in
+parentheses when docker gave one. If you do not need its data, run the
+`docker volume rm` command in the line.
 
 ## `docker would not remove volume ...` from `varde stop --purge`
 

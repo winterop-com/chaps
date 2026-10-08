@@ -104,7 +104,8 @@ recreated container counts as started. With `-v`, a hint also names the
 services it left alone.
 
 `up` returns when compose has started the containers, not when chap-core
-answers. `varde up --wait` returns only once chap-core and every model answer.
+answers. `varde up --wait` returns only once chap-core, every model, OCS and DHIS2
+answer.
 
 Every command that operates on a deployment finds its directory the way git
 finds `.git`: from the current directory (or `-C DIR`) upwards to the nearest

@@ -50,8 +50,7 @@ starts from:
 | the next, unreleased | `varde init dhis --only dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master` | empty |
 
 Each command makes a new deployment `dhis`, and so do the commands in the
-next section. If `dhis` already exists, `init` stops with `already contains a
-varde project; use --force to overwrite`. Use a different name.
+next section. If `dhis` already exists, `init` stops with `already contains a varde deployment; choose another directory, or use --force to overwrite it`. Use a different name.
 
 A full version such as `--dhis2-tag 2.42.6` works too. varde has a demo
 database for 2.42 only, so 2.42 and every 2.42.x get it. Every other version

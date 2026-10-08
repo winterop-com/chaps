@@ -45,7 +45,8 @@ stopped chapkit_ewars_model; its data stays, and `varde run chapkit_ewars_model`
 
 Ctrl-C takes the model out of its group, as `varde stop` does. The model's data
 volume stays, so the next run starts with the model's trained state. `--rm`
-removes the data volume too. A second Ctrl-C exits at once. A model that ran
+removes the data volume too, and the group when it has no model left
+(`removed group default`), as `varde stop --purge` does. A second Ctrl-C exits at once. A model that ran
 before the command is not stopped: Ctrl-C then stops only the log. With
 `--no-wait`, you watch the model start in its log. `--json` always returns.
 
@@ -175,6 +176,18 @@ deployment, `run` publishes as that deployment does. See
 state `varde status` would give it: `up` when its `/health` answers,
 `running, not answering` while it starts or when it failed to,
 `not running` when its container is gone.
+
+When it finds no model, `varde ps` says where it looked:
+
+- `there is no `varde run` group X; `varde ps` lists every group`, for a
+  `--group X` that does not exist.
+- `no model runs in a `varde run` group`, when the groups exist and have no
+  model.
+- `nothing has been started with `varde run` yet`, when there is no group.
+
+`-C` on a group that `varde stop --purge` removed names the command that makes
+it again: `the `varde run` group X does not exist, or `varde stop --purge`
+removed it; `varde run <model> --group X` makes it again`.
 
 `varde stop ID` stops a model and takes its overlay away, in whichever group
 has it; when two groups do, it asks for `--group`. `varde stop --all` stops

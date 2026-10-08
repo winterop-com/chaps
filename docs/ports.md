@@ -238,9 +238,10 @@ container rather than a port.
 - Ports held by this deployment's own running containers are skipped, so
   `varde up` on a running deployment stays a no-op.
 - `varde up --no-preflight` hands the question back to Docker.
-- A port another varde deployment publishes is named with that deployment and
-  the command that stops it, and at a terminal `up` offers to stop it and start
-  this one instead; `varde up --replace` does that without asking. See
+- A port that another running varde deployment publishes is named with that
+  deployment and the command that stops it, and at a terminal `up` offers to
+  stop it and start this one instead; `varde up --replace` does that without
+  asking. A stopped deployment is not named, and `--replace` does not stop it. See
   [A host port is already in use](./troubleshooting.md#a-host-port-is-already-in-use).
 - `varde init` probes the API port too, but only warns: the process holding it
   is often a previous deployment you are about to replace. It warns as well

@@ -69,7 +69,7 @@ varde init chapdev --models default --with dhis2 --dhis2-image dhis2/core-dev --
 ```
 
 Each line makes a new deployment. If the directory already exists, `init`
-stops with `already contains a varde project; use --force to overwrite`. Use a
+stops with `already contains a varde deployment; choose another directory, or use --force to overwrite it`. Use a
 different name.
 
 The deployments use the same ports (8700 and 8780), so only one of them can be

@@ -136,7 +136,10 @@ varde up
 ```
 
 `varde models disable` and `varde models remove` keep the model's data volume
-and print the `docker volume rm` command that removes it.
+and print the `docker volume rm` command that removes it. `varde down --volumes`
+also removes that volume, because it has the compose project label of the
+deployment. It warns about each volume with the deployment prefix that it did
+not remove.
 
 More: [Models outside the marketplace](../models.md#models-outside-the-marketplace).
 
