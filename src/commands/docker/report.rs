@@ -1,7 +1,10 @@
 //! What a wrapper says once docker has finished, and when there was nothing
 //! for docker to do.
 
-use super::down::{DownVolumes, down_lines, down_next, forget_dhis2_connect, removed_volumes};
+use super::down::{
+    DownVolumes, down_lines, down_next, forget_dhis2_connect, still_there_line, remove_leftovers,
+    removed_volumes,
+};
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;
 use crate::components::{Components, dhis2_connect_hint};
@@ -46,7 +49,26 @@ pub(super) fn report_what_changed(
         }
         DockerCmd::Down(args) => {
             let stopped = docker::service_names(before);
+            let refused = match args.volumes {
+                true => remove_leftovers(project, volumes),
+                false => Vec::new(),
+            };
             let removed = args.volumes.then(|| removed_volumes(project, volumes));
+            // What `--volumes` did not remove, as docker sees it now.
+            let kept: Vec<String> = match &removed {
+                Some(names) => volumes
+                    .iter()
+                    .filter(|volume| !names.contains(volume))
+                    .map(|volume| {
+                        let why = refused
+                            .iter()
+                            .find(|(name, _)| name == volume)
+                            .map(|(_, why)| why.as_str());
+                        still_there_line(volume, why)
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
             // Said after the line that names what went, because it is a
             // consequence of it.
             let forgot = removed
@@ -63,6 +85,9 @@ pub(super) fn report_what_changed(
                     None => DownVolumes::Kept,
                 };
                 down_lines(&stopped, volumes, name.as_deref(), lines);
+                for line in &kept {
+                    lines.warning(line.as_str());
+                }
                 match forgot {
                     Some(Ok(line)) => lines.info(line),
                     Some(Err(line)) => lines.warning(line),

@@ -326,3 +326,44 @@ fn down_volumes_removes_the_database_volume_docker_holds() {
         "docker volume ls still lists {volume}"
     );
 }
+
+/// `down --volumes` also removes the volume of a model that `varde models
+/// remove` took out, when docker labels it with this deployment's compose
+/// project. A volume under the prefix without that label stays, named in a
+/// warning with the command that removes it.
+#[test]
+fn down_volumes_removes_a_leftover_volume_of_this_compose_project() {
+    if !docker_ready() {
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project().with_file_name("varde-down-leftover");
+    let mut init = sandbox.chap();
+    init.arg("init")
+        .arg(&dir)
+        .args(["--models", "none", "--api-port"])
+        .arg(free_port().to_string());
+    init.assert().success();
+    let project = state(&dir)["compose_project"]
+        .as_str()
+        .expect("init records a compose project name")
+        .to_string();
+    let leftover = format!("{project}_ck_ewars_data");
+    let _leftover = Volume::create_for_project(&leftover, &project);
+    let other = format!("{project}_hand_made");
+    let _other = Volume::create(&other);
+
+    chap_in(&sandbox, &dir, &["down", "--volumes", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "removed 1 volume ({leftover})"
+        )))
+        .stderr(predicates::str::contains(format!(
+            "volume {other} is still there; remove it with `docker volume rm {other}`"
+        )));
+    assert_eq!(
+        docker_volumes(&format!("{project}_")),
+        std::slice::from_ref(&other)
+    );
+}

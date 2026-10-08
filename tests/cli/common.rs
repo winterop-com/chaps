@@ -512,8 +512,20 @@ pub(crate) struct Volume(String);
 impl Volume {
     /// Create it, as compose would when it first starts the service.
     pub(crate) fn create(name: &str) -> Volume {
+        Volume::create_with(name, &[])
+    }
+
+    /// Create it with the compose project label compose gives it.
+    pub(crate) fn create_for_project(name: &str, project: &str) -> Volume {
+        let label = format!("com.docker.compose.project={project}");
+        Volume::create_with(name, &["--label", &label])
+    }
+
+    fn create_with(name: &str, flags: &[&str]) -> Volume {
         let out = std::process::Command::new("docker")
-            .args(["volume", "create", name])
+            .args(["volume", "create"])
+            .args(flags)
+            .arg(name)
             .stdin(std::process::Stdio::null())
             .output()
             .expect("docker volume create runs");

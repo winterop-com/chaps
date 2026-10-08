@@ -263,6 +263,42 @@ pub enum DownVolumes<'a> {
     Removed(&'a [String]),
 }
 
+/// Remove what compose left of `before`: the volumes no compose file
+/// declares now, such as the data volume of a model that `varde models
+/// remove` took out. Only a volume that carries this deployment's compose
+/// project label goes, so the prefix alone never decides. Gives back the
+/// volumes docker refused, each with its reason.
+pub(super) fn remove_leftovers(project: &Project, before: &[String]) -> Vec<(String, String)> {
+    let Some(name) = project.compose_project_name() else {
+        return Vec::new();
+    };
+    let ours = docker::volume_names_of_project(&name);
+    let mut refused = Vec::new();
+    for volume in leftovers(before, &ours) {
+        if let docker::Removal::Refused(why) = docker::remove_volume(&volume) {
+            refused.push((volume, why));
+        }
+    }
+    refused
+}
+
+/// The volumes of `before` that are still there and carry the compose
+/// project label of this deployment (`ours`).
+pub(super) fn leftovers(before: &[String], ours: &[String]) -> Vec<String> {
+    before
+        .iter()
+        .filter(|name| ours.contains(name))
+        .cloned()
+        .collect()
+}
+
+/// The warning for a volume of `before` that a `down --volumes` did not
+/// remove, with the reason docker gave when there is one.
+pub fn still_there_line(volume: &str, why: Option<&str>) -> String {
+    let why = why.map(|why| format!(" ({why})")).unwrap_or_default();
+    format!("volume {volume} is still there{why}; remove it with `docker volume rm {volume}`")
+}
+
 /// The volumes of `before` that docker no longer holds.
 ///
 /// Compose removes the volumes its own files declare, so a leftover from a

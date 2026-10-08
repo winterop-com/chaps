@@ -916,3 +916,30 @@ fn the_wait_names_only_what_the_deployment_has() {
     assert_eq!(waited_for(false, 3).as_deref(), Some("the 3 models"));
     assert_eq!(waited_for(false, 0), None);
 }
+
+/// `down --volumes` removes a leftover only when docker labels it with this
+/// deployment's compose project, and names what it could not remove.
+#[test]
+fn down_volumes_removes_only_the_leftovers_compose_made_for_it() {
+    let before = vec![
+        "lab-1a2b3c_ck_ewars_data".to_string(),
+        "lab-1a2b3c_hand_made".to_string(),
+    ];
+    let ours = vec![
+        "lab-1a2b3c_ck_ewars_data".to_string(),
+        "lab-1a2b3c_chap-db".to_string(),
+    ];
+    assert_eq!(
+        down::leftovers(&before, &ours),
+        ["lab-1a2b3c_ck_ewars_data".to_string()]
+    );
+    assert_eq!(
+        down::still_there_line("lab-1a2b3c_hand_made", None),
+        "volume lab-1a2b3c_hand_made is still there; remove it with \
+         `docker volume rm lab-1a2b3c_hand_made`"
+    );
+    assert_eq!(
+        down::still_there_line("v", Some("volume is in use")),
+        "volume v is still there (volume is in use); remove it with `docker volume rm v`"
+    );
+}
