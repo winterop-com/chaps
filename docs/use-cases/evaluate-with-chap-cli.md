@@ -26,11 +26,12 @@ user.
   | `ghcr.io/dhis2-chap/chap-core` | about 2.4 GB | 5 to 7, only if you have no `chap-worker` |
   | `ghcr.io/chap-models/auto_arima_chapkit` | about 6.2 GB | 6, the marketplace model |
 
-  varde says before each run when it must download an image first. On a slow
-  network, download the images in advance:
+  varde says before each run when it must download an image first. varde
+  uses the tag of the newest chap-core release, `v2.4.0` when this guide was
+  tested. On a slow network, download the images in advance:
 
   ```sh
-  docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.3.1
+  docker pull --platform linux/amd64 ghcr.io/dhis2-chap/chap-worker:v2.4.0
   ```
 - A connection to the internet for the first run.
 
@@ -46,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/winterop-com/varde/main/install.sh 
 varde --version
 ```
 
-It worked when `varde --version` prints a version, for example `varde 0.99.6`.
+It worked when `varde --version` prints a version, for example `varde 0.100.1`.
 See [Install](../install.md) for other ways to install.
 
 ## Step 2: Check the machine
@@ -117,7 +118,7 @@ What the options do:
 varde writes some lines of its own before chap starts:
 
 ```text
-running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.3.1; the first run pulls it, about 12 GB
+running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.4.0; the first run pulls it, about 12 GB
 files: chap reads and writes in /home/me/chap-eval
 ```
 
@@ -131,8 +132,10 @@ chap finished; it wrote minimalist_r.nc
 It worked when you see `chap finished; it wrote minimalist_r.nc`.
 
 varde selected the large `chap-worker` image because a model from GitHub can
-need R. The second time you evaluate the same model, varde uses the copy and
-the packages it keeps in its cache, so the run is faster.
+need R. chap clones the model again for each run. varde keeps the R packages
+of a model in its cache, so the second run does not install them again. This
+small model has no packages to install, so each run takes about the same
+time: about 40 seconds on an Apple silicon Mac, when the image is there.
 
 ## Step 5: Plot the evaluation
 
@@ -167,25 +170,33 @@ varde chap eval \
   --backtest-params.n-periods 3
 ```
 
-varde starts the model, waits until it answers, and then runs chap:
+varde starts the model, waits until it answers, and then runs chap. After
+the first line, Docker Compose writes the lines of the network, the volume
+and the containers that it makes:
 
 ```text
 starting auto-arima-chapkit (auto_arima_chapkit in /home/me/.local/share/varde/run/default)
-running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.3.1
+...
+running `chap eval` in ghcr.io/dhis2-chap/chap-worker:v2.4.0
 files: chap reads and writes in /home/me/chap-eval
 model: auto_arima_chapkit at http://auto-arima-chapkit:8000 answers
 ...
 chap finished; it wrote auto_arima.nc
+`varde chap plot-backtest auto_arima.nc --output-file auto_arima.html` plots it
 auto_arima_chapkit keeps running for the next run; `varde stop auto_arima_chapkit` stops it, and `--stop` stops it after a run
 ```
 
 It worked when you see `chap finished; it wrote auto_arima.nc`. The first
-time, the model's image is downloaded, which takes some minutes.
+time, Docker downloads the image of the model, which takes some minutes.
 
 chap only talks HTTP to a model service, so the smaller `chap-core` image is
-enough. varde uses `chap-worker` here because step 4 already downloaded it.
-The model keeps running, so a second evaluation of it starts
-at once. `varde ps` lists it. Find more ids with `varde models list`.
+enough. varde uses an image that is already on this machine, so the run
+downloads no chap image. After step 4, that is `chap-worker`. If the
+`chap-core` image at the same tag is also on this machine, varde uses
+`chap-core`, and the first line names it.
+
+The model keeps running, so a second evaluation of it starts at once.
+`varde ps` lists it. Find more ids with `varde models list`.
 
 ## Step 7: Compare the two models
 
@@ -215,6 +226,17 @@ Stop the model service, and remove its data:
 varde stop auto_arima_chapkit --purge
 ```
 
+It worked when varde writes:
+
+```text
+stopped auto_arima_chapkit
+removed volume default-662918_ck_auto_arima_chapkit_data
+removed group default
+```
+
+The number in the volume name is different on your machine. The group
+`default` held only this model, so varde removes it too.
+
 Your `.nc`, `.html` and `.csv` files stay in `~/chap-eval`. To get the disk
 space of the caches back, delete varde's chap directory:
 
@@ -228,7 +250,7 @@ To remove the images too, list them, then remove each one with
 ```sh
 docker image ls 'ghcr.io/dhis2-chap/*'
 docker image ls 'ghcr.io/chap-models/*'
-docker image rm ghcr.io/dhis2-chap/chap-worker:v2.3.1
+docker image rm ghcr.io/dhis2-chap/chap-worker:v2.4.0
 ```
 
 ## If something goes wrong

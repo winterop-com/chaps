@@ -6,14 +6,34 @@ developing an app, or restoring a database dump to look at it.
 ```sh
 varde init dhis --only dhis2
 cd dhis
-varde up                     # the first start takes several minutes
+varde up                     # returns when the containers start
 varde status                 # run it again until the dhis2 line says up
 varde open dhis2
 ```
 
 You get DHIS2 on `http://localhost:8780`, with its own PostgreSQL, and no
-chap-core, OCS or models. It worked when `varde status` shows `dhis2` as `up`
-and the login `admin` / `district` works in the browser.
+chap-core, OCS or models.
+
+`varde up` prints `started dhis2, dhis2-db` when the containers start. The
+first `varde up` also pulls the images, about 2 GB on disk, and downloads the
+demo database, about 7 MB. DHIS2 then needs more time before it answers: less than
+a minute on a fast machine, several minutes on a slow one. Until then,
+`varde status` shows this and exits with 1:
+
+```text
+dhis2   starting   http://localhost:8780
+
+1 of 1 component is still starting; run `varde status` again in a moment
+```
+
+It worked when `varde status` shows this, and the login `admin` / `district`
+works in the browser:
+
+```text
+dhis2   up   http://localhost:8780
+
+dhis2 is up
+```
 
 DHIS2 needs about 4 to 5 GB of memory; give Docker 8 GB or more.
 
@@ -29,9 +49,21 @@ starts from:
 | 2.41 | `varde init dhis --only dhis2 --dhis2-tag 2.41` | empty |
 | the next, unreleased | `varde init dhis --only dhis2 --dhis2-image dhis2/core-dev --dhis2-tag master` | empty |
 
+Each command makes a new deployment `dhis`, and so do the commands in the
+next section. If `dhis` already exists, `init` stops with `already contains a
+varde project; use --force to overwrite`. Use a different name.
+
 A full version such as `--dhis2-tag 2.42.6` works too. varde has a demo
-database for 2.42 only, so every other version starts empty and `init` says
-so. An empty DHIS2 still has the `admin` / `district` login, as a superuser.
+database for 2.42 only, so 2.42 and every 2.42.x get it. Every other version
+starts empty, and `init` tells you so:
+
+```text
+warning: varde knows no DHIS2 demo dump for 2.43, so `dhis2_db` starts empty; name one with `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`
+```
+
+An empty DHIS2 still has the `admin` / `district` login, as a superuser. A
+version that is not on the machine yet adds a pull of 1 to 1.5 GB to the first
+`varde up`.
 
 ## Picking the data
 
@@ -46,12 +78,17 @@ varde init dhis --only dhis2 --dhis2-tag 2.43 \
 
 A relative path is relative to the deployment directory, not to the directory
 you run `init` in. For the commands above, put the dump at
-`dhis/dumps/mine.sql.gz` before `varde up`.
+`dhis/dumps/mine.sql.gz` before `varde up`. Until the dump is there, `init`
+tells you:
+
+```text
+warning: the dhis2 seed names dumps/mine.sql.gz, which is not in /path/to/dhis; copy the dump there before `varde up`, or set `seed: none` in .varde/components.yaml
+```
 
 The seed is applied once, when the database is first created; after that the
 database is DHIS2's. DHIS2's Sierra Leone demo is published for 2.41, 2.42 and
-2.43 at that address pattern. It has no climate data, and its `admin` is not a
-superuser: it cannot create the route the Modeling App uses, so pick it for a
+2.43 at that address pattern, and the first `varde up` downloads about 90 MB
+for it. It has no climate data, and its `admin` is not a superuser: it cannot create the route the Modeling App uses, so pick it for a
 DHIS2 on its own, not for one you will connect to Chap.
 
 A dump of a real DHIS2 keeps the passwords of its users.
@@ -62,8 +99,13 @@ them. See
 
 ## Next
 
-`varde dhis2 connect` refuses here, since there is no chap-core to connect to;
-`varde components enable chap-core` adds one, and
+`varde dhis2 connect` refuses here, since there is no chap-core to connect to:
+
+```text
+error: chap-core is not a component of this deployment, so the route would point at a service that is not there; run `varde components enable chap-core` first
+```
+
+`varde components enable chap-core` adds one, then `varde up` starts it, and
 [Chap with a local DHIS2](./chap-with-local-dhis2.md) is that shape from the
 start. More: [The seed](../dhis2.md#the-seed),
 [Changing the DHIS2 version](../dhis2.md#changing-the-dhis2-version),

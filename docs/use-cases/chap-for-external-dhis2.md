@@ -5,33 +5,126 @@ chap-core and its models on a server, used by an existing DHIS2 instance.
 ```sh
 varde init mychap --models default --api-token
 cd mychap
-varde up
+varde up                     # returns when the containers start
+varde status                 # run it again until the chap-core line says up
 varde dhis2 use https://dhis2.example.org --chap-url https://chap.example.org
 varde dhis2 connect
 ```
 
+Replace the two URLs in `varde dhis2 use`:
+
+- `https://dhis2.example.org` is the URL of the DHIS2, as this machine
+  reaches it.
+- `https://chap.example.org` is the address of chap-core, as the DHIS2 server
+  reaches it. The route points there.
+
 `--api-token` protects chap-core's API from the start. `dhis2 use` records the
-external DHIS2 and the address it reaches chap-core at; `connect` then creates
+external DHIS2 and the address it reaches chap-core at. `connect` then creates
 the `chap` route on that DHIS2, or points an existing `chap` route at this
-chap-core, with the credentials you give it, and puts chap-core's
-token in the route, so the Modeling App reaches chap-core without ever holding
-the token itself. On a DHIS2 varde does not run, the route is all `connect`
-changes: installing the Modeling and Climate apps (`varde dhis2 apps`) and
-generating analytics tables (`varde dhis2 analytics`, which can take hours on a
-large instance) are left to its admin, and `connect` says which apps are
-missing.
+chap-core. It puts chap-core's token in the route, so the Modeling App reaches
+chap-core and never holds the token itself.
 
-It worked when `varde dhis2 connect` ends without `error:` and
-`varde dhis2 show` lists the `chap` route as healthy. The first run usually
-stops to say it has no credentials for that DHIS2: put
-`DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD` (or `DHIS2_API_TOKEN`) in
-`.env` and run it again. `--chap-url` has to be an address that DHIS2 server
-can reach this machine at, not `localhost`.
+The first `varde up` on a machine pulls the images: about 6 GB to download and
+about 20 GB on disk (see [Quickstart](../quickstart.md)). When the images are
+on the machine, `up` returns in seconds, and chap-core answers some seconds
+later.
 
-varde serves chap-core over http on port 8700; an `https://` address needs a
+## The credentials
+
+varde has no default login for a DHIS2 it did not deploy. So the first
+`varde dhis2 use` ends with this warning, and `varde dhis2 connect` stops with
+the same text as an `error:`:
+
+```text
+warning: varde has no credentials for this DHIS2, and did not deploy it, so there is no default to try; set `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, or `DHIS2_API_TOKEN`, in `.env`
+```
+
+`.env` has these three lines as comments at its end. To give varde a login:
+
+1. Remove the `#` from `DHIS2_ADMIN_USERNAME` and `DHIS2_ADMIN_PASSWORD`, and
+   set the values of a DHIS2 superuser. Or set `DHIS2_API_TOKEN` to a personal
+   access token of that user.
+2. Run `varde dhis2 use` again. Its `login` line ends with `(accepted)`.
+3. Run `varde dhis2 connect`.
+
+See [The credentials](../dhis2.md#the-credentials-and-where-they-come-from).
+
+## What `connect` changes
+
+On a DHIS2 that varde does not run, `connect` changes the route and nothing
+else. The admin of that DHIS2 decides about the other two steps:
+
+- `varde dhis2 apps` installs the Modeling App and the Climate App.
+- `varde dhis2 analytics` generates the analytics tables. On a large instance
+  this can take hours.
+
+For a DHIS2 2.42 that has a `chap` route already and none of the apps,
+`connect` printed this:
+
+```text
+external DHIS2 2.42.6 at https://dhis2.example.org, as `admin`
+repointed the `chap` route at https://chap.example.org/**; chap-core answered through it
+skipped: installing apps on a DHIS2 varde does not run (the Modeling App is not installed, the Climate App is not installed); `varde dhis2 apps` installs them if its admin agrees
+skipped: generating analytics tables on a DHIS2 varde does not run; `varde dhis2 analytics` starts a run if its admin agrees
+the Modeling App can reach Chap once it is installed; open DHIS2 with `varde open dhis2`
+```
+
+On a DHIS2 with no `chap` route, the second line starts with `created`.
+
+It worked when:
+
+- `varde dhis2 connect` says `chap-core answered through it`.
+- `varde dhis2 show` lists the route as `(healthy)`.
+- When the two apps are installed, the **Models** page of the Modeling App
+  lists the models.
+
+If `connect` warns `nothing answered through it`, run `varde status`. If
+chap-core is up, the DHIS2 server cannot reach the `--chap-url` address. Set
+the correct address with `varde dhis2 use --chap-url URL`. Then run
+`varde dhis2 connect` again.
+
+Until the route works and both apps are installed, `varde up` ends with this
+line:
+
+```text
+varde has not connected this DHIS2 to Chap; run `varde dhis2 connect` once DHIS2 answers
+```
+
+When the admin has installed the apps, run `varde dhis2 connect` again. It
+records the connect in `.varde/components.yaml`, and the line stops.
+
+## The address of chap-core
+
+`--chap-url` is the address at which the DHIS2 server reaches this machine:
+
+- A DHIS2 on another server needs the name or IP address of this machine.
+- `localhost` works only for a DHIS2 that runs directly on this machine.
+  `varde dhis2 use` warns about it.
+- A DHIS2 in Docker on this machine uses `http://host.docker.internal:8700`.
+
+varde serves chap-core over http on port 8700. An `https://` address needs a
 reverse proxy in front of it. If you use `http://SERVER:8700`, the DHIS2 admin
 must add that origin, with no path, to `route.remote_servers_allowed` in the
 `dhis.conf` of the DHIS2 server (DHIS2 2.42 and later).
+
+## Try it on one machine
+
+A second varde deployment can be the external DHIS2. It uses port 8790, so it
+does not conflict with chap-core:
+
+```sh
+varde init ext-dhis2 --only dhis2 --dhis2-port 8790
+cd ext-dhis2
+varde up
+varde status                 # run it again until the dhis2 line says up
+```
+
+In `mychap`, use `varde dhis2 use http://localhost:8790 --chap-url
+http://host.docker.internal:8700`. In [The credentials](#the-credentials), use
+the demo login `admin` / `district`.
+
+To remove the two deployments and their data, run `varde down --volumes --yes`
+in `mychap` and in `ext-dhis2`.
 
 Next: [A DHIS2 that runs elsewhere](../dhis2.md#a-dhis2-that-runs-elsewhere),
 [Authentication](../auth.md).
