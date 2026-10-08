@@ -48,6 +48,7 @@ pub(super) fn lookup_latest(
     current: &str,
     pin: bool,
     requested: Option<&str>,
+    dry_run: bool,
     timeout: std::time::Duration,
     warnings: &mut Vec<String>,
 ) -> Option<String> {
@@ -57,12 +58,33 @@ pub(super) fn lookup_latest(
     match chapcore::latest_release(timeout) {
         Ok(tag) => Some(tag),
         Err(err) => {
-            warnings.push(format!(
-                "could not resolve the newest chap-core release ({err:#}); \
-                 the chap-core pin stays at `{current}`"
+            warnings.push(lookup_failed(
+                &format!("{err:#}"),
+                current,
+                requested,
+                dry_run,
             ));
             None
         }
+    }
+}
+
+/// What a failed release lookup says about the pin.
+///
+/// Without `--chap-tag` the pin stays where it is. With `--chap-tag latest`
+/// the pin still moves, because the operator named the tag; only the compose
+/// file that goes with it cannot be found.
+pub fn lookup_failed(err: &str, current: &str, requested: Option<&str>, dry_run: bool) -> String {
+    match requested {
+        Some(tag) => format!(
+            "could not resolve the newest chap-core release ({err}); the pin {} to `{tag}`, \
+             and compose.yml keeps the layout it has",
+            if dry_run { "would move" } else { "moves" }
+        ),
+        None => format!(
+            "could not resolve the newest chap-core release ({err}); \
+             the chap-core pin stays at `{current}`"
+        ),
     }
 }
 
@@ -73,7 +95,8 @@ pub(super) fn lookup_latest(
 /// compose file that goes with it is the one the newest release publishes.
 pub fn needs_release_lookup(current: &str, pin: bool, requested: Option<&str>) -> bool {
     if let Some(tag) = requested {
-        return tag == chapcore::LATEST_TAG;
+        // A tag that is already the pin moves nothing and fetches nothing.
+        return tag == chapcore::LATEST_TAG && tag != current;
     }
     if chapcore::is_moving_tag(current) {
         return pin;
@@ -317,6 +340,9 @@ pub(super) fn apply_chap_core(
 ) -> Result<()> {
     let tag = update.new_tag.clone();
     match update.compose_ref.clone() {
+        // A `--chap-tag` run without a ref is `latest` after a failed release
+        // lookup, and that lookup has already said so.
+        None if update.requested.is_some() => {}
         None => warnings.push(format!(
             "there is no chap-core ref to fetch compose.ghcr.yml from for {tag}; the image pin \
              moves but compose.yml keeps the layout it has"

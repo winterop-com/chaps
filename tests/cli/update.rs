@@ -229,6 +229,42 @@ fn pin_chap_core_fails_when_the_release_lookup_fails() {
     assert_eq!(state(&dir)["chap_image_tag"], "latest");
 }
 
+/// `--chap-tag latest` moves the pin even when the newest release cannot be
+/// looked up, so the warning says that, and not that the pin stays.
+#[cfg(unix)]
+#[test]
+fn chap_tag_latest_without_the_release_lookup_says_the_pin_moves() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--chap-tag", "v2.3.1"])
+        .assert()
+        .success();
+    let port = Hub {
+        releases: Vec::new(),
+        ..Hub::new()
+    }
+    .start();
+    let (_temp, bin, _) = quiet_docker();
+    online_update(&sandbox, port, &bin, &["--dry-run", "--chap-tag", "latest"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "the pin would move to `latest`, and compose.yml keeps the layout it has",
+        ))
+        .stderr(predicates::str::contains("stays at").not());
+    assert_eq!(state(&dir)["chap_image_tag"], "v2.3.1");
+    online_update(&sandbox, port, &bin, &["--chap-tag", "latest"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "the pin moves to `latest`, and compose.yml keeps the layout it has",
+        ))
+        .stderr(predicates::str::contains("stays at").not())
+        .stderr(predicates::str::contains("no chap-core ref").not());
+    assert_eq!(state(&dir)["chap_image_tag"], "latest");
+}
+
 /// `dev` is a branch of chap-core, but ghcr has no image for it. The tag is
 /// refused before the pin moves, and the dry run says the same.
 #[cfg(unix)]

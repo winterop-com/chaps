@@ -1154,3 +1154,18 @@ fn a_dry_run_says_what_would_happen_and_claims_nothing_else() {
     // A dry run pulls nothing, so it never claims a restart is needed.
     assert!(!dry_run_text(Some("1 model pin")).contains("restart"));
 }
+
+#[test]
+fn a_failed_release_lookup_says_where_the_pin_goes() {
+    // Without --chap-tag the pin stays.
+    assert!(lookup_failed("offline", "v2.4.0", None, false).ends_with("pin stays at `v2.4.0`"),);
+    // With --chap-tag latest the pin moves anyway, and the warning says so.
+    let text = lookup_failed("offline", "v2.4.0", Some("latest"), false);
+    assert!(text.contains("the pin moves to `latest`"), "{text}");
+    assert!(!text.contains("stays"), "{text}");
+    let text = lookup_failed("offline", "v2.4.0", Some("latest"), true);
+    assert!(text.contains("the pin would move to `latest`"), "{text}");
+    // A tag that is already the pin needs no lookup at all.
+    assert!(!needs_release_lookup("latest", false, Some("latest")));
+    assert!(needs_release_lookup("v2.4.0", false, Some("latest")));
+}

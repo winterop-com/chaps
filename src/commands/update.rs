@@ -206,6 +206,7 @@ fn update(ctx: &Ctx, args: &UpdateArgs, warnings: &mut Vec<String>) -> Result<()
                 &project.state.chap_image_tag,
                 args.pin_chap_core,
                 requested,
+                args.dry_run,
                 ctx.registry.timeout,
                 warnings,
             )
