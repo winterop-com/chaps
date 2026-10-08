@@ -1114,3 +1114,42 @@ fn docker_accepts_a_deployment_with_both_components() {
         Some("no")
     );
 }
+
+/// A chap-core elsewhere that is a container on this machine changes where
+/// it calls the models back, so `components enable chap-core --url` says it
+/// as a warning, the way `varde init` does.
+#[cfg(unix)]
+#[test]
+fn enable_chap_core_url_warns_when_the_chap_core_is_a_container() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&["--models", "none", "--only", "none"])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let docker = temp.path().join("docker");
+    std::fs::write(
+        &docker,
+        "#!/bin/sh\ncase \"$*\" in\n  *publish=*) echo own-68575e-chap-1 ;;\nesac\nexit 0\n",
+    )
+    .expect("the fake docker");
+    std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+        .expect("an executable fake docker");
+
+    let port = free_port();
+    let url = format!("http://localhost:{port}");
+    chap_with_docker(
+        &sandbox,
+        &dir,
+        temp.path(),
+        &["components", "enable", "chap-core", "--url", &url],
+    )
+    .assert()
+    .success()
+    .stderr(predicates::str::contains(format!(
+        "warning: chap-core at {url} is the container `own-68575e-chap-1`"
+    )));
+}

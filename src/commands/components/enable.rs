@@ -241,7 +241,9 @@ fn use_external_chap_core(
     let registry = crate::commands::registry_for(ctx, Some(&project))?;
     let synced = sync(&mut project, &registry, false)?;
     let mut notes = notes_of(NoteLevel::Warning, synced.warnings);
-    notes.extend(detected.map(Note::hint));
+    // A warning, as in `varde init`: it changes where chap-core calls the
+    // models back, which the reader did not ask for.
+    notes.extend(detected.map(Note::warning));
     notes.push(Note::hint(format!(
         "model services register with the chap-core at {} on the next `varde up`, calling \
          back to them at {}; `varde status` asks it",
