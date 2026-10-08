@@ -39,7 +39,9 @@ pub use plan::{
 pub use tar::{
     first_line, tar_create, tar_extract_into, tar_extract_member_to, tar_list, tar_read_member,
 };
-pub use volumes::{COMPONENT_VOLUMES, component_volumes, read_volume, refill_script, write_volume};
+pub use volumes::{
+    COMPONENT_VOLUMES, component_volumes, ensure_volume, read_volume, refill_script, write_volume,
+};
 
 use crate::error::Result;
 use serde::{Deserialize, Serialize};

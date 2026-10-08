@@ -156,6 +156,62 @@ fn docker_run_args(volume: &str, stdin: bool) -> Vec<String> {
     args
 }
 
+/// `docker volume` arguments that create the volume `<project>_<volume>` with
+/// the labels compose gives the volumes it creates.
+///
+/// A `docker run -v` of a volume that does not exist yet creates one without
+/// labels, and compose then warns on every `up` that the volume "already
+/// exists but was not created by Docker Compose". `compose_version` is what
+/// `docker compose version` said, when it could be read.
+pub fn volume_create_args(
+    project: &str,
+    volume: &str,
+    compose_version: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
+        "volume".to_string(),
+        "create".to_string(),
+        "--label".to_string(),
+        format!("{}={project}", crate::docker::COMPOSE_PROJECT_LABEL),
+        "--label".to_string(),
+        format!("{COMPOSE_VOLUME_LABEL}={volume}"),
+    ];
+    if let Some(version) = compose_version {
+        args.push("--label".to_string());
+        args.push(format!("{COMPOSE_VERSION_LABEL}={version}"));
+    }
+    args.push(format!("{project}_{volume}"));
+    args
+}
+
+/// The label compose puts the volume's key in.
+const COMPOSE_VOLUME_LABEL: &str = "com.docker.compose.volume";
+/// The label compose puts its own version in.
+const COMPOSE_VERSION_LABEL: &str = "com.docker.compose.version";
+
+/// Create `<project>_<volume>` the way compose does, when it does not exist.
+pub fn ensure_volume(project: &str, volume: &str) -> Result<()> {
+    if crate::docker::volume_exists(&format!("{project}_{volume}")) {
+        return Ok(());
+    }
+    let version = crate::docker::compose_version()
+        .ok()
+        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"));
+    let piped = run_docker(
+        &volume_create_args(project, volume, version.as_deref()),
+        None,
+        None,
+    )?;
+    if piped.code != 0 {
+        return Err(anyhow::anyhow!(
+            "creating the volume {project}_{volume} failed (exit {}): {}",
+            piped.code,
+            super::first_line(&piped.stderr)
+        ));
+    }
+    Ok(())
+}
+
 /// Read the named volume `volume` into the file `dest`.
 pub fn read_volume(volume: &str, dest: &Path) -> Result<crate::docker::Piped> {
     run_docker(&volume_read_args(volume), None, Some(dest))

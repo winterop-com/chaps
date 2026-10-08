@@ -126,6 +126,9 @@ pub(super) fn restore_components(
         let tar = stage.path(&member)?;
         backup::tar_extract_member_to(archive, &member, &tar)?;
 
+        // A deployment that never started has no volume yet, and the one
+        // `docker run` would make has no compose labels.
+        backup::ensure_volume(&prefix, &part.volume)?;
         let volume = format!("{prefix}_{}", part.volume);
         let piped = backup::write_volume(&volume, &tar)?;
         if piped.code != 0 {

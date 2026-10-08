@@ -1,6 +1,6 @@
 use super::files::{is_compose_file, is_contained_relative};
 use super::pg_restore::{PgRestoreError, pg_restore_error_is_ignorable, pg_restore_ignored_count};
-use super::volumes::{ComponentVolume, volume_read_args, volume_write_args};
+use super::volumes::{ComponentVolume, volume_create_args, volume_read_args, volume_write_args};
 use super::*;
 
 /// The model restore used to clear `dir/*` alone, so a `.stale` written
@@ -1050,4 +1050,29 @@ fn the_dhis2_dump_leaves_out_what_dhis2_makes_again() {
     );
     assert!(is_dhis2_db_dump(DHIS2_DB_DUMP_MEMBER));
     assert!(!is_dhis2_db_dump("components/dhis2-home.tar"));
+}
+
+/// A volume the restore makes carries the labels compose gives its own, so
+/// compose does not warn that it "was not created by Docker Compose".
+#[test]
+fn a_volume_the_restore_makes_has_the_compose_labels() {
+    assert_eq!(
+        volume_create_args("chapv-60913c", "dhis2_home", Some("2.39.1")),
+        [
+            "volume",
+            "create",
+            "--label",
+            "com.docker.compose.project=chapv-60913c",
+            "--label",
+            "com.docker.compose.volume=dhis2_home",
+            "--label",
+            "com.docker.compose.version=2.39.1",
+            "chapv-60913c_dhis2_home",
+        ]
+    );
+    assert!(
+        !volume_create_args("p", "ocs_data", None)
+            .iter()
+            .any(|arg| arg.contains("version"))
+    );
 }
