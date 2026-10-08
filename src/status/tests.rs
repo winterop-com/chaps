@@ -48,7 +48,7 @@ fn a_model_registered_under_its_own_id_is_told_to_take_that_id() {
     );
     assert_eq!(rows[1].registered_as, None);
 
-    let said = hints(&rows, false, None);
+    let said = hints(&rows, false, None, &[]);
     assert!(
         said[0].contains("its container registered as `chapkit-simple-multistep-model`"),
         "{said:?}"
@@ -933,7 +933,7 @@ fn every_problem_row_gets_its_own_hint() {
         NOW,
     );
     assert_eq!(
-        hints(&rows, false, None),
+        hints(&rows, false, None, &[]),
         vec![
             "chapkit-rwanda-malaria-bym-model: restart it with \
                  `varde restart --all chapkit-rwanda-malaria-bym-model`"
@@ -955,15 +955,15 @@ fn every_problem_row_gets_its_own_hint() {
         &BTreeSet::new(),
         NOW,
     );
-    assert!(hints(&rows, false, None).is_empty());
-    assert!(hints(&rows, true, None).is_empty());
+    assert!(hints(&rows, false, None, &[]).is_empty());
+    assert!(hints(&rows, true, None, &[]).is_empty());
     assert_eq!(test_hint(&rows), Some(TEST_HINT_ONE));
     assert!(TEST_HINT.contains("varde models test --all"));
     assert!(TEST_HINT_ONE.contains("check it can run"));
 
     // Nothing enabled at all has nothing to test either, and a
     // registration this project does not manage is not a model of ours.
-    assert!(hints(&[], false, None).is_empty());
+    assert!(hints(&[], false, None, &[]).is_empty());
     assert_eq!(test_hint(&[]), None);
     let stranger = model_rows(
         &[],
@@ -971,7 +971,7 @@ fn every_problem_row_gets_its_own_hint() {
         &BTreeSet::new(),
         NOW,
     );
-    assert!(hints(&stranger, false, None).is_empty());
+    assert!(hints(&stranger, false, None, &[]).is_empty());
     assert_eq!(test_hint(&stranger), None);
 }
 
@@ -988,7 +988,7 @@ fn a_misnamed_manual_model_is_told_the_exact_commands() {
     rows[0].registered_as = Some("chapkit-minimalist-example-py".to_string());
     rows[0].added_from = Some(("my_model".to_string(), "my-model:dev".to_string()));
     assert_eq!(
-        hints(&rows, false, None),
+        hints(&rows, false, None, &[]),
         vec![
             "my-model: its container registered as `chapkit-minimalist-example-py`, the \
                  unmanaged row above; run `varde models remove my_model`, then `varde models \
@@ -1009,7 +1009,7 @@ fn a_model_that_just_started_is_told_to_wait_not_to_restart() {
         NOW,
     );
     rows[0].young = true;
-    let hint = &hints(&rows, true, None)[0];
+    let hint = &hints(&rows, true, None, &[])[0];
     assert!(hint.contains("started under two minutes ago"), "{hint}");
     assert!(
         hint.contains("run `varde status` again in a minute"),
@@ -1030,7 +1030,7 @@ fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
         &running(&["chapkit-ewars-model"]),
         NOW,
     );
-    let hint = &hints(&rows, true, None)[0];
+    let hint = &hints(&rows, true, None, &[])[0];
     assert!(
         hint.starts_with("chapkit-ewars-model: restart it with "),
         "{hint}"
@@ -1043,7 +1043,7 @@ fn a_protected_deployment_names_the_other_reason_a_model_never_registers() {
         "{hint}"
     );
     // Without authentication there is no 401 to explain.
-    assert!(!hints(&rows, false, None)[0].contains("401"));
+    assert!(!hints(&rows, false, None, &[])[0].contains("401"));
 }
 
 #[test]
@@ -1234,7 +1234,7 @@ fn a_registered_model_chap_core_cannot_reach_is_a_problem_with_the_way_out() {
     assert!(rows[0].state.is_problem());
     assert_eq!(rows[2].state, ModelState::Registered);
 
-    let elsewhere = hints(&rows, false, Some("http://localhost:8000"));
+    let elsewhere = hints(&rows, false, Some("http://localhost:8000"), &[]);
     assert!(
         elsewhere[0].starts_with(
             "chapkit-ewars-model: chap-core cannot reach it at http://chapkit-ewars-model:8000 \
@@ -1249,7 +1249,7 @@ fn a_registered_model_chap_core_cannot_reach_is_a_problem_with_the_way_out() {
         ),
         "{elsewhere:?}"
     );
-    let own = hints(&rows, false, None);
+    let own = hints(&rows, false, None, &[]);
     assert!(
         own[0].contains("`varde logs chapkit-ewars-model`"),
         "{own:?}"

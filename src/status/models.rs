@@ -252,28 +252,36 @@ pub struct RevisionWarning {
     pub id: String,
     pub version: String,
     pub problem: RevisionProblem,
+    /// Whether this deployment runs the model, which changes the way out:
+    /// its image is built again, not started somewhere else.
+    pub managed: bool,
 }
 
 /// The unmanaged rows whose template chap-core refuses, as far as varde can
 /// see it: a registration with an empty `git_revision`, or a configured model
 /// whose `healthStatus` is `revision_mismatch`.
 ///
-/// Only the unmanaged rows: a model run from its checkout is the one whose
-/// revision its developer sets. A template stored from another revision with
-/// no configured model is not seen, because only the template listing says
-/// that, and that listing changes chap-core when it is read.
+/// The unmanaged rows, and a model of this deployment that chap-core has no
+/// configured model for because it reports no revision: `varde models
+/// configure` cannot fix that one, so its row gets this way out instead. A
+/// template stored from another revision with no configured model is not
+/// seen, because only the template listing says that, and that listing
+/// changes chap-core when it is read.
 pub fn revision_warnings(
     rows: &[ModelStatus],
     registered: &[RegisteredService],
     configured: &[crate::modeltest::ConfiguredModel],
 ) -> Vec<RevisionWarning> {
     rows.iter()
-        .filter(|row| row.state == ModelState::Unmanaged)
+        .filter(|row| matches!(row.state, ModelState::Unmanaged | ModelState::NotConfigured))
         .filter_map(|row| {
             let service = registered.iter().find(|s| s.id == row.id)?;
             let prefix = format!("{}:", row.id);
+            let managed = row.state == ModelState::NotConfigured;
             let problem = if matches!(service.git_revision, Some(None)) {
                 RevisionProblem::NoRevision
+            } else if managed {
+                return None;
             } else if configured.iter().any(|model| {
                 !model.archived
                     && (model.name == row.id || model.name.starts_with(&prefix))
@@ -287,6 +295,7 @@ pub fn revision_warnings(
                 id: row.id.clone(),
                 version: service.version.clone(),
                 problem,
+                managed,
             })
         })
         .collect()

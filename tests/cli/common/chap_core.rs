@@ -295,8 +295,14 @@ fn service_list() -> String {
     ]
     .iter()
     .map(|id| {
+        // The old chapkit is built without a revision, which is why the 2.4
+        // stand-in refuses its template.
+        let revision = match *id == OLD_CHAPKIT_MODEL {
+            true => r#","git_revision":null"#,
+            false => "",
+        };
         format!(
-            r#"{{"id":"{id}","url":"http://{id}:8000","info":{{"id":"{id}","version":"1.0.1"}},
+            r#"{{"id":"{id}","url":"http://{id}:8000","info":{{"id":"{id}","version":"1.0.1"{revision}}},
                    "last_ping_at":"2026-09-24T16:00:00Z","expires_at":"2026-09-24T16:05:00Z"}}"#
         )
     })

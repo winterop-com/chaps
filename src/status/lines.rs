@@ -293,6 +293,12 @@ pub fn external_registration_hints(rows: &[ModelStatus]) -> Vec<String> {
 /// refuses.
 pub fn revision_line(warning: &crate::status::RevisionWarning) -> String {
     match warning.problem {
+        crate::status::RevisionProblem::NoRevision if warning.managed => format!(
+            "{}: it reports no git revision, so chap-core stores no model template for it and \
+             `varde models configure` cannot configure it; {}",
+            warning.id,
+            crate::configure::NO_REVISION_WAY_OUT
+        ),
         crate::status::RevisionProblem::NoRevision => format!(
             "{}: it reports no git revision, so chap-core stores no model template for it; set \
              `GIT_REVISION` where it runs, then start it again",
@@ -314,7 +320,15 @@ pub const EXTERNAL_REGISTRATION_LOG: &str = "in the log of a model, \
 
 /// `elsewhere` is the URL of a chap-core this deployment does not run, which
 /// changes what an unreachable model most likely means.
-pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<String> {
+///
+/// `revisions` are the [`revision_line`] warnings: a row one of them gives
+/// the way out for gets no `varde models configure` line, which cannot fix it.
+pub fn hints(
+    rows: &[ModelStatus],
+    auth: bool,
+    elsewhere: Option<&str>,
+    revisions: &[crate::status::RevisionWarning],
+) -> Vec<String> {
     let registration_key = if auth {
         concat!(
             "; if its log shows 401, chap-core is missing the registration key: ",
@@ -366,6 +380,7 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
                 row.id, row.id
             )),
             ModelState::Unreachable => Some(unreachable_hint(row, elsewhere)),
+            ModelState::NotConfigured if revisions.iter().any(|w| w.id == row.id) => None,
             ModelState::NotConfigured => Some(format!(
                 "{}: chap-core has no configured model for it, so nothing can run it; run `varde \
                  models configure`",

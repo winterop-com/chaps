@@ -92,6 +92,9 @@ fn configure_creates_the_configured_models_of_each_registered_model() {
     assert_eq!(seen["configured_posts"].as_array().map(Vec::len), Some(3));
 }
 
+/// The stand-in's old chapkit registers with no git revision, and chap-core
+/// refuses its template. Running the step again cannot fix that, so neither
+/// `models configure` nor `status` says to.
 #[test]
 fn configure_warns_and_fails_when_chap_core_refuses_a_template() {
     let sandbox = Sandbox::new();
@@ -104,11 +107,47 @@ fn configure_warns_and_fails_when_chap_core_refuses_a_template() {
         .clone();
     let report: Json = serde_json::from_slice(&output.stdout).expect("one document");
     assert_eq!(report["ok"], false);
-    assert_eq!(report["models"][0]["state"], "failed");
+    assert_eq!(report["models"][0]["state"], "no-revision");
     let error = report["models"][0]["error"].as_str().unwrap_or_default();
     assert!(error.contains("HTTP 409 Conflict"), "{error}");
     let message = report["messages"][0].clone();
     assert_eq!(message["level"], "warning");
+    let text = message["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains(
+            "it reports no git revision, so running this again does not help; build its image \
+             again with `--build-arg GIT_REVISION=$(git rev-parse HEAD)`, then run `varde restart`"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("`varde models configure"), "{text}");
+
+    let port = state(&dir)["api_port"].as_u64().expect("the port");
+    let url = format!("http://127.0.0.1:{port}");
+    let report = json_of(&mut chap_in(
+        &sandbox,
+        &dir,
+        &["--json", "status", "--url", &url],
+    ));
+    let texts: Vec<&str> = report["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .filter_map(|m| m["text"].as_str())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.starts_with(&format!(
+            "{OLD_CHAPKIT_MODEL}: it reports no git revision, so chap-core stores no model \
+             template for it and `varde models configure` cannot configure it; build its image"
+        ))),
+        "{texts:?}"
+    );
+    assert!(
+        !texts
+            .iter()
+            .any(|t| t.ends_with("run `varde models configure`")),
+        "{texts:?}"
+    );
 }
 
 #[test]

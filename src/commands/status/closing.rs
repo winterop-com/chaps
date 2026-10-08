@@ -66,7 +66,12 @@ pub(super) fn closing(report: &StatusReport, external: bool, lines: &mut Report)
     let elsewhere = report
         .chap_core_elsewhere
         .then_some(report.api_url.as_str());
-    for fix in hints(&report.models, report.auth, elsewhere) {
+    for fix in hints(
+        &report.models,
+        report.auth,
+        elsewhere,
+        &report.revision_warnings,
+    ) {
         lines.info(fix);
     }
     if let Some(connect) = connect_hint(report) {
