@@ -53,9 +53,9 @@ and installs the dependencies of the model.
   a revision. Without it, the model registers and shows in `varde status`, but
   chap-core has no template for it. The chap-core log (`varde logs chap`) then
   says `is stored from revision None, but its source now reports revision None`,
-  and `varde status` warns: `SERVICE_ID: it reports no git revision, so
+  and `varde status` warns: `` SERVICE_ID: it reports no git revision, so
   chap-core stores no model template for it; set `GIT_REVISION` where it runs,
-  then start it again`.
+  then start it again ``.
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 

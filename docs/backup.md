@@ -163,8 +163,8 @@ reads one transactional snapshot, however busy chap-core is while it runs.
 
 **A large volume means a long pause.** A paused service does not answer.
 Before varde pauses a running model or component service for a volume of 1 GiB
-or more, it warns. The warning for a model ends with `or use `--no-models` to
-omit the data of every model`.
+or more, it warns. The warning for a model ends with `` or use `--no-models` to
+omit the data of every model ``.
 The DHIS2 database is not paused at all: it is a `pg_dump` without the
 analytics tables, see [DHIS2](./dhis2.md#backing-it-up).
 

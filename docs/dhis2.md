@@ -885,7 +885,7 @@ run `varde dhis2 connect` to point its route at this Chap
 | Form | What it does |
 | --- | --- |
 | `varde dhis2 use URL --chap-url URL` | Record one, or replace the one recorded. |
-| `varde dhis2 use URL` / `varde dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. With `--chap-url` alone, the headline says `changed the chap-url of the external DHIS2 at URL to CHAP_URL in `.varde/components.yaml``. |
+| `varde dhis2 use URL` / `varde dhis2 use --chap-url URL` | Move one of the two URLs of the one already recorded. With `--chap-url` alone, the headline says `` changed the chap-url of the external DHIS2 at URL to CHAP_URL in `.varde/components.yaml` ``. |
 | `varde dhis2 use` | Say which DHIS2 `varde dhis2` talks to, and ask it. Writes nothing. |
 | `varde dhis2 use --clear` | Forget it; `varde dhis2` talks to the `dhis2` component again. |
 
@@ -897,11 +897,11 @@ What changes against an external DHIS2:
   apps are missing and ends with a `skipped:` line for each step it left; its
   admin runs `varde dhis2 apps` and `varde dhis2 analytics` when they agree.
   `connected_at` is recorded once the route is proved. If an app is missing,
-  `connect` then ends with `the Modeling App can reach Chap after the admin of
+  `connect` then ends with `` the Modeling App can reach Chap after the admin of
   this DHIS2 installs the Modeling App and the Climate App; `varde dhis2 show`
-  says when they are there`. `varde dhis2 show` ends with `run `varde dhis2
+  says when they are there ``. `varde dhis2 show` ends with `` run `varde dhis2
   apps` for the apps, then `varde dhis2 analytics` for the analytics tables;
-  the apps and analytics change this DHIS2, so ask its admin first`.
+  the apps and analytics change this DHIS2, so ask its admin first ``.
 - **Credentials have no default.** See
   [the credentials](#the-credentials-and-where-they-come-from). A token is the
   natural choice for a server you do not own the admin password of.
@@ -970,8 +970,8 @@ warning: the `chap` route is in place but nothing answered through it: HTTP 502 
 The `varde status` clause is there only when chap-core does not answer on this
 machine either. When chap-core answers, the line names the more probable
 cause: the allowlist of DHIS2, or a chap-url that DHIS2 cannot reach. `varde
-dhis2 show` adds the same clause after `missing: nothing answered through the
-`chap` route: ...`. See [The route is there but nothing answers through
+dhis2 show` adds the same clause after `` missing: nothing answered through the
+`chap` route: ... ``. See [The route is there but nothing answers through
 it](./troubleshooting.md#the-route-is-there-but-nothing-answers-through-it).
 
 `route.remote_servers_allowed` in

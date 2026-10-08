@@ -179,15 +179,15 @@ state `varde status` would give it: `up` when its `/health` answers,
 
 When it finds no model, `varde ps` says where it looked:
 
-- `there is no `varde run` group X; `varde ps` lists every group`, for a
+- `` there is no `varde run` group X; `varde ps` lists every group ``, for a
   `--group X` that does not exist.
-- `no model runs in a `varde run` group`, when the groups exist and have no
+- `` no model runs in a `varde run` group ``, when the groups exist and have no
   model.
-- `nothing has been started with `varde run` yet`, when there is no group.
+- `` nothing has been started with `varde run` yet ``, when there is no group.
 
 `-C` on a group that `varde stop --purge` removed names the command that makes
-it again: `the `varde run` group X does not exist, or `varde stop --purge`
-removed it; `varde run <model> --group X` makes it again`.
+it again: `` the `varde run` group X does not exist, or `varde stop --purge`
+removed it; `varde run <model> --group X` makes it again ``.
 
 `varde stop ID` stops a model and takes its overlay away, in whichever group
 has it; when two groups do, it asks for `--group`. `varde stop --all` stops

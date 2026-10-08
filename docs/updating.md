@@ -430,8 +430,8 @@ error: moving chap-core backwards needs an answer and this is not a terminal; ru
 ```
 
 The same refusal comes from `varde update --pin-chap-core` from `dev` or
-`master`; it ends with `run `varde update --pin-chap-core --yes` to confirm
-it`. A `--dry-run` prints the warning and stops there, because it writes
+`master`; it ends with `` run `varde update --pin-chap-core --yes` to confirm
+it ``. A `--dry-run` prints the warning and stops there, because it writes
 nothing to confirm.
 
 ### What a moving tag shows afterwards

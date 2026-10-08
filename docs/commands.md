@@ -184,10 +184,10 @@ have never used Compose.
 
 | Command | What it does |
 | --- | --- |
-| `varde docker ps [EXTRA..]` | List this project's containers (`docker compose ps`). |
+| `varde docker ps [EXTRA..]` | List the containers this deployment is running (`docker compose ps`). |
 | `varde docker pull` | Download the pinned images into the local Docker daemon; no files change. |
 | `varde docker exec SERVICE [CMD..]` | Run a command in a running container, which has to be up already (`varde up`). `CMD` defaults to a shell, and `-T` is passed for you when there is no terminal, so it works in scripts. |
-| `varde docker run -- ARGS..` | Any `docker compose` command, behind the project's `-f` list. |
+| `varde docker run -- ARGS..` | Any `docker compose` command, behind the deployment's `-f` list. |
 | `varde docker config [-- EXTRA..]` | The finished configuration: every compose file merged into one document (`--json` prints it as JSON). |
 
 `varde docker config` is what Docker actually reads after the `-f` list, the

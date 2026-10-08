@@ -93,7 +93,7 @@ Something else holds the port: a dev server, a proxy, an older deployment.
 deployment works and not that the port is taken. Find the listener, or point
 the deployment somewhere else with `CHAP_API_PORT` in `.env`.
 
-## `this project has no container for `chap`, so there is no log`
+## `` this project has no container for `chap`, so there is no log ``
 
 ```text
 error: this project has no container for `chap`, so there is no log; start it with `varde up`
@@ -672,7 +672,7 @@ See [Cleaning up after removed deployments](./doctor.md#cleaning-up-after-remove
 no terminal) has nobody to ask. `varde cleanup --dry-run` lists what would go;
 `varde cleanup --yes` deletes it without asking.
 
-## `volume X is still there; remove it with `docker volume rm X``
+## `` volume X is still there; remove it with `docker volume rm X` ``
 
 `varde down --volumes` removed the volumes that compose declares and the
 leftover volumes that docker labels with this deployment's compose project.
@@ -694,8 +694,8 @@ then the same `varde stop --group <group> --purge` again.
 A service of this deployment was paused, which is what a `varde backup
 create` that was killed while it held the service still leaves behind. `varde
 up` resumed it before starting anything else; nothing more to do. Before that,
-`varde status` shows the service as `paused`, with the warning `dhis2 is
-paused, so it does not answer; run `varde up` to resume it`.
+`varde status` shows the service as `paused`, with the warning `` dhis2 is
+paused, so it does not answer; run `varde up` to resume it ``.
 
 ## `there is no marketplace model ...`
 
@@ -955,10 +955,10 @@ order worth checking:
 3. **Something else answers on that hostname.** A 200 that is not chap-core's
    health document is reported as such rather than as success.
 
-The `run `varde status`` clause is there only when chap-core does not answer on
+The `` run `varde status` `` clause is there only when chap-core does not answer on
 this machine either. When chap-core answers, the line names the more probable
-cause in its place. `varde dhis2 show` adds the same clause after `missing:
-nothing answered through the `chap` route: ...`.
+cause in its place. `varde dhis2 show` adds the same clause after `` missing:
+nothing answered through the `chap` route: ... ``.
 
 ### `chap-core answers at ..., so the DHIS2 allowlist may refuse`
 
@@ -974,7 +974,7 @@ chap-core is up, and DHIS2 answered 503 for the route. The usual cause is
 2. Run `varde restart dhis2`.
 3. Run `varde dhis2 connect` again.
 
-On an external DHIS2, the line names `the `dhis.conf` of the DHIS2 server`.
+On an external DHIS2, the line names `` the `dhis.conf` of the DHIS2 server ``.
 That file belongs to the admin of the DHIS2, so ask that admin to add the
 origin.
 

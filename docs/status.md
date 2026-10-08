@@ -44,8 +44,8 @@ lines that matter mean.
 A model registered from outside the deployment can get a warning when
 chap-core refuses its model template:
 
-- `ID: it reports no git revision, so chap-core stores no model template for
-  it; set `GIT_REVISION` where it runs, then start it again`
+- `` ID: it reports no git revision, so chap-core stores no model template for
+  it; set `GIT_REVISION` where it runs, then start it again ``
 - `ID: chap-core stores its model template VERSION from another git revision
   and refuses to run it; set a new version in the model, then start it again`
 
@@ -56,9 +56,9 @@ a moving tag pins nothing.
 
 With a chap-core elsewhere, the line shows only the version that chap-core
 reports, and nothing when it does not answer. There is no pin and no
-moving-tag cell. If it does not answer, the error line ends with `this
+moving-tag cell. If it does not answer, the error line ends with `` this
 deployment does not run it, so start it there, or set another URL with
-`varde components enable chap-core --url URL``.
+`varde components enable chap-core --url URL` ``.
 
 A deployment pinned to a moving tag (`latest`, `master`, `dev`) gets one more
 cell, because the tag alone does not say which build is behind it: the digest
@@ -142,7 +142,7 @@ for what that failure looks like from the outside.
 | `starting` | Its container is up but it is not answering yet. |
 | `unhealthy` | Its container is up, it does not answer, and the health check of the container failed. It is broken, not starting: `varde logs <service>` says why. |
 | `not running` | No container, so nothing to answer. `varde up` starts it. |
-| `paused` | Its container is paused, as an interrupted `varde backup create` can leave it, so it does not answer. `varde up` resumes it. The closing line says `1 of 2 components is paused; run `varde up` to resume it`. |
+| `paused` | Its container is paused, as an interrupted `varde backup create` can leave it, so it does not answer. `varde up` resumes it. The closing line says `` 1 of 2 components is paused; run `varde up` to resume it ``. |
 
 An OCS line carries two more facts when they can be had, which are the two an
 operator would otherwise open its landing page for:
@@ -164,7 +164,7 @@ both `null` where the line says nothing.
 A deployment with `chap-core` disabled has no chap-core line at all, and
 `status` does not exit non-zero over an API that is not meant to be there. Its
 closing line counts components rather than models - `both components are up`,
-or `1 of 2 components is not running; start it with `varde up`` - because it
+or `` 1 of 2 components is not running; start it with `varde up` `` - because it
 has no models to count and the models line would name `varde models enable`,
 the one command such a deployment refuses. When all components are up, a hint
 names `varde open` for each one that has a page. See
@@ -312,7 +312,7 @@ when there is one; empty output is a bug.
   alone.
 - `varde docker pull` says how many images it pulled.
 - `varde docker ps` on a deployment with no containers says
-  `nothing is running for this deployment; start Chap with `varde up`` rather
+  `` nothing is running for this deployment; start Chap with `varde up` `` rather
   than printing a bare header.
 
 - `varde models test` prints a header saying which level is being run, one row
