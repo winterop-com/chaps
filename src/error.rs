@@ -4,15 +4,12 @@
 //! Everything that is merely context is an [`anyhow::Error`]; only the cases
 //! listed in [`ChapError`] carry meaning (exit codes, TUI messages, tests).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Errors that callers are expected to match on.
 #[derive(thiserror::Error, Debug)]
 pub enum ChapError {
-    #[error(
-        "{0} is not a varde deployment (no .varde/project.yaml here or in a parent directory); \
-         run `varde init` first"
-    )]
+    #[error("{}", not_a_deployment(.0, &crate::paths::run_groups_dir()))]
     NotAProject(PathBuf),
 
     #[error("compose files are out of date with .varde/; run `varde sync`")]
@@ -96,6 +93,35 @@ pub enum ChapError {
         reason: String,
         next: &'static str,
     },
+}
+
+/// The message of [`ChapError::NotAProject`]. A directory under the `varde
+/// run` groups is a group that is not there, and `varde init` is not the way
+/// to make one again.
+fn not_a_deployment(dir: &Path, groups: &Path) -> String {
+    let group = dir
+        .strip_prefix(groups)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .map(|first| first.as_os_str().to_string_lossy().into_owned());
+    match group {
+        Some(name) => {
+            let again = match name.as_str() {
+                "default" => "varde run <model>".to_string(),
+                _ => format!("varde run <model> --group {name}"),
+            };
+            format!(
+                "{} is not a varde deployment: the `varde run` group {name} does not exist, or \
+                 `varde stop --purge` removed it; `{again}` makes it again",
+                dir.display()
+            )
+        }
+        None => format!(
+            "{} is not a varde deployment (no .varde/project.yaml here or in a parent \
+             directory); run `varde init` first",
+            dir.display()
+        ),
+    }
 }
 
 /// Who holds a host port that was asked for, so the error can say where to

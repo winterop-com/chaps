@@ -24,6 +24,53 @@ fn ps_and_stop_before_any_run_say_so() {
         .stderr(predicates::str::contains("`varde ps` lists what is"));
 }
 
+/// `ps --group` names only the group it looked for, and `-C` on a group
+/// that `--purge` removed names the `varde run` that makes it again.
+#[test]
+fn ps_and_dash_c_on_a_missing_group_name_the_group() {
+    let sandbox = Sandbox::new();
+    let (_fake, bin) = docker_running_services(&["chapkit-ewars-model"]);
+    let cwd = sandbox.home.path();
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["run", "chapkit_ewars_model", "--group", "dengue", "--no-wait"],
+    );
+    chap_with_docker(&sandbox, cwd, &bin, &["ps", "--group", "nosuch"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "there is no `varde run` group nosuch; `varde ps` lists every group",
+        ));
+
+    run_json(
+        &sandbox,
+        cwd,
+        &bin,
+        &["stop", "--group", "dengue", "--purge"],
+    );
+    chap_with_docker(&sandbox, cwd, &bin, &["ps"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "nothing has been started with `varde run` yet",
+        ));
+    let dir = data(&sandbox).join("run").join("dengue");
+    chap_with_docker(
+        &sandbox,
+        cwd,
+        &bin,
+        &["-C", &dir.to_string_lossy(), "logs", "chapkit-ewars-model"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains(
+        "the `varde run` group dengue does not exist, or `varde stop --purge` removed it; \
+         `varde run <model> --group dengue` makes it again",
+    ));
+}
+
 #[test]
 fn stop_with_a_group_and_no_id_stops_the_group_and_purge_removes_it() {
     let sandbox = Sandbox::new();
