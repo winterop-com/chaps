@@ -216,10 +216,64 @@ Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see 
 List, add, archive and sync the configured models of each model.
 
 ```text
-Usage: varde models configs [OPTIONS] <COMMAND>
+Usage: varde models configs [OPTIONS] [ID]
+       varde models configs <COMMAND>
 ```
 
-Subcommands: [`varde models configs sync`](#varde-models-configs-sync)
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id; all enabled models when none is given. |
+| `--all` | Show the archived configured models too. |
+
+Subcommands: [`varde models configs list`](#varde-models-configs-list), [`varde models configs add`](#varde-models-configs-add), [`varde models configs archive`](#varde-models-configs-archive), [`varde models configs sync`](#varde-models-configs-sync)
+
+## varde models configs list
+
+List the configured models chap-core has of each enabled model.
+
+```text
+Usage: varde models configs list [OPTIONS] [ID]
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id; all enabled models when none is given. |
+| `--all` | Show the archived configured models too. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models configs add
+
+Add a configured model of a model to chap-core.
+
+```text
+Usage: varde models configs add [OPTIONS] <ID>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id. |
+| `--name <NAME>` | Variant name, which the Modeling App shows in brackets. |
+| `--set <KEY=VALUE>` | Value of one user option; repeat for more than one. |
+| `--covariates <A,B>` | Additional covariates, separated by commas. |
+| `-i, --interactive` | Ask for the name, each option and the covariates. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models configs archive
+
+Archive a configured model of a model.
+
+```text
+Usage: varde models configs archive [OPTIONS] <ID> <NAME>
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>` | Marketplace id or service id. |
+| `<NAME>` | Variant name of the configured model. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde models configs sync
 

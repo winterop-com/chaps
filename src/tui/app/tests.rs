@@ -809,11 +809,11 @@ fn the_palette_narrows_by_substring_and_runs_what_it_matched() {
     app.reduce(Action::Palette);
     assert_eq!(app.mode, Mode::Palette);
     assert_eq!(app.palette_matches().len(), app.commands().len());
-    // Fifteen entries that do not depend on the component set, plus one
+    // Sixteen entries that do not depend on the component set, plus one
     // toggle per component, so a fifth component moves this number and
     // nothing else in the palette has to be counted again.
-    assert_eq!(app.commands().len(), 15 + Component::ALL.len());
-    assert_eq!(app.commands().len(), 19);
+    assert_eq!(app.commands().len(), 16 + Component::ALL.len());
+    assert_eq!(app.commands().len(), 20);
 
     for c in "PORT".chars() {
         app.reduce(Action::PaletteChar(c));

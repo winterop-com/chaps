@@ -11,6 +11,41 @@ pub(crate) const TEMPLATE_IDS: i64 = 30;
 /// The id of the first configured model a client posts there.
 pub(crate) const CREATED_IDS: i64 = 100;
 
+/// The template the stand-in stores for `service`, in chap-core's camelCase:
+/// the user options of a chapkit config schema, one of each kind.
+pub(crate) fn template_json(id: i64, service: &str) -> Json {
+    serde_json::json!({
+        "id": id,
+        "name": service,
+        "version": "1.0.1",
+        "displayName": "Stand-in model",
+        "requiredCovariates": ["population"],
+        "allowFreeAdditionalContinuousCovariates": service != FAILING_MODEL,
+        "userOptions": {
+            "n_lags": {"type": "integer", "default": 3, "description": "Lags of the target."},
+            "precision": {"type": "number", "default": 0.5},
+            "seasonal": {"type": "boolean", "default": true},
+            "method": {"enum": ["fast", "exact"], "type": "string", "default": "fast"},
+            "lags": {"type": "array", "items": {"type": "integer"}, "default": [1, 2]},
+            "label": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null}
+        }
+    })
+}
+
+/// The id of the template the stand-in stores for `service`.
+fn template_id(service: &str) -> i64 {
+    TEMPLATE_IDS
+        + [
+            PASSING_MODEL,
+            FAILING_MODEL,
+            OLD_CHAPKIT_MODEL,
+            HOST_RUN_MODEL,
+        ]
+        .iter()
+        .position(|known| *known == service)
+        .unwrap_or(9) as i64
+}
+
 /// `from-service` and the configured models, on a 2.4 stand-in only.
 pub(crate) fn configured_route(
     method: &str,
@@ -38,22 +73,48 @@ pub(crate) fn configured_route(
                     r#"{"detail":"the service reports no source revision"}"#.to_string(),
                 ));
             }
+            if ![PASSING_MODEL, FAILING_MODEL, HOST_RUN_MODEL].contains(&service.as_str()) {
+                return Some((
+                    404,
+                    json,
+                    format!(r#"{{"detail":"Service '{service}' not found"}}"#),
+                ));
+            }
             recorded.templates.push(service.clone());
-            let id = TEMPLATE_IDS
-                + [
-                    PASSING_MODEL,
-                    FAILING_MODEL,
-                    OLD_CHAPKIT_MODEL,
-                    HOST_RUN_MODEL,
-                ]
-                .iter()
-                .position(|known| *known == service)
-                .unwrap_or(9) as i64;
             Some((
                 200,
                 json,
-                serde_json::json!({"id": id, "name": service, "version": "1.0.1"}).to_string(),
+                template_json(template_id(&service), &service).to_string(),
             ))
+        }
+        // The live templates: discovery stores one for every registered
+        // service that reports a revision.
+        ("GET", "/v1/crud/model-templates") => {
+            let rows: Vec<Json> = [PASSING_MODEL, FAILING_MODEL, HOST_RUN_MODEL]
+                .iter()
+                .map(|service| template_json(template_id(service), service))
+                .collect();
+            Some((200, json, Json::Array(rows).to_string()))
+        }
+        // chap-core archives; it never deletes a configured model.
+        ("DELETE", _) if route.starts_with("/v1/crud/configured-models/") => {
+            let id: i64 = route
+                .rsplit('/')
+                .next()
+                .and_then(|id| id.parse().ok())
+                .unwrap_or_default();
+            recorded.deleted.push(route.to_string());
+            match recorded.created.iter_mut().find(|row| row["id"] == id) {
+                Some(row) => {
+                    row["archived"] = Json::Bool(true);
+                    Some((200, json, r#"{"message":"deleted"}"#.to_string()))
+                }
+                None => Some((
+                    404,
+                    json,
+                    r#"{"detail":"Configured model not found"}"#.to_string(),
+                )),
+            }
         }
         ("POST", "/v1/crud/configured-models") => {
             let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
@@ -79,6 +140,7 @@ pub(crate) fn configured_route(
                 "archived": false,
                 "usesChapkit": true,
                 "additionalContinuousCovariates": sent["additional_continuous_covariates"],
+                "userOptionValues": sent["user_option_values"],
             });
             recorded.created.push(row.clone());
             recorded.configured_posts.push(sent);

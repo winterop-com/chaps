@@ -7,6 +7,7 @@
 //! selection, which is why one `s` writes both pages.
 
 pub mod app;
+mod chap;
 pub mod keys;
 pub mod screenshot;
 pub mod theme;
@@ -42,7 +43,7 @@ pub fn run_tui(ctx: &Ctx, project: &Project, registry: &Registry) -> Result<Opti
             carry.restore(&mut app);
         }
 
-        match event_loop(&mut terminal, &mut app, &theme)? {
+        match event_loop(&mut terminal, &mut app, &theme, project, &current)? {
             Exit::Save => return Ok(Some(app.selection())),
             Exit::Quit => return Ok(None),
             Exit::Refresh => {
@@ -79,7 +80,13 @@ enum Exit {
 }
 
 /// Draw, read a key, reduce, until something ends the pass.
-fn event_loop(terminal: &mut TerminalGuard, app: &mut App, theme: &theme::Theme) -> Result<Exit> {
+fn event_loop(
+    terminal: &mut TerminalGuard,
+    app: &mut App,
+    theme: &theme::Theme,
+    project: &Project,
+    registry: &Registry,
+) -> Result<Exit> {
     loop {
         terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
 
@@ -104,6 +111,31 @@ fn event_loop(terminal: &mut TerminalGuard, app: &mut App, theme: &theme::Theme)
                     screenshot::save(frame.buffer, theme)
                 };
                 app.message = Some(saved);
+            }
+            Some(Effect::LoadConfigs { model, service }) => {
+                // The request blocks: draw the page that says it is out.
+                terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
+                app.configs_loaded(chap::load(project, registry, &model, &service));
+            }
+            Some(Effect::CreateConfig {
+                model,
+                service,
+                draft,
+            }) => {
+                terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
+                let (message, load) = chap::create(project, registry, &model, &service, &draft);
+                app.configs_done(message, load);
+            }
+            Some(Effect::ArchiveConfig {
+                model,
+                service,
+                id,
+                variant,
+            }) => {
+                terminal.inner.draw(|frame| ui::draw(frame, app, theme))?;
+                let (message, load) =
+                    chap::archive(project, registry, &model, &service, id, &variant);
+                app.configs_done(message, load);
             }
             None => {}
         }

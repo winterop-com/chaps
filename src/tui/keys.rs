@@ -30,6 +30,47 @@ pub fn action_for(mode: Mode, key: &KeyEvent) -> Action {
         Mode::Palette => palette(key, ctrl),
         Mode::Port => port(key, ctrl),
         Mode::Channel | Mode::Dhis2Version => channel(key),
+        Mode::Configs => configs(key),
+        Mode::ConfigForm => form(key, ctrl),
+        Mode::ConfigConfirm => confirm(key),
+    }
+}
+
+/// The configured models of one model: move, add, archive, ask again, back.
+fn configs(key: &KeyEvent) -> Action {
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        return Action::None;
+    }
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Action::Down,
+        KeyCode::Char('k') | KeyCode::Up => Action::Up,
+        KeyCode::Char('g') | KeyCode::Home => Action::Top,
+        KeyCode::Char('G') | KeyCode::End => Action::Bottom,
+        KeyCode::Char('a') => Action::ConfigAdd,
+        KeyCode::Char('d') => Action::ConfigArchive,
+        KeyCode::Char('r') => Action::ConfigReload,
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('m') => Action::FilterCancel,
+        _ => Action::None,
+    }
+}
+
+/// The form: every printable key is text in the field; the arrows and Tab
+/// move between the fields.
+fn form(key: &KeyEvent, ctrl: bool) -> Action {
+    if ctrl {
+        return match key.code {
+            KeyCode::Char('n') => Action::Down,
+            _ => Action::None,
+        };
+    }
+    match key.code {
+        KeyCode::Esc => Action::FilterCancel,
+        KeyCode::Enter => Action::FormSubmit,
+        KeyCode::Backspace => Action::FormBackspace,
+        KeyCode::Tab | KeyCode::Down => Action::Down,
+        KeyCode::BackTab | KeyCode::Up => Action::Up,
+        KeyCode::Char(c) => Action::FormChar(c),
+        _ => Action::None,
     }
 }
 
@@ -114,6 +155,7 @@ fn browse(key: &KeyEvent, ctrl: bool) -> Action {
         // interface.
         KeyCode::Char('o') => Action::Open,
         KeyCode::Char('c') => Action::ImageRef,
+        KeyCode::Char('m') => Action::Configs,
         KeyCode::Char('s') => Action::Save,
         KeyCode::Char('?') => Action::Help,
         KeyCode::Char('q') => Action::Quit,
@@ -228,6 +270,7 @@ pub fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("u", "discard the pending changes"),
         ("o", "open the repository, or the web interface"),
         ("c", "show the model's image reference"),
+        ("m", "the configured models of the model in chap-core"),
         ("ctrl-k / ctrl-p", "the command palette"),
         ("?", "this help"),
         ("q", "quit, asking first when there are changes"),
@@ -271,6 +314,9 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             let mut hints = vec![hint("j/k", "move", 10), hint("tab", "page", 7)];
             hints.push(hint("space", "toggle", 8));
             hints.push(hint("i", "info", 5));
+            if page == Page::Models {
+                hints.push(hint("m", "configs", 0));
+            }
             // Only the components page has something of its own to open: a
             // model's repository is named on its details overlay's bar, where
             // `o` already sits.
@@ -334,6 +380,19 @@ pub fn keybar(page: Page, mode: Mode, pending: usize, filtering: bool) -> Vec<Hi
             hint("up/down", "move", 8),
             hint("enter", "run", 9),
         ],
+        Mode::Configs => vec![
+            hint("esc", "back", 9),
+            hint("j/k", "move", 8),
+            hint("a", "add", 9),
+            hint("d", "archive", 7),
+            hint("r", "reload", 5),
+        ],
+        Mode::ConfigForm => vec![
+            hint("esc", "cancel", 9),
+            hint("tab/arrows", "field", 8),
+            hint("enter", "save", 9),
+        ],
+        Mode::ConfigConfirm => vec![hint("y", "yes", 9), hint("n", "no", 9)],
         // Both dialogs carry their own key line; the bar under them says the
         // one thing that is true wherever the cursor is.
         Mode::Port | Mode::Channel | Mode::Dhis2Version => vec![hint("esc", "cancel", 9)],

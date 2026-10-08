@@ -239,6 +239,7 @@ impl App<'_> {
             // image reference belongs to a marketplace model alone.
             Action::Open => self.open_selection(),
             Action::ImageRef if self.page == Page::Models => self.show_image_ref(),
+            Action::Configs => self.open_configs(),
             Action::Help => self.mode = Mode::Help,
             Action::Save => return Some(Outcome::Save),
             Action::Quit => return self.quit(),

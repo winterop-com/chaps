@@ -16,6 +16,7 @@ impl App<'_> {
             CommandId::SetPort => self.open_port_prompt(),
             CommandId::RemovePort => self.remove_port(),
             CommandId::SetChannel => self.open_channel_prompt(),
+            CommandId::Configs => self.open_configs(),
             CommandId::Templates => {
                 self.show_templates = !self.show_templates;
                 self.refilter();
@@ -105,6 +106,12 @@ impl App<'_> {
                         format!("Set the channel of {name}: stable or latest"),
                         "v",
                         "Set channel",
+                    ),
+                    entry(
+                        CommandId::Configs,
+                        format!("Show the configured models of {name} in chap-core"),
+                        "m",
+                        "Configs",
                     ),
                     entry(
                         CommandId::Templates,

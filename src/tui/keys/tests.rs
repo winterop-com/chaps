@@ -15,10 +15,58 @@ fn page_bar(page: Page, mode: Mode, pending: usize, filtering: bool) -> String {
 }
 
 #[test]
+fn the_configs_page_maps_its_keys_and_names_them() {
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    assert_eq!(
+        action_for(Mode::Browse, &key(KeyCode::Char('m'))),
+        Action::Configs
+    );
+    assert_eq!(
+        action_for(Mode::Configs, &key(KeyCode::Char('a'))),
+        Action::ConfigAdd
+    );
+    assert_eq!(
+        action_for(Mode::Configs, &key(KeyCode::Char('d'))),
+        Action::ConfigArchive
+    );
+    assert_eq!(
+        action_for(Mode::Configs, &key(KeyCode::Char('r'))),
+        Action::ConfigReload
+    );
+    assert_eq!(
+        action_for(Mode::Configs, &key(KeyCode::Esc)),
+        Action::FilterCancel
+    );
+    // In the form every letter is text, `d` and `a` too.
+    assert_eq!(
+        action_for(Mode::ConfigForm, &key(KeyCode::Char('d'))),
+        Action::FormChar('d')
+    );
+    assert_eq!(
+        action_for(Mode::ConfigForm, &key(KeyCode::Tab)),
+        Action::Down
+    );
+    assert_eq!(
+        action_for(Mode::ConfigForm, &key(KeyCode::Enter)),
+        Action::FormSubmit
+    );
+    assert_eq!(
+        action_for(Mode::ConfigConfirm, &key(KeyCode::Char('y'))),
+        Action::ConfirmYes
+    );
+    assert_eq!(
+        bar(Mode::Configs, 0, false),
+        "esc back   j/k move   a add   d archive   r reload"
+    );
+    assert_eq!(bar(Mode::ConfigConfirm, 0, false), "y yes   n no");
+    assert!(help_entries().iter().any(|(key, _)| *key == "m"));
+}
+
+#[test]
 fn every_mode_has_a_key_bar_that_names_its_way_out() {
     assert_eq!(
         bar(Mode::Browse, 0, false),
-        "j/k move   tab page   space toggle   i info   p port   v channel   \
+        "j/k move   tab page   space toggle   i info   m configs   p port   v channel   \
              t templates   / filter   s save   ctrl+k commands   ? help   q quit"
     );
     // The components page drops the keys a component has no use for and

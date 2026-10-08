@@ -7,6 +7,7 @@
 //! produced, and every colour comes from the [`Theme`]. The layout degrades on
 //! narrow terminals by dropping columns rather than wrapping or panicking.
 
+mod configs;
 mod dialogs;
 mod info;
 mod strip;
@@ -61,6 +62,9 @@ pub fn draw(frame: &mut Frame, app: &App, theme: &Theme) {
         Mode::Port => draw_port_dialog(frame, area, app, theme),
         Mode::Channel => draw_channel_dialog(frame, area, app, theme),
         Mode::Dhis2Version => draw_dhis2_version_dialog(frame, area, app, theme),
+        Mode::Configs | Mode::ConfigForm | Mode::ConfigConfirm => {
+            configs::draw_configs(frame, area, app, theme)
+        }
         _ => {}
     }
 }

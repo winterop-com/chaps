@@ -109,16 +109,80 @@ pub struct ModelsTestArgs {
 }
 
 /// List, add, archive and sync the configured models of each model
+///
+/// `args_conflicts_with_subcommands`: the bare command is `list`, so its
+/// options are repeated here, as `varde jobs` does.
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct ConfigsArgs {
     #[command(subcommand)]
-    pub command: ConfigsCmd,
+    pub command: Option<ConfigsCmd>,
+
+    #[command(flatten)]
+    pub list: ConfigsListArgs,
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ConfigsCmd {
+    /// List the configured models chap-core has of each enabled model
+    List(ConfigsListArgs),
+
+    /// Add a configured model of a model to chap-core
+    Add(ConfigsAddArgs),
+
+    /// Archive a configured model of a model
+    Archive(ConfigsArchiveArgs),
+
     /// Create the configured models that chap-core needs to run each model
     Sync(ConfigsSyncArgs),
+}
+
+/// List the configured models chap-core has of each enabled model
+#[derive(Debug, Clone, Default, Args)]
+pub struct ConfigsListArgs {
+    /// Marketplace id or service id; all enabled models when none is given
+    #[arg(value_name = "ID")]
+    pub id: Option<String>,
+
+    /// Show the archived configured models too
+    #[arg(long)]
+    pub all: bool,
+}
+
+/// Add a configured model of a model to chap-core
+#[derive(Debug, Clone, Args)]
+pub struct ConfigsAddArgs {
+    /// Marketplace id or service id
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Variant name, which the Modeling App shows in brackets
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+
+    /// Value of one user option; repeat for more than one
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub set: Vec<String>,
+
+    /// Additional covariates, separated by commas
+    #[arg(long, value_name = "A,B")]
+    pub covariates: Option<String>,
+
+    /// Ask for the name, each option and the covariates
+    #[arg(short, long)]
+    pub interactive: bool,
+}
+
+/// Archive a configured model of a model
+#[derive(Debug, Clone, Args)]
+pub struct ConfigsArchiveArgs {
+    /// Marketplace id or service id
+    #[arg(value_name = "ID")]
+    pub id: String,
+
+    /// Variant name of the configured model
+    #[arg(value_name = "NAME")]
+    pub name: String,
 }
 
 /// Create the configured models that chap-core needs to run each model

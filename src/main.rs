@@ -145,8 +145,13 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Search(args) => commands::models::search(ctx, args),
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
             ModelsCmd::Test(args) => commands::modeltest::run(ctx, args),
+            // No subcommand is `list`, as for `varde jobs`.
             ModelsCmd::Configs(c) => match &c.command {
-                ConfigsCmd::Sync(args) => commands::configs::sync::run(ctx, args),
+                None => commands::configs::list(ctx, &c.list),
+                Some(ConfigsCmd::List(args)) => commands::configs::list(ctx, args),
+                Some(ConfigsCmd::Add(args)) => commands::configs::add(ctx, args),
+                Some(ConfigsCmd::Archive(args)) => commands::configs::archive(ctx, args),
+                Some(ConfigsCmd::Sync(args)) => commands::configs::sync::run(ctx, args),
             },
             ModelsCmd::Add(args) => commands::manual_models::add(ctx, args),
             ModelsCmd::Remove(args) => commands::manual_models::remove(ctx, args),

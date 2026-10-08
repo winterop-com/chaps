@@ -110,7 +110,7 @@ pub fn step(ctx: &Ctx, project: &Project, targets: &[Target]) -> Result<Vec<Mode
 /// The marketplace entry, unless the model is one this deployment defines
 /// itself or it runs an image other than the one the entry names: chap-admin
 /// gives a custom image one `default`, and so does this.
-fn source_of(registry: &Registry, project: &Project, id: &str) -> Source {
+pub(crate) fn source_of(registry: &Registry, project: &Project, id: &str) -> Source {
     let entry = registry.models.iter().find(|model| model.id == id);
     let enabled = project.state.models.get(id);
     match entry {
@@ -125,7 +125,7 @@ fn source_of(registry: &Registry, project: &Project, id: &str) -> Source {
 }
 
 /// Every model this deployment enables, in the order `models.yaml` has them.
-fn all_targets(project: &Project) -> Vec<Target> {
+pub(super) fn all_targets(project: &Project) -> Vec<Target> {
     project
         .state
         .models
@@ -143,7 +143,7 @@ fn all_targets(project: &Project) -> Vec<Target> {
 /// model registered from outside this deployment, a marketplace id or a
 /// service id. Any other model that is not enabled here is a mistake:
 /// nothing registers it.
-fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Vec<Target>> {
+pub(super) fn targets(ctx: &Ctx, project: &Project, ids: &[String]) -> Result<Vec<Target>> {
     if ids.is_empty() {
         return Ok(all_targets(project));
     }

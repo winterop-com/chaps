@@ -11,7 +11,9 @@
 //!
 //! [`Selection`]: crate::compose::Selection
 
+pub mod configs;
 mod edit;
+mod notes;
 mod open;
 mod palette;
 mod reduce;
@@ -20,52 +22,12 @@ mod selection;
 use crate::components::{Component, Components};
 use crate::project::{EnabledModel, ProjectState};
 use crate::registry::{Channel, Model, Registry, Version, VersionSelector};
+pub use notes::*;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
 /// Rows a page key moves the cursor by.
 pub const PAGE_JUMP: usize = 10;
-
-/// Footer note shown after enabling a template.
-pub const TEMPLATE_WARNING: &str = "templates are not for real forecasts";
-
-/// Footer note shown when a template row is toggled while templates are hidden.
-pub const TEMPLATE_HIDDEN_HINT: &str = "press t to show templates first";
-
-/// Footer note shown when `p` is pressed on a row that is not enabled.
-pub const PUBLISH_NEEDS_ENABLED_HINT: &str = "enable the model first (space), then press p";
-
-/// Footer note shown when `u` is pressed with nothing to discard.
-pub const NOTHING_TO_DISCARD_HINT: &str = "there is nothing to discard";
-
-/// Footer note shown after `u` threw the pending changes away.
-pub const DISCARDED_HINT: &str = "the pending changes are gone; nothing was written";
-
-/// Footer note shown when `p` is pressed on a component that is not enabled.
-pub const PORT_NEEDS_COMPONENT_HINT: &str = "enable the component first (space), then press p";
-
-/// Footer note shown when `o` is pressed on a component this session has only
-/// just enabled.
-///
-/// The address is a plan until the compose file exists and something is running
-/// behind it, so the browser says what is missing rather than opening a port
-/// nothing is on yet.
-pub const OPEN_NEEDS_SAVING: &str = "press s to save the change first, then `varde up` starts it";
-
-/// Footer note shown when `o` is pressed on a component this deployment does
-/// not have.
-pub const OPEN_NEEDS_COMPONENT: &str = "enable the component first (space), then save with s";
-
-/// Footer note shown when `p` is pressed on `chap-core`.
-///
-/// chap-core's host port is the API port, which lives in `project.yaml` rather
-/// than in the component block, so this page is not where it is edited.
-pub const CORE_PORT_IS_API_PORT: &str =
-    "chap-core's host port is the API port; set CHAP_API_PORT in `.env`";
-
-/// Why the component port prompt refuses `auto`.
-pub const COMPONENT_HAS_NO_AUTO_PORT: &str =
-    "`auto` picks from the model port range; type a number, or none";
 
 /// The documentation the palette's "open the documentation" opens, per page.
 pub const DOCS_CHAPTER: &str = "models.html";
@@ -125,6 +87,12 @@ pub enum Mode {
     /// The dialog `v` opens on the `dhis2` component, asking which DHIS2
     /// version to run.
     Dhis2Version,
+    /// The configured models of the model `m` was pressed on.
+    Configs,
+    /// The form `a` opens there.
+    ConfigForm,
+    /// The question before chap-core is asked to create or archive one.
+    ConfigConfirm,
 }
 
 /// Everything the browser can be asked to do, independent of key bindings.
@@ -178,6 +146,14 @@ pub enum Action {
     Open,
     /// Put the selected model's image reference on the status line.
     ImageRef,
+    /// Open the configured models of the model under the cursor.
+    Configs,
+    ConfigAdd,
+    ConfigArchive,
+    ConfigReload,
+    FormChar(char),
+    FormBackspace,
+    FormSubmit,
     Save,
     Quit,
     ConfirmYes,
@@ -199,7 +175,7 @@ pub enum Outcome {
 ///
 /// The reducer stays pure by recording the wish; [`crate::tui::run_tui`] is
 /// what actually spawns an opener or goes back to the marketplace.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// Hand this URL to the platform's opener.
     Open(String),
@@ -211,6 +187,21 @@ pub enum Effect {
     /// palette over it, and nobody wants a screenshot of the menu they used
     /// to take it.
     Screenshot,
+    /// Ask chap-core for the configured models of a model.
+    LoadConfigs { model: String, service: String },
+    /// Create one, which the user has confirmed.
+    CreateConfig {
+        model: String,
+        service: String,
+        draft: crate::configs::Draft,
+    },
+    /// Archive one, which the user has confirmed.
+    ArchiveConfig {
+        model: String,
+        service: String,
+        id: i64,
+        variant: String,
+    },
 }
 
 /// One catalogue entry as the browser tracks it.
@@ -317,6 +308,8 @@ pub enum CommandId {
     SetPort,
     RemovePort,
     SetChannel,
+    /// Open the configured models of the selected model.
+    Configs,
     Templates,
     Filter,
     /// Go to the other page.
@@ -400,6 +393,8 @@ pub struct App<'a> {
     pub palette_cursor: usize,
     /// What the reducer wants the caller to do outside the terminal.
     pub effect: Option<Effect>,
+    /// The configured models page, while it is open.
+    pub configs: Option<configs::View>,
 }
 
 impl<'a> App<'a> {
@@ -459,6 +454,7 @@ impl<'a> App<'a> {
             palette_query: String::new(),
             palette_cursor: 0,
             effect: None,
+            configs: None,
         };
         app.refilter();
         app
@@ -483,6 +479,9 @@ impl<'a> App<'a> {
             Mode::Dhis2Version => self.reduce_dhis2_version(action),
             Mode::Info => self.reduce_info(action),
             Mode::Palette => self.reduce_palette(action),
+            Mode::Configs => self.reduce_configs(action),
+            Mode::ConfigForm => self.reduce_config_form(action),
+            Mode::ConfigConfirm => self.reduce_config_confirm(action),
             Mode::Browse => self.reduce_browse(action),
         }
     }
