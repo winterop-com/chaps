@@ -73,7 +73,9 @@ different order each time. Read each URL from `varde ps` or from `--json`.
 
 Running a model that already runs starts nothing new: it reports the same id
 and port. A repository or image you ran before is that same model again, not a
-copy; `--id auto` adds a second copy beside it when you want one.
+copy; `--id auto` adds a second copy beside it when you want one. A run by the
+GitHub URL of a marketplace model works as a run by its id: the second run
+does not read the image again, recreate the container, or move the port.
 
 ## Keeping sets apart: groups
 

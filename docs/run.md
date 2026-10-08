@@ -99,7 +99,9 @@ with `varde components enable chap-core --url URL`.
 | A local image, `name:tag` with no registry | Runs the image from the local store, never pulled. |
 
 A model that is already enabled is started as it is: a second `varde run` of
-the same id does not move its version or its port. The same holds for a
+the same id does not move its version or its port. A run by the repository URL
+of an enabled marketplace model, or by its image at the tag of the enabled
+version, finds that model and starts it as it is. The same holds for a
 repository or an image: one added before, by an earlier `varde run` or
 `models add`, is that entry again, enabled or not, so running the same URL twice
 starts one model, not two. An image counts as the same only at the same tag.
