@@ -24,10 +24,16 @@ running chapkit_ewars_model on http://localhost:5001 (answered in 2s)
 ```
 
 The first run of a model pulls its image. A marketplace model image is several
-gigabytes, so this can take many minutes; a later run starts in seconds. The
-GitHub URL above is a model that the marketplace lists, so varde says
-`https://github.com/chap-models/chapkit_ghr_model is the marketplace model
-chapkit_ghr_model` and starts that marketplace model.
+gigabytes, so this can take many minutes; a later run starts in seconds.
+
+The GitHub URL above is a model that the marketplace lists. Before the
+`starting` line, varde says so, then reads the user of the image (this pulls
+the image), and then starts that marketplace model:
+
+```text
+https://github.com/chap-models/chapkit_ghr_model is the marketplace model chapkit_ghr_model; enabling that (pass `--id <other>` to add it beside it instead)
+asking ghcr.io/chap-models/chapkit_ghr_model:sha-dfb2e3f what uid `app` is (this pulls the image)
+```
 
 Each model gets the next free port from 5001 up, its own container and its own
 data volume, published on `127.0.0.1` only. The models do not depend on each
@@ -102,6 +108,9 @@ varde -C ~/.local/share/varde/run/dengue logs chapkit-ewars-model
 The path is the default data directory; `$VARDE_DATA_DIR` or `$XDG_DATA_HOME`
 moves it ([Where it runs: groups](../run.md#where-it-runs-groups)).
 
+For a group that does not exist, `varde ps --group` says
+`` there is no `varde run` group X; `varde ps` lists every group ``.
+
 ## From a script
 
 Under `--json` each command prints one JSON document on stdout, and docker's
@@ -139,6 +148,16 @@ with the same data. The port can be a different one. `--purge` deletes the
 data too, and removes a group it leaves empty: its network, its directory and
 every volume it had, including those of models stopped earlier. To remove
 every group and all its data, use `varde stop --all --purge`.
+
+In the order above, `dengue` has no running model when `--purge` comes, so
+varde says:
+
+```text
+nothing was running to stop
+removed group dengue
+```
+
+`varde -v stop` also names each volume that it removed.
 
 ## When a folder is the better fit
 

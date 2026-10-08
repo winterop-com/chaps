@@ -52,8 +52,10 @@ it answers with `"status":"completed"` and the second returns the collection;
 `varde status` then counts one dataset:
 
 ```text
-ocs   up   http://localhost:8790   1 dataset   432.0 KB data
+ocs   up   http://localhost:8790   1 dataset   424.0 KB data
 ```
+
+The data size can be a little different on your machine.
 
 The extent is Laos until you change it, the country of the DHIS2 demo database
 varde seeds, so data ingested here covers the provinces that DHIS2 holds case
@@ -93,7 +95,7 @@ curl -X POST http://localhost:8790/ingestions \
 ```
 
 The request waits until the ingestion is complete. For Laos that took between
-three and eleven minutes, as the download speed changes, and `curl` shows
+two and eleven minutes, as the download speed changes, and `curl` shows
 nothing in that time. With `-H 'Prefer: respond-async'` it answers `202` at
 once instead, with a `Location` of `/ingestions/jobs/ID` to poll. Leaving out
 `end` ingests up to the current period, and sending the same request again
@@ -161,13 +163,31 @@ varde components enable ocs --base-url https://ocs.example.org   # behind a prox
 varde up                                                         # apply the base URL
 ```
 
-`--read-only` changes `ocs/climate-service.yaml`, and only `varde restart ocs`
-makes OCS read that file again. `varde up` does not apply it, although the
-command says ``run `varde up` to apply``. It worked when this answers `403`:
+`--read-only` changes `ocs/climate-service.yaml`. OCS reads that file only
+when it starts, so the command tells you to restart it:
+
+```text
+ocs is now read-only
+run `varde restart ocs` to apply
+```
+
+`varde up` does not apply this change: it says `already running` and leaves OCS
+as it is. Until you run `varde restart ocs`, `varde status` shows this warning:
+
+```text
+warning: `ocs/climate-service.yaml` changed after the ocs container started, so ocs may still use the old settings; run `varde restart ocs` to apply it
+```
+
+`varde restart ocs` returns before OCS answers again. Run `varde status` until
+`ocs` shows `up`. It worked when this answers `403`:
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8790/ingestions -d '{}'
 ```
+
+A read-write OCS answers `422` to the same request. The base URL is different:
+it is in `compose.ocs.yml`, so `varde up` applies it. It worked when the links in
+`curl http://localhost:8790/stac/catalog.json` start with the base URL.
 
 Both have `init` spellings too, `--ocs-read-only` and `--ocs-base-url`. A
 read-only instance refuses every ingestion over HTTP, so ingest first.

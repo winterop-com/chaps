@@ -33,6 +33,7 @@ are amd64 only, so on an arm64 machine they run under emulation.
 `varde up --wait` ends with:
 
 ```text
+waiting up to 300s for the 2 models to answer
 started auto-arima-chapkit, chapkit-ewars-model
 ready in 2s
   auto-arima-chapkit   up  http://localhost:5002

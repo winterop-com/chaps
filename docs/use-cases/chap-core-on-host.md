@@ -35,30 +35,50 @@ it. varde records the URL of your chap-core, so:
 
 ```sh
 varde status                 # your chap-core, and the models registered with it
-varde models test --all
 ```
 
 ```text
 chap-core   up   http://localhost:8000   2.5.0.dev0   auth: off
 
-MODEL                           STATE       REACH      LAST PING
-chapkit-simple-multistep-model  registered  port 5001  3s ago
+MODEL                           STATE                       REACH      LAST PING
+chapkit-simple-multistep-model  registered, not configured  port 5001  6s ago
 
 1 model registered
+chapkit-simple-multistep-model: chap-core has no configured model for it, so nothing can run it; run `varde models configure`
+```
+
+It worked when `varde status` shows chap-core `up` at your URL and the models
+registered. The version is the one that your checkout reports. A model
+registers some seconds after `varde up`. Until then, `varde status` shows it
+`running, not registered` and says `started under two minutes ago`; run
+`varde status` again in a moment.
+
+`registered, not configured` is the normal state after a plain `varde up`.
+chap-core makes no configured model when a model registers. A backtest and the
+Modeling App need one. To make them in your chap-core, run `varde models
+configure`:
+
+```sh
+varde models configure
+varde models test --all
+```
+
+```text
+chapkit_simple_multistep_model: created configured model monthly_climate
+chapkit_simple_multistep_model: created configured model monthly_selfhistory
 ```
 
 ```text
 testing 1 model (model level; add --backtest to go through chap-core)
-chapkit-simple-multistep-model    pass    5s   1 training, 1 prediction
+chapkit-simple-multistep-model    pass    6s   1 training, 1 prediction
 
 1 of 1 model passes
 ```
 
-It worked when `varde status` shows chap-core `up` at your URL and the models
-`registered`. The version is the one that your checkout reports. A model
-registers some seconds after `varde up`. Until then, `varde status` shows it
-`running, not registered` and says `started under two minutes ago`; run
-`varde status` again in a moment.
+After that, `varde status` shows the model as `registered`, and
+`1 model registered`. The configured models are in the database of your
+chap-core, so they stay when you restart it. See
+[Configured models](../models.md#configured-models).
 
 Start chap-core before `varde up`. A model tries to register five times in
 its first seconds, and then it stops. If chap-core starts after that, the
@@ -71,7 +91,7 @@ chapkit-simple-multistep-model: restart it with `varde restart --all chapkit-sim
 
 To make every model of the deployment register again, run `varde restart
 --all`. A restart of chap-core needs nothing more. Each registered model pings
-chap-core about every 30 seconds. If chap-core does not know the model, the
+chap-core about every 15 seconds. If chap-core does not know the model, the
 model registers again, in about a minute. See
 [A model is running but not registered](../troubleshooting.md#a-model-is-running-but-not-registered).
 
@@ -111,14 +131,23 @@ varde components enable chap-core                             # or run varde's o
 
 `varde components disable chap-core` stops and removes the containers of
 chap-core and of the models. The next `varde up` starts the models again.
+It also gives each model a host port, because your chap-core calls the models
+there. When varde runs its own chap-core again, the models keep that port. The
+`REACH` column of `varde status` then shows the port, not `via chap-core`. To
+remove the port, run `varde models unexpose ID`.
 
 If your chap-core is itself a container (another compose project, which is
 what `make restart` in chap-core's checkout starts), it cannot call the models
 at `localhost`. The models must register as `host.docker.internal`.
 `varde init --chap-core-url` and `varde components enable chap-core --url` find
 this themselves if a container publishes the port of the URL at that time.
-`varde init` and `varde components enable` tell it in a warning. If varde did
-not find it, do these steps:
+`varde init` and `varde components enable` tell it in a warning, for example:
+
+```text
+warning: chap-core at http://localhost:8700 is the container `own-dd1b2e-chap-1`, so it calls the models back at host.docker.internal; if it is a process on this machine instead, run `varde components enable chap-core --url http://localhost:8700 --models-host localhost`
+```
+
+If varde did not find it, do these steps:
 
 1. Run `varde components enable chap-core --url URL --models-host host.docker.internal`.
 2. Run `varde up`.
@@ -136,6 +165,17 @@ If your chap-core requires a registration key or an API token, do these steps:
 2. In `.env`, set the line `SERVICEKIT_REGISTRATION_KEY` to the key of your
    chap-core.
 3. Run `varde up`.
+
+For a chap-core elsewhere, `varde auth enable` says what it does not do:
+
+```text
+API authentication is on
+run `varde up` to restart the models with authentication
+varde does not change the chap-core at http://localhost:8000; set `SERVICEKIT_REGISTRATION_KEY` in `.env` to its registration key
+```
+
+After that, `varde status` shows `auth: on`. This means that varde sends a
+token. It does not mean that your chap-core checks it.
 
 `varde auth enable` writes an API token and a registration key to `.env`, and
 every overlay then passes `SERVICEKIT_REGISTRATION_KEY` from `.env`. varde

@@ -22,12 +22,14 @@ The second `init` gives two warnings:
 
 ```text
 warning: port 8780 is also used by d242 (/home/me/d242), which is not running; run only one of them at a time, or run `varde components enable dhis2 --port 8781`
-warning: varde knows no DHIS2 demo dump for 2.43, so `dhis2_db` starts empty; name one with `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`
+warning: varde knows no DHIS2 demo dump for 2.43, so a new `dhis2_db` starts empty; name one with `varde components enable dhis2 --seed URL` (a URL or a path)
 ```
 
 `init` warns when another deployment that it can see uses the same port. It
 sees a deployment in a directory beside the new one, and a deployment that
-Docker started before. The warning names a free port. `init` refuses nothing:
+Docker started before. If the port is in use now, the warning is the plain
+`port 8780 is already in use on this machine (needed by dhis2)` line and
+names no deployment. The warning names a free port. `init` refuses nothing:
 two deployments on one port can take turns. The second warning is about the
 data: varde has a demo database for 2.42 only, so d243 starts with an empty
 DHIS2.
@@ -36,7 +38,8 @@ DHIS2.
 answer: `varde status` shows `starting` until it does, then `dhis2 is up`.
 
 `varde up` checks every port before it starts anything. When the port belongs
-to another varde deployment, `varde up` names it. At a terminal, it then asks:
+to another varde deployment that is running, `varde up` names it. At a
+terminal, it prints the lines of the refusal below, then asks:
 
 ```text
 d242 is using these ports. Stop it and start this deployment instead? Its data is kept. [y/N]
@@ -71,8 +74,8 @@ varde up --replace
 Only a running deployment is named, and only a running one is stopped by
 `--replace`. A stopped deployment that publishes the same port holds nothing,
 so `varde up` starts this one. If the port is in use for another reason, the
-line is the plain `port 8780 (needed by dhis2) is already in use on this
-machine` line.
+line is the plain `port 8780 is already in use on this machine (needed by
+dhis2)` line, and there is no `--replace` line.
 
 When a program that is not a varde deployment holds the port, varde only
 reports it and does not stop that program. `varde up` names the port and the
@@ -88,7 +91,9 @@ varde init b --with ocs,dhis2 --api-port 8701 --ocs-port 8791 --dhis2-port 8781 
 ```
 
 Both deployments also get chap-core and the default model,
-`chapkit_ewars_model`. `init b` prints the ports it uses:
+`chapkit_ewars_model`. If d242 and d243 from the section above are in the
+same directory, `init a` also warns about port 8780. Stop them before you
+start `a`. `init b` prints the ports it uses:
 
 ```text
 chap-core: v2.4.0, API on http://localhost:8701
