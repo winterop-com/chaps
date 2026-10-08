@@ -1184,3 +1184,31 @@ fn enable_chap_core_names_the_api_port() {
     );
     assert!(!text.contains("publishes no host port"), "{text}");
 }
+
+/// The volumes of chap-core are declared in `compose.yml`, so after a disable
+/// `varde down --volumes` does not reach them: the hint names the way that
+/// does.
+#[test]
+fn disable_chap_core_names_a_way_to_remove_its_volumes() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+    let dir = sandbox.project();
+    let output = chap_in(
+        &sandbox,
+        &dir,
+        &["-v", "components", "disable", "chap-core"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .clone();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains(
+            "hint: kept the volumes of chap-core; to remove them, run `varde components enable \
+             chap-core`, then `varde down --volumes`"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("left alone"), "{text}");
+}

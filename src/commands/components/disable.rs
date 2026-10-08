@@ -97,10 +97,10 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
             )
         };
     notes.extend(notes_of(NoteLevel::Info, stopped));
-    if component == Component::ChapCore {
-        notes.push(Note::hint(
-            "chap-core's own volumes are left alone; `varde down --volumes` removes them",
-        ));
+    // Its volumes are declared in `compose.yml`, which is gone from the file
+    // list now, so `varde down --volumes` does not reach them any more.
+    if component == Component::ChapCore && before.chap_core.enabled {
+        notes.push(Note::hint(CORE_VOLUMES_KEPT));
     }
     if component == Component::Ocs {
         notes.push(Note::hint("the ocs/ directory is left alone; it is yours"));
@@ -140,6 +140,11 @@ pub fn disable(ctx: &Ctx, args: &ComponentsDisableArgs) -> Result<()> {
     ctx.out
         .report(&report, |lines| change_summary(&report, &project, lines))
 }
+
+/// What a disable of this deployment's own chap-core says about its volumes.
+pub(super) const CORE_VOLUMES_KEPT: &str = "kept the volumes of chap-core; to remove them, run \
+     `varde components enable chap-core`, then `varde down --volumes`, which removes every \
+     volume of this deployment";
 
 /// Why `components disable chap-core --purge` is refused.
 ///
