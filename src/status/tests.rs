@@ -70,6 +70,7 @@ use super::*;
 
 mod components;
 mod configured;
+mod paused;
 
 /// Something listening on a component's host port, answering the way that
 /// component does and recording what it was asked - so a test can tell "no

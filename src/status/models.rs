@@ -18,6 +18,9 @@ pub enum ModelState {
     RunningNotRegistered,
     /// No container, so nothing could have registered.
     NotRunning,
+    /// Its container is paused, as an interrupted `varde backup create` can
+    /// leave it: it is there and does not answer.
+    Paused,
     /// Registered with chap-core, but not a model this project enables.
     Unmanaged,
     /// Without chap-core: its container is up and its own `/health` answered
@@ -45,6 +48,7 @@ impl ModelState {
             ModelState::Registered => "registered",
             ModelState::RunningNotRegistered => "running, not registered",
             ModelState::NotRunning => "not running",
+            ModelState::Paused => "paused",
             ModelState::Unmanaged => "unmanaged",
             ModelState::Up => "up",
             ModelState::RunningNotAnswering => "running, not answering",
@@ -59,6 +63,7 @@ impl ModelState {
             self,
             ModelState::RunningNotRegistered
                 | ModelState::NotRunning
+                | ModelState::Paused
                 | ModelState::RunningNotAnswering
                 | ModelState::Unreachable
         )

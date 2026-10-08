@@ -23,11 +23,17 @@ pub fn standalone_closing_lines(
             .iter()
             .filter(|m| m.state == ModelState::RunningNotAnswering)
             .count();
+        let paused = models
+            .iter()
+            .filter(|m| m.state == ModelState::Paused)
+            .count();
         lines.push(if stopped == total {
             NOTHING_RUNNING.to_string()
         } else if stopped > 0 {
             let verb = if stopped == 1 { "is" } else { "are" };
             format!("{stopped} of {total} {noun} {verb} not running; start them with `varde up`")
+        } else if paused > 0 {
+            paused_closing(paused, total, noun)
         } else if let Some(first) = models
             .iter()
             .find(|m| m.state == ModelState::RunningNotAnswering)
@@ -97,6 +103,13 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
             "{down} of {total} {noun} {verb} not running; start {them} with `varde up`"
         );
     }
+    let paused = rows
+        .iter()
+        .filter(|row| row.state == ComponentState::Paused)
+        .count();
+    if paused > 0 {
+        return paused_closing(paused, total, noun);
+    }
     let broken: Vec<&str> = rows
         .iter()
         .filter(|row| row.state == ComponentState::Unhealthy)
@@ -125,6 +138,16 @@ pub fn components_closing_line(rows: &[ComponentStatus]) -> String {
         [_, _] => "both components are up".to_string(),
         _ => format!("all {total} {noun} are up"),
     }
+}
+
+/// The closing line for rows whose container is paused: `1 of 2 components
+/// is paused; run `varde up` to resume it`.
+fn paused_closing(paused: usize, total: usize, noun: &str) -> String {
+    let (verb, them) = match paused {
+        1 => ("is", "it"),
+        _ => ("are", "them"),
+    };
+    format!("{paused} of {total} {noun} {verb} paused; run `varde up` to resume {them}")
 }
 
 /// The optional next commands under the closing lines of a deployment without
@@ -186,12 +209,20 @@ pub fn closing_line(rows: &[ModelStatus]) -> String {
             ),
         };
     }
+    let paused = mine
+        .iter()
+        .filter(|r| r.state == ModelState::Paused)
+        .count();
+    let noun = if total == 1 { "model" } else { "models" };
+    // Paused first: chap-core may still list it, and `varde up` is the fix.
+    if paused > 0 {
+        return paused_closing(paused, total, noun);
+    }
     let unreachable = mine
         .iter()
         .filter(|r| r.state == ModelState::Unreachable)
         .count();
     let problems = mine.iter().filter(|r| r.state.is_problem()).count() - unreachable;
-    let noun = if total == 1 { "model" } else { "models" };
     let verb = |n: usize| if n == 1 { "is" } else { "are" };
     match (problems, unreachable) {
         (0, 0) => {
@@ -340,6 +371,8 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
                  models configure`",
                 row.id
             )),
+            // The warning above the closing lines names `varde up` for it.
+            ModelState::Paused => None,
             ModelState::Registered | ModelState::Unmanaged | ModelState::Up => None,
         })
         .collect()

@@ -21,6 +21,9 @@ pub enum ComponentState {
     Unhealthy,
     /// No container, so nothing to answer.
     NotRunning,
+    /// Its container is paused, as an interrupted `varde backup create` can
+    /// leave it: it is there and does not answer.
+    Paused,
 }
 
 impl ComponentState {
@@ -31,6 +34,7 @@ impl ComponentState {
             ComponentState::Starting => "starting",
             ComponentState::Unhealthy => "unhealthy",
             ComponentState::NotRunning => "not running",
+            ComponentState::Paused => "paused",
         }
     }
 
@@ -45,7 +49,10 @@ impl ComponentState {
     pub fn is_problem(self) -> bool {
         matches!(
             self,
-            ComponentState::Starting | ComponentState::Unhealthy | ComponentState::NotRunning
+            ComponentState::Starting
+                | ComponentState::Unhealthy
+                | ComponentState::NotRunning
+                | ComponentState::Paused
         )
     }
 }
@@ -242,6 +249,36 @@ pub fn mark_unhealthy(rows: &mut [ComponentStatus], unhealthy: &BTreeSet<String>
         if row.state == ComponentState::Starting && unhealthy.contains(&row.name) {
             row.state = ComponentState::Unhealthy;
         }
+    }
+}
+
+/// Mark the rows whose container docker reports paused. `paused` holds the
+/// services.
+pub fn mark_paused(report: &mut super::StatusReport, paused: &BTreeSet<String>) {
+    for row in &mut report.components {
+        if paused.contains(&row.name) {
+            row.state = ComponentState::Paused;
+        }
+    }
+    for row in &mut report.models {
+        if paused.contains(&row.id) {
+            row.state = super::ModelState::Paused;
+        }
+    }
+}
+
+/// The warning for the services docker reports paused, with the way out.
+pub fn paused_line(paused: &BTreeSet<String>) -> Option<String> {
+    let names: Vec<&str> = paused.iter().map(String::as_str).collect();
+    match names.as_slice() {
+        [] => None,
+        [one] => Some(format!(
+            "{one} is paused, so it does not answer; run `varde up` to resume it"
+        )),
+        many => Some(format!(
+            "{} are paused, so they do not answer; run `varde up` to resume them",
+            many.join(", ")
+        )),
     }
 }
 

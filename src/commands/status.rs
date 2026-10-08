@@ -92,6 +92,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
             .map(|c| c.service.clone())
             .collect();
         crate::status::mark_unhealthy(&mut report.components, &unhealthy);
+        let paused: BTreeSet<String> = containers
+            .iter()
+            .filter(|c| c.state.eq_ignore_ascii_case("paused"))
+            .map(|c| c.service.clone())
+            .collect();
+        crate::status::mark_paused(&mut report, &paused);
+        if let Some(line) = crate::status::paused_line(&paused) {
+            warnings.push(line);
+        }
     }
     if report.api_elsewhere.is_some() {
         let port = report.api_port;
@@ -507,7 +516,7 @@ fn component_cell(out: &Out, state: crate::status::ComponentState) -> String {
     let label = state.label();
     match state {
         ComponentState::Up => out.ok(label),
-        ComponentState::Starting => out.warn(label),
+        ComponentState::Starting | ComponentState::Paused => out.warn(label),
         ComponentState::Unhealthy | ComponentState::NotRunning => out.bad(label),
     }
 }
@@ -519,7 +528,8 @@ fn state_cell(out: &Out, state: ModelState) -> String {
         ModelState::Registered | ModelState::Up => out.ok(label),
         ModelState::RunningNotRegistered
         | ModelState::RunningNotAnswering
-        | ModelState::NotConfigured => out.warn(label),
+        | ModelState::NotConfigured
+        | ModelState::Paused => out.warn(label),
         ModelState::NotRunning | ModelState::Unreachable => out.bad(label),
         ModelState::Unmanaged => out.dim(label),
     }
