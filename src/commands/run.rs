@@ -102,11 +102,25 @@ pub(crate) fn target(ctx: &Ctx, group: Option<&str>) -> Result<Target> {
         }
         return Ok(Target { dir, group: None });
     }
+    refuse_named_dir(ctx)?;
     let name = group.unwrap_or(DEFAULT_GROUP);
     Ok(Target {
         dir: group_dir(name)?,
         group: Some(name.to_string()),
     })
+}
+
+/// Refuse a `-C` that names a directory outside every deployment.
+///
+/// Without `-C` the run family falls back to the groups. With it, the reader
+/// asked for one directory, and the groups are not that directory: the error
+/// is the one `varde logs` and `varde status` give for it.
+fn refuse_named_dir(ctx: &Ctx) -> Result<()> {
+    if ctx.project_dir == Path::new(".") {
+        return Ok(());
+    }
+    let shown = std::path::absolute(&ctx.project_dir).unwrap_or_else(|_| ctx.project_dir.clone());
+    Err(ChapError::NotAProject(shown).into())
 }
 
 /// What `varde run` did, for `--json`.

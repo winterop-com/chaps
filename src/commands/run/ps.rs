@@ -38,6 +38,7 @@ pub(crate) fn scope(ctx: &Ctx, group: Option<&str>) -> Result<Vec<(Option<String
         target(ctx, group)?;
         return Ok(vec![(None, dir)]);
     }
+    super::refuse_named_dir(ctx)?;
     Ok(match group {
         Some(name) => {
             let dir = group_dir(name)?;

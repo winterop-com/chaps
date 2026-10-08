@@ -63,18 +63,32 @@ fn ps_and_dash_c_on_a_missing_group_name_the_group() {
             "nothing has been started with `varde run` yet",
         ));
     let dir = data(&sandbox).join("run").join("dengue");
+    // `ps` and `stop` give the same answer as `logs`: the `-C` names one
+    // directory, so they do not act on every group in its place.
+    let removed = dir.to_string_lossy().into_owned();
+    for args in [
+        vec!["-C", removed.as_str(), "logs", "chapkit-ewars-model"],
+        vec!["-C", removed.as_str(), "ps"],
+        vec!["-C", removed.as_str(), "stop", "--all"],
+    ] {
+        chap_with_docker(&sandbox, cwd, &bin, &args)
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(
+                "the `varde run` group dengue does not exist, or `varde stop --purge` removed \
+                 it; `varde run <model> --group dengue` makes it again",
+            ));
+    }
+    let nowhere = sandbox.home.path().join("nowhere");
     chap_with_docker(
         &sandbox,
         cwd,
         &bin,
-        &["-C", &dir.to_string_lossy(), "logs", "chapkit-ewars-model"],
+        &["-C", &nowhere.to_string_lossy(), "ps"],
     )
     .assert()
     .failure()
-    .stderr(predicates::str::contains(
-        "the `varde run` group dengue does not exist, or `varde stop --purge` removed it; \
-         `varde run <model> --group dengue` makes it again",
-    ));
+    .stderr(predicates::str::contains("is not a varde deployment"));
 }
 
 #[test]
