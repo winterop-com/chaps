@@ -204,6 +204,21 @@ fn out_is_a_file_a_directory_or_the_working_directory() {
 }
 
 #[test]
+fn a_second_backup_in_the_same_second_gets_a_name_of_its_own() {
+    let first = PathBuf::from("/backups/varde-backup-e2e-20260923-071000.tar.gz");
+    assert_eq!(unused_path(first.clone(), |_| false), first);
+
+    let taken = [
+        first.clone(),
+        PathBuf::from("/backups/varde-backup-e2e-20260923-071000-2.tar.gz"),
+    ];
+    assert_eq!(
+        unused_path(first, |p| taken.iter().any(|t| t == p)),
+        PathBuf::from("/backups/varde-backup-e2e-20260923-071000-3.tar.gz")
+    );
+}
+
+#[test]
 fn an_archive_is_written_to_a_hidden_sibling_first() {
     assert_eq!(
         temp_archive_path(Path::new("/backups/nightly.tar.gz")),

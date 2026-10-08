@@ -38,6 +38,45 @@ fn backup_create_json_reports_the_path_the_size_and_the_manifest() {
     );
 }
 
+/// Two backups in one second share the stamp; the second gets a name of its
+/// own rather than replace the first.
+#[test]
+fn two_quick_backups_keep_two_archives() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox.init(&["--models", "none"]).assert().success();
+    let archives = sandbox.home.path().join("archives");
+    std::fs::create_dir_all(&archives).unwrap();
+
+    let create = || {
+        let out = chap_in(
+            &sandbox,
+            &dir,
+            &[
+                "--json",
+                "backup",
+                "create",
+                "--no-db",
+                "--no-models",
+                "--out",
+                archives.to_str().unwrap(),
+            ],
+        )
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+        let report: Json = serde_json::from_slice(&out).unwrap();
+        PathBuf::from(report["path"].as_str().unwrap())
+    };
+    let first = create();
+    let second = create();
+    assert_ne!(first, second);
+    assert!(first.is_file() && second.is_file());
+    assert_eq!(std::fs::read_dir(&archives).unwrap().count(), 2);
+}
+
 #[test]
 fn the_archive_path_is_printed_without_dot_dot() {
     let sandbox = Sandbox::new();

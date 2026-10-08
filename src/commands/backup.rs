@@ -251,7 +251,10 @@ fn destination(project: &Project, out: Option<&Path>) -> Result<PathBuf> {
     let cwd = std::env::current_dir()
         .map_err(|e| anyhow::anyhow!("reading the working directory: {e}"))?;
     let name = backup::archive_name(&project_name(&project.dir), &backup::stamp(backup::now()));
-    let path = backup::resolve_out_path(out, out.is_some_and(Path::is_dir), &cwd, &name);
+    let mut path = backup::resolve_out_path(out, out.is_some_and(Path::is_dir), &cwd, &name);
+    if out != Some(path.as_path()) {
+        path = backup::unused_path(path, Path::exists);
+    }
     // Absolute and without `..`: the path is printed, and `chapx/../archives`
     // is not how anyone names that directory.
     Ok(crate::ports::real_path(&path))

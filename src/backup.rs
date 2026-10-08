@@ -295,6 +295,27 @@ pub fn resolve_out_path(
     }
 }
 
+/// `path`, or the first of `<stem>-2.tar.gz`, `<stem>-3.tar.gz`, ... that
+/// does not exist yet.
+///
+/// For a name varde made up: two backups in the same second get the same
+/// stamp, and the second must not replace the first without a word. A path
+/// the operator wrote out is theirs to overwrite, so it does not come here.
+pub fn unused_path(path: PathBuf, exists: impl Fn(&Path) -> bool) -> PathBuf {
+    if !exists(&path) {
+        return path;
+    }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = name.strip_suffix(".tar.gz").unwrap_or(&name).to_string();
+    (2u32..)
+        .map(|n| path.with_file_name(format!("{stem}-{n}.tar.gz")))
+        .find(|candidate| !exists(candidate))
+        .unwrap_or(path)
+}
+
 fn ends_with_separator(path: &Path) -> bool {
     let text = path.to_string_lossy();
     text.ends_with('/') || (cfg!(windows) && text.ends_with('\\'))
