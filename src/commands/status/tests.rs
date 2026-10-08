@@ -93,13 +93,21 @@ fn up(
 #[test]
 fn a_chap_core_that_is_not_answering_names_the_way_out() {
     let report = up(Vec::new(), &[], &[]);
-    let starting = down_message(&report, "io: Connection reset by peer", true);
+    let starting = down_message(&report, "io: Connection reset by peer", true, false);
     assert!(
         starting.contains("still starting, so run `varde status` again in a moment"),
         "{starting}"
     );
-    let down = down_message(&report, "io: Connection refused", false);
+    let down = down_message(&report, "io: Connection refused", false, false);
     assert!(down.ends_with("; `varde logs chap` says why"), "{down}");
+    // A chap that never started has no log to read.
+    let absent = down_message(&report, "io: Connection refused", false, true);
+    assert!(
+        absent.ends_with(
+            "; this deployment has no `chap` container yet, so start it with `varde up`"
+        ),
+        "{absent}"
+    );
 }
 
 /// A chap-core elsewhere has no `chap` service here, so the way out is the

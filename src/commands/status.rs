@@ -165,6 +165,15 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         })
     });
     report.api_starting = chap_starting;
+    // A chap-core of this deployment that has no container at all has no
+    // log to read either, so the error names `varde up` instead.
+    let chap_absent = args.url.is_none()
+        && project.state.components.chap_core_external.is_none()
+        && containers.as_deref().is_some_and(|containers| {
+            !containers
+                .iter()
+                .any(|c| c.service == crate::compose::API_SERVICE)
+        });
 
     let never_started = args.url.is_none()
         && !up
@@ -206,9 +215,12 @@ pub fn run(ctx: &Ctx, args: &StatusArgs) -> Result<()> {
         ApiHealth::Down { .. } if report.api_elsewhere.is_some() => Err(anyhow::anyhow!(
             report.api_elsewhere.clone().unwrap_or_default()
         )),
-        ApiHealth::Down { error } => {
-            Err(anyhow::anyhow!(down_message(&report, error, chap_starting)))
-        }
+        ApiHealth::Down { error } => Err(anyhow::anyhow!(down_message(
+            &report,
+            error,
+            chap_starting,
+            chap_absent
+        ))),
         ApiHealth::Rejected { .. } if ctx.out.json => std::process::exit(1),
         ApiHealth::Rejected { error } => Err(anyhow::anyhow!(
             "chap-core at {} is up and did not accept the API token: {error}",
@@ -243,7 +255,7 @@ fn edited_config_line(service: &str) -> String {
 /// cause, which is otherwise a `varde logs chap` away and forty lines long.
 /// When there are none, the line itself carries the way out: a chap-core that
 /// is still `starting` is waited for, anything else is read in its log.
-fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
+fn down_message(report: &StatusReport, error: &str, starting: bool, absent: bool) -> String {
     let mut text = format!("chap-core at {} is not responding: {error}", report.api_url);
     let lines = crate::diagnose::lines(&report.unhealthy);
     if report.chap_core_elsewhere {
@@ -258,6 +270,11 @@ fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
             "; its container started moments ago and is still starting, so run `varde status` \
              again in a moment",
         );
+    } else if absent {
+        text.push_str(&format!(
+            "; this deployment has no `{}` container yet, so start it with `varde up`",
+            crate::compose::API_SERVICE
+        ));
     } else if lines.is_empty() {
         text.push_str(&format!(
             "; `varde logs {}` says why",
