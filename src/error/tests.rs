@@ -34,7 +34,10 @@ fn a_missing_group_is_not_told_to_run_init() {
         "{line}"
     );
     let line = not_a_deployment(&groups.join("default").join("x"), groups);
-    assert!(line.contains("`varde run <model>` makes it again"), "{line}");
+    assert!(
+        line.contains("`varde run <model>` makes it again"),
+        "{line}"
+    );
     let line = not_a_deployment(Path::new("/srv/lab"), groups);
     assert!(line.ends_with("run `varde init` first"), "{line}");
     assert!(!not_a_deployment(groups, groups).contains("group"));

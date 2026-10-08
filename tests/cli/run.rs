@@ -490,7 +490,13 @@ fn ctrl_c_in_the_foreground_with_rm_removes_the_emptied_group() {
         &sandbox,
         sandbox.home.path(),
         &bin,
-        &["run", "chapkit_ewars_model", "--no-wait", "--attach", "--rm"],
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--no-wait",
+            "--attach",
+            "--rm",
+        ],
     )
     .assert()
     .success()

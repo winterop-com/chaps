@@ -38,12 +38,14 @@ pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
     // named, and `--replace` does not stop it.
     let running_of: Vec<_> = others
         .iter()
-        .map(|other| match busy.iter().any(|claim| other.holds(claim.port)) {
-            true => Project::load(&other.dir)
-                .map(|p| docker::running_services(&p))
-                .unwrap_or_default(),
-            false => Default::default(),
-        })
+        .map(
+            |other| match busy.iter().any(|claim| other.holds(claim.port)) {
+                true => Project::load(&other.dir)
+                    .map(|p| docker::running_services(&p))
+                    .unwrap_or_default(),
+                false => Default::default(),
+            },
+        )
         .collect();
     let taken = |port: u16| ports::is_busy(port) || others.iter().any(|other| other.holds(port));
     let conflicts: Vec<ports::Conflict> = busy

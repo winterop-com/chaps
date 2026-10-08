@@ -199,5 +199,8 @@ fn an_applied_port_with_no_change_names_no_apply_step() {
         ..change
     };
     let text = render(|lines| port_summary(&pending, &project, &[], lines));
-    assert!(text.ends_with("(no change)\nrun `varde up` to apply\n"), "{text}");
+    assert!(
+        text.ends_with("(no change)\nrun `varde up` to apply\n"),
+        "{text}"
+    );
 }

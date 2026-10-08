@@ -521,7 +521,10 @@ fn a_stopped_deployment_does_not_hold_a_port_and_several_publish_it() {
         port: 8780,
     };
     let one = held_line(&claim, &[&a], None);
-    assert!(one.contains("a (/srv/a) publishes it too; stop it with"), "{one}");
+    assert!(
+        one.contains("a (/srv/a) publishes it too; stop it with"),
+        "{one}"
+    );
     let b = at("b");
     let two = held_line(&claim, &[&a, &b], None);
     assert!(

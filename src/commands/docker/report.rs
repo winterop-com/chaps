@@ -2,8 +2,8 @@
 //! for docker to do.
 
 use super::down::{
-    DownVolumes, down_lines, down_next, forget_dhis2_connect, still_there_line, remove_leftovers,
-    removed_volumes,
+    DownVolumes, down_lines, down_next, forget_dhis2_connect, remove_leftovers, removed_volumes,
+    still_there_line,
 };
 use crate::cli::DockerCmd;
 use crate::commands::Ctx;

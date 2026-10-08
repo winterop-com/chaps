@@ -35,7 +35,13 @@ fn ps_and_dash_c_on_a_missing_group_name_the_group() {
         &sandbox,
         cwd,
         &bin,
-        &["run", "chapkit_ewars_model", "--group", "dengue", "--no-wait"],
+        &[
+            "run",
+            "chapkit_ewars_model",
+            "--group",
+            "dengue",
+            "--no-wait",
+        ],
     );
     chap_with_docker(&sandbox, cwd, &bin, &["ps", "--group", "nosuch"])
         .assert()
