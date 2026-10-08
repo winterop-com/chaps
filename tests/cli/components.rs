@@ -602,7 +602,7 @@ fn an_ocs_plugin_directory_is_mounted_and_configured_by_sync() {
         .assert()
         .success();
     assert!(!read(&dir.join("compose.ocs.yml")).contains("/app/plugins"));
-    assert!(!read(&dir.join("ocs/climate-service.yaml")).contains("plugins_dir"));
+    assert!(!read(&dir.join("ocs/climate-service.yaml")).contains("\nplugins_dir:"));
 
     std::fs::create_dir_all(dir.join("ocs/plugins/datasets")).unwrap();
     std::fs::write(dir.join("ocs/plugins/datasets/clms_gpp.py"), "# a plugin\n").unwrap();

@@ -87,7 +87,8 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         let asked_for = !wanted.is_empty();
         match write_ocs_config(&project.dir, &wanted.into_spec())? {
             Some(path) => notes.push(Note::hint(format!(
-                "wrote {}; it is yours to edit, and varde never rewrites it",
+                "wrote {}; it is yours to edit, and varde changes only its `read_only` and \
+                 `plugins_dir` keys",
                 label(&project, &path)
             ))),
             // Values were given for a file that is already there. Silently

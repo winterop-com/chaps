@@ -812,7 +812,7 @@ fn a_plugin_directory_adds_the_mount_and_the_config_key() {
     let report = sync(&mut project, &registry, true).unwrap();
     assert!(report.drift, "the mount and the key are both missing");
     assert!(
-        !read(&project.ocs_config_path()).contains(OCS_PLUGINS_KEY),
+        !read(&project.ocs_config_path()).contains(&format!("\n{OCS_PLUGINS_KEY}:")),
         "--check writes nothing"
     );
 

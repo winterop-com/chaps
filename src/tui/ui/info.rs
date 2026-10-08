@@ -173,7 +173,7 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             theme,
             "config",
             &format!(
-                "{}/{} · yours to edit, and varde never rewrites it",
+                "{}/{} · yours to edit; varde changes only its read_only and plugins_dir keys",
                 crate::components::OCS_DIR,
                 crate::components::OCS_CONFIG_FILE
             ),

@@ -300,6 +300,15 @@ fn the_ocs_config_scaffold_says_when_it_is_the_example() {
     assert_eq!(doc["extent"]["bbox"][0].as_f64(), Some(100.0));
     assert_eq!(doc["extent"]["bbox"][3].as_f64(), Some(22.5));
     assert_eq!(doc["data_dir"].as_str(), Some("/app/data"));
+    // `components enable ocs --read-only` and the plugin mount edit the
+    // file later, so the header names the two keys varde changes.
+    assert_eq!(
+        example.lines().next(),
+        Some(
+            "# Written once by varde when the ocs component was enabled; varde changes only \
+             the read_only and plugins_dir keys."
+        )
+    );
 }
 
 #[test]
