@@ -614,6 +614,11 @@ ocs  up  internal (proxy: https://ocs.example.org)
 where this machine reaches it, whatever the proxy is called. `--base-url ""`
 clears the setting.
 
+The command names the change on its own line: `set the ocs base URL to URL`,
+or `removed the ocs base URL`. A run that gives the value that is already
+recorded changes nothing, and says so: `ocs was already enabled on
+http://localhost:8790; nothing changed`.
+
 Point the proxy at the container on the compose network. Give it an
 **allowlist** of the open routes rather than a denylist, so a route added in a
 later OCS release is not permitted by default, and add request timeouts,

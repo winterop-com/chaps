@@ -171,8 +171,9 @@ ocs is now read-only
 run `varde restart ocs` to apply
 ```
 
-`varde up` does not apply this change: it says `already running` and leaves OCS
-as it is. Until you run `varde restart ocs`, `varde status` shows this warning:
+`varde up` does not apply this change. It leaves OCS as it is, and it prints
+this warning on stderr. Until you run `varde restart ocs`, `varde status` shows
+the same warning:
 
 ```text
 warning: `ocs/climate-service.yaml` changed after the ocs container started, so ocs may still use the old settings; run `varde restart ocs` to apply it
@@ -186,8 +187,24 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8790/ingestion
 ```
 
 A read-write OCS answers `422` to the same request. The base URL is different:
-it is in `compose.ocs.yml`, so `varde up` applies it. It worked when the links in
-`curl http://localhost:8790/stac/catalog.json` start with the base URL.
+it is in `compose.ocs.yml`, so `varde up` applies it. `--base-url` says what it
+set:
+
+```text
+enabled ocs on http://localhost:8790
+set the ocs base URL to https://ocs.example.org
+run `varde up` to apply
+```
+
+If you give the same base URL again, nothing changes, and the command prints
+no `varde up` line:
+
+```text
+ocs was already enabled on http://localhost:8790; nothing changed
+```
+
+It worked when the links in `curl http://localhost:8790/stac/catalog.json`
+start with the base URL.
 
 Both have `init` spellings too, `--ocs-read-only` and `--ocs-base-url`. A
 read-only instance refuses every ingestion over HTTP, so ingest first.
