@@ -684,6 +684,41 @@ fn the_stage_is_inside_varde_and_cleans_up_after_itself() {
 }
 
 #[test]
+fn a_new_stage_removes_the_stages_that_no_run_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let varde = dir.path().join(".varde");
+    let tmp = varde.join(TMP_DIR);
+    // Left by a run that was killed: no lock file, or one nobody holds.
+    for stale in ["backup-1", "backup-2"] {
+        std::fs::create_dir_all(tmp.join(stale)).unwrap();
+        std::fs::write(tmp.join(stale).join("db.dump"), "x").unwrap();
+    }
+    std::fs::write(tmp.join("backup-2.lock"), "").unwrap();
+    // A restore stage is of another kind and stays.
+    std::fs::create_dir_all(tmp.join("restore-3")).unwrap();
+
+    let held = Stage::new(&varde, "backup").unwrap();
+    assert!(!tmp.join("backup-1").exists());
+    assert!(!tmp.join("backup-2").exists());
+    assert!(!tmp.join("backup-2.lock").exists());
+    assert!(tmp.join("restore-3").exists());
+
+    // A stage that a live run holds is not removed by the next one.
+    let other = tmp.join("backup-999999");
+    std::fs::create_dir_all(&other).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(tmp.join("backup-999999.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    drop(held);
+    let _again = Stage::new(&varde, "backup").unwrap();
+    assert!(other.exists(), "a held stage stays");
+}
+
+#[test]
 fn archives_are_written_listed_and_read_back() {
     let dir = tempfile::tempdir().unwrap();
     let stage = dir.path().join("stage");

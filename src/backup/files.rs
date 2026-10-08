@@ -171,22 +171,44 @@ pub fn join_relative(root: &Path, rel: &str) -> PathBuf {
 /// It lives inside the project so the staged copy and the finished archive are
 /// on the same filesystem, which keeps a multi-gigabyte model volume off
 /// `/tmp` (often a small tmpfs) and makes the final rename cheap.
+///
+/// Each stage holds a lock on `<dir>.lock` beside it for as long as it lives.
+/// A run that was killed cannot remove its stage, so the next stage removes
+/// every stage of the same kind whose lock nobody holds.
 #[derive(Debug)]
 pub struct Stage {
     pub dir: PathBuf,
+    lock: Option<std::fs::File>,
 }
 
 impl Stage {
-    /// Create `.varde/tmp/<prefix>-<pid>` under `varde_dir`.
+    /// Create `.varde/tmp/<prefix>-<pid>` under `varde_dir`, and remove the
+    /// stages of earlier runs that stopped before they could.
     pub fn new(varde_dir: &Path, prefix: &str) -> Result<Stage> {
-        let dir = varde_dir
-            .join(TMP_DIR)
-            .join(format!("{prefix}-{}", std::process::id()));
-        // A crashed earlier run may have left one behind.
+        let tmp = varde_dir.join(TMP_DIR);
+        let dir = tmp.join(format!("{prefix}-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp)
+            .map_err(|e| anyhow::anyhow!("creating {}: {e}", tmp.display()))?;
+        // The lock before the directory: a directory without a lock file is
+        // then always one that nobody is still writing.
+        let lock_path = lock_path(&dir);
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|e| anyhow::anyhow!("creating {}: {e}", lock_path.display()))?;
+        lock.try_lock()
+            .map_err(|e| anyhow::anyhow!("locking {}: {e}", lock_path.display()))?;
+        remove_stale_stages(&tmp, prefix, &dir);
+        // A crashed earlier run with the same pid may have left one behind.
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)
             .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
-        Ok(Stage { dir })
+        Ok(Stage {
+            dir,
+            lock: Some(lock),
+        })
     }
 
     /// `self.dir/rel`, with the parent directories created.
@@ -203,10 +225,52 @@ impl Stage {
 impl Drop for Stage {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);
+        // The handle closes before the file goes: Windows removes no open file.
+        drop(self.lock.take());
+        let _ = std::fs::remove_file(lock_path(&self.dir));
         // And `.varde/tmp` itself, when this was the last stage in it: an
         // empty directory left behind would show up in the next backup.
         if let Some(parent) = self.dir.parent() {
             let _ = std::fs::remove_dir(parent);
+        }
+    }
+}
+
+/// `<dir>.lock`, beside the stage directory.
+fn lock_path(dir: &Path) -> PathBuf {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    dir.with_file_name(format!("{name}.lock"))
+}
+
+/// Remove the `<prefix>-*` stages in `tmp` that no running varde holds:
+/// the ones a run left behind when it was killed. Best-effort, and never
+/// `keep`, the stage being made.
+fn remove_stale_stages(tmp: &Path, prefix: &str, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(tmp) else {
+        return;
+    };
+    let start = format!("{prefix}-");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if path == keep || !name.starts_with(&start) || !path.is_dir() {
+            continue;
+        }
+        let lock = lock_path(&path);
+        let free = match std::fs::OpenOptions::new().write(true).open(&lock) {
+            // Locked by nobody: its run has ended. The handle closes at the
+            // end of this arm, before the file is removed.
+            Ok(file) => file.try_lock().is_ok(),
+            // No lock file: an older varde made it, or its run removed the
+            // lock and stopped before the directory was gone.
+            Err(_) => true,
+        };
+        if free {
+            let _ = std::fs::remove_dir_all(&path);
+            let _ = std::fs::remove_file(&lock);
         }
     }
 }
