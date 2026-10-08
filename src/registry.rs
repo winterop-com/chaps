@@ -279,11 +279,13 @@ fn load_chosen(opts: &RegistryOptions) -> Result<Registry> {
 ///
 /// Unlike [`load`] this has no fallback: the point of `varde registry update`
 /// is to know whether the refresh worked, so every failure surfaces as
-/// [`ChapError::RegistryUnavailable`].
+/// [`ChapError::RegistryUnavailable`], and `--offline` as a usage error.
 pub fn update(opts: &RegistryOptions) -> Result<Registry> {
     if opts.offline {
-        return Err(ChapError::RegistryUnavailable(
-            "--offline was given, so the registry cannot be refreshed".to_string(),
+        return Err(ChapError::Usage(
+            "`varde registry update` refreshes the marketplace registry, which needs the \
+             network; drop --offline"
+                .to_string(),
         )
         .into());
     }
@@ -305,7 +307,9 @@ fn parse_cached(
     match Registry::parse(&opts.url, Provenance::for_age(age), index_yaml, model_files) {
         Ok(registry) => Some(registry),
         Err(err) => {
-            crate::output::warn(&format!("ignoring the registry cache: {err:#}"));
+            crate::output::warn(&format!(
+                "ignoring the registry cache: {err:#}; run `varde registry update` to write it again"
+            ));
             None
         }
     }

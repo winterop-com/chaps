@@ -526,3 +526,58 @@ fn update_without_a_deployment_refuses_the_flags_that_move_pins() {
         .success()
         .stdout(predicates::str::contains("--dry-run fetched nothing"));
 }
+
+/// `registry update` cannot refresh offline: a usage error, like `update`,
+/// with the way out on the same line.
+#[test]
+fn registry_update_offline_says_to_drop_offline() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .chap()
+        .args(["registry", "update"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains(
+            "needs the network; drop --offline",
+        ));
+}
+
+/// A corrupt cache is ignored with a warning that says how to write it again.
+#[test]
+fn a_corrupt_registry_cache_names_registry_update() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    sandbox
+        .online(port)
+        .args(["registry", "update"])
+        .assert()
+        .success();
+    let registries = sandbox.cache.path().join("registries");
+    let entry = std::fs::read_dir(&registries)
+        .expect("registry update wrote a cache")
+        .next()
+        .expect("one cache entry")
+        .unwrap()
+        .path();
+    std::fs::write(entry.join("meta.json"), "not json").unwrap();
+    let out = chap_in(
+        &sandbox,
+        &dir,
+        &[
+            "registry",
+            "show",
+            "--registry-url",
+            &format!("http://127.0.0.1:{port}/registry.yaml"),
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stderr
+    .clone();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("meta.json is corrupt"), "{stderr}");
+    assert!(
+        stderr.contains("run `varde registry update` to write it again"),
+        "{stderr}"
+    );
+}

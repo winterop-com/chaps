@@ -363,9 +363,7 @@ fn update_refuses_to_run_offline() {
     let tmp = tempfile::tempdir().unwrap();
     let err = update(&opts(tmp.path(), true)).expect_err("--offline cannot refresh");
     match err.downcast_ref::<ChapError>() {
-        Some(ChapError::RegistryUnavailable(why)) => {
-            assert!(why.contains("--offline"), "{why}")
-        }
+        Some(ChapError::Usage(why)) => assert!(why.contains("drop --offline"), "{why}"),
         other => panic!("wrong error: {other:?}"),
     }
 }

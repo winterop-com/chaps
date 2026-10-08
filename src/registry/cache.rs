@@ -206,7 +206,8 @@ fn write_atomic(path: &Path, body: &str) -> Result<()> {
 /// Report an unusable entry and treat it as absent.
 fn unusable(dir: &Path, reason: String) -> Option<CachedSnapshot> {
     crate::output::warn(&format!(
-        "ignoring the registry cache in {}: {reason}",
+        "ignoring the registry cache in {}: {reason}; run `varde registry update` to write it \
+         again",
         dir.display()
     ));
     None
