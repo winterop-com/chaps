@@ -442,6 +442,7 @@ fn enable_source(
             .enabled
             .iter()
             .chain(&report.updated)
+            .chain(&report.unchanged)
             .next()
             .map(|(id, _)| id.clone())
             .expect("enabling a marketplace model reports it"),

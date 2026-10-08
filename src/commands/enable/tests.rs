@@ -75,8 +75,52 @@ fn enabled_report(project: &Project) -> ApplyReport {
             "chapkit_ewars_model".to_string(),
             project.state.models["chapkit_ewars_model"].clone(),
         )],
+        written: vec![project.dir.join("compose.chapkit-ewars-model.yml")],
         ..ApplyReport::default()
     }
+}
+
+/// An enable that asked for what the project already has says so, and has
+/// no apply step.
+#[test]
+fn an_unchanged_enable_says_nothing_changed() {
+    let project = project_with_ewars(None);
+    let report = ApplyReport {
+        unchanged: vec![(
+            "chapkit_ewars_model".to_string(),
+            project.state.models["chapkit_ewars_model"].clone(),
+        )],
+        ..ApplyReport::default()
+    };
+    let text = render(|lines| summary(&report, &[], &project, lines));
+    assert!(
+        text.starts_with(
+            "chapkit_ewars_model v1.0.0 is already enabled at \
+             http://localhost:8700/v2/services/chapkit-ewars-model/run/; nothing changed\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("varde up"), "{text}");
+}
+
+/// A change to the state that rendered no compose file differently, such as
+/// a new channel that points at the same version, has nothing for `up`.
+#[test]
+fn an_update_that_wrote_no_compose_file_has_no_apply_step() {
+    let project = project_with_ewars(None);
+    let report = ApplyReport {
+        updated: vec![(
+            "chapkit_ewars_model".to_string(),
+            project.state.models["chapkit_ewars_model"].clone(),
+        )],
+        ..ApplyReport::default()
+    };
+    let text = render(|lines| summary(&report, &[], &project, lines));
+    assert!(
+        text.starts_with("updated chapkit_ewars_model v1.0.0"),
+        "{text}"
+    );
+    assert!(!text.contains("run `varde up` to apply"), "{text}");
 }
 
 #[test]
@@ -173,7 +217,12 @@ fn a_port_change_says_what_happened_and_what_to_do_next() {
         previous: None,
         ..internal
     };
-    assert!(render(|lines| port_summary(&again, &project, &[], lines)).contains("(no change)"));
+    let text = render(|lines| port_summary(&again, &project, &[], lines));
+    assert!(
+        text.starts_with("chapkit-ewars-model was already unexposed; nothing changed"),
+        "{text}"
+    );
+    assert!(!text.contains("run `varde up` to apply"), "{text}");
 }
 
 /// A port that is already there and already published has no apply step.
@@ -192,15 +241,19 @@ fn an_applied_port_with_no_change_names_no_apply_step() {
     let text = render(|lines| port_summary(&change, &project, &[], lines));
     assert_eq!(
         text,
-        "exposed chapkit-ewars-model on http://localhost:5001 (no change)\n"
+        "chapkit-ewars-model is already exposed on http://localhost:5001; nothing changed\n"
     );
+    // A container that does not publish it yet is not a change this command
+    // made: `up` is a hint, not a step.
     let pending = PortChange {
         applied: false,
         ..change
     };
     let text = render(|lines| port_summary(&pending, &project, &[], lines));
     assert!(
-        text.ends_with("(no change)\nrun `varde up` to apply\n"),
+        text.ends_with(
+            "nothing changed\nhint: if its container is not running, `varde up` starts it\n"
+        ),
         "{text}"
     );
 }

@@ -539,3 +539,56 @@ fn changing_commands_say_ok_and_name_the_model_under_json() {
         "{doc}"
     );
 }
+
+/// Asking again for what the deployment already has changes nothing, says
+/// so, and does not ask for `varde up`.
+#[test]
+fn a_second_enable_or_expose_says_nothing_changed() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "chapkit_ewars_model"])
+        .assert()
+        .success();
+    let out = sandbox
+        .models(&["enable", "chapkit_ewars_model"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out);
+    assert!(
+        text.contains("chapkit_ewars_model v") && text.contains("is already enabled"),
+        "{text}"
+    );
+    assert!(text.contains("nothing changed"), "{text}");
+    assert!(!text.contains("varde up"), "{text}");
+    assert!(!text.contains("updated"), "{text}");
+
+    sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("run `varde up` to apply"));
+    let port = state(&dir)["models"]["chapkit_ewars_model"]["host_port"].clone();
+    let out = sandbox
+        .models(&["expose", "chapkit_ewars_model", "--port", "auto"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out);
+    assert!(
+        text.contains(&format!(
+            "chapkit-ewars-model is already exposed on http://localhost:{port}; nothing changed"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("run `varde up` to apply"), "{text}");
+    assert_eq!(
+        state(&dir)["models"]["chapkit_ewars_model"]["host_port"],
+        port
+    );
+}

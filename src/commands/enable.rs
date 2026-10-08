@@ -92,6 +92,7 @@ impl<'a, T: serde::Serialize> Changed<'a, T> {
             .enabled
             .iter()
             .chain(&apply.updated)
+            .chain(&apply.unchanged)
             .map(|(id, model)| ModelRef::of(id, model, project))
             .collect();
         Changed { models, report }
@@ -400,6 +401,27 @@ fn set_host_port(
 
 /// The lines of one port change.
 fn port_summary(change: &PortChange, project: &Project, warnings: &[String], lines: &mut Report) {
+    // Nothing moved and no file was written: there is nothing for `up` to
+    // apply.
+    if change.host_port == change.previous && change.written.is_empty() {
+        match change.host_port {
+            Some(port) => lines.info(format!(
+                "{} is already exposed on http://localhost:{port}; nothing changed",
+                change.service_id
+            )),
+            None => lines.info(format!(
+                "{} was already unexposed; nothing changed, and it is reachable at {}",
+                change.service_id, change.url
+            )),
+        };
+        for warning in warnings {
+            lines.warning(warning.as_str());
+        }
+        if !change.applied {
+            lines.hint("if its container is not running, `varde up` starts it");
+        }
+        return;
+    }
     let same = match change.host_port == change.previous {
         true => " (no change)",
         false => "",
@@ -476,23 +498,30 @@ pub(crate) fn summary(
     project: &Project,
     lines: &mut Report,
 ) {
+    // A manually added model's version is its image tag, so `v` in front of
+    // it would read as a version number it does not have.
+    let version = |model: &crate::project::EnabledModel| match model.version == model.image_tag {
+        true => model.image_tag.clone(),
+        false => format!("v{}", model.version),
+    };
+    let place = |model: &crate::project::EnabledModel| match model.host_port {
+        Some(port) => format!("on http://localhost:{port}"),
+        None => format!("at {}", project.proxy_url(&model.service_id)),
+    };
     for (id, model) in report.touched() {
         let verb = match report.enabled.iter().any(|(e, _)| e == id) {
             true => "enabled",
             false => "updated",
         };
-        // A manually added model's version is its image tag, so `v` in
-        // front of it would read as a version number it does not have.
-        let version = match model.version == model.image_tag {
-            true => model.image_tag.clone(),
-            false => format!("v{}", model.version),
-        };
-        let place = match model.host_port {
-            Some(port) => format!("on http://localhost:{port}"),
-            None => format!("at {}", project.proxy_url(&model.service_id)),
-        };
-        lines.info(format!("{verb} {id} {version} {place}"));
+        lines.info(format!("{verb} {id} {} {}", version(model), place(model)));
         lines.hint(format!("{id} is in `{}`", model.compose_file));
+    }
+    for (id, model) in &report.unchanged {
+        lines.info(format!(
+            "{id} {} is already enabled {}; nothing changed",
+            version(model),
+            place(model)
+        ));
     }
     for id in &report.disabled {
         lines.info(format!("disabled {id}"));
@@ -506,9 +535,11 @@ pub(crate) fn summary(
     for note in notes {
         lines.info(note.as_str());
     }
-    // Taking a model away has already stopped its container: there is
+    // Taking a model away has already stopped its container, and a change
+    // that wrote no compose file leaves the containers as they are: there is
     // nothing left for `up` to apply, only a deployment to look at.
-    match report.touched().next().is_none() {
+    let rendered = !report.written.is_empty() || !report.removed.is_empty();
+    match report.touched().next().is_none() || !rendered {
         true => lines.hint("`varde status` shows what runs now"),
         false => lines.info("run `varde up` to apply"),
     };

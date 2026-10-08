@@ -119,6 +119,8 @@ impl Selection {
 pub struct ApplyReport {
     pub enabled: Vec<(String, EnabledModel)>,
     pub updated: Vec<(String, EnabledModel)>,
+    /// Models the selection asked for that were already enabled exactly so.
+    pub unchanged: Vec<(String, EnabledModel)>,
     pub disabled: Vec<String>,
     /// Components this run turned on, with the host port each publishes.
     pub components_enabled: Vec<(String, Option<u16>)>,
@@ -496,7 +498,9 @@ pub(crate) fn plan_with(
                 }
             }
         };
-        if existing.is_some() {
+        if existing.as_ref() == Some(&entry) {
+            report.unchanged.push((model.id.clone(), entry.clone()));
+        } else if existing.is_some() {
             report.updated.push((model.id.clone(), entry.clone()));
         } else {
             report.enabled.push((model.id.clone(), entry.clone()));
