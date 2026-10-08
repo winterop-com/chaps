@@ -228,6 +228,25 @@ fn a_dhis2_that_is_not_running_is_not_asked() {
     );
 }
 
+/// On a seeded deployment `dhis2` waits for `dhis2-db`, which restores the
+/// dump first. A running database without its DHIS2 is `starting`, and
+/// nothing is asked of a DHIS2 that has no container yet.
+#[test]
+fn a_dhis2_whose_database_runs_is_starting_not_stopped() {
+    let stand_in = stand_in_dhis2();
+    let rows = component_rows(
+        &dhis2_project(Some(stand_in.port)),
+        &probe_agent(),
+        &running(&["dhis2-db"]),
+    );
+    assert_eq!(rows[0].state, ComponentState::Starting);
+    assert!(stand_in.asked().is_empty(), "{:?}", stand_in.asked());
+    assert_eq!(
+        components_closing_line(&rows),
+        "1 of 1 component is still starting; run `varde status` again in a moment"
+    );
+}
+
 /// An instance behind a reverse proxy publishes no host port, so there is no
 /// address out here to ask and the container is the whole answer.
 #[test]

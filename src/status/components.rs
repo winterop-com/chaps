@@ -89,6 +89,9 @@ pub struct ComponentStatus {
     /// altogether for an instance that is not running.
     pub data_bytes: Option<u64>,
 }
+/// The database service of the `dhis2` component.
+const DHIS2_DB_SERVICE: &str = "dhis2-db";
+
 /// One row per enabled component other than chap-core.
 ///
 /// OCS and DHIS2 are asked over HTTP, because each publishes a host port and an
@@ -183,7 +186,13 @@ pub(super) fn component_rows(
             .port_of(crate::components::Component::Dhis2)
             .map(|port| format!("http://localhost:{port}"));
         let up = running.contains(crate::compose::DHIS2_SERVICE);
+        // `dhis2` is created only when `dhis2-db` is healthy, and on a seeded
+        // deployment that is after the restore, which can take many minutes.
+        // A running database without its DHIS2 is a DHIS2 that is starting,
+        // not one that `varde up` has to start.
+        let database_up = running.contains(DHIS2_DB_SERVICE);
         let state = match (&url, up) {
+            (_, false) if database_up => ComponentState::Starting,
             // The same reasoning that gates the OCS request on its container:
             // with nothing running there is no answer to wait for, only a
             // timeout to spend on a port this deployment has nobody on - and
