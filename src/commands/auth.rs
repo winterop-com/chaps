@@ -145,6 +145,11 @@ fn data_sources(project: &Project, body: &str) -> Vec<(&'static str, Option<Stri
         .collect()
 }
 
+/// Why `varde auth enable --token` with another token is refused while
+/// authentication is on.
+const TOKEN_NOT_USED: &str = "--token was not used: API authentication is already on with \
+     another token; run `varde auth disable`, then `varde auth enable --token TOKEN`";
+
 /// `varde auth enable`: put both secrets in `.env` and render the overlays.
 pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     let (mut project, _lock) = ctx.project_mut()?;
@@ -154,6 +159,14 @@ pub fn enable(ctx: &Ctx, args: &AuthEnableArgs) -> Result<()> {
     // Already on: rotating is the operation that replaces a working secret,
     // and doing it by accident locks every configured client out.
     if effective.api_token && effective.registration_key {
+        // A token given here and not written would be dropped without a
+        // word, and the client that holds it would then be refused.
+        if let Some(given) = args.token.as_deref().map(str::trim)
+            && !given.is_empty()
+            && auth::active_value(&body, API_TOKEN_ENV_VAR).as_deref() != Some(given)
+        {
+            return Err(crate::error::ChapError::Usage(TOKEN_NOT_USED.to_string()).into());
+        }
         record(&mut project, effective)?;
         let value = serde_json::json!({
             "changed": false,

@@ -608,3 +608,35 @@ fn auth_enable_with_a_chap_core_elsewhere_restarts_only_the_models() {
             "run `varde up` to restart the models without authentication",
         ));
 }
+
+/// A token given while authentication is on is not dropped without a word:
+/// the same token is the no-change answer, another one is refused with the
+/// way out, and `.env` keeps the token it had.
+#[test]
+fn auth_enable_refuses_another_token_while_authentication_is_on() {
+    let sandbox = Sandbox::new();
+    sandbox.init(&["--models", "none"]).assert().success();
+    sandbox.auth(&["enable"]).assert().success();
+    let before = sandbox.env();
+    let token = env_value(&before, "CHAP_API_TOKEN")
+        .expect("a token")
+        .to_string();
+
+    sandbox
+        .auth(&["enable", "--token", &token])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "API authentication is already on",
+        ));
+
+    sandbox
+        .auth(&["enable", "--token", "another-token-of-thirty-two-chars"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "--token was not used: API authentication is already on with another token; run \
+             `varde auth disable`, then `varde auth enable --token TOKEN`",
+        ));
+    assert_eq!(sandbox.env(), before);
+}
