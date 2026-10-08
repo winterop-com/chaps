@@ -52,6 +52,8 @@ pub(crate) struct AddReport {
     runtime_amd64: bool,
     /// What the resolution had to guess at.
     notes: Vec<String>,
+    /// What may stop the model from working, printed as warnings.
+    warnings: Vec<String>,
     #[serde(flatten)]
     apply: ApplyReport,
 }
@@ -89,6 +91,9 @@ pub fn add(ctx: &Ctx, args: &ModelsAddArgs) -> Result<()> {
             ctx.out.report_ok(&changed, |lines| {
                 added_block(&resolved, lines);
                 super::enable::summary(&report.apply, &notes, &project, lines);
+                for warning in &report.warnings {
+                    lines.warning(warning.as_str());
+                }
             })
         }
     }
@@ -207,8 +212,30 @@ pub(crate) fn add_in(
     let applied = apply(project, &registry, &selection, &endpoints)?;
 
     let mut notes = resolved.notes.clone();
+    // A second copy of a marketplace model registers under the id its image
+    // carries, which is the marketplace model's service id: that is a name
+    // this copy cannot take, so the usual way out below does not work.
+    let twin = crate::manual::source::Source::parse(&args.source)
+        .ok()
+        .and_then(|source| {
+            marketplace_twin(&registry, &source, |id| {
+                project.state.manual.contains_key(id)
+            })
+        })
+        .filter(|model| model.service_id != resolved.service_id)
+        .map(|model| (model.id.clone(), model.service_id.clone()));
+    let mut warnings = Vec::new();
     // Only a deployment with a chap-core has anything to register with.
-    if project.state.components.has_chap_core_api() {
+    if let Some((twin_id, twin_service)) =
+        twin.filter(|_| project.state.components.has_chap_core_api())
+    {
+        warnings.push(format!(
+            "this is the image of the marketplace model {twin_id}, which registers with \
+             chap-core as `{twin_service}`, so `{}` may never register; to run {twin_id}, \
+             run `varde models remove {}`, then `varde models enable {twin_id}`",
+            resolved.service_id, resolved.id
+        ));
+    } else if project.state.components.has_chap_core_api() {
         notes.push(format!(
             "the service must register with chap-core as `{}`; \
              if its own MLServiceInfo.id differs, `varde status` shows it as unmanaged - \
@@ -230,6 +257,7 @@ pub(crate) fn add_in(
         user: resolved.user.clone(),
         runtime_amd64: resolved.runtime_amd64,
         notes: notes.clone(),
+        warnings,
         apply: applied,
     };
     Ok(Added::Manual(Box::new(report), Box::new(resolved)))
@@ -347,6 +375,23 @@ fn marketplace_match(
                 .find(|v| v.image_tag == image.tag)
                 .map(|v| (m.id.clone(), Some(v.version.clone())))
         }),
+        Source::Local(_) => None,
+    }
+}
+
+/// The marketplace model whose repository or image `source` is, at any tag.
+/// `manual` tells the entries `models add` made, which are not marketplace
+/// models.
+fn marketplace_twin<'a>(
+    registry: &'a Registry,
+    source: &crate::manual::source::Source,
+    manual: impl Fn(&str) -> bool,
+) -> Option<&'a crate::registry::Model> {
+    use crate::manual::source::Source;
+    let mut others = registry.models.iter().filter(|m| !manual(&m.id));
+    match source {
+        Source::Repo(repo) => others.find(|m| same_repo(&m.source.repository, &repo.url())),
+        Source::Image(image) => others.find(|m| m.source.image.eq_ignore_ascii_case(&image.image)),
         Source::Local(_) => None,
     }
 }

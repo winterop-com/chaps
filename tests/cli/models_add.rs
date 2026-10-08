@@ -718,3 +718,53 @@ fn models_add_with_id_auto_picks_a_free_id_beside_the_marketplace_one() {
         "{manual}"
     );
 }
+
+/// A second copy of a marketplace model carries the marketplace model's id in
+/// its image, so it may never register under its own service id. The add
+/// says so as a warning, with a way out that works.
+#[test]
+fn models_add_of_a_marketplace_repository_under_its_own_id_warns_it_may_not_register() {
+    let (sandbox, dir, port) = added_sandbox(Hub::new());
+    let out = sandbox
+        .online(port)
+        .args([
+            "--json",
+            "models",
+            "add",
+            "https://github.com/chap-models/chapkit_ewars_model",
+            "--id",
+            "auto",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let doc: Json = serde_json::from_slice(&out).expect("one JSON document");
+    let added = manual_models(&dir);
+    let id = added
+        .as_object()
+        .and_then(|m| m.keys().next().cloned())
+        .expect("one model added");
+    let warning = doc["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .find(|m| m["level"] == "warning")
+        .unwrap_or_else(|| panic!("no warning in {doc}"));
+    let text = warning["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("registers with chap-core as `chapkit-ewars-model`"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "run `varde models remove {id}`, then `varde models enable chapkit_ewars_model`"
+        )),
+        "{text}"
+    );
+    assert!(
+        !doc.to_string().contains("--service-id <that id>"),
+        "the way out that cannot work is gone: {doc}"
+    );
+}
