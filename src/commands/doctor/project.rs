@@ -450,7 +450,7 @@ pub fn env_check(body: Option<&str>) -> Check {
 /// which the number looks wrong against `.varde/project.yaml`.
 pub fn port_check(
     claim: &PortClaim,
-    running: &BTreeSet<String>,
+    own: &ports::OwnPorts,
     busy: &dyn Fn(u16) -> bool,
     suggestion: Option<u16>,
     note: Option<&str>,
@@ -470,7 +470,7 @@ pub fn port_check(
         Some(note) => format!("{} {what} ({note})", claim.port),
         None => format!("{} {what}", claim.port),
     };
-    if running.contains(&claim.service) {
+    if own.holds(claim) {
         return Check::ok(
             id,
             name,

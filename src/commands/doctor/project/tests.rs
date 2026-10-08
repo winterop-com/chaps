@@ -396,7 +396,7 @@ fn the_leftovers_are_the_volumes_of_disabled_models_and_components() {
 
 #[test]
 fn a_port_is_only_a_conflict_when_someone_else_holds_it() {
-    let nothing = BTreeSet::new();
+    let nothing = ports::OwnPorts::default();
     let free = |_: u16| false;
     let taken = |_: u16| true;
 
@@ -418,7 +418,7 @@ fn a_port_is_only_a_conflict_when_someone_else_holds_it() {
 
     // A port this deployment's own container publishes is ours, exactly as
     // the `up` preflight treats it.
-    let running: BTreeSet<String> = [API_SERVICE.to_string()].into_iter().collect();
+    let running = ports::OwnPorts::services(&[API_SERVICE]);
     let check = port_check(&api, &running, &taken, None, None);
     assert_eq!(check.status, Status::Ok);
     assert!(check.detail.contains("this deployment's own container"));
@@ -456,7 +456,13 @@ fn the_api_port_line_names_the_file_that_moved_the_port() {
     );
 
     let claim = claim(API_SERVICE, project.effective_api_port());
-    let check = port_check(&claim, &BTreeSet::new(), &|_| false, None, Some(&note));
+    let check = port_check(
+        &claim,
+        &ports::OwnPorts::default(),
+        &|_| false,
+        None,
+        Some(&note),
+    );
     assert_eq!(
         check.detail,
         "18000 is free (from .env, over the 8000 recorded in .varde/project.yaml)"

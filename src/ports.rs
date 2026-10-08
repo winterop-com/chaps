@@ -30,6 +30,9 @@ use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
+mod own;
+pub use own::OwnPorts;
+
 /// A host port the stack wants, and the compose service that publishes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortClaim {
@@ -142,17 +145,18 @@ fn service_of(component: Component) -> Option<&'static str> {
     }
 }
 
-/// The claims `busy` reports as taken, leaving out services `running` says
-/// this project already has up: those ports are ours, and `docker compose up`
-/// on a running stack is a no-op rather than a conflict.
+/// The claims `busy` reports as taken, leaving out the ones `own` says a
+/// running container of this project already publishes: those ports are ours,
+/// and `docker compose up` on a running stack is a no-op rather than a
+/// conflict.
 pub fn busy_claims(
     claims: &[PortClaim],
-    running: &std::collections::BTreeSet<String>,
+    own: &OwnPorts,
     busy: &dyn Fn(u16) -> bool,
 ) -> Vec<PortClaim> {
     claims
         .iter()
-        .filter(|claim| !running.contains(&claim.service))
+        .filter(|claim| !own.holds(claim))
         .filter(|claim| busy(claim.port))
         .cloned()
         .collect()
@@ -259,9 +263,9 @@ pub fn component_port_warning(
     port: u16,
     busy: &dyn Fn(u16) -> bool,
 ) -> Option<String> {
-    let running = crate::docker::running_services(project);
+    let own = OwnPorts::of_project(project);
     let others = other_deployments(&project.dir, &crate::docker::compose_ls_json);
-    component_port_line(project, component, port, busy, &running, &others)
+    component_port_line(project, component, port, busy, &own, &others)
 }
 
 /// [`component_port_warning`] with the two docker answers handed in, so the
@@ -271,7 +275,7 @@ fn component_port_line(
     component: Component,
     port: u16,
     busy: &dyn Fn(u16) -> bool,
-    running: &BTreeSet<String>,
+    own: &OwnPorts,
     others: &[Deployment],
 ) -> Option<String> {
     // A component with no host port of its own has nothing to collide over,
@@ -287,10 +291,13 @@ fn component_port_line(
     // ours: `docker compose up` on a service that is already up is a no-op
     // rather than a conflict. The same exemption [`busy_claims`] makes, but by
     // port as well as by service - a component being *moved* onto some other
-    // process's port is a conflict however much of this deployment is up.
-    if claims(project)
-        .iter()
-        .any(|held| held.port == port && running.contains(&held.service))
+    // process's port is a conflict however much of this deployment is up. The
+    // component's own container on that port counts too, even when the
+    // recorded port is another one (after a restore of `.varde/` files).
+    if own.publishes(&claim.service, port)
+        || claims(project)
+            .iter()
+            .any(|held| held.port == port && own.holds(held))
     {
         return None;
     }

@@ -81,3 +81,69 @@ fn up_names_only_a_running_deployment_as_the_holder_of_a_port() {
         ));
     drop(listener);
 }
+
+/// A `docker` whose compose `ps` reports chap on `api` and dhis2 on
+/// `dhis2`, both running, with the host ports they publish now.
+fn docker_publishing(api: u16, dhis2: u16) -> (TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("a directory for the fake docker");
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("a bin directory");
+    let row = |service: &str, port: u16| {
+        format!(
+            "{{\"Service\":\"{service}\",\"State\":\"running\",\
+             \"Publishers\":[{{\"PublishedPort\":{port}}}]}}\\n"
+        )
+    };
+    let script = format!(
+        "#!/bin/sh\n\
+         case \"$*\" in\n\
+         *' ps '*) printf '{}{}'; exit 0;;\n\
+         esac\n\
+         exit 0\n",
+        row("chap", api),
+        row("dhis2", dhis2),
+    );
+    let docker = bin.join("docker");
+    std::fs::write(&docker, script).expect("the fake docker");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("an executable fake docker");
+    }
+    (temp, bin)
+}
+
+/// A restore of `.varde/` files can move a running DHIS2 to another port. The
+/// recreate publishes the new port, so the check asks about that port, and
+/// the container on the old one does not vouch for it.
+#[test]
+fn up_checks_the_port_a_running_service_is_moved_to() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+    let taken = listener.local_addr().unwrap().port();
+    let api = free_port();
+    let sandbox = Sandbox::new();
+    let dir = sandbox.project();
+    sandbox
+        .init(&["--models", "none", "--api-port", &api.to_string()])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--port", &taken.to_string()])
+        .assert()
+        .success();
+
+    let (_fake, bin) = docker_publishing(api, free_port());
+    let out = chap_with_docker(&sandbox, &dir, &bin, &["up"])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(
+        text.contains(&format!("port {taken} is already in use on this machine")),
+        "{text}"
+    );
+    assert!(!text.contains(&format!("port {api} ")), "{text}");
+    drop(listener);
+}

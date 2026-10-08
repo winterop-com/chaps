@@ -465,6 +465,10 @@ fn project_checks(
         .as_deref()
         .map(docker::running_of)
         .unwrap_or_default();
+    let own = containers
+        .as_deref()
+        .map(ports::OwnPorts::of)
+        .unwrap_or_default();
 
     // The catalogue, read once for the two checks that need it: the pins it
     // carries and whether the rendered files still match them. With the probe
@@ -493,7 +497,7 @@ fn project_checks(
     checks.extend(manual_checks(ctx, project));
 
     let claims = ports::claims(project);
-    let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
+    let busy = ports::busy_claims(&claims, &own, &ports::is_busy);
     // A port to point the API at, found the way `varde up` finds one.
     let suggestion = busy
         .iter()
@@ -508,13 +512,7 @@ fn project_checks(
         let note = (claim.service == API_SERVICE)
             .then_some(api_note.as_deref())
             .flatten();
-        checks.push(port_check(
-            claim,
-            &running,
-            &ports::is_busy,
-            suggestion,
-            note,
-        ));
+        checks.push(port_check(claim, &own, &ports::is_busy, suggestion, note));
     }
 
     // The chap-core release feed says nothing about a deployment that does not

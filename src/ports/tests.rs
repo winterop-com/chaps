@@ -246,7 +246,7 @@ fn a_component_port_warning_names_the_listener_and_the_way_out() {
             Component::Ocs,
             18010,
             &free,
-            &BTreeSet::new(),
+            &OwnPorts::default(),
             &[]
         ),
         None,
@@ -258,7 +258,7 @@ fn a_component_port_warning_names_the_listener_and_the_way_out() {
         Component::Ocs,
         18010,
         &|port| port == 18010,
-        &BTreeSet::new(),
+        &OwnPorts::default(),
         &[],
     )
     .expect("a warning");
@@ -297,7 +297,7 @@ fn a_component_port_another_deployment_publishes_is_reported_too() {
         Component::Ocs,
         18010,
         &|_| false,
-        &BTreeSet::new(),
+        &OwnPorts::default(),
         std::slice::from_ref(&neighbour),
     )
     .expect("a warning");
@@ -310,7 +310,7 @@ fn a_component_port_another_deployment_publishes_is_reported_too() {
             Component::Ocs,
             18011,
             &|_| false,
-            &BTreeSet::new(),
+            &OwnPorts::default(),
             std::slice::from_ref(&neighbour)
         ),
         None
@@ -326,7 +326,7 @@ fn a_component_keeps_the_port_its_own_running_service_holds() {
     let (_dir, mut project) = project();
     project.state.components.ocs.enabled = true;
     project.state.components.ocs.port = Some(18010);
-    let running = BTreeSet::from(["ocs".to_string()]);
+    let running = OwnPorts::services(&["ocs"]);
 
     assert_eq!(
         component_port_line(&project, Component::Ocs, 18010, &|_| true, &running, &[]),
@@ -353,7 +353,7 @@ fn a_component_keeps_the_port_its_own_running_service_holds() {
             Component::Ocs,
             18010,
             &|_| true,
-            &BTreeSet::new(),
+            &OwnPorts::default(),
             &[]
         )
         .is_some()
@@ -372,13 +372,20 @@ fn a_component_with_no_host_port_of_its_own_is_never_warned_about() {
             Component::ChapCore,
             18010,
             &all_busy,
-            &BTreeSet::new(),
+            &OwnPorts::default(),
             &[]
         ),
         None
     );
     assert_eq!(
-        component_port_line(&project, Component::S3, 0, &all_busy, &BTreeSet::new(), &[]),
+        component_port_line(
+            &project,
+            Component::S3,
+            0,
+            &all_busy,
+            &OwnPorts::default(),
+            &[]
+        ),
         None
     );
 }
@@ -390,17 +397,57 @@ fn a_running_service_keeps_its_own_port() {
     let all_busy = |_: u16| true;
 
     assert_eq!(
-        busy_claims(&claims, &BTreeSet::new(), &all_busy).len(),
+        busy_claims(&claims, &OwnPorts::default(), &all_busy).len(),
         2,
         "nothing of ours is up, so both conflicts are real"
     );
-    let running = BTreeSet::from(["chap".to_string()]);
+    let running = OwnPorts::services(&["chap"]);
     let busy = busy_claims(&claims, &running, &all_busy);
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].service, "loud");
 
     let nothing_busy = |_: u16| false;
-    assert!(busy_claims(&claims, &BTreeSet::new(), &nothing_busy).is_empty());
+    assert!(busy_claims(&claims, &OwnPorts::default(), &nothing_busy).is_empty());
+}
+
+/// A restore of `.varde/components.yaml` can move a running DHIS2 from 8781
+/// to 8780. The recreate publishes 8780, so the check asks about 8780 and
+/// does not let the container on 8781 vouch for it.
+#[test]
+fn a_running_service_is_checked_on_the_port_the_recreate_moves_it_to() {
+    let (_dir, mut project) = project();
+    project.state.components.dhis2.enabled = true;
+    project.state.components.dhis2.port = Some(18780);
+    let claims = claims(&project);
+    let all_busy = |_: u16| true;
+
+    let moved = OwnPorts::with(&[("chap", &[8123]), ("dhis2", &[18781])]);
+    let busy = busy_claims(&claims, &moved, &all_busy);
+    let ports: Vec<u16> = busy.iter().map(|claim| claim.port).collect();
+    assert!(ports.contains(&18780), "{busy:?}");
+    assert!(!ports.contains(&8123), "{busy:?}");
+
+    let kept = OwnPorts::with(&[("chap", &[8123]), ("dhis2", &[18780])]);
+    let busy = busy_claims(&claims, &kept, &all_busy);
+    assert!(!busy.iter().any(|claim| claim.port == 18780), "{busy:?}");
+}
+
+/// `components enable dhis2 --port 18781` while this deployment's own DHIS2
+/// runs on 18781: the listener is ours, even when `.varde/components.yaml`
+/// records another port.
+#[test]
+fn a_component_moved_onto_the_port_its_own_container_publishes_is_not_warned_about() {
+    let (_dir, mut project) = project();
+    project.state.components.dhis2.enabled = true;
+    project.state.components.dhis2.port = Some(18780);
+    let own = OwnPorts::with(&[("dhis2", &[18781])]);
+    assert_eq!(
+        component_port_line(&project, Component::Dhis2, 18781, &|_| true, &own, &[]),
+        None
+    );
+    // Another service of ours on that port does not make it free for DHIS2.
+    let own = OwnPorts::with(&[("ocs", &[18781])]);
+    assert!(component_port_line(&project, Component::Dhis2, 18781, &|_| true, &own, &[]).is_some());
 }
 
 #[test]
@@ -770,7 +817,7 @@ fn a_component_on_a_port_its_own_model_publishes_is_warned_about() {
         Component::Ocs,
         5001,
         &|_| false,
-        &BTreeSet::new(),
+        &OwnPorts::default(),
         &[],
     )
     .expect("a warning");

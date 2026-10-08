@@ -12,9 +12,10 @@ use std::io::{BufRead, IsTerminal, Write};
 ///
 /// Docker would find the same conflict, several seconds in, and name a
 /// container rather than a port; this says which port, who wanted it and how
-/// to move it, before anything has started. Ports held by this project's own
-/// running containers are ours, so they are skipped: `varde up` on a running
-/// stack has to stay a no-op.
+/// to move it, before anything has started. A port that one of this project's
+/// own running containers publishes now is ours, so it is skipped: `varde up`
+/// on a running deployment has to stay a no-op. A running service that the
+/// recreate moves to another port is checked on that port.
 ///
 /// When every taken port is published by another varde deployment that runs,
 /// that is almost always the one to put away, so `up` offers to: at a terminal
@@ -25,8 +26,8 @@ pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
     if claims.is_empty() {
         return Ok(());
     }
-    let running = docker::running_services(project);
-    let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
+    let own = ports::OwnPorts::of_project(project);
+    let busy = ports::busy_claims(&claims, &own, &ports::is_busy);
     if busy.is_empty() {
         return Ok(());
     }
@@ -119,7 +120,7 @@ pub(crate) fn preflight(ctx: &Ctx, project: &Project, replace: bool) -> Result<(
     }
     // What stopped them is what is asked again: a port something else took
     // in the meantime is the refusal it always was.
-    let busy = ports::busy_claims(&claims, &running, &ports::is_busy);
+    let busy = ports::busy_claims(&claims, &own, &ports::is_busy);
     if !busy.is_empty() {
         let still: Vec<String> = busy.iter().map(|claim| claim.port.to_string()).collect();
         return Err(anyhow::anyhow!(
