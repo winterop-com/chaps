@@ -464,7 +464,11 @@ fn rows(report: &StatusReport, out: &Out) -> String {
                 ]
             })
             .collect();
-        text.push('\n');
+        // A blank line between the service lines and the table; with no
+        // service lines, the table is the first line.
+        if !text.is_empty() {
+            text.push('\n');
+        }
         text.push_str(&out.table(&["MODEL", "STATE", "REACH", "LAST PING"], &rows));
     }
     // The blank line above the closing lines. An API that is down or refused

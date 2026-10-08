@@ -571,6 +571,23 @@ fn a_components_only_report_ends_on_a_verdict_about_its_components() {
     );
 }
 
+/// A deployment of models alone has no service lines, so the model table is
+/// the first line: no blank line comes before it.
+#[test]
+fn a_models_only_report_starts_on_the_table() {
+    let running: BTreeSet<String> = ["chapkit-ewars-model".to_string()].into();
+    let report = StatusReport {
+        models: crate::status::standalone_model_rows(
+            &[("chapkit-ewars-model".to_string(), Some(5001))],
+            &running,
+            &|_| true,
+        ),
+        ..without_chap_core(Vec::new())
+    };
+    let text = human(&report, &Out::default());
+    assert!(text.starts_with("MODEL "), "{text:?}");
+}
+
 #[test]
 fn a_row_with_nothing_in_a_cell_prints_a_dash() {
     let mut report = up(
