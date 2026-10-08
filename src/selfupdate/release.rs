@@ -36,12 +36,6 @@ impl Release {
         self.assets.iter().any(|asset| asset == name)
     }
 
-    /// The day the release was published, `YYYY-MM-DD`, or the whole
-    /// timestamp when it is not the shape GitHub documents.
-    pub fn published_day(&self) -> &str {
-        day_of(&self.published_at)
-    }
-
     /// The day the release was built, `YYYY-MM-DD`, or empty when nothing
     /// says.
     ///

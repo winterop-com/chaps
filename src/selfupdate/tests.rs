@@ -450,7 +450,7 @@ fn the_dev_release_says_which_commit_it_was_built_from() {
         release_commit(&release).as_deref(),
         Some("0b1c2d3e4f50617283940a1b2c3d4e5f60718293")
     );
-    assert_eq!(release.published_day(), "2026-09-23");
+    assert_eq!(release.built_day(), "2026-09-23");
 
     // A tagged release says nothing of the sort.
     let stable = Release {
@@ -665,7 +665,7 @@ fn the_stable_notice_cannot_be_talked_into_offering_a_prerelease() {
     assert!(parsed.prerelease);
     assert_eq!(parsed.tag, DEV_TAG);
     assert_eq!(release_commit(&parsed).as_deref(), Some("abc1234"));
-    assert_eq!(parsed.published_day(), "2026-09-23");
+    assert_eq!(parsed.published_at, "2026-09-23T17:08:44Z");
 
     // A tagged release parses as what it is, with nulls tolerated.
     let stable = parse_release(r#"{"tag_name":"v0.2.1","published_at":null,"body":null}"#).unwrap();
