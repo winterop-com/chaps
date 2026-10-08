@@ -166,7 +166,7 @@ bullets_for() {
         ;;
       # A verb that is also a command reads as the command only at the head
       # of a list: "run, ps, stop and open ...".
-      run | stop | open | update | sync | restart | pull | logs)
+      run | stop | open | update | sync | restart | pull)
         [ "${word%,}" != "$word" ] && rest="varde ${rest}"
         ;;
     esac
