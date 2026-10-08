@@ -113,6 +113,24 @@ fn what_was_left_out_is_a_warning_unless_a_flag_asked_for_it() {
 }
 
 #[test]
+fn the_two_dhis2_volumes_left_out_by_a_flag_are_one_line() {
+    let mut db = component("dhis2", Some("--no-components"));
+    db.service = "dhis2-db".into();
+    db.volume = "dhis2_db".into();
+    let text = rendered(&report_with(
+        false,
+        vec![],
+        vec![component("dhis2", Some("--no-components")), db],
+    ));
+    assert_eq!(
+        text.matches("hint: dhis2: not included (--no-components)\n")
+            .count(),
+        1,
+        "{text}"
+    );
+}
+
+#[test]
 fn a_service_that_was_not_running_is_not_reported_as_paused() {
     assert_eq!(size_note(4096, None), "(4.0 KB)");
     assert_eq!(

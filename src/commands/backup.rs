@@ -173,8 +173,12 @@ fn write_archive(out: &Path, stage: &Path, members: &[String]) -> Result<()> {
 }
 
 /// Each model and component that the archive does not hold, and why.
-fn skip_reasons(manifest: &Manifest) -> impl Iterator<Item = (&str, &str)> {
-    manifest
+///
+/// A component with several volumes has an entry per volume under one name,
+/// so the same reason for each of them is one line: `dhis2: not included
+/// (--no-components)` once, not once per volume.
+fn skip_reasons(manifest: &Manifest) -> Vec<(&str, &str)> {
+    let mut reasons: Vec<(&str, &str)> = manifest
         .models
         .iter()
         .filter_map(|m| Some((m.service_id.as_str(), m.skipped.as_deref()?)))
@@ -184,6 +188,9 @@ fn skip_reasons(manifest: &Manifest) -> impl Iterator<Item = (&str, &str)> {
                 .iter()
                 .filter_map(|c| Some((c.name.as_str(), c.skipped.as_deref()?))),
         )
+        .collect();
+    reasons.dedup();
+    reasons
 }
 
 /// Where the archive lands, as an absolute path.
