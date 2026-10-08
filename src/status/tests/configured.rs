@@ -161,3 +161,36 @@ fn a_missing_git_revision_is_no_revision_on_a_chap_core_that_passes_the_key_on()
         ]
     );
 }
+
+/// A model registered from outside that registers with a new version keeps
+/// the configured models of the old one, and nothing can run the new one.
+#[test]
+fn an_unmanaged_model_with_configured_models_of_another_version_only_is_named() {
+    let mut moved = registered("host-model", 5);
+    moved.version = "1.0.2".to_string();
+    moved.git_revision = Some(Some("abc".to_string()));
+    let services = [moved];
+    let rows = model_rows(&enabled(), &services, &BTreeSet::new(), NOW);
+
+    let old = [
+        row("host-model", Some("1.0.1")),
+        row("host-model:test_config_1", Some("1.0.2")),
+    ];
+    let warnings = revision_warnings(&rows, &services, &old, true);
+    let lines: Vec<String> = warnings.iter().map(revision_line).collect();
+    assert_eq!(
+        lines,
+        [
+            "host-model: chap-core has configured models of it of other versions only, not of \
+          1.0.2; run `varde models configs sync host-model`"
+        ]
+    );
+
+    // A configured model of the new version, or none at all: no warning.
+    let new = [
+        row("host-model", Some("1.0.1")),
+        row("host-model:a", Some("1.0.2")),
+    ];
+    assert!(revision_warnings(&rows, &services, &new, true).is_empty());
+    assert!(revision_warnings(&rows, &services, &[], true).is_empty());
+}

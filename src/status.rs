@@ -114,7 +114,8 @@ pub struct StatusReport {
     pub models: Vec<ModelStatus>,
     /// Registered service ids the project does not enable.
     pub unmanaged: Vec<String>,
-    /// The unmanaged models whose model template chap-core refuses.
+    /// The models that chap-core cannot run, and why: a template it
+    /// refuses, or configured models of other versions only.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub revision_warnings: Vec<RevisionWarning>,
     /// Whether `.env` sets an API token, which is also whether these requests

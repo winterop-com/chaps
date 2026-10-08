@@ -259,8 +259,7 @@ pub fn sends_revision(registered: &[RegisteredService], version: Option<&str>) -
             .is_some_and(|version| version >= (2, 4, 0))
 }
 
-/// Why chap-core refuses the model template of a model registered from
-/// outside the deployment.
+/// Why chap-core cannot run a model registered from outside the deployment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RevisionProblem {
@@ -269,6 +268,9 @@ pub enum RevisionProblem {
     /// chap-core stores its template under this version from another git
     /// revision.
     RevisionMismatch,
+    /// chap-core has configured models of it of other versions only, so a
+    /// backtest of the version it registered with has nothing to run.
+    OtherVersionOnly,
 }
 
 /// One model with a [`RevisionProblem`].
@@ -282,9 +284,10 @@ pub struct RevisionWarning {
     pub managed: bool,
 }
 
-/// The unmanaged rows whose template chap-core refuses, as far as varde can
-/// see it: a registration with an empty `git_revision`, or a configured model
-/// whose `healthStatus` is `revision_mismatch`.
+/// The unmanaged rows that chap-core cannot run, as far as varde can see it:
+/// a registration with an empty `git_revision`, a configured model whose
+/// `healthStatus` is `revision_mismatch`, or configured models of other
+/// versions only.
 ///
 /// The unmanaged rows, and a model of this deployment that chap-core has no
 /// configured model for because it reports no revision: `varde models
@@ -317,6 +320,10 @@ pub fn revision_warnings(
                     && model.health.as_deref() == Some("revision_mismatch")
             }) {
                 RevisionProblem::RevisionMismatch
+            } else if crate::configs::sync::is_configured(configured, &row.id, None)
+                && !crate::configs::sync::is_configured(configured, &row.id, Some(&service.version))
+            {
+                RevisionProblem::OtherVersionOnly
             } else {
                 return None;
             };

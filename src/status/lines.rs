@@ -309,6 +309,11 @@ pub fn revision_line(warning: &crate::status::RevisionWarning) -> String {
              to run it; set a new version in the model, then start it again",
             warning.id, warning.version
         ),
+        crate::status::RevisionProblem::OtherVersionOnly => format!(
+            "{}: chap-core has configured models of it of other versions only, not of {}; \
+             run `varde models configs sync {}`",
+            warning.id, warning.version, warning.id
+        ),
     }
 }
 
