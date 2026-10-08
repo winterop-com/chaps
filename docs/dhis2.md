@@ -229,14 +229,24 @@ so `varde sync` warns when the file is not there, before `varde up` fails. A
 relative path keeps the deployment directory self-contained: copy the dump into
 it.
 
-`varde init` makes the deployment directory, so a relative path names a file
-that is not there yet. `varde init` then reads the version of the dump from the
-same path in the working directory, and warns that the file is not in the
-deployment directory. Copy the dump there before the first `varde up`:
+`varde init` reads the version of the dump only from the deployment
+directory, because that is the file the restore uses. If `init` makes the
+directory, the file is not there yet, so `init` does not read its version and
+warns:
+
+```text
+laos.sql.gz is not in /srv/laos, so varde did not read its DHIS2 version, and DHIS2 runs 2.42
+...
+warning: the dhis2 seed names laos.sql.gz, which is not in /srv/laos; copy the dump there before `varde up`, or run `varde components enable dhis2 --seed none`
+```
+
+To let `init` read the version, make the directory and copy the dump into it
+first:
 
 ```sh
-varde init laos --only dhis2 --dhis2-seed laos.sql.gz
+mkdir laos
 cp laos.sql.gz laos/
+varde init laos --only dhis2 --dhis2-seed laos.sql.gz
 cd laos && varde up
 ```
 
@@ -287,7 +297,7 @@ error: docker compose exited with status 1
 **This takes about 15 minutes.** The health check of `dhis2-db` has a start
 period of 600 seconds and then 30 checks 10 seconds apart, and `varde up`
 prints nothing new until compose gives up. While it waits, `varde status`
-says `dhis2 not running`. To see the error sooner, run `varde logs dhis2-db`
+says `dhis2 starting`, because `dhis2-db` runs and DHIS2 waits for it. To see the error sooner, run `varde logs dhis2-db`
 in a second shell. The error is there seconds after the restore stops.
 
 `varde backup restore` sets the mark again after it loads the `pg_dump` of the
@@ -302,17 +312,22 @@ is in its Flyway table: each migration that DHIS2 ran is a row of
 `flyway_schema_history`, and the newest one says the version. `2.42.54` is
 migration 54 of DHIS2 2.42. The last number is not the patch release.
 
-- For a dump on disk, `varde init` reads the version. It looks for the path in
-  the deployment directory first, then in the working directory. A dump of
-  3.9 GB takes about 20 seconds, because the table comes after `datavalue`.
+- For a dump on disk, `varde init` reads the version. It looks for the path
+  only in the deployment directory. If the dump is not there, `init` says
+  `<path> is not in <dir>, so varde did not read its DHIS2 version, and DHIS2
+  runs <tag>`. A dump of 3.9 GB takes about 20 seconds, because the table
+  comes after `datavalue`.
   `varde components enable dhis2 --seed PATH` does not read it.
   - Without `--dhis2-tag`, DHIS2 runs the version of the dump.
   - A `--dhis2-tag` older than the dump is refused.
   - A dump older than 2.41 is refused.
+- A `--dhis2-tag` or `--tag` older than 2.41 is refused, also without a dump:
+  `` --tag 2.40 is older than DHIS2 2.41, the oldest version varde supports;
+  use `--tag 2.41` or newer ``.
 - For a URL, the dump step reads the version after the download, before the
-  rewrite, and stops with the same messages. `varde up` then says only
-  `service "dhis2-dump" didn't complete successfully: exit 1`.
-  `varde logs dhis2-dump` shows the reason.
+  rewrite, and stops with the same messages. `varde up` then prints the error
+  line of the dump step under `why dhis2-dump failed:`, with the command that
+  fixes it.
 
 ```text
 $ varde init laos --only dhis2 --dhis2-seed laos.sql.gz
@@ -320,16 +335,20 @@ reading the DHIS2 version of laos.sql.gz from its Flyway table; a large dump tak
 laos.sql.gz is DHIS2 2.42 (Flyway migration 2.42.54), so DHIS2 runs 2.42
 ```
 
-A URL dump that is newer than the tag stops in the dump step:
+A URL dump that is newer than the tag stops in the dump step, and `varde up`
+says why:
 
 ```text
-$ varde logs dhis2-dump
-dhis2-dump-1  | the dump is DHIS2 2.42 (its newest Flyway migration)
-dhis2-dump-1  | error: DHIS2 2.41 is older than the dump (DHIS2 2.42), and DHIS2 does not run a newer database; set image_tag: 2.42 or newer under dhis2: in .varde/components.yaml, then run varde sync
+service "dhis2-dump" didn't complete successfully: exit 1
+
+why dhis2-dump failed:
+  error: DHIS2 2.41 is older than the dump (DHIS2 2.42), and DHIS2 does not run a newer database; run varde components enable dhis2 --tag 2.42, then varde up
+  the dump is DHIS2 2.42, and DHIS2 does not run a newer database; run `varde components enable dhis2 --tag 2.42`, then `varde up`
+error: docker compose exited with status 1
 ```
 
-To set the tag, run `varde components enable dhis2 --tag 2.42`, then `varde
-up`.
+`varde logs dhis2-dump` shows the whole log of the step. To set the tag, run
+`varde components enable dhis2 --tag 2.42`, then `varde up`.
 
 ### Values that analytics cannot read
 
@@ -575,6 +594,13 @@ against the one being asked for, not two records against each other:
 warning: the DHIS2 image moves from 2.42 to 2.41 and `dhis2_db` is already there: DHIS2 migrates a schema forward only, so run `varde backup create` first - an older image on a migrated database answers healthy while every API request 404s
 ```
 
+A move to a newer version gets its own warning, because the migration cannot
+be undone:
+
+```text
+warning: the DHIS2 image moves from 2.41 to 2.42 and `dhis2_db` is already there: the next `varde up` migrates the database to 2.42, and DHIS2 migrates a schema forward only, so run `varde backup create` first - the migration cannot be undone
+```
+
 Moving the seed does not need this care and moving the tag does. So the browser
 edits the tag only through the `v` prompt, which states the forward-only rule.
 It does not edit the seed: its `i` overlay sends you to `varde components
@@ -677,7 +703,9 @@ is not answering cannot be connected to anything and the advice could not be
 taken. `varde up` has asked nothing at all and DHIS2 is minutes from its first
 request, so it says *once DHIS2 answers*. Neither says it on a deployment
 [without chap-core](./components.md), where `varde dhis2 connect` refuses: the
-route would point at a service that is not there.
+route would point at a service that is not there. There, `varde dhis2 show`
+says `target  none (this deployment has no chap-core)` and names `varde dhis2
+apps` and `varde dhis2 analytics` in place of `connect`.
 
 ### `connected_at`, and what it is not
 
@@ -1067,9 +1095,10 @@ already going instead of asking for another:
 the analytics run that was already going finished in 4 minutes (job jFxL1tE0pAy)
 ```
 
-DHIS2 lists a run about five seconds after it accepts it. A second `varde dhis2
-analytics` in those seconds does not see the first run, so it starts another,
-which waits behind the first.
+DHIS2 lists a run in its notifier about five seconds after it accepts it. A
+second `varde dhis2 analytics` in those seconds also reads
+`/api/jobConfigurations`. There it finds the analytics job that DHIS2 accepted
+and has not started yet, and it adopts that job. It does not start another.
 
 A job left `RUNNING` by a hard stop blocks every future run for good;
 [`dhis2-prep`](#four-services-and-three-volumes) resets those on every start,
@@ -1095,7 +1124,7 @@ what it checked and labels the timestamp with what it is worth:
 
 | Row | What varde checked |
 | --- | --- |
-| `analytics  never run` | DHIS2 records no successful run at all. DHIS2 2.42 with an empty database reports `1970-01-01T00:00:00.000` instead, and `show` prints that time as it is; it also means that no run has finished. |
+| `analytics  never run` | DHIS2 records no successful run at all. DHIS2 2.42 with an empty database reports `1970-01-01T00:00:00.000` instead, and varde reads that time as no run too. |
 | `analytics  2026-09-27T10:10:40.043 (a run finished on this deployment)` | An analytics run has finished on this DHIS2 since it started, which `GET /api/system/tasks/ANALYTICS_TABLE` says. That notifier lives in the running process, so nothing a dump carries can put an entry in it. |
 | `analytics  2026-06-16T07:51:00.093 (unconfirmed on a seeded database)` | DHIS2 records a success, this deployment was seeded, and no run has finished here since DHIS2 started. The timestamp proves nothing either way. |
 | `analytics  2026-09-27T10:10:40.043` | DHIS2 records a success and this deployment has no seed, so its database was migrated from empty and the record was made against it. |

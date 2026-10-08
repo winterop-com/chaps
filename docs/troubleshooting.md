@@ -718,6 +718,12 @@ container still uses, stays. The warning names each one, with the reason in
 parentheses when docker gave one. If you do not need its data, run the
 `docker volume rm` command in the line.
 
+If the reason is `volume is in use`, a container still holds the volume. A
+backup or restore that was killed can leave its reader container behind, with
+a name that starts with `varde-volume-`. `docker ps -a --filter volume=X` shows
+the container. Remove it with `docker rm -f NAME`, then run `varde down
+--volumes` again. See [Taking a backup](./backup.md#taking-a-backup).
+
 ## `docker would not remove volume ...` from `varde stop --purge`
 
 Purging a group removes every volume compose made for it, and docker refused
@@ -829,10 +835,16 @@ grep -n "DHIS2_IMAGE_TAG" .env                      # and any override, which wi
 Put the tag back where the database is, rather than migrating further:
 
 ```sh
-varde backup create                     # before anything, if there is data worth keeping
-# set image_tag back in .varde/components.yaml, or fix DHIS2_IMAGE_TAG in .env
-varde sync
+varde backup create                        # before anything, if there is data worth keeping
+varde components enable dhis2 --tag 2.42   # the version of the database; or fix DHIS2_IMAGE_TAG in .env
 varde up
+```
+
+If the log says that the migration of the schema failed, the database is from
+an older DHIS2. `varde up` then says:
+
+```text
+DHIS2 could not migrate the database to its version; a database from an older DHIS2 must go up one version at a time, so run `varde components enable dhis2 --tag VERSION` with the next version, then `varde up`, and repeat
 ```
 
 There is no way back down a migration. A database migrated by 2.42 does not work
@@ -899,13 +911,14 @@ The trap is that it will **look** configured. The climate demo dumps ship a
 `chap` route of their own - right code, right authority, not disabled - aimed at
 an external Chap server, so a seeded instance has a route by that name resolving
 to somebody else's chap-core. `varde dhis2 route` repoints it rather than skipping
-it, and says where it pointed:
+it:
 
 ```text
-repointed the `chap` route at http://chap:8000/**
-  it pointed at http://158.39.75.126/stable/**
-  verified chap-core answered through it: healthy
+repointed the `chap` route at http://chap:8000/**; chap-core answered through it
 ```
+
+With `-v`, a hint says where it pointed:
+`hint: the route was rewritten because it pointed at http://158.39.75.126/stable/**`.
 
 `varde dhis2 show` is the one to run first: it names each piece that is missing
 and changes nothing. If the app shows Chap but a model is missing from its
@@ -939,8 +952,10 @@ Modeling App from the app menu.
 
 ## `varde has not connected this DHIS2 to Chap`
 
-`varde up` and `varde status` close with this while `.varde/components.yaml`
-records no `varde dhis2 connect` for this deployment:
+`varde up` closes with this while `.varde/components.yaml` records no `varde
+dhis2 connect` for this deployment. `varde status` closes with it too, but only
+while its `dhis2` row says `up`. For an external DHIS2, `status` has no `dhis2`
+row, so only `varde up` says it:
 
 ```text
 varde has not connected this DHIS2 to Chap; run `varde dhis2 connect`
@@ -977,6 +992,17 @@ nothing to change and record that it ran.
 ```text
 warning: the `chap` route is in place but nothing answered through it: HTTP 502 Bad Gateway; run `varde status` to see whether chap-core is up
 ```
+
+If no answer came at all, the line says so:
+
+```text
+warning: the `chap` route is in place but nothing answered through it: the request through DHIS2 timed out; run `varde status` to see whether chap-core is up
+```
+
+DHIS2 answered the route write a moment before, so the request that got no
+answer is about chap-core behind the route, not about DHIS2. A new or
+repointed route gets a second request after two seconds before varde gives
+this warning.
 
 The route is correct, so this is not a route problem. Three things it is, in the
 order worth checking:

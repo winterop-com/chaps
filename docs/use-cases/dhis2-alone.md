@@ -81,7 +81,7 @@ you run `init` in. For the commands above, put the dump at
 tells you:
 
 ```text
-warning: the dhis2 seed names dumps/mine.sql.gz, which is not in /path/to/dhis; copy the dump there before `varde up`, or set `seed: none` in .varde/components.yaml
+warning: the dhis2 seed names dumps/mine.sql.gz, which is not in /path/to/dhis; copy the dump there before `varde up`, or run `varde components enable dhis2 --seed none`
 ```
 
 The seed is applied once, when the database is first created; after that the
@@ -102,6 +102,14 @@ them. See
 
 ```text
 error: chap-core is not a component of this deployment, so the route would point at a service that is not there; run `varde components enable chap-core` first
+```
+
+`varde dhis2 show` works here. Its `target` row says
+`none (this deployment has no chap-core)`, and it names no `varde dhis2
+connect`. When the apps or the analytics tables are missing, its last line is:
+
+```text
+run `varde dhis2 apps` for the apps, then `varde dhis2 analytics` for the analytics tables; the `chap` route needs chap-core; `varde components enable chap-core` adds it
 ```
 
 `varde components enable chap-core` adds one, then `varde up` starts it, and
