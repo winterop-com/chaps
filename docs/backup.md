@@ -114,9 +114,12 @@ hint: files: .env, .varde/components.yaml, .varde/compose.chap-core.v2.4.0.yml, 
 hint: database: chap_core as chap (54.0 KB), PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2)
 hint: model chapkit-ewars-model: /app/data (54.0 KB, paused for 0.4 s)
 hint: component dhis2: /opt/dhis2 (48.8 MB, paused for 1.4 s)
-hint: component dhis2: pg_dump without analytics_*, aggregated_*, completeness_*, _* and the data of audit (8.3 MB)
+hint: component dhis2: the database as a pg_dump without analytics_*, aggregated_*, completeness_*, _* and the data of audit (8.3 MB)
 hint: `varde backup restore /srv/chapx/varde-backup-chapx-20261008-002753.tar.gz` restores it
 ```
+
+The archive path is printed resolved, without `..` parts: `--out ../archives`
+prints `/srv/archives/...`.
 
 A part left out by `--no-db`, `--no-models` or `--no-components` is a hint. A
 part left out for another reason, such as a model that never started, is a
@@ -133,24 +136,35 @@ as the `paused for 1.4 s` above shows.
 its storage, so nothing writes into a half-read tar - a chapkit model keeps a
 live SQLite database in its data directory, and a tar of a file that is being
 written to is a tar of a torn database. The service is always let go again,
-including when the read fails - except when the backup itself is interrupted
-(Ctrl-C) while it holds one: then the service stays paused, and the next
-`varde up` resumes it and says so:
+including when the read fails. A Ctrl-C while the backup holds a service lets
+it go at the next step, and says so:
+
+```text
+error: stopped by Ctrl-C; no archive was written; dhis2 was paused for the backup and runs again
+```
+
+Only a second Ctrl-C, or a kill, leaves the service paused. `varde status` then
+shows it as `paused`, with a warning:
+
+```text
+warning: dhis2 is paused, so it does not answer; run `varde up` to resume it
+```
+
+The next `varde up` resumes it and says so:
 
 ```text
 resuming dhis2, left paused (an interrupted `varde backup create`?)
 ```
 
-Until then, `varde status` shows the paused service as `not running`, and it
-does not answer. Where `pause` is unsupported the service is
+Where `pause` is unsupported the service is
 stopped and started instead (`stopped for 6.0 s`), and where neither works the
 read goes ahead with a warning. The database needs none of this: `pg_dump`
 reads one transactional snapshot, however busy chap-core is while it runs.
 
 **A large volume means a long pause.** A paused service does not answer.
-Before varde pauses a running component service for a volume of 1 GB or more,
-it warns. A model service gets no such warning: a model volume of 1.1 GB held
-the model still for 24.8 seconds, without a line about it.
+Before varde pauses a running model or component service for a volume of 1 GiB
+or more, it warns. The warning for a model ends with `or use `--no-models` to
+omit the data of every model`.
 The DHIS2 database is not paused at all: it is a `pg_dump` without the
 analytics tables, see [DHIS2](./dhis2.md#backing-it-up).
 
@@ -173,10 +187,10 @@ place only once tar has finished. The staging directory is removed afterwards,
 also when the backup fails. A failure halfway leaves no half-written archive,
 and any archive already at that path - last night's, say - exactly as it was.
 
-Ctrl-C ends the command at once, so its staging directory stays in
-`.varde/tmp/` as `backup-<pid>`, and no later command removes it. It can be as
-large as the archive. If no backup runs, remove it with
-`rm -rf .varde/tmp/backup-*`.
+Ctrl-C removes the staging directory too. A staging directory that a killed
+run left behind is removed by the next `varde backup create`: each one holds a
+lock in `.varde/tmp/<kind>-<pid>.lock`, and a staging directory whose lock no
+run holds is a leftover.
 
 ## Restoring
 
@@ -248,7 +262,7 @@ Then, in order:
 If the archive holds the DHIS2 database, run `varde dhis2 analytics` after the
 restore, when the `dhis2` line of `varde status` says `up`. The dump has no
 analytics tables, so DHIS2 has no data for its dashboards and the Modeling App
-until then. The restore does not remind you of this step. On the Laos demo
+until then. The restore ends with a line that says so. On the Laos demo
 database, DHIS2 said `up` about 40 seconds after the restore, and
 `varde dhis2 analytics` took 36 seconds.
 
@@ -262,6 +276,7 @@ seconds:
 ```text
 restored 11 files, the chap_core database, the data of chapkit-ewars-model, dhis2, dhis2-db
 the deployment is starting
+the DHIS2 dump has no analytics tables; when DHIS2 answers, run `varde dhis2 analytics` to make them again
 ```
 
 The services it stopped, the files, the `.env` copy, the kept credentials and
@@ -276,20 +291,16 @@ hint: kept this deployment's POSTGRES_PASSWORD, DHIS2_DB_PASSWORD in .env: its d
 hint: chapv-60913c is kept; the archive's own (chapx-31ab52) is not adopted, so this deployment keeps its containers and volumes
 the deployment is starting
 hint: `varde status` shows when it answers
+the DHIS2 dump has no analytics tables; when DHIS2 answers, run `varde dhis2 analytics` to make them again
 ```
 
 The `kept` line names only the values that differ from the archive's.
 
-In a deployment that had not started yet, the restore makes the `dhis2_home`
-volume itself, through `busybox`. Docker Compose did not make it, so each
-later `docker compose up` prints a warning about it:
-
-```text
-level=warning msg="volume \"chapv-60913c_dhis2_home\" already exists but was not created by Docker Compose. Use `external: true` to use an existing volume"
-```
-
-The volume works, and `varde down --volumes` removes it. Do not add
-`external: true`.
+In a deployment that had not started yet, the restore creates a missing
+component volume itself, with the labels that Docker Compose gives its own
+volumes (`docker volume create --label com.docker.compose.project=...
+--label com.docker.compose.volume=...`). So a later `docker compose up` gives no
+warning about it, and `varde down --volumes` removes it.
 
 Under `--no-start` or `--files-only`, the last line is ``run `varde up` to
 apply``.
@@ -331,23 +342,27 @@ and abandon its own. Restoring production's archive into a staging copy is a
 normal thing to do, and the plan says which name is kept:
 
 ```text
-  identity  chapy-8df379 is kept; the archive's own (chapx-31ab52) is not adopted, so this deployment keeps its containers and volumes
+  identity    chapy-8df379 is kept; the archive's own (chapx-31ab52) is not adopted, so this deployment keeps its containers and volumes
 ```
 
 Everything else in `.varde/project.yaml` does come from the archive, the API
 port included - the `.env` beside it sets that too, and the two have to agree.
 The DHIS2 port in `.varde/components.yaml` also comes from the archive.
 
+The labels of the plan are padded to one width: `files`, `database`, `models`,
+`components` and `identity`.
+
 ### A second deployment on the same machine
 
 A staging copy on the machine of the deployment it copies gets that
-deployment's ports from the archive (8700 and 8780 by default). The restore
-ends with `docker compose up -d`, without the port check of `varde up`. If the
-other deployment is up, the restore puts the data back and then stops with:
+deployment's ports from the archive (8700 and 8780 by default). Before the
+restore starts the deployment, it does the port check of `varde up`. If the
+other deployment is up, the restore puts the data back and then stops:
 
 ```text
-Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint chapy-8df379-chap-1 (...): Bind for 0.0.0.0:8700 failed: port is already allocated
-error: docker compose exited with status 1
+error: restored 11 files, the chap_core database, the data of chapkit-ewars-model, dhis2, dhis2-db, and did not start the deployment: 1 host port this deployment needs is already in use
+  port 8700 (needed by chap) is in use, and chapx (/srv/chapx) publishes it too; ...
+  if you move the port, run `varde up` to start it
 ```
 
 The data is restored at that point. To prevent this, restore without the start
@@ -373,25 +388,29 @@ deployment *is* the one in the archive, moved to another directory or another
 machine, and should answer to its name again. The plan says so:
 
 ```text
-  identity  compose project chapx-31ab52, taken over from the archive (--adopt-identity)
+  identity    compose project chapx-31ab52, taken over from the archive (--adopt-identity)
+  shared      /srv/chapx also records the compose project name chapx-31ab52, so the two directories use the same containers and volumes; use only one of them, or remove /srv/chapx
 ```
 
 On the same machine, the old directory then has the same compose project name.
-varde in that directory shows the containers of the new one as its own, and
-says nothing about the second directory. `varde down --volumes` in the old
-directory removes the volumes the new one uses. Remove the old directory, and
-do not run varde in it again.
+The `shared` line is in the plan only when the old directory is still there,
+and the closing lines of the restore repeat it as a warning. `varde doctor` in
+either directory warns on its `compose project` line: `<name>, and <dir>
+records the same name, so these directories use the same containers and
+volumes`, with the fix `use only one of these directories, or remove <dir>`.
+`varde down --volumes` in the old directory removes the volumes the new one
+uses. Remove the old directory, and do not run varde in it again.
 
-After a takeover, `varde doctor` warns that the database volume "predates this
-deployment". This is expected: the volume is the one from the old directory.
+The restore records the takeover as `adopted_identity: true` in
+`.varde/project.yaml`. So `varde doctor` does not warn that the database volume
+predates the deployment: the volume is the one from the old directory.
 
 ### Scopes
 
 - `--files-only` does step 2 and nothing else, and needs no Docker at all,
   which is handy for rebuilding a project directory on a new machine before
-  starting anything. It does not ask Docker what runs, so its plan always
-  says `nothing is running, so nothing is stopped first`, also when the
-  deployment is up.
+  starting anything. Its plan says `files only (--files-only): no service is
+  stopped or started`.
 - `--db-only` restores the chap-core database alone: it stops `chap` and
   `worker` (step 1), does step 3, and then starts the deployment (step 6)
   unless `--no-start`. A running model loses chap-core for that time, and

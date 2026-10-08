@@ -142,6 +142,7 @@ for what that failure looks like from the outside.
 | `starting` | Its container is up but it is not answering yet. |
 | `unhealthy` | Its container is up, it does not answer, and the health check of the container failed. It is broken, not starting: `varde logs <service>` says why. |
 | `not running` | No container, so nothing to answer. `varde up` starts it. |
+| `paused` | Its container is paused, as an interrupted `varde backup create` can leave it, so it does not answer. `varde up` resumes it. The closing line says `1 of 2 components is paused; run `varde up` to resume it`. |
 
 An OCS line carries two more facts when they can be had, which are the two an
 operator would otherwise open its landing page for:
@@ -178,6 +179,7 @@ taken from the registry and `docker compose ps` together.
 | `registered, not configured` | chap-core knows it, but has no configured model of the version it registered with, so nothing can run it and the Modeling App does not list it. Run `varde models configure`. This state does not make `status` exit non-zero. |
 | `running, not registered` | The container is up but chap-core has never heard from it. |
 | `not running` | The project enables it, but no container exists or it is stopped. |
+| `paused` | Its container is paused, as an interrupted `varde backup create` can leave it, so it does not answer. `varde up` resumes it. |
 | `unmanaged` | chap-core has a service registered that this project does not enable. |
 | `registered, unreachable` | chap-core knows it, but cannot reach the model's `/health` through its proxy. Usually the model registered with an address chap-core cannot use, such as `localhost` from inside a container. |
 

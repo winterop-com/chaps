@@ -692,10 +692,10 @@ then the same `varde stop --group <group> --purge` again.
 ## `resuming ..., left paused` from `varde up`
 
 A service of this deployment was paused, which is what a `varde backup
-create` interrupted while it held the service still leaves behind. `varde up`
-resumed it before starting anything else; nothing more to do. A model that
-answers nothing and shows no error in `varde logs` may be in this state: run
-`varde up` to resume it.
+create` that was killed while it held the service still leaves behind. `varde
+up` resumed it before starting anything else; nothing more to do. Before that,
+`varde status` shows the service as `paused`, with the warning `dhis2 is
+paused, so it does not answer; run `varde up` to resume it`.
 
 ## `there is no marketplace model ...`
 
