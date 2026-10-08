@@ -11,6 +11,15 @@ pub fn dhis2_tag_arg(tag: &str, flag: &str) -> Result<String> {
             "{flag} takes an image tag such as `2.42` or `2.43.1`"
         ));
     }
+    // A tag that is not a version, such as `master`, is a build varde cannot
+    // judge, and passes.
+    let given = crate::dhis2::version_parts(dhis2_minor(tag));
+    if !given.is_empty() && given < crate::dhis2::version_parts(DHIS2_OLDEST_MINOR) {
+        return Err(anyhow::anyhow!(
+            "{flag} {tag} is older than DHIS2 {DHIS2_OLDEST_MINOR}, the oldest version varde \
+             supports; use `{flag} {DHIS2_OLDEST_MINOR}` or newer"
+        ));
+    }
     Ok(tag.to_string())
 }
 

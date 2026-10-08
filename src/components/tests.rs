@@ -589,7 +589,10 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
     // talk about an older image.
     let forward = dhis2_tag_change_note("2.41", "2.42");
     assert!(forward.contains("from 2.41 to 2.42"), "{forward}");
-    assert!(forward.contains("migrates the database to 2.42"), "{forward}");
+    assert!(
+        forward.contains("migrates the database to 2.42"),
+        "{forward}"
+    );
     assert!(forward.contains("cannot be undone"), "{forward}");
     assert!(forward.contains("`varde backup create`"), "{forward}");
     assert!(!forward.contains("older image"), "{forward}");
@@ -785,3 +788,18 @@ fn the_tag_follows_the_dump_and_never_goes_below_it() {
     );
 }
 
+/// varde supports DHIS2 2.41 and newer, so an older tag is refused on the
+/// command line. A tag that is not a version passes.
+#[test]
+fn a_dhis2_tag_older_than_the_oldest_supported_is_refused() {
+    let refused = dhis2_tag_arg("2.40", "--tag").unwrap_err().to_string();
+    assert!(
+        refused.contains("--tag 2.40 is older than DHIS2 2.41"),
+        "{refused}"
+    );
+    assert!(refused.contains("`--tag 2.41` or newer"), "{refused}");
+    assert!(dhis2_tag_arg("2.39.1", "--dhis2-tag").is_err());
+    for tag in ["2.41", "2.41.3", "2.42", "2.43.1", "master", "latest"] {
+        assert_eq!(dhis2_tag_arg(tag, "--tag").unwrap(), tag);
+    }
+}

@@ -1212,3 +1212,46 @@ fn disable_chap_core_names_a_way_to_remove_its_volumes() {
     );
     assert!(!text.contains("left alone"), "{text}");
 }
+
+/// varde supports DHIS2 2.41 and newer: an older tag is refused, and the
+/// deployment keeps the tag it had.
+#[test]
+fn components_enable_dhis2_refuses_a_tag_older_than_varde_supports() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--with",
+            "dhis2",
+            "--dhis2-seed",
+            "none",
+        ])
+        .assert()
+        .success();
+    sandbox
+        .components(&["enable", "dhis2", "--tag", "2.40"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "--tag 2.40 is older than DHIS2 2.41, the oldest version varde supports; use \
+             `--tag 2.41` or newer",
+        ));
+    let state = read(&sandbox.project().join(".varde/components.yaml"));
+    assert!(!state.contains("2.40"), "{state}");
+    sandbox
+        .init(&[
+            "--force",
+            "--models",
+            "none",
+            "--with",
+            "dhis2",
+            "--dhis2-tag",
+            "2.39",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "--dhis2-tag 2.39 is older than DHIS2 2.41",
+        ));
+}
