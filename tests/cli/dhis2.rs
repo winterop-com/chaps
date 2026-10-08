@@ -1481,3 +1481,69 @@ fn enabling_dhis2_names_the_command_that_connects_it_to_chap() {
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
     assert!(!stdout.contains("through a DHIS2 route"), "{stdout}");
 }
+
+/// `components enable dhis2 --seed` sets the seed that the messages name, so
+/// nobody has to edit `.varde/components.yaml` by hand.
+#[test]
+fn enable_dhis2_seed_sets_the_seed_of_a_new_database() {
+    let sandbox = Sandbox::new();
+    sandbox
+        .init(&[
+            "--models",
+            "none",
+            "--only",
+            "dhis2",
+            "--dhis2-port",
+            &free_port().to_string(),
+            "--dhis2-tag",
+            "2.43",
+        ])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "`varde components enable dhis2 --seed URL`",
+        ))
+        .stderr(predicates::str::contains("components.yaml").not());
+    let components = sandbox.project().join(".varde").join("components.yaml");
+
+    sandbox
+        .components(&["enable", "dhis2", "--seed", "dumps/mine.sql.gz"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "or run `varde components enable dhis2 --seed none`",
+        ));
+    assert!(
+        read(&components).contains("seed: dumps/mine.sql.gz"),
+        "{}",
+        read(&components)
+    );
+
+    sandbox
+        .components(&["enable", "dhis2", "--seed", "none"])
+        .assert()
+        .success();
+    assert!(
+        read(&components).contains("seed: none"),
+        "{}",
+        read(&components)
+    );
+
+    // `--offline` is on in the sandbox, so a URL is refused before anything
+    // is written, and another component has no seed.
+    sandbox
+        .components(&["enable", "dhis2", "--seed", "https://example.org/x.sql.gz"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("ask for opposite things"));
+    assert!(
+        read(&components).contains("seed: none"),
+        "{}",
+        read(&components)
+    );
+    sandbox
+        .components(&["enable", "ocs", "--seed", "none"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--seed is a DHIS2 setting"));
+}

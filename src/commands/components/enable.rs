@@ -65,6 +65,9 @@ pub fn enable(ctx: &Ctx, args: &ComponentsEnableArgs) -> Result<()> {
         project.state.components.dhis2.image =
             crate::components::dhis2_image_arg(image, "--image", "--tag")?;
     }
+    if let Some(given) = &args.seed {
+        project.state.components.dhis2.seed = seed_arg(component, given, ctx.registry.offline)?;
+    }
     if (args.read_only || args.read_write) && component != Component::Ocs {
         return Err(anyhow::anyhow!(
             "--read-only and --read-write are OCS settings: they turn ingestion over HTTP \
@@ -361,6 +364,34 @@ pub(super) fn data_sources_appended(before: &str, after: &str) -> bool {
 /// read as a setting the object store has.
 fn ocs_only<T>(component: Component, value: Option<T>) -> Option<T> {
     value.filter(|_| component == Component::Ocs)
+}
+
+/// The seed `--seed` names, with the same words and the same `--offline`
+/// refusal as `varde init --dhis2-seed`.
+///
+/// The seed applies only when `dhis2_db` is created, which the seed note of
+/// the report says, so a seed set on a database that is already there is
+/// recorded and not refused.
+pub(super) fn seed_arg(
+    component: Component,
+    given: &str,
+    offline: bool,
+) -> Result<crate::components::Dhis2Seed> {
+    if component != Component::Dhis2 {
+        return Err(anyhow::anyhow!(
+            "--seed is a DHIS2 setting: it names the dump a new DHIS2 database is restored \
+             from; run `varde components enable dhis2 --seed SPEC`"
+        ));
+    }
+    let seed = crate::components::Dhis2Seed::parse(given);
+    if offline && seed.is_url() {
+        return Err(anyhow::anyhow!(
+            "--offline and `--seed {}` ask for opposite things: the first `varde up` would \
+             download that dump; pass a path to a dump you already have, or `--seed none`",
+            seed.as_str()
+        ));
+    }
+    Ok(seed)
 }
 
 /// The scaffold values the `--ocs-*` flags carry.

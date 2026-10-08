@@ -234,15 +234,15 @@ fn component_info_lines<'a>(app: &App, width: usize, theme: &Theme) -> Vec<Line<
             width,
         ));
         lines.push(Line::raw(""));
-        // The seed has no flag after `init`: it is an edit to
-        // `.varde/components.yaml` and a sync. The image tag moves with `v` on
-        // this row or `varde components enable dhis2 --tag`.
+        // The seed moves with `varde components enable dhis2 --seed`. The
+        // image tag moves with `v` on this row or `varde components enable
+        // dhis2 --tag`.
         lines.extend(not_on_this_page(
             theme,
             width,
             &[
                 (
-                    "`seed:` in .varde/components.yaml, then `varde sync`",
+                    "`varde components enable dhis2 --seed SPEC`",
                     "the dump a database being created is restored from: default, none, \
                      a URL, or a path in the deployment directory",
                 ),

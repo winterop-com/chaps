@@ -485,7 +485,7 @@ fn an_unknown_dhis2_minor_starts_empty_and_says_so() {
     assert_eq!(report.warnings.len(), 1, "{report:?}");
     assert!(report.warnings[0].contains("2.40"), "{report:?}");
     assert!(
-        report.warnings[0].contains(".varde/components.yaml"),
+        report.warnings[0].contains("`varde components enable dhis2 --seed URL`"),
         "{report:?}"
     );
     // And the file rendered for it has no one-shot and no dump volume.
@@ -515,7 +515,10 @@ fn a_file_seed_that_is_not_there_yet_is_reported() {
         report.warnings[0].contains("dumps/laos.sql.gz"),
         "{report:?}"
     );
-    assert!(report.warnings[0].contains("seed: none"), "{report:?}");
+    assert!(
+        report.warnings[0].contains("`varde components enable dhis2 --seed none`"),
+        "{report:?}"
+    );
     // The mount is rendered either way: the operator may be about to copy
     // the dump in, and a compose file that changed shape when a file
     // appeared would be drift nobody asked for.

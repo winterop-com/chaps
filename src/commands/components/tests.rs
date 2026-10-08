@@ -78,6 +78,7 @@ fn the_base_url_is_absolute_or_refused() {
         models_host: None,
         tag: None,
         image: None,
+        seed: None,
         ocs: OcsConfigArgs::default(),
     };
     assert_eq!(base_url(&args(None)).unwrap(), None, "the flag was absent");
@@ -278,6 +279,7 @@ fn the_wanted_port_is_the_flag_or_the_one_already_recorded() {
         models_host: None,
         tag: None,
         image: None,
+        seed: None,
         ocs: OcsConfigArgs::default(),
     };
     let mut components = Components::default();

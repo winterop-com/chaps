@@ -152,7 +152,7 @@ pub enum ComponentsCmd {
     List(ComponentsListArgs),
 
     /// Enable a component, or change the settings of an enabled one
-    Enable(ComponentsEnableArgs),
+    Enable(Box<ComponentsEnableArgs>),
 
     /// Disable a component and remove its compose file
     Disable(ComponentsDisableArgs),
@@ -196,6 +196,10 @@ pub struct ComponentsEnableArgs {
     /// dhis2 only: the image repository, e.g. dhis2/core-dev
     #[arg(long = "image", value_name = "REPO")]
     pub image: Option<String>,
+
+    /// dhis2 only: dump for a new database: default, none, URL or path
+    #[arg(long = "seed", value_name = "SPEC")]
+    pub seed: Option<String>,
 
     /// With --url: the host that chap-core calls the models back at
     #[arg(long = "models-host", value_name = "HOST", requires = "url")]

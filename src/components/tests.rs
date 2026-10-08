@@ -530,8 +530,13 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
 
     let empty = dhis2_seed_note(None);
     assert!(empty.contains("starts empty"), "{empty}");
-    assert!(empty.contains("`.varde/components.yaml`"), "{empty}");
-    assert!(empty.contains("`varde sync`"), "{empty}");
+    // The way out is a command: the header of `.varde/components.yaml` says
+    // not to edit it by hand.
+    assert!(
+        empty.contains("`varde components enable dhis2 --seed URL`"),
+        "{empty}"
+    );
+    assert!(!empty.contains("components.yaml"), "{empty}");
 
     let unknown = dhis2_unknown_seed("2.40.1");
     assert!(
@@ -539,7 +544,11 @@ fn the_dhis2_notes_say_what_the_first_start_does_and_where_to_change_it() {
         "the minor line, not the tag: {unknown}"
     );
     assert!(!unknown.contains("2.40.1"), "{unknown}");
-    assert!(unknown.contains("`.varde/components.yaml`"), "{unknown}");
+    assert!(
+        unknown.contains("`varde components enable dhis2 --seed URL`"),
+        "{unknown}"
+    );
+    assert!(!unknown.contains("components.yaml"), "{unknown}");
     let master = dhis2_unknown_seed("master");
     assert!(
         master.contains("no DHIS2 demo dump for the image tag `master`"),

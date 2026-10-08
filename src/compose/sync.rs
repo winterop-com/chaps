@@ -184,7 +184,7 @@ pub fn sync(project: &mut Project, registry: &Registry, check: bool) -> Result<S
         {
             report.warnings.push(format!(
                 "the dhis2 seed names {path}, which is not in {}; copy the dump there before \
-                 `varde up`, or set `seed: none` in .varde/components.yaml",
+                 `varde up`, or run `varde components enable dhis2 --seed none`",
                 dir.display()
             ));
         }

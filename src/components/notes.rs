@@ -58,8 +58,8 @@ pub fn dhis2_seed_note(seed: Option<&str>) -> String {
              again; the restore empties the data values that analytics cannot read as a number, \
              and `varde logs dhis2-db` lists them"
         ),
-        None => "`dhis2_db` starts empty and DHIS2 migrates a new database into it; `seed:` in \
-             `.varde/components.yaml` names a dump instead, then run `varde sync`"
+        None => "`dhis2_db` starts empty and DHIS2 migrates a new database into it; \
+             `varde components enable dhis2 --seed URL` names a dump instead"
             .to_string(),
     }
 }
@@ -88,7 +88,7 @@ pub fn dhis2_unknown_seed(tag: &str) -> String {
     };
     format!(
         "varde knows no DHIS2 demo dump for {what}, so `dhis2_db` starts empty; name one with \
-         `seed:` in `.varde/components.yaml` (a URL or a path) and run `varde sync`"
+         `varde components enable dhis2 --seed URL` (a URL or a path)"
     )
 }
 
