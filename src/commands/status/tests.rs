@@ -492,6 +492,21 @@ fn a_deployment_without_chap_core_is_never_told_that_chap_is_not_running() {
     );
 }
 
+/// Another deployment on the same port: its line is the whole answer, without
+/// a `start it with varde up` line that a held port makes fail.
+#[test]
+fn a_port_held_elsewhere_replaces_the_start_line() {
+    let why = crate::status::answered_elsewhere("http://localhost:8700", 8700, None);
+    let report = StatusReport {
+        api: ApiHealth::Down { error: why.clone() },
+        api_elsewhere: Some(why.clone()),
+        ..up(Vec::new(), &[], &[])
+    };
+    let text = not_running(&report, &Out::default());
+    assert!(!text.contains(NOT_RUNNING), "{text}");
+    assert!(text.ends_with(&format!("{why}\n")), "{text}");
+}
+
 /// A deployment that has components and chap-core shows both when nothing
 /// is running: the rows say what it is made of, which the one line cannot.
 #[test]

@@ -23,12 +23,13 @@ pub(super) fn nothing_running_line(report: &StatusReport) -> &'static str {
 
 /// What a deployment with no containers at all is told.
 pub(super) fn not_running_lines(report: &StatusReport, lines: &mut Report) {
-    lines.info(nothing_running_line(report));
-    // The port answering anyway is the one thing worth adding: it is why a
-    // browser on it shows a Chap while this says none is running.
-    if let Some(why) = report.api_elsewhere.as_deref() {
-        lines.info(why);
-    }
+    // The port answering anyway replaces the plain line: it says why a
+    // browser on it shows a Chap while none of this deployment runs, and a
+    // plain `varde up` cannot start one there while the port is held.
+    match report.api_elsewhere.as_deref() {
+        Some(why) => lines.info(why),
+        None => lines.info(nothing_running_line(report)),
+    };
 }
 
 /// The lines under the rows: the one line they add up to, a line per row that
