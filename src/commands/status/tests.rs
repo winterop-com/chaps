@@ -100,6 +100,23 @@ fn a_chap_core_that_is_not_answering_names_the_way_out() {
     assert!(down.ends_with("; `varde logs chap` says why"), "{down}");
 }
 
+/// A chap-core elsewhere has no `chap` service here, so the way out is the
+/// chap-core itself and the URL varde has for it.
+#[test]
+fn a_chap_core_elsewhere_that_is_not_answering_names_no_service() {
+    let mut report = up(Vec::new(), &[], &[]);
+    report.chap_core_elsewhere = true;
+    let down = down_message(&report, "io: Connection refused", false);
+    assert!(!down.contains("varde logs"), "{down}");
+    assert!(
+        down.ends_with(
+            "; this deployment does not run it, so start it there, or set another URL with \
+             `varde components enable chap-core --url URL`"
+        ),
+        "{down}"
+    );
+}
+
 /// The component line carries the two things that are not in the address:
 /// where an unpublished instance is actually reached, and whether it
 /// refuses every write.

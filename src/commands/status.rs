@@ -246,7 +246,14 @@ fn edited_config_line(service: &str) -> String {
 fn down_message(report: &StatusReport, error: &str, starting: bool) -> String {
     let mut text = format!("chap-core at {} is not responding: {error}", report.api_url);
     let lines = crate::diagnose::lines(&report.unhealthy);
-    if starting {
+    if report.chap_core_elsewhere {
+        // No container of this deployment runs it, so no `varde logs` can say
+        // why; the way out is where it does run.
+        text.push_str(
+            "; this deployment does not run it, so start it there, or set another URL with \
+             `varde components enable chap-core --url URL`",
+        );
+    } else if starting {
         text.push_str(
             "; its container started moments ago and is still starting, so run `varde status` \
              again in a moment",
