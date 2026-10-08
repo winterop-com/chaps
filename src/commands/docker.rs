@@ -244,7 +244,8 @@ fn up_value(
 /// `up --wait`: wait until chap-core and the models answer, or the deadline.
 fn wait_for(ctx: &Ctx, project: &Project, timeout: u64) -> wait::Readiness {
     let has_api = project.state.components.has_chap_core_api();
-    if let Some(what) = wait::waited_for(has_api, project.state.models.len()) {
+    let components = wait::health_checked(project);
+    if let Some(what) = wait::waited_for(has_api, &components, project.state.models.len()) {
         note(
             ctx,
             &format!("waiting up to {timeout}s for {what} to answer"),
@@ -272,6 +273,12 @@ fn ready_lines(readiness: &wait::Readiness, lines: &mut Report) {
             .models
             .iter()
             .map(|m| (m.service_id.as_str(), m.state, m.url.as_str())),
+    );
+    rows.extend(
+        readiness
+            .components
+            .iter()
+            .map(|c| (c.name.as_str(), c.state, c.url.as_str())),
     );
     let name = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     let state = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);

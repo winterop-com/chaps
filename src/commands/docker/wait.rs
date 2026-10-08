@@ -1,9 +1,11 @@
-//! `varde up --wait`: hold the command until chap-core and every model answer.
+//! `varde up --wait`: hold the command until chap-core, every model and every
+//! component with a health check answer.
 
 use crate::commands::Ctx;
+use crate::components::Component;
 use crate::docker;
 use crate::project::Project;
-use crate::status::{ApiHealth, ModelState, StatusReport, status};
+use crate::status::{ApiHealth, ComponentState, ModelState, StatusReport, status};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -25,6 +27,36 @@ pub struct Readiness {
     /// Whether that API answered; `true` when there is none to ask.
     pub api_up: bool,
     pub models: Vec<ModelReadiness>,
+    /// The components with a health check (OCS and DHIS2 on a host port).
+    /// Empty when the wait is for one model only.
+    pub components: Vec<ComponentReadiness>,
+}
+
+/// One component with a health check as the last round saw it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ComponentReadiness {
+    /// The component name, which is also its compose service.
+    pub name: String,
+    /// The `varde status` STATE word.
+    pub state: &'static str,
+    pub ready: bool,
+    /// Where it answers from this machine.
+    pub url: String,
+}
+
+/// The components `up --wait` waits for: the ones with a health endpoint
+/// on a host port, which are OCS and DHIS2. The object store has no health
+/// check that can be asked from this machine.
+pub fn health_checked(project: &Project) -> Vec<&'static str> {
+    let components = &project.state.components;
+    let mut out = Vec::new();
+    if components.port_of(Component::Ocs).is_some() {
+        out.push(crate::compose::OCS_SERVICE);
+    }
+    if components.port_of(Component::Dhis2).is_some() {
+        out.push(crate::compose::DHIS2_SERVICE);
+    }
+    out
 }
 
 /// One enabled model as the last round saw it.
@@ -111,12 +143,31 @@ fn readiness_of(
             }
         })
         .collect();
+    // A wait for one model is about that model, not about the rest.
+    let checked = match only {
+        Some(_) => Vec::new(),
+        None => health_checked(project),
+    };
+    let components: Vec<ComponentReadiness> = checked
+        .iter()
+        .map(|name| {
+            let row = report.components.iter().find(|row| row.name == *name);
+            let state = row.map(|r| r.state).unwrap_or(ComponentState::NotRunning);
+            ComponentReadiness {
+                name: name.to_string(),
+                state: state.label(),
+                ready: state == ComponentState::Up,
+                url: row.map(|r| r.reach.clone()).unwrap_or_default(),
+            }
+        })
+        .collect();
     Readiness {
-        ready: api_up && models.iter().all(|m| m.ready),
+        ready: api_up && models.iter().all(|m| m.ready) && components.iter().all(|c| c.ready),
         waited_s: waited.as_secs(),
         api_url: has_api.then(|| report.api_url.clone()),
         api_up,
         models,
+        components,
     }
 }
 
@@ -135,18 +186,23 @@ pub fn mark_configured(readiness: &mut Readiness, outcomes: &[crate::configure::
 }
 
 /// What `up --wait` waits for in this deployment, by name: chap-core only
-/// when it has one, and the models only when it has some. `None` when there
-/// is nothing to wait for.
-pub fn waited_for(has_api: bool, models: usize) -> Option<String> {
-    let models = match models {
-        0 => None,
-        1 => Some("the model".to_string()),
-        count => Some(format!("the {count} models")),
-    };
-    match (has_api, models) {
-        (true, Some(models)) => Some(format!("chap-core and {models}")),
-        (true, None) => Some("chap-core".to_string()),
-        (false, models) => models,
+/// when it has one, the components with a health check, and the models only
+/// when it has some. `None` when there is nothing to wait for.
+pub fn waited_for(has_api: bool, components: &[&str], models: usize) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if has_api {
+        parts.push("chap-core".to_string());
+    }
+    parts.extend(components.iter().map(|name| name.to_string()));
+    match models {
+        0 => {}
+        1 => parts.push("the model".to_string()),
+        count => parts.push(format!("the {count} models")),
+    }
+    match parts.as_slice() {
+        [] => None,
+        [one] => Some(one.clone()),
+        [rest @ .., last] => Some(format!("{} and {last}", rest.join(", "))),
     }
 }
 
@@ -162,6 +218,13 @@ pub fn pending(readiness: &Readiness) -> Vec<String> {
             .iter()
             .filter(|m| !m.ready)
             .map(|m| format!("{} ({})", m.service_id, m.state)),
+    );
+    out.extend(
+        readiness
+            .components
+            .iter()
+            .filter(|c| !c.ready)
+            .map(|c| format!("{} ({})", c.name, c.state)),
     );
     out
 }

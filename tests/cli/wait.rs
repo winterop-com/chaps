@@ -127,3 +127,69 @@ fn up_json_is_one_document_with_the_models_and_what_wait_found() {
     assert_eq!(doc["wait"]["ready"], true);
     assert_eq!(doc["wait"]["models"][0]["state"], "registered");
 }
+
+/// A component with a health check is waited for too, and named in the wait
+/// line: an OCS that answers is ready, one that does not fails the wait.
+#[test]
+fn up_wait_waits_for_ocs_and_names_it() {
+    let sandbox = Sandbox::new();
+    let answering = server("application/json", "{}");
+    sandbox
+        .init(&[
+            "--only",
+            "ocs",
+            "--models",
+            "none",
+            "--ocs-port",
+            &answering.to_string(),
+        ])
+        .assert()
+        .success();
+    let dir = sandbox.project();
+    let (_fake, bin) = running_docker(&["ocs"]);
+
+    let out = chap_with_docker(&sandbox, &dir, &bin, &["up", "--no-preflight", "--wait"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("text");
+    assert!(
+        text.contains("waiting up to 300s for ocs to answer"),
+        "{text}"
+    );
+    assert!(text.contains("ready in "), "{text}");
+    let row = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("ocs "))
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        row,
+        ["ocs", "up", &format!("http://localhost:{answering}")],
+        "{text}"
+    );
+
+    // Nothing answers on this port, so OCS is still starting at the deadline.
+    let silent = free_port().to_string();
+    chap_in(
+        &sandbox,
+        &dir,
+        &["components", "enable", "ocs", "--port", &silent],
+    )
+    .assert()
+    .success();
+    chap_with_docker(
+        &sandbox,
+        &dir,
+        &bin,
+        &["up", "--no-preflight", "--wait", "--timeout", "1"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicates::str::contains(
+        "not ready after 1s: ocs (starting)",
+    ));
+}

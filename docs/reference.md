@@ -475,7 +475,7 @@ Usage: varde up [OPTIONS] [EXTRA]...
 | `--pull` | Pull every image first (docker compose up --pull always). |
 | `--no-preflight` | Do not check the host ports first. |
 | `--replace` | First stop the other varde deployments that hold these ports. |
-| `--wait` | Return only once chap-core and every model answer. |
+| `--wait` | Return only once chap-core, the models, OCS and DHIS2 answer. |
 | `--timeout <SECONDS>` | How long --wait waits before it fails, in seconds. Default: `300`. |
 | `<EXTRA>...` | Extra arguments passed through to docker compose up. |
 

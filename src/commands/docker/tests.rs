@@ -904,17 +904,27 @@ fn a_removal_names_only_the_host_ports_that_were_published() {
 fn the_wait_names_only_what_the_deployment_has() {
     use super::wait::waited_for;
     assert_eq!(
-        waited_for(true, 2).as_deref(),
+        waited_for(true, &[], 2).as_deref(),
         Some("chap-core and the 2 models")
     );
     assert_eq!(
-        waited_for(true, 1).as_deref(),
+        waited_for(true, &[], 1).as_deref(),
         Some("chap-core and the model")
     );
-    assert_eq!(waited_for(true, 0).as_deref(), Some("chap-core"));
-    assert_eq!(waited_for(false, 1).as_deref(), Some("the model"));
-    assert_eq!(waited_for(false, 3).as_deref(), Some("the 3 models"));
-    assert_eq!(waited_for(false, 0), None);
+    assert_eq!(waited_for(true, &[], 0).as_deref(), Some("chap-core"));
+    assert_eq!(waited_for(false, &[], 1).as_deref(), Some("the model"));
+    assert_eq!(waited_for(false, &[], 3).as_deref(), Some("the 3 models"));
+    assert_eq!(waited_for(false, &[], 0), None);
+    // The components with a health check are named too.
+    assert_eq!(
+        waited_for(true, &["ocs", "dhis2"], 2).as_deref(),
+        Some("chap-core, ocs, dhis2 and the 2 models")
+    );
+    assert_eq!(waited_for(false, &["ocs"], 0).as_deref(), Some("ocs"));
+    assert_eq!(
+        waited_for(false, &["ocs", "dhis2"], 0).as_deref(),
+        Some("ocs and dhis2")
+    );
 }
 
 /// `down --volumes` removes a leftover only when docker labels it with this

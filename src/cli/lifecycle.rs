@@ -54,7 +54,7 @@ pub struct UpArgs {
     #[arg(long, conflicts_with = "no_preflight")]
     pub replace: bool,
 
-    /// Return only once chap-core and every model answer
+    /// Return only once chap-core, the models, OCS and DHIS2 answer
     #[arg(long, conflicts_with = "attach")]
     pub wait: bool,
 

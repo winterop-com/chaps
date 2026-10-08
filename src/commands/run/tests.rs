@@ -82,6 +82,7 @@ fn run_report(group: Option<&str>, waited: Option<u64>) -> RunReport {
             api_url: None,
             api_up: true,
             models: Vec::new(),
+            components: Vec::new(),
         }),
         was_running: false,
         chap_core: None,
