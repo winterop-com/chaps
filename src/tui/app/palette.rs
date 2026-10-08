@@ -165,7 +165,7 @@ impl App<'_> {
         commands.extend([
             entry(
                 CommandId::Save,
-                "Save the changes and apply them".to_string(),
+                "Save the changes; `varde up` applies them".to_string(),
                 "s",
                 "Save changes",
             ),

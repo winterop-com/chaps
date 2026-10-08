@@ -50,7 +50,7 @@ pub const PORT_NEEDS_COMPONENT_HINT: &str = "enable the component first (space),
 /// The address is a plan until the compose file exists and something is running
 /// behind it, so the browser says what is missing rather than opening a port
 /// nothing is on yet.
-pub const OPEN_NEEDS_SAVING: &str = "press s to apply the change first, then `varde up` starts it";
+pub const OPEN_NEEDS_SAVING: &str = "press s to save the change first, then `varde up` starts it";
 
 /// Footer note shown when `o` is pressed on a component this deployment does
 /// not have.
