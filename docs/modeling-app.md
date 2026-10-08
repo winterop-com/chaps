@@ -75,9 +75,14 @@ climatology*.
 default`. It has three entries, one for each configuration in its marketplace
 entry: *Monthly climate* uses rainfall and temperature, *Monthly population
 only* uses no climate data, and *Monthly region seasonal* fits a season for
-each province. Each model enabled with `varde models enable` adds its own
-entries. `varde status` lists those models, and `varde models test` checks
-them.
+each province. The list shows one entry for each configured model, as
+`<model name> [<configuration>]`. Each model enabled with `varde models
+enable` adds its own entries. chap-core 2.4 and later does not make these
+entries itself: `varde up --wait`, `varde dhis2 connect` and `varde models
+configure` make them. If a model is not in the list, run `varde status`. If it
+shows the model as `registered, not configured`, run `varde models configure`.
+`varde models test` checks the models. See
+[Configured models](./models.md#configured-models).
 
 The list also holds models that chap-core ships configured on its own and runs
 inside its worker. Some of them have the status *Deprecated*. One of those is

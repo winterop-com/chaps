@@ -251,6 +251,65 @@ unexposed chapkit-ewars-model; it stays registered with chap-core and reachable 
 run `varde up` to apply
 ```
 
+## Configured models
+
+chap-core does not run a model service directly. It runs a **configured
+model**: a model template together with a set of option values and
+covariates. A backtest, a prediction and the model picker of the Modeling App
+all name a configured model.
+
+Up to chap-core 2.3, a registration made a configured model. chap-core 2.4
+and later makes none. A model that varde starts registers, and without a
+configured model nothing can run it.
+
+`varde models configure` does what `chap-admin install` does after a model
+service has registered:
+
+1. It stores the model template from the service
+   (`POST /v1/crud/model-templates/from-service`).
+2. It creates one configured model for each entry under `configurations` in
+   the marketplace entry of the model. The option values come from the
+   `config` of that entry. The covariates come from the config, or from
+   `covariates.defaults` when the config has none. `prediction_periods` is
+   removed, because chap-core sets it for each run.
+3. A marketplace entry without configurations gets one configured model,
+   `default`. A model added with `varde models add`, or a model that runs an
+   image other than its marketplace entry, also gets one `default` with the
+   defaults of the service.
+
+```sh
+varde models configure                      # every model this deployment enables
+varde models configure chapkit_ewars_model  # one model, by marketplace id or service id
+```
+
+```text
+chapkit_ewars_model: created configured model monthly_climate
+chapkit_ewars_model: created configured model monthly_region_seasonal
+chapkit_ewars_model: created configured model monthly_population_only
+chapkit_ghr_model: chap-core has a configured model of it already
+```
+
+chap-core names each configured model after its template:
+`<service id>:<configuration>`, and the bare service id for `default`.
+
+The command is idempotent for each registered version. A model that has a
+configured model of the version it registered with is left alone, so a second
+run adds nothing. An older chap-core that still makes configured models itself
+gets no second set. A model that chap-core has not registered yet gets a line
+that says so:
+
+```text
+chapkit_ewars_model: not registered with chap-core; run `varde models configure` again once `varde status` shows it registered
+```
+
+A model that could not be configured gets a warning with the reason, and the
+command exits non-zero.
+
+You do not usually run the command yourself. `varde up --wait`, `varde dhis2
+connect` and `varde models test --backtest` do the same step, and say which
+configured models they created. `varde status` shows a model without a
+configured model as `registered, not configured`.
+
 ## Testing a model
 
 `varde status` and `varde doctor` can both be entirely green while a model
@@ -321,6 +380,7 @@ A model that could not be tested is skipped, with the reason and the way out:
 | --- | --- |
 | `its container is not running` | `varde up`. |
 | ``the image has no `chapkit test`; the service reports chapkit 1.0.0`` | The image predates the command. `varde update` moves the pin; `--backtest` tests it through chap-core instead. |
+| `chap-core has no configured model for <service>` | `--backtest` only. Run `varde models configure ID`, then the test again. |
 | `no answer in 5m` | The model is wedged or genuinely slow. `--timeout SECONDS` raises the limit; the same number is handed to chapkit as its per-job deadline. |
 
 ### The backtest level
@@ -333,12 +393,16 @@ transposes that frame into chap-core observations, posts it as a dataset,
 waits for the dataset job, runs a small rolling backtest over it (3 periods, 2
 splits, stride 1) and reads the scores off the result.
 
+Before the first model, `--backtest` creates the configured models that the
+models of this deployment do not have yet, as [`varde models
+configure`](#configured-models) does. A model registered from outside the
+deployment is not configured by this step.
+
 The backtest names one of chap-core's configured models by its id, chosen from
-`GET /v1/crud/configured-models`: the live one named after the service where
-there is one, and otherwise the lowest-numbered of the configs chap-core synced
-out of the service as `<service>:<config>` - a `test_config_` an earlier test
-left behind coming last of all - with a service chap-core has nothing
-configured for skipped rather than backtested.
+`GET /v1/crud/configured-models`: the one named after the service where there
+is one, and otherwise the lowest-numbered `<service>:<configuration>` - a
+`test_config_` that an earlier test left behind comes last of all. A service
+that chap-core has no configured model for is skipped, not backtested.
 
 That configured model's `additionalContinuousCovariates` are the columns the
 backtest hands the model, and the sample data does not always carry them:

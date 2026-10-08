@@ -52,7 +52,10 @@ and installs the dependencies of the model.
   chap-core v2.4.0 stores the model template only for a service that reports
   a revision. Without it, the model registers and shows in `varde status`, but
   chap-core has no template for it. The chap-core log (`varde logs chap`) then
-  says `is stored from revision None, but its source now reports revision None`.
+  says `is stored from revision None, but its source now reports revision None`,
+  and `varde status` warns: `SERVICE_ID: it reports no git revision, so
+  chap-core stores no model template for it; set `GIT_REVISION` where it runs,
+  then start it again`.
 - `--host 0.0.0.0` makes the model listen on more than the loopback, which is
   what a call from a container arrives on.
 
@@ -75,8 +78,11 @@ chap-core stores one template for each model version, with the revision it
 had at the first registration. Changes you do not commit keep the revision, so
 hot reload needs nothing more. If you commit and export `GIT_REVISION` again,
 the revision changes. chap-core then refuses the backtest with `is stored from
-revision '...', but its source now reports revision '...'`. To continue, set a
-new `version` in the `MLServiceInfo` in `main.py`.
+revision '...', but its source now reports revision '...'`, and `varde status`
+warns: `SERVICE_ID: chap-core stores its model template VERSION from another
+git revision and refuses to run it; set a new version in the model, then start
+it again`. To continue, set a new `version` in the `MLServiceInfo` in
+`main.py`.
 
 ## Test it through chap-core
 
@@ -93,21 +99,32 @@ chapkit-minimalist-example-py    skip    0s   varde does not run it, so there is
 
 A backtest uses a configured model: a template with a set of option values.
 chap-core v2.4.0 makes no configured model from a registered service, so make
-one. Replace `SERVICE_ID` with the id that `varde status` shows (this example
-uses `jq`):
+one. Replace `SERVICE_ID` with the id that `varde status` shows:
 
 ```sh
-TEMPLATE_ID=$(varde api GET /v1/crud/model-templates | jq '.[] | select(.name == "SERVICE_ID") | .id')
-varde api POST /v1/crud/configured-models --data "{\"name\": \"dev\", \"modelTemplateId\": $TEMPLATE_ID}"
+varde models configure SERVICE_ID
 varde models test SERVICE_ID --backtest
 ```
 
-chap-core names the configured model `SERVICE_ID:dev`. If the model has
-options, add them as `"userOptionValues"`. If it reads covariates that it does
-not declare, add them as `"additionalContinuousCovariates"`, for example
-`["rainfall", "mean_temperature"]`. If the template id is empty, chap-core has
-no template for the model; make sure that `GIT_REVISION` was set when the
-model started.
+`varde models configure` stores the template of the service and makes one
+configured model, `default`, with the defaults of the service. chap-core names
+it `SERVICE_ID`:
+
+```text
+SERVICE_ID: created configured model default
+```
+
+If the model has options, or reads covariates that it does not declare, make
+the configured model through the API instead (this example uses `jq`):
+
+```sh
+TEMPLATE_ID=$(varde api GET /v1/crud/model-templates | jq '.[] | select(.name == "SERVICE_ID") | .id')
+varde api POST /v1/crud/configured-models --data "{\"name\": \"dev\", \"modelTemplateId\": $TEMPLATE_ID, \"additionalContinuousCovariates\": [\"rainfall\", \"mean_temperature\"]}"
+```
+
+chap-core names that configured model `SERVICE_ID:dev`. Add the options as
+`"userOptionValues"`. If the template id is empty, chap-core has no template
+for the model; make sure that `GIT_REVISION` was set when the model started.
 
 It worked when the backtest passes and prints its scores:
 
@@ -122,8 +139,7 @@ The scores change from run to run, because the sample data is random. Add
 `--seed N` to get the same data each time.
 
 Without the configured model, the backtest skips with `chap-core has no
-configured model for SERVICE_ID`. The `varde restart --all SERVICE_ID` that the
-skip names does not apply to a model that varde does not run.
+configured model for SERVICE_ID`, and names `varde models configure`.
 
 ## A registration key
 

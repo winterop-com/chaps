@@ -75,6 +75,7 @@ that reaches the passthrough (`varde down -- -v`) is refused and told to use
 | `varde models search QUERY` | Search id, name and summary. |
 | `varde models info ID` | Everything known about one model. |
 | `varde models test [ID..] [--all]` | Make each model train and predict, and say whether it could: `chapkit test` in its own container, or `--backtest` for the whole way round through chap-core (`--seed`, `--timeout`, `--keep`). |
+| `varde models configure [ID..]` | Create the configured models that chap-core needs to run each model: one for each configuration of its marketplace entry. A model that has one already is left alone. See [Configured models](./models.md#configured-models). |
 | `varde models add SOURCE` | Add a model the marketplace does not list, from a GitHub repository URL or a ghcr image reference, and enable it (`--id`, `--service-id`, `--name`, `--port`, `--bind`, `--data-dir`, `--user`, `--runtime-amd64`). A source the marketplace lists is enabled as that marketplace model unless `--id` is given; `--id auto` picks a free id. |
 | `varde models remove ID [--purge]` | Disable such a model if it is on, then drop its definition from `.varde/models-manual.yaml`; `--purge` removes its data volume too. |
 | `varde models enable ID` | Record the model in `.varde/models.yaml` and write its overlay (`--channel`, `--version`, `--port`, `--bind`, `--data-dir`, `--user`, `--allow-template`). |
@@ -272,7 +273,12 @@ A tool that drives varde reads stdout and branches on one field:
 - `models test` prints `{"ok": ..., "models": [...]}`, one object per model with
   its `result` (`pass`, `fail` or `skip`), the `summary` and the `detail` that
   says why and what to do.
+- `models configure` prints `{"ok": ..., "models": [...]}`, one object per model
+  with `id`, `service_id` and its `state`: `created` (with the names in
+  `configured`), `already-configured`, `not-registered` or `failed` (with the
+  reason in `error`).
 
-The exit code agrees with `ok`: 0 for `true`, non-zero for `false`, and
-`models test` exits non-zero when any model failed even though it printed
-`"ok": false` rather than an error.
+The exit code agrees with `ok`: 0 for `true`, non-zero for `false`. Two
+commands print `"ok": false` rather than an error and still exit non-zero:
+`models test`, when a model failed or every model was skipped, and `models
+configure`, when a model could not be configured.

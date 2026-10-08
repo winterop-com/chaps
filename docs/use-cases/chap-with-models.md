@@ -93,20 +93,18 @@ On an Apple Silicon Mac the models run under emulation; the five tests above
 took about 90 seconds on an M2 Max.
 
 `varde models test --all --backtest` tests each model through chap-core, with
-scores. With chap-core v2.4.0 it skips every model:
+scores. chap-core v2.4.0 makes no configured model from a registered service,
+and a backtest needs one. So the command first creates the configured models
+from the marketplace entry of each model, as `chap-admin install` does. Its
+closing lines name them:
 
 ```text
-testing 5 models (through chap-core: a dataset, a backtest and its scores)
-auto-arima-chapkit                  skip       0s   chap-core has no configured model for auto-arima-chapkit
-  it is registered but nothing runs it, run `varde restart --all auto-arima-chapkit` and try again
-...
-0 pass, 5 skipped
+created configured models in chap-core for auto_arima_chapkit (monthly), ...
 ```
 
-chap-core v2.4.0 makes no configured model from a registered service. It adds
-configured models from the marketplace entry through `chap-admin install`.
-varde does not do that step, so `varde restart --all` does not change the
-result. The model level above does not need a configured model.
+`varde up --wait` and `varde models configure` do the same step. See
+[Configured models](../models.md#configured-models). The model level above
+does not need a configured model.
 
 Next: [Models and the marketplace](../models.md), [Authentication](../auth.md)
 before you put it on a network, [Backup and restore](../backup.md).

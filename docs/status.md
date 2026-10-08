@@ -158,7 +158,8 @@ taken from the registry and `docker compose ps` together.
 
 | State | Meaning |
 | --- | --- |
-| `registered` | The container is up and chap-core knows about it. |
+| `registered` | The container is up, chap-core knows about it, and it has a configured model. |
+| `registered, not configured` | chap-core knows it, but has no configured model of the version it registered with, so nothing can run it and the Modeling App does not list it. Run `varde models configure`. This state does not make `status` exit non-zero. |
 | `running, not registered` | The container is up but chap-core has never heard from it. |
 | `not running` | The project enables it, but no container exists or it is stopped. |
 | `unmanaged` | chap-core has a service registered that this project does not enable. |
@@ -407,9 +408,9 @@ accepted everywhere, so `varde --offline init` works. The help lists them under
 
 - All three: `init`, `run`, `stop`, `models` and its subcommands, `components
   enable`, `components disable`, `ui`, `registry`, `sync`, `update`, `up`,
-  `backup restore`, `chap`, `doctor`, `auth enable`, `auth disable` and `auth
-  rotate`.
-- `--offline` only: `dhis2 apps` and `dhis2 connect`.
+  `backup restore`, `chap`, `doctor`, `auth enable`, `auth disable`, `auth
+  rotate` and `dhis2 connect`.
+- `--offline` only: `dhis2 apps`.
 - `--offline` and `--cache-dir`: `self update`.
 
 On the other commands they change nothing but the once-a-day notice that a

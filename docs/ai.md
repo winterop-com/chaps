@@ -208,12 +208,16 @@ varde open dhis2
 ```
 
 `varde dhis2 connect` waits for DHIS2 to finish starting, then takes about a
-minute: it connects DHIS2 to Chap, installs
+minute: it connects DHIS2 to Chap, gives each model its configured models, installs
 the Modeling App and the Climate App, and prepares the data the Modeling App
 reads. Its last line is ``the Modeling App can reach Chap; open DHIS2 with
 `varde open dhis2` ``. It worked when DHIS2 opens in the browser, the login `admin` /
 `district` works, and typing `Modeling` in the app menu (the grid icon at the
 top right) finds **Modeling**.
+
+If `varde dhis2 connect` says that a model is `not registered with chap-core`,
+wait a minute. Then run `varde status`. When it shows the model as
+`registered`, run `varde models configure`.
 
 Next: [Your first forecast in the Modeling App](./modeling-app.md), which takes
 them from here to an evaluation and a forecast in about fifteen minutes.
@@ -275,8 +279,9 @@ varde status
 varde models test --all
 ```
 
-It worked when the line under the `varde status` table says every model is
-registered and `varde models test --all` says every model passes. Add
+It worked when the `varde status` table shows every model as `registered`
+and `varde models test --all` says every model passes. If a model is
+`registered, not configured`, run `varde models configure`. Add
 `--with dhis2` to the `varde init` line to compare them in the Modeling App
 (8 GB of memory, then as in option 1 from `varde dhis2 connect`).
 
@@ -306,6 +311,10 @@ the `.env` file in the folder, then run `varde dhis2 connect` again. If
 `DHIS2 refused the route`: whoever runs that DHIS2 has to add the `--chap-url`
 address, with no path, to `route.remote_servers_allowed` in its `dhis.conf`
 and restart it; the error line names the exact value.
+
+If `varde dhis2 connect` says that a model is `not registered with chap-core`,
+wait a minute. Then run `varde status`. When it shows the model as
+`registered`, run `varde models configure`.
 
 More: [Chap for a DHIS2 that runs elsewhere](./use-cases/chap-for-external-dhis2.md).
 
@@ -528,7 +537,8 @@ not the first time: the image registers under its own name, so `varde status`
 shows it `unmanaged` next to `my-model` not registered, and the line under the
 table gives the two commands that fix it (`varde models remove my_model`, then
 `varde models add my-model:dev --service-id` with the name from the
-`unmanaged` row). Run them, then `varde up` again.
+`unmanaged` row). Run them, then `varde up` again. If the model is
+`registered, not configured`, run `varde models configure`.
 
 More: [A model image you built yourself](./use-cases/local-model-image.md).
 
@@ -550,7 +560,8 @@ It worked when `varde status` shows chap-core `up` and the model `registered`.
 If chap-core was started after `varde up`, wait a few seconds and run
 `varde status` again. `registered, unreachable` means chap-core cannot call the
 model back, usually because chap-core was not running during `varde init`: the
-line under the table gives the command that fixes it.
+line under the table gives the command that fixes it. If the model is
+`registered, not configured`, run `varde models configure`.
 
 More: [chap-core from its checkout, with the models](./use-cases/chap-core-on-host.md).
 
@@ -697,9 +708,11 @@ varde models test --all --backtest
 varde jobs
 ```
 
-The first line makes every enabled model train, forecast and run an evaluation
-through chap-core on sample data the model generates itself, and prints the
-scores. For CHAP-EWARS it takes under a minute. `varde jobs` lists what
+The first line creates the configured models that chap-core needs, then makes
+every enabled model train, forecast and run an evaluation through chap-core on
+sample data the model generates itself, and prints the scores. For CHAP-EWARS
+it takes under a minute. If every model was skipped, it says `warning: no model
+was tested` and exits non-zero; the line under each row says why. `varde jobs` lists what
 chap-core did. To see it in the Modeling App instead, add DHIS2 to the same
 folder (8 GB of memory for Docker):
 

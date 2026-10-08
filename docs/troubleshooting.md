@@ -203,6 +203,37 @@ worth it:
 A `--seed N` makes the generated data the same on every run, which is what to
 add when a failure only happens sometimes.
 
+## `chap-core has no configured model for`
+
+```text
+chapkit-ewars-model    skip    0s   chap-core has no configured model for chapkit-ewars-model
+  it is registered, and chap-core has nothing to run it with; run `varde models configure chapkit_ewars_model`, then `varde models test chapkit_ewars_model --backtest`
+```
+
+The model is registered, but chap-core has no configured model for it. chap-core
+2.4 and later makes no configured model from a registration, so a model without
+one cannot run, and the Modeling App does not list it. `varde status` shows such
+a model as `registered, not configured`.
+
+Make the configured models, then test again:
+
+```sh
+varde models configure chapkit_ewars_model
+varde models test chapkit_ewars_model --backtest
+```
+
+See [Configured models](./models.md#configured-models).
+
+If `varde models configure` says that it could not create the configured
+models and the reason is `answered 409 Conflict`, chap-core refused the
+template. The model reports no git revision, or another revision than the
+template chap-core stored for its version.
+
+1. Read the reason in `varde logs chap`.
+2. If the model image changed, run `varde update` to move the pin, or run
+   `varde restart --all <service>` to make the model register again.
+3. Run `varde models configure` again.
+
 ## 401 from the Modeling App
 
 ```text
@@ -799,7 +830,9 @@ repointed the `chap` route at http://chap:8000/**
 ```
 
 `varde dhis2 show` is the one to run first: it names each piece that is missing
-and changes nothing. If the route is right and the app still shows no figures,
+and changes nothing. If the app shows Chap but a model is missing from its
+model picker, run `varde status`. If the model is `registered, not configured`,
+run `varde models configure`. If the route is right and the app still shows no figures,
 analytics has not been generated - `varde dhis2 analytics`. If there is no Chap
 entry in DHIS2's apps menu at all, the app is not installed -
 `varde dhis2 apps`. See
