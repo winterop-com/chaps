@@ -313,13 +313,15 @@ install -m 0755 "$binary" "${INSTALL_DIR}/varde" ||
 # vg is the short form of varde: a link, so `varde self update` updates both.
 # Not with --here, which installs the binary alone. A vg that is something else,
 # such as the genome tool that Debian and Ubuntu ship, is left alone.
+short_added=0
 if [ "$HERE" -eq 0 ]; then
   short="${INSTALL_DIR}/vg"
   if [ -e "$short" ] && [ "$(readlink "$short" 2>/dev/null)" != "varde" ]; then
     say "  note: ${short} is another program, so it was left alone; use varde"
+  elif ln -sf varde "$short"; then
+    short_added=1
   else
-    ln -sf varde "$short" ||
-      say "  note: could not add the short form ${short}; varde works without it"
+    say "  note: could not add the short form ${short}; varde works without it"
   fi
 fi
 
@@ -360,6 +362,14 @@ if [ -d "$completions" ]; then
   install_completion "${completions}/_varde" "${HOME}/.zsh/completions" "_varde"
   install_completion "${completions}/varde.fish" \
     "${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions" "varde.fish"
+  # bash and fish load a completion file by the name of the command, so vg
+  # gets the same script under its own name. zsh reads `#compdef varde vg`.
+  if [ "$short_added" -eq 1 ]; then
+    install_completion "${completions}/varde.bash" \
+      "${XDG_DATA_HOME:-${HOME}/.local/share}/bash-completion/completions" "vg"
+    install_completion "${completions}/varde.fish" \
+      "${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions" "vg.fish"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
