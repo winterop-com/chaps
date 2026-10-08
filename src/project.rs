@@ -257,6 +257,12 @@ pub struct ProjectState {
     /// to the project directory. Only these are ever removed by a later sync.
     #[serde(default)]
     pub rendered_files: Vec<String>,
+    /// Whether `varde backup restore --adopt-identity` gave this directory
+    /// the compose project name of another deployment. Its volumes then
+    /// predate the directory on purpose, and `varde doctor` does not warn
+    /// about that.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub adopted_identity: bool,
     /// Enabled models, keyed by marketplace `id`. Lives in `models.yaml`.
     #[serde(skip)]
     pub models: BTreeMap<String, EnabledModel>,
@@ -286,6 +292,7 @@ impl Default for ProjectState {
             model_bind: None,
             group: None,
             rendered_files: Vec::new(),
+            adopted_identity: false,
             models: BTreeMap::new(),
             manual: ManualModels::new(),
             components: Components::default(),

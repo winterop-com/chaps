@@ -108,6 +108,15 @@ pub(super) fn restore_files(
         &archived,
         args.adopt_identity,
     );
+    // A takeover of another name is recorded, so `varde doctor` knows why
+    // the volumes are older than this directory.
+    let takes_over =
+        !archived.trim().is_empty() && archived.trim() != project.state.compose_project.trim();
+    match (args.adopt_identity, takes_over) {
+        (true, true) => restored.state.adopted_identity = true,
+        (false, _) => restored.state.adopted_identity = false,
+        (true, false) => {}
+    }
     // A takeover is said once, by the closing lines of the restore.
     if args.adopt_identity && archived.trim().is_empty() {
         output::warn(

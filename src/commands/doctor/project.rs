@@ -294,7 +294,7 @@ pub(super) fn volumes_check(project: &Project, running: &BTreeSet<String>) -> Ch
         .into_iter()
         .map(|v| (v.name, crate::status::parse_rfc3339(&v.created_at)))
         .collect();
-    let created = deployment_created_at(project);
+    let created = compared_creation(project);
     let names: Vec<String> = volumes.iter().map(|(name, _)| name.clone()).collect();
     let models: Vec<String> = project.state.models.keys().cloned().collect();
     let leftover = leftover_volumes(&prefix, &names, &models, &project.state.components);
@@ -315,6 +315,16 @@ pub(super) fn volumes_check(project: &Project, running: &BTreeSet<String>) -> Ch
             ocs_data,
         ),
     )
+}
+
+/// When this deployment directory was created, for the comparison with the
+/// database volume. `None` after a takeover with `--adopt-identity`: the
+/// volumes are then older than this directory on purpose.
+pub(super) fn compared_creation(project: &Project) -> Option<u64> {
+    match project.state.adopted_identity {
+        true => None,
+        false => deployment_created_at(project),
+    }
 }
 
 /// When this deployment directory was created, in Unix seconds.

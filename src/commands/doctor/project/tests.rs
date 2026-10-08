@@ -444,3 +444,24 @@ fn the_api_port_line_names_the_file_that_moved_the_port() {
         "18000 is free (from .env, over the 8000 recorded in .varde/project.yaml)"
     );
 }
+
+/// After a takeover the volumes are older than the directory on purpose, so
+/// the comparison that warns about it is not made.
+#[test]
+fn a_takeover_is_not_compared_with_the_age_of_the_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(VARDE_DIR)).unwrap();
+    let mut project = Project {
+        dir: dir.path().to_path_buf(),
+        state: crate::project::ProjectState::default(),
+    };
+    let created = compared_creation(&project);
+    project.state.adopted_identity = true;
+    assert_eq!(compared_creation(&project), None);
+    // Without a creation time the older database volume is no warning.
+    let prefix = "chapx-31ab52_";
+    let db = "chapx-31ab52_chap-db";
+    let older = volumes(&[(db, created.unwrap_or(CREATED).saturating_sub(86_400))]);
+    let (status, ..) = volume_verdict(prefix, db, &older, compared_creation(&project), &[], None);
+    assert_eq!(status, Status::Ok);
+}
