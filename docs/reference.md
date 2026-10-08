@@ -146,7 +146,7 @@ Usage: varde models [OPTIONS] <COMMAND>
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
-Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
+Subcommands: [`varde models list`](#varde-models-list), [`varde models search`](#varde-models-search), [`varde models info`](#varde-models-info), [`varde models test`](#varde-models-test), [`varde models configure`](#varde-models-configure), [`varde models add`](#varde-models-add), [`varde models remove`](#varde-models-remove), [`varde models enable`](#varde-models-enable), [`varde models disable`](#varde-models-disable), [`varde models expose`](#varde-models-expose), [`varde models unexpose`](#varde-models-unexpose)
 
 ## varde models list
 
@@ -208,6 +208,20 @@ Usage: varde models test [OPTIONS] [ID]...
 | `--seed <N>` | Seed for the generated data, so a run can be repeated. |
 | `--timeout <SECONDS>` | Give up on one model after this many seconds. |
 | `--keep` | Keep what the test created instead of deleting it. |
+
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
+
+## varde models configure
+
+Create the configured models that chap-core needs to run each model.
+
+```text
+Usage: varde models configure [OPTIONS] [ID]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `<ID>...` | Marketplace ids or service ids; all enabled models when none is given. |
 
 Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
@@ -931,7 +945,7 @@ Usage: varde dhis2 connect [OPTIONS]
 | `--timeout <SECONDS>` | Seconds to wait for the analytics run to finish. Default: `3600`. |
 | `--no-wait` | Start the run and leave it going instead of waiting. |
 
-Registry options: `--offline` (see [varde](#varde)).
+Registry options: `--registry-url <URL>`, `--offline`, `--cache-dir <DIR>` (see [varde](#varde)).
 
 ## varde dhis2 use
 

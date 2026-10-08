@@ -67,7 +67,16 @@ pub(crate) fn job_list() -> String {
 /// parallel test to take in between. `varde init --api-port` with it only
 /// notes that the port is busy.
 pub(crate) fn chap_core_server() -> u16 {
-    serve_chap_core(false, false)
+    serve_chap_core(false, false, false)
+}
+
+/// [`chap_core_server`] in the shape of chap-core 2.4: the same services
+/// are registered, and nothing has configured models until a client posts
+/// them. `POST /v1/crud/model-templates/from-service` stores a template, and
+/// `POST /v1/crud/configured-models` adds a row to the listing. The old
+/// chapkit model's template is a revision conflict, as a 409.
+pub(crate) fn fresh_chap_core_server() -> u16 {
+    serve_chap_core(false, false, true)
 }
 
 /// The paths chap-core answers without a token, copied from `OPEN_PATHS` in
@@ -96,16 +105,16 @@ fn system_info(protected: bool) -> String {
 /// 401, except on the paths chap-core leaves open (`OPEN_PATHS` in its
 /// `rest_api/auth.py`).
 pub(crate) fn protected_chap_core_server() -> u16 {
-    serve_chap_core(true, false)
+    serve_chap_core(true, false, false)
 }
 
 /// [`chap_core_server`] that cannot reach its models: every proxied
 /// `/health` is a 502.
 pub(crate) fn unreachable_models_chap_core_server() -> u16 {
-    serve_chap_core(false, true)
+    serve_chap_core(false, true, false)
 }
 
-fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
+fn serve_chap_core(protected: bool, unreachable: bool, fresh: bool) -> u16 {
     use std::io::Write;
 
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
@@ -116,6 +125,7 @@ fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
         let mut recorded = Recorded {
             unreachable,
             protected,
+            fresh,
             ..Recorded::default()
         };
         for stream in listener.incoming() {
@@ -148,6 +158,7 @@ fn serve_chap_core(protected: bool, unreachable: bool) -> u16 {
                 200 => "OK",
                 400 => "Bad Request",
                 401 => "Unauthorized",
+                409 => "Conflict",
                 502 => "Bad Gateway",
                 _ => "Not Found",
             };
@@ -247,13 +258,21 @@ pub(crate) fn configured_models_payload() -> String {
 
 /// The service a `create-backtest` body is about, from either spelling of
 /// `modelId`: the integer key of a configured model, or a service id.
-pub(crate) fn backtest_service(model_id: &Json) -> String {
+pub(crate) fn backtest_service(model_id: &Json, recorded: &Recorded) -> String {
     if let Some(name) = model_id.as_str() {
         return name.to_string();
     }
     let wanted = model_id.as_i64().unwrap_or_default();
+    let created = recorded.created.iter().map(|row| {
+        (
+            row["id"].as_i64().unwrap_or_default(),
+            row["name"].as_str().unwrap_or_default().to_string(),
+            false,
+        )
+    });
     configured_models()
         .into_iter()
+        .chain(created)
         .find(|(id, ..)| *id == wanted)
         .map(|(_, name, _)| match name.split_once(':') {
             Some((service, _)) => service.to_string(),
@@ -277,7 +296,7 @@ fn service_list() -> String {
     .iter()
     .map(|id| {
         format!(
-            r#"{{"id":"{id}","url":"http://{id}:8000","info":{{"id":"{id}"}},
+            r#"{{"id":"{id}","url":"http://{id}:8000","info":{{"id":"{id}","version":"1.0.1"}},
                    "last_ping_at":"2026-09-24T16:00:00Z","expires_at":"2026-09-24T16:05:00Z"}}"#
         )
     })
@@ -456,7 +475,7 @@ pub(crate) fn analytics_route(
         ("POST", "/v1/analytics/create-backtest") => {
             let sent: Json = serde_json::from_str(body).unwrap_or(Json::Null);
             recorded.backtests.push(sent.clone());
-            let service = backtest_service(&sent["modelId"]);
+            let service = backtest_service(&sent["modelId"], recorded);
             Some((200, json, format!(r#"{{"id":"bt-{service}"}}"#)))
         }
         // Not chap-core's: how a test asks this server what it was asked.
@@ -470,6 +489,8 @@ pub(crate) fn analytics_route(
                 "features": recorded.features,
                 "sampled": recorded.sampled,
                 "backtests": recorded.backtests,
+                "templates": recorded.templates,
+                "configured_posts": recorded.configured_posts,
             })
             .to_string(),
         )),
@@ -549,6 +570,15 @@ pub(crate) struct Recorded {
     /// second listing can be the one with the test's leftovers in it.
     pub(crate) config_lists: usize,
     pub(crate) artifact_lists: usize,
+    /// Whether this is [`fresh_chap_core_server`]: chap-core 2.4, which has
+    /// only the configured models a client posted.
+    pub(crate) fresh: bool,
+    /// The service of every template stored from a service.
+    pub(crate) templates: Vec<String>,
+    /// Every `POST /v1/crud/configured-models` body, whole.
+    pub(crate) configured_posts: Vec<Json>,
+    /// The rows those posts made, as the listing returns them.
+    pub(crate) created: Vec<Json>,
 }
 
 /// The answer one request gets: `(status, content type, body)`.
@@ -585,6 +615,9 @@ pub(crate) fn chap_core_route(
         return (200, json, service_list());
     }
     if let Some(answer) = services_route(method, route, recorded) {
+        return answer;
+    }
+    if let Some(answer) = configured_route(method, route, body, recorded) {
         return answer;
     }
     if let Some(answer) = analytics_route(method, route, body, recorded) {

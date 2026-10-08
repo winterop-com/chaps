@@ -22,6 +22,7 @@ pub fn analytics(ctx: &Ctx, args: &Dhis2AnalyticsArgs) -> Result<()> {
         analytics: Some(analytics),
         skipped: Vec::new(),
         record: None,
+        configured: None,
     };
     ctx.out
         .report(&report, |lines| report_summary(&report, lines))

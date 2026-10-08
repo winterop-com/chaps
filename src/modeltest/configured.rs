@@ -15,6 +15,9 @@ pub struct ConfiguredModel {
     /// Its `additionalContinuousCovariates`: the columns a backtest of it
     /// hands the model, which the dataset therefore has to carry.
     pub covariates: Vec<String>,
+    /// The version of the model template it belongs to, which is the version
+    /// the service registered with. `None` when chap-core sent none.
+    pub version: Option<String>,
 }
 
 /// The configured models of one listing, ignoring anything that is not a row.
@@ -41,6 +44,10 @@ pub fn configured_models(listed: &serde_json::Value) -> Vec<ConfiguredModel> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                version: row
+                    .get("version")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
             })
         })
         .collect()

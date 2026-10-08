@@ -19,6 +19,7 @@ pub fn apps(ctx: &Ctx, args: &Dhis2AppsArgs) -> Result<()> {
         analytics: None,
         skipped: Vec::new(),
         record: None,
+        configured: None,
     };
     ctx.out
         .report(&report, |lines| report_summary(&report, lines))?;

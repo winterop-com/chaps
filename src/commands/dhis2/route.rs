@@ -16,6 +16,7 @@ pub fn route(ctx: &Ctx, args: &Dhis2RouteArgs) -> Result<()> {
         analytics: None,
         skipped: Vec::new(),
         record: None,
+        configured: None,
     };
     ctx.out
         .report(&report, |lines| report_summary(&report, lines))

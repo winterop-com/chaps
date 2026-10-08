@@ -26,6 +26,9 @@ pub enum ModelsCmd {
     /// Make a model train and predict, and say whether it could
     Test(ModelsTestArgs),
 
+    /// Create the configured models that chap-core needs to run each model
+    Configure(ModelsConfigureArgs),
+
     /// Add a model the marketplace does not list
     Add(ModelsAddArgs),
 
@@ -103,6 +106,14 @@ pub struct ModelsTestArgs {
     /// Keep what the test created instead of deleting it
     #[arg(long)]
     pub keep: bool,
+}
+
+/// Create the configured models that chap-core needs to run each model
+#[derive(Debug, Clone, Args)]
+pub struct ModelsConfigureArgs {
+    /// Marketplace ids or service ids; all enabled models when none is given
+    #[arg(value_name = "ID")]
+    pub ids: Vec<String>,
 }
 
 /// Add a model the marketplace does not list

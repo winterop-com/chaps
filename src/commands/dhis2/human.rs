@@ -158,6 +158,7 @@ pub(super) fn report_summary(report: &Dhis2Report, lines: &mut Report) {
     if let Some(record) = report.record {
         record_lines(record, lines);
     }
+    crate::commands::configure::fold(&report.configured, true, lines);
     match report.record.is_some() {
         true => lines.info(report.next.as_str()),
         false => lines.hint(report.next.as_str()),

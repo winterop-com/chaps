@@ -124,6 +124,7 @@ const REGISTRY_USERS: &[(&str, &[&str])] = &[
     ("models search", REGISTRY_OPTIONS),
     ("models info", REGISTRY_OPTIONS),
     ("models test", REGISTRY_OPTIONS),
+    ("models configure", REGISTRY_OPTIONS),
     ("models add", REGISTRY_OPTIONS),
     ("models remove", REGISTRY_OPTIONS),
     ("models enable", REGISTRY_OPTIONS),
@@ -146,7 +147,7 @@ const REGISTRY_USERS: &[(&str, &[&str])] = &[
     ("auth disable", REGISTRY_OPTIONS),
     ("auth rotate", REGISTRY_OPTIONS),
     ("dhis2 apps", &["offline"]),
-    ("dhis2 connect", &["offline"]),
+    ("dhis2 connect", REGISTRY_OPTIONS),
     ("self update", &["offline", "cache_dir"]),
 ];
 

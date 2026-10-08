@@ -19,7 +19,8 @@ pub use lines::{
 };
 pub use models::{
     MODEL_HEALTH_PATH, ModelState, ModelStatus, RegisteredService, enabled_models, link_strays,
-    mark_unreachable, missing_ids, model_rows, proxied_health_path, reach, standalone_model_rows,
+    mark_unconfigured, mark_unreachable, missing_ids, model_rows, proxied_health_path, reach,
+    standalone_model_rows,
 };
 pub use probe::{
     body_description, parse_health, parse_services, services_are_not_chap_core, token_rejected,
@@ -403,6 +404,20 @@ pub fn status(
             }
             _ => None,
         });
+        // Read-only: the listing says which models nothing can run, and
+        // `varde models configure` is what changes that.
+        if rows.iter().any(|row| row.state == ModelState::Registered)
+            && let Ok(answer) = get(
+                &agent,
+                &base,
+                crate::configure::CONFIGURED_MODELS_PATH,
+                token,
+            )
+            && let Ok(listed) = serde_json::from_str::<serde_json::Value>(&answer.body)
+        {
+            let configured = crate::modeltest::configured_models(&listed);
+            mark_unconfigured(&mut rows, &registered, &configured);
+        }
         rows
     } else {
         // Nothing registers anywhere, so each model is asked itself, on the

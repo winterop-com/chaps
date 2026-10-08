@@ -172,7 +172,17 @@ fn finish_up(
     timeout: u64,
 ) -> Result<()> {
     let after = docker::running_containers(project).unwrap_or_default();
-    let readiness = wait.then(|| wait_for(ctx, project, timeout));
+    let mut readiness = wait.then(|| wait_for(ctx, project, timeout));
+    // Once every model has registered, chap-core 2.4 and later still has no
+    // configured model to run it with; the step gives it one (see
+    // `crate::configure`).
+    let configured = match &readiness {
+        Some(readiness) if readiness.ready => super::configure::auto(ctx, project),
+        _ => None,
+    };
+    if let (Some(readiness), Some(configured)) = (readiness.as_mut(), &configured) {
+        wait::mark_configured(readiness, &configured.models);
+    }
     let build = |lines: &mut Report| {
         up_lines(
             before,
@@ -184,6 +194,7 @@ fn finish_up(
         if let Some(readiness) = &readiness {
             ready_lines(readiness, lines);
         }
+        super::configure::fold(&configured, false, lines);
     };
     match &readiness {
         Some(readiness) if !readiness.ready => {

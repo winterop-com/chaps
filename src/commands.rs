@@ -7,6 +7,7 @@ pub mod chap;
 pub mod cleanup;
 pub mod completions;
 pub mod components;
+pub mod configure;
 pub mod dhis2;
 pub mod docker;
 pub mod docs;

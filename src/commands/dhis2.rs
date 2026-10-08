@@ -227,6 +227,9 @@ pub struct Dhis2Report {
     /// `analytics` and `apps`, none of which records anything: one step is not
     /// a connection, and a route with no apps is a DHIS2 nobody can use.
     pub record: Option<ConnectRecord>,
+    /// What `connect` did about chap-core's configured models (see
+    /// [`crate::configure`]). `null` for the other commands.
+    pub configured: Option<crate::configure::Folded>,
     /// The command to run next.
     pub next: String,
 }

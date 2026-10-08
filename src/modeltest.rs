@@ -17,7 +17,7 @@ mod configured;
 mod dataset;
 mod summary;
 
-pub use configured::{configured_model_for, configured_models};
+pub use configured::{ConfiguredModel, configured_model_for, configured_models};
 pub use dataset::{feature_collection, fill_covariates, metrics_cell, observations};
 pub use summary::{SUMMARY_MARKER, chapkit_missing, log_hint, parse_summary};
 

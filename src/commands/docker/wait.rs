@@ -98,7 +98,12 @@ fn readiness_of(
                 id: id.clone(),
                 service_id: model.service_id.clone(),
                 state: state.label(),
-                ready: matches!(state, ModelState::Registered | ModelState::Up),
+                // Not configured is registered: `up --wait` makes the
+                // configured models once everything is ready.
+                ready: matches!(
+                    state,
+                    ModelState::Registered | ModelState::Up | ModelState::NotConfigured
+                ),
                 url: match model.host_port {
                     Some(port) => format!("http://localhost:{port}"),
                     None => project.proxy_url(&model.service_id),
@@ -112,6 +117,20 @@ fn readiness_of(
         api_url: has_api.then(|| report.api_url.clone()),
         api_up,
         models,
+    }
+}
+
+/// Show the models the configure step just gave configured models to as
+/// registered, which is what `varde status` now says of them.
+pub fn mark_configured(readiness: &mut Readiness, outcomes: &[crate::configure::ModelOutcome]) {
+    for model in readiness.models.iter_mut() {
+        let created = outcomes.iter().any(|outcome| {
+            outcome.service_id == model.service_id
+                && matches!(outcome.outcome, crate::configure::Outcome::Created { .. })
+        });
+        if created {
+            model.state = ModelState::Registered.label();
+        }
     }
 }
 

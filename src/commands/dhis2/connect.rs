@@ -14,6 +14,10 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
     let mut skipped = Vec::new();
 
     let route = write_route(ctx, &session)?;
+    // The Modeling App lists chap-core's configured models, and chap-core 2.4
+    // and later makes none from a registration; the step gives each model
+    // varde runs its own before the report says the app can use Chap.
+    let configured = crate::commands::configure::auto(ctx, &session.project);
 
     // A DHIS2 someone else runs gets the route and nothing more. Installing
     // apps and generating analytics tables change a server varde does not own,
@@ -61,6 +65,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
             analytics: None,
             skipped: notes,
             record: Some(record),
+            configured,
         };
         return ctx
             .out
@@ -98,6 +103,7 @@ pub fn connect(ctx: &Ctx, args: &Dhis2ConnectArgs) -> Result<()> {
         analytics: Some(analytics),
         skipped,
         record: Some(record),
+        configured,
     };
     ctx.out
         .report(&report, |lines| report_summary(&report, lines))?;

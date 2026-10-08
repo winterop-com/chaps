@@ -13,11 +13,13 @@ use std::sync::atomic::Ordering;
 use tempfile::TempDir;
 
 mod chap_core;
+mod configured;
 mod hub;
 #[cfg(unix)]
 mod run;
 
 pub(crate) use chap_core::*;
+pub(crate) use configured::*;
 pub(crate) use hub::*;
 #[cfg(unix)]
 pub(crate) use run::*;

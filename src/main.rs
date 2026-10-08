@@ -11,6 +11,7 @@ mod cli;
 mod commands;
 mod components;
 mod compose;
+mod configure;
 mod dhis2;
 mod diagnose;
 mod docker;
@@ -144,6 +145,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> error::Result<()> {
             ModelsCmd::Search(args) => commands::models::search(ctx, args),
             ModelsCmd::Info(args) => commands::models::info(ctx, args),
             ModelsCmd::Test(args) => commands::modeltest::run(ctx, args),
+            ModelsCmd::Configure(args) => commands::configure::run(ctx, args),
             ModelsCmd::Add(args) => commands::manual_models::add(ctx, args),
             ModelsCmd::Remove(args) => commands::manual_models::remove(ctx, args),
             ModelsCmd::Enable(args) => commands::enable::enable(ctx, args),

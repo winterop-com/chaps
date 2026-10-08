@@ -467,7 +467,9 @@ fn state_cell(out: &Out, state: ModelState) -> String {
     let label = state.label();
     match state {
         ModelState::Registered | ModelState::Up => out.ok(label),
-        ModelState::RunningNotRegistered | ModelState::RunningNotAnswering => out.warn(label),
+        ModelState::RunningNotRegistered
+        | ModelState::RunningNotAnswering
+        | ModelState::NotConfigured => out.warn(label),
         ModelState::NotRunning | ModelState::Unreachable => out.bad(label),
         ModelState::Unmanaged => out.dim(label),
     }

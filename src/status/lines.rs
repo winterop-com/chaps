@@ -312,6 +312,11 @@ pub fn hints(rows: &[ModelStatus], auth: bool, elsewhere: Option<&str>) -> Vec<S
                 row.id, row.id
             )),
             ModelState::Unreachable => Some(unreachable_hint(row, elsewhere)),
+            ModelState::NotConfigured => Some(format!(
+                "{}: chap-core has no configured model for it, so nothing can run it; run `varde \
+                 models configure`",
+                row.id
+            )),
             ModelState::Registered | ModelState::Unmanaged | ModelState::Up => None,
         })
         .collect()

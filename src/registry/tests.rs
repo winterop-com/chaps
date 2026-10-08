@@ -14,6 +14,34 @@ fn embedded_snapshot_parses_into_a_registry() {
     assert_eq!(r.models[0].id, "chapkit_ewars_model");
 }
 
+/// The fields the configured models of a model are made from: the
+/// configurations and the default covariates of the entry.
+#[test]
+fn the_snapshot_carries_configurations_and_default_covariates() {
+    let r = registry();
+    let ewars = r.get("chapkit_ewars_model").unwrap();
+    let names: Vec<&str> = ewars.configurations.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "monthly_climate",
+            "monthly_population_only",
+            "monthly_region_seasonal"
+        ]
+    );
+    let climate = &ewars.configurations["monthly_climate"].config;
+    assert_eq!(climate["prediction_periods"], 3);
+    assert_eq!(
+        climate["additional_continuous_covariates"],
+        serde_json::json!(["rainfall", "mean_temperature"])
+    );
+    assert_eq!(ewars.covariates.defaults, ["rainfall", "mean_temperature"]);
+    // Every model in the snapshot has at least one configuration.
+    for model in r.deployable() {
+        assert!(!model.configurations.is_empty(), "{}", model.id);
+    }
+}
+
 #[test]
 fn get_matches_id_and_service_id() {
     let r = registry();

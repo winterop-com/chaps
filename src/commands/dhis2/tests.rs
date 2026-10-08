@@ -72,6 +72,7 @@ fn report(route: Option<RouteReport>) -> Dhis2Report {
         analytics: None,
         skipped: Vec::new(),
         record: None,
+        configured: None,
         next: "run `varde dhis2 show` to see what is still missing".to_string(),
     }
 }

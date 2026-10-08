@@ -113,6 +113,34 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
         println!("{}", ctx.out.dim(&modeltest::header(targets.len(), level)));
     }
 
+    // chap-core 2.4 and later makes no configured model from a registration,
+    // and a backtest names one; the step gives each enabled model its own
+    // first. A model registered from outside is not this deployment's to
+    // configure.
+    let configured = match level {
+        Level::Backtest => {
+            let mine: Vec<crate::configure::Target> = targets
+                .iter()
+                .filter(|(id, _)| project.state.models.contains_key(id))
+                .map(|(id, enabled)| crate::configure::Target {
+                    id: id.clone(),
+                    service_id: enabled.service_id.clone(),
+                })
+                .collect();
+            (!mine.is_empty()).then(|| match super::configure::step(ctx, &project, &mine) {
+                Ok(models) => crate::configure::Folded {
+                    models,
+                    error: None,
+                },
+                Err(err) => crate::configure::Folded {
+                    models: Vec::new(),
+                    error: Some(first_line(&err.to_string())),
+                },
+            })
+        }
+        Level::Model => None,
+    };
+
     // One `docker compose ps` for the whole run: a container that was not up
     // when the command started is not one this run can test.
     let running = if level == Level::Model {
@@ -138,12 +166,17 @@ pub fn run(ctx: &Ctx, args: &ModelsTestArgs) -> Result<()> {
     if !ctx.out.json {
         println!();
     }
+    let failed = modeltest::any_failed(&runs);
     let value = serde_json::json!({
-        "ok": !modeltest::any_failed(&runs),
+        "ok": !failed,
         "models": runs,
+        "configured": configured,
     });
-    ctx.out.report(&value, |lines| closing(&runs, lines))?;
-    if modeltest::any_failed(&runs) {
+    ctx.out.report(&value, |lines| {
+        super::configure::fold(&configured, false, lines);
+        closing(&runs, lines);
+    })?;
+    if failed {
         std::process::exit(EXIT_FAILED);
     }
     Ok(())

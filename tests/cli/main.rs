@@ -20,6 +20,7 @@ mod lock;
 mod logs;
 mod models;
 mod models_add;
+mod models_configure;
 mod models_test;
 mod run;
 mod run_stop;
